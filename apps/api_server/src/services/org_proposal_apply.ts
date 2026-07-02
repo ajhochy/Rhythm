@@ -45,6 +45,12 @@ import { logger } from '../utils/logger';
 import { classifyProposalRisk } from './org_risk_classifier';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
+import {
+  isConsolidationPairingChange,
+  draftConsolidationPayload,
+  type DraftedConsolidationPayload,
+} from './skill_consolidation_drafter';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 
 export type ApplyOutcome = 'applied-ok' | 'refused-high-risk' | 'skipped';
@@ -78,6 +84,8 @@ export interface ApplyDeps {
   proposalsRepo?: AgentOrgProposalsRepository;
   /** Injectable configs repo (defaults to a fresh AgentConfigsRepository). */
   configsRepo?: AgentConfigsRepository;
+  /** Injectable skills repo — used by consolidate-skill apply/revert (#852). */
+  skillsRepo?: AgentSkillsRepository;
 }
 
 /**
@@ -120,7 +128,22 @@ export async function applyProposal(
       return await applyAgentConfigScopeChange(proposal, change, { proposalsRepo, configsRepo });
     }
 
-    // Non-scope kinds (refine-skill/consolidate-skill/refine-recipe): the
+    // #852 — consolidate-skill: scope_hygiene_generator.ts only ever emits
+    // the pairing shape ({skillIdA, skillIdB, titleA, titleB, similarity}),
+    // never a pre-drafted body. Draft it HERE, at apply time, so the
+    // resulting change_json is already a BodyRefinementChange by the time
+    // the proposal reaches 'measuring' (see skill_consolidation_drafter.ts
+    // module doc for why apply-time is the right place: it is the one point
+    // both the auto lane and a future human-approved lane pass through).
+    if (proposal.kind === 'consolidate-skill' && isConsolidationPairingChange(change)) {
+      return await applyConsolidateSkillChange(proposal, change, {
+        proposalsRepo,
+        skillsRepo: deps.skillsRepo,
+      });
+    }
+
+    // Non-scope kinds (refine-skill/refine-recipe; consolidate-skill already
+    // pre-drafted above): the
     // change payload already carries its own prior/revised bodies (see
     // module doc comment). Snapshot the whole payload as before_snapshot_json
     // verbatim — the measure step (#821 org_proposal_measure.ts) reads the
@@ -149,7 +172,7 @@ export async function applyProposal(
 async function applyAgentConfigScopeChange(
   proposal: AgentOrgProposal,
   change: AgentConfigScopeChange,
-  deps: Required<ApplyDeps>,
+  deps: Required<Pick<ApplyDeps, 'proposalsRepo' | 'configsRepo'>>,
 ): Promise<ApplyResult> {
   const { proposalsRepo, configsRepo } = deps;
 
@@ -189,6 +212,22 @@ async function applyAgentConfigScopeChange(
   return { status: 'applied-ok' };
 }
 
+/** Shape of the before_snapshot_json a consolidate-skill apply writes (#852). */
+interface ConsolidateSkillRevertSnapshot {
+  survivorSkillId: string;
+  survivorPriorBody: string | null;
+  survivorPriorStatus: string;
+  retiredSkillId: string;
+  retiredPriorBody: string | null;
+  retiredPriorStatus: string;
+}
+
+function isConsolidateSkillRevertSnapshot(v: unknown): v is ConsolidateSkillRevertSnapshot {
+  if (!v || typeof v !== 'object') return false;
+  const c = v as Record<string, unknown>;
+  return typeof c.survivorSkillId === 'string' && typeof c.retiredSkillId === 'string';
+}
+
 function safeParseStringArray(json: string): string[] {
   try {
     const parsed = JSON.parse(json);
@@ -196,6 +235,97 @@ function safeParseStringArray(json: string): string[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * #852 — Apply a consolidate-skill proposal: resolve both source skills,
+ * draft the merged body (skill_consolidation_drafter.ts), write it onto the
+ * SURVIVOR (skill A) immediately, retire the redundant skill (skill B,
+ * `status='retired'`) immediately, snapshot BOTH skills' pre-merge state
+ * into `before_snapshot_json`, reshape `change_json` into the
+ * `BodyRefinementChange` shape `org_proposal_measure.ts` recognizes, and
+ * transition to `measuring`.
+ *
+ * Applying the merge (and the retirement) up front — rather than waiting for
+ * the measure step to decide — mirrors the `refine-skill` precedent (the
+ * skill loop applies before `org_proposal_apply` runs; see this module's
+ * doc comment) and is what makes `measureBodyRefinement`'s "score priorBody
+ * vs revisedBody" comparison meaningful: `priorBody` is scored as a
+ * completely separate concern (the score call takes an explicit body
+ * argument, it does not read the live skill), so applying early has no
+ * effect on the measure comparison itself, only on how quickly the merge is
+ * visible if a caller reads the live skill mid-`measuring`.
+ *
+ * A missing source skill (deleted since the proposal was generated) is a
+ * skip, not a failure — the pairing signal is now stale.
+ */
+async function applyConsolidateSkillChange(
+  proposal: AgentOrgProposal,
+  change: { skillIdA: string; skillIdB: string },
+  deps: { proposalsRepo: AgentOrgProposalsRepository; skillsRepo?: AgentSkillsRepository },
+): Promise<ApplyResult> {
+  const { proposalsRepo } = deps;
+  const skillsRepo = deps.skillsRepo ?? new AgentSkillsRepository();
+
+  const skillA = skillsRepo.getById(change.skillIdA);
+  const skillB = skillsRepo.getById(change.skillIdB);
+  if (!skillA || !skillB) {
+    logger.warn(
+      `[org-proposal-apply] consolidate-skill '${proposal.id}' references a missing skill (a=${change.skillIdA}, b=${change.skillIdB}) — skipping`,
+    );
+    return { status: 'skipped', reason: 'target-not-found' };
+  }
+
+  const drafted: DraftedConsolidationPayload = draftConsolidationPayload(skillA, skillB);
+
+  // Snapshot BOTH skills' pre-merge state — the survivor's prior body/status
+  // AND the retired skill's full row content — so revert can restore both.
+  const beforeSnapshot = JSON.stringify({
+    survivorSkillId: drafted.survivorSkillId,
+    survivorPriorBody: skillA.body ?? null,
+    survivorPriorStatus: skillA.status,
+    retiredSkillId: drafted.retiredSkillId,
+    retiredPriorBody: drafted.retiredPriorBody,
+    retiredPriorStatus: drafted.retiredPriorStatus,
+  });
+
+  // The BodyRefinementChange-shaped payload measureBodyRefinement will read,
+  // PLUS the retirement metadata a later revert needs (additive fields the
+  // measure step's isBodyRefinementChange()/measureBodyRefinement() simply
+  // ignore — see skill_consolidation_drafter.ts's DraftedConsolidationPayload
+  // doc comment).
+  const draftedChangeJson = JSON.stringify(drafted);
+
+  // 1. Snapshot + reshape change_json FIRST — reversible by construction.
+  const snapshotted = await proposalsRepo.updateStatusAsync(proposal.id, 'applied', {
+    beforeSnapshotJson: beforeSnapshot,
+    changeJson: draftedChangeJson,
+  });
+  if (!snapshotted) {
+    return { status: 'skipped', reason: 'proposal-not-found' };
+  }
+
+  // 2. Mutate the live skills: write the merged body onto the survivor,
+  //    retire the redundant one. Never throws — a write failure here is
+  //    reported as skipped (the snapshot already recorded above still makes
+  //    a later best-effort revert possible for whichever half succeeded).
+  try {
+    skillsRepo.update(drafted.survivorSkillId, { body: drafted.revisedBody });
+    skillsRepo.update(drafted.retiredSkillId, { status: 'retired' });
+  } catch (err) {
+    logger.warn(
+      `[org-proposal-apply] consolidate-skill '${proposal.id}' failed writing merged/retired skills (non-fatal): ${String(err)}`,
+    );
+    return { status: 'skipped', reason: 'skill-write-failed' };
+  }
+
+  // 3. Advance to measuring.
+  await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
+
+  logger.info(
+    `[org-proposal-apply] applied consolidate-skill for '${proposal.id}' (survivor=${drafted.survivorSkillId}, retired=${drafted.retiredSkillId}) -> measuring`,
+  );
+  return { status: 'applied-ok' };
 }
 
 export type RevertOutcome = 'reverted' | 'skipped';
@@ -249,11 +379,25 @@ export async function revertProposal(
       configsRepo.update(change.agentConfigId, {
         [change.field]: typeof priorValue === 'string' ? priorValue : null,
       });
+    } else if (proposal.kind === 'consolidate-skill' && isConsolidateSkillRevertSnapshot(snapshot)) {
+      // #852 — restore BOTH skills to their exact pre-merge state: the
+      // survivor's original body/status, and the retired skill's original
+      // body/status (undoing the retirement, not just the body write).
+      const skillsRepo = deps.skillsRepo ?? new AgentSkillsRepository();
+      skillsRepo.update(snapshot.survivorSkillId, {
+        body: snapshot.survivorPriorBody,
+        status: snapshot.survivorPriorStatus,
+      });
+      skillsRepo.update(snapshot.retiredSkillId, {
+        body: snapshot.retiredPriorBody,
+        status: snapshot.retiredPriorStatus,
+      });
     }
-    // Non-scope kinds carry no live-system side effect to undo here (the
-    // skill/recipe body itself is restored by the skill loop's own revert
-    // path when those kinds are actually wired to it); reverting the
-    // proposal's OWN status is still the correct action for the dedup guard.
+    // Other non-scope kinds (refine-skill/refine-recipe) carry no live-system
+    // side effect to undo here (the skill/recipe body itself is restored by
+    // the skill loop's own revert path when those kinds are actually wired
+    // to it); reverting the proposal's OWN status is still the correct
+    // action for the dedup guard.
 
     await proposalsRepo.updateStatusAsync(proposal.id, 'reverted', patch);
     logger.info(`[org-proposal-apply] reverted '${proposal.id}' (kind=${proposal.kind})`);

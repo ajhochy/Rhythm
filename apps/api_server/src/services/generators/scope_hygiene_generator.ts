@@ -48,19 +48,15 @@
  *     `measureBodyRefinement` already measures consolidate-skill IF a
  *     `changeJson` shaped as `{priorBody, revisedBody, ...}` is present.
  *     This generator's consolidate-skill payload does NOT include
- *     `priorBody`/`revisedBody` (an LLM-authored merged skill body is a
- *     separate, not-yet-built step — this generator only detects and
- *     proposes the *pairing*, it does not draft a merged skill). A
- *     consolidate-skill proposal from this generator therefore reaches
- *     `measuring` via the generic body-kind path in
- *     `org_proposal_apply.applyProposal` (which snapshots the whole
- *     `changeJson` verbatim) but `measureBodyRefinement` will treat it as
- *     `isBodyRefinementChange() === false` and resolve to `'skipped'`
- *     (left in `measuring` rather than guessing) until a future issue wires
- *     an actual body-drafting step ahead of measurement. This is a known,
- *     intentionally-flagged gap for the #830/#831 wiring round, not a bug in
- *     this generator — the acceptance criteria for #822 are about
- *     *proposal generation*, not consolidate-skill's downstream body-draft.
+ *     `priorBody`/`revisedBody` — it only detects and proposes the
+ *     *pairing* ({skillIdA, skillIdB, titleA, titleB, similarity}); it does
+ *     not draft a merged body itself. #852 closed the resulting gap: at
+ *     apply time, `org_proposal_apply.applyProposal` now drafts the merged
+ *     body (`skill_consolidation_drafter.ts` — a mechanical
+ *     concatenate-and-dedup-sections merge, no LLM call) and reshapes
+ *     `change_json` into the `BodyRefinementChange` shape BEFORE the row
+ *     reaches `measuring`, so `measureBodyRefinement` sees a normal
+ *     body-refinement payload and no longer parks the row indefinitely.
  *   - No `registerProposalApplier` / `registerProposalValidator`
  *     (`org_proposal_apply_service.ts`, #826) registration is needed for
  *     any of these three kinds: all three are `risk='low'` (except a
