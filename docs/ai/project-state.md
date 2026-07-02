@@ -21,10 +21,15 @@ Four open PRs from the 2026-07-02 run awaiting manual review/merge:
 
 Pre-existing: #832 (org-optimizer plan docs), #835 (local MCP sidecar, draft).
 
+- #844 (tokens-04) — tiered model routing (budget-aware resolver policy),
+  branch `mega-844-model-routing` (based on `codex/mega-2026-07-02`). No PR
+  opened per dispatch instructions — pushed branch only, awaiting mega-branch
+  integration.
+
 ## In progress
 
 - Nothing executing. All 2026-07-02 tracks are gated, CI-green, and parked in
-  draft PRs for human review.
+  draft PRs for human review (except #844, pushed branch-only, no PR).
 
 ## Risks / known issues
 
@@ -57,6 +62,13 @@ Per-branch verification gates all PASS (2026-07-02):
   28602742779 green.
 - mem-vault-01 re-verification on origin/main: 23/23 targeted memory tests,
   tsc clean, falsification confirmed load-bearing.
+- #844 @ (branch `mega-844-model-routing`): tsc clean; full vitest 186
+  files/1585 tests green (0 regressions vs the mega base); targeted contract
+  suite (issue_844_contract + agent_model_resolver + usage_budget_service +
+  model_routing) 22/22; falsification of the override-precedence branch
+  (issue-844-c4) confirmed load-bearing (temporarily disabling the
+  modelOverride bypass in resolveTieredModel made the test fail as expected,
+  then reverted).
 
 ## Next step
 

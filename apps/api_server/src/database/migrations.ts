@@ -1639,4 +1639,30 @@ export function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_denied_tool_events_created_at ON denied_tool_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_denied_tool_events_agent_config_id ON denied_tool_events(agent_config_id);
   `);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // #844 (tokens-04) — Tiered model routing: per-profile tier hint.
+  //
+  // model_tier_hint: optional 'cheap' | 'standard' | 'frontier' preference on
+  // an agent profile, consumed by agent_model_resolver.resolveModelTier() as
+  // the `explicitTierHint` — it wins over the task-kind default (see
+  // TASK_KIND_TIER_POLICY) but is itself beaten by an explicit per-call
+  // modelOverride. Nullable; existing rows need no backfill (null means "use
+  // the task-kind default, or 'standard' with no task kind").
+  //
+  // SQLite-only, matching the existing pattern for agent_configs' other
+  // profile-scoping columns (is_manager, system_prompt, allowed_mcps_json,
+  // allowed_skills_json — see the "Agent Config Profile Extensions" block
+  // above): AgentConfigsRepository reads via getDb() (better-sqlite3), which
+  // throws when DB_CLIENT=postgres, so agent_configs profile lookups
+  // (resolveRunModel / resolveProfileScope / resolveModelTier) only ever run
+  // against SQLite (the local agent server on :4001). Deliberately NOT added
+  // to postgres_bootstrap.ts.
+  // ═══════════════════════════════════════════════════════════════════════
+  const agentConfigColsForTierHint = (
+    db.pragma('table_info(agent_configs)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!agentConfigColsForTierHint.includes('model_tier_hint')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN model_tier_hint TEXT`);
+  }
 }

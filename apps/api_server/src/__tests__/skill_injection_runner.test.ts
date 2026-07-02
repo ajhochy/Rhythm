@@ -228,6 +228,7 @@ describe('runner path allowlist (P1b)', () => {
       allowedSkillsJson: JSON.stringify([idB]),
       systemPrompt: null,
       ocAgent: null,
+      modelTierHint: null,
     });
 
     const run = await freshRun();
