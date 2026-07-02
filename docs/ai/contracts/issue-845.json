@@ -1,0 +1,32 @@
+{
+  "issue": 845,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-845-c1",
+      "text": "Skills table gains score + usage columns, sortable, consistent with the #813 header pattern (skills-sort-* keys, asc/desc arrows), sourced from existing metadata endpoints — extend listWithMetadata/routes ONLY if a field is missing server-side.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agent_skills/agent_skills_view_test.dart",
+      "test_id": "issue-845-c1a: table header exposes sortable Score and Usage columns; issue-845-c1b: clicking the Score header sorts rows by postScore asc/desc; issue-845-c1c: clicking the Usage header sorts rows by uses asc/desc; issue-845-c1d: a skill with no metadata score/usage sorts as lowest (no crash); issue-845-c1e: Score and Usage values render inline in the row",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-845-c2",
+      "text": "Expansion area shows measurement history (baseline vs post score, revert events).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agent_skills/agent_skills_view_test.dart, apps/api_server/src/__tests__/issue_845_contract.test.ts",
+      "test_id": "issue-845-c2a: expansion area shows measurement history with baseline -> post score and the judge reason for a KEPT measurement; issue-845-c2b: expansion area surfaces a revert event distinctly from a kept measurement; issue-845-c2c: a skill with no measurement ledger shows no history section; issue-845-c1 (server): measureReason surfaced via GET /opencode/skills?withMetadata=true (issue_845_contract.test.ts c1/c2/c3) since the client-rendered history depends on this field being present server-side",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-845-c3",
+      "text": "dart format + flutter analyze --no-fatal-infos clean; widget tests per the #813 test pattern (see test/features/agent_skills/agent_skills_view_test.dart — sort toggle tests, keyed finders).",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/test/features/agent_skills/agent_skills_view_test.dart",
+      "test_id": "issue-845-c3: dart format --set-exit-if-changed exits 0; flutter analyze --no-fatal-infos lib/features/agent_skills/ test/features/agent_skills/ exits 0; flutter test test/features/agent_skills/ all pass",
+      "status": "pass"
+    }
+  ],
+  "stack": "dart",
+  "not_tested": []
+}

@@ -248,6 +248,7 @@ describe('/opencode/skills', () => {
         uses: 5,
         baselineScore: 0.6,
         postScore: 0.9,
+        measureReason: null,
         isExternalFork: false,
       });
 
@@ -262,6 +263,7 @@ describe('/opencode/skills', () => {
         uses: 2,
         baselineScore: 0.7,
         postScore: 0.4,
+        measureReason: null,
         isExternalFork: true,
       });
 
@@ -276,6 +278,7 @@ describe('/opencode/skills', () => {
         uses: null,
         baselineScore: null,
         postScore: null,
+        measureReason: null,
         isExternalFork: false,
       });
     });
