@@ -55,7 +55,12 @@ fail() { echo "::error::$*" >&2; exit 1; }
 [[ -x "${TSX_BIN}" ]] || fail "tsx not found at ${TSX_BIN} — run 'npm install' in apps/api_server first"
 
 echo "Running org-optimizer safety guard check (#831) via tsx ..."
-if ! "${TSX_BIN}" "${HARNESS}"; then
+# The harness lives in tools/release/ but imports apps/api_server source, which
+# pulls in bare deps (better-sqlite3, etc.). Node resolves bare specifiers by
+# walking up from the importing file's dir — tools/release/ never reaches
+# apps/api_server/node_modules — so point NODE_PATH there. (Locally this "works"
+# only via a node_modules symlink; CI has no symlink, hence this must be explicit.)
+if ! NODE_PATH="${API_SERVER_DIR}/node_modules" "${TSX_BIN}" "${HARNESS}"; then
   fail "org-optimizer safety guard check FAILED — see [FAIL] lines above (a regression in the auto-apply/revert/gate/note-required safety model, or the fail-injection proof itself is broken)"
 fi
 
