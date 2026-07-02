@@ -7,7 +7,7 @@
 ///   3. Search field (client-side filter over CHATS).
 ///   4. CHATS section: "By Project" dropdown selector + filtered session list.
 ///   5. TOOLS section: Brain, Deep Research, Tasks, Webhooks, Profiles,
-///      Cookbook, Email, Gallery.
+///      Cookbook, Review Queue, Email, Gallery.
 ///   6. Footer: Account label + ⚙ Settings icon.
 library;
 
@@ -22,6 +22,7 @@ import '../../agent_cookbook/views/agent_cookbook_view.dart';
 import '../../agent_email/views/agent_email_view.dart';
 import '../../agent_gallery/views/agent_gallery_view.dart';
 import '../../agent_memory/views/agent_memory_view.dart';
+import '../../agent_optimizer/views/org_proposals_view.dart';
 import '../../agent_research/views/agent_research_view.dart';
 import '../../agent_schedules/views/agent_schedules_view.dart';
 import '../../agent_skills/views/agent_skills_view.dart';
@@ -729,6 +730,18 @@ class _ToolsSection extends StatelessWidget {
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => const AgentCookbookView(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          _ToolsRow(
+            key: const ValueKey('tools-row-review-queue'),
+            icon: '🛂',
+            label: 'Review Queue',
+            subtitle: 'Human-gated org optimizer proposals',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const OrgProposalsView(),
               ),
             ),
           ),
