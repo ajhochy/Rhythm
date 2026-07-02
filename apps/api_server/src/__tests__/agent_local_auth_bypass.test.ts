@@ -2,7 +2,7 @@
  * Regression guard for the AGENT_LOCAL auth bypass on agent-local routers.
  *
  * Bug (fixed in d315aa9): agent-schedules/memory/webhooks/research (and the
- * newer cookbook/designs/gmail-signals) used unconditional
+ * newer cookbook/designs/gmail-signals/org-proposals) used unconditional
  * `router.use(requireAuth)`, so on the local agent server (AGENT_LOCAL=true,
  * where the Flutter data sources send NO bearer token) every request 401'd
  * with "Missing bearer token". The correct pattern, shared with
@@ -27,6 +27,7 @@ const AGENT_LOCAL_ROUTES = [
   '/agent-research',
   '/agent-cookbook',
   '/agent-designs',
+  '/agent-org-proposals',
 ];
 
 async function makeApp(agentLocal: boolean): Promise<{

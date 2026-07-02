@@ -1,0 +1,54 @@
+{
+  "issue": 827,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-827-c1",
+      "text": "The tab lists status='proposed' proposals (from GET /agent-org-proposals) with kind, risk badge, title, rationale, and an evidence/expand affordance.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agent_optimizer/org_proposals_view_test.dart",
+      "test_id": "issue-827-c1: lists proposed proposals with kind, risk, title, rationale, evidence toggle",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-827-c2",
+      "text": "Approve -> POST /:id/approve; Reject -> POST /:id/reject; list refreshes.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agent_optimizer/org_proposals_view_test.dart",
+      "test_id": "issue-827-c2a/c2b: tapping Approve/Reject calls the data source and removes the row",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-827-c3",
+      "text": "For external-adoption: the provenance block (source/stars/downloads/last-updated/maintainer/license/install-cmd) is rendered; Approve is disabled until that note is present.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agent_optimizer/org_proposals_view_test.dart",
+      "test_id": "issue-827-c3/c3b: external-adoption provenance block + disabled/enabled Approve",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-827-c4",
+      "text": "For webhook-wiring: the security block (trigger source/event, target agent/recipe + scope, HMAC setup, SSRF/allowlist, fencing note) is rendered; Approve is disabled until present.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agent_optimizer/org_proposals_view_test.dart",
+      "test_id": "issue-827-c4/c4b: webhook-wiring security block + disabled/enabled Approve",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-827-c5",
+      "text": "Uses the agent-local base URL (not serverConfigService.url).",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Verified statically: OrgProposalsDataSource hard-codes AppConstants.agentLocalBaseUrl in its constructor and takes no serverConfigService/baseUrl parameter, matching agent_webhooks_data_source.dart's pattern. Confirmed by code review of the constructor, not a runtime test — the fake-data-source UI tests never exercise the real HTTP call, so a network-level assertion of the URL would not add coverage beyond re-reading the same literal."
+    },
+    {
+      "criterion_id": "issue-827-c6",
+      "text": "dart format clean; flutter analyze --no-fatal-infos passes.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Tooling gate, not a behavioral test — verified by running the exact commands in the Validation section, not by a test file."
+    }
+  ],
+  "stack": "dart",
+  "not_tested": ["issue-827-c5", "issue-827-c6"]
+}
