@@ -49,9 +49,54 @@ import {
   type DimensionResult,
   type Verdict,
 } from '../../apps/api_server/src/services/agent_eval_scoring';
+import { AgentConfigsRepository } from '../../apps/api_server/src/repositories/agent_configs_repository';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const MCP_ROLES_DIR = path.join(REPO_ROOT, '.mcp-roles');
+
+// ---------------------------------------------------------------------------
+// #854 (part 2) — pin each agent's configured model at session-create time.
+//
+// The eval used to rely on agent_model_resolver's per-turn resolution, which
+// (before the #854 fix) never consulted agent_configs at all — so a custom
+// agent like 'secretary' silently fell through to the static
+// ROUTE_FALLBACKS_BY_AGENT table (which doesn't know custom agent ids) and
+// resolved to `undefined`, stalling the turn. Pinning the session's
+// providerId/modelId directly from agent_configs here means the eval:
+//   (a) doesn't depend on the resolver fix landing correctly, and
+//   (b) actually tests each agent on ITS intended/configured model, not
+//       whatever the static fallback table happens to pick.
+// Session pins (step 2 in resolveModelForSessionTurn's precedence) always
+// win over the static fallback (step 4), so this is a strict superset of
+// "just let the resolver figure it out".
+// ---------------------------------------------------------------------------
+
+export interface ModelPin {
+  providerId: string;
+  modelId: string;
+}
+
+/**
+ * Look up `agent_configs.model_provider` / `model_id` for `agentIdHint`.
+ * Returns `null` when there is no hint, no matching row, or either field is
+ * unset — callers should skip the pin PATCH in that case (agent-less cases
+ * like 'research'/'email-assistant', or a config with no model preference).
+ * Never throws: a DB lookup failure is treated as "no pin available" so a
+ * broken lookup never blocks the eval run.
+ */
+export function resolveConfiguredModelPin(
+  agentIdHint: string | null,
+  repo: Pick<AgentConfigsRepository, 'getById'> = new AgentConfigsRepository(),
+): ModelPin | null {
+  if (!agentIdHint) return null;
+  try {
+    const config = repo.getById(agentIdHint);
+    if (!config?.modelProvider || !config?.modelId) return null;
+    return { providerId: config.modelProvider, modelId: config.modelId };
+  } catch {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Roster definition
@@ -467,6 +512,46 @@ async function httpPost(base: string, urlPath: string, payload: unknown): Promis
   return { status: res.status, body };
 }
 
+async function httpPatch(base: string, urlPath: string, payload: unknown): Promise<{ status: number; body: unknown }> {
+  const res = await fetch(`${base}${urlPath}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+  return { status: res.status, body };
+}
+
+/**
+ * #854 (part 2) — PATCH the session's providerId/modelId pin from
+ * agent_configs right after creation, BEFORE the first prompt is sent. A
+ * failed PATCH is logged and non-fatal: the run falls back to whatever
+ * resolveModelForSessionTurn resolves at prompt time (the #854 resolver fix
+ * covers that path too), so a pin failure never blocks the eval.
+ */
+async function pinSessionModel(base: string, sessionId: string, agentIdHint: string | null): Promise<void> {
+  const pin = resolveConfiguredModelPin(agentIdHint);
+  if (!pin) return;
+  try {
+    const { status, body } = await httpPatch(base, `/agent-sessions/${sessionId}`, {
+      providerId: pin.providerId,
+      modelId: pin.modelId,
+    });
+    if (status !== 200) {
+      console.warn(
+        `[agent-eval] session ${sessionId}: failed to pin model ${pin.providerId}/${pin.modelId} (HTTP ${status} ${JSON.stringify(body)}) — continuing with resolver fallback`,
+      );
+    }
+  } catch (err) {
+    console.warn(`[agent-eval] session ${sessionId}: pin request errored (non-fatal): ${String(err)}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // WS helper — session.input frame (no HTTP "send message" route exists; see
 // docs/testing/agent-eval-matrix.md "Driver notes" for why WS is required).
@@ -657,6 +742,11 @@ async function runAgentCase(
     const session = createBodyResp as { id: string };
     result.sessionId = session.id;
 
+    // 1b. #854 — pin this agent's configured model (agent_configs) onto the
+    // session BEFORE the first turn, so the eval tests the agent on its
+    // intended model and doesn't depend on the resolver's agent_configs fix.
+    await pinSessionModel(base, session.id, agentCase.agentIdHint);
+
     // 2. Send the canned prompt.
     await sendSessionInput(base, session.id, agentCase.cannedPrompt);
 
@@ -726,6 +816,10 @@ async function runDelegationCase(
     }
     const session = createBodyResp as { id: string };
     result.sessionId = session.id;
+
+    // #854 — pin the caller's configured model before the first turn (see
+    // pinSessionModel doc comment for rationale).
+    await pinSessionModel(base, session.id, delegationCase.callerAgentId);
 
     await sendSessionInput(base, session.id, delegationCase.prompt);
     const { messages } = await pollUntilDone(base, session.id, pollTimeoutMs, pollIntervalMs);
@@ -1044,7 +1138,12 @@ async function main(): Promise<void> {
   console.log(`Scorecard written to ${outPrefix}.md and ${outPrefix}.json`);
 }
 
-main().catch((err) => {
-  console.error('[agent-eval] fatal error:', err);
-  process.exit(1);
-});
+// #854 — only auto-run when executed directly (`tsx agent_eval_driver.ts`),
+// not when imported as a module (e.g. by its unit tests, which import
+// `resolveConfiguredModelPin` without wanting to trigger a live eval run).
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('[agent-eval] fatal error:', err);
+    process.exit(1);
+  });
+}

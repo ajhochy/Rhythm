@@ -18,6 +18,10 @@ epic #801 shipped earlier (in #812) and is closed.
   loading in the opencode fork (#843); est. 54–74% session-start token drop.
   SEPARATE because it ships only via a signed release; real-binary smoke required
   before merge.
+- `mega-854-resolver-agentconfig` (no PR — pushed, feeds into #848) — fixes a
+  bug BLOCKING the live agent evaluation: the WS per-turn model resolver
+  ignored `agent_configs`, stalling custom agent sessions. See
+  `docs/ai/runs/2026-07-02-issue-854-resolver-agentconfig.md`.
 
 ## In progress
 
@@ -116,3 +120,13 @@ Final verification on `3d2d2de15`:
   guarantees the snapshot *supports* that revert, per the AC wording. A future
   issue should wire an explicit revert action for gated (non-auto-lane) kinds
   if the review queue needs a "undo an approved create-recipe" button.
+
+### 2026-07-02 — issue-854 (model resolver ignores agent_configs → custom agents stall)
+
+Fixed: `resolveModelForSessionTurn` now reads `agent_configs.model_provider`/
+`model_id` (auth-verified) as a new precedence step between the session pin
+and the static fallback, so custom agents (e.g. `secretary`) no longer stall
+on their first turn. Eval driver now pins each agent's configured model at
+session-create time too. Full details, decision rationale, and verification
+evidence: `docs/ai/runs/2026-07-02-issue-854-resolver-agentconfig.md` and
+`docs/ai/decisions/2026-07-02-resolver-agentconfig-precedence.md`.

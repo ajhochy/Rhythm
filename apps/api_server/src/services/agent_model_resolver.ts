@@ -1,6 +1,7 @@
 import { opencodeClient } from './opencode_engine';
 import { getUsageBudget } from './usage_budget_service';
 import { logger } from '../utils/logger';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 
 /**
  * OPC-M1-1: Server-side provider-to-agent-kind mapping.
@@ -178,13 +179,77 @@ export async function listAllRoutes(
 }
 
 /**
- * M2-2 precedence helper. Resolve the model for one turn of a session.
+ * #854 — Injectable AgentConfigsRepository accessor.
+ *
+ * `resolveModelForSessionTurn` needs to read `agent_configs.model_provider` /
+ * `model_id` for a given agentId (the gap this issue fixes: the resolver
+ * previously never consulted agent_configs at all, only the static
+ * ROUTE_FALLBACKS_BY_AGENT table). The resolver module is otherwise pure/easy
+ * to unit test, so rather than hard-coupling to `new AgentConfigsRepository()`
+ * inline, the repo is obtained through this narrow, swappable accessor —
+ * `setAgentConfigsRepositoryForTest` lets tests inject a mock without
+ * `vi.mock`-ing the whole repository module (though that also still works,
+ * since the accessor's default path constructs the real repository lazily).
+ */
+let agentConfigsRepositoryOverride: Pick<AgentConfigsRepository, 'getById'> | undefined;
+
+/** Test-only hook: inject a mock repo, or pass `undefined` to restore the real one. */
+export function setAgentConfigsRepositoryForTest(
+  repo: Pick<AgentConfigsRepository, 'getById'> | undefined,
+): void {
+  agentConfigsRepositoryOverride = repo;
+}
+
+function getAgentConfigsRepository(): Pick<AgentConfigsRepository, 'getById'> {
+  return agentConfigsRepositoryOverride ?? new AgentConfigsRepository();
+}
+
+/**
+ * #854 — Look up `agent_configs.model_provider` / `model_id` for `agentId`
+ * and return it as a {@link ModelRoute} ONLY when both fields are set AND the
+ * provider is authed/in the live catalog (reusing the same
+ * `opencodeClient.listAuthedProviders()` auth check `resolveModelForAgent`
+ * uses, so a configured-but-unauthenticated provider never becomes a dead
+ * route). Never throws — any lookup error (DB unavailable, auth probe
+ * failure, etc.) is logged and treated as "no agent_configs model", so a
+ * resolver hiccup can never hang a turn.
+ */
+async function resolveModelFromAgentConfigs(agentId: string): Promise<ModelRoute | undefined> {
+  try {
+    const config = getAgentConfigsRepository().getById(agentId);
+    if (!config?.modelProvider || !config?.modelId) return undefined;
+
+    const authed = new Set(await opencodeClient.listAuthedProviders());
+    if (!authed.has(config.modelProvider)) {
+      logger.warn(
+        `[ModelResolver] agent_configs model for '${agentId}' (${config.modelProvider}/${config.modelId}) is not authed — falling through to static fallback`,
+      );
+      return undefined;
+    }
+
+    return { providerID: config.modelProvider, modelID: config.modelId };
+  } catch (err) {
+    logger.warn(
+      `[ModelResolver] resolveModelFromAgentConfigs('${agentId}') failed (non-fatal, falling through): ${String(err)}`,
+    );
+    return undefined;
+  }
+}
+
+/**
+ * M2-2 / #854 precedence helper. Resolve the model for one turn of a session.
  *
  * Order:
  *   1. Per-turn `modelOverride` field on the WS `session.input` payload (not
  *      persisted; applies to this prompt only).
  *   2. Session row's persisted `providerId` + `modelId` from M2-1.
- *   3. `resolveModelForAgent(agentId)` fallback list.
+ *   3. #854 — `agent_configs.model_provider` + `model_id` for `agentId`, only
+ *      when BOTH are set and the provider is authed/in the live catalog.
+ *      This is the step that was missing: a configured custom agent (e.g.
+ *      'secretary') with no session pin previously fell straight through to
+ *      step 4's static table, which doesn't know custom agent ids, returned
+ *      `undefined`, and stalled the turn (ws_gateway's undefined-model guard).
+ *   4. `resolveModelForAgent(agentId)` static fallback list.
  */
 export async function resolveModelForSessionTurn(opts: {
   agentId: string;
@@ -199,6 +264,8 @@ export async function resolveModelForSessionTurn(opts: {
   if (opts.sessionProviderId && opts.sessionModelId) {
     return { providerID: opts.sessionProviderId, modelID: opts.sessionModelId };
   }
+  const fromAgentConfigs = await resolveModelFromAgentConfigs(opts.agentId);
+  if (fromAgentConfigs) return fromAgentConfigs;
   return resolveModelForAgent(opts.agentId);
 }
 
