@@ -102,24 +102,26 @@ describe('org_optimizer_seed agent binding hazard check (fix-recipe-binding-c6)'
     }
   });
 
-  it('#855b: an existing optimizer row with NULL model is repaired on the next seed (idempotent backfill)', async () => {
+  it('#855b: NULL model is repaired on a re-seed even when the TASK already exists (the real already-seeded case; task name-guard must not skip the repair)', async () => {
+    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
     const configsRepo = new AgentConfigsRepository();
-    // Simulate a row seeded before the model default existed.
-    configsRepo.insert({
-      id: '8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f',
-      label: 'Org Optimizer',
-      icon: 'x',
-      isAgent: true,
-      isManager: false,
+
+    // First boot: seeds both tasks + configs (with the model default).
+    const first = await seedOrgOptimizerTask();
+    expect(first.auditTaskSeeded).toBe(true);
+
+    // Simulate a row seeded BEFORE the model default existed: null it out while
+    // the TASK stays present, so the next seed short-circuits the task guard.
+    configsRepo.update('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f', {
       modelProvider: null,
       modelId: null,
-      sessionSelectable: false,
     });
     expect(configsRepo.getById('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f')!.modelProvider).toBeNull();
 
-    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
-    await seedOrgOptimizerTask();
-
+    // Second boot: task already exists (guard skips creation) — the repair MUST
+    // still fire because it runs before the guard.
+    const second = await seedOrgOptimizerTask();
+    expect(second.auditTaskSeeded).toBe(false); // guard short-circuited task creation
     const repaired = configsRepo.getById('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f')!;
     expect(repaired.modelProvider).toBe('anthropic');
     expect(repaired.modelId).toBe('claude-sonnet-4-6');

@@ -233,6 +233,29 @@ export async function seedOrgOptimizerTask(): Promise<OrgOptimizerSeedResult> {
   const schedRepo = new AgentScheduledTasksRepository();
   const configsRepo = new AgentConfigsRepository();
 
+  // Model-backfill repair — MUST run every boot, BEFORE the task name-guards
+  // below. Those guards short-circuit once the tasks exist, so the insert-time
+  // model default in ensureAgentConfigForRole never fires on an already-seeded
+  // install. Rows seeded before the model default carry NULL model_provider/
+  // model_id → their turns (and the cron task's AgentRunner turn) stall on
+  // "no route in catalog". Backfill once here; never overwrite a user-set model.
+  for (const roleSlug of ['org-optimizer', 'org-external-discovery']) {
+    try {
+      const rf = readRoleFile(roleSlug);
+      if (!rf) continue;
+      const cfg = configsRepo.getById(rf.agentConfigId);
+      if (cfg && (!cfg.modelProvider || !cfg.modelId)) {
+        configsRepo.update(cfg.id, {
+          modelProvider: DEFAULT_OPTIMIZER_MODEL.provider,
+          modelId: DEFAULT_OPTIMIZER_MODEL.id,
+        });
+        logger.info(`[org-optimizer-seed] backfilled default model for ${roleSlug}`);
+      }
+    } catch (err) {
+      logger.warn(`[org-optimizer-seed] model backfill for ${roleSlug} failed (non-fatal): ${String(err)}`);
+    }
+  }
+
   let existingTasks: Awaited<ReturnType<typeof schedRepo.listAllAsync>>;
   try {
     existingTasks = await schedRepo.listAllAsync();
