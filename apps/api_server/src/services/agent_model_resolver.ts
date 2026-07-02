@@ -15,6 +15,7 @@ export const PROVIDER_TO_AGENT_KIND: Record<string, string> = {
   'github-copilot': 'claude-code',
   openai: 'codex',
   google: 'gemini-cli',
+  ollama: 'opencode',
 };
 
 /**
@@ -88,12 +89,16 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
     },
     { providerID: 'openrouter', modelID: 'google/gemini-3-flash-preview' },
   ],
-  // The bare "opencode" agent kind: prefer the user's opencode config
-  // (left unmapped so the SDK uses its own defaults), but fall back to
-  // OpenRouter so a user with only an OpenRouter key still gets a
-  // working chat instead of a silently dropped prompt.
+  // Keep the cloud route first for unscoped generic sessions: the complete
+  // Rhythm tool surface is too large for practical local-model prefill. Ollama
+  // remains directly selectable and is the fallback when no cloud route exists.
   opencode: [
     { providerID: 'openrouter', modelID: 'anthropic/claude-sonnet-4.6' },
+    {
+      providerID: 'ollama',
+      modelID: 'qwen3.6-work',
+      variantLabel: 'Local',
+    },
   ],
 };
 
