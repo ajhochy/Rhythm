@@ -133,19 +133,49 @@ const IMPORTER_TIER3_MODEL_ID = 'claude-haiku-4-5';
 const IMPORTER_DEFAULT_MODEL_ID = IMPORTER_TIER2_MODEL_ID;
 
 /**
- * Default allowed_mcps_json for imported (sortOrder=100) profiles.
+ * Curated default allowed_mcps_json for imported (sortOrder=100) generic
+ * profiles — issue #842 (tokens-02, "scoped-by-default sessions").
  *
- * "rhythm" is the local Rhythm MCP server — a reasonable starting scope for
- * any imported AI-Workflow agent. "obsidian" is the user's knowledge-vault MCP;
- * it is granted at advertise-scope (server-name level) so every imported agent
- * can read/search the vault by default. The actual obsidian TOOL surface a
- * ROLED agent gets is still narrowed to read/search by its
- * `.mcp-roles/<slug>.mcp.json` (the #736 dispatch backstop); array members here
- * are inherit-all only at the advertise layer. Users can widen/narrow this in
- * the designer. Both names are validated against the live engine id set
- * (#789 normalize → #788 validate) before persistence.
+ * Scope: this constant ONLY affects a generic/non-roled profile whose
+ * `allowed_mcps_json` column is still null (the initial insert, or a later
+ * sync's backfill-when-null guard — see the two call sites below). Agents
+ * with a `.mcp-roles/<slug>.mcp.json` file (secretary, worship-planning, …)
+ * are unaffected: they are scoped at session-create time via the separate
+ * `mcpRole` mechanism (`agent_sessions_controller.ts`), and/or already carry
+ * a non-null `allowed_mcps_json` from onboarding — the null-guard here never
+ * overwrites an existing value. This satisfies #842's AC3 ("NO behavior
+ * change for existing roled agents").
+ *
+ * "rhythm" is the local Rhythm MCP server. "obsidian" is the user's
+ * knowledge-vault MCP, granted at advertise-scope (server-name level) so
+ * every imported agent can read/search the vault by default — the actual
+ * obsidian TOOL surface a ROLED agent gets is still narrowed to read/search
+ * by its own role file (the #736 dispatch backstop); array members here are
+ * inherit-all only at the advertise layer.
+ *
+ * "pdf-tools" is added by #842 to widen the default beyond rhythm+obsidian to
+ * a genuinely "common tasks" scope: a survey of the 13 existing
+ * `.mcp-roles/*.mcp.json` files found pdf-tools granted in 4 of them
+ * (secretary, research, theologian, worship-planning is not one of these —
+ * secretary/research/theologian/… — see docs/ai/decisions for the exact
+ * count), making it the next most broadly useful zero-auth local server after
+ * rhythm/obsidian: reading PDF attachments (agendas, forms, contracts) is a
+ * common task for a generic agent that neither rhythm nor obsidian covers.
+ * Full/unscoped tool surface remains available by explicit opt-in — a caller
+ * simply omits `mcpRole` and does not set `allowed_mcps_json` on session
+ * create; nothing in this change removes that path (see
+ * `agent_sessions_controller.ts#create`).
+ *
+ * Users can always widen/narrow an individual profile's scope in the
+ * designer (the `allowed_mcps_json === null` guard below only fires ONCE, at
+ * first-backfill — a user-set value, including an explicit empty array, is
+ * never overwritten by a later sync). All names are validated against the
+ * live engine id set (#789 normalize → #788 validate) before persistence, so
+ * an unavailable server (e.g. pdf-tools not yet connected) is silently
+ * dropped from an individual row's persisted scope rather than persisted as
+ * dead scope.
  */
-const IMPORTER_DEFAULT_ALLOWED_MCPS_JSON = '["rhythm","obsidian"]';
+const IMPORTER_DEFAULT_ALLOWED_MCPS_JSON = '["rhythm","obsidian","pdf-tools"]';
 
 /**
  * #788 — validate an MCP allowlist JSON against the engine's LIVE server ids

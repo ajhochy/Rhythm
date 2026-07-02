@@ -556,6 +556,30 @@ export class AgentSessionsController {
 
       const session = repo.insert(dto);
 
+      // #842 (tokens-02) — unscoped sessions are a visible deliberate
+      // exception, not a silent default. Flag every unscoped (no mcpRole)
+      // session with a warning carrying its #841 tool-surface estimate, so
+      // "this session has full tool access" is discoverable from logs alone
+      // without requiring a UI badge (AC1 accepts "UI badge and/or log
+      // warning"). A role-scoped session never logs this warning.
+      if (!resolvedMcpRole) {
+        try {
+          // Builtins-only floor estimate at create time (no engine round trip
+          // for connected servers here — GET /agent-sessions/:id/tool-surface
+          // gives the fuller, connected-servers-included total on demand).
+          const unscopedSurface = estimateToolSurface({ mcpRole: null, connectedServerNames: [] });
+          logger.warn(
+            '[AgentSessionsController] session %s created unscoped (no mcpRole) — floor totalEstimatedTokens=%s (actual total is higher once connected MCP servers are counted; see GET /agent-sessions/%s/tool-surface)',
+            session.id,
+            unscopedSurface.totalEstimatedTokens,
+            session.id,
+          );
+        } catch (err) {
+          // Never let a reporting failure affect session creation.
+          logger.warn(`[AgentSessionsController] #842 unscoped-session tool-surface logging failed: ${String(err)}`);
+        }
+      }
+
       // Issue #653: The previous #629 system-message seeding and the
       // agent-less ('__pending__') early-return branch are intentionally
       // removed. The new design (model-pick-first trigger bubble) requires
