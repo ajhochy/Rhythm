@@ -5,9 +5,10 @@ import { logger } from '../utils/logger';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { DeniedToolEventsRepository } from '../repositories/denied_tool_events_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { queueSkillExtraction } from './skill_extractor';
 import { isToolAllowed } from './mcp_dispatch_guard';
-import type { PermissionMode } from '../models/agent_session';
+import type { AgentSession, PermissionMode } from '../models/agent_session';
 
 /**
  * How often each active directory stream polls the engine's GET /question to
@@ -162,6 +163,9 @@ export class OpencodeStreamBridge {
   private messagesRepo = new AgentSessionMessagesRepository();
   // #818 — best-effort deny-path telemetry sink; see isToolAllowedForSession.
   private deniedToolEventsRepo = new DeniedToolEventsRepository();
+  // #818 follow-up — used only to validate profile-attribution candidates on
+  // the deny branch (never on the allow path).
+  private agentConfigsRepo = new AgentConfigsRepository();
 
   // Accumulate assistant text deltas keyed by local session id. The SDK
   // streams text via `message.part.delta` events; the message body itself
@@ -434,9 +438,7 @@ export class OpencodeStreamBridge {
         this.deniedToolEventsRepo
           .recordAsync({
             sessionId: localSessionId,
-            // agent_sessions carries no agent_config_id column today; see the
-            // #818 migration comment for why this is always null from here.
-            agentConfigId: null,
+            agentConfigId: this._resolveDeniedAgentConfigId(session),
             toolName,
           })
           .catch((err) => {
@@ -455,6 +457,45 @@ export class OpencodeStreamBridge {
       }
     }
     return allowed;
+  }
+
+  /**
+   * #818 follow-up — best-effort profile attribution for a denied tool call.
+   *
+   * `agent_sessions` has no dedicated agent_config_id column, but two fields
+   * on the row are logical references to `agent_configs.id`:
+   *
+   *  1. `mcp_role` — on the #765 interactive path, ws_gateway persists the
+   *     resolved profile scope's `role`, which agent_profile_scope builds as
+   *     the agentConfigId of the ENFORCING profile (the per-turn picked agent,
+   *     falling back to the session's agentKind). This is the profile whose
+   *     allowlist actually caused the deny, so it is checked first. Legacy
+   *     paths (POST /agent-sessions C1, agent_runner role-slug) may instead
+   *     store a `.mcp-roles/<slug>` role name that is NOT a profile id.
+   *  2. `agent_kind` — a logical FK to agent_configs.id per the schema comment
+   *     ("agentKind IS the agent_configs id", agent_runner); the scheduled
+   *     path records real profile ids here.
+   *
+   * Each candidate is validated against a real `agent_configs` row before use
+   * so legacy role slugs (or placeholder kinds like '__pending__') never
+   * pollute the telemetry column. Any lookup error → null: attribution is
+   * best-effort and must never throw into the dispatch path.
+   */
+  private _resolveDeniedAgentConfigId(session: AgentSession): string | null {
+    try {
+      for (const candidate of [session.mcpRole, session.agentKind]) {
+        if (typeof candidate !== 'string') continue;
+        const trimmed = candidate.trim();
+        if (!trimmed) continue;
+        if (this.agentConfigsRepo.getById(trimmed)) return trimmed;
+      }
+    } catch (err) {
+      logger.error(
+        '[OpencodeStreamBridge] #818 agent_config_id resolution failed (logging null):',
+        err,
+      );
+    }
+    return null;
   }
 
   /**

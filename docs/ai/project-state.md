@@ -62,6 +62,58 @@ PR #812.
 
 ## Recent coding-agent runs
 
+### 2026-07-02 — feat(org-optimizer/#818) follow-up: resolve agent_config_id at deny-log time (was null)
+- Same branch (`issue-818-denied-tool-log`), second commit. Maintainer-approved
+  follow-up: populate `denied_tool_events.agent_config_id` best-effort instead
+  of always null.
+- Session→profile linkage (investigated, real): `agent_sessions.agent_kind` is
+  a LOGICAL FK to `agent_configs.id` (schema comment migrations.ts:761;
+  agent_runner.ts:495 "agentKind IS the agent_configs id" — the scheduled path
+  records profile ids there). Separately, on the #765 interactive path
+  ws_gateway `setMcpScope` persists `mcpRoleConfig.role` into
+  `agent_sessions.mcp_role`, and agent_profile_scope builds that role as the
+  agentConfigId of the ENFORCING profile (`perTurnAgent ?? agentKind`). Legacy
+  paths (C1 POST /agent-sessions, agent_runner role-slug) may store a
+  `.mcp-roles/<slug>` name there that is NOT a profile id.
+- Resolution design: on the deny branch only, try `session.mcpRole` then
+  `session.agentKind`; each candidate is validated via
+  `AgentConfigsRepository.getById` before use so legacy slugs / placeholder
+  kinds ('__pending__') never pollute the column; any lookup error → null
+  (swallowed exactly like logger failures — never throws into dispatch).
+  mcpRole is preferred because it names the profile whose allowlist actually
+  caused the deny.
+- Files modified:
+  - `apps/api_server/src/services/opencode_stream_bridge.ts` — new
+    `_resolveDeniedAgentConfigId(session)` private helper + `agentConfigsRepo`
+    field; deny-branch `recordAsync` now passes the resolved id. Guard
+    (`mcp_dispatch_guard.ts`) untouched.
+  - `apps/api_server/src/database/migrations.ts` /
+    `apps/api_server/src/repositories/denied_tool_events_repository.ts` —
+    comment-only updates (the "always NULL" note was now stale).
+  - `apps/api_server/src/__tests__/issue_818_contract.test.ts` — +4
+    attribution tests (known-profile mcp_role → row WITH agent_config_id;
+    agent_kind fallback; unresolvable → null; end-to-end
+    countByProfileAndToolAsync grouping on a resolved profile); seedSession
+    gained an agentKind param; the throwing-logger test now ALSO drops
+    agent_configs so a throwing resolver is exercised on the same poisoned-DB
+    path (guard decision still deny, no crash).
+- Checks run: contract file `npx vitest run denied_tool_events_repository
+  issue_818_contract` → 14 passed; regression set `npx vitest run denied_tool
+  mcp_dispatch_guard mcp_allowlist_expander opencode_stream_bridge
+  issue_736_contract` → 43 passed; `tsc --noEmit` → exit 0; full `npx vitest
+  run` → 179 files / 1534 tests passed twice consecutively (first run had 4
+  parallel-isolation flake failures in unrelated files, green on both
+  re-runs — same known flake documented in this file's Test status).
+- Falsification: forced `_resolveDeniedAgentConfigId` to always return null →
+  3 attribution tests failed (with-profile expected 'secretary' got null;
+  fallback expected 'claude-code' got null; end-to-end aggregation found no
+  'secretary' group) while the null-case test still passed; restored, all
+  green.
+- Concerns: attribution accuracy depends on which path populated the session
+  row — for legacy C1 role-slug sessions the fallback attributes denials to
+  the base agent kind ('claude-code'), which is coarser but validated-real;
+  acceptable for the audit's aggregate signal.
+
 ### 2026-07-02 — feat(org-optimizer/#818): denied_tool_events log — best-effort deny-path telemetry, guard decision unchanged
 - Branch: `issue-818-denied-tool-log` (based on `origin/main`), worktree
   `.claude/worktrees/agent-ada5fd591141f76e8`.

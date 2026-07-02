@@ -52,8 +52,10 @@ vi.mock('../services/skill_extractor', () => ({
 
 import { OpencodeStreamBridge } from '../services/opencode_stream_bridge';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { DeniedToolEventsRepository } from '../repositories/denied_tool_events_repository';
 import { isToolAllowed } from '../services/mcp_dispatch_guard';
+import type { AgentKind } from '../models/agent_session';
 
 const ALLOWLIST_JSON = JSON.stringify({
   rhythm: ['rhythm_list_tasks', 'rhythm_create_task'],
@@ -118,9 +120,16 @@ describe('issue-818 — denied-tool event log (dispatch guard logging contract)'
     vi.clearAllMocks();
   });
 
-  function seedSession(mcpRole: string | null, allowlistJson: string | null): string {
+  function seedSession(
+    mcpRole: string | null,
+    allowlistJson: string | null,
+    agentKind: string = 'claude-code',
+  ): string {
     const session = sessionsRepo.insert({
-      agentKind: 'claude-code',
+      // The model type narrows agentKind, but the column is free TEXT (a
+      // logical FK to agent_configs.id) — cast so tests can exercise kinds
+      // that do / don't resolve to a real agent_configs row.
+      agentKind: agentKind as AgentKind,
       taskId: null,
       taskTitle: null,
       cwd: '/tmp/work',
@@ -213,6 +222,95 @@ describe('issue-818 — denied-tool event log (dispatch guard logging contract)'
     expect(serialized).not.toContain('must-not-be-logged');
   });
 
+  // ── issue-818 follow-up: agent_config_id attribution ───────────────────────
+  // The bridge resolves agent_config_id best-effort from the session row's
+  // mcp_role (the enforcing profile's agent_configs.id on the #765 interactive
+  // path) then agent_kind (a logical FK to agent_configs.id), validating each
+  // against a real agent_configs row before use.
+  it('attribution: a denied call from a session whose mcp_role is a known profile writes the row WITH that agent_config_id', async () => {
+    // Bug this catches: attribution never resolves (always null), or prefers
+    // the base agentKind over the enforcing per-turn profile, so the org audit
+    // attributes secretary's denials to 'claude-code'.
+    new AgentConfigsRepository().insert({
+      id: 'secretary',
+      label: 'Secretary',
+      icon: 'assets/agents/secretary.png',
+    });
+    seedSession('secretary', ALLOWLIST_JSON);
+
+    (bridge as unknown as { _relayEvent: (e: unknown) => void })._relayEvent(
+      permissionEvent('rhythm_delete_task'),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    const rows = await deniedRepo.listAllAsync();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].agentConfigId).toBe('secretary');
+  });
+
+  it('attribution: falls back to agent_kind when mcp_role is a legacy role slug that is not a profile', async () => {
+    // Bug this catches: the fallback chain stops at mcp_role, losing the
+    // scheduled-path attribution where agent_kind carries the real profile id.
+    // 'claude-code' is seeded into agent_configs by runMigrations; the role
+    // slug below is not a profile.
+    seedSession('legacy-mcp-role-slug', ALLOWLIST_JSON, 'claude-code');
+
+    (bridge as unknown as { _relayEvent: (e: unknown) => void })._relayEvent(
+      permissionEvent('rhythm_delete_task'),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    const rows = await deniedRepo.listAllAsync();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].agentConfigId).toBe('claude-code');
+  });
+
+  it('attribution: a session with no resolvable profile still writes the row with agent_config_id null', async () => {
+    // Bug this catches: an unvalidated candidate (legacy role slug or
+    // placeholder kind) is written verbatim, polluting the telemetry column
+    // with fake "profiles" the org audit would report on.
+    seedSession('legacy-mcp-role-slug', ALLOWLIST_JSON, 'not-a-config-id');
+
+    (bridge as unknown as { _relayEvent: (e: unknown) => void })._relayEvent(
+      permissionEvent('rhythm_delete_task'),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    const rows = await deniedRepo.listAllAsync();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].agentConfigId).toBeNull();
+    expect(rows[0].toolName).toBe('rhythm_delete_task');
+  });
+
+  it('attribution: resolved profiles flow through countByProfileAndToolAsync end-to-end', async () => {
+    // Bug this catches: attribution and aggregation disagree on the id form
+    // (e.g. one writes the label, the other groups on the id), breaking the
+    // "profile X was denied tool Y N times" audit signal end-to-end.
+    new AgentConfigsRepository().insert({
+      id: 'secretary',
+      label: 'Secretary',
+      icon: 'assets/agents/secretary.png',
+    });
+    seedSession('secretary', ALLOWLIST_JSON);
+
+    (bridge as unknown as { _relayEvent: (e: unknown) => void })._relayEvent(
+      permissionEvent('rhythm_delete_task', 'perm-1'),
+    );
+    (bridge as unknown as { _relayEvent: (e: unknown) => void })._relayEvent(
+      permissionEvent('rhythm_delete_task', 'perm-2'),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    const counts = await deniedRepo.countByProfileAndToolAsync(
+      new Date(Date.now() - 60_000).toISOString(),
+    );
+    const secretary = counts.find(
+      (c) => c.agentConfigId === 'secretary' && c.toolName === 'rhythm_delete_task',
+    );
+    expect(secretary).toBeDefined();
+    expect(secretary!.count).toBe(2);
+  });
+
   // ── issue-818-c3 ────────────────────────────────────────────────────────────
   it('issue-818-c3: isToolAllowed return value is byte-for-byte unchanged by the presence of logging', () => {
     // Bug this catches: wiring logging into the guard's own module (rather
@@ -233,11 +331,13 @@ describe('issue-818 — denied-tool event log (dispatch guard logging contract)'
     // race) would then propagate and either crash the stream bridge or (worse)
     // get caught by a broad try/catch that also swallows the deny decision,
     // silently converting a deny into an allow.
-    // Poison the underlying DB so any write made through the normal DB handle
-    // throws, simulating a failing logger without special-casing test mocks.
+    // Poison the underlying DB so BOTH the denied_tool_events write AND the
+    // agent_config_id resolution (agent_configs lookup) throw, simulating a
+    // failing logger + failing resolver without special-casing test mocks.
     const db = new Database(':memory:');
     runMigrations(db);
     db.exec('DROP TABLE denied_tool_events');
+    db.exec('DROP TABLE agent_configs');
     setDb(db);
     // Seed the session row in the poisoned DB handle so the bridge can still
     // resolve session/allowlist context. sessionMap is cleared first (it is a

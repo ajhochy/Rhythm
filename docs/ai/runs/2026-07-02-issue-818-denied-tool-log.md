@@ -79,3 +79,25 @@ tags: [run, Rhythm]
   trends over a time window, not exact real-time counts.
 - Branch pushed to `origin/issue-818-denied-tool-log`. No PR opened per
   instructions.
+
+## Follow-up (same day): resolve agent_config_id at deny-log time
+
+- Maintainer-approved follow-up, second commit on the same branch.
+- Linkage found: `agent_sessions.agent_kind` is a logical FK to
+  `agent_configs.id` (schema comment + agent_runner "agentKind IS the
+  agent_configs id"); on the #765 interactive path `agent_sessions.mcp_role`
+  carries the ENFORCING profile's agent_configs id (ws_gateway `setMcpScope`
+  persists `mcpRoleConfig.role` = `perTurnAgent ?? agentKind`). Legacy paths
+  may store non-profile `.mcp-roles` slugs in mcp_role.
+- New `_resolveDeniedAgentConfigId(session)` in the bridge: try mcpRole then
+  agentKind, validate each against a real `agent_configs` row via
+  `AgentConfigsRepository.getById`, null on no-match or any error (swallowed;
+  never throws into dispatch; guard decision unchanged).
+- Tests: +4 attribution contract tests (known profile → id written; agent_kind
+  fallback; unresolvable → null; end-to-end aggregation grouping); the
+  throwing-logger test now also drops `agent_configs` (throwing resolver).
+- Checks: contract 14 passed; regression set 43 passed; tsc exit 0; full suite
+  1534 passed (twice consecutively; one earlier run showed the known
+  parallel-isolation flake in unrelated files).
+- Falsification: resolver forced to null → 3 attribution tests failed,
+  null-case still passed; restored, green.

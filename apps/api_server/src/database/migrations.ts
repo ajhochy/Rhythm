@@ -1581,10 +1581,11 @@ export function runMigrations(db: Database.Database): void {
   // OpencodeStreamBridge.isToolAllowedForSession on the deny branch only
   // (never by the pure isToolAllowed predicate itself). session_id and
   // agent_config_id are both nullable: the logging seam always has a session
-  // row when it fires, but agent_sessions carries no agent_config_id column
-  // today, so agent_config_id is currently always NULL from that call site —
-  // the column exists so a future writer with real profile context can
-  // populate it without another migration. SQLite-only: this table is
+  // row when it fires, but profile attribution is best-effort — resolved from
+  // the session row's mcp_role / agent_kind (both logical references to
+  // agent_configs.id), validated against a real agent_configs row, and left
+  // NULL when neither matches (legacy role slugs, placeholder kinds) or the
+  // lookup fails. SQLite-only: this table is
   // intentionally absent from postgres_bootstrap.ts (local dispatch-guard
   // telemetry never syncs to production). Aggregation (countByProfileAndTool)
   // is a live GROUP BY query over this table, not a stored counter.

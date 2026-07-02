@@ -10,10 +10,10 @@ import { env } from '../config/env';
  * that method for the logging seam rationale). `sessionId` and
  * `agentConfigId` are both nullable because the seam that observes a denial
  * does not always have both: a session row always exists when this fires, but
- * `agent_sessions` carries no `agent_config_id` column today, so
- * `agentConfigId` is currently always null from that call site. The column
- * exists so a future writer with real profile context (or a backfill) can
- * populate it without a schema change.
+ * profile attribution is best-effort — the bridge resolves `agentConfigId`
+ * from the session row's `mcp_role` / `agent_kind` (both logical references
+ * to `agent_configs.id`), validated against a real `agent_configs` row, and
+ * falls back to null when neither matches or the lookup fails.
  */
 export interface DeniedToolEvent {
   id: string;
