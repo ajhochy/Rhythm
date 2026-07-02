@@ -1,0 +1,56 @@
+{
+  "issue": 821,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-821-c1",
+      "text": "applyProposal(proposal) first writes before_snapshot_json (the exact prior value of the field/file it will change), then applies, then sets status='measuring'.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "issue-821-c1: applyProposal snapshots, applies, and sets status=measuring > writes before_snapshot_json capturing the prior allowedMcpsJson, then applies the change and transitions to measuring",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-821-c2",
+      "text": "Refuses to apply any proposal whose classifyProposalRisk is 'high' (guard — the auto path is low-risk only).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "issue-821-c2: applyProposal refuses any high-risk proposal > does not apply and does not transition status for a high-risk proposal",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-821-c3-tighten-prune",
+      "text": "measureProposal(proposal) computes the per-kind metric: tighten-scope/prune-scope: keep iff scope-hygiene strictly improves AND the functional guard passes (no tool/server that was actually exercised in the trailing window was removed). Revert otherwise.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "issue-821-c3a/c3b: prune-scope keep-on-improvement + functional-guard revert",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-821-c3-refine",
+      "text": "measureProposal(proposal) computes the per-kind metric: refine-skill/consolidate-skill/refine-recipe: keep iff post > baseline via the reused LLM scorer (injectable in tests). Revert on tie/error (fail-closed).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "issue-821-c3c: refine-skill keep iff post>baseline via injected scorer; ties revert",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-821-c4",
+      "text": "Revert replays before_snapshot_json, restores the prior state, and sets status='reverted'; a reverted proposal is added to the dedup seen-set so it is not re-proposed.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "issue-821-c4: revert replays before_snapshot_json and the reverted proposal stays in the dedup seen-set > after revert, existsByDedupKeyAsync still reports true for the same dedup_key (not re-proposable)",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-821-c5",
+      "text": "Never throws into the caller; on unexpected error -> skipped/no-op (matches skill loop discipline).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply.test.ts",
+      "test_id": "issue-821-c5: unexpected errors never throw into the caller",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

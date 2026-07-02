@@ -66,3 +66,66 @@ Per-branch verification gates all PASS (2026-07-02):
    collector, #819) — now unblocked by #817 + #818. #820 (risk predicate) and
    #821 (auto-apply) follow, implementing the locked full-autonomy-with-
    rollback policy (see decisions/2026-07-02-autonomy-and-vault-intent.md).
+
+## Recent coding-agent runs
+
+### 2026-07-02 — #820 + #821 (org-optimizer-04/05: risk predicate + auto-apply)
+
+- Files modified:
+  - `apps/api_server/src/services/org_risk_classifier.ts` (new) — #820:
+    `classifyProposalRisk(proposal): 'low' | 'high'`, the single
+    source-of-truth predicate; `requiresSecurityNote(kind)` helper. Pure
+    function, fail-closed default, change-shape override (a mislabeled
+    proposal whose `changeJson` performs a hard-ruled privileged mutation is
+    escalated to high regardless of stated `kind`).
+  - `apps/api_server/src/services/org_proposal_apply.ts` (new) — #821:
+    `applyProposal` (snapshot -> mutate -> `measuring`, re-validates risk
+    itself, refuses high-risk), `revertProposal` (replays
+    `before_snapshot_json`, sets `reverted`, row retained for dedup).
+  - `apps/api_server/src/services/org_proposal_measure.ts` (new) — #821:
+    `measureProposal` — mechanical keep/revert for tighten-scope/prune-scope
+    (hygiene + functional guard: never keep a prune that removed an
+    actually-exercised tool/server) and LLM-scored keep/revert for
+    refine-skill/consolidate-skill/refine-recipe (reuses
+    `skill_refiner.scoreSkillBody`, strict `post > baseline`, ties revert).
+  - `apps/api_server/src/__tests__/org_risk_classifier.test.ts` (new) — 11
+    contract tests for #820.
+  - `apps/api_server/src/__tests__/org_proposal_apply.test.ts` (new) — 9
+    contract tests for #821 (covers both apply and measure).
+  - `docs/ai/contracts/issue-820.json`, `docs/ai/contracts/issue-821.json`
+    (new).
+- Checks run:
+  - `npx vitest run org_risk_classifier` — 11/11 pass.
+  - `npx vitest run org_proposal_apply` — 9/9 pass.
+  - `npx vitest run org_risk org_proposal agent_org_proposals` — 39/39 pass.
+  - `./node_modules/.bin/tsc --noEmit` — clean, 0 errors.
+  - `npx vitest run` (full suite) — 184 files / 1583 tests, all pass.
+  - Falsification: #820 — flipped the fail-closed default from `'high'` to
+    `'low'`; issue-820-c3 failed as expected, restored. #821 — disabled the
+    functional guard (`removed.some(...)` short-circuited to `false`);
+    issue-821-c3b and issue-821-c4 failed as expected, restored.
+- Decisions made: only one apply-target kind is wired in v1 —
+  `agent_configs.allowedMcpsJson` / `allowedSkillsJson` scope mutations
+  (covers tighten-scope/prune-scope, the two mechanical low-risk kinds with a
+  concrete live-system field to snapshot/mutate/restore).
+  `refine-skill`/`consolidate-skill`/`refine-recipe` proposals carry their
+  own prior/revised body pair in `changeJson` and are measured by the LLM
+  scorer, but this v1 does not wire them to a live SKILL.md/recipe write —
+  that integration is left for whichever future issue actually generates
+  those proposal kinds (org-optimizer-06+). `exercisedTools` (the functional
+  guard's telemetry source) is a stubbed default (empty set) pending a real
+  join against `denied_tool_events` / tool-use telemetry — real wiring is a
+  follow-up, not blocking #821's acceptance criteria (which only require the
+  guard to be injectable and correctly gate keep/revert).
+- Deviations from spec: none from the two issues' acceptance criteria as
+  written. Both issue bodies' "Policy update (2026-07-02)" sections
+  (full-autonomy-with-rollback) were already reflected in the #817 state
+  machine and repository this branch is based on; no additional policy code
+  was needed beyond the predicate + apply/measure logic itself.
+- Concerns: `measureScopeChange`'s `exercisedTools` default returning an
+  always-empty set means an UNWIRED real deployment would currently treat
+  every prune as passing the functional guard — safe in the sense that it
+  never falsely blocks a good prune, but it means the guard provides no real
+  protection until a real telemetry source is wired in. This should be
+  called out explicitly before org-optimizer-03's audit/signal-collector
+  starts generating real prune-scope proposals in production.
