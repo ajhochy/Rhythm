@@ -86,3 +86,16 @@ describe('issue-854-c7 — resolveConfiguredModelPin (eval driver session-create
     expect(resolveConfiguredModelPin('unknown-agent', repo)).toBeNull();
   });
 });
+
+describe('loadAllowedToolsForSlug — server-qualified names (#854 scope false-positive fix)', () => {
+  it('qualifies role-file tools as <server>_<tool> to match runtime call names', async () => {
+    const { loadAllowedToolsForSlug } = await import('../agent_eval_driver');
+    const allowed = loadAllowedToolsForSlug('secretary');
+    expect(allowed).not.toBeNull();
+    const set = new Set(allowed as string[]);
+    // runtime emits these fully-qualified names; the scope gate must accept them
+    expect(set.has('rhythm_rhythm_list_tasks')).toBe(true);
+    expect(set.has('gmail-work_search_emails')).toBe(true);
+    expect(set.has('gmail-personal_search_emails')).toBe(true);
+  });
+});

@@ -684,7 +684,7 @@ interface Scorecard {
 // Core driver logic
 // ---------------------------------------------------------------------------
 
-function loadAllowedToolsForSlug(slug: string): string[] | null {
+export function loadAllowedToolsForSlug(slug: string): string[] | null {
   const rolePath = path.join(MCP_ROLES_DIR, `${slug}.mcp.json`);
   if (!existsSync(rolePath)) return null;
   try {
@@ -692,8 +692,17 @@ function loadAllowedToolsForSlug(slug: string): string[] | null {
       mcpServers?: Record<string, { allowedTools?: string[] }>;
     };
     const all: string[] = [];
-    for (const server of Object.values(parsed.mcpServers ?? {})) {
-      if (Array.isArray(server.allowedTools)) all.push(...server.allowedTools);
+    for (const [serverName, server] of Object.entries(parsed.mcpServers ?? {})) {
+      if (!Array.isArray(server.allowedTools)) continue;
+      for (const tool of server.allowedTools) {
+        // The runtime emits fully-qualified tool-call names as
+        // `<serverName>_<tool>` (e.g. server `rhythm` + tool `rhythm_list_tasks`
+        // → `rhythm_rhythm_list_tasks`; server `gmail-work` + `search_emails`
+        // → `gmail-work_search_emails`). Role files list the BARE tool name, so
+        // qualify here to match — else every legit call is flagged out-of-scope.
+        // Push both forms defensively in case a source ever emits the bare name.
+        all.push(`${serverName}_${tool}`, tool);
+      }
     }
     // `inherit: true` servers have no allowedTools array — scope can't be
     // fully enumerated from the role file alone in that case. Returning []
