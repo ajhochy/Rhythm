@@ -164,6 +164,16 @@ export interface OrgOptimizerSeedResult {
  * the role file's own hardcoded `agentConfigId` as the idempotency key. Never
  * widens/narrows an EXISTING row's scope on a later boot — only inserts once.
  */
+// The seeded optimizer profiles need a concrete model or their sessions (and the
+// seeded cron task's AgentRunner turn) can't resolve one at ws-gateway time and
+// hang on "Waiting for output" (the #854 no-route stall). Mirror the importer's
+// Tier-2 default (agent_profile_sync IMPORTER_DEFAULT_MODEL_ID = claude-sonnet-4-6),
+// which is authed + in the live catalog.
+const DEFAULT_OPTIMIZER_MODEL = {
+  provider: 'anthropic',
+  id: 'claude-sonnet-4-6',
+} as const;
+
 function ensureAgentConfigForRole(
   configsRepo: AgentConfigsRepository,
   roleFile: McpRoleFile,
@@ -171,7 +181,18 @@ function ensureAgentConfigForRole(
   icon: string,
 ): string {
   const existing = configsRepo.getById(roleFile.agentConfigId);
-  if (existing) return existing.id;
+  if (existing) {
+    // Idempotent repair: rows seeded before the model default was added carry
+    // NULL model_provider/model_id → their turns stall. Backfill once; leave a
+    // user-set model untouched.
+    if (!existing.modelProvider || !existing.modelId) {
+      configsRepo.update(existing.id, {
+        modelProvider: DEFAULT_OPTIMIZER_MODEL.provider,
+        modelId: DEFAULT_OPTIMIZER_MODEL.id,
+      });
+    }
+    return existing.id;
+  }
 
   const created = configsRepo.insert({
     id: roleFile.agentConfigId,
@@ -180,6 +201,8 @@ function ensureAgentConfigForRole(
     isAgent: true,
     isManager: false,
     systemPrompt: roleFile.description ?? null,
+    modelProvider: DEFAULT_OPTIMIZER_MODEL.provider,
+    modelId: DEFAULT_OPTIMIZER_MODEL.id,
     allowedMcpsJson: JSON.stringify(roleFile.mcpServers),
     allowedSkillsJson: JSON.stringify(roleFile.allowedSkills ?? []),
     sessionSelectable: false, // background/system profile — not a picker entry

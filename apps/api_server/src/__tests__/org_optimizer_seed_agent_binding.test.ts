@@ -86,4 +86,61 @@ describe('org_optimizer_seed agent binding hazard check (fix-recipe-binding-c6)'
     expect(tasksAfter.filter((t) => t.name === 'Org Self-Optimizer')).toHaveLength(1);
     expect(tasksAfter.filter((t) => t.name === 'Org External Discovery')).toHaveLength(1);
   });
+
+  it('#855b: seeded optimizer configs carry a concrete model (else their turns stall on "no route in catalog")', async () => {
+    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
+    await seedOrgOptimizerTask();
+    const configsRepo = new AgentConfigsRepository();
+    for (const id of [
+      '8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f',
+      '9a2d3e4f-5b6c-4d7e-8f9a-1b2c3d4e5f6a',
+    ]) {
+      const cfg = configsRepo.getById(id);
+      expect(cfg).not.toBeNull();
+      expect(cfg!.modelProvider).toBe('anthropic');
+      expect(cfg!.modelId).toBe('claude-sonnet-4-6');
+    }
+  });
+
+  it('#855b: an existing optimizer row with NULL model is repaired on the next seed (idempotent backfill)', async () => {
+    const configsRepo = new AgentConfigsRepository();
+    // Simulate a row seeded before the model default existed.
+    configsRepo.insert({
+      id: '8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f',
+      label: 'Org Optimizer',
+      icon: 'x',
+      isAgent: true,
+      isManager: false,
+      modelProvider: null,
+      modelId: null,
+      sessionSelectable: false,
+    });
+    expect(configsRepo.getById('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f')!.modelProvider).toBeNull();
+
+    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
+    await seedOrgOptimizerTask();
+
+    const repaired = configsRepo.getById('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f')!;
+    expect(repaired.modelProvider).toBe('anthropic');
+    expect(repaired.modelId).toBe('claude-sonnet-4-6');
+  });
+
+  it('#855b: a user-set model on an existing optimizer row is NOT overwritten', async () => {
+    const configsRepo = new AgentConfigsRepository();
+    configsRepo.insert({
+      id: '8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f',
+      label: 'Org Optimizer',
+      icon: 'x',
+      isAgent: true,
+      isManager: false,
+      modelProvider: 'openai',
+      modelId: 'gpt-5.5',
+      sessionSelectable: false,
+    });
+    const { seedOrgOptimizerTask } = await import('../services/org_optimizer_seed');
+    await seedOrgOptimizerTask();
+    const cfg = configsRepo.getById('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f')!;
+    expect(cfg.modelProvider).toBe('openai');
+    expect(cfg.modelId).toBe('gpt-5.5');
+  });
 });
