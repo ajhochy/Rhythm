@@ -1,0 +1,48 @@
+{
+  "issue": 853,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-853-c1",
+      "text": "exercisedTools attributes tool calls from ALL sessions of a profile — join by mcp_role (validated against agent_configs.id) IN ADDITION to scheduled_task_id.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/org_exercised_tools_resolver.test.ts",
+      "test_id": "issue-853-c1: resolveExercisedTools includes tool names from a session matched only by mcp_role (no scheduled_task_id)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-853-c2",
+      "text": "A tool exercised only in an interactive (non-scheduled) session is counted as exercised -> NOT proposed for prune (add a regression test proving the prior gap is closed).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/org_exercised_tools_resolver.test.ts",
+      "test_id": "issue-853-c2: a tool used only in an interactive mcp_role session is reported exercised, closing the prior scheduled-task-only gap",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-853-c3",
+      "text": "The #821 measure functional-guard still refuses to keep a prune that removed a now-exercised tool.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/org_exercised_tools_resolver.test.ts",
+      "test_id": "issue-853-c3: measureProposal (org_proposal_measure) reverts a prune-scope proposal when the broadened resolver reports the removed tool as exercised via an interactive mcp_role session",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-853-c4",
+      "text": "Window/time-bounding preserved.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/org_exercised_tools_resolver.test.ts",
+      "test_id": "issue-853-c4: an mcp_role-matched session created before sinceIso is excluded from the exercised set",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-853-c5",
+      "text": "mcp_role join must be validated against agent_configs.id — a legacy non-profile-id mcp_role value (e.g. a .mcp-roles/<slug> role name) must not be treated as a match for an unrelated agent_config_id.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/org_exercised_tools_resolver.test.ts",
+      "test_id": "issue-853-c5: a session whose mcp_role is a legacy role-slug string (not a real agent_configs.id) is ignored by the mcp_role join",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
