@@ -211,6 +211,17 @@ const Model = Schema.Struct({
 export const McpAllowlist = Schema.Struct({
   servers: Schema.mutable(Schema.Array(Schema.String)),
   tools: Schema.mutable(Schema.Array(Schema.String)),
+  // Rhythm carried patch (tokens-03, #843): opt-in deferred tool schema
+  // loading. When true, resolveTools (session/prompt.ts) advertises this
+  // session's allowlisted MCP tools as a names-only catalog plus ONE
+  // dispatcher tool (mcp_dispatch) instead of one full JSON Schema per tool;
+  // the real tool's schema is resolved and executed only when the model
+  // dispatches a call by name. Lives on McpAllowlist (not a new top-level
+  // session field) so it rides the existing `mcp_allowlist` JSON column with
+  // no migration, and so deferred mode is only ever meaningful alongside a
+  // resolved allowlist — undefined/absent = eager mode (back-compat, matches
+  // every session created before this patch).
+  deferred: Schema.optional(Schema.Boolean),
 })
 
 // Rhythm carried patch (skill-scope, #775): per-session SKILL allowlist schema.

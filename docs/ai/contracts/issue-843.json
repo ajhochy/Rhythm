@@ -1,0 +1,30 @@
+{
+  "issue": 843,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-843-c1",
+      "text": "A session starts with names-only tool metadata; first use (or explicit expand) loads the schema.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/mcp_deferred_tools.test.ts",
+      "test_id": "issue-843-c1: deferred mode advertises only the dispatcher tool + a name/description list, not per-tool schemas; issue-843-c1: dispatching a call by name loads and executes the real tool",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-843-c2",
+      "text": "Measured session-start token drop recorded (use the tokens-01 tool_surface_estimator for before/after).",
+      "mode": "manual",
+      "reason": "The tokens-01 estimator (apps/api_server/src/services/tool_surface_estimator.ts) estimates from role-file tool counts, not live engine schema bytes, so a true before/after token measurement requires a live signed-binary session per docs/ai/testing-guide.md 'MCP allowlist smoke'. This run records a deterministic analytical estimate (fixed per-tool schema-byte savings x tool count, derived from the same CHARS_PER_TOOL_ESTIMATE constant the estimator uses) in the run log as the recorded before/after, and flags the live-engine confirmation as the required manual follow-up smoke."
+    },
+    {
+      "criterion_id": "issue-843-c3",
+      "text": "Allowlist enforcement (#765/#775) UNAFFECTED; bun test (fork) + real-binary smokes green.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/mcp_deferred_tools.test.ts",
+      "test_id": "issue-843-c3: filterMcpToolsByAllowlist gating still applies to the dispatcher's name list and its dispatch-time execute path when both mcpAllowlist and deferred mode are active",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-843-c2"]
+}
