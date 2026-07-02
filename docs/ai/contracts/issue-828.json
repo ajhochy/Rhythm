@@ -1,0 +1,54 @@
+{
+  "issue": 828,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-828-c1",
+      "text": "Every emitted `external-adoption` proposal references a concrete audit gap (signal_ref->gapId); a candidate with no matching gap is DROPPED (no \"trending/popular\" without a gap).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/generators/__tests__/external_discovery_generator.test.ts",
+      "test_id": "issue-828-c1: drops a candidate with no matching audit gap and never creates a proposal for it",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-828-c2",
+      "text": "Every proposal carries provenance_json (source, stars/downloads, last-updated, maintainer, license, install command). A proposal missing the provenance note is NOT emitted (and the queue blocks approval without it).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/generators/__tests__/external_discovery_generator.test.ts",
+      "test_id": "issue-828-c2: drops a candidate missing any required provenance field and only emits proposals with a full provenance_json passing hasSecurityNote/requiresSecurityNote gating",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-828-c3",
+      "text": "risk='high', external=1; never auto-applied.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/generators/__tests__/external_discovery_generator.test.ts",
+      "test_id": "issue-828-c3: every emitted proposal has risk=high and external=1, matching classifyProposalRisk",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-828-c4",
+      "text": "On approval: MCP adoption runs the curated-MCP install path then alignment guards must pass; skill adoption runs the skill-create path. No bespoke install bypassing guards.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/generators/__tests__/external_discovery_generator.test.ts",
+      "test_id": "issue-828-c4: registerExternalAdoptionApplier's applier runs the injected curated-MCP install/skill-create path (never a bespoke install) and refuses when the post-install alignment guard fails",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-828-c5",
+      "text": "Throttled to its own less-frequent schedule (schedule wiring is #830 - just make the generator callable), deduped vs already-suggested/rejected set, result-capped per run.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/generators/__tests__/external_discovery_generator.test.ts",
+      "test_id": "issue-828-c5: generator is a plain callable function (no scheduler wiring), skips candidates already present via dedupKey, and caps emitted proposals per run at the configured limit",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-828-c6",
+      "text": "CRITICAL: COMPOSE existing sources; do NOT build a crawler. The actual searching is done by a scoped agent via MCP/skill calls (mcp-registry: search_mcp_registry/suggest_connectors/list_connectors; npm; GitHub; WebSearch/deep-research). This module orchestrates + writes proposals + dedup + result-cap only.",
+      "mode": "manual",
+      "reason": "Architectural constraint verified by code review (the generator accepts a discoverCandidates dependency it composes over, with no embedded HTTP/crawler client), not a runtime-testable behavior distinct from c1/c2/c5's coverage of orchestration-only behavior."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-828-c6"]
+}
