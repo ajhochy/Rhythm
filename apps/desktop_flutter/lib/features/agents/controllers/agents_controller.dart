@@ -378,6 +378,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _sessions.firstWhereOrNull((s) => s.id == _selectedSessionId) ??
       _resumable.firstWhereOrNull((s) => s.id == _selectedSessionId);
 
+  /// #867 — Look up any known session (active, resumable, or archived) by id.
+  /// Used to read a session's OWN resolved agent identity for the footer and
+  /// send path, independent of which session is currently selected.
+  AgentSession? _sessionById(String sessionId) =>
+      _sessions.firstWhereOrNull((s) => s.id == sessionId) ??
+      _resumable.firstWhereOrNull((s) => s.id == sessionId) ??
+      _archived.firstWhereOrNull((s) => s.id == sessionId);
+
   List<AgentSessionMessage> get transcript => List.unmodifiable(_transcript);
 
   /// Per-session transcript for [sessionId] — kept for internal WS error
@@ -1033,12 +1041,31 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   List<AgentInfo> availableAgentsFor(String sessionId) =>
       List.unmodifiable(_availableAgentsBySession[sessionId] ?? const []);
 
+  /// [AgentSession.agentId] values that mean "no distinguishing agent" rather
+  /// than a real dispatched identity: `''` is the wire value for a genuinely
+  /// agent-less instant-create session (see agent_sessions_controller.ts),
+  /// and `'claude-code'` is the generic base kind used as a client-side
+  /// fallback (see [AgentSession.fromJson]) and as the server-side default
+  /// for pre-#858/base-kind rows. Neither should override the app-wide
+  /// picker's INITIAL default for a session that hasn't been dispatched to a
+  /// specific profile.
+  static const Set<String> _genericAgentIds = {'', 'claude-code'};
+
   /// Currently selected agent name for [sessionId].
   ///
-  /// Resolution order (#745):
-  ///   1. Explicit per-session selection stored in [_selectedAgentBySession].
-  ///   2. Manager profile's ocAgent name (from [_managerAgentNameResolver]).
-  ///   3. null → SDK default ('build') when no manager profile is configured.
+  /// Resolution order (#867, supersedes the #745 order):
+  ///   1. Explicit per-session selection stored in [_selectedAgentBySession]
+  ///      (an EXPLICIT user action via [setSelectedAgent] — never a side
+  ///      effect of sending or of the app-wide picker).
+  ///   2. The session's OWN resolved engine agent — [AgentSession.agentId],
+  ///      when the session already carries a non-generic one (see
+  ///      [_genericAgentIds]). This is what makes a dispatched/subagent
+  ///      session show and CONTINUE as its own agent instead of silently
+  ///      inheriting the app-wide default.
+  ///   3. Manager profile's ocAgent name (from [_managerAgentNameResolver])
+  ///      — the INITIAL default for a brand-new top-level session that has
+  ///      no agent of its own yet.
+  ///   4. null → SDK default ('build') when no manager profile is configured.
   ///
   /// Does NOT change permissionMode — the PermissionModePicker is the sole
   /// owner of that field (c6 regression contract).
@@ -1046,12 +1073,18 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     if (_selectedAgentBySession.containsKey(sessionId)) {
       return _selectedAgentBySession[sessionId];
     }
+    final sessionAgentId = _sessionById(sessionId)?.agentId;
+    if (sessionAgentId != null && !_genericAgentIds.contains(sessionAgentId)) {
+      return sessionAgentId;
+    }
     return _managerAgentNameResolver?.call();
   }
 
   /// Returns true when the user has made an explicit per-session agent
-  /// selection (distinct from the manager-profile default). Used by
-  /// [AgentSelectorPill] to colour the pill as "overridden" (#745).
+  /// selection (distinct from both the session's own resolved agent and the
+  /// manager-profile default). Used by [AgentSelectorPill] to colour the pill
+  /// as "overridden" (#745) — a session merely displaying/using its own
+  /// dispatched agent identity is NOT an override (#867).
   bool hasExplicitAgentSelection(String sessionId) =>
       _selectedAgentBySession.containsKey(sessionId) &&
       _selectedAgentBySession[sessionId] != null;

@@ -3316,13 +3316,15 @@ class AgentSelectorPill extends StatelessWidget {
           ];
 
     // Display label: map the resolved agent value back to its profile label
-    // when possible. Resolution order (#745):
+    // when possible. Resolution order (#867, see selectedAgentFor doc):
     //   1. Explicit per-session selection  → resolve via items list.
-    //   2. Manager default (from resolver) → resolve via items list.
-    //   3. No manager configured          → fall back to 'build'.
+    //   2. The session's OWN resolved agent (dispatched/subagent sessions
+    //      show THEIR agent here, not the app-wide default) → items list.
+    //   3. Manager default (from resolver) → resolve via items list.
+    //   4. No manager configured          → fall back to 'build'.
     //
-    // `selected` here is already the resolved value from selectedAgentFor(),
-    // which returns the manager ocAgent when no explicit selection is set.
+    // `selected` here is already the fully-resolved value from
+    // selectedAgentFor() — this widget never re-derives the fallback chain.
     final managerLabel =
         cfgCtrl.managerAgent?.label ?? cfgCtrl.managerAgent?.ocAgent ?? 'build';
     String label = managerLabel;
