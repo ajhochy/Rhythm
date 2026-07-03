@@ -1057,6 +1057,18 @@ export class OpencodeClientService {
     directory?: string,
   ): Promise<Array<{ name: string; description?: string; location: string }>> {
     const dir = directory ?? homedir();
+    // The one-time skill backfill materializes SKILL.md files during server
+    // boot, before the engine has spawned/started listening. Reloading against
+    // a not-yet-listening engine only produces ECONNREFUSED noise — and is
+    // unnecessary, because the engine performs initial skill discovery when it
+    // spawns, so anything written before that is picked up anyway. Reload is
+    // only meaningful for writes AFTER the engine is already running.
+    if (!this.isReady) {
+      // Silent: called once per skill during the boot-time backfill before the
+      // engine is up; a log line per skill would just be new noise. Comment
+      // above documents why the skip is correct.
+      return [];
+    }
     try {
       const base = this.serverUrl;
       const res = await fetch(`${base}/skill/reload?directory=${encodeURIComponent(dir)}`, {

@@ -27,10 +27,16 @@ sequentially with the full check suite between folds.
 
 ## Risks / known issues
 
-- **Optimizer cron (#830) stays OFF.** #857 added the data-sufficiency guard
-  (min 7-day window + 10-activity floor, env-overridable) + `active → reverted` revert
-  path (`POST /agent-org-proposals/:id/revert`). Cron is still not seeded/enabled by
-  construction — enable only after live confidence under the guard.
+- **Optimizer cron (#830) is actually SEEDED-ON, not off.** Correction (found in
+  #882 smoke): `org_optimizer_seed.ts` (from the mega build, unchanged this run) seeds
+  "Org Self-Optimizer" (daily @ 02:00) + "Org External Discovery" (weekly) at every
+  startup, persisted in the scheduler DB — the earlier "off by construction" claim was
+  wrong. #857 added the data-sufficiency guard (min 7-day window + 10-activity floor,
+  env-overridable) + `active → reverted` revert path, so the daily audit is now SAFE
+  **when running #857 code** (in #882). RISK: the guard is not on `main` yet — if the
+  cron fires @ 02:00 against un-merged main code it can over-prune on thin data (the
+  original #857 incident). External Discovery stays human-gated (HIGH-risk, queued).
+  Decision pending: leave it on now the guard is in, or add an explicit enable-flag gate.
 - **#881 (test fragility):** `opc_curated_mcp_ensure.test.ts` c1 hardcodes
   `toHaveLength(5)` but #835's `...loadLocalCuratedMcpServers()` makes the array include
   machine-local sidecar entries. Fails locally on any box with a gitignored

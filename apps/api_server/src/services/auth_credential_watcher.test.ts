@@ -14,6 +14,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   decideReload,
+  authIdentityFingerprint,
   AuthCredentialWatcher,
   type AuthCredentialWatcherDeps,
   type AuthFileSnapshot,
@@ -67,6 +68,68 @@ describe('decideReload (pure decision logic, #856)', () => {
     const next: AuthFileSnapshot = { content: 'v1', observedAtMs: 6000 };
     const result = decideReload(prev, next, null, 500);
     expect(result).toEqual({ shouldReload: true, reason: 'changed' });
+  });
+});
+
+describe('authIdentityFingerprint — access-token rotation must not bounce (#856 smoke fix)', () => {
+  const oauth = (access: string, refresh: string, expires: number) =>
+    JSON.stringify({
+      anthropic: { type: 'oauth', access, refresh, expires },
+      openrouter: { type: 'api', key: 'sk-fixed' },
+    });
+
+  it('routine access-token refresh (same refresh token, new access/expires) → identical fingerprint → NO bounce', () => {
+    // This is the exact spurious case from manual smoke: the running engine
+    // refreshes its own access token and rewrites auth.json.
+    const before = oauth('access-OLD', 'refresh-SAME', 1000);
+    const after = oauth('access-NEW', 'refresh-SAME', 9999);
+    expect(authIdentityFingerprint(before)).toBe(authIdentityFingerprint(after));
+    const result = decideReload(
+      { content: before, observedAtMs: 1000 },
+      { content: after, observedAtMs: 2000 },
+      null,
+      500,
+    );
+    expect(result).toEqual({ shouldReload: false, reason: 'unchanged' });
+  });
+
+  it('account switch (refresh token changes) → different fingerprint → bounce', () => {
+    const before = oauth('access-x', 'refresh-ACCOUNT-A', 1000);
+    const after = oauth('access-y', 'refresh-ACCOUNT-B', 2000);
+    expect(authIdentityFingerprint(before)).not.toBe(
+      authIdentityFingerprint(after),
+    );
+    const result = decideReload(
+      { content: before, observedAtMs: 1000 },
+      { content: after, observedAtMs: 2000 },
+      null,
+      500,
+    );
+    expect(result).toEqual({ shouldReload: true, reason: 'changed' });
+  });
+
+  it('api-key change → bounce', () => {
+    const before = JSON.stringify({ openrouter: { type: 'api', key: 'sk-1' } });
+    const after = JSON.stringify({ openrouter: { type: 'api', key: 'sk-2' } });
+    const result = decideReload(
+      { content: before, observedAtMs: 1000 },
+      { content: after, observedAtMs: 2000 },
+      null,
+      500,
+    );
+    expect(result).toEqual({ shouldReload: true, reason: 'changed' });
+  });
+
+  it('provider key reordering alone → same fingerprint (no bounce)', () => {
+    const a = JSON.stringify({ anthropic: { type: 'oauth', refresh: 'r' }, openai: { type: 'oauth', refresh: 's' } });
+    const b = JSON.stringify({ openai: { type: 'oauth', refresh: 's' }, anthropic: { type: 'oauth', refresh: 'r' } });
+    expect(authIdentityFingerprint(a)).toBe(authIdentityFingerprint(b));
+  });
+
+  it('non-JSON content falls back to raw comparison (never silently misses a change)', () => {
+    expect(authIdentityFingerprint('garbage-1')).not.toBe(
+      authIdentityFingerprint('garbage-2'),
+    );
   });
 });
 
