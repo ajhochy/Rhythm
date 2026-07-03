@@ -43,6 +43,7 @@ import { registerGoogleTools } from '../tools/google.js';
 import { registerPcoTools } from '../tools/pco.js';
 import { registerAgentScheduleTools } from '../tools/agentSchedule.js';
 import { registerAgentDelegationTools } from '../tools/agentDelegation.js';
+import { registerGithubIssueTools } from '../tools/githubIssues.js';
 import { registerAgentMemoryTools } from '../tools/agentMemory.js';
 import { registerAgentSessionTools } from '../tools/agentSessions.js';
 import { registerAgentResearchTools } from '../tools/agentResearch.js';
@@ -70,6 +71,7 @@ const REGISTRARS_IN_INDEX_ORDER: Registrar[] = [
   (s) => registerPcoTools(s, API_URL, API_TOKEN),
   (s) => registerAgentScheduleTools(s, API_URL, API_TOKEN),
   (s) => registerAgentDelegationTools(s, AGENT_URL, API_TOKEN),
+  (s) => registerGithubIssueTools(s),
   (s) => registerAgentMemoryTools(s, AGENT_URL, API_TOKEN),
   (s) => registerAgentSessionTools(s, AGENT_URL, API_TOKEN),
   (s) => registerAgentResearchTools(s, API_URL, API_TOKEN),
