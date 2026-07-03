@@ -23,6 +23,12 @@ sequentially with the full check suite between folds.
   identity (#867 — specialist parsed from title + 31-row backfill), tool cards default
   collapsed, **#815 verified live and CLOSED** (question → macOS notification →
   click-to-focus). All fixes on #882; CI green on the final commit.
+- **#883** (secretary delegate authorization) implemented in isolated worktree
+  `883-secretary` / branch `issue-883-secretary-delegate`, commit `f33ecacd5`.
+  verification-gate PASSED (see `docs/ai/runs/2026-07-02-issue-883-secretary-delegate.md`).
+  Not yet folded into the mega branch. Fix: `rhythm_delegate` added to secretary's
+  `.mcp-roles` tool scope + a new reproducible role-file → `agent_configs` backfill
+  seed for `is_manager`/roster (previously DB-only, hand-edited via the designer).
 
 ## Risks / known issues
 
@@ -67,74 +73,3 @@ sequentially with the full check suite between folds.
 5. After merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
 
 ## Filed this run (2026-07-02): #867 #870 #871 #872 #873 #874 #875 #876 #877 #878 #879 #880 #881 (see runs/2026-07-02-workflow-run-13-issues.md); #869 closed (no secret present)
-
-## Recent coding-agent runs
-
-### 2026-07-02 — #883 secretary delegate authorization (worktree `883-secretary`, branch `issue-883-secretary-delegate`)
-- Files modified:
-  - `.mcp-roles/secretary.mcp.json` — added `rhythm_delegate` to the `rhythm`
-    server's `allowedTools` (the actual reported gap: this file is read LIVE
-    by `resolveMcpRole()` at session-create time, no separate sync needed for
-    tool scope); added new `isManager: true` + `allowedDelegates` (roster:
-    theologian, librarian, worship-planning, worship-production,
-    AI-Trend-Researcher, Theological-Researcher, fantasy-gm) fields.
-  - `.mcp-roles/README.md` — documented the new `isManager`/`allowedDelegates`
-    role-file fields and how they reach `agent_configs`.
-  - `apps/api_server/src/services/secretary_delegation_seed.ts` (new) —
-    backfill-only reconciliation: sets `agent_configs('secretary').is_manager`
-    / `.allowed_delegates_json` from the role file's new fields, but ONLY when
-    the column is still at its unset default (never clobbers a value already
-    set via the Agent Profiles designer — same USER-OWNED overlay contract as
-    `agent_profile_sync.ts`).
-  - `apps/api_server/src/services/agent_profile_sync.ts` — added one call to
-    `seedSecretaryDelegation()` at the end of `syncOpencodeAgentProfiles()`
-    (alongside the existing #858 oc_agent repair pass), since that function —
-    not server boot — is what actually creates/refreshes the `secretary` row
-    (fires on every `GET /agent-sessions/agents` and
-    `POST /agent-configs/sync-opencode`).
-  - `apps/api_server/src/__tests__/secretary_delegation_seed.test.ts` (new),
-    `apps/api_server/src/__tests__/secretary_delegation_authz.test.ts` (new).
-- Checks run: `npx tsc --noEmit` (api_server + mcp_server) clean; `npx vitest
-  run` full api_server suite — **2023 pass / 1 skip** (pre-existing #881
-  machine-local flake, unrelated); `ai-workflow checks --level issue` — all
-  green (flutter analyze, dart format, api_server tsc).
-- Decisions made:
-  - **Live DB already had a broad roster** (11 entries incl. UUIDs) set by
-    hand via the Agent Profiles UI — the issue's "2 researchers + fantasy-gm"
-    framing was stale. Chose the slug-keyed subset the issue asked for
-    (theologian/librarian/worship-planning/worship-production + the two
-    researchers by their opencode slug + fantasy-gm) as the CANONICAL
-    role-file roster, using name slugs (not raw UUIDs) since `agent_configs`
-    rows from `syncOpencodeAgentProfiles` are slug-keyed (`id = agent.name`)
-    — sidesteps the "raw UUID" cosmetic issue noted in #883's minor
-    observations (unresolved separately, relates to #858).
-  - **System prompt already correct live** ("Delegate domain work to the
-    approved specialist...") — confirmed via read-only DB inspection; no
-    canonical source exists for it anywhere in the repo (it lives only in the
-    live DB and in `~/.config/opencode/agents/secretary.md`, outside the repo
-    and outside this worktree) so it was left untouched per the issue's
-    "only touch if canonical source lacks it" instruction.
-  - **Backfill hook placed in `agent_profile_sync.ts` rather than `server.ts`**
-    because `syncOpencodeAgentProfiles` is NOT called at server boot in this
-    codebase — it only runs on-demand (agent picker load / explicit sync
-    endpoint). A boot-only hook would almost always no-op
-    (`secretaryRowMissing`) since the row doesn't exist yet at boot.
-- Deviations from spec: did not touch `agent_delegation_service.ts` or
-  `apps/mcp_server/src/tools/agentDelegation.ts` — issue confirmed both are
-  already correct.
-- Concerns / residual risk:
-  - The role-file roster (7 entries, slug-keyed) is NARROWER than the live DB
-    roster (11 entries, some UUID-keyed) — by design (backfill-only, never
-    clobbers), the live row is untouched by this change and keeps its current
-    broader roster. The role file only matters for a FRESH database. If the
-    live DB roster is ever reset to null, it will re-seed to the narrower
-    7-entry slug roster, not the current 11-entry one — flag this if a future
-    DB reset surprises anyone.
-  - `~/.config/opencode/agents/secretary.md`'s `task:` permission block is a
-    SEPARATE delegation mechanism (opencode engine's own subagent dispatch)
-    from `agent_configs.allowed_delegates_json` (the `rhythm_delegate` MCP
-    tool's authz, gated by `agent_delegation_service.ts`) — the two rosters
-    can drift; out of scope for #883 but worth a future issue to reconcile.
-  - The UUID-vs-name cosmetic issue in the Allowed-Delegates UI list (#883's
-    "minor observations", relates to #858) was not addressed — left for a
-    separate follow-up.
