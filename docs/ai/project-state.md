@@ -84,3 +84,39 @@ is untracked — rebuild per machine.
 6. Optional: hand-prune the 16 near-duplicate preferences in `AGENT-MEMORY/preference/`.
 
 ## Filed this run (2026-07-02): #854 #855 #856 #857 #858 #859 #860 (see runs/2026-07-02-mega-buildout-fork-eval-memory.md)
+
+## Recent coding-agent runs
+
+### 2026-07-02 — issue #864 (MCP stateless-readiness audit)
+- Files modified:
+  - `docs/ai/decisions/2026-07-02-mcp-stateless-readiness.md` (new) — full audit
+    of both MCP surfaces (our server `apps/mcp_server`, the opencode fork's MCP
+    client `apps/opencode_fork/packages/opencode/src/mcp/index.ts`): transport,
+    statefulness/session-identity assumptions, tool-list caching posture,
+    Tasks-extension readiness, 7 enumerated breaking risks each with a
+    recommended fix.
+  - `apps/mcp_server/src/__tests__/mcp_capabilities_and_tool_registration.test.ts`
+    (new) — 3 guard tests using a real `McpServer`/`Client` pair over
+    `InMemoryTransport` (not a stub): no duplicate tool names across all 18
+    registration functions in declared order, same tool set regardless of
+    registration order, and `tools.listChanged: true` capability is advertised
+    as documented.
+- Checks run:
+  - `npm run build` (tsc, mcp_server) — pass.
+  - `vitest run` (full mcp_server suite) — 58/58 pass across 11 files
+    (3 new + 55 pre-existing).
+- Decisions made: guard test targets `apps/mcp_server` only (real SDK
+  Client/Server pair, cheap) rather than the fork (would require building the
+  fork binary — out of scope for "cheap guard" and against the
+  vendored-subtree/build-pipeline constraint in `AGENTS.md`). See decision doc
+  "Alternatives considered" for full reasoning.
+- Deviations from spec: none — this issue was audit + doc + one cheap guard,
+  as scoped; no production code was changed in either surface.
+- Concerns: Risks 2 (fork tool-list cache has no TTL, notification-only
+  invalidation), 4 (no Tasks-extension usage anywhere; two candidate
+  long-running flows — `rhythm_start_research`, `rhythm_run_org_optimizer` —
+  poll-by-id instead), and 5 (no auto-reconnect in the fork's MCP client) are
+  documented but **not fixed** — they require fork-side changes gated by the
+  `mcp-scope-*` patch convention, which is out of scope for this audit issue.
+  Risk 6 (SDK version skew: server 1.29.0 vs fork 1.27.1) should be watched at
+  the next SDK bump on either side.
