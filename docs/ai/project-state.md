@@ -67,3 +67,37 @@ sequentially with the full check suite between folds.
 5. After merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
 
 ## Filed this run (2026-07-02): #867 #870 #871 #872 #873 #874 #875 #876 #877 #878 #879 #880 #881 (see runs/2026-07-02-workflow-run-13-issues.md); #869 closed (no secret present)
+
+## Recent coding-agent runs
+
+### 2026-07-02 — #870 (rhythm_create_issue MCP tool)
+- Files modified:
+  - `apps/mcp_server/src/tools/githubIssues.ts` (new) — `registerGithubIssueTools`; POSTs directly to
+    `https://api.github.com/repos/{repo}/issues` (no api_server hop, no new deps — global `fetch`).
+  - `apps/mcp_server/src/tools/githubIssues.test.ts` (new) — 8 tests: registration, happy path
+    (asserts URL/headers/body + number+url return), `GITHUB_TOKEN` fallback, `RHYTHM_GITHUB_REPO`
+    override, missing-token error, empty/whitespace title validation, oversized-body validation,
+    GitHub 4xx surfaced as `isError: true`.
+  - `apps/mcp_server/src/index.ts` — import + `registerGithubIssueTools(server)` call (no apiUrl/token
+    args passed through; the tool reads GitHub creds from env itself).
+- Checks run:
+  - `npm run build` (tsc --noCheck) — clean.
+  - `npm run typecheck` (tsc --noEmit) — clean.
+  - `node_modules/.bin/vitest run` — **67 pass** (59 pre-existing + 8 new), 0 fail.
+- Decisions made:
+  - Went with issue Option A (first-class MCP tool) per the issue's own recommendation.
+  - Token resolution: `RHYTHM_GITHUB_TOKEN` then `GITHUB_TOKEN` fallback, read at call time inside the
+    tool (never passed into `registerGithubIssueTools`, never touches `opencode.json`). Missing token
+    throws before any network call — no hallucinated success.
+  - Repo defaults to `ajhochy/Rhythm`, overridable via `RHYTHM_GITHUB_REPO` env var.
+  - Scoping: did **not** edit any `.mcp-roles/*.mcp.json` file. `dev.mcp.json` already grants
+    `"allowedTools": ["*"]` on the `rhythm` MCP server, which automatically covers the new tool — it's
+    the only dev-facing profile with wildcard access, so no other role needed (or should get) an
+    explicit grant. All other roles keep narrow, task-specific allowlists.
+  - Validation caps: non-empty (trimmed) title required; body capped at 60,000 chars — both checked
+    before any fetch call, returned as `isError: true` tool errors.
+- Deviations from spec: none — implemented Option A exactly as issue described (direct GitHub REST
+  call from mcp_server, env-sourced token, scoped to dev role only).
+- Concerns: no live smoke against the real GitHub API (network calls are mocked in tests, per the
+  worktree's no-side-effects constraint). Recommend a one-time manual `rhythm_create_issue` smoke
+  test with `RHYTHM_GITHUB_TOKEN` set before relying on this in a live agent session.
