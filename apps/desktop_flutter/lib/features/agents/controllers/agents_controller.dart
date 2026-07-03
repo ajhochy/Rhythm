@@ -830,6 +830,21 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     required String childSdkId,
     String? childDisplayName,
   }) async {
+    // #861 (maintainer smoke feedback): delegated subagent sessions are
+    // usually ALREADY persisted as local sessions (#743, `parentId` +
+    // `sdkSessionId`) and listed under the parent in the sidebar. A Task card
+    // should simply LINK to that existing session — the normal, full session
+    // view with its locally persisted transcript — not rebuild the child's
+    // transcript through the engine child-fetch pipeline. Only when no local
+    // row exists (engine-ephemeral child) fall back to the SDK fetch below.
+    final localChild =
+        _sessions.where((s) => s.sdkSessionId == childSdkId).firstOrNull;
+    if (localChild != null) {
+      _childStack.clear();
+      await selectSession(localChild.id);
+      return;
+    }
+
     // Switch to the child view IMMEDIATELY so the click feels responsive — the
     // first fetch can be slow (cold opencode round-trip), and awaiting it before
     // switching made the chevron look frozen. Messages stream in afterward.

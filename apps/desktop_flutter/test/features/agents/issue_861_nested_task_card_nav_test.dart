@@ -500,7 +500,11 @@ void main() {
       expect(find.byType(TaskChip), findsOneWidget);
       expect(controller.activeChildSessionId, isNull);
 
-      // Teardown.
+      // Teardown. Flush background fetch rejections first so nothing lands
+      // during a LATER test and retro-fails this one.
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)),
+      );
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
       controller.dispose();
     },
@@ -569,7 +573,92 @@ void main() {
       expect(find.byType(TaskChip), findsOneWidget);
       expect(find.text('Still starting up…'), findsOneWidget);
 
-      // Teardown.
+      // Teardown. Flush background fetch rejections first so nothing lands
+      // during a LATER test and retro-fails this one.
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)),
+      );
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
+    '#861 link-first: a Task card whose child exists as a LOCAL session '
+    '(persisted #743 row with sdkSessionId) just selects that session — '
+    'no child-frame pipeline, no SDK refetch',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      const parentSessionId = 'parent-local-861-link';
+      const parentSessionName = 'Parent session';
+      const childLocalId = 'child-local-861-link';
+      const childSdkId = 'ses_localchild861';
+
+      final stubRepo = _StubAgentsRepository();
+      final controller = AgentsController(
+        stubRepo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+
+      await tester.runAsync(() async {
+        await controller.initialize();
+        // The delegated child ALREADY exists as a local session (#743):
+        // parentId links it to the parent; sdkSessionId is the engine id the
+        // Task card carries.
+        controller.setActiveSessionForTest(
+          childLocalId,
+          _makeSession(childLocalId, name: 'Research trends (@AI-Trend)')
+              .copyWith(
+            parentId: parentSessionId,
+            sdkSessionId: childSdkId,
+          ),
+        );
+        controller.setActiveSessionForTest(
+          parentSessionId,
+          _makeSession(parentSessionId, name: parentSessionName),
+        );
+      });
+
+      controller.setMessageForTest(ChatMessage(
+        id: 'msg-parent-861-link',
+        sessionId: parentSessionId,
+        role: 'assistant',
+        createdAt: _kEpoch,
+      ));
+      controller.setChatPartForTest(
+        ChatPart.fromJson(
+          'msg-parent-861-link',
+          _taskPartJson(
+            id: 'part-parent-task-861-link',
+            description: 'Research trends',
+            outputChildId: childSdkId,
+          ),
+        ),
+      );
+
+      await tester
+          .pumpWidget(await _buildTestApp(agentsController: controller));
+      await tester.pump();
+
+      expect(find.byType(TaskChip), findsOneWidget);
+      await tester.tap(find.byType(TaskChip));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Linked to the EXISTING local session (normal session view) …
+      expect(controller.selectedSessionId, childLocalId);
+      // … with no child-frame breadcrumb view and no SDK child refetch.
+      expect(controller.childStackDepth, 0);
+      expect(stubRepo.fetchChildMessagesCalls, isEmpty);
+
+      // Flush any selectSession-triggered background fetches before teardown.
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)),
+      );
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
       controller.dispose();
     },
