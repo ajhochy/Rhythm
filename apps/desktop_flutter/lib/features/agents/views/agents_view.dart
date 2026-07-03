@@ -607,6 +607,11 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
                         childSdkId: controller.activeChildSessionId!,
                         parentSessionName:
                             controller.activeChildParentName ?? selected.name,
+                        // #861 — this child's own display name, used as the
+                        // breadcrumb target for any NESTED (grandchild+) chip
+                        // tapped inside this child's own transcript.
+                        ownDisplayName:
+                            controller.activeChildDisplayName ?? selected.name,
                         onBack: controller.closeChildSession,
                       )
                     : Column(
@@ -3027,11 +3032,18 @@ class ChildTranscriptView extends StatelessWidget {
     super.key,
     required this.childSdkId,
     required this.parentSessionName,
+    String? ownDisplayName,
     required this.onBack,
-  });
+  }) : ownDisplayName = ownDisplayName ?? parentSessionName;
 
   final String childSdkId;
   final String parentSessionName;
+
+  /// #861 — this child session's own display name. Used as the breadcrumb
+  /// target on any NESTED (grandchild+) TaskChip rendered inside this child's
+  /// transcript. Defaults to [parentSessionName] for pre-#861 callers that
+  /// only ever expected a single hop.
+  final String ownDisplayName;
   final VoidCallback onBack;
 
   @override
@@ -3127,6 +3139,13 @@ class ChildTranscriptView extends StatelessWidget {
                         // strippedText/rawText empty — derive display text from the
                         // parts so the bubbles aren't blank.
                         final displayText = _childMessageDisplayText(m);
+                        // #861 — nested delegation: any `task` tool parts on this
+                        // (sub)message become their own navigable TaskChips, using
+                        // THIS child session's own SDK id as the fetch-parent for
+                        // the next hop, so tapping opens the grandchild transcript
+                        // and the breadcrumb returns to THIS child, not the
+                        // top-level parent.
+                        final nestedTaskParts = _childTaskParts(m);
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: isUser
@@ -3156,24 +3175,44 @@ class ChildTranscriptView extends StatelessWidget {
                                     ),
                                   ),
                                 )
-                              : Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: context.rhythm.surfaceMuted,
-                                    borderRadius:
-                                        BorderRadius.circular(RhythmRadius.md),
-                                    border: Border.all(
-                                        color: context.rhythm.borderSubtle),
-                                  ),
-                                  child: Text(
-                                    displayText,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: context.rhythm.textPrimary,
-                                      height: 1.4,
-                                    ),
-                                  ),
+                              : Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    if (displayText.isNotEmpty ||
+                                        nestedTaskParts.isEmpty)
+                                      Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: context.rhythm.surfaceMuted,
+                                          borderRadius: BorderRadius.circular(
+                                              RhythmRadius.md),
+                                          border: Border.all(
+                                              color:
+                                                  context.rhythm.borderSubtle),
+                                        ),
+                                        child: Text(
+                                          displayText,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: context.rhythm.textPrimary,
+                                            height: 1.4,
+                                          ),
+                                        ),
+                                      ),
+                                    for (final taskPart in nestedTaskParts) ...[
+                                      const SizedBox(height: 6),
+                                      TaskChip(
+                                        part: taskPart,
+                                        parentSessionId: childSdkId,
+                                        // Breadcrumb for the grandchild must
+                                        // return to THIS child, not the
+                                        // top-level parent.
+                                        parentSessionName: ownDisplayName,
+                                      ),
+                                    ],
+                                  ],
                                 ),
                         );
                       },
@@ -3182,6 +3221,23 @@ class ChildTranscriptView extends StatelessWidget {
       ],
     );
   }
+}
+
+/// #861 — extract `task` tool parts from a child (subagent) message as
+/// [ChatPart]s so they can be rendered with the same [TaskChip] used in the
+/// top-level transcript, enabling nested delegation (grandchild+) navigation.
+List<ChatPart> _childTaskParts(AgentSessionMessage m) {
+  final parts = m.parts;
+  if (parts == null || parts.isEmpty) return const [];
+  final messageId = m.sdkMessageId ?? 'child-msg-${m.id}';
+  final result = <ChatPart>[];
+  for (final p in parts) {
+    if (p['type'] == 'tool' &&
+        (p['tool'] as String?)?.toLowerCase() == 'task') {
+      result.add(ChatPart.fromJson(messageId, p));
+    }
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------

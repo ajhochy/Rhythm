@@ -342,3 +342,80 @@ is untracked — rebuild per machine.
     "Agent not found" once. Not addressed here (out of scope — no reload-wait
     mechanism existed before this fix either); flagging for a possible
     follow-up if it recurs in practice.
+### 2026-07-02 — issue #861 (Task card delegation navigation, worktree `861-taskcard` / branch `issue-861-task-card-nav`)
+- Files modified:
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — `getChildren`
+    and `getChildMessages` no longer 404 when `:id` has no local DB row; child
+    sessions never have one by design, so absence is now treated as "`:id` is
+    itself a child/grandchild SDK session id" and the SDK call proceeds
+    directly. This was the backend blocker for nested (grandchild+) delegation.
+  - `apps/api_server/src/__tests__/opc_m3_6_child_sessions.test.ts` — replaced
+    the two `unknown-session → 404` assertions (no longer the contract) with
+    nested-lookup tests (`issue-861-c1a-nested*`, `issue-861-c1b-nested`).
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart`
+    — `AgentsController`'s child-session navigation state changed from a
+    single slot (`_activeChildSessionId` etc.) to a `List<_ChildFrame>` stack,
+    so `closeChildSession()` pops one hop instead of always returning to the
+    top-level parent. Added `activeChildDisplayName` and `childStackDepth`;
+    `openChildSession` gained an optional `childDisplayName` param.
+  - `apps/desktop_flutter/lib/features/agents/views/_tool_renderers/_task_chip.dart`
+    — passes its own description as `childDisplayName` on tap.
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` —
+    `ChildTranscriptView` gained an `ownDisplayName` field and now renders any
+    `task` tool parts in a child message as nested, tappable `TaskChip`s
+    (previously collapsed to a `⚙ task` text summary, so grandchild delegation
+    was never clickable at all).
+  - `apps/desktop_flutter/test/features/agents/issue_861_nested_task_card_nav_test.dart`
+    (new) — mounted-surface tests pumping the real `AgentsView` (not an
+    isolated widget), covering: tapping a top-level Task card opens the child
+    in the real chat pane; a nested Task card inside that child opens a
+    grandchild with the breadcrumb correctly pointing at the intermediate
+    child (not the top-level parent); back navigation pops one hop at a time;
+    an unresolvable child id renders a disabled/non-clickable card.
+- Checks run:
+  - `cd apps/api_server && node_modules/.bin/tsc --noEmit` — pass, no errors.
+  - `cd apps/api_server && node_modules/.bin/vitest run src/__tests__` — 178
+    files / 1542 passed / 1 pre-existing skip.
+  - `cd apps/desktop_flutter && flutter analyze --no-fatal-infos` — 267
+    pre-existing info-level lints, 0 errors, no new issues vs baseline.
+  - `cd apps/desktop_flutter && flutter test test/features/agents/` — 473
+    tests, all passed (includes the new mounted-surface nested-delegation
+    tests and the pre-existing `opc_m3_6_child_sessions_test.dart` unchanged).
+  - `cd apps/desktop_flutter && dart format . --set-exit-if-changed` — clean
+    (0 files changed on the final run; two files were auto-formatted once and
+    re-verified).
+- Decisions made:
+  - Single-hop child navigation (#699 / OPC-M3-6, already on `main`) covered
+    top-level Task-card → child transcript + breadcrumb-back + disabled state,
+    but nested delegation (parent → orchestrator → specialist) was NOT
+    implemented: the controller only tracked one active child, and
+    `ChildTranscriptView` rendered nested `task` tool parts as inert text, so
+    a grandchild's card was never even shown, let alone tappable. Backend
+    `getChildren`/`getChildMessages` additionally 404'd on any id without a
+    local DB row, which is exactly what a child's own SDK id looks like. This
+    run closes that specific gap rather than re-doing #699's already-shipped
+    single-hop path.
+  - Chose a navigation STACK (`List<_ChildFrame>`) over recursively nesting
+    widgets, so `closeChildSession()` naturally pops one level and the
+    existing single-slot public getters (`activeChildSessionId`,
+    `activeChildParentName`) keep their pre-#861 meaning for one-hop callers
+    (top of stack / that frame's breadcrumb target).
+  - Backend fix relaxes rather than removes the 404: when `:id` DOES resolve
+    to a local row, existing single-hop behavior (mapped SDK id, empty array
+    on no active mapping) is unchanged. Only the "no local row" branch changed
+    from "404" to "treat as a raw SDK id and ask the SDK" — the SDK's own
+    404/502 on a genuinely bad id still surfaces via `next(err)`.
+- Deviations from spec: none — nested delegation, per-hop breadcrumb, and
+  disabled/unresolvable-card behavior all match the issue's acceptance
+  criteria.
+- Concerns:
+  - `AgentsController.selectSession()` does not reset the child-navigation
+    stack when switching to a different top-level session. This is pre-#861
+    behavior (unchanged by this run) — flagged here in case a future session
+    switch while a child view is open surfaces a stale child transcript.
+  - The grandchild fixture ids in the new test had to avoid underscores
+    after the `ses_` prefix, matching a real constraint in
+    `_task_chip.dart`'s `task_id: ses_[A-Za-z0-9]+` output-parsing regex
+    (it truncates at the first non-alphanumeric character). Real opencode
+    ids never contain underscores, so this is not a product bug, but it is
+    a sharp edge for anyone hand-writing future fixtures.

@@ -21,6 +21,31 @@ import '../models/chat_models.dart';
 import '../repositories/agents_repository.dart';
 import 'pty_terminal_session.dart';
 
+/// #861 — one hop of nested child-session navigation.
+///
+/// [fetchParentId] is the id passed to the repository to fetch this frame's
+/// messages/children — the top-level parent's LOCAL session id for the first
+/// hop, or the enclosing child's own SDK session id for any deeper hop
+/// (grandchild+). [childSdkId] is this frame's own SDK session id (used both
+/// as the cache key and, for a deeper nested tap, as the next frame's
+/// [fetchParentId]). [parentDisplayName] is shown in the breadcrumb this
+/// frame navigates back to. [displayName] is THIS frame's own display name
+/// (the tapped chip's description) — used as the breadcrumb target for any
+/// further-nested (grandchild+) chip tapped inside this child's transcript.
+class _ChildFrame {
+  const _ChildFrame({
+    required this.fetchParentId,
+    required this.childSdkId,
+    required this.parentDisplayName,
+    required this.displayName,
+  });
+
+  final String fetchParentId;
+  final String childSdkId;
+  final String parentDisplayName;
+  final String displayName;
+}
+
 class PendingPermission {
   const PendingPermission({
     required this.sessionId,
@@ -217,13 +242,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Persists for the app run (not persisted to the DB — see spec).
   final Map<String, String?> _selectedAgentBySession = {};
 
-  // OPC-M3-6: Child-session navigation state.
-  // Non-null when the user has tapped a task chip and navigated into a child
-  // session transcript. The UI swaps the main transcript area to the child view.
-  // Null = show parent transcript.
-  String? _activeChildSessionId;
-  String? _activeChildParentSessionId;
-  String? _activeChildParentName;
+  // OPC-M3-6 / #861: Child-session navigation state.
+  // A STACK of navigation frames, one per hop of nested delegation (parent →
+  // orchestrator → specialist → …). The top of the stack is the child session
+  // currently shown in place of the parent transcript; an empty stack means
+  // "show the parent transcript". Each [closeChildSession] call pops exactly
+  // one frame, so returning from a grandchild lands on its immediate parent
+  // (the orchestrator), not the top-level session — matching the breadcrumb
+  // affordance required by #861.
+  final List<_ChildFrame> _childStack = [];
 
   // Cache of fetched child messages keyed by childSdkId.
   // Entries persist for the lifetime of the app so back-navigation is instant.
@@ -716,17 +743,37 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  // ── OPC-M3-6: child-session navigation ────────────────────────────────────
+  // ── OPC-M3-6 / #861: child-session navigation (nested delegation) ──────────
 
-  /// The SDK session id of the currently active child session, or null when
-  /// the user is viewing the parent transcript.
-  String? get activeChildSessionId => _activeChildSessionId;
+  /// The SDK session id of the currently active child session (top of the
+  /// navigation stack), or null when the user is viewing the top-level
+  /// parent transcript.
+  String? get activeChildSessionId =>
+      _childStack.isEmpty ? null : _childStack.last.childSdkId;
 
-  /// The local session id of the parent whose task chip was tapped.
-  String? get activeChildParentSessionId => _activeChildParentSessionId;
+  /// The local session id of the top-level parent whose task chip was
+  /// originally tapped. Unlike [activeChildSessionId], this always reflects
+  /// the FIRST hop's parent, not the immediate enclosing frame.
+  String? get activeChildParentSessionId =>
+      _childStack.isEmpty ? null : _childStack.first.fetchParentId;
 
-  /// The display name of the parent session for the breadcrumb.
-  String? get activeChildParentName => _activeChildParentName;
+  /// The display name of the session the breadcrumb navigates back to when
+  /// [closeChildSession] is called — the immediate parent of the active
+  /// (topmost) child, which for a nested hop is the enclosing child's own
+  /// name, not the top-level session's.
+  String? get activeChildParentName =>
+      _childStack.isEmpty ? null : _childStack.last.parentDisplayName;
+
+  /// The display name of the currently active (topmost) child session itself
+  /// — the description of the task chip that was tapped to open it. Used as
+  /// the breadcrumb target for a further-nested (grandchild+) chip tapped
+  /// inside this child's own transcript.
+  String? get activeChildDisplayName =>
+      _childStack.isEmpty ? null : _childStack.last.displayName;
+
+  /// How many hops deep the current child navigation is (0 = parent view,
+  /// 1 = direct child, 2 = grandchild, …). Exposed for breadcrumb trails.
+  int get childStackDepth => _childStack.length;
 
   /// Messages for the child session identified by [childSdkId].
   /// Returns an empty list when not yet fetched.
@@ -735,21 +782,40 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Open a child session transcript by fetching its messages from the server.
   ///
-  /// Sets [activeChildSessionId] so the view swaps to the child transcript area.
-  /// Child messages are cached — subsequent opens of the same child are instant.
-  /// Does NOT modify [_sessions] or [_resumable] — children never enter the
-  /// sidebar lists.
+  /// Pushes a new frame onto the child-navigation stack so the UI swaps the
+  /// main transcript area to this child's view. May be called again while a
+  /// child is already active — this represents tapping a NESTED delegation
+  /// (e.g. an orchestrator's own Task chip for a specialist), and pushes a
+  /// second frame on top rather than replacing the first, so each hop's
+  /// breadcrumb correctly returns to its own immediate parent.
+  ///
+  /// [parentSessionId] is the id used to fetch this child's messages — the
+  /// top-level parent's LOCAL session id for the first hop, or the enclosing
+  /// child's own SDK session id for a nested (grandchild+) hop.
+  ///
+  /// [childDisplayName] is this child's own display name (typically the
+  /// tapped chip's description). Defaults to [parentSessionName] when omitted
+  /// so existing single-hop callers keep working unchanged.
+  ///
+  /// Child messages are cached — subsequent opens of the same child are
+  /// instant. Does NOT modify [_sessions] or [_resumable] — children never
+  /// enter the sidebar lists.
   Future<void> openChildSession({
     required String parentSessionId,
     required String parentSessionName,
     required String childSdkId,
+    String? childDisplayName,
   }) async {
     // Switch to the child view IMMEDIATELY so the click feels responsive — the
     // first fetch can be slow (cold opencode round-trip), and awaiting it before
     // switching made the chevron look frozen. Messages stream in afterward.
-    _activeChildSessionId = childSdkId;
-    _activeChildParentSessionId = parentSessionId;
-    _activeChildParentName = parentSessionName;
+    _childStack.add(_ChildFrame(
+      fetchParentId: parentSessionId,
+      childSdkId: childSdkId,
+      parentDisplayName: parentSessionName,
+      displayName: childDisplayName ?? parentSessionName,
+    ));
+    notifyListeners();
 
     // Cached → nothing to fetch; back-navigation stays instant.
     if (_childMessagesByChildId.containsKey(childSdkId)) {
@@ -776,15 +842,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  /// Navigate back to the parent transcript.
+  /// Navigate back ONE hop in the child-navigation stack.
   ///
-  /// Clears the active child session WITHOUT refetching the parent — the parent's
-  /// chat store is preserved in-memory, so scroll context and messages remain intact.
+  /// Pops the topmost frame WITHOUT refetching — cached message lists for
+  /// every frame are preserved in-memory, so scroll context and messages
+  /// remain intact when returning to an intermediate (e.g. orchestrator)
+  /// level. When only one frame remains, this returns all the way to the
+  /// top-level parent transcript, matching the pre-#861 behavior.
   void closeChildSession() {
-    if (_activeChildSessionId == null) return;
-    _activeChildSessionId = null;
-    _activeChildParentSessionId = null;
-    _activeChildParentName = null;
+    if (_childStack.isEmpty) return;
+    _childStack.removeLast();
     notifyListeners();
   }
 

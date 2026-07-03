@@ -1181,15 +1181,27 @@ export class AgentSessionsController {
   // Returns [] when there is no SDK mapping (same contract as getDiff).
   // The route is GET /:id/children — no auth is required at the route level
   // (agentLocal=true, same as all other agent-session routes).
+  //
+  // #861 — nested delegation: when this endpoint is called with a CHILD's own
+  // SDK session id (grandchild lookup, e.g. parent → orchestrator → specialist),
+  // `:id` will not match a local DB row because child/subagent sessions are
+  // never persisted locally. In that case treat `:id` as already being a raw
+  // SDK session id and call listChildren with it directly, instead of 404ing —
+  // 404 is reserved for ids the SDK itself rejects (surfaced as a 502 below).
   async getChildren(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const session = repo.findById(req.params.id);
-      if (!session) throw AppError.notFound('AgentSession');
-      const opencodeId = resolveSdkSessionId(session);
-      if (!opencodeId) {
-        // No active SDK mapping — return empty array (same contract as getDiff).
-        res.json([]);
-        return;
+      let opencodeId: string | undefined;
+      if (session) {
+        opencodeId = resolveSdkSessionId(session);
+        if (!opencodeId) {
+          // No active SDK mapping — return empty array (same contract as getDiff).
+          res.json([]);
+          return;
+        }
+      } else {
+        // No local row — assume `:id` is a child/grandchild SDK session id.
+        opencodeId = req.params.id;
       }
       const children = await opencodeClient.listChildren(opencodeId);
       res.json(children);
@@ -1208,10 +1220,14 @@ export class AgentSessionsController {
   //
   // Role mapping: SDK 'user' → 'input', SDK 'assistant' → 'output' (matches
   // the role convention used throughout the structured-message pipeline).
+  //
+  // #861 — nested delegation: `:id` here is only used to validate the parent
+  // reference; the actual fetch always keys off `:childSdkId`. When `:id` is
+  // itself a child/grandchild SDK session id (no local DB row — nested hop),
+  // do not 404: children are never persisted locally by design, so absence of
+  // a row is expected and not an error condition for this route.
   async getChildMessages(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const session = repo.findById(req.params.id);
-      if (!session) throw AppError.notFound('AgentSession');
       const { childSdkId } = req.params;
       const sdkMessages = await opencodeClient.listMessages(childSdkId);
       // Map SDK Message[] → M1-2-compatible structured shape.

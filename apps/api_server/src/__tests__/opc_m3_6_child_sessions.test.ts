@@ -237,15 +237,46 @@ describe('issue-699-c1a: GET /agent-sessions/:id/children calls listChildren and
     expect(result[1].id).toBe('sdk-child-session-002');
   });
 
-  it('issue-699-c1a-unknown-session: 404 when the session row does not exist', async () => {
+  it('issue-861-c1a-nested: no local row → treats :id as a raw (child/grandchild) SDK '
+    + 'session id and calls listChildren with it directly (nested delegation)', async () => {
+    const grandchildSdkId = 'sdk-child-session-001'; // a CHILD's own SDK id — no local row
+    listChildrenSpy.mockResolvedValueOnce([kChildSessionFixture[1]]);
+
     const { res } = makeRes();
     const next = vi.fn();
 
-    await controller.getChildren(makeReq({ id: 'does-not-exist' }), res, next as NextFunction);
+    await controller.getChildren(makeReq({ id: grandchildSdkId }), res, next as NextFunction);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(listChildrenSpy).toHaveBeenCalledOnce();
+    expect(listChildrenSpy).toHaveBeenCalledWith(grandchildSdkId);
+    const result = (res.json as ReturnType<typeof vi.fn>).mock.calls[0][0] as typeof kChildSessionFixture;
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('sdk-child-session-002');
+  });
+
+  it('issue-861-c1a-nested-sdk-error: SDK rejects an unknown/invalid id → AppError forwarded via next(), '
+    + 'never a silent []', async () => {
+    const badId = 'does-not-exist';
+    const sdkError = Object.assign(
+      new Error(`listChildren failed for session ${badId}: {"code":404}`),
+      { statusCode: 502, code: 'SDK_ERROR' },
+    );
+    listChildrenSpy.mockRejectedValueOnce(sdkError);
+
+    const { res } = makeRes();
+    const next = vi.fn();
+
+    await controller.getChildren(makeReq({ id: badId }), res, next as NextFunction);
 
     expect(next).toHaveBeenCalledOnce();
-    const err = (next as ReturnType<typeof vi.fn>).mock.calls[0][0] as Error & { statusCode?: number };
-    expect(err.statusCode).toBe(404);
+    const err = (next as ReturnType<typeof vi.fn>).mock.calls[0][0] as Error;
+    expect(err).toBeInstanceOf(Error);
+    const jsonCalls = (res.json as ReturnType<typeof vi.fn>).mock.calls;
+    const silentEmpty = jsonCalls.some(
+      (call: unknown[]) => Array.isArray(call[0]) && (call[0] as unknown[]).length === 0,
+    );
+    expect(silentEmpty).toBe(false);
   });
 
   it('issue-699-c1a-sdk-error: SDK error → AppError 502 forwarded via next(), never a silent []', async () => {
@@ -348,19 +379,28 @@ describe('issue-699-c1b: GET /agent-sessions/:id/children/:childSdkId/messages r
     expect(parts1[1].type).toBe('tool');
   });
 
-  it('issue-699-c1b-unknown-parent: 404 when parent session row does not exist', async () => {
+  it('issue-861-c1b-nested: no local row for :id (a child\'s own SDK id) still fetches '
+    + 'the grandchild\'s messages via listMessages(childSdkId) — nested delegation', async () => {
+    const childSdkIdAsParent = 'sdk-child-session-001'; // acting as the "parent" for a grandchild
+    const grandchildSdkId = 'sdk-grandchild-session-001';
+    listMessagesSpy.mockResolvedValueOnce(kChildMessagesFixture);
+
     const { res } = makeRes();
     const next = vi.fn();
 
     await controller.getChildMessages(
-      makeReq({ id: 'does-not-exist', childSdkId: 'sdk-child-session-001' }),
+      makeReq({ id: childSdkIdAsParent, childSdkId: grandchildSdkId }),
       res,
       next as NextFunction,
     );
 
-    expect(next).toHaveBeenCalledOnce();
-    const err = (next as ReturnType<typeof vi.fn>).mock.calls[0][0] as Error & { statusCode?: number };
-    expect(err.statusCode).toBe(404);
+    expect(next).not.toHaveBeenCalled();
+    expect(listMessagesSpy).toHaveBeenCalledOnce();
+    expect(listMessagesSpy).toHaveBeenCalledWith(grandchildSdkId);
+    const result = (res.json as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      messages: unknown[];
+    };
+    expect(result.messages).toHaveLength(2);
   });
 
   it('issue-699-c1b-sdk-error: SDK error → AppError 502 forwarded via next()', async () => {
