@@ -22,6 +22,7 @@ vi.mock('../services/opencode_engine', () => ({
     isReady: true,
     listSkills: (...args: unknown[]) => listSkills(...args),
     listSkillsWithContent: (...args: unknown[]) => listSkillsWithContent(...args),
+    listMcp: () => Promise.resolve({}),
     reloadSkills: (...args: unknown[]) => reloadSkills(...args),
   },
   opencodeSessionMap: new Map(),
@@ -129,11 +130,21 @@ describe('/opencode/skills?withMetadata=true — #874 required env surfacing', (
     listSkills.mockResolvedValueOnce([
       { name: 'gif-search', description: 'gifs', location: '/skills/gif-search/SKILL.md' },
     ]);
+    // #875: listSkillsWithContent is now also called on the plain list (needed
+    // for toolset-visibility filtering, not just ?withMetadata=true env info)
+    // — but its content must still never leak into the response shape.
+    listSkillsWithContent.mockResolvedValueOnce([
+      {
+        name: 'gif-search',
+        description: 'gifs',
+        location: '/skills/gif-search/SKILL.md',
+        content: skillMd('gif-search'),
+      },
+    ]);
 
     const res = await fetch(`${baseUrl}/opencode/skills`);
     const body = (await res.json()) as Array<Record<string, unknown>>;
     expect(body[0]).not.toHaveProperty('metadata');
     expect(body[0]).not.toHaveProperty('content');
-    expect(listSkillsWithContent).not.toHaveBeenCalled();
   });
 });

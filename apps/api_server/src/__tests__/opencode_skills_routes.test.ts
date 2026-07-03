@@ -29,6 +29,8 @@ vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
     isReady: true,
     listSkills: (...args: unknown[]) => listSkills(...args),
+    listSkillsWithContent: () => Promise.resolve([]),
+    listMcp: () => Promise.resolve({}),
     reloadSkills: (...args: unknown[]) => reloadSkills(...args),
   },
   opencodeSessionMap: new Map(),

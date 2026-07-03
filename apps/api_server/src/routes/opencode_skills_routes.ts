@@ -32,8 +32,10 @@ import {
   readSkillContentAtLocation,
   InvalidSkillNameError,
 } from '../services/rhythm_managed_skills';
-import { parseSkillFrontmatter } from '../services/skill_frontmatter';
+import { parseSkillFrontmatter, type SkillFrontmatter } from '../services/skill_frontmatter';
 import { checkRequiredEnv } from '../services/skill_env_validator';
+import { isSkillVisible } from '../services/skill_visibility';
+import { resolveSessionToolsets } from '../services/session_toolset_resolver';
 
 export const opencodeSkillsRouter = Router();
 
@@ -121,8 +123,47 @@ opencodeSkillsRouter.get(
         managed: isManagedLocation(s.location),
       }));
 
+      // #874/#875 — a second engine call that keeps raw `content` (frontmatter
+      // + body). Needed both to read `required_environment_variables` (#874,
+      // metadata only) and `metadata.rhythm.{requires,fallback}_toolsets`
+      // (#875, applies to EVERY response — filtering is discovery-time, not
+      // opt-in via ?withMetadata). Best-effort: an empty/failed fetch means
+      // every skill reports the "no extended frontmatter" defaults — visible,
+      // no env warning — which is the same "behaves as before" fallback as a
+      // skill that genuinely declares neither field.
+      let frontmatterByName = new Map<string, SkillFrontmatter>();
+      try {
+        const withContent = await opencodeClient.listSkillsWithContent(directory);
+        frontmatterByName = new Map(withContent.map((s) => [s.name, parseSkillFrontmatter(s.content)]));
+      } catch {
+        // Non-fatal — frontmatterByName stays empty; every entry is visible with default env.
+      }
+
+      // #875 — resolve which toolsets are connected for this session/request.
+      // `terminalEnabled` is an optional override (?terminalEnabled=false) for
+      // callers/tests that need to simulate terminal being disabled; Rhythm
+      // has no per-session terminal toggle yet so it otherwise defaults on
+      // (see session_toolset_resolver.ts).
+      const terminalEnabledParam = req.query.terminalEnabled;
+      const toolsetConfig = await resolveSessionToolsets({
+        terminalEnabled: terminalEnabledParam === 'false' ? false : undefined,
+      });
+
+      // Apply the #875 visibility gate BEFORE anything else — an invisible
+      // skill is absent from both the plain list and the withMetadata list.
+      // This is an ADDITIONAL filter alongside (never a replacement for) the
+      // allowed_skills_json allowlist enforced later at session-scope time
+      // (agent_profile_scope.ts / ws_gateway.ts / agent_runner.ts) — that
+      // allowlist is about WHO may use a skill; this is about WHETHER the
+      // skill's own declared requirements are met in this environment.
+      const visibleEntries = entries.filter((entry) => {
+        const fm = frontmatterByName.get(entry.name);
+        if (!fm) return true; // no parseable frontmatter → no conditions → visible
+        return isSkillVisible(fm, toolsetConfig);
+      });
+
       if (req.query.withMetadata !== 'true') {
-        res.json(entries);
+        res.json(visibleEntries);
         return;
       }
 
@@ -134,26 +175,10 @@ opencodeSkillsRouter.get(
       // sidecar row with status measuring/reverted surfaces only as metadata.
       const repo = new AgentSkillsRepository();
 
-      // #874 — a second engine call that keeps raw `content` (frontmatter +
-      // body), needed to read `required_environment_variables`. Best-effort:
-      // an empty/failed fetch just means every skill reports the "no env
-      // declared" default (fail-open — never blocks the base skill list).
-      let envByName = new Map<string, { missing: string[]; satisfied: boolean }>();
-      try {
-        const withContent = await opencodeClient.listSkillsWithContent(directory);
-        envByName = new Map(
-          withContent.map((s) => {
-            const fm = parseSkillFrontmatter(s.content);
-            const check = checkRequiredEnv(fm.requiredEnv);
-            return [s.name, { missing: check.missing.map((v) => v.name), satisfied: check.allSatisfied }];
-          }),
-        );
-      } catch {
-        // Non-fatal — envByName stays empty, every entry falls back to DEFAULT_METADATA.env.
-      }
-
-      const withMetadata: SkillListEntryWithMetadata[] = entries.map((entry) => {
-        const env = envByName.get(entry.name) ?? { ...DEFAULT_METADATA.env };
+      const withMetadata: SkillListEntryWithMetadata[] = visibleEntries.map((entry) => {
+        const fm = frontmatterByName.get(entry.name);
+        const check = checkRequiredEnv(fm?.requiredEnv ?? []);
+        const env = { missing: check.missing.map((v) => v.name), satisfied: check.allSatisfied };
         const row = repo.findByName(entry.name);
         if (!row) {
           return { ...entry, metadata: { ...DEFAULT_METADATA, env } };
