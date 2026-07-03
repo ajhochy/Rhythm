@@ -27,6 +27,7 @@ import { AgentConfigsRepository } from '../repositories/agent_configs_repository
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { normalizeDerivedAllowedMcps } from './mcp_name_alignment';
+import { isProjectableAgentConfig } from './opencode_agent_writer';
 
 /**
  * opencode primaries that drive background machinery, not user-facing sessions.
@@ -685,5 +686,49 @@ export async function syncOpencodeAgentProfiles(
   }
 
   logger.info(`[AgentProfileSync] synced ${synced} opencode agent profile(s)`);
+
+  // #858 — repair rows whose oc_agent is not the reliable engine handle.
+  //
+  // The loop above only reaches rows whose `id` equals a NAME the engine
+  // reported via listAgents(). Profiles created directly via POST
+  // /agent-configs (the designer, or an org-optimizer create-agent proposal
+  // that predates this fix) get a random UUID `id` from
+  // AgentConfigsRepository.insert() and are NEVER visited by that loop —
+  // the engine has no agent literally named "<uuid>" until
+  // opencode_agent_writer.writeAgentProfileFile() projects the profile to
+  // ~/.config/opencode/agents/<id>.md and the engine reloads it. Until that
+  // round-trip completes (or for rows the round-trip never reaches, e.g. the
+  // engine was down when the profile was saved), oc_agent is stuck at
+  // whatever the caller happened to pass — often null, and issue #858 also
+  // surfaced rows where it held a different row's UUID by mistake.
+  //
+  // Both agent_sessions_controller (session-create/resume) and
+  // resolveProfileScope/ws_gateway treat oc_agent as the reliable engine
+  // routing target, falling back to `id` only when oc_agent is empty. Since
+  // writeAgentProfileFile always names the projected file after `id`, `id`
+  // IS the eventual engine-registered name for these rows — so self-healing
+  // oc_agent to `id` here is always correct, never a guess, and idempotent.
+  //
+  // Scope: only rows isProjectableAgentConfig() considers real opencode
+  // agents (excludes CLI model-selector presets and opencode builtins, which
+  // are intentionally never opencode agents) and only enabled rows. A row
+  // whose oc_agent already matches `id` is left alone (no-op write). Uses the
+  // pure predicate (not shouldWriteAgentFile) so the backfill also runs
+  // under vitest — this pass never touches the filesystem, only the DB.
+  try {
+    const repoAll = repo.list();
+    for (const config of repoAll) {
+      if (!config.enabled) continue;
+      if (!isProjectableAgentConfig(config)) continue;
+      if (config.ocAgent === config.id) continue;
+      repo.update(config.id, { ocAgent: config.id });
+      logger.warn(
+        `[AgentProfileSync] #858 backfilled stale oc_agent for "${config.id}" (was "${config.ocAgent ?? 'null'}") → "${config.id}"`,
+      );
+    }
+  } catch (err) {
+    logger.warn(`[AgentProfileSync] #858 oc_agent backfill pass failed (non-fatal): ${String(err)}`);
+  }
+
   return { synced };
 }

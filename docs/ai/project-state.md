@@ -279,3 +279,66 @@ is untracked — rebuild per machine.
   in this file, since the real SDK spawn is a dynamic ESM import not
   exercised in the unit suite). A manual account-switch smoke is recommended
   before considering #856 fully closed.
+### 2026-07-02 — #858 UUID-keyed agents can't chat (worktree: 858-ocagent)
+- Files modified:
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — session-create
+    and resume now persist `agentKind` = `agentConfig.ocAgent` (falling back to the
+    config id only when `ocAgent` is empty), instead of the raw `agent_configs.id`.
+    Resume additionally calls `repo.updateAgentKind()` when the resolved name
+    differs from what's stored, so a pre-fix row self-heals on next resume.
+  - `apps/api_server/src/services/agent_profile_sync.ts` — added a second pass
+    after the engine-agents loop that backfills `oc_agent` to `id` for every
+    enabled, projectable (`isProjectableAgentConfig`) row whose `oc_agent` is
+    null/empty/stale. This is the only path that reaches UUID-keyed rows the
+    engine has never reported via `listAgents()`.
+  - `apps/api_server/src/services/opencode_agent_writer.ts` — extracted the pure
+    eligibility check (`isProjectableAgentConfig`) out of `shouldWriteAgentFile`
+    so the backfill pass can call it without the test/postgres env guards that
+    gate the actual file-write side effect.
+  - `apps/api_server/src/routes/agents_capabilities_routes.ts` — "custom agent
+    config" capability now checks the config's resolved engine name against a
+    live `opencodeClient.listAgents()` snapshot (fail-open to prior
+    engine-ready-only behavior when the list is unavailable), so a UUID whose
+    `ocAgent` isn't actually registered no longer reports as promptable.
+  - Tests: `apps/api_server/src/__tests__/agent_sessions.test.ts`,
+    `apps/api_server/src/services/__tests__/agent_profile_sync.test.ts`,
+    `apps/api_server/src/__tests__/agents_capabilities_routes.test.ts` — new
+    `#858` cases (create/resume engine-name resolution, backfill, capabilities
+    gating) plus regression cases for slug-keyed configs.
+  - `PATCH /agent-configs/:id` (item 4 of the issue) was found ALREADY
+    implemented and tested on this branch (`agent_configs_controller.ts`
+    `.patch()`, wired in `agent_configs_routes.ts`, covered by
+    `agent_configs_routes.test.ts`) — no changes needed there.
+- Checks run:
+  - `tsc --noEmit` — clean.
+  - `vitest run` targeted files (`agent_sessions.test.ts`,
+    `agents_capabilities_routes.test.ts`, `agent_profile_sync.test.ts`,
+    `agent_configs_routes.test.ts`) — 100/100 pass.
+  - `vitest run` full suite — 214 files, 1858 passed, 1 skipped (pre-existing), 0 failed.
+- Decisions made:
+  - Root-caused the bug to `AgentSelectorPill`'s per-turn `agent` field and
+    `ws_gateway.ts`'s `perTurnAgent ?? wsOcAgent` precedence: both ultimately
+    resolve through `agent_configs.oc_agent`, so the real defect is `oc_agent`
+    being null/wrong for UUID-keyed rows, not a missing resolution step at the
+    WS layer (which was already correct). Fixed at the source: session-create/
+    resume now always persist the resolved engine name into `agent_kind`, and
+    sync guarantees `oc_agent` converges to `id` (the name
+    `opencode_agent_writer` actually registers the row's file under) for every
+    projectable row, closing the gap for rows the engine-agents loop never visits.
+  - Backfill runs opportunistically on every `GET /agents/capabilities`-adjacent
+    `GET /agents` call (which fires `syncOpencodeAgentProfiles`) and on
+    `POST /agent-configs/sync-opencode` — no new cron/migration needed.
+- Deviations from spec: none — all 4 acceptance items satisfied (item 4 was
+  pre-existing).
+- Concerns:
+  - The backfill sets `oc_agent = id` for any not-yet-synced projectable UUID
+    row. This is correct once `writeAgentProfileFile` + an engine reload
+    complete the round-trip, but there's a narrow window (row saved, sync ran,
+    engine hasn't reloaded the `.md` file yet) where `oc_agent` optimistically
+    points at a name the engine doesn't recognize YET. `/agents/capabilities`'
+    live-name check (item 3) correctly reports `false` during that window, so
+    the UI won't offer a broken chat — but a `session.input` frame sent to an
+    already-open picker selection made just before the reload could still hit
+    "Agent not found" once. Not addressed here (out of scope — no reload-wait
+    mechanism existed before this fix either); flagging for a possible
+    follow-up if it recurs in practice.

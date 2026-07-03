@@ -226,6 +226,92 @@ describe('GET /agents/capabilities', () => {
     const ids = Object.keys(caps).filter((k) => k !== 'providerToAgentKind');
     expect(ids.length).toBe(5);
   });
+
+  // ── #858: a UUID-keyed config must not be reported promptable when its
+  // resolved engine name is not actually a live opencode agent ────────────
+
+  it('#858: reports false for a UUID-keyed config whose ocAgent name is not a live engine agent', async () => {
+    const { opencodeClient } = await import('../services/opencode_engine');
+    (opencodeClient as unknown as { listAgents: ReturnType<typeof vi.fn> }).listAgents =
+      vi.fn().mockResolvedValue([{ name: 'secretary', mode: 'primary' }]);
+
+    const repo = new AgentConfigsRepository();
+    const uuidId = '77777777-7777-4777-8777-777777777777';
+    repo.insert({
+      id: uuidId,
+      label: 'AI Trend Researcher',
+      icon: '',
+      enabled: true,
+      ocAgent: 'ai-trend-researcher', // NOT in the live engine agent list above
+      sessionSelectable: true,
+    });
+
+    const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
+    const caps = (await res.json()) as Record<string, boolean>;
+    expect(caps[uuidId]).toBe(false);
+  });
+
+  it('#858: reports true for a UUID-keyed config whose ocAgent name IS a live engine agent', async () => {
+    const { opencodeClient } = await import('../services/opencode_engine');
+    // Order-independence: an earlier test in this file permanently overrides
+    // isReady to a false-returning getter via Object.defineProperty (plain
+    // mock object, not reset by vi.clearAllMocks()). Restore it explicitly
+    // rather than relying on suite ordering.
+    Object.defineProperty(opencodeClient, 'isReady', { get: () => true, configurable: true });
+    (opencodeClient as unknown as { listAgents: ReturnType<typeof vi.fn> }).listAgents =
+      vi.fn().mockResolvedValue([{ name: 'ai-trend-researcher', mode: 'primary' }]);
+
+    const repo = new AgentConfigsRepository();
+    const uuidId = '88888888-8888-4888-8888-888888888888';
+    repo.insert({
+      id: uuidId,
+      label: 'AI Trend Researcher',
+      icon: '',
+      enabled: true,
+      ocAgent: 'ai-trend-researcher',
+      sessionSelectable: true,
+    });
+
+    const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
+    const caps = (await res.json()) as Record<string, boolean>;
+    expect(caps[uuidId]).toBe(true);
+  });
+
+  it('#858: still reports true for a slug-keyed custom agent (id === ocAgent === live engine name)', async () => {
+    const { opencodeClient } = await import('../services/opencode_engine');
+    Object.defineProperty(opencodeClient, 'isReady', { get: () => true, configurable: true });
+    (opencodeClient as unknown as { listAgents: ReturnType<typeof vi.fn> }).listAgents =
+      vi.fn().mockResolvedValue([{ name: 'newcomer', mode: 'primary' }]);
+
+    const repo = new AgentConfigsRepository();
+    repo.insert({
+      id: 'newcomer',
+      label: 'Newcomer',
+      icon: '',
+      enabled: true,
+      ocAgent: 'newcomer',
+      sessionSelectable: true,
+    });
+
+    const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
+    const caps = (await res.json()) as Record<string, boolean>;
+    expect(caps['newcomer']).toBe(true);
+  });
+
+  it('#858: fails open (does not report false solely due to listAgents being unavailable)', async () => {
+    // No listAgents mock installed on the client at all (matches the existing
+    // "includes a newly created custom config" test's engine double) — must
+    // not throw, and must not regress a config that has no ocAgent set by
+    // reporting it differently than the pre-#858 "engine ready" fallback.
+    const repo = new AgentConfigsRepository();
+    repo.insert({ label: 'My Custom Agent', icon: '', enabled: true });
+
+    const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
+    expect(res.status).toBe(200);
+    const caps = (await res.json()) as Record<string, unknown>;
+    const ids = Object.keys(caps).filter((k) => k !== 'providerToAgentKind');
+    expect(ids.length).toBe(5);
+  });
 });
 
 describe('POST /agents/capabilities/refresh', () => {

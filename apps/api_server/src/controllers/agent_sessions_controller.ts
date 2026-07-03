@@ -408,6 +408,15 @@ export class AgentSessionsController {
       // user picks a model later in the composer, same as the trigger-bubble
       // flow from #653.
       let normalizedAgentId: string = '';
+      // #858: agent_configs.id can be a UUID (imported/generator-created
+      // profiles) that is NOT a name the opencode engine recognizes — only
+      // agent_configs.oc_agent is guaranteed to be the engine-registered name.
+      // resolvedEngineAgentKind is what gets persisted as agent_sessions.agent_kind
+      // and later fed to the engine (ws_gateway/agent_runner resolve `agent` from
+      // this same column). It equals normalizedAgentId for slug-keyed configs
+      // (id === ocAgent there) and only diverges for UUID-keyed configs whose
+      // ocAgent has been resolved to a real engine name.
+      let resolvedEngineAgentKind: string = '';
       if (typeof agentId === 'string' && agentId.trim() !== '') {
         normalizedAgentId = normalizeAgentId(agentId);
         const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
@@ -417,6 +426,10 @@ export class AgentSessionsController {
         if (!agentConfig.enabled) {
           throw AppError.badRequest(`agent disabled: '${normalizedAgentId}'`);
         }
+        resolvedEngineAgentKind =
+          agentConfig.ocAgent && agentConfig.ocAgent.trim() !== ''
+            ? agentConfig.ocAgent
+            : normalizedAgentId;
       }
 
       if (!cwd || typeof cwd !== 'string' || cwd.trim() === '') {
@@ -539,10 +552,12 @@ export class AgentSessionsController {
       }
 
       const dto: CreateAgentSessionDto = {
-        // OPC-#710: normalizedAgentId is '' for agent-less instant-create.
+        // OPC-#710: resolvedEngineAgentKind is '' for agent-less instant-create.
         // The AgentKind type accepts arbitrary strings; '' is persisted as the
         // agent_kind value and treated as "no agent selected yet" by the client.
-        agentKind: normalizedAgentId as AgentKind,
+        // #858: this is the ENGINE-resolvable name (agentConfig.ocAgent, falling
+        // back to the config id) — never the raw agent_configs UUID.
+        agentKind: resolvedEngineAgentKind as AgentKind,
         taskId: resolvedTaskId,
         taskTitle: taskTitle != null ? (taskTitle as string) : null,
         cwd: expandedCwd,
@@ -991,6 +1006,19 @@ export class AgentSessionsController {
         }
         if (!agentConfig.enabled) {
           throw AppError.badRequest(`agent disabled: '${requestedAgentId}'`);
+        }
+        // #858: mirror the create-path fix — persist the resolved ENGINE NAME
+        // (ocAgent), not the raw agent_configs id, so a UUID-keyed profile
+        // resumes with the same engine-resolvable agent_kind a fresh create
+        // would produce. Falls back to the requested id when ocAgent is empty
+        // (e.g. slug-keyed configs, or a profile agent_profile_sync hasn't
+        // backfilled yet).
+        const resolvedEngineAgentKind =
+          agentConfig.ocAgent && agentConfig.ocAgent.trim() !== ''
+            ? agentConfig.ocAgent
+            : requestedAgentId;
+        if (resolvedEngineAgentKind !== session.agentKind) {
+          repo.updateAgentKind(session.id, resolvedEngineAgentKind);
         }
       }
 
