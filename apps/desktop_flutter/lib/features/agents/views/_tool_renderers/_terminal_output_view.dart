@@ -31,10 +31,22 @@ String stripAnsi(String text) {
 }
 
 /// Renders a bash tool part as a monospace terminal block.
-class TerminalOutputView extends StatelessWidget {
+class TerminalOutputView extends StatefulWidget {
   const TerminalOutputView({super.key, required this.part});
 
   final ChatPart part;
+
+  @override
+  State<TerminalOutputView> createState() => _TerminalOutputViewState();
+}
+
+class _TerminalOutputViewState extends State<TerminalOutputView> {
+  // Default-COLLAPSED (maintainer smoke feedback, 2026-07-02): bash output is
+  // the noisiest tool body; the `$ command` header + status stay visible and
+  // the output expands on tap — consistent with ToolCallPart.
+  bool _expanded = false;
+
+  ChatPart get part => widget.part;
 
   String _command() {
     final args = part.toolArgs ?? {};
@@ -71,46 +83,64 @@ class TerminalOutputView extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header: status indicator + command.
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: context.rhythm.surfaceMuted,
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(RhythmRadius.md),
-                topRight: Radius.circular(RhythmRadius.md),
-              ),
-              border: Border(
-                bottom: BorderSide(color: context.rhythm.borderSubtle),
-              ),
+          // Header: status indicator + command. Tappable to expand/collapse
+          // the output body (collapsed by default).
+          InkWell(
+            onTap: output.isNotEmpty
+                ? () => setState(() => _expanded = !_expanded)
+                : null,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(RhythmRadius.md),
+              topRight: Radius.circular(RhythmRadius.md),
             ),
-            child: Row(
-              children: [
-                ToolStateIndicator(toolStatus: toolStatus),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '\$ $command',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontFamily: 'JetBrainsMono',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: context.rhythm.textPrimary,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: context.rhythm.surfaceMuted,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(RhythmRadius.md),
+                  topRight: Radius.circular(RhythmRadius.md),
+                ),
+                border: Border(
+                  bottom: BorderSide(color: context.rhythm.borderSubtle),
+                ),
+              ),
+              child: Row(
+                children: [
+                  ToolStateIndicator(toolStatus: toolStatus),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '\$ $command',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: 'JetBrainsMono',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: context.rhythm.textPrimary,
+                      ),
                     ),
                   ),
-                ),
-                // Exit-code badge when there's an error with an exit code.
-                if (isError) ...[
-                  const SizedBox(width: 8),
-                  _ExitCodeBadge(exitCode: exitCode ?? 1),
+                  // Exit-code badge when there's an error with an exit code.
+                  if (isError) ...[
+                    const SizedBox(width: 8),
+                    _ExitCodeBadge(exitCode: exitCode ?? 1),
+                  ],
+                  if (output.isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    Icon(
+                      _expanded ? Icons.expand_more : Icons.chevron_right,
+                      size: 16,
+                      color: context.rhythm.textMuted,
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
-          // Output body.
-          if (output.isNotEmpty)
+          // Output body (only when expanded).
+          if (_expanded && output.isNotEmpty)
             Padding(
               padding: const EdgeInsets.all(10),
               child: SelectableText(
