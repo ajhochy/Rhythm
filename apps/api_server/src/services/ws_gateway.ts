@@ -577,10 +577,21 @@ export async function handleInputFrame(
   // Known limitation: if the user switches back to an unrestricted profile
   // (no mcpRoleConfig), the fork session retains the last-set allowlist for
   // that session — see docs/ai/project-state.md risk note.
-  if (wsMcpRoleConfig?.allowedToolsJson) {
+  //
+  // Issue #855: pass the WHOLE wsMcpRoleConfig through to updateSessionAllowlist
+  // (which expands it via the same expandMcpAllowlist() createSession uses) —
+  // do NOT hand-roll `JSON.parse(wsMcpRoleConfig.allowedToolsJson) as string[]`
+  // here. `allowedToolsJson` is the raw, UNEXPANDED profile JSON and can be a
+  // tools-map object (`{"canva":["tool1"]}`) rather than a bare server-name
+  // array, depending on how the profile's allowed_mcps_json was authored. That
+  // wrong-shape parse was silently defeating this entire guard: the malformed
+  // PATCH failed the fork's strict McpAllowlist schema validation, was
+  // swallowed by the catch below as "non-fatal", and the session's
+  // mcpAllowlist stayed unset — so filterMcpToolsByAllowlist saw `undefined`
+  // and injected the FULL tool surface for every profiled turn.
+  if (wsMcpRoleConfig) {
     try {
-      const servers = JSON.parse(wsMcpRoleConfig.allowedToolsJson) as string[];
-      await opencodeClient.updateSessionAllowlist(opencodeId, servers);
+      await opencodeClient.updateSessionAllowlist(opencodeId, wsMcpRoleConfig);
     } catch (allowlistErr) {
       console.error(`[ws_gateway] updateSessionAllowlist failed (non-fatal):`, allowlistErr);
     }

@@ -27,6 +27,16 @@ import '../controllers/agent_skills_controller.dart';
 ///     re-expanding does not refetch. A spinner shows while fetching and a soft
 ///     error renders on failure.
 ///
+/// #845 (skill-effectiveness dashboard): adds sortable Score (judge
+/// `postScore`) and Usage (`uses`) columns between Description and Status,
+/// following the same `skills-sort-*` header pattern. A skill with no
+/// measurement/usage data sorts as lowest (never crashes) and renders a muted
+/// `—` placeholder. The lazy expansion area gains a measurement-history
+/// section showing the baseline→post score narrative for a kept measurement,
+/// or a distinct "Reverted" marker for a revert event — sourced from the
+/// existing sidecar ledger (`baselineScore`/`postScore`/`measureReason`), no
+/// new history table.
+///
 /// Everything from #796 is preserved: the "New skill" create button, managed
 /// edit/delete, external read-only rows, and the lifecycle/provenance metadata.
 /// All traffic stays on the local agent server (`:4001`) via the data source —
@@ -39,7 +49,7 @@ class AgentSkillsView extends StatefulWidget {
 }
 
 /// Which column the table is sorted by.
-enum _SortColumn { name, description, status }
+enum _SortColumn { name, description, status, score, usage }
 
 /// The lifecycle status of a skill, defaulting to `active` when no sidecar row
 /// is present (the server's documented default). Lower-cased for stable
@@ -67,6 +77,19 @@ int _statusRank(String status) {
 /// Fixed width of the trailing status/actions cell. Sized to hold a lifecycle
 /// pill plus the edit + delete icon buttons without overflowing the row.
 const double _kTrailingCellWidth = 132;
+
+/// Fixed width of the Score and Usage columns (#845) — narrow numeric cells,
+/// each sized to hold a short value/placeholder plus its sort header.
+const double _kScoreCellWidth = 64;
+const double _kUsageCellWidth = 64;
+
+/// #845 — the judge `postScore` used for sorting/rendering the Score column,
+/// or `null` when the skill has never been measured.
+double? _postScoreOf(OpencodeSkillEntry skill) => skill.metadata?.postScore;
+
+/// #845 — the usage count used for sorting/rendering the Usage column, or
+/// `null` when the skill has no sidecar row / has never been used.
+int? _usesOf(OpencodeSkillEntry skill) => skill.metadata?.uses;
 
 class _AgentSkillsViewState extends State<AgentSkillsView> {
   final TextEditingController _searchController = TextEditingController();
@@ -133,6 +156,20 @@ class _AgentSkillsViewState extends State<AgentSkillsView> {
           // Tiebreak by name so same-status rows have a stable order.
           result = byRank != 0
               ? byRank
+              : a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        case _SortColumn.score:
+          // Null (never measured) sorts as lowest so ascending surfaces
+          // measured skills first without crashing on a missing score.
+          final byScore = (_postScoreOf(a) ?? double.negativeInfinity)
+              .compareTo(_postScoreOf(b) ?? double.negativeInfinity);
+          result = byScore != 0
+              ? byScore
+              : a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        case _SortColumn.usage:
+          // Null (no sidecar row) sorts as lowest, same rationale as score.
+          final byUsage = (_usesOf(a) ?? -1).compareTo(_usesOf(b) ?? -1);
+          result = byUsage != 0
+              ? byUsage
               : a.name.toLowerCase().compareTo(b.name.toLowerCase());
       }
       return _ascending ? result : -result;
@@ -478,7 +515,7 @@ class _TableHeader extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            flex: 4,
+            flex: 3,
             child: _HeaderCell(
               keyValue: 'skills-sort-name',
               label: 'Name',
@@ -489,13 +526,36 @@ class _TableHeader extends StatelessWidget {
           ),
           const SizedBox(width: RhythmSpacing.sm),
           Expanded(
-            flex: 6,
+            flex: 5,
             child: _HeaderCell(
               keyValue: 'skills-sort-description',
               label: 'Description',
               active: sortColumn == _SortColumn.description,
               ascending: ascending,
               onTap: () => onSort(_SortColumn.description),
+            ),
+          ),
+          const SizedBox(width: RhythmSpacing.sm),
+          // #845 — sortable Score (judge postScore) + Usage (uses) columns.
+          SizedBox(
+            width: _kScoreCellWidth,
+            child: _HeaderCell(
+              keyValue: 'skills-sort-score',
+              label: 'Score',
+              active: sortColumn == _SortColumn.score,
+              ascending: ascending,
+              onTap: () => onSort(_SortColumn.score),
+            ),
+          ),
+          const SizedBox(width: RhythmSpacing.xs),
+          SizedBox(
+            width: _kUsageCellWidth,
+            child: _HeaderCell(
+              keyValue: 'skills-sort-usage',
+              label: 'Usage',
+              active: sortColumn == _SortColumn.usage,
+              ascending: ascending,
+              onTap: () => onSort(_SortColumn.usage),
             ),
           ),
           const SizedBox(width: RhythmSpacing.sm),
@@ -682,7 +742,7 @@ class _SkillRowState extends State<_SkillRow> {
                   const SizedBox(width: RhythmSpacing.xs),
                   // Name column (+ badges).
                   Expanded(
-                    flex: 4,
+                    flex: 3,
                     child: Row(
                       children: [
                         Flexible(
@@ -713,7 +773,7 @@ class _SkillRowState extends State<_SkillRow> {
                   const SizedBox(width: RhythmSpacing.sm),
                   // Description column.
                   Expanded(
-                    flex: 6,
+                    flex: 5,
                     child: Text(
                       (snippet != null && snippet.isNotEmpty) ? snippet : '—',
                       style: TextStyle(
@@ -725,6 +785,17 @@ class _SkillRowState extends State<_SkillRow> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
+                  ),
+                  const SizedBox(width: RhythmSpacing.sm),
+                  // #845 — Score (judge postScore) + Usage (uses) value cells.
+                  SizedBox(
+                    width: _kScoreCellWidth,
+                    child: _NumericCell(value: _postScoreOf(skill)),
+                  ),
+                  const SizedBox(width: RhythmSpacing.xs),
+                  SizedBox(
+                    width: _kUsageCellWidth,
+                    child: _NumericCell(value: _usesOf(skill)?.toDouble()),
                   ),
                   const SizedBox(width: RhythmSpacing.sm),
                   // Trailing status/metadata cell + actions.
@@ -769,6 +840,10 @@ class _SkillRowState extends State<_SkillRow> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                    ],
+                    if (meta.hasMeasurementHistory) ...[
+                      const SizedBox(height: RhythmSpacing.xs),
+                      _MeasurementHistory(skillName: skill.name, meta: meta),
                     ],
                     const SizedBox(height: RhythmSpacing.sm),
                   ],
@@ -917,6 +992,32 @@ class _TrailingCell extends StatelessWidget {
   }
 }
 
+/// #845 — a compact numeric value cell for the Score/Usage columns. Renders a
+/// muted `—` placeholder when [value] is null (no sidecar row / never
+/// measured/used) instead of fabricating a 0. Both the Score (judge
+/// `postScore`) and Usage (`uses`) columns render as whole numbers.
+class _NumericCell extends StatelessWidget {
+  const _NumericCell({required this.value});
+
+  final double? value;
+
+  @override
+  Widget build(BuildContext context) {
+    final rhythm = context.rhythm;
+    final text = value == null ? '—' : value!.toStringAsFixed(0);
+    return Text(
+      text,
+      textAlign: TextAlign.end,
+      style: TextStyle(
+        color: value == null ? rhythm.textMuted : rhythm.textSecondary,
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+      ),
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
 /// `MANAGED` (accent) or `EXTERNAL` (muted) pill rendered next to a skill name.
 class _ProvenanceBadge extends StatelessWidget {
   const _ProvenanceBadge({required this.skill});
@@ -1025,6 +1126,85 @@ class _ScoreLine extends StatelessWidget {
       'score ${meta.baselineScore!.toStringAsFixed(2)} → '
       '${meta.postScore!.toStringAsFixed(2)}',
       style: TextStyle(color: context.rhythm.textMuted, fontSize: 11),
+    );
+  }
+}
+
+/// #845 — measurement history for the expansion area: the LLM-judge's
+/// baseline→post score narrative for a kept measurement, or a distinct
+/// "Reverted" marker for a revert event. Renders only when the sidecar row
+/// carries a `measureReason` (i.e. the skill has been measured at least
+/// once) — a skill with no measurement ledger renders nothing here.
+class _MeasurementHistory extends StatelessWidget {
+  const _MeasurementHistory({required this.skillName, required this.meta});
+
+  final String skillName;
+  final OpencodeSkillMetadata meta;
+
+  @override
+  Widget build(BuildContext context) {
+    final rhythm = context.rhythm;
+    final reason = meta.measureReason!;
+    final isRevert = meta.isRevertEvent;
+
+    return Container(
+      key: ValueKey('measurement-history-$skillName'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(RhythmSpacing.xs),
+      margin: const EdgeInsets.only(bottom: RhythmSpacing.sm),
+      decoration: BoxDecoration(
+        color: rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+        border: Border.all(color: rhythm.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Measurement history',
+                style: TextStyle(
+                  color: rhythm.textMuted,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.4,
+                ),
+              ),
+              if (isRevert) ...[
+                const SizedBox(width: RhythmSpacing.xxs),
+                Text(
+                  '· Reverted',
+                  style: TextStyle(
+                    color: rhythm.danger,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: RhythmSpacing.xxs),
+          if (meta.hasScores)
+            Text(
+              'baseline ${meta.baselineScore!.toStringAsFixed(0)} → '
+              'post ${meta.postScore!.toStringAsFixed(0)}',
+              style: TextStyle(
+                color: rhythm.textSecondary,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          if (!isRevert) ...[
+            const SizedBox(height: RhythmSpacing.xxs),
+            Text(
+              reason,
+              style: TextStyle(color: rhythm.textMuted, fontSize: 11),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

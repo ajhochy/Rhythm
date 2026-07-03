@@ -1,0 +1,54 @@
+{
+  "issue": 831,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-831-c1",
+      "text": "Smoke asserts the AUTO PATH REVERTS: a forced regression on a low-risk proposal restores before_snapshot_json and sets status='reverted'.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_831_contract.test.ts",
+      "test_id": "issue-831-c1: restores before_snapshot_json and sets status=reverted when the functional guard fails after apply",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-831-c2",
+      "text": "Smoke asserts GATE INVARIANTS: no create-agent, grant-delegation, expand-delegation, broaden-scope, webhook-wiring, or external-adoption proposal is EVER auto-applied (all remain 'proposed' until approved).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_831_contract.test.ts",
+      "test_id": "issue-831-c2: classifyProposalRisk(%s) is always \"high\" (never \"low\") / applyProposal refuses a %s proposal even if its stored risk column says \"low\"",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-831-c3",
+      "text": "Smoke asserts a created agent's role file names ⊆ live (reuse the existing alignment invariant).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_831_contract.test.ts",
+      "test_id": "issue-831-c3: applyCreateAgentChange refuses to create the role file if a proposed MCP name is not in the live set",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-831-c4",
+      "text": "Smoke asserts external-adoption AND webhook-wiring cannot be approved without their required note.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_831_contract.test.ts",
+      "test_id": "issue-831-c4: requiresSecurityNote(%s) is true, and hasSecurityNote is false for an empty/missing provenance_json",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-831-c5",
+      "text": "Runs in CI against the built binary; non-zero exit on any violation.",
+      "mode": "manual",
+      "reason": "Requires the ACTUAL signed/built opencode fork binary (per the fork-rebuild-resign-gotcha precedent — cp breaks the ad-hoc signature, SIGKILL rc=137) produced only by a full desktop_release.yml run. tools/release/smoke_org_optimizer.sh is written, exits non-zero on violation, and is wired into .github/workflows/desktop_release.yml immediately after the fork-marker verification step (same slot as smoke_mcp_alignment.sh / smoke_skill_alignment.sh), but cannot be executed against a real signed binary in this sandbox. The enforceable, portable complement is the code-level vitest in this same file (issue-831-c1/c2/c3/c4), which covers the identical safety invariants without requiring the binary."
+    },
+    {
+      "criterion_id": "issue-831-c6",
+      "text": "The smoke script IS the test, PLUS a fail-injection case proving the smoke catches an auto-applied high-risk proposal (guard-regression detection).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_831_contract.test.ts",
+      "test_id": "issue-831-c6: proves the guard is load-bearing: simulating a classifier regression (high-risk kind misclassified low) makes the c2 assertion fail / proves applyProposal itself would apply a high-risk proposal if classifyProposalRisk were bypassed",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-831-c5"]
+}

@@ -142,12 +142,92 @@ After deploying the Opencode engine:
 - [ ] `DELETE /agent-sessions/:id` — returns 204, session map entry is cleared
 - [ ] `flutter run -d macos` — app launches without errors, AI Account section shows connected providers on open
 
+## Running the fork engine in dev (issue #855)
+
+**Finding:** in ordinary `npm run dev` / `flutter run` development, the api_server
+spawns whatever `opencode` binary is first on `PATH` — via `@opencode-ai/sdk`'s
+`createOpencode()`, which shells out to the literal command name `opencode`
+(`cross-spawn("opencode", ...)`, no absolute-path option). `augmentPathForOpencode()`
+(in `apps/api_server/src/services/opencode_client_service.ts`) only prepends the
+**bundled** Rhythm fork binary's directory when it can find one at
+`<Resources>/opencode_bin/opencode` — a path that only exists inside a signed
+release `.app` bundle. In dev, that candidate never exists, so it logs a WARN and
+falls through to the ambient PATH — almost always a **stock** upstream opencode
+install (e.g. the official installer's `~/.opencode/bin/opencode`, symlinked from
+`~/.local/bin/opencode`). Stock opencode carries NONE of the Rhythm-carried
+patches (`filterMcpToolsByAllowlist`, per-session `mcpAllowlist`/`skillAllowlist`
+on `Session.Info`, etc.) — every MCP tool schema is injected unconditionally,
+which is why per-session scoping can appear completely inactive in dev even when
+every api_server-side push (`ws_gateway` → `updateSessionAllowlist`) is correct.
+
+### Build the fork binary
+
+```bash
+cd apps/opencode_fork/packages/opencode
+bun run build --single
+# → dist/opencode-<platform>-<arch>/bin/opencode  (e.g. dist/opencode-darwin-arm64/bin/opencode)
+```
+
+`--single` (defined in `script/build.ts`) builds only the binary matching the
+current host platform/arch — much faster than the full multi-target build used
+by CI (`--macos`, which the release workflow uses for the universal arm64+x64
+DMG bundle). See `docs/ai/decisions/2026-06-25-opencode-fork-vendoring.md` for the
+subtree/build background.
+
+### Point dev at the fork build
+
+Two env vars, read by `augmentPathForOpencode()` at api_server startup, checked
+**before** the bundled-release path so an explicit dev override always wins:
+
+- `RHYTHM_OPENCODE_BIN_DIR=/abs/path/to/dist/opencode-darwin-arm64/bin` — a
+  directory containing an `opencode` executable.
+- `RHYTHM_OPENCODE_BIN=/abs/path/to/dist/opencode-darwin-arm64/bin/opencode` — the
+  full path to the executable itself (its parent dir is prepended).
+
+```bash
+cd apps/api_server
+export RHYTHM_OPENCODE_BIN_DIR="$(cd ../opencode_fork/packages/opencode && pwd)/dist/opencode-darwin-arm64/bin"
+npm run dev
+```
+
+Unset (the default), behavior is byte-for-byte unchanged from before #855 — no
+regression risk for anyone not opting in. An invalid/missing path is logged as a
+WARN and the override is ignored (falls through to the pre-#855 candidates), it
+never silently no-ops without a trace.
+
+### Confirm which engine is actually running
+
+Every api_server startup now logs exactly one of:
+
+```
+[OpencodeClientService] engine: /path/to/fork/dist/.../opencode (dev override — fork patches expected active)
+[OpencodeClientService] engine: /path/to/opencode_bin/opencode (bundled fork build — fork patches expected active)
+[OpencodeClientService] engine: opencode resolved from PATH (stock PATH — scoping inactive unless RHYTHM_OPENCODE_BIN[_DIR] is set)
+```
+
+Read this line first any time MCP/skill allowlist scoping seems inactive. Only
+the first two lines mean the fork's `resolveTools` gate can possibly be active;
+the third line means every MCP tool schema will be injected regardless of what
+the api_server pushes — the bug is "wrong binary," not "wrong allowlist logic."
+
+**Still requires a human to verify live:** this env override was validated at
+the PATH-resolution unit level (`augmentPathForOpencode` tests in
+`opencode_client_service.test.ts`) in this environment. Actually building the
+fork binary (`bun run build --single`) and confirming a real profiled session's
+`resolveTools complete { resolveToolsCount, allowlistActive }` debug log shows
+`allowlistActive: true` with a trimmed `resolveToolsCount` — end to end, against
+the real spawned fork process — was **not** performed in this pass and still
+needs a human (or a follow-up agent with a build-capable sandbox) to run.
+
 ## MCP allowlist smoke (per-session tool-schema scoping — mcp-scope)
 
 Verifies a profile-scoped session injects only its allowlisted MCP tool schemas.
-**Requires the patched fork engine** — either a locally-built fork binary on PATH
-(`cd apps/opencode_fork/packages/opencode && bun run build --single && export PATH="$PWD/dist/opencode-darwin-arm64/bin:$PATH"`) or the bundled fork from a release build (`Contents/Resources/opencode_bin/opencode`). Confirm the fork is in use: its
-`--version` is NOT a stock `1.x.y` (it embeds the branch, e.g. `0.0.0-feature/...`).
+**Requires the patched fork engine** — either `RHYTHM_OPENCODE_BIN_DIR` pointed at
+a locally-built fork binary (see "Running the fork engine in dev" above) or the
+bundled fork from a release build (`Contents/Resources/opencode_bin/opencode`).
+Confirm the fork is in use via the api_server startup log line described above,
+or by checking the engine's `--version` directly: it is NOT a stock `1.x.y` (it
+embeds the branch, e.g. `0.0.0-feature/...`).
 
 **Measurement instrument:** the fork's `resolveTools` emits a DEBUG log on every
 prompt: `resolveTools complete { resolveToolsCount, allowlistActive }`. Read it from

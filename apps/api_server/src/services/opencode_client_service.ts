@@ -40,6 +40,9 @@ async function runCommand(file: string, args: string[]): Promise<string> {
 
 type EngineStatus = 'uninitialized' | 'ready' | 'error';
 
+/** Providers that are usable over loopback without an auth-store credential. */
+const KEYLESS_LOCAL_PROVIDER_IDS = new Set(['ollama']);
+
 /**
  * The fixed TCP port the bundled opencode engine listens on. The SDK's
  * `createOpencode()` spawns `opencode serve` on this port by default, and the
@@ -213,8 +216,63 @@ export async function reclaimStalePortForOpencode(
  * so the forked engine always shadows any stock opencode on PATH. In local
  * `flutter run` / `npm run dev` development none of the candidates exist; in
  * that case a WARN is logged and the existing PATH fallbacks are used as-is.
+ *
+ * Issue #855 finding: in day-to-day dev (`npm run dev` via tsx, no `dist/`),
+ * NEITHER candidate above ever exists, so every dev session silently falls
+ * back to whatever `opencode` is on the ambient PATH — almost always the
+ * stock upstream binary a developer installed globally (e.g. `~/.opencode/bin`
+ * from the official installer), which carries NONE of the Rhythm fork's
+ * per-session MCP/skill allowlist patches. The api_server-side allowlist push
+ * (ws_gateway → opencode_client_service.updateSessionAllowlist) can be
+ * perfectly correct and still appear to do nothing against a stock engine,
+ * because stock `resolveTools` has no `filterMcpToolsByAllowlist` gate at all —
+ * every MCP tool schema is injected regardless of what session state says.
+ * This is a `find the right binary on PATH` gap, not a scoping-logic bug.
+ *
+ * `RHYTHM_OPENCODE_BIN_DIR` (a directory containing an `opencode` executable)
+ * or `RHYTHM_OPENCODE_BIN` (a full path to the executable itself) let a
+ * developer point a plain `npm run dev` / `flutter run` session at a locally
+ * built fork binary (`cd apps/opencode_fork/packages/opencode && bun run build
+ * --single`, see docs/ai/testing-guide.md "Running the fork engine in dev")
+ * WITHOUT needing a signed release build or manually exporting PATH in every
+ * new terminal. When set, the resolved directory is prepended FIRST — ahead of
+ * even the bundled-release opencode_bin dir — so an explicit dev override
+ * always wins. Unset (the default) leaves today's behavior byte-for-byte
+ * unchanged.
  */
 export function augmentPathForOpencode(): void {
+  const extras: string[] = [];
+
+  // Issue #855 — highest-priority override: an explicit dev pointer at a
+  // locally built fork binary. Checked BEFORE the bundled-release path so a
+  // developer's override always wins, including inside a signed dev build.
+  const devBinPath = process.env.RHYTHM_OPENCODE_BIN?.trim();
+  const devBinDirEnv = process.env.RHYTHM_OPENCODE_BIN_DIR?.trim();
+  let devBinDir: string | undefined;
+  if (devBinPath) {
+    if (existsSync(devBinPath)) {
+      devBinDir = join(devBinPath, '..');
+    } else {
+      logger.warn(
+        `[WARN] RHYTHM_OPENCODE_BIN="${devBinPath}" does not exist — ignoring override`,
+      );
+    }
+  } else if (devBinDirEnv) {
+    if (existsSync(join(devBinDirEnv, 'opencode'))) {
+      devBinDir = devBinDirEnv;
+    } else {
+      logger.warn(
+        `[WARN] RHYTHM_OPENCODE_BIN_DIR="${devBinDirEnv}" has no "opencode" executable — ignoring override`,
+      );
+    }
+  }
+  if (devBinDir) {
+    extras.push(devBinDir);
+    logger.info(
+      `[OpencodeClientService] RHYTHM_OPENCODE_BIN${devBinPath ? '' : '_DIR'} override active — engine will spawn from ${devBinDir}`,
+    );
+  }
+
   // Probe candidate locations of the bundled opencode_bin dir relative to the
   // compiled module. dist/services (bundle today) is three levels up; a
   // flattened dist/ would be two — pick whichever actually holds the binary.
@@ -226,11 +284,9 @@ export function augmentPathForOpencode(): void {
     existsSync(join(d, 'opencode')),
   );
 
-  const extras: string[] = [];
-
   if (bundledBinDir) {
     extras.push(bundledBinDir);
-  } else {
+  } else if (!devBinDir) {
     logger.warn(
       `[WARN] bundled opencode fork not found near ${__dirname}; falling back to PATH opencode (patch may be inactive)`,
     );
@@ -244,8 +300,28 @@ export function augmentPathForOpencode(): void {
 
   const current = (process.env.PATH ?? '').split(':');
   const missing = extras.filter((d) => !current.includes(d));
-  if (missing.length === 0) return;
-  process.env.PATH = [...missing, ...current].filter(Boolean).join(':');
+  if (missing.length > 0) {
+    process.env.PATH = [...missing, ...current].filter(Boolean).join(':');
+  }
+
+  // Issue #855 — unambiguous startup signal for which engine will actually be
+  // spawned and whether the fork's scoping patches are expected to be active.
+  // Read this log any time MCP allowlist scoping seems inactive: if it says
+  // "stock PATH — scoping inactive", the fix is to build the fork and set
+  // RHYTHM_OPENCODE_BIN[_DIR], not to re-audit the allowlist push logic.
+  if (devBinDir) {
+    logger.info(
+      `[OpencodeClientService] engine: ${join(devBinDir, 'opencode')} (dev override — fork patches expected active)`,
+    );
+  } else if (bundledBinDir) {
+    logger.info(
+      `[OpencodeClientService] engine: ${join(bundledBinDir, 'opencode')} (bundled fork build — fork patches expected active)`,
+    );
+  } else {
+    logger.info(
+      `[OpencodeClientService] engine: opencode resolved from PATH (stock PATH — scoping inactive unless RHYTHM_OPENCODE_BIN[_DIR] is set)`,
+    );
+  }
 }
 
 type OpencodeServerHandle = { url: string; close(): void };
@@ -525,7 +601,23 @@ export class OpencodeClientService {
 
   /** Returns provider IDs that are actually authed (per auth.json). */
   async listAuthedProviders(): Promise<string[]> {
-    return this.authStore.listAuthedProviders();
+    const connected = new Set(this.authStore.listAuthedProviders());
+    if (!this.client) return [...connected];
+
+    try {
+      const raw = await this.client.config.providers();
+      for (const provider of raw.data?.providers ?? []) {
+        if (KEYLESS_LOCAL_PROVIDER_IDS.has(provider.id)) {
+          connected.add(provider.id);
+        }
+      }
+    } catch (err) {
+      logger.warn(
+        '[OpencodeClientService] keyless local provider discovery failed:',
+        err,
+      );
+    }
+    return [...connected];
   }
 
   /** Get available models for a provider */
@@ -679,17 +771,33 @@ export class OpencodeClientService {
    * Uses direct fetch rather than the SDK client because the SDK's generated body
    * type only includes `title` (generated before mcp-scope support was added), and
    * the fork's URL is known at this.baseUrl.
+   *
+   * Issue #855: this method takes the SAME `McpRoleConfig` shape createSession()
+   * accepts and expands it via the SAME `expandMcpAllowlist` helper — NOT a raw
+   * `servers: string[]` that a caller might derive by naively JSON.parsing
+   * `mcpRoleConfig.allowedToolsJson`. That raw field is the UNEXPANDED profile
+   * JSON and can be either a bare server-name array OR a tools-map object
+   * (`{"canva":["tool1"]}`) depending on how the profile's allowed_mcps_json was
+   * authored (see agent_profile_scope.ts `_buildMcpRoleConfig`). Parsing the
+   * tools-map form and passing it straight through as `servers` sends the fork's
+   * strict `McpAllowlist.servers: Schema.Array(Schema.String)` an OBJECT — the
+   * PATCH fails schema validation, is swallowed as non-fatal by the caller, and
+   * the session's mcpAllowlist is left `undefined` (full tool surface injected).
+   * Centralizing on expandMcpAllowlist (already covered by
+   * mcp_allowlist_expander.test.ts) guarantees this call site can never regress
+   * to that wrong shape again, the same way createSession is protected today.
    */
   async updateSessionAllowlist(
     sessionId: string,
-    servers: string[],
+    mcpRoleConfig: import('./agent_profile_scope').McpRoleConfig,
   ): Promise<boolean> {
     try {
+      const mcpAllowlist = expandMcpAllowlist(mcpRoleConfig);
       const base = this.serverUrl;
       const res = await fetch(`${base}/session/${sessionId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mcpAllowlist: { servers, tools: [] } }),
+        body: JSON.stringify({ mcpAllowlist }),
       });
       if (!res.ok) {
         logger.warn('[OpencodeClientService] updateSessionAllowlist HTTP %s for session %s', res.status, sessionId);

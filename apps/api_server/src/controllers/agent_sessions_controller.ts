@@ -13,6 +13,7 @@ import type { AgentKind, CreateAgentSessionDto, PermissionMode } from '../models
 import { PERMISSION_MODES } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
 import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
+import { estimateToolSurface } from '../services/tool_surface_estimator';
 import { streamBridge } from '../services/opencode_stream_bridge';
 import { broadcastSessionUpdated, broadcastSessionRemoved } from '../services/ws_gateway';
 import { logger } from '../utils/logger';
@@ -554,6 +555,30 @@ export class AgentSessionsController {
       };
 
       const session = repo.insert(dto);
+
+      // #842 (tokens-02) — unscoped sessions are a visible deliberate
+      // exception, not a silent default. Flag every unscoped (no mcpRole)
+      // session with a warning carrying its #841 tool-surface estimate, so
+      // "this session has full tool access" is discoverable from logs alone
+      // without requiring a UI badge (AC1 accepts "UI badge and/or log
+      // warning"). A role-scoped session never logs this warning.
+      if (!resolvedMcpRole) {
+        try {
+          // Builtins-only floor estimate at create time (no engine round trip
+          // for connected servers here — GET /agent-sessions/:id/tool-surface
+          // gives the fuller, connected-servers-included total on demand).
+          const unscopedSurface = estimateToolSurface({ mcpRole: null, connectedServerNames: [] });
+          logger.warn(
+            '[AgentSessionsController] session %s created unscoped (no mcpRole) — floor totalEstimatedTokens=%s (actual total is higher once connected MCP servers are counted; see GET /agent-sessions/%s/tool-surface)',
+            session.id,
+            unscopedSurface.totalEstimatedTokens,
+            session.id,
+          );
+        } catch (err) {
+          // Never let a reporting failure affect session creation.
+          logger.warn(`[AgentSessionsController] #842 unscoped-session tool-surface logging failed: ${String(err)}`);
+        }
+      }
 
       // Issue #653: The previous #629 system-message seeding and the
       // agent-less ('__pending__') early-return branch are intentionally
@@ -1200,6 +1225,78 @@ export class AgentSessionsController {
       }
       const todos = await opencodeClient.getTodo(opencodeId);
       res.json(todos);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * #841 (tokens-01) — GET /agent-sessions/:id/tool-surface
+   *
+   * Computes and returns the estimated tool-surface cost (tool count +
+   * chars/4-estimated schema tokens) for a session, broken down per MCP
+   * server plus opencode builtins, plus a session total. Estimation source is
+   * the session's OWN persisted scope (`mcp_role` / `mcp_allowed_tools_json`,
+   * set at create time by #765/C1) — this reports what the session actually
+   * was granted, not a live re-derivation. See
+   * `services/tool_surface_estimator.ts` for why this is file-based rather
+   * than a live per-tool-schema engine call.
+   *
+   * Logs exactly ONE structured line per call (no schema bodies — just the
+   * counts/totals) so the report is auditable without bloating logs with the
+   * very payload size the feature exists to measure.
+   */
+  async getToolSurface(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+
+      let resolvedAllowedTools: Record<string, string[]> | null = null;
+      if (session.mcpAllowedToolsJson) {
+        try {
+          resolvedAllowedTools = JSON.parse(session.mcpAllowedToolsJson) as Record<string, string[]>;
+        } catch {
+          resolvedAllowedTools = null;
+        }
+      }
+
+      // Unscoped session: report against whatever MCP servers are actually
+      // connected right now (best-effort; a stopped/not-ready engine yields
+      // an empty connected list, so the report degrades to builtins-only
+      // rather than throwing).
+      let connectedServerNames: string[] = [];
+      if (!session.mcpRole && !resolvedAllowedTools && opencodeClient.isReady) {
+        try {
+          const statusMap = await opencodeClient.listMcp();
+          connectedServerNames = Object.keys(statusMap);
+        } catch {
+          connectedServerNames = [];
+        }
+      }
+
+      const report = estimateToolSurface({
+        mcpRole: session.mcpRole,
+        resolvedAllowedTools,
+        connectedServerNames,
+      });
+
+      logger.info(
+        '[ToolSurface] session=%s mcpRole=%s servers=%s totalTools=%s totalEstimatedTokens=%s',
+        session.id,
+        session.mcpRole ?? '(unscoped)',
+        report.servers.length,
+        report.totalToolCount,
+        report.totalEstimatedTokens,
+      );
+
+      res.json({
+        sessionId: session.id,
+        mcpRole: session.mcpRole,
+        servers: report.servers,
+        builtins: report.builtins,
+        totalToolCount: report.totalToolCount,
+        totalEstimatedTokens: report.totalEstimatedTokens,
+      });
     } catch (err) {
       next(err);
     }

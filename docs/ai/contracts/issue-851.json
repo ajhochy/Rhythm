@@ -1,0 +1,40 @@
+{
+  "issue": 851,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-851-c1",
+      "text": "On approval of a create-recipe proposal, an agent_cookbook row is created from change_json (title/description/steps_json; boundConfigId if provided).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_851_contract.test.ts",
+      "test_id": "issue-851-c1: approval creates an agent_cookbook row from change_json",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-851-c2",
+      "text": "Registered as a GATED applier (never reachable from the auto path — assert).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_851_contract.test.ts",
+      "test_id": "issue-851-c2: registered as a GATED applier — never reachable from the auto path",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-851-c3",
+      "text": "Idempotent: approving twice doesn't duplicate the recipe (guard by title or an applied-marker).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_851_contract.test.ts",
+      "test_id": "issue-851-c3: applying the same create-recipe proposal twice creates exactly one agent_cookbook row",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-851-c4",
+      "text": "before_snapshot_json supports revert (removing the created recipe).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_851_contract.test.ts",
+      "test_id": "issue-851-c4: before_snapshot_json supports revert (removing the created recipe)",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

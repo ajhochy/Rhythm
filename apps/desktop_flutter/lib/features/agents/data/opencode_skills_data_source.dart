@@ -21,6 +21,7 @@ class OpencodeSkillMetadata {
     this.uses,
     this.baselineScore,
     this.postScore,
+    this.measureReason,
     this.isExternalFork = false,
   });
 
@@ -46,6 +47,12 @@ class OpencodeSkillMetadata {
   /// Judge score after an auto-applied change (compared to baseline).
   final double? postScore;
 
+  /// #845 — the LLM-judge's one-sentence rationale for the most recent
+  /// measurement, e.g. `baseline=60 (ok); post=82 (better); decision=keep` for
+  /// a kept revision, or a `reverted:hash:<sha256>` marker for a revert event
+  /// (see skill_measurement.ts). Null when the skill has never been measured.
+  final String? measureReason;
+
   /// True when this managed skill is a shadow fork of an external skill that
   /// the self-improvement loop auto-improved (the external original is
   /// untouched).
@@ -60,12 +67,24 @@ class OpencodeSkillMetadata {
       uses: (json['uses'] as num?)?.toInt(),
       baselineScore: (json['baselineScore'] as num?)?.toDouble(),
       postScore: (json['postScore'] as num?)?.toDouble(),
+      measureReason: json['measureReason'] as String?,
       isExternalFork: json['isExternalFork'] as bool? ?? false,
     );
   }
 
   /// True once a measured change has both a baseline and a post score.
   bool get hasScores => baselineScore != null && postScore != null;
+
+  /// #845 — true when there is any measurement ledger entry to show in the
+  /// expansion area's history section (a reason string, even without both
+  /// scores — e.g. a crash-recovery revert scores post=0 only).
+  bool get hasMeasurementHistory => measureReason != null;
+
+  /// #845 — true when [measureReason] carries the `skill_measurement.ts`
+  /// revert marker shape (`reverted:hash:<sha256>`) rather than a scored
+  /// keep/revert narrative.
+  bool get isRevertEvent =>
+      measureReason?.startsWith('reverted:hash:') ?? false;
 }
 
 /// A single skill entry discovered by the opencode engine.

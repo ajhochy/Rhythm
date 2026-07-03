@@ -65,12 +65,19 @@ export function resolveMemoryVaultPath(): string {
  * under here, laid out folders-by-type as `<memoryDir>/<kind>/<slug>.md`.
  *
  * Resolved FRESH from process.env at call time (so tests / a late .env can
- * override the vault path). It is always `<MEMORY_VAULT_PATH>/memory`; the
- * write path treats this dir as the path-traversal boundary — nothing is ever
- * written or deleted outside it.
+ * override the vault path). The write path treats this dir as the
+ * path-traversal boundary — nothing is ever written or deleted outside it.
+ *
+ * Subfolder is `MEMORY_VAULT_SUBDIR` (default `memory`, back-compat). Set it to
+ * an EMPTY string to write kind-folders directly under MEMORY_VAULT_PATH — e.g.
+ * MEMORY_VAULT_PATH=`~/Documents/Obsidian Vault/AGENT-MEMORY` + MEMORY_VAULT_SUBDIR=``
+ * → notes at `AGENT-MEMORY/<kind>/<slug>.md`. Keep MEMORY_VAULT_PATH scoped to a
+ * dedicated agent-memory dir: the sync/index scanner reads it recursively, so it
+ * must NOT be pointed at a whole multi-purpose Obsidian vault root.
  */
 export function resolveMemoryDirPath(): string {
-  return path.join(resolveMemoryVaultPath(), 'memory');
+  const sub = process.env.MEMORY_VAULT_SUBDIR ?? 'memory';
+  return sub ? path.join(resolveMemoryVaultPath(), sub) : resolveMemoryVaultPath();
 }
 
 /**

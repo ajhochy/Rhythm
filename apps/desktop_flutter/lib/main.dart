@@ -87,6 +87,9 @@ import 'features/agent_webhooks/repositories/agent_webhooks_repository.dart';
 import 'features/agent_cookbook/controllers/agent_cookbook_controller.dart';
 import 'features/agent_cookbook/data/agent_cookbook_data_source.dart';
 import 'features/agent_cookbook/repositories/agent_cookbook_repository.dart';
+import 'features/agent_optimizer/controllers/org_proposals_controller.dart';
+import 'features/agent_optimizer/data/org_proposals_data_source.dart';
+import 'features/agent_optimizer/repositories/org_proposals_repository.dart';
 import 'features/agent_skills/controllers/agent_skills_controller.dart';
 import 'features/agents/data/opencode_skills_data_source.dart';
 import 'features/agent_email/controllers/agent_email_controller.dart';
@@ -450,6 +453,12 @@ class _RhythmAppContent extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => AgentCookbookController(
             AgentCookbookRepository(AgentCookbookDataSource()),
+          ),
+        ),
+        // org-optimizer-11 (#827): human-gate review queue surface.
+        ChangeNotifierProvider(
+          create: (_) => OrgProposalsController(
+            OrgProposalsRepository(OrgProposalsDataSource()),
           ),
         ),
         ChangeNotifierProvider(

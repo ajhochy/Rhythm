@@ -1,0 +1,42 @@
+{
+  "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
+  "role": "org-optimizer",
+  "description": "Org Self-Optimizer (#830, org-optimizer-14; run-loop trigger #850, org-optimizer-16) — reads the org audit snapshot (agent profiles, skills, delegation graph, recipes, webhook wiring, denied-tool telemetry) and writes low/high-risk proposals to the review queue. READ-AUDIT + WRITE-PROPOSALS ONLY. It can never create an agent, grant/expand delegation, broaden a scope, create a webhook endpoint, or adopt external code directly from its own tool surface — those are HIGH-risk proposal kinds per docs/ai/decisions/2026-06-29-org-self-optimizer-cron.md and are only ever applied server-side, behind the human-gate queue, after explicit approval. rhythm_run_org_optimizer is the ONE exception to 'no direct write tool': it does not itself write anything — it triggers the SERVER-SIDE run loop (org_optimizer_run_service.ts), which re-enforces every risk gate (classifyProposalRisk) and per-run cap independently of anything this agent's tool call can influence.",
+  "agentConfigId": "8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f",
+  "mcpServers": {
+    "rhythm": {
+      "inherit": true,
+      "allowedTools": [
+        "rhythm_ping",
+        "rhythm_get_dashboard",
+        "rhythm_list_sessions",
+        "rhythm_list_scheduled_tasks",
+        "rhythm_list_automations",
+        "rhythm_list_pending_triggers",
+        "rhythm_list_memories",
+        "rhythm_search_memory",
+        "rhythm_remember_memory",
+        "rhythm_run_org_optimizer"
+      ]
+    }
+  },
+  "disabledMcpServers": [
+    "bash",
+    "computer",
+    "editor",
+    "filesystem",
+    "mcp-registry",
+    "obsidian"
+  ],
+  "notes": {
+    "registeredMcps": ["rhythm"],
+    "hardExclusions": [
+      "No agent_configs write tool — create-agent proposals are queued, never applied from this profile's tool surface.",
+      "No delegation-grant tool — grant-delegation/expand-delegation proposals are queued.",
+      "No webhook-endpoint-create tool — webhook-wiring proposals are queued and fenced (#737).",
+      "No external install tool (mcp-registry disabled here) — external-adoption is the SEPARATE org-external-discovery role's job, and even there adoption is queue-only."
+    ],
+    "why-read-audit-write-proposals-only": "Safety invariant #6 (decision doc): the optimizer's own agent tool surface can read signals and (via the server-side run loop, not a direct tool call) write agent_org_proposals rows for low-risk auto-apply or the human-gate queue. It never holds a tool that performs a privileged write itself."
+  },
+  "allowedSkills": []
+}

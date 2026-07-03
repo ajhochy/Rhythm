@@ -100,6 +100,7 @@ describe('P2 — runner path: system_prompt + ocAgent forwarded in prompt body',
       allowedSkillsJson: null,
       systemPrompt: 'You are a helpful church assistant.',
       ocAgent: null,
+      modelTierHint: null,
     });
 
     const run = await freshRun();
@@ -118,6 +119,7 @@ describe('P2 — runner path: system_prompt + ocAgent forwarded in prompt body',
       allowedSkillsJson: null,
       systemPrompt: null,
       ocAgent: 'build',
+      modelTierHint: null,
     });
 
     const run = await freshRun();
@@ -136,6 +138,7 @@ describe('P2 — runner path: system_prompt + ocAgent forwarded in prompt body',
       allowedSkillsJson: null,
       systemPrompt: null,
       ocAgent: null,
+      modelTierHint: null,
     });
 
     const run = await freshRun();
@@ -155,6 +158,7 @@ describe('P2 — runner path: system_prompt + ocAgent forwarded in prompt body',
       allowedSkillsJson: null,
       systemPrompt: null,
       ocAgent: null,
+      modelTierHint: null,
     });
 
     const run = await freshRun();
@@ -227,6 +231,7 @@ describe('P2 — WS path: system_prompt + ocAgent forwarded in promptAsync body'
       allowedSkillsJson: null,
       systemPrompt: 'You are a worship planning assistant.',
       ocAgent: null,
+      modelTierHint: null,
     });
 
     await sendWsInput('sess-p2-ws-1', 'sdk-p2-ws-1', 'Plan Sunday worship');
@@ -244,6 +249,7 @@ describe('P2 — WS path: system_prompt + ocAgent forwarded in promptAsync body'
       allowedSkillsJson: null,
       systemPrompt: null,
       ocAgent: 'plan',
+      modelTierHint: null,
     });
 
     // No per-turn agent override in the frame
@@ -262,6 +268,7 @@ describe('P2 — WS path: system_prompt + ocAgent forwarded in promptAsync body'
       allowedSkillsJson: null,
       systemPrompt: null,
       ocAgent: 'plan',
+      modelTierHint: null,
     });
 
     // Per-turn override 'build' should win over profile 'plan'
@@ -280,6 +287,7 @@ describe('P2 — WS path: system_prompt + ocAgent forwarded in promptAsync body'
       allowedSkillsJson: null,
       systemPrompt: null,
       ocAgent: null,
+      modelTierHint: null,
     });
 
     await sendWsInput('sess-p2-ws-4', 'sdk-p2-ws-4', 'Hello');

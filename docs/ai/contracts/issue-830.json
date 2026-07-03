@@ -1,0 +1,78 @@
+{
+  "issue": 830,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-830-c1",
+      "text": "seedOrgOptimizerTask() idempotent/name-guarded (listAllAsync().some(t => t.name === 'Org Self-Optimizer')) — at most one \"Org Self-Optimizer\" task per boot.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_830_contract.test.ts",
+      "test_id": "issue-830-c1: creates at most one \"Org Self-Optimizer\" task even when called twice",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-830-c2",
+      "text": "At most one external-discovery task per boot, distinct from the internal audit task.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_830_contract.test.ts",
+      "test_id": "issue-830-c2: seeds a second, differently-named external discovery task",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-830-c3",
+      "text": "Internal audit task daily (~02:00); external-discovery task weekly — both configurable.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_830_contract.test.ts",
+      "test_id": "issue-830-c3: audit task scheduleType=daily; external task scheduleType is weekly (or otherwise not daily)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-830-c4",
+      "text": "Both bound to narrowly-scoped profiles with valid .mcp-roles role files passing alignment (names ⊆ live).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_830_contract.test.ts",
+      "test_id": "issue-830-c4: org-optimizer.mcp.json and org-external-discovery.mcp.json are valid JSON, resolvable to a live name set",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-830-c5",
+      "text": "Optimizer role grants ONLY read-audit + write-proposals (NO config/delegation/webhook write tools).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_830_contract.test.ts",
+      "test_id": "issue-830-c5: org-optimizer.mcp.json never grants a config/delegation/webhook WRITE tool",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-830-c6",
+      "text": "Wire ALL SIX generators' register* functions into org_proposal_apply_service.ts's registry ONCE at startup via a new registerAllProposalAppliers() wiring module, with real deps.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_830_contract.test.ts",
+      "test_id": "issue-830-c6: applyProposal succeeds for create-agent, grant-delegation, external-adoption, and webhook-wiring without a re-validation error",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-830-c7",
+      "text": "Supply a REAL exercisedTools resolver to the #821 measure path, derived from session/tool-usage data available on the local agent DB.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_830_contract.test.ts",
+      "test_id": "issue-830-c7: returns the set of tool names actually invoked by sessions run under the given agent_config_id",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-830-c8",
+      "text": "Seeding never blocks server boot on a missing/malformed role file (non-fatal, retried next boot), mirroring the ministry-recipes-seed precedent.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_830_contract.test.ts",
+      "test_id": "issue-830-c8: seedOrgOptimizerTask resolves without throwing even if a role file is absent",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-830-c9",
+      "text": "Run respects #746 cold-start window + per-run caps (proposals/run, LLM calls/run, external results/run) — the seeded prompt instructs the agent to do this.",
+      "mode": "manual",
+      "reason": "The cold-start guard and per-run caps are enforced inside the LLM-driven optimizer run itself (prompt-level instruction + the agent's own tool-call budget), not observable via a unit test against the seed function. Verified by manual review of the seeded prompt text at PR review time and by the existing #746 cold-start unit coverage (issue_746_latency.test.ts) on the shared engine-ready gate the prompt references."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-830-c9"]
+}

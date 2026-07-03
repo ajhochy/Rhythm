@@ -80,6 +80,28 @@ function isCuratorThrottled(): boolean {
   return Date.now() - _engineReadyAt < CURATOR_COLD_WINDOW_MS;
 }
 
+/**
+ * #746 / #850 — Public alias of {@link isCuratorThrottled}, exported so other
+ * background subsystems that must respect the SAME engine cold-start window
+ * (e.g. the org self-optimizer's run-loop, org_optimizer_run_service.ts) can
+ * gate on it without duplicating the 90s constant or the readiness timestamp.
+ * Semantics are identical: false (never throttled) when the engine has never
+ * been initialized, true for 90s after `notifyEngineReady` was last called.
+ */
+export function isEngineColdStart(): boolean {
+  return isCuratorThrottled();
+}
+
+/**
+ * Test-only reset of the module-level `_engineReadyAt` timestamp back to
+ * "never initialized" (isEngineColdStart() -> false). Needed because
+ * `notifyEngineReady` mutates module state that otherwise leaks across test
+ * cases sharing this module within one vitest worker/file.
+ */
+export function _resetEngineReadyForTests(): void {
+  _engineReadyAt = null;
+}
+
 /** Update extract-run tracking. Called by distillFromSession start/end. */
 export function _setCuratorExtractRunning(running: boolean, at?: string): void {
   _curatorExtractRunning = running;

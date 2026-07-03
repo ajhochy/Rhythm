@@ -1,0 +1,55 @@
+{
+  "issue": 818,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-818-c1",
+      "text": "denied_tool_events table (SQLite only) with at least: id, session_id (nullable), agent_config_id (nullable), tool_name, created_at. Aggregation is a query, not a stored counter.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/repositories/denied_tool_events_repository.test.ts",
+      "test_id": "issue-818-c1: table exists with id/session_id/agent_config_id/tool_name/created_at columns, both nullable FK columns accepted",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-818-c2",
+      "text": "When the dispatch-time check returns false, exactly one row is written; when true, no row.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_818_contract.test.ts",
+      "test_id": "issue-818-c2: a denied permission-ask call writes exactly one denied_tool_events row; a denied tool-part call writes exactly one row; an allowed tool-call writes no row; a non-role-scoped session writes no row; never logs tool arguments/payloads",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-818-c3",
+      "text": "Logging is best-effort / NEVER throws into the dispatch path (fail-open for logging, fail-closed for the guard itself — the allow/deny decision unchanged).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_818_contract.test.ts",
+      "test_id": "issue-818-c3: isToolAllowed return value is byte-for-byte unchanged by the presence of logging; a throwing logger/repository does not affect the guard decision or crash dispatch",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-818-c4",
+      "text": "Repository exposes countByProfileAndToolAsync(sinceIso) returning { agentConfigId, toolName, count }[].",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/repositories/denied_tool_events_repository.test.ts",
+      "test_id": "issue-818-c4: countByProfileAndToolAsync groups and counts within the window; rows with null agent_config_id are excluded from the profile aggregation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-818-c5",
+      "text": "NOT in postgres_bootstrap.ts.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Static/structural criterion (absence of a table definition in a specific file) — verified by code review / grep at implementation and PR-review time rather than an executable test. The implementing agent must grep postgres_bootstrap.ts for 'denied_tool_events' and confirm zero matches before committing."
+    },
+    {
+      "criterion_id": "issue-818-c6",
+      "text": "ALL existing guard/bridge tests stay green: npx vitest run mcp_dispatch_guard mcp_allowlist_expander opencode_stream_bridge issue_736_contract",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/mcp_dispatch_guard.test.ts, apps/api_server/src/services/mcp_allowlist_expander.test.ts, apps/api_server/src/__tests__/opencode_stream_bridge.test.ts, apps/api_server/src/__tests__/issue_736_contract.test.ts",
+      "test_id": "pre-existing regression suite for the #736/#812 dispatch guard — run as-is, no new test authored",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-818-c5"]
+}

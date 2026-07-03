@@ -734,11 +734,14 @@ export function runMigrations(db: Database.Database): void {
       ON notifications(recipient_user_id, read_at);
   `);
 
-  // Claude collaborator trigger queue
+  // Claude collaborator trigger queue.
+  // task_id is NULLABLE: human-collaborator triggers carry a task_id, but
+  // scheduler / webhook / research triggers are taskless and insert task_id=NULL.
+  // UNIQUE(task_id) still de-dups human triggers (SQL UNIQUE permits multiple NULLs).
   db.exec(`
     CREATE TABLE IF NOT EXISTS pending_claude_triggers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
       triggered_by_user_id INTEGER REFERENCES users(id),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(task_id)
@@ -1448,6 +1451,55 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE pending_claude_triggers ADD COLUMN webhook_endpoint_id TEXT`);
   }
 
+  // Make pending_claude_triggers.task_id NULLABLE on EXISTING databases.
+  // Scheduler/webhook/research triggers are taskless (task_id=NULL); the
+  // original schema declared `task_id TEXT NOT NULL`, so every taskless insert
+  // failed at runtime. Fresh installs get the nullable CREATE above; existing
+  // DBs need a rebuild because SQLite cannot drop a NOT NULL constraint via
+  // ALTER. This block runs AFTER the additive ALTERs above so the rebuilt table
+  // carries the full current column set. Guarded by the task_id `notnull` flag,
+  // so it is idempotent — it never runs a second time once the column is nullable.
+  const pctInfo = db.pragma('table_info(pending_claude_triggers)') as {
+    name: string;
+    notnull: number;
+  }[];
+  const taskIdCol = pctInfo.find((c) => c.name === 'task_id');
+  if (taskIdCol && taskIdCol.notnull === 1) {
+    // Enumerate the live column set (do NOT hardcode) so the rebuilt table and
+    // the INSERT ... SELECT copy exactly match whatever this DB currently has.
+    const columnNames = pctInfo.map((c) => c.name);
+    const columnList = columnNames.join(', ');
+    // FK enforcement must be off during a table swap; toggling it is a no-op
+    // outside a transaction, so do it around (not inside) the BEGIN/COMMIT.
+    db.pragma('foreign_keys = OFF');
+    const rebuild = db.transaction(() => {
+      db.exec(`
+        CREATE TABLE pending_claude_triggers_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+          triggered_by_user_id INTEGER REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          scheduled_task_id TEXT REFERENCES agent_scheduled_tasks(id) ON DELETE CASCADE,
+          prompt TEXT,
+          allowed_mcps_json TEXT,
+          allowed_skills_json TEXT,
+          model_provider TEXT,
+          model_id TEXT,
+          webhook_endpoint_id TEXT,
+          UNIQUE(task_id)
+        )
+      `);
+      db.exec(
+        `INSERT INTO pending_claude_triggers_new (${columnList}) SELECT ${columnList} FROM pending_claude_triggers`,
+      );
+      db.exec(`DROP TABLE pending_claude_triggers`);
+      db.exec(`ALTER TABLE pending_claude_triggers_new RENAME TO pending_claude_triggers`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_pending_claude_triggers_created_at ON pending_claude_triggers(created_at)`);
+    });
+    rebuild();
+    db.pragma('foreign_keys = ON');
+  }
+
   // B1 — agent_cookbook: reusable recipe/skill library for the agent scheduler.
   // steps_json is an opaque JSON array; the scheduler enforces action-type enum at execution time.
   // bound_config_id is a nullable logical FK to agent_configs.id (not enforced at SQLite level).
@@ -1572,5 +1624,97 @@ export function runMigrations(db: Database.Database): void {
   if (!agentSessionCols747.includes('is_system')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_sessions_is_system ON agent_sessions(is_system)`);
+  }
+
+  // #817 (org-optimizer-01) — agent_org_proposals: the foundation proposal
+  // store + lifecycle state machine for the org self-optimizer. Every
+  // generator (create-agent, tighten-scope, prune-scope, refine-skill,
+  // consolidate-skill, external-adoption, webhook-wiring, ...) writes rows
+  // here, and the human review queue reads/decides on them. Lifecycle/revert
+  // mechanics mirror the agent_skills sidecar (see the agent_skills block
+  // above): `before_snapshot_json` plays the role agent_skill_versions plays
+  // for skills — the exact prior state a revert restores.
+  //
+  // Local SQLite (agent DB) ONLY. Do NOT add this table to
+  // postgres_bootstrap.ts — proposals are local-only and never synced to
+  // production (see docs/ai/decisions/2026-06-29-org-self-optimizer-cron.md §5).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_org_proposals (
+      id            TEXT PRIMARY KEY,
+      audit_run_id  TEXT,
+      kind          TEXT NOT NULL,
+      risk          TEXT NOT NULL,
+      external      INTEGER DEFAULT 0,
+      status        TEXT NOT NULL DEFAULT 'proposed',
+      title         TEXT NOT NULL,
+      rationale     TEXT,
+      signal_ref    TEXT,
+      target_ref    TEXT,
+      change_json   TEXT,
+      before_snapshot_json TEXT,
+      provenance_json TEXT,
+      dedup_key     TEXT,
+      baseline_score INTEGER,
+      post_score     INTEGER,
+      measure_reason TEXT,
+      decided_by_user_id INTEGER,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_org_proposals_status ON agent_org_proposals(status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_org_proposals_dedup ON agent_org_proposals(dedup_key);
+  `);
+
+  // #818 (org-optimizer-02) — denied_tool_events: best-effort telemetry of
+  // dispatch-time tool denials from the #736/#812 MCP guard, so the org audit
+  // (org-optimizer-03) can read "profile X was denied tool Y N times" — the
+  // strongest signal for broaden-scope and create-agent proposals. Written by
+  // OpencodeStreamBridge.isToolAllowedForSession on the deny branch only
+  // (never by the pure isToolAllowed predicate itself). session_id and
+  // agent_config_id are both nullable: the logging seam always has a session
+  // row when it fires, but profile attribution is best-effort — resolved from
+  // the session row's mcp_role / agent_kind (both logical references to
+  // agent_configs.id), validated against a real agent_configs row, and left
+  // NULL when neither matches (legacy role slugs, placeholder kinds) or the
+  // lookup fails. SQLite-only: this table is
+  // intentionally absent from postgres_bootstrap.ts (local dispatch-guard
+  // telemetry never syncs to production). Aggregation (countByProfileAndTool)
+  // is a live GROUP BY query over this table, not a stored counter.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS denied_tool_events (
+      id TEXT PRIMARY KEY,
+      session_id TEXT,
+      agent_config_id TEXT,
+      tool_name TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_denied_tool_events_created_at ON denied_tool_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_denied_tool_events_agent_config_id ON denied_tool_events(agent_config_id);
+  `);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // #844 (tokens-04) — Tiered model routing: per-profile tier hint.
+  //
+  // model_tier_hint: optional 'cheap' | 'standard' | 'frontier' preference on
+  // an agent profile, consumed by agent_model_resolver.resolveModelTier() as
+  // the `explicitTierHint` — it wins over the task-kind default (see
+  // TASK_KIND_TIER_POLICY) but is itself beaten by an explicit per-call
+  // modelOverride. Nullable; existing rows need no backfill (null means "use
+  // the task-kind default, or 'standard' with no task kind").
+  //
+  // SQLite-only, matching the existing pattern for agent_configs' other
+  // profile-scoping columns (is_manager, system_prompt, allowed_mcps_json,
+  // allowed_skills_json — see the "Agent Config Profile Extensions" block
+  // above): AgentConfigsRepository reads via getDb() (better-sqlite3), which
+  // throws when DB_CLIENT=postgres, so agent_configs profile lookups
+  // (resolveRunModel / resolveProfileScope / resolveModelTier) only ever run
+  // against SQLite (the local agent server on :4001). Deliberately NOT added
+  // to postgres_bootstrap.ts.
+  // ═══════════════════════════════════════════════════════════════════════
+  const agentConfigColsForTierHint = (
+    db.pragma('table_info(agent_configs)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!agentConfigColsForTierHint.includes('model_tier_hint')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN model_tier_hint TEXT`);
   }
 }

@@ -1,0 +1,58 @@
+{
+  "issue": 824,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-824-c1",
+      "text": "A coverage-gap signal (recurring denied-tool pattern with no fitting profile, or a task/session cluster no existing profile covers) produces exactly one 'create-agent' proposal, risk='high', with change_json carrying proposed id/label/systemPrompt + allowed_mcps_json/allowed_skills_json (optional allowed_delegates_json).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/new_agent_generator.test.ts",
+      "test_id": "issue-824-c1: gap -> one high-risk create-agent proposal with the documented change_json shape",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-824-c2",
+      "text": "Proposed scopes are validated before emission: every MCP/skill name in the proposed allowlists must resolve to a live engine id via mcp_name_alignment. A proposal whose names cannot resolve is not emitted.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/new_agent_generator.test.ts",
+      "test_id": "issue-824-c2: a gap whose proposed scopes cannot resolve against the live set is not emitted",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-824-c3",
+      "text": "The apply step (run only on approval) creates the agent_configs row with is_manager=0 and writes a valid .mcp-roles/<slug>.mcp.json ({ mcpServers: {...} }) that passes the alignment invariant (names ⊆ live).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/new_agent_generator.test.ts",
+      "test_id": "issue-824-c3: apply creates agent_configs with is_manager=0 and writes a valid role file",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-824-c4",
+      "text": "Apply is rejected (no agent_configs row created, no role file written) if any proposed name is not in the live set at apply time (re-validated, not trusted from proposal time).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/new_agent_generator.test.ts",
+      "test_id": "issue-824-c4: apply rejects when a proposed name is no longer live at apply time",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-824-c5",
+      "text": "create-agent is never reachable from the auto-apply path: classifyProposalRisk('create-agent') is 'high', so org_proposal_apply.ts's applyProposal (the auto lane) refuses it; only the registered applier reachable via the human-gated queue seam (org_proposal_apply_service.registerProposalApplier) can apply it.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/new_agent_generator.test.ts",
+      "test_id": "issue-824-c5: create-agent is not reachable from the auto-apply path (gate assertion)",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-824-c6",
+      "text": "registerNewAgentApplier(registry) wires both the validator and applier for kind='create-agent' into the org_proposal_apply_service seam so the #830 wiring round can call it without editing org_proposal_apply_service.ts.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/new_agent_generator.test.ts",
+      "test_id": "issue-824-c6: registerNewAgentApplier wires validator+applier into the org_proposal_apply_service seam",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "End-to-end wiring of the generator into a scheduled/cron optimizer loop (deferred to #830 per dispatch instructions; this issue only requires the generator + gated apply to exist and be registrable)."
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "issue": 826,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-826-c1",
+      "text": "GET /agent-org-proposals?status=proposed lists the queue (high-risk only; low-risk never appears as proposed).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposals_routes.test.ts",
+      "test_id": "issue-826-c1: GET ?status=proposed lists only proposed rows (low-risk applied row excluded)",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-826-c2",
+      "text": "POST /agent-org-proposals/:id/approve runs the matching apply step -> applied (then measuring for measurable kinds) -> records decided_by_user_id.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposals_routes.test.ts",
+      "test_id": "issue-826-c2: approve transitions proposed -> applied and records decided_by_user_id",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-826-c3",
+      "text": "POST /agent-org-proposals/:id/reject -> rejected, recorded in the dedup seen-set.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposals_routes.test.ts",
+      "test_id": "issue-826-c3: reject transitions proposed -> rejected",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-826-c4",
+      "text": "Approve is refused (4xx) for external-adoption without provenance_json, or for webhook-wiring without the security note (requiresSecurityNote).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposals_routes.test.ts",
+      "test_id": "issue-826-c4: approve refused (4xx) for external-adoption without provenance_json",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-826-c5",
+      "text": "Approve is refused (4xx) for webhook-wiring without the security note (requiresSecurityNote).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposals_routes.test.ts",
+      "test_id": "issue-826-c5: approve refused (4xx) for webhook-wiring without the required security note",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-826-c6",
+      "text": "Approve re-validates the change at apply time (names subset of live for agent/scope; auth+depth for delegation; HMAC/SSRF for webhook) and rejects if invalid.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposals_routes.test.ts",
+      "test_id": "issue-826-c6: approve re-validates change_json at apply time and rejects an invalid change",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-826-c7",
+      "text": "Endpoints respect the local agent-server auth model (AGENT_LOCAL bypass scoped to localhost - never exposed externally).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposals_routes.test.ts",
+      "test_id": "issue-826-c7: AGENT_LOCAL bypass — no bearer token required for queue endpoints",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-826-c8",
+      "text": "Policy update (2026-07-02): the review queue is the exception path (new-agent + external proposals) plus an audit-trail/rollback view of auto-applied ones, not the default approval path.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Architectural/policy framing criterion, not independently testable beyond c1-c7 (queue only ever contains proposed-status rows; other statuses are read via existing listByStatusAsync for audit-trail purposes). Verified by code review of the route/controller against the decision doc."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-826-c8"]
+}

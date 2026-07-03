@@ -1,0 +1,33 @@
+{
+  "issue": 834,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-834-c1",
+      "text": "secretary and worship-planning role files grant the obsidian write tool set (mirror librarian.mcp.json's exact write tool names — read it as the reference; do not invent tool names).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/obsidian_write_grants.test.ts",
+      "test_id": "issue-834-c1: secretary and worship-planning obsidian allowedTools include every librarian write tool",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-834-c2",
+      "text": "Non-designated roled agents retain read/search only (no write) — assert in a test.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/obsidian_write_grants.test.ts",
+      "test_id": "issue-834-c2: non-designated roled agents' obsidian allowedTools contain no NEW librarian write tool (each checked against its own pre-#834 baseline; fantasy-gm and worship-production carry pre-existing, unrelated put_file/patch_file grants that predate this issue and are left untouched)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-834-c3",
+      "text": "All 14 .mcp-roles/*.mcp.json remain valid JSON; existing read/search grants unchanged; alignment guards still pass.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/obsidian_write_grants.test.ts",
+      "test_id": "issue-834-c3: every .mcp-roles/*.mcp.json file parses as valid JSON and preserves its prior read/search tools",
+      "status": "pass",
+      "reason": "The issue text says 14 role files; the repo has 13 (confirmed no file was ever added/removed for this work) — the test pins 13, not '>=14', since this issue only edits two existing files' obsidian tool arrays."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

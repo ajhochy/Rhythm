@@ -1,0 +1,48 @@
+{
+  "issue": 829,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-829-c1",
+      "text": "A recurring inbound-trigger gap (repeated payload kicking off the same agent/task, with no agent_webhook_endpoints row wiring it) → one webhook-wiring proposal (HIGH).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_829_contract.test.ts",
+      "test_id": "issue-829-c1: recurring inbound-trigger gap produces one HIGH webhook-wiring proposal",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-829-c2",
+      "text": "The proposal's note specifies: the trigger source/event, the target agent/recipe + its scope, the HMAC secret setup, and SSRF/allowlist constraints (stored in change_json + the security note); the queue blocks approval without the note (requiresSecurityNote).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_829_contract.test.ts",
+      "test_id": "issue-829-c2: proposal note carries the full security spec and requiresSecurityNote gates it",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-829-c3",
+      "text": "Never auto-applied (not reachable from the auto path).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_829_contract.test.ts",
+      "test_id": "issue-829-c3: never auto-applied",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-829-c4",
+      "text": "On approval, the endpoint is created via the existing webhook-create path so HMAC-SHA256 verification + SSRF-safe validation are enforced — not bypassed.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_829_contract.test.ts",
+      "test_id": "issue-829-c4: approval routes through the EXISTING HMAC/SSRF webhook-create path",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-829-c5",
+      "text": "The generated wiring routes inbound payloads through the same fencing the inbound drain uses (#737); raw external text is never inlined unbounded into the agent prompt. Assert the fencing is applied.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_829_contract.test.ts",
+      "test_id": "issue-829-c5: inbound payload is fenced before it reaches the prompt (#737)",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
