@@ -106,6 +106,19 @@ describe('#804 memory MCP tools resolve to the local agent server', () => {
     expect(calls[0]).not.toContain('vcrcapps.com');
   });
 
+  it('rhythm_update_memory PATCHes against localhost:4001 (#862)', async () => {
+    const { calls } = stubFetch();
+    const server = buildServer(LOCAL);
+    const handler = server.registered.get('rhythm_update_memory');
+    expect(handler).toBeDefined();
+
+    await handler!({ id: 'mem-1', content: 'edited content' });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toBe(`${LOCAL}/agent-memory/mem-1`);
+    expect(calls[0]).not.toContain('vcrcapps.com');
+  });
+
   it('prod-URL invariant: the base passed to the tools is the only thing that moves the request — index.ts wires RHYTHM_AGENT_URL, never serverConfig.url', async () => {
     // The tools have no knowledge of the prod Settings URL; their base is
     // injected by the caller. index.ts injects RHYTHM_AGENT_URL (local). To

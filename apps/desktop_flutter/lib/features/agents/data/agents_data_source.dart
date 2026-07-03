@@ -459,6 +459,22 @@ class AgentsDataSource {
     return list.cast<Map<String, dynamic>>();
   }
 
+  /// Issue #862 — GET /agent-sessions/:id/memory-provenance
+  ///
+  /// Returns "Memories used in this reply" for the session's latest turn:
+  /// `{ recorded, memoryIds, notePaths }`. `recorded: false` means no turn has
+  /// ever been recorded (e.g. memory injection is disabled or the session
+  /// predates this feature) — distinct from a recorded turn whose
+  /// `memoryIds` is an empty list (that turn genuinely used no memories).
+  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async {
+    final response = await _client.get(
+      Uri.parse('$_baseUrl/agent-sessions/$id/memory-provenance'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
   /// OPC-M3-6 — GET /agent-sessions/:id/children
   ///
   /// Returns the list of child session summaries (raw JSON maps) for the

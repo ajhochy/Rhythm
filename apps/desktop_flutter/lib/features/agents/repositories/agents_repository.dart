@@ -135,6 +135,11 @@ class AgentsRepository {
   Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) =>
       _dataSource.fetchSessionTodos(id);
 
+  /// Issue #862 — GET /agent-sessions/:id/memory-provenance — "Memories used
+  /// in this reply".
+  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) =>
+      _dataSource.fetchMemoryProvenance(id);
+
   /// OPC-M3-6 — GET /agent-sessions/:id/children — list child sessions.
   Future<List<Map<String, dynamic>>> fetchChildSessions(
           String parentSessionId) =>

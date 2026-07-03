@@ -14,6 +14,7 @@ import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 import 'agent_badge_identity.dart';
 import '_changes_tab.dart';
+import '_memory_provenance_panel.dart';
 import '_terminal_tab.dart';
 import '_todo_panel.dart';
 
@@ -84,6 +85,8 @@ class _SessionSidePanelState extends State<SessionSidePanel> {
           // Collapse state is keyed per session so switching sessions
           // preserves the collapsed/expanded choice for each one.
           _buildTodoPanel(context),
+          // Issue #862: "Memories used in this reply" panel, below todos.
+          _buildMemoryProvenancePanel(context),
         ],
       ),
     );
@@ -96,6 +99,17 @@ class _SessionSidePanelState extends State<SessionSidePanel> {
     // space allocated.
     return TodoPanel(
       todos: todos,
+      collapseKey: widget.session.id,
+    );
+  }
+
+  Widget _buildMemoryProvenancePanel(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    final provenance = controller.memoryProvenanceFor(widget.session.id);
+    // MemoryProvenancePanel returns SizedBox.shrink() when no turn has been
+    // recorded yet — no extra space allocated.
+    return MemoryProvenancePanel(
+      provenance: provenance,
       collapseKey: widget.session.id,
     );
   }

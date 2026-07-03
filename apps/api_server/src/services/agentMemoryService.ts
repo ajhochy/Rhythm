@@ -18,13 +18,19 @@
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { logger } from '../utils/logger';
+import { resolveMemoryDirPath } from '../config/env';
+import { vaultKeyToMemoryDirRelative } from './memoryVaultSyncService';
 import {
   rememberToVault,
   forgetFromVault,
   findMemoryRowByRememberId,
+  updateMemoryInVault,
+  readNoteFull,
+  resolveWithinMemoryDir,
   type RememberInput,
   type RememberResult,
   type MemoryVaultWriteOptions,
+  type UpdateMemoryPatch,
 } from './memoryVaultWriteService';
 
 const memRepo = new AgentMemoryRepository();
@@ -82,6 +88,38 @@ export const agentMemoryService = {
       await forgetFromVault(row.sourceId, options);
     }
     return memRepo.deleteAsync(row.id);
+  },
+
+  /**
+   * Issue #862 — edit-in-place: update an existing memory's content/kind/tags,
+   * writing through to BOTH the vault note file AND the derived index — no
+   * divergence between the two. `id` is resolved the SAME way `forget` (#859d)
+   * resolves it: first as a DB row id (its `sourceId` is mapped to the note's
+   * frontmatter id), then as the frontmatter ULID directly — so a caller only
+   * holding the id `remember()` returned can still edit successfully.
+   *
+   * Returns null when no memory exists for `id` (caller maps that to 404).
+   * Throws {@link MemoryWriteError} for an invalid `kind` or content that
+   * would end up empty — nothing is written in either case.
+   */
+  async update(id: string, patch: UpdateMemoryPatch, options?: MemoryVaultWriteOptions): Promise<RememberResult | null> {
+    let rememberId = id;
+    const row = await memRepo.findByIdAsync(id);
+    if (row && row.source === 'obsidian-memory' && row.sourceId) {
+      // `id` was a DB row id — resolve it to the note's frontmatter id by
+      // reading the note at its indexed vault path (updateMemoryInVault only
+      // understands the frontmatter id space).
+      const memoryDir = options?.memoryDir ?? resolveMemoryDirPath();
+      const relPath = vaultKeyToMemoryDirRelative(memoryDir, row.sourceId);
+      try {
+        const abs = resolveWithinMemoryDir(memoryDir, relPath);
+        const full = await readNoteFull(abs);
+        if (full.id) rememberId = full.id;
+      } catch {
+        // fall through — updateMemoryInVault will report not-found
+      }
+    }
+    return updateMemoryInVault(rememberId, patch, options);
   },
 
   /**

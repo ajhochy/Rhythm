@@ -5,6 +5,7 @@
  * rhythm_search_memory    — Full-text search over stored memories
  * rhythm_forget_memory    — Delete a memory entry by ID
  * rhythm_list_memories    — List recent memories (optional kind filter)
+ * rhythm_update_memory    — Edit an existing memory's content/kind/tags (#862)
  *
  * #804 — these tools target the LOCAL agent server (RHYTHM_AGENT_URL, default
  * http://localhost:4001), NOT the prod Settings URL. Memory is vault-first with a
@@ -14,7 +15,7 @@
  */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { apiGet, apiPost, apiDelete, toolResult, toolError } from '../api_client.js';
+import { apiGet, apiPost, apiPatch, apiDelete, toolResult, toolError } from '../api_client.js';
 import { registerTool } from './_tool.js';
 
 /** `apiUrl` is the local agent base (RHYTHM_AGENT_URL); see file header (#804). */
@@ -81,6 +82,24 @@ tags: optional array of string tags for later filtering`,
       try {
         await apiDelete(apiUrl, apiToken, `/agent-memory/${id}`);
         return toolResult(`Memory ${id} deleted.`);
+      } catch (err) { return toolError(err); }
+    },
+  );
+
+  registerTool(server, 'rhythm_update_memory',
+    `Edit an existing memory entry's content, kind, or tags in place. Use when a stored memory is outdated, incomplete, or miscategorized rather than deleting and re-creating it.
+
+At least one of content/kind/tags must be provided; omitted fields are left unchanged.`,
+    {
+      id: z.string().describe('The memory entry ID to update.'),
+      content: z.string().optional().describe('New content to replace the existing text.'),
+      kind: z.string().optional().describe('New category: fact, preference, decision, note, contact, project.'),
+      tags: z.array(z.string()).optional().describe('New tags (replaces the existing tag list).'),
+    },
+    async ({ id, ...patch }: { id: string; content?: string; kind?: string; tags?: string[] }) => {
+      try {
+        const result = await apiPatch(apiUrl, apiToken, `/agent-memory/${id}`, patch);
+        return toolResult(JSON.stringify(result, null, 2));
       } catch (err) { return toolError(err); }
     },
   );

@@ -77,6 +77,72 @@ class _AgentMemoryViewState extends State<AgentMemoryView> {
     }
   }
 
+  /// Issue #862 — edit-in-place dialog. Lets the user revise a memory's
+  /// content directly rather than delete-and-recreate it. On save failure,
+  /// shows an error (the entry is left as-is, never silently dropped).
+  Future<void> _editMemory(BuildContext context, AgentMemoryEntry entry) async {
+    final controller = context.read<AgentMemoryController>();
+    final textController = TextEditingController(text: entry.content);
+    final newContent = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: ctx.rhythm.surface,
+        title: Text(
+          'Edit memory',
+          style: TextStyle(color: ctx.rhythm.textPrimary),
+        ),
+        content: SizedBox(
+          width: 420,
+          child: TextField(
+            controller: textController,
+            autofocus: true,
+            maxLines: 6,
+            minLines: 3,
+            style: TextStyle(color: ctx.rhythm.textPrimary),
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: ctx.rhythm.canvas.withValues(alpha: 0.6),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(RhythmRadius.md),
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: ctx.rhythm.textMuted),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(textController.text),
+            child: Text(
+              'Save',
+              style: TextStyle(color: ctx.rhythm.accent),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (newContent == null || newContent.trim().isEmpty) return;
+    if (newContent == entry.content) return;
+    if (!context.mounted) return;
+
+    final ok = await controller.update(entry.id, {'content': newContent});
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              'Could not save edit: ${controller.error ?? 'unknown error'}'),
+          backgroundColor: context.rhythm.danger,
+        ),
+      );
+    }
+  }
+
   Future<void> _confirmDelete(
       BuildContext context, AgentMemoryEntry entry) async {
     final controller = context.read<AgentMemoryController>();
@@ -229,6 +295,7 @@ class _AgentMemoryViewState extends State<AgentMemoryView> {
         return _MemoryTile(
           entry: entry,
           onDelete: () => _confirmDelete(context, entry),
+          onEdit: () => _editMemory(context, entry),
         );
       },
     );
@@ -239,10 +306,12 @@ class _MemoryTile extends StatefulWidget {
   const _MemoryTile({
     required this.entry,
     required this.onDelete,
+    required this.onEdit,
   });
 
   final AgentMemoryEntry entry;
   final VoidCallback onDelete;
+  final VoidCallback onEdit;
 
   @override
   State<_MemoryTile> createState() => _MemoryTileState();
@@ -285,6 +354,16 @@ class _MemoryTileState extends State<_MemoryTile> {
                 children: [
                   _KindBadge(kind: entry.kind),
                   const Spacer(),
+                  IconButton(
+                    icon: Icon(Icons.edit_outlined,
+                        size: 16, color: context.rhythm.textMuted),
+                    tooltip: 'Edit memory',
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: widget.onEdit,
+                  ),
+                  const SizedBox(width: RhythmSpacing.xs),
                   Icon(
                     _expanded ? Icons.expand_less : Icons.expand_more,
                     size: 18,

@@ -204,6 +204,10 @@ class _SlowStubAgentsRepository implements AgentsRepository {
       const [];
 
   @override
+  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async =>
+      const {'recorded': false, 'memoryIds': [], 'notePaths': []};
+
+  @override
   Future<List<Map<String, dynamic>>> fetchChildSessions(
           String parentSessionId) async =>
       const [];
@@ -516,6 +520,10 @@ class _ThrowingStubRepo implements AgentsRepository {
   @override
   Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) =>
       inner.fetchSessionTodos(id);
+
+  @override
+  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) =>
+      inner.fetchMemoryProvenance(id);
 
   @override
   Future<List<Map<String, dynamic>>> fetchChildSessions(

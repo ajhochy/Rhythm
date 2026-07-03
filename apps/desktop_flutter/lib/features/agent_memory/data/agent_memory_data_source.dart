@@ -54,4 +54,21 @@ class AgentMemoryDataSource {
       assertOk(response);
     }
   }
+
+  /// Issue #862 — edit-in-place. `patch` may include any of
+  /// `content`/`kind`/`tags`; omitted fields are left unchanged server-side.
+  Future<AgentMemoryEntry> update(
+    String id,
+    Map<String, dynamic> patch,
+  ) async {
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/agent-memory/$id'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(patch),
+    );
+    assertOk(response);
+    return AgentMemoryEntry.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
 }

@@ -203,6 +203,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // True while a todo fetch is in-flight for the given session id.
   final Set<String> _sessionTodosLoading = {};
 
+  // Issue #862: Per-session "Memories used in this reply" provenance.
+  // Populated by fetchMemoryProvenance() on selectSession. Keyed by local
+  // session id. An absent entry means no fetch has occurred yet.
+  final Map<String, Map<String, dynamic>> _sessionMemoryProvenanceBySession =
+      {};
+
   // OPC-M4-1: Pending file attachments per session.
   // Each entry is a FilePart map with keys: type, mime, filename, url (data URI).
   // Cleared after sendInput() sends the parts array.
@@ -696,6 +702,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   bool sessionTodosLoading(String sessionId) =>
       _sessionTodosLoading.contains(sessionId);
 
+  // ── Issue #862: "Memories used in this reply" ───────────────────────────
+
+  /// The last-fetched memory provenance for [sessionId], or null when no
+  /// fetch has occurred yet. Shape: `{ recorded, memoryIds, notePaths }`.
+  /// `recorded: false` means no turn has ever been recorded for this session
+  /// (distinct from a recorded turn with an empty `memoryIds`, which means
+  /// that reply genuinely used no memories).
+  Map<String, dynamic>? memoryProvenanceFor(String sessionId) =>
+      _sessionMemoryProvenanceBySession[sessionId];
+
   // ── OPC-M4-2: session fork ────────────────────────────────────────────────
 
   /// OPC-M4-2 — Fork the session at [messageId], creating a new session that
@@ -818,6 +834,33 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     List<Map<String, dynamic>> todos,
   ) {
     _sessionTodosBySession[sessionId] = List.of(todos);
+    notifyListeners();
+  }
+
+  /// Issue #862 — Fetch (or refresh) "Memories used in this reply" for
+  /// [sessionId]. Non-fatal on error: a failed fetch leaves any prior entry
+  /// in place rather than crashing the session view.
+  Future<void> fetchMemoryProvenance(String sessionId) async {
+    try {
+      final provenance = await _repository.fetchMemoryProvenance(sessionId);
+      if (_disposed) return;
+      _sessionMemoryProvenanceBySession[sessionId] = provenance;
+    } catch (_) {
+      // Non-fatal: leave any prior entry as-is; absent entry reads as
+      // "not fetched yet" via memoryProvenanceFor.
+    } finally {
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  /// Test-only: seed the memory-provenance state for [sessionId] without a
+  /// HTTP round-trip.
+  @visibleForTesting
+  void setMemoryProvenanceForTest(
+    String sessionId,
+    Map<String, dynamic> provenance,
+  ) {
+    _sessionMemoryProvenanceBySession[sessionId] = provenance;
     notifyListeners();
   }
 
@@ -2130,6 +2173,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _loadSlashCommands(id);
     // OPC-M3-5: fetch the todo list for this session on first select.
     unawaited(fetchSessionTodos(id));
+    // Issue #862: fetch "Memories used in this reply" for this session.
+    unawaited(fetchMemoryProvenance(id));
     // OPC-M4-4: fetch available agents for the session cwd.
     unawaited(fetchAvailableAgents(id));
     // OPC-#715: refresh the catalog on every session select so that curation

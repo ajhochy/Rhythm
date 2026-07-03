@@ -230,6 +230,10 @@ class _StubAgentsRepository implements AgentsRepository {
       const [];
 
   @override
+  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async =>
+      const {'recorded': false, 'memoryIds': [], 'notePaths': []};
+
+  @override
   Future<List<Map<String, dynamic>>> fetchChildSessions(
           String parentSessionId) async =>
       const [];

@@ -205,27 +205,40 @@ async function readNoteMeta(abs: string): Promise<{ id?: string; created?: strin
  * Returns an empty body ('') alongside undefined metadata when the file is
  * missing or malformed — never throws.
  */
-export async function readNoteFull(abs: string): Promise<{ id?: string; created?: string; body: string }> {
+export async function readNoteFull(
+  abs: string,
+): Promise<{ id?: string; created?: string; tags: string[]; body: string }> {
   let raw: string;
   try {
     raw = await fs.readFile(abs, 'utf8');
   } catch {
-    return { body: '' };
+    return { tags: [], body: '' };
   }
   const norm = raw.replace(/\r\n/g, '\n');
-  if (!norm.startsWith('---\n')) return { body: norm.trim() };
+  if (!norm.startsWith('---\n')) return { tags: [], body: norm.trim() };
   const closeIdx = norm.slice(4).search(/\n---\s*(\n|$)/);
-  if (closeIdx === -1) return { body: norm.trim() };
+  if (closeIdx === -1) return { tags: [], body: norm.trim() };
   const fm = norm.slice(4, 4 + closeIdx);
   const rest = norm.slice(4 + closeIdx + 1);
   const nl = rest.indexOf('\n');
   const body = (nl === -1 ? '' : rest.slice(nl + 1)).trim();
   const out: { id?: string; created?: string } = {};
+  let tags: string[] = [];
   for (const line of fm.split('\n')) {
-    const m = /^(id|created):\s*(.+)$/.exec(line.trim());
-    if (m) out[m[1] as 'id' | 'created'] = m[2].trim().replace(/^["']|["']$/g, '');
+    const idCreated = /^(id|created):\s*(.+)$/.exec(line.trim());
+    if (idCreated) {
+      out[idCreated[1] as 'id' | 'created'] = idCreated[2].trim().replace(/^["']|["']$/g, '');
+      continue;
+    }
+    const tagsMatch = /^tags:\s*\[(.*)\]$/.exec(line.trim());
+    if (tagsMatch) {
+      tags = tagsMatch[1]
+        .split(',')
+        .map((t) => t.trim().replace(/^["']|["']$/g, ''))
+        .filter((t) => t.length > 0);
+    }
   }
-  return { ...out, body };
+  return { ...out, tags, body };
 }
 
 export interface MemoryVaultWriteOptions {
@@ -482,4 +495,131 @@ export async function findMemoryRowByRememberId(
     if (match) return match;
   }
   return null;
+}
+
+/**
+ * Locate a note anywhere under the memory dir by its frontmatter `id`.
+ * Returns its current kind (the containing directory name), vault-relative
+ * path, and full parsed content (including tags) — or null if no note
+ * carries that id.
+ */
+async function findNoteAnywhereById(
+  memoryDir: string,
+  rememberId: string,
+): Promise<
+  { kind: MemoryKind; relPath: string; abs: string; id: string; created?: string; tags: string[]; body: string } | null
+> {
+  let kindDirs: string[];
+  try {
+    kindDirs = (await fs.readdir(memoryDir, { withFileTypes: true }))
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+  } catch {
+    return null;
+  }
+  for (const kind of kindDirs) {
+    if (!(VALID_MEMORY_KINDS as readonly string[]).includes(kind)) continue;
+    const kindDir = path.join(memoryDir, kind);
+    const relPath = await findNoteByIdInKind(kindDir, memoryDir, rememberId);
+    if (!relPath) continue;
+    const abs = resolveWithinMemoryDir(memoryDir, relPath);
+    const full = await readNoteFull(abs);
+    if (!full.id) continue;
+    return {
+      kind: kind as MemoryKind,
+      relPath,
+      abs,
+      id: full.id,
+      created: full.created,
+      tags: full.tags,
+      body: full.body,
+    };
+  }
+  return null;
+}
+
+export interface UpdateMemoryPatch {
+  content?: string;
+  kind?: string;
+  tags?: string[];
+}
+
+/**
+ * Issue #862 — edit-in-place: update an existing memory's content/kind/tags,
+ * writing through to BOTH the vault note file AND the derived index (no
+ * divergence — mirrors the vault-first discipline of `rememberToVault`).
+ *
+ * `rememberId` is resolved by scanning every kind dir for a note whose
+ * frontmatter `id` matches — the SAME id space `remember()` returns to its
+ * caller (mirrors the #859d forget fix). Fields omitted from `patch` are left
+ * unchanged (content/tags carry over from the existing note; kind carries
+ * over unless explicitly patched).
+ *
+ * Changing `kind` MOVES the note to the new kind's directory (a note's home
+ * in the vault reflects its kind) — the old file is removed, a new one
+ * written, and the index is re-keyed under the new vault-relative path.
+ *
+ * Returns null when no note carries `rememberId` — a safe no-op, nothing
+ * written. Throws {@link MemoryWriteError} for an invalid `kind` or content
+ * that would end up empty — nothing is written in either case.
+ */
+export async function updateMemoryInVault(
+  rememberId: string,
+  patch: UpdateMemoryPatch,
+  options: MemoryVaultWriteOptions = {},
+): Promise<RememberResult | null> {
+  const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
+  const index = options.index ?? new MemoryIndexService();
+
+  const found = await findNoteAnywhereById(memoryDir, rememberId);
+  if (!found) return null;
+
+  const newKind = patch.kind !== undefined ? assertValidKind(patch.kind) : found.kind;
+  const newContent = patch.content !== undefined ? patch.content : found.body;
+  if (typeof newContent !== 'string' || newContent.trim() === '') {
+    throw new MemoryWriteError('content is required');
+  }
+  const newTags = patch.tags !== undefined ? patch.tags.map(String) : found.tags;
+
+  const oldVaultRelKey = toVaultRelativeKey(path.dirname(path.resolve(memoryDir)), found.abs);
+
+  let newRelPath = found.relPath;
+  let newAbs = found.abs;
+  const kindChanged = newKind !== found.kind;
+  if (kindChanged) {
+    const slugSource = patch.content !== undefined ? newContent.split('\n')[0] ?? newContent : path.basename(found.relPath, '.md');
+    const slug = slugForNote(slugSource, found.id);
+    newRelPath = path.join(newKind, `${slug}.md`);
+    newAbs = resolveWithinMemoryDir(memoryDir, newRelPath);
+  }
+
+  const fm: NoteFrontmatter = {
+    id: found.id,
+    kind: newKind,
+    tags: newTags,
+    created: found.created ?? isoDate(),
+    updated: isoDate(),
+    source: 'agent',
+  };
+
+  await fs.mkdir(path.dirname(newAbs), { recursive: true });
+  await fs.writeFile(newAbs, renderMemoryNote(fm, newContent), 'utf8');
+
+  if (kindChanged) {
+    try {
+      await fs.unlink(found.abs);
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
+    }
+    await index.removeNote(oldVaultRelKey);
+  }
+
+  const newVaultRelKey = toVaultRelativeKey(path.dirname(path.resolve(memoryDir)), newAbs);
+  await index.upsertNote({
+    sourceId: newVaultRelKey,
+    parsed: { kind: newKind, tags: newTags, content: newContent.trim() },
+  });
+
+  logger.info(`[MemoryWrite] updated note (kind=${newKind} path=${newVaultRelKey})`);
+  return { id: found.id, path: newVaultRelKey, kind: newKind };
 }
