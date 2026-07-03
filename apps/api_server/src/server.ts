@@ -85,6 +85,15 @@ async function main() {
     agentMemoryService.seedMemoryInterviewTask().catch((err) => {
       logger.warn(`[server] Memory interview seed failed (non-fatal): ${String(err)}`);
     });
+    // Issue #860 — single-source-of-truth memory: disable a standalone
+    // `memory` knowledge-graph MCP if the user's opencode.json has one
+    // registered independently of Rhythm, so it never surfaces as a second
+    // memory store to an unscoped agent. Never creates a memory entry —
+    // only narrows an existing one. Non-fatal — a disable failure must never
+    // block startup.
+    opencodeClient.disableStandaloneMemoryMcp().catch((err) => {
+      logger.warn(`[server] disableStandaloneMemoryMcp failed (non-fatal): ${String(err)}`);
+    });
 
     // One-time seed of vetted agent-stack skills into agent_skills (local SQLite
     // only). Guarded by a zero-count check on source='agent-stack-seed' so it
