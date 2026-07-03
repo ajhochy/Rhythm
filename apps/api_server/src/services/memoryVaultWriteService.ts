@@ -34,6 +34,7 @@ import path from 'node:path';
 import { resolveMemoryDirPath } from '../config/env';
 import {
   MEMORY_VAULT_SOURCE,
+  resolveVaultRootForMemoryDir,
   toVaultRelativeKey,
   vaultKeyToMemoryDirRelative,
 } from './memoryVaultSyncService';
@@ -353,7 +354,7 @@ export async function rememberToVault(
   // Canonical index key = path relative to the VAULT ROOT (e.g.
   // `memory/fact/abc.md`), the SAME form the scan/rebuild path stamps. Keying
   // on this one form means a write-then-rebuild yields exactly one row, not two.
-  const vaultRelKey = toVaultRelativeKey(path.dirname(path.resolve(memoryDir)), abs);
+  const vaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), abs);
   await index.upsertNote({
     sourceId: vaultRelKey,
     parsed: { kind, tags, content: contentToWrite.trim() },
@@ -489,7 +490,7 @@ export async function findMemoryRowByRememberId(
     const relPath = await findNoteByIdInKind(kindDir, memoryDir, rememberId);
     if (!relPath) continue;
     const abs = resolveWithinMemoryDir(memoryDir, relPath);
-    const vaultRelKey = toVaultRelativeKey(path.dirname(path.resolve(memoryDir)), abs);
+    const vaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), abs);
     const rows = await repo.listAsync(undefined, undefined, 1000);
     const match = rows.find((r) => r.sourceId === vaultRelKey);
     if (match) return match;
@@ -538,6 +539,47 @@ async function findNoteAnywhereById(
   return null;
 }
 
+/**
+ * #886 — read a note directly at a known memory-dir-relative path (the form
+ * `agent_memory.source_id` resolves to via `vaultKeyToMemoryDirRelative`).
+ * Used as the fallback when frontmatter-`id` lookup misses: vault-synced
+ * notes that predate the `id:` convention are still editable by path. Mints
+ * a fresh ULID for id-less notes so the rewrite backfills one. Returns null
+ * when the file doesn't exist or sits under an unknown kind dir.
+ */
+async function readNoteAtRelPath(
+  memoryDir: string,
+  relPath: string,
+): Promise<{
+  kind: MemoryKind;
+  relPath: string;
+  abs: string;
+  id: string;
+  created?: string;
+  tags: string[];
+  body: string;
+} | null> {
+  const kind = relPath.split(path.sep)[0] ?? '';
+  if (!(VALID_MEMORY_KINDS as readonly string[]).includes(kind)) return null;
+  let abs: string;
+  try {
+    abs = resolveWithinMemoryDir(memoryDir, relPath);
+    await fs.access(abs);
+  } catch {
+    return null;
+  }
+  const full = await readNoteFull(abs);
+  return {
+    kind: kind as MemoryKind,
+    relPath,
+    abs,
+    id: full.id ?? generateUlid(),
+    created: full.created,
+    tags: full.tags,
+    body: full.body,
+  };
+}
+
 export interface UpdateMemoryPatch {
   content?: string;
   kind?: string;
@@ -566,12 +608,24 @@ export interface UpdateMemoryPatch {
 export async function updateMemoryInVault(
   rememberId: string,
   patch: UpdateMemoryPatch,
-  options: MemoryVaultWriteOptions = {},
+  options: MemoryVaultWriteOptions & {
+    /**
+     * #886 — memory-dir-relative note path to fall back to when no note
+     * carries `rememberId` in its frontmatter. Lets the DB-row-id edit path
+     * (agentMemoryService.update) reach vault-synced notes that predate the
+     * frontmatter-`id` convention (several #801-era notes have none); the
+     * rewrite then backfills a fresh ULID into the note.
+     */
+    relPathFallback?: string;
+  } = {},
 ): Promise<RememberResult | null> {
   const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
   const index = options.index ?? new MemoryIndexService();
 
-  const found = await findNoteAnywhereById(memoryDir, rememberId);
+  let found = await findNoteAnywhereById(memoryDir, rememberId);
+  if (!found && options.relPathFallback) {
+    found = await readNoteAtRelPath(memoryDir, options.relPathFallback);
+  }
   if (!found) return null;
 
   const newKind = patch.kind !== undefined ? assertValidKind(patch.kind) : found.kind;
@@ -581,7 +635,7 @@ export async function updateMemoryInVault(
   }
   const newTags = patch.tags !== undefined ? patch.tags.map(String) : found.tags;
 
-  const oldVaultRelKey = toVaultRelativeKey(path.dirname(path.resolve(memoryDir)), found.abs);
+  const oldVaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), found.abs);
 
   let newRelPath = found.relPath;
   let newAbs = found.abs;
@@ -614,7 +668,7 @@ export async function updateMemoryInVault(
     await index.removeNote(oldVaultRelKey);
   }
 
-  const newVaultRelKey = toVaultRelativeKey(path.dirname(path.resolve(memoryDir)), newAbs);
+  const newVaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), newAbs);
   await index.upsertNote({
     sourceId: newVaultRelKey,
     parsed: { kind: newKind, tags: newTags, content: newContent.trim() },

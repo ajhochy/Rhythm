@@ -104,22 +104,26 @@ export const agentMemoryService = {
    */
   async update(id: string, patch: UpdateMemoryPatch, options?: MemoryVaultWriteOptions): Promise<RememberResult | null> {
     let rememberId = id;
+    let relPathFallback: string | undefined;
     const row = await memRepo.findByIdAsync(id);
     if (row && row.source === 'obsidian-memory' && row.sourceId) {
       // `id` was a DB row id — resolve it to the note's frontmatter id by
       // reading the note at its indexed vault path (updateMemoryInVault only
-      // understands the frontmatter id space).
+      // understands the frontmatter id space). #886: also carry the relPath
+      // as a fallback so notes WITHOUT a frontmatter `id` (pre-#803 sync'd
+      // notes) are still editable — the rewrite backfills a ULID.
       const memoryDir = options?.memoryDir ?? resolveMemoryDirPath();
       const relPath = vaultKeyToMemoryDirRelative(memoryDir, row.sourceId);
       try {
         const abs = resolveWithinMemoryDir(memoryDir, relPath);
         const full = await readNoteFull(abs);
         if (full.id) rememberId = full.id;
+        relPathFallback = relPath;
       } catch {
         // fall through — updateMemoryInVault will report not-found
       }
     }
-    return updateMemoryInVault(rememberId, patch, options);
+    return updateMemoryInVault(rememberId, patch, { ...options, relPathFallback });
   },
 
   /**
