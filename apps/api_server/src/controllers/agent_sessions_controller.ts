@@ -20,6 +20,7 @@ import { logger } from '../utils/logger';
 import { getCuratorExtractStatus } from '../services/skill_extractor';
 import { getCuratorRefineStatus } from '../services/skill_refiner';
 import { getSyncStatus } from '../services/sync_orchestrator_service';
+import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
 
 // Legacy agentId aliases. Older Rhythm clients (and a handful of historical
 // scripts) used short names. /agents/capabilities and the seed both use
@@ -1251,6 +1252,32 @@ export class AgentSessionsController {
         };
       });
       res.json({ messages });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Issue #862 — GET /:id/memory-provenance: "Memories used in this reply".
+   *
+   * Returns the LATEST turn's injected memory ids + originating vault note
+   * paths for this session, e.g. `{ memoryIds: [...], notePaths: [...] }`.
+   * `memoryIds: []` means the latest turn injected NO memories (an explicit,
+   * meaningful state) — distinct from `recorded: false` (returned when no
+   * turn has EVER been recorded for this session, e.g. memory injection is
+   * disabled or the session predates this feature), so the desktop app can
+   * render "no memories used" vs. "no data yet" correctly.
+   */
+  async getMemoryProvenance(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const record = new AgentSessionMemoryProvenanceRepository().getLatest(req.params.id);
+      if (!record) {
+        res.json({ recorded: false, memoryIds: [], notePaths: [] });
+        return;
+      }
+      res.json({ recorded: true, memoryIds: record.memoryIds, notePaths: record.notePaths });
     } catch (err) {
       next(err);
     }

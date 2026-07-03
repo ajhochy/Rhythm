@@ -27,6 +27,7 @@ import { queueSkillExtraction } from './skill_extractor';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
 import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
+import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
 import { resolveProfileScope } from './agent_profile_scope';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
@@ -593,6 +594,13 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // never written to config.systemPrompt, never persisted, never passed to the
   // agent writer. FAIL-SAFE: ownerUserId is threaded straight to owner-scoped
   // retrieval; a null/undefined owner retrieves ONLY instance-global memory.
+  // #862 — captured here (before rhythmSessionId exists below) and recorded
+  // to AgentSessionMemoryProvenanceRepository once the session row is
+  // created, so "Memories used in this reply" is available for scheduled/
+  // headless runs the same as interactive ws_gateway turns. null when
+  // injection was disabled or failed — no provenance is recorded in that case
+  // (distinct from an explicit empty-list "0 memories used" turn).
+  let memoryProvenance: { memoryIds: string[]; notePaths: (string | null)[] } | null = null;
   if (isMemoryInjectionEnabled()) {
     try {
       const memPreface = await buildMemoryPreface(prompt, ownerUserId ?? null);
@@ -602,6 +610,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
           `[AgentRunner] injected ${memPreface.memoryIds.length} relevant memory item(s) into prompt preface (owner=${ownerUserId ?? 'global'})`,
         );
       }
+      memoryProvenance = { memoryIds: memPreface.memoryIds, notePaths: memPreface.notePaths };
     } catch (err) {
       // Non-fatal: a retrieval failure must never block the run.
       logger.warn(`[AgentRunner] memory preface build failed (non-fatal): ${String(err)}`);
@@ -625,6 +634,20 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     mcpRole: mcpRole ?? null,
     mcpAllowedToolsJson: allowedMcpsJson ?? null,
   });
+
+  // #862 — record "Memories used in this reply" now that the local session
+  // row exists. Non-fatal: a recording failure must never block the run.
+  if (rhythmSessionId && memoryProvenance) {
+    try {
+      new AgentSessionMemoryProvenanceRepository().record(
+        rhythmSessionId,
+        memoryProvenance.memoryIds,
+        memoryProvenance.notePaths,
+      );
+    } catch (err) {
+      logger.warn(`[AgentRunner] memory provenance record failed (non-fatal): ${String(err)}`);
+    }
+  }
 
   const deadline = Date.now() + getRunTimeoutMs();
 

@@ -14,4 +14,8 @@ class AgentMemoryRepository {
       _dataSource.create(input);
 
   Future<void> delete(String id) => _dataSource.delete(id);
+
+  /// Issue #862 — edit-in-place.
+  Future<AgentMemoryEntry> update(String id, Map<String, dynamic> patch) =>
+      _dataSource.update(id, patch);
 }

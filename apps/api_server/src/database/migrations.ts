@@ -1717,4 +1717,29 @@ export function runMigrations(db: Database.Database): void {
   if (!agentConfigColsForTierHint.includes('model_tier_hint')) {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN model_tier_hint TEXT`);
   }
+
+  // #862 — agent_session_memory_provenance: "Memories used in this reply".
+  //
+  // One row per session_id, OVERWRITTEN on every turn (not an append-only
+  // log) — the desktop app only ever needs to explain the LATEST reply, so a
+  // growing history here would be unused write volume. `memory_ids_json` /
+  // `note_paths_json` are positionally-aligned JSON string arrays (mirrors
+  // `MemoryPreface.memoryIds`/`notePaths` from memory_retrieval.ts), capped at
+  // 5 entries (the top-5 injection contract). An EXPLICIT empty array
+  // (`'[]'`) means "this turn injected no memories" — distinct from no row at
+  // all, which means "no turn has been recorded for this session yet". Both
+  // states are meaningful to the UI (#862 AC: "no-memories case stated
+  // clearly" vs. "no data yet").
+  //
+  // SQLite-only (mirrors agent_session_messages) — never added to
+  // postgres_bootstrap.ts; the local agent server on :4001 is the only writer
+  // and reader.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_session_memory_provenance (
+      session_id TEXT PRIMARY KEY,
+      memory_ids_json TEXT NOT NULL DEFAULT '[]',
+      note_paths_json TEXT NOT NULL DEFAULT '[]',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
 }

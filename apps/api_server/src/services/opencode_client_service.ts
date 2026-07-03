@@ -1921,6 +1921,76 @@ export class OpencodeClientService {
   }
 
   /**
+   * Issue #860 — disable the standalone `memory` knowledge-graph MCP
+   * (@modelcontextprotocol/server-memory) from the generated opencode.json
+   * path, so agents scoped with an unrestricted MCP allowlist (the
+   * `allowed_mcps_json === null` fail-open case — see
+   * `agent_profile_scope.ts`) never see a SECOND memory store alongside the
+   * Obsidian AGENT-MEMORY vault. Per
+   * docs/ai/decisions/2026-07-02-agent-memory-in-obsidian-vault.md, that vault
+   * is the single source of truth; a standalone `memory` MCP server
+   * (independently installed by the user, e.g. via Claude Desktop/Code
+   * config — Rhythm never installs it) is a split-brain risk if left enabled.
+   *
+   * Sets `mcp.memory.enabled = false` WITHOUT deleting the entry — this
+   * preserves the user's existing config (command, environment, any data path
+   * they set) in case they want to re-enable it manually; it just stops the
+   * engine from starting it. Idempotent:
+   *   - no `mcp.memory` entry at all → no-op (`changed: false`), and
+   *     CRITICALLY never creates one — this function only ever narrows an
+   *     existing entry, never adds a new server.
+   *   - `mcp.memory.enabled` already `false` → no-op.
+   *   - otherwise → rewrite with `enabled: false`, preserving every other
+   *     field on the entry untouched.
+   * A missing config file is a safe no-op (mirrors ensureRhythmMcp's
+   * defensive read, but never writes a file that didn't already exist since
+   * there is nothing to disable).
+   */
+  async disableStandaloneMemoryMcp(
+    opts?: { configPath?: string },
+  ): Promise<{ changed: boolean }> {
+    const { existsSync, readFileSync, writeFileSync } =
+      require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const { homedir } = require('os') as typeof import('os');
+
+    const configPath =
+      opts?.configPath ??
+      join(homedir(), '.config', 'opencode', 'opencode.json');
+
+    if (!existsSync(configPath)) {
+      return { changed: false };
+    }
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+    } catch (err) {
+      logger.warn(
+        `[OpencodeClientService] disableStandaloneMemoryMcp: could not parse opencode.json (leaving untouched): ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { changed: false };
+    }
+
+    const mcpSection = parsed.mcp as Record<string, unknown> | undefined;
+    const memoryEntry = mcpSection?.memory as Record<string, unknown> | undefined;
+    if (!mcpSection || !memoryEntry) {
+      return { changed: false };
+    }
+    if (memoryEntry.enabled === false) {
+      return { changed: false };
+    }
+
+    mcpSection.memory = { ...memoryEntry, enabled: false };
+    parsed.mcp = mcpSection;
+    writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+    logger.info(
+      '[OpencodeClientService] disableStandaloneMemoryMcp: disabled standalone memory MCP (#860 — Obsidian AGENT-MEMORY vault is the single source of truth)',
+    );
+    return { changed: true };
+  }
+
+  /**
    * Idempotently merge the curated MCP server registry
    * ({@link CURATED_MCP_SERVERS}) into opencode.json's `mcp` block.
    *
