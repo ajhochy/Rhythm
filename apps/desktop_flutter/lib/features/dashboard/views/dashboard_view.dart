@@ -8,10 +8,10 @@ import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
-import '../../agents/controllers/agents_controller.dart';
 import '../../agents/models/quick_action_context.dart';
 import '../../agents/views/quick_actions_bar.dart';
 import '../../messages/controllers/messages_controller.dart';
+import '../../notifications/controllers/notifications_controller.dart';
 import '../../projects/models/project_instance.dart';
 import '../controllers/dashboard_controller.dart';
 import '../../tasks/data/collaborators_data_source.dart';
@@ -172,9 +172,12 @@ class _DashboardBodyState extends State<_DashboardBody> {
                         _NextTaskQuickActionsCard(
                           task: _nextActionableTask(c)!,
                           onSessionReady: (sessionId) {
+                            // Switch to the Agents view with this session open
+                            // (same path as the #815 notification tap) so the
+                            // user sees the agent working, not a silent no-op.
                             context
-                                .read<AgentsController>()
-                                .selectSession(sessionId);
+                                .read<NotificationsController>()
+                                .navigateTo('agentSession', sessionId);
                           },
                         ),
                       ],

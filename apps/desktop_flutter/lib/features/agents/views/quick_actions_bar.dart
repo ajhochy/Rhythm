@@ -190,6 +190,7 @@ class _QuickActionsBarState extends State<QuickActionsBar> {
     await agentsController.selectSession(session.id);
     if (!mounted) return;
     agentsController.sendInput(session.id, _presetPrompt(kind));
+    _showInfo('Rhythm is on it — opening the agent session…');
     widget.onSessionReady?.call(session.id);
   }
 
@@ -247,12 +248,23 @@ class _QuickActionsBarState extends State<QuickActionsBar> {
         _presetPrompt(_QuickActionKind.followUpTasks),
       );
     }
+    _showInfo('Created a follow-up task and asked Rhythm to suggest more — '
+        'opening the agent session…');
     widget.onSessionReady?.call(session.id);
   }
 
   void _showFailure(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
+    );
+  }
+
+  /// Confirmation feedback so the user knows what the tap did (the agent
+  /// launch can take several seconds; without this it looked like "spun then
+  /// did nothing"). onSessionReady then navigates to the opened session.
+  void _showInfo(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
     );
   }
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../../features/agents/controllers/agents_controller.dart';
+import '../../../features/notifications/controllers/notifications_controller.dart';
 import '../../../features/agents/models/quick_action_context.dart';
 import '../../../features/agents/views/quick_actions_bar.dart';
 import '../../../features/projects/models/project_instance.dart';
@@ -806,7 +806,13 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
                   description: widget.task.notes,
                 ),
                 onSessionReady: (sessionId) {
-                  context.read<AgentsController>().selectSession(sessionId);
+                  // Close the inspector modal and switch to the Agents view
+                  // with this session open, reusing the same pending-navigation
+                  // path as the #815 notification tap — otherwise the agent
+                  // runs invisibly behind the modal ("spun then did nothing").
+                  final notif = context.read<NotificationsController>();
+                  Navigator.of(context).pop();
+                  notif.navigateTo('agentSession', sessionId);
                 },
               ),
             ),
