@@ -292,6 +292,16 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
     // Bug this catches: the audit only ever looks at denials (broaden-scope
     // signal) and never surfaces the complementary tighten-scope signal (a
     // granted-but-unused tool), leaving that whole proposal kind unfed.
+    //
+    // #857 update: the profile must clear the data-sufficiency guard (a
+    // meaningful observation window AND enough recorded activity) before
+    // "never invoked" is trusted as a real usage signal — a freshly-created
+    // profile with a single session is "unobserved", not "unused" (see
+    // issue_857_contract.test.ts's issue-857-c1). This test backdates the
+    // profile and records enough sessions to clear both floors so it keeps
+    // testing the ORIGINAL claim (a live, matched, genuinely-never-invoked
+    // tool still produces a gap) rather than the thin-data case #857 now
+    // suppresses.
     listMcp.mockResolvedValue({
       rhythm: { name: 'rhythm' },
       'nfl-mcp': { name: 'nfl-mcp' },
@@ -304,17 +314,25 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
       icon: 'x',
       allowedMcpsJson: JSON.stringify(['rhythm', 'nfl-mcp']),
     });
+    // Backdate past the minimum observation window (default 7 days) — insert()
+    // always stamps created_at = now with no override.
+    getDb()
+      .prepare(`UPDATE agent_configs SET created_at = ? WHERE id = ?`)
+      .run(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), 'secretary');
 
-    // A session exists for this profile (mcp_role) but the org has zero
-    // recorded usage/denial signal referencing nfl-mcp anywhere.
+    // Enough sessions to clear the minimum activity floor (default 10), but
+    // the org still has zero recorded usage/denial signal referencing
+    // nfl-mcp anywhere.
     const sessionsRepo = new AgentSessionsRepository();
-    sessionsRepo.insert({
-      agentKind: 'claude-code',
-      taskId: null,
-      cwd: '/tmp',
-      name: 'session-1',
-      mcpRole: 'secretary',
-    });
+    for (let i = 0; i < 10; i++) {
+      sessionsRepo.insert({
+        agentKind: 'claude-code',
+        taskId: null,
+        cwd: '/tmp',
+        name: `session-${i}`,
+        mcpRole: 'secretary',
+      });
+    }
 
     const { buildOrgAuditSnapshot } = await import('../org_audit_service');
     const snapshot = await buildOrgAuditSnapshot();
@@ -328,6 +346,41 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
     expect(tightenGap).toBeDefined();
     expect(tightenGap?.gapId).toBeTruthy();
     expect(tightenGap?.evidence.length).toBeGreaterThan(0);
+  });
+
+  it('#857: a freshly-created profile with only one recorded session produces NO tighten-scope gap (thin history)', async () => {
+    // This is the live-run failure #857 fixes: with near-zero observation
+    // history, every granted tool looks "never invoked" — indistinguishable
+    // from proven-unused. Below the data-sufficiency floor, no tighten-scope
+    // gap may be emitted at all, even for a live, matched, unused name.
+    listMcp.mockResolvedValue({
+      rhythm: { name: 'rhythm' },
+      'nfl-mcp': { name: 'nfl-mcp' },
+    });
+
+    const configsRepo = new AgentConfigsRepository();
+    configsRepo.insert({
+      id: 'secretary',
+      label: 'Secretary',
+      icon: 'x',
+      allowedMcpsJson: JSON.stringify(['rhythm', 'nfl-mcp']),
+    });
+    // created_at left as "now" — zero observation window.
+
+    const sessionsRepo = new AgentSessionsRepository();
+    sessionsRepo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      cwd: '/tmp',
+      name: 'session-1',
+      mcpRole: 'secretary',
+    });
+
+    const { buildOrgAuditSnapshot } = await import('../org_audit_service');
+    const snapshot = await buildOrgAuditSnapshot();
+
+    const tightenGaps = snapshot.gaps.filter((g) => g.kind === 'tighten-scope');
+    expect(tightenGaps).toHaveLength(0);
   });
 });
 

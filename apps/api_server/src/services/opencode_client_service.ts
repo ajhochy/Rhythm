@@ -13,6 +13,10 @@ import {
 } from '../config/curated_mcp_servers';
 import { ensureGeminiProjectConfig } from './gemini_project_config';
 import { expandMcpAllowlist } from './mcp_allowlist_expander';
+import {
+  ensureOmlxProviderConfig,
+  detectAndUnloadCompetingOllamaModel,
+} from './local_omlx_provider';
 
 /**
  * MCP-6 — resolves a FRESH OAuth access token for a curated server's
@@ -38,10 +42,23 @@ async function runCommand(file: string, args: string[]): Promise<string> {
   return stdout;
 }
 
-type EngineStatus = 'uninitialized' | 'ready' | 'error';
+/**
+ * #856 — 'reloading' is a transient state entered by
+ * {@link OpencodeClientService.reloadCredentials} while the engine is being
+ * bounced after a provider auth change (e.g. a Claude account switch writes
+ * fresh tokens to auth.json). Surfaced via `statusMessage` so callers show a
+ * brief "reloading credentials…" message instead of opaque 401s during the
+ * bounce window.
+ */
+type EngineStatus = 'uninitialized' | 'ready' | 'error' | 'reloading';
 
-/** Providers that are usable over loopback without an auth-store credential. */
-const KEYLESS_LOCAL_PROVIDER_IDS = new Set(['ollama']);
+/**
+ * Providers that are usable over loopback without an auth-store credential.
+ * `omlx` (#868) is the Apple-Silicon-native oMLX provider — optional/feature-
+ * flagged, but once its opencode.json entry exists it needs no OAuth/API-key
+ * credential either, exactly like `ollama`.
+ */
+const KEYLESS_LOCAL_PROVIDER_IDS = new Set(['ollama', 'omlx']);
 
 /**
  * The fixed TCP port the bundled opencode engine listens on. The SDK's
@@ -197,6 +214,114 @@ export async function reclaimStalePortForOpencode(
   throw new Error(
     `Failed to reclaim port ${port} from stale opencode process (PID ${pid}) after SIGTERM and SIGKILL.`,
   );
+}
+
+/**
+ * The exact `@ajhochy/rhythm-mcp-server` version this build of Rhythm was
+ * shipped/tested against, read once from `apps/mcp_server/package.json`.
+ * Single source of truth for the pinned-fallback command (issue #814) — bump
+ * `apps/mcp_server/package.json`'s `version` and this pin tracks it
+ * automatically; no second place to edit.
+ *
+ * Resolution order mirrors {@link augmentPathForOpencode}'s bundled-binary
+ * probe: try the compiled/dev-module-relative candidate paths, using the
+ * first one whose package.json actually exists. `__dirname/../../../mcp_server`
+ * resolves correctly from BOTH `apps/api_server/dist/services` (bundled
+ * release) and `apps/api_server/src/services` (dev via tsx/vitest, no
+ * dist/), because `dist`/`src` and `mcp_server` are siblings under `apps/`.
+ * A flattened `dist/` (two levels up) is probed as a defensive fallback.
+ * Returns `undefined` (never throws) when no package.json can be found or
+ * parsed, so callers can fall back to a bare, unpinned spec rather than
+ * crash (see {@link resolveRhythmMcpCommand}).
+ */
+export function readRhythmMcpServerVersion(): string | undefined {
+  const candidates = [
+    // dist/services or src/services → apps/mcp_server (dev + bundled release)
+    join(__dirname, '..', '..', '..', 'mcp_server', 'package.json'),
+    // Flattened dist/ variant
+    join(__dirname, '..', '..', 'mcp_server', 'package.json'),
+  ];
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue;
+    try {
+      const parsed = JSON.parse(readFileSync(candidate, 'utf8')) as {
+        version?: unknown;
+      };
+      if (typeof parsed.version === 'string' && parsed.version.trim()) {
+        return parsed.version.trim();
+      }
+    } catch {
+      // Fall through to the next candidate / the undefined fallback below.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Issue #814 — resolve the argv used to launch the rhythm MCP server, never a
+ * bare unversioned package spec.
+ *
+ * Problem: `npx -y @ajhochy/rhythm-mcp-server` (no version) lets a STALE
+ * GLOBAL install of the package shadow the version the app was built/tested
+ * against — observed in the wild (a stale global 0.6.0 shadowed a published
+ * 0.6.1). `npx` also requires network access at launch time, which is fragile
+ * offline.
+ *
+ * Resolution order (first match wins), mirroring
+ * {@link augmentPathForOpencode}'s bundled-vs-PATH precedence:
+ *   1. `RHYTHM_MCP_SERVER_BIN` dev override — an explicit absolute path to a
+ *      built `dist/index.js` entrypoint, for pointing at a locally-built
+ *      mcp_server without a release build (parity with
+ *      RHYTHM_OPENCODE_BIN[_DIR] for the fork engine).
+ *   2. A BUNDLED mcp_server payload shipped inside the app bundle
+ *      (`Contents/Resources/mcp_server/dist/index.js`, sibling of the
+ *      bundled `api_server` and `opencode_bin` — see desktop_release.yml's
+ *      "Bundle rhythm MCP server into app" step). Launched by absolute path
+ *      via `node` — no npx, no global, no network.
+ *   3. FALLBACK (dev, or a release predating the bundling step): an EXPLICIT
+ *      PINNED version spec `@ajhochy/rhythm-mcp-server@<version>` sourced
+ *      from {@link readRhythmMcpServerVersion}, so a stale global install can
+ *      never shadow it. Only when the version cannot be resolved at all do
+ *      we fall back to the historical bare spec (logged as a WARN — this
+ *      should not happen in a checked-out monorepo).
+ */
+export function resolveRhythmMcpCommand(): string[] {
+  const devBinPath = process.env.RHYTHM_MCP_SERVER_BIN?.trim();
+  if (devBinPath) {
+    if (existsSync(devBinPath)) {
+      logger.info(
+        `[OpencodeClientService] RHYTHM_MCP_SERVER_BIN override active — rhythm MCP will launch from ${devBinPath}`,
+      );
+      return ['node', devBinPath];
+    }
+    logger.warn(
+      `[WARN] RHYTHM_MCP_SERVER_BIN="${devBinPath}" does not exist — ignoring override`,
+    );
+  }
+
+  const candidateBundledEntrypoints = [
+    // Bundled release layout: Resources/api_server/dist/services → Resources/mcp_server
+    join(__dirname, '..', '..', '..', 'mcp_server', 'dist', 'index.js'),
+    // Flattened dist/ variant
+    join(__dirname, '..', '..', 'mcp_server', 'dist', 'index.js'),
+  ];
+  const bundledEntrypoint = candidateBundledEntrypoints.find((p) =>
+    existsSync(p),
+  );
+  if (bundledEntrypoint) {
+    return ['node', bundledEntrypoint];
+  }
+
+  const pinnedVersion = readRhythmMcpServerVersion();
+  if (pinnedVersion) {
+    return ['npx', '-y', `@ajhochy/rhythm-mcp-server@${pinnedVersion}`];
+  }
+
+  logger.warn(
+    '[WARN] rhythm MCP: no bundled payload and no resolvable mcp_server/package.json version — ' +
+      'falling back to an unpinned npx spec, which a stale global install can shadow',
+  );
+  return ['npx', '-y', '@ajhochy/rhythm-mcp-server'];
 }
 
 /**
@@ -381,6 +506,18 @@ export class OpencodeClientService {
   }
 
   /**
+   * Indirection around `this.status` used where TypeScript's control-flow
+   * narrowing would otherwise (incorrectly) hold a property read to a
+   * literal type assigned earlier in the same method, across intervening
+   * calls that reassign it (e.g. {@link reloadCredentials}'s
+   * `this.status = 'reloading'` → `this.dispose()` → `this.initialize()`
+   * sequence). Going through a method call forces a fresh read.
+   */
+  private currentStatusForLogging(): EngineStatus {
+    return this.status;
+  }
+
+  /**
    * Ensure the engine is ready, auto-reinitializing if it was previously
    * disposed or never initialized. Returns true once ready, false if
    * initialization fails or if the engine is in intentional shutdown.
@@ -413,6 +550,9 @@ export class OpencodeClientService {
     if (this.status === 'ready') return 'Opencode SDK ready';
     if (this.status === 'error')
       return `Opencode SDK error: ${this.error?.message}`;
+    // #856 — surfaced during reloadCredentials()'s dispose+reinit bounce so
+    // callers show a brief, honest status instead of opaque 401s.
+    if (this.status === 'reloading') return 'Reloading credentials…';
     return 'Opencode SDK not initialized';
   }
 
@@ -490,6 +630,31 @@ export class OpencodeClientService {
         `[OpencodeClientService] ensured Gemini Code Assist projectId=${geminiCfg.projectId} (changed=${geminiCfg.changed})`,
       );
       logger.info(`[Opencode][timing] geminiProjectConfig took ${Date.now() - t3}ms`);
+
+      // Phase 3b (#868): ensure the OPTIONAL oMLX provider + constrained
+      // `local` agent profile are on disk BEFORE createOpencode() spawns the
+      // engine (same ordering reason as Phase 3 — the engine reads
+      // opencode.json's `provider`/`agent` blocks at startup). No-ops
+      // entirely unless RHYTHM_LOCAL_OMLX_ENABLED=true — cloud/default
+      // profiles are unaffected either way. Never throws; logs and continues.
+      const t3b = Date.now();
+      const omlxCfg = ensureOmlxProviderConfig();
+      if (omlxCfg.enabled) {
+        logger.info(
+          `[OpencodeClientService] ensured oMLX provider (${omlxCfg.providerId}/${omlxCfg.modelId}) + '${omlxCfg.agentId}' agent (changed=${omlxCfg.changed})`,
+        );
+        // #868 — a 32 GB Apple Silicon Mac can't hold both a large Ollama
+        // model and the oMLX model in Metal memory at once. Detect + (best
+        // effort) unload the configured competing Ollama model before the
+        // engine spawns. Never throws / never blocks startup either way.
+        const unloadResult = await detectAndUnloadCompetingOllamaModel();
+        if (unloadResult.detected && !unloadResult.unloaded) {
+          logger.warn(
+            `[OpencodeClientService] oMLX enabled but Ollama model '${unloadResult.model}' is still loaded — run '${unloadResult.action}' to free Metal memory before using the local agent`,
+          );
+        }
+      }
+      logger.info(`[Opencode][timing] omlxProviderConfig took ${Date.now() - t3b}ms`);
 
       // Phase 4: reclaim stale port.
       // #655 — Before spawning, reclaim :4096 from a stale opencode orphan
@@ -892,6 +1057,18 @@ export class OpencodeClientService {
     directory?: string,
   ): Promise<Array<{ name: string; description?: string; location: string }>> {
     const dir = directory ?? homedir();
+    // The one-time skill backfill materializes SKILL.md files during server
+    // boot, before the engine has spawned/started listening. Reloading against
+    // a not-yet-listening engine only produces ECONNREFUSED noise — and is
+    // unnecessary, because the engine performs initial skill discovery when it
+    // spawns, so anything written before that is picked up anyway. Reload is
+    // only meaningful for writes AFTER the engine is already running.
+    if (!this.isReady) {
+      // Silent: called once per skill during the boot-time backfill before the
+      // engine is up; a log line per skill would just be new noise. Comment
+      // above documents why the skip is correct.
+      return [];
+    }
     try {
       const base = this.serverUrl;
       const res = await fetch(`${base}/skill/reload?directory=${encodeURIComponent(dir)}`, {
@@ -1415,10 +1592,16 @@ export class OpencodeClientService {
    */
   async listMessages(
     sdkId: string,
+    directory?: string,
   ): Promise<import('@opencode-ai/sdk').Message[]> {
     const client = this.requireClient();
+    // #861 smoke fix: engine session reads are DIRECTORY-SCOPED — without
+    // ?directory=<session cwd> the engine looks in its default instance and
+    // reports "Session not found" for sessions created under another cwd
+    // (e.g. subagent sessions under $HOME). Same gotcha as respond/abort.
     const raw = await client.session.messages({
       path: { id: sdkId },
+      ...(directory ? { query: { directory } } : {}),
     });
     if (raw.error) {
       throw new AppError(
@@ -1437,10 +1620,13 @@ export class OpencodeClientService {
    */
   async getTodo(
     sdkId: string,
+    directory?: string,
   ): Promise<import('@opencode-ai/sdk').Todo[]> {
     const client = this.requireClient();
+    // #861 smoke fix: directory-scoped read (see listMessages).
     const raw = await client.session.todo({
       path: { id: sdkId },
+      ...(directory ? { query: { directory } } : {}),
     });
     if (raw.error) {
       throw new AppError(
@@ -1562,10 +1748,13 @@ export class OpencodeClientService {
    */
   async listChildren(
     sdkId: string,
+    directory?: string,
   ): Promise<import('@opencode-ai/sdk').Session[]> {
     const client = this.requireClient();
+    // #861 smoke fix: directory-scoped read (see listMessages).
     const raw = await client.session.children({
       path: { id: sdkId },
+      ...(directory ? { query: { directory } } : {}),
     });
     if (raw.error) {
       throw new AppError(
@@ -1738,7 +1927,8 @@ export class OpencodeClientService {
       'http://localhost:4001';
     const desired = {
       type: 'local' as const,
-      command: ['npx', '-y', '@ajhochy/rhythm-mcp-server'],
+      // #814 — never a bare unversioned spec; see resolveRhythmMcpCommand.
+      command: resolveRhythmMcpCommand(),
       environment: {
         RHYTHM_API_URL: apiUrl,
         RHYTHM_AGENT_URL: agentUrl,
@@ -1786,6 +1976,76 @@ export class OpencodeClientService {
       }
     }
     return { changed: true, registered };
+  }
+
+  /**
+   * Issue #860 — disable the standalone `memory` knowledge-graph MCP
+   * (@modelcontextprotocol/server-memory) from the generated opencode.json
+   * path, so agents scoped with an unrestricted MCP allowlist (the
+   * `allowed_mcps_json === null` fail-open case — see
+   * `agent_profile_scope.ts`) never see a SECOND memory store alongside the
+   * Obsidian AGENT-MEMORY vault. Per
+   * docs/ai/decisions/2026-07-02-agent-memory-in-obsidian-vault.md, that vault
+   * is the single source of truth; a standalone `memory` MCP server
+   * (independently installed by the user, e.g. via Claude Desktop/Code
+   * config — Rhythm never installs it) is a split-brain risk if left enabled.
+   *
+   * Sets `mcp.memory.enabled = false` WITHOUT deleting the entry — this
+   * preserves the user's existing config (command, environment, any data path
+   * they set) in case they want to re-enable it manually; it just stops the
+   * engine from starting it. Idempotent:
+   *   - no `mcp.memory` entry at all → no-op (`changed: false`), and
+   *     CRITICALLY never creates one — this function only ever narrows an
+   *     existing entry, never adds a new server.
+   *   - `mcp.memory.enabled` already `false` → no-op.
+   *   - otherwise → rewrite with `enabled: false`, preserving every other
+   *     field on the entry untouched.
+   * A missing config file is a safe no-op (mirrors ensureRhythmMcp's
+   * defensive read, but never writes a file that didn't already exist since
+   * there is nothing to disable).
+   */
+  async disableStandaloneMemoryMcp(
+    opts?: { configPath?: string },
+  ): Promise<{ changed: boolean }> {
+    const { existsSync, readFileSync, writeFileSync } =
+      require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const { homedir } = require('os') as typeof import('os');
+
+    const configPath =
+      opts?.configPath ??
+      join(homedir(), '.config', 'opencode', 'opencode.json');
+
+    if (!existsSync(configPath)) {
+      return { changed: false };
+    }
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+    } catch (err) {
+      logger.warn(
+        `[OpencodeClientService] disableStandaloneMemoryMcp: could not parse opencode.json (leaving untouched): ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { changed: false };
+    }
+
+    const mcpSection = parsed.mcp as Record<string, unknown> | undefined;
+    const memoryEntry = mcpSection?.memory as Record<string, unknown> | undefined;
+    if (!mcpSection || !memoryEntry) {
+      return { changed: false };
+    }
+    if (memoryEntry.enabled === false) {
+      return { changed: false };
+    }
+
+    mcpSection.memory = { ...memoryEntry, enabled: false };
+    parsed.mcp = mcpSection;
+    writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+    logger.info(
+      '[OpencodeClientService] disableStandaloneMemoryMcp: disabled standalone memory MCP (#860 — Obsidian AGENT-MEMORY vault is the single source of truth)',
+    );
+    return { changed: true };
   }
 
   /**
@@ -2310,4 +2570,67 @@ export class OpencodeClientService {
     this.status = 'uninitialized';
   }
   private _disposeLogged = false;
+
+  /**
+   * Issue #856 — bounce the opencode engine subprocess so it re-reads
+   * `auth.json` after a provider credential change (e.g. switching Claude
+   * accounts). The engine caches the token it loaded at spawn time
+   * ({@link restoreAuth} only runs during {@link initialize}), so a content
+   * change on disk is otherwise invisible to the running process until a
+   * full app restart — every call 401s in the meantime.
+   *
+   * This is a graceful restart, NOT an in-engine/fork change: dispose the
+   * current subprocess (closing its port cleanly) and re-run the normal
+   * {@link initialize} path, which re-spawns `opencode serve` and calls
+   * {@link restoreAuth} against the fresh file content. `status` is set to
+   * `'reloading'` for the duration so `statusMessage` / `isReady` reflect a
+   * brief, honest "reloading credentials…" window instead of exposing
+   * transient 401s as a hard error.
+   *
+   * Intended to be called by an {@link AuthCredentialWatcher} instance wired
+   * up in server.ts, NOT on every auth.json touch — the watcher's
+   * change-detection + debounce logic decides when a bounce is warranted.
+   */
+  async reloadCredentials(): Promise<void> {
+    if (this._shuttingDown) {
+      logger.info(
+        '[OpencodeClientService] reloadCredentials: skipped — app is shutting down',
+      );
+      return;
+    }
+    logger.info(
+      '[OpencodeClientService] reloadCredentials: bouncing engine to pick up changed auth.json',
+    );
+    this.status = 'reloading';
+    // dispose() sets _shuttingDown=true as a side effect (shared with the
+    // app-shutdown path) — reset it immediately so this is understood as a
+    // planned bounce, not a permanent shutdown, before any other code
+    // observes `_shuttingDown`.
+    this.dispose();
+    this._shuttingDown = false;
+    this._disposeLogged = false;
+    try {
+      await this.initialize();
+      // Read through a getter-shaped indirection so TS does not (incorrectly)
+      // keep narrowing this.status to the 'reloading' literal assigned above
+      // across the intervening dispose()/initialize() calls.
+      const statusAfterReinit: EngineStatus = this.currentStatusForLogging();
+      if (statusAfterReinit === 'ready') {
+        logger.info(
+          '[OpencodeClientService] reloadCredentials: engine restarted, credentials reloaded',
+        );
+      } else {
+        logger.warn(
+          `[OpencodeClientService] reloadCredentials: engine did not reach ready after bounce (status=${statusAfterReinit})`,
+        );
+      }
+    } catch (err) {
+      this.status = 'error';
+      this.error = err instanceof Error ? err : new Error(String(err));
+      logger.error(
+        '[OpencodeClientService] reloadCredentials: re-initialization failed:',
+        this.error,
+      );
+    }
+  }
 }

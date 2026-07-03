@@ -92,6 +92,7 @@ class AgentSession {
     required this.createdAt,
     required this.updatedAt,
     this.parentId,
+    this.sdkSessionId,
   });
 
   final String id;
@@ -129,6 +130,12 @@ class AgentSession {
   /// True when this session was spawned by a parent (delegated subagent).
   bool get isChildSession => parentId != null;
 
+  /// #861 — the engine (opencode SDK) session id backing this local session,
+  /// when known. Lets a delegated Task card resolve to the EXISTING local
+  /// child session (persisted transcript) instead of refetching from the
+  /// engine.
+  final String? sdkSessionId;
+
   factory AgentSession.fromJson(Map<String, dynamic> json) {
     // Accept `agent_id` (new) or fall back to `agent_kind` (legacy) for one
     // release, normalising the wire value to the canonical agentId string.
@@ -158,6 +165,8 @@ class AgentSession {
       createdAt: _parseDateTime(asString(json['createdAt'])) ?? _epoch,
       updatedAt: _parseDateTime(asString(json['updatedAt'])) ?? _epoch,
       parentId: asString(json['parentSessionId']) ?? asString(json['parentId']),
+      sdkSessionId:
+          asString(json['sdkSessionId']) ?? asString(json['sdk_session_id']),
     );
   }
 
@@ -184,6 +193,7 @@ class AgentSession {
       'createdAt': createdAt.toUtc().toIso8601String(),
       'updatedAt': updatedAt.toUtc().toIso8601String(),
       if (parentId != null) 'parentSessionId': parentId,
+      if (sdkSessionId != null) 'sdkSessionId': sdkSessionId,
     };
   }
 
@@ -207,6 +217,7 @@ class AgentSession {
     DateTime? createdAt,
     DateTime? updatedAt,
     Object? parentId = _sentinel,
+    Object? sdkSessionId = _sentinel,
   }) {
     return AgentSession(
       id: id ?? this.id,
@@ -240,6 +251,9 @@ class AgentSession {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       parentId: parentId == _sentinel ? this.parentId : parentId as String?,
+      sdkSessionId: sdkSessionId == _sentinel
+          ? this.sdkSessionId
+          : sdkSessionId as String?,
     );
   }
 }

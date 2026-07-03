@@ -31,6 +31,9 @@
  *  - issue-826-c7: endpoints respect the AGENT_LOCAL bypass (no bearer token
  *    required when AGENT_LOCAL=true), matching the existing agent-webhooks
  *    posture.
+ *  - issue-857-c7: POST /agent-org-proposals/:id/revert undoes an `active`
+ *    proposal (restores the live agent_configs scope + sets status=reverted);
+ *    refused (4xx, no status change) for a proposal not currently `active`.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -238,5 +241,68 @@ describe('issue-826: human-gate review queue API', () => {
       method: 'POST',
     });
     expect(rejectRes.status).toBe(200);
+  });
+
+  it('issue-857-c7: revert undoes an active proposal, restoring the live scope and setting status=reverted', async () => {
+    // Bug this catches: there is no route to undo a proposal that already
+    // passed measurement and was kept ('active') — the exact gap the
+    // maintainer hit hand-reverting 16 live proposals via a manual DB edit.
+    const { AgentConfigsRepository } = await import('../repositories/agent_configs_repository');
+    const configsRepo = new AgentConfigsRepository();
+    const config = configsRepo.insert({
+      label: 'Secretary',
+      icon: 'mail',
+      allowedMcpsJson: JSON.stringify(['rhythm']),
+    });
+
+    const proposal = await repo.createAsync({
+      kind: 'tighten-scope',
+      risk: 'low',
+      title: 'Tighten unused mcp scope nfl-mcp from secretary',
+      changeJson: JSON.stringify({
+        agentConfigId: config.id,
+        field: 'allowedMcpsJson',
+        remove: ['nfl-mcp'],
+      }),
+      beforeSnapshotJson: JSON.stringify({ allowedMcpsJson: JSON.stringify(['rhythm', 'nfl-mcp']) }),
+      dedupKey: 'issue-857-c7:revert-route',
+    });
+    await repo.updateStatusAsync(proposal.id, 'applied');
+    await repo.updateStatusAsync(proposal.id, 'measuring');
+    await repo.updateStatusAsync(proposal.id, 'active');
+
+    const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/revert`, {
+      method: 'POST',
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string };
+    expect(body.status).toBe('reverted');
+
+    const stored = await repo.findByIdAsync(proposal.id);
+    expect(stored?.status).toBe('reverted');
+
+    const restoredConfig = configsRepo.getById(config.id);
+    const restoredList = JSON.parse(restoredConfig?.allowedMcpsJson ?? '[]');
+    expect(restoredList.sort()).toEqual(['nfl-mcp', 'rhythm'].sort());
+  });
+
+  it('issue-857-c7b: revert refused (4xx) for a proposal that is not active', async () => {
+    const proposal = await repo.createAsync({
+      kind: 'create-agent',
+      risk: 'high',
+      title: 'Still proposed',
+      dedupKey: 'issue-857-c7b:not-active',
+    });
+
+    const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/revert`, {
+      method: 'POST',
+    });
+
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+
+    const stored = await repo.findByIdAsync(proposal.id);
+    expect(stored?.status).toBe('proposed');
   });
 });

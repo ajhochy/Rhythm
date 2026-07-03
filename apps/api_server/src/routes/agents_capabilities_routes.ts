@@ -26,7 +26,10 @@ const AGGREGATOR_PROVIDERS = ['openrouter', 'together', 'groq'];
  *   - `codex` is available when `openai` (direct) OR an aggregator is connected.
  *   - `gemini-cli` is available when `google` (direct) OR an aggregator is connected.
  *   - `opencode` is available when the SDK client is ready
- *   - Custom agent configs without a known mapping fall back to SDK readiness
+ *   - Custom agent configs without a known mapping are available when the
+ *     engine is ready AND their resolved engine name (ocAgent, falling back
+ *     to id) is a live opencode agent (#858) — see the liveAgentNames /
+ *     resolvedEngineName logic below.
  */
 async function probeConfigs(): Promise<Record<string, boolean>> {
   const repo = new AgentConfigsRepository();
@@ -42,6 +45,29 @@ async function probeConfigs(): Promise<Record<string, boolean>> {
     'gemini-cli': ['google', ...AGGREGATOR_PROVIDERS],
   };
 
+  // #858 — fetch the engine's live agent names ONCE so "custom agent config"
+  // rows (no known provider mapping — typically UUID-keyed imported/designer
+  // profiles) can be checked against what the engine can ACTUALLY prompt,
+  // not just "is the engine up". A profile whose resolved engine name
+  // (ocAgent, falling back to id) isn't in this set would 400/"Agent not
+  // found" the moment a user tried to chat with it — reporting it available
+  // is misleading.
+  //
+  // Fail-open: when listAgents() is unavailable/throws (engine not ready,
+  // older engine build, or simply not mocked in a test double), liveAgentNames
+  // stays null and every custom config falls back to the pre-#858 behavior
+  // (available iff the engine is ready) — a transient/missing engine-agents
+  // probe must never mass-report every custom agent as broken.
+  let liveAgentNames: Set<string> | null = null;
+  if (opencodeClient.isReady) {
+    try {
+      const agents = await opencodeClient.listAgents();
+      liveAgentNames = new Set(agents.map((a) => a.name).filter((n): n is string => Boolean(n)));
+    } catch (err) {
+      console.warn('[agents/capabilities] #858 listAgents failed (fail-open):', err);
+    }
+  }
+
   const results: Record<string, boolean> = {};
 
   for (const config of configs) {
@@ -55,10 +81,17 @@ async function probeConfigs(): Promise<Record<string, boolean>> {
     if (requiredProviders) {
       // Known agent — available if any of its required providers are connected
       results[config.id] = requiredProviders.some((p) => providerSet.has(p));
-    } else {
-      // Custom agent config — available if the engine is ready
-      results[config.id] = opencodeClient.isReady;
+      continue;
     }
+
+    // Custom agent config — available if the engine is ready AND (when we
+    // have a live agent list to check against) its resolved engine name is
+    // actually registered. resolvedEngineName mirrors the same
+    // ocAgent-falls-back-to-id resolution used at session-create (#858).
+    const resolvedEngineName =
+      config.ocAgent && config.ocAgent.trim() !== '' ? config.ocAgent : config.id;
+    results[config.id] =
+      opencodeClient.isReady && (liveAgentNames === null || liveAgentNames.has(resolvedEngineName));
   }
 
   return results;

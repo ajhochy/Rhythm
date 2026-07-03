@@ -178,7 +178,8 @@ describe('issue-698-c1: GET /agent-sessions/:id/todo calls getTodo wrapper and r
 
     expect(next).not.toHaveBeenCalled();
     expect(getTodoSpy).toHaveBeenCalledOnce();
-    expect(getTodoSpy).toHaveBeenCalledWith(sdkId);
+    // #861 smoke fix: getTodo is directory-scoped — receives the session cwd.
+    expect(getTodoSpy).toHaveBeenCalledWith(sdkId, os.homedir());
 
     const result = (res.json as ReturnType<typeof vi.fn>).mock.calls[0][0] as typeof kTodoFixture;
     expect(result).toHaveLength(3);

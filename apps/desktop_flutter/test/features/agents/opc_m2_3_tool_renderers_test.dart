@@ -415,6 +415,11 @@ void main() {
         final part = _partFromShape(_kBashToolPartCompletedShape);
         await tester.pumpWidget(_wrap(TerminalOutputView(part: part)));
 
+        // Output body is collapsed by default (2026-07-02 smoke feedback) —
+        // expand via the tappable header before asserting on the output text.
+        await tester.tap(find.byType(InkWell).first);
+        await tester.pump();
+
         // Command header visible.
         expect(
           find.textContaining('echo'),

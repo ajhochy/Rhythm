@@ -152,3 +152,106 @@ describe('syncOpencodeAgentProfiles — overlay-field preservation', () => {
     expect(created.sessionSelectable).toBe(false);
   });
 });
+
+// #858 — a sync pass must repair rows whose oc_agent is stale (empty, or a
+// UUID that no longer matches the row's own id — e.g. copied from another
+// row). These rows are NOT reachable via the engine-agents loop (their id is
+// a UUID that the engine has never reported as a live agent name), so the
+// only way to converge oc_agent is a dedicated backfill pass over every
+// enabled agent_configs row.
+describe('syncOpencodeAgentProfiles — #858 oc_agent backfill', () => {
+  let repo: AgentConfigsRepository;
+
+  beforeEach(() => {
+    setDb(makeDb());
+    repo = new AgentConfigsRepository();
+  });
+
+  it('backfills a NULL oc_agent to the row id for a UUID-keyed profile never reported by the engine', async () => {
+    const uuidId = '44444444-4444-4444-8444-444444444444';
+    repo.insert({
+      id: uuidId,
+      label: 'AI Trend Researcher',
+      icon: '',
+      isAgent: true,
+      enabled: true,
+      // ocAgent intentionally omitted — simulates a designer-created profile
+      // that has never round-tripped through the opencode agent-file writer.
+      sessionSelectable: true,
+      sortOrder: 100,
+    });
+
+    // The engine reports no agents at all this pass (e.g. still starting up,
+    // or this profile's .md file hasn't been picked up yet).
+    await syncOpencodeAgentProfiles([]);
+
+    const after = repo.getById(uuidId)!;
+    expect(after.ocAgent).toBe(uuidId);
+  });
+
+  it('backfills an oc_agent that does not match the row id (stale/incorrect value)', async () => {
+    const uuidId = '55555555-5555-4555-8555-555555555555';
+    repo.insert({
+      id: uuidId,
+      label: 'Org Optimizer Discovery',
+      icon: '',
+      isAgent: true,
+      enabled: true,
+      ocAgent: 'some-other-agents-uuid-leaked-in-by-mistake',
+      sessionSelectable: true,
+      sortOrder: 100,
+    });
+
+    await syncOpencodeAgentProfiles([]);
+
+    const after = repo.getById(uuidId)!;
+    expect(after.ocAgent).toBe(uuidId);
+  });
+
+  it('does NOT touch a slug-keyed profile whose oc_agent already equals a live engine agent name', async () => {
+    repo.insert({
+      id: 'secretary',
+      label: 'Secretary',
+      icon: '',
+      isAgent: true,
+      enabled: true,
+      ocAgent: 'secretary',
+      sessionSelectable: false,
+      sortOrder: 100,
+    });
+
+    await syncOpencodeAgentProfiles([ocAgent('secretary')]);
+
+    const after = repo.getById('secretary')!;
+    expect(after.ocAgent).toBe('secretary');
+  });
+
+  it('does not backfill a disabled profile', async () => {
+    const uuidId = '66666666-6666-4666-8666-666666666666';
+    repo.insert({
+      id: uuidId,
+      label: 'Disabled Custom Agent',
+      icon: '',
+      isAgent: true,
+      enabled: false,
+      sessionSelectable: true,
+      sortOrder: 100,
+    });
+
+    await syncOpencodeAgentProfiles([]);
+
+    const after = repo.getById(uuidId)!;
+    expect(after.ocAgent).toBeNull();
+  });
+
+  it('does not backfill a CLI model-selector preset (claude-code) — it is not a projectable opencode agent', async () => {
+    // claude-code is seeded by migrations with oc_agent NULL (it is a model
+    // selector, not an opencode agent — see opencode_agent_writer's
+    // CLI_MODEL_PRESETS exclusion). The backfill must leave it untouched;
+    // downstream callers already fall back id-for-null on this specific row.
+    await syncOpencodeAgentProfiles([]);
+
+    const after = repo.getById('claude-code')!;
+    expect(after.ocAgent).toBeNull();
+  });
+});

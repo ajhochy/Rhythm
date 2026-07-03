@@ -90,6 +90,9 @@ import 'features/agent_cookbook/repositories/agent_cookbook_repository.dart';
 import 'features/agent_optimizer/controllers/org_proposals_controller.dart';
 import 'features/agent_optimizer/data/org_proposals_data_source.dart';
 import 'features/agent_optimizer/repositories/org_proposals_repository.dart';
+import 'features/run_quality/controllers/run_quality_controller.dart';
+import 'features/run_quality/data/run_quality_data_source.dart';
+import 'features/run_quality/repositories/run_quality_repository.dart';
 import 'features/agent_skills/controllers/agent_skills_controller.dart';
 import 'features/agents/data/opencode_skills_data_source.dart';
 import 'features/agent_email/controllers/agent_email_controller.dart';
@@ -459,6 +462,13 @@ class _RhythmAppContent extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => OrgProposalsController(
             OrgProposalsRepository(OrgProposalsDataSource()),
+          ),
+        ),
+        // #865: plain-language QUALITY scorecard for recent agent runs
+        // (distinct from the per-provider SPEND / Usage Budget view).
+        ChangeNotifierProvider(
+          create: (_) => RunQualityController(
+            RunQualityRepository(RunQualityDataSource()),
           ),
         ),
         ChangeNotifierProvider(

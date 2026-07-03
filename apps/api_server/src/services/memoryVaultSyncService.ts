@@ -59,14 +59,36 @@ export function toVaultRelativeKey(vaultRoot: string, absNotePath: string): stri
 }
 
 /**
+ * The vault root that canonical `source_id` keys are relative to, derived
+ * from a memory dir.
+ *
+ * #886 root cause: this used to be hardcoded `path.dirname(memoryDir)`, which
+ * is only correct in the legacy layout (`MEMORY_VAULT_SUBDIR='memory'`, so
+ * memoryDir = `<vaultRoot>/memory`). In the clean layout
+ * (`MEMORY_VAULT_SUBDIR=''`, e.g. `…/Obsidian Vault/AGENT-MEMORY`), the
+ * memory dir IS the vault root — `dirname()` then walks one level too high,
+ * so the write path mints `AGENT-MEMORY/kind/…` keys while the sync mints
+ * `kind/…` keys. The two id spaces diverge and `PATCH /agent-memory/:id`
+ * (edit-in-place, #862) 404s on every synced row. This helper applies the
+ * same subdir rule as `resolveMemoryDirPath` so both directions agree in
+ * BOTH layouts.
+ */
+export function resolveVaultRootForMemoryDir(memoryDir: string): string {
+  const sub = process.env.MEMORY_VAULT_SUBDIR ?? 'memory';
+  const resolved = path.resolve(memoryDir);
+  return sub ? path.dirname(resolved) : resolved;
+}
+
+/**
  * Inverse of {@link toVaultRelativeKey} for the memory-dir-confined write/delete
- * path: given the vault-root-relative canonical key and the memory dir
- * (= `<vaultRoot>/memory`), return the key's path RELATIVE TO THE MEMORY DIR
- * (e.g. `memory/fact/abc.md` → `fact/abc.md`) so the existing memory-dir
- * path-traversal guard can resolve it. The vault root is `path.dirname(memoryDir)`.
+ * path: given the vault-root-relative canonical key and the memory dir,
+ * return the key's path RELATIVE TO THE MEMORY DIR (legacy layout:
+ * `memory/fact/abc.md` → `fact/abc.md`; clean layout: `fact/abc.md` is
+ * already memory-dir-relative and passes through unchanged) so the existing
+ * memory-dir path-traversal guard can resolve it.
  */
 export function vaultKeyToMemoryDirRelative(memoryDir: string, vaultRelKey: string): string {
-  const vaultRoot = path.dirname(path.resolve(memoryDir));
+  const vaultRoot = resolveVaultRootForMemoryDir(memoryDir);
   const abs = path.resolve(vaultRoot, vaultRelKey);
   return path.relative(path.resolve(memoryDir), abs);
 }

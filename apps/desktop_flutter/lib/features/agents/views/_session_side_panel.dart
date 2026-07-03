@@ -83,6 +83,8 @@ class _SessionSidePanelState extends State<SessionSidePanel> {
           // OPC-M3-5: collapsible todo panel shown below tab content.
           // Collapse state is keyed per session so switching sessions
           // preserves the collapsed/expanded choice for each one.
+          // (#862 smoke feedback: memory provenance moved INTO the Context
+          // tab — it is session context, not a bolted-on footer panel.)
           _buildTodoPanel(context),
         ],
       ),
@@ -320,7 +322,125 @@ class _ContextTab extends StatelessWidget {
         _valueText(context, messageCount.toString(),
             key: const ValueKey('context-message-count')),
       ),
+      ..._memoriesUsedSection(context, controller),
     ];
+  }
+
+  /// #862 (smoke feedback): memory provenance rendered as a Context-page
+  /// section in the same label/value idiom as the rows above — not a
+  /// separate bolted-on collapsible below the tabs. States:
+  ///   - provenance not fetched / never recorded → no section at all;
+  ///   - recorded with zero memories → count row + an explicit "none" line
+  ///     (the absence is stated, not silently hidden);
+  ///   - recorded with memories → count row + one readable title per memory
+  ///     (full vault path available on hover via tooltip).
+  List<Widget> _memoriesUsedSection(
+    BuildContext context,
+    AgentsController controller,
+  ) {
+    final provenance = controller.memoryProvenanceFor(session.id);
+    if (provenance == null || provenance['recorded'] != true) {
+      return const [];
+    }
+    final memoryIds =
+        (provenance['memoryIds'] as List<dynamic>?)?.cast<String>() ??
+            const <String>[];
+    final notePaths =
+        (provenance['notePaths'] as List<dynamic>?)?.cast<String?>() ??
+            const <String?>[];
+    return [
+      const SizedBox(height: 8),
+      _rowChild(
+        context,
+        'Memories used',
+        _valueText(context, memoryIds.length.toString(),
+            key: const ValueKey('context-memories-count')),
+      ),
+      if (memoryIds.isEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 2, bottom: 4),
+          child: Text(
+            'No memories were used in this reply.',
+            key: const ValueKey('context-memories-none'),
+            style: TextStyle(
+              fontSize: 12,
+              fontStyle: FontStyle.italic,
+              color: context.rhythm.textMuted,
+            ),
+          ),
+        )
+      else
+        for (var i = 0; i < memoryIds.length; i++)
+          _memoryUsedRow(
+            context,
+            i < notePaths.length ? notePaths[i] : null,
+          ),
+    ];
+  }
+
+  Widget _memoryUsedRow(BuildContext context, String? notePath) {
+    final kind = _memoryKind(notePath);
+    return Padding(
+      padding: const EdgeInsets.only(top: 2, bottom: 2),
+      child: Tooltip(
+        message: notePath ?? 'No traceable source note',
+        waitDuration: const Duration(milliseconds: 400),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.psychology_alt_outlined,
+              size: 13,
+              color: context.rhythm.textMuted,
+            ),
+            const SizedBox(width: 6),
+            if (kind != null) ...[
+              Text(
+                kind,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: context.rhythm.textMuted,
+                ),
+              ),
+              const SizedBox(width: 6),
+            ],
+            Expanded(
+              child: Text(
+                _memoryTitle(notePath),
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: context.rhythm.textSecondary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Human-readable title from a vault note path: basename without `.md`,
+  /// hyphens to spaces, sentence case. The raw path stays available via the
+  /// row tooltip — nobody should have to read a slug.
+  static String _memoryTitle(String? notePath) {
+    if (notePath == null || notePath.isEmpty) return 'Untracked memory';
+    final base = notePath
+        .split('/')
+        .last
+        .replaceAll(RegExp(r'\.md$'), '')
+        .replaceAll('-', ' ')
+        .trim();
+    if (base.isEmpty) return notePath;
+    return base[0].toUpperCase() + base.substring(1);
+  }
+
+  /// The memory kind (its containing dir, e.g. `preference`), or null when
+  /// the path has no directory component.
+  static String? _memoryKind(String? notePath) {
+    if (notePath == null) return null;
+    final parts = notePath.split('/');
+    return parts.length >= 2 ? parts[parts.length - 2] : null;
   }
 
   Text _valueText(BuildContext context, String v, {Key? key}) {

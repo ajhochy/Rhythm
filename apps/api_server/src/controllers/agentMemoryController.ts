@@ -71,6 +71,48 @@ export class AgentMemoryController {
   }
 
   /**
+   * Issue #862 — edit-in-place. Updates content/kind/tags for an existing
+   * memory, writing through to BOTH the vault note file AND the derived
+   * index. Resolves `:id` the same way `remove` does (DB row id OR the
+   * frontmatter ULID `remember()` returns — #859d). 404 when no memory
+   * exists for `id`; a bad `kind` or content that would end up empty is
+   * rejected 4xx (nothing written) by mapping MemoryWriteError.
+   */
+  async update(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { content, kind, tags } = req.body as Record<string, unknown>;
+      const patch: { content?: string; kind?: string; tags?: string[] } = {};
+      if (content !== undefined) {
+        if (typeof content !== 'string' || content.trim() === '') {
+          throw AppError.badRequest('content must be a non-empty string');
+        }
+        patch.content = content;
+      }
+      if (kind !== undefined) {
+        if (typeof kind !== 'string') throw AppError.badRequest('kind must be a string');
+        patch.kind = kind;
+      }
+      if (tags !== undefined) {
+        if (!Array.isArray(tags)) throw AppError.badRequest('tags must be an array');
+        patch.tags = tags.map((t) => String(t));
+      }
+      const result = await agentMemoryService.update(req.params.id, patch);
+      if (!result) throw AppError.notFound('AgentMemory');
+      // Return the full updated row (content/tags/timestamps), not just the
+      // vault {id, path, kind} triple, so callers (e.g. the desktop app) can
+      // refresh their view of the entry without a second round-trip. The
+      // index row is keyed by vault-relative path (result.path), NOT
+      // result.id (the frontmatter ULID) — findByIdAsync needs the DB row id.
+      const rows = await repo.listAsync(undefined, undefined, 1000);
+      const item = rows.find((r) => r.sourceId === result.path);
+      res.json(item ?? result);
+    } catch (err) {
+      if (err instanceof MemoryWriteError) return next(AppError.badRequest(err.message));
+      next(err);
+    }
+  }
+
+  /**
    * Issue #770 WI6 — manual trigger for the Memory-Vault → agent_memory
    * mirror-sync. Reads all notes from the configured Memory-Vault path and
    * upserts/tombstones them. Returns a summary {scanned, upserted, deleted}.

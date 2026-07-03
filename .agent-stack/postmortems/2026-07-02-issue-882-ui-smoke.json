@@ -1,0 +1,34 @@
+{
+  "run_id": "2026-07-02-workflow-run-882-ui-smoke",
+  "issue": 882,
+  "date": "2026-07-02",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {"criterion_id": "863-agent-launch", "text": "Quick action runs the agent with the item's context", "contract_status": "pass", "smoke_status": "fail", "category": "C2", "notes": "cwd:'' → 400 'cwd is required'; test fake never captured cwd. FIXED (HOME default + regression assert)."},
+    {"criterion_id": "863-output-viewable", "text": "Action output is viewable", "contract_status": "pass", "smoke_status": "fail", "category": "C1", "notes": "'spun then did nothing' — no feedback, agent ran behind the modal. FIXED (SnackBar + navigateTo agentSession path)."},
+    {"criterion_id": "862-edit-in-place", "text": "Edit persists to vault+index", "contract_status": "pass", "smoke_status": "fail", "category": "C2", "notes": "'AgentMemory not found' — sync keyed source_id dir-relative, write service parent-relative; conventions only coincided in the legacy vault layout, tests covered only that layout. FIXED (#886, resolveVaultRootForMemoryDir + contract test in the clean layout)."},
+    {"criterion_id": "862-provenance-ui", "text": "Memories-used surface", "contract_status": "pass", "smoke_status": "fail", "category": "C1", "notes": "Functional but wrong presentation (bolted-on panel, raw slug path). REDESIGNED into the Context tab per maintainer feedback."},
+    {"criterion_id": "861-child-transcript", "text": "Child transcript visible on Task-card tap", "contract_status": "pass", "smoke_status": "fail", "category": "C2", "notes": "Empty transcript: engine reads are directory-scoped (?directory=) and wrappers never passed it; ALSO the design refetched from the engine when the child already existed locally (#743). FIXED twice: directory param + link-first to the existing local session."},
+    {"criterion_id": "867-child-identity", "text": "Session UI reflects the dispatched agent", "contract_status": "pass", "smoke_status": "fail", "category": "C2", "notes": "Child rows persisted agent_kind='claude-code' (specialist only in the title); #867's fallback correctly refused the generic id. FIXED (parse '(@X subagent)' title in upsertChildSession + 31-row backfill)."},
+    {"criterion_id": "815-notification", "text": "Question raises a macOS notification; click focuses the session", "contract_status": "absent", "smoke_status": "pass", "category": "none", "notes": "Driven live via WS (question tool) — notification fired, click-to-focus worked. #815 closed."},
+    {"criterion_id": "865-report-card", "text": "Quality rollup plain-language + thin-history", "contract_status": "pass", "smoke_status": "pass", "category": "none", "notes": "PASS; surfaced a real recurring Gemini 512-function-declaration failure → #884."}
+  ],
+  "process_issues": [
+    {"process_category": "P4", "description": "Two mounted-surface Flutter tests leaked unawaited stub-rejected futures that retro-failed OTHER tests in the same file only once the suite window grew; needed runAsync flush teardowns.", "detected_by": "flutter test ordering experiments ('failed after it had already completed')"}
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": ["acceptance-contract"],
+    "issues": [
+      {"workflow_category": "W3", "affected_skill": "verification-gate", "description": "Green unit/widget suites + CI hid five user-visible defects that only interactive smoke caught: every one was an ENVIRONMENT/CONVENTION mismatch the tests' fixtures didn't model (legacy-only vault layout, engine directory scoping, generic-agent child rows, empty-cwd fake, no-feedback UX).", "detected_by": "manual smoke items 2,4,5,6"}
+    ]
+  },
+  "implementation_files": ["quick_actions_bar.dart", "rhythm_inspector.dart", "dashboard_view.dart", "memoryVaultSyncService.ts", "memoryVaultWriteService.ts", "agentMemoryService.ts", "_session_side_panel.dart", "opencode_client_service.ts", "agent_sessions_controller.ts", "agents_controller.dart", "agent_session.dart", "agent_sessions_repository.ts", "_tool_call_part.dart", "_terminal_output_view.dart"],
+  "failure_output": "cwd is required and must be a non-empty string ;; AgentMemory not found ;; Session not found: ses_… ;; Agent: Claude Code (should be AI-Trend-Researcher)",
+  "overall_category": "C2",
+  "suggested_follow_up": "Contract tests must model the PRODUCTION environment shape (clean vault layout, directory-scoped engine, delegated child rows, UI-sent ids), not just the fixture shape that makes the code path easiest to drive."
+}

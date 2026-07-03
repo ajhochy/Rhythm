@@ -87,6 +87,29 @@ describe('#743 — upsertChildSession (repository)', () => {
     expect(child!.sdkSessionId).toBe('sdk-child-1');
     expect(child!.name).toBe('Subagent task');
     expect(child!.status).toBe('starting');
+    // Title without the "(@X subagent)" marker → inherits the parent's kind.
+    expect(child!.agentKind).toBe('claude-code');
+  });
+
+  it("#867: parses the specialist agent from the engine's '(@X subagent)' title so the child row carries its REAL identity", () => {
+    const parent = repo.insert({
+      agentKind: 'secretary' as never, // custom profile ids are valid at runtime
+      taskId: null,
+      cwd: '/tmp/proj',
+      name: 'Parent session',
+    });
+    repo.setSdkSessionId(parent.id, 'sdk-parent-867');
+
+    const child = repo.upsertChildSession(
+      'sdk-child-867',
+      'sdk-parent-867',
+      'Research trends (@AI-Trend-Researcher subagent)',
+      '/tmp/proj',
+    );
+
+    expect(child).not.toBeNull();
+    // NOT the parent's kind and NOT claude-code — the parsed specialist.
+    expect(child!.agentKind).toBe('AI-Trend-Researcher');
   });
 
   it('is idempotent: second call returns the same row without creating a duplicate', () => {

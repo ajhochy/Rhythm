@@ -8,7 +8,10 @@ import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
+import '../../agents/models/quick_action_context.dart';
+import '../../agents/views/quick_actions_bar.dart';
 import '../../messages/controllers/messages_controller.dart';
+import '../../notifications/controllers/notifications_controller.dart';
 import '../../projects/models/project_instance.dart';
 import '../controllers/dashboard_controller.dart';
 import '../../tasks/data/collaborators_data_source.dart';
@@ -164,6 +167,20 @@ class _DashboardBodyState extends State<_DashboardBody> {
                         currentUserId: currentUserId,
                         workspaceMembers: workspaceMembers,
                       ),
+                      if (_nextActionableTask(c) != null) ...[
+                        const SizedBox(height: RhythmSpacing.md),
+                        _NextTaskQuickActionsCard(
+                          task: _nextActionableTask(c)!,
+                          onSessionReady: (sessionId) {
+                            // Switch to the Agents view with this session open
+                            // (same path as the #815 notification tap) so the
+                            // user sees the agent working, not a silent no-op.
+                            context
+                                .read<NotificationsController>()
+                                .navigateTo('agentSession', sessionId);
+                          },
+                        ),
+                      ],
                       if (c.unreadMessages.isNotEmpty) ...[
                         const SizedBox(height: RhythmSpacing.md),
                         _UnreadOverviewCard(
@@ -470,6 +487,16 @@ class _DashboardBodyState extends State<_DashboardBody> {
     await context.read<MessagesController>().selectThread(preview.threadId);
     if (!mounted) return;
     widget.openMessages();
+  }
+
+  /// Issue #863: the single most relevant open task to show one-tap quick
+  /// actions for on the dashboard — today's first open task, falling back to
+  /// this week's first open task when today is clear. Null when there is
+  /// nothing actionable to attach quick actions to.
+  Task? _nextActionableTask(DashboardController c) {
+    if (c.todayTasks.isNotEmpty) return c.todayTasks.first;
+    if (c.thisWeekTasks.isNotEmpty) return c.thisWeekTasks.first;
+    return null;
   }
 
   Future<void> _showAnyTaskEditDialog(Task task) async {
@@ -1041,6 +1068,62 @@ class _ProgressDialCard extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// Issue #863 — one-tap agent quick actions for the most relevant open task,
+/// surfaced directly on the dashboard so staff don't have to open the task
+/// detail dialog first.
+class _NextTaskQuickActionsCard extends StatelessWidget {
+  const _NextTaskQuickActionsCard({
+    required this.task,
+    required this.onSessionReady,
+  });
+
+  final Task task;
+  final QuickActionSessionOpener onSessionReady;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    return RhythmPanel(
+      backgroundColor: colors.surface,
+      borderColor: colors.borderSubtle,
+      padding: const EdgeInsets.all(RhythmSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Quick Actions',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: colors.textMuted,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.4,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            task.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: colors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: RhythmSpacing.sm),
+          QuickActionsBar(
+            context_: QuickActionContext(
+              kind: 'task',
+              sourceId: task.id,
+              title: task.title,
+              description: task.notes,
+            ),
+            onSessionReady: onSessionReady,
+          ),
+        ],
       ),
     );
   }

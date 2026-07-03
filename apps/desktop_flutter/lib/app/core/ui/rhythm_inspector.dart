@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../../../features/notifications/controllers/notifications_controller.dart';
+import '../../../features/agents/models/quick_action_context.dart';
+import '../../../features/agents/views/quick_actions_bar.dart';
 import '../../../features/projects/models/project_instance.dart';
 import '../../../features/tasks/models/task.dart';
 import '../../../features/tasks/models/task_collaborator.dart';
@@ -782,6 +786,37 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
               ],
             ),
           ),
+          // Issue #863: one-tap agent quick actions attached to this task.
+          // Placed last in the aside column (after People/Automation/
+          // Metadata) so it never shifts those existing sections' vertical
+          // position within the SingleChildScrollView. Hidden for read-only
+          // (calendar-synced) tasks and brand-new, unsaved tasks (isCreate)
+          // since there's no real task id yet to attach a session or a
+          // follow-up task to.
+          if (!_readOnly && !widget.isCreate) ...[
+            const SizedBox(height: 18),
+            _InspectorSection(
+              title: 'Quick Actions',
+              subtitle: 'Get help from an agent, pre-loaded with this task.',
+              child: QuickActionsBar(
+                context_: QuickActionContext(
+                  kind: 'task',
+                  sourceId: widget.task.id,
+                  title: widget.task.title,
+                  description: widget.task.notes,
+                ),
+                onSessionReady: (sessionId) {
+                  // Close the inspector modal and switch to the Agents view
+                  // with this session open, reusing the same pending-navigation
+                  // path as the #815 notification tap — otherwise the agent
+                  // runs invisibly behind the modal ("spun then did nothing").
+                  final notif = context.read<NotificationsController>();
+                  Navigator.of(context).pop();
+                  notif.navigateTo('agentSession', sessionId);
+                },
+              ),
+            ),
+          ],
         ],
       ),
     );

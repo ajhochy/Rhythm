@@ -116,9 +116,14 @@ function parsePruneEvidence(
   return { profileId, scopeKind: scopeKind as ScopeKind, name };
 }
 
-/** Parses `profile=<id> neverInvokedTool=<name> sessionCount=<n>` (org_audit_service's detectTightenGaps evidence format). */
+/**
+ * Parses `profile=<id> neverInvokedTool=<name> sessionCount=<n>` (org_audit_service's
+ * detectTightenGaps evidence format), with an optional trailing
+ * ` observationDays=<n>` (#857 data-sufficiency guard) — kept optional so a
+ * gap built by an older evidence format (or a test fixture) still parses.
+ */
 function parseTightenEvidence(evidence: string): { profileId: string; name: string } | null {
-  const match = /^profile=(\S+) neverInvokedTool=(\S+) sessionCount=(\d+)$/.exec(evidence);
+  const match = /^profile=(\S+) neverInvokedTool=(\S+) sessionCount=(\d+)(?: observationDays=\d+)?$/.exec(evidence);
   if (!match) return null;
   const [, profileId, name] = match;
   return { profileId, name };

@@ -88,4 +88,27 @@ class AgentMemoryController extends ChangeNotifier {
       await delete(id);
     }
   }
+
+  // --------------------------------------------------------------------------
+  // Edit-in-place (#862)
+  // --------------------------------------------------------------------------
+
+  /// Updates an existing memory's content/kind/tags. On success, replaces the
+  /// entry in the in-memory list with the server's updated copy so the view
+  /// reflects the edit immediately (no full refresh needed). Returns `true`
+  /// on success; on failure `error` is set and the entry list is left
+  /// untouched (an edit-save failure must never silently drop the edit).
+  Future<bool> update(String id, Map<String, dynamic> patch) async {
+    try {
+      final updated = await _repository.update(id, patch);
+      _entries = _entries.map((e) => e.id == id ? updated : e).toList();
+      _error = null;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
 }

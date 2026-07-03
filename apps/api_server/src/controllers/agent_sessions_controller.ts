@@ -20,6 +20,7 @@ import { logger } from '../utils/logger';
 import { getCuratorExtractStatus } from '../services/skill_extractor';
 import { getCuratorRefineStatus } from '../services/skill_refiner';
 import { getSyncStatus } from '../services/sync_orchestrator_service';
+import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
 
 // Legacy agentId aliases. Older Rhythm clients (and a handful of historical
 // scripts) used short names. /agents/capabilities and the seed both use
@@ -408,6 +409,15 @@ export class AgentSessionsController {
       // user picks a model later in the composer, same as the trigger-bubble
       // flow from #653.
       let normalizedAgentId: string = '';
+      // #858: agent_configs.id can be a UUID (imported/generator-created
+      // profiles) that is NOT a name the opencode engine recognizes — only
+      // agent_configs.oc_agent is guaranteed to be the engine-registered name.
+      // resolvedEngineAgentKind is what gets persisted as agent_sessions.agent_kind
+      // and later fed to the engine (ws_gateway/agent_runner resolve `agent` from
+      // this same column). It equals normalizedAgentId for slug-keyed configs
+      // (id === ocAgent there) and only diverges for UUID-keyed configs whose
+      // ocAgent has been resolved to a real engine name.
+      let resolvedEngineAgentKind: string = '';
       if (typeof agentId === 'string' && agentId.trim() !== '') {
         normalizedAgentId = normalizeAgentId(agentId);
         const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
@@ -417,6 +427,10 @@ export class AgentSessionsController {
         if (!agentConfig.enabled) {
           throw AppError.badRequest(`agent disabled: '${normalizedAgentId}'`);
         }
+        resolvedEngineAgentKind =
+          agentConfig.ocAgent && agentConfig.ocAgent.trim() !== ''
+            ? agentConfig.ocAgent
+            : normalizedAgentId;
       }
 
       if (!cwd || typeof cwd !== 'string' || cwd.trim() === '') {
@@ -539,10 +553,12 @@ export class AgentSessionsController {
       }
 
       const dto: CreateAgentSessionDto = {
-        // OPC-#710: normalizedAgentId is '' for agent-less instant-create.
+        // OPC-#710: resolvedEngineAgentKind is '' for agent-less instant-create.
         // The AgentKind type accepts arbitrary strings; '' is persisted as the
         // agent_kind value and treated as "no agent selected yet" by the client.
-        agentKind: normalizedAgentId as AgentKind,
+        // #858: this is the ENGINE-resolvable name (agentConfig.ocAgent, falling
+        // back to the config id) — never the raw agent_configs UUID.
+        agentKind: resolvedEngineAgentKind as AgentKind,
         taskId: resolvedTaskId,
         taskTitle: taskTitle != null ? (taskTitle as string) : null,
         cwd: expandedCwd,
@@ -992,6 +1008,19 @@ export class AgentSessionsController {
         if (!agentConfig.enabled) {
           throw AppError.badRequest(`agent disabled: '${requestedAgentId}'`);
         }
+        // #858: mirror the create-path fix — persist the resolved ENGINE NAME
+        // (ocAgent), not the raw agent_configs id, so a UUID-keyed profile
+        // resumes with the same engine-resolvable agent_kind a fresh create
+        // would produce. Falls back to the requested id when ocAgent is empty
+        // (e.g. slug-keyed configs, or a profile agent_profile_sync hasn't
+        // backfilled yet).
+        const resolvedEngineAgentKind =
+          agentConfig.ocAgent && agentConfig.ocAgent.trim() !== ''
+            ? agentConfig.ocAgent
+            : requestedAgentId;
+        if (resolvedEngineAgentKind !== session.agentKind) {
+          repo.updateAgentKind(session.id, resolvedEngineAgentKind);
+        }
       }
 
       if (session.status !== 'resumable' || !session.sessionToken) {
@@ -1153,17 +1182,38 @@ export class AgentSessionsController {
   // Returns [] when there is no SDK mapping (same contract as getDiff).
   // The route is GET /:id/children — no auth is required at the route level
   // (agentLocal=true, same as all other agent-session routes).
+  //
+  // #861 — nested delegation: when this endpoint is called with a CHILD's own
+  // SDK session id (grandchild lookup, e.g. parent → orchestrator → specialist),
+  // `:id` will not match a local DB row because child/subagent sessions are
+  // never persisted locally. In that case treat `:id` as already being a raw
+  // SDK session id and call listChildren with it directly, instead of 404ing —
+  // 404 is reserved for ids the SDK itself rejects (surfaced as a 502 below).
   async getChildren(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const session = repo.findById(req.params.id);
-      if (!session) throw AppError.notFound('AgentSession');
-      const opencodeId = resolveSdkSessionId(session);
-      if (!opencodeId) {
-        // No active SDK mapping — return empty array (same contract as getDiff).
-        res.json([]);
-        return;
+      let opencodeId: string | undefined;
+      if (session) {
+        opencodeId = resolveSdkSessionId(session);
+        if (!opencodeId) {
+          // No active SDK mapping — return empty array (same contract as getDiff).
+          res.json([]);
+          return;
+        }
+      } else {
+        // No local row — assume `:id` is a child/grandchild SDK session id.
+        opencodeId = req.params.id;
       }
-      const children = await opencodeClient.listChildren(opencodeId);
+      // #861 smoke fix: engine session reads are directory-scoped. Use the
+      // local row's cwd when we have one; for nested hops (no local row) the
+      // client passes the root session's cwd as ?cwd=.
+      const queryCwd = (req.query as Record<string, unknown> | undefined)?.cwd;
+      const directory =
+        session?.cwd ??
+        (typeof queryCwd === 'string' && queryCwd.trim() !== ''
+          ? queryCwd
+          : undefined);
+      const children = await opencodeClient.listChildren(opencodeId, directory);
       res.json(children);
     } catch (err) {
       next(err);
@@ -1180,12 +1230,26 @@ export class AgentSessionsController {
   //
   // Role mapping: SDK 'user' → 'input', SDK 'assistant' → 'output' (matches
   // the role convention used throughout the structured-message pipeline).
+  //
+  // #861 — nested delegation: `:id` here is only used to validate the parent
+  // reference; the actual fetch always keys off `:childSdkId`. When `:id` is
+  // itself a child/grandchild SDK session id (no local DB row — nested hop),
+  // do not 404: children are never persisted locally by design, so absence of
+  // a row is expected and not an error condition for this route.
   async getChildMessages(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const session = repo.findById(req.params.id);
-      if (!session) throw AppError.notFound('AgentSession');
       const { childSdkId } = req.params;
-      const sdkMessages = await opencodeClient.listMessages(childSdkId);
+      // #861 smoke fix: directory-scoped read — resolve the cwd from the
+      // parent's local row when `:id` is a local session id, else from the
+      // client-provided ?cwd= (nested hop where `:id` is a raw SDK id).
+      const parentRow = repo.findById(req.params.id);
+      const queryCwd = (req.query as Record<string, unknown> | undefined)?.cwd;
+      const directory =
+        parentRow?.cwd ??
+        (typeof queryCwd === 'string' && queryCwd.trim() !== ''
+          ? queryCwd
+          : undefined);
+      const sdkMessages = await opencodeClient.listMessages(childSdkId, directory);
       // Map SDK Message[] → M1-2-compatible structured shape.
       const messages = sdkMessages.map((msg, idx) => {
         // SDK role 'user' → 'input', 'assistant' → 'output'
@@ -1212,6 +1276,32 @@ export class AgentSessionsController {
     }
   }
 
+  /**
+   * Issue #862 — GET /:id/memory-provenance: "Memories used in this reply".
+   *
+   * Returns the LATEST turn's injected memory ids + originating vault note
+   * paths for this session, e.g. `{ memoryIds: [...], notePaths: [...] }`.
+   * `memoryIds: []` means the latest turn injected NO memories (an explicit,
+   * meaningful state) — distinct from `recorded: false` (returned when no
+   * turn has EVER been recorded for this session, e.g. memory injection is
+   * disabled or the session predates this feature), so the desktop app can
+   * render "no memories used" vs. "no data yet" correctly.
+   */
+  async getMemoryProvenance(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const record = new AgentSessionMemoryProvenanceRepository().getLatest(req.params.id);
+      if (!record) {
+        res.json({ recorded: false, memoryIds: [], notePaths: [] });
+        return;
+      }
+      res.json({ recorded: true, memoryIds: record.memoryIds, notePaths: record.notePaths });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   // OPC-M3-5: get the session todo list (GET /:id/todo).
   async getTodo(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
@@ -1223,7 +1313,8 @@ export class AgentSessionsController {
         res.json([]);
         return;
       }
-      const todos = await opencodeClient.getTodo(opencodeId);
+      // #861 smoke fix: directory-scoped read (session row always exists here).
+      const todos = await opencodeClient.getTodo(opencodeId, session.cwd);
       res.json(todos);
     } catch (err) {
       next(err);

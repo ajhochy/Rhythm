@@ -178,6 +178,11 @@ class TaskChip extends StatelessWidget {
             parentSessionId: parentSessionId!,
             parentSessionName: parentSessionName!,
             childSdkId: childSdkId,
+            // #861 — this chip's own description becomes the child session's
+            // display name, used both as the ChildTranscriptView title context
+            // and as the breadcrumb target for any NESTED chip tapped inside
+            // that child's own transcript (nested/grandchild delegation).
+            childDisplayName: description,
           );
         } catch (_) {
           // AgentsController not in tree (e.g. isolated tests); no-op.

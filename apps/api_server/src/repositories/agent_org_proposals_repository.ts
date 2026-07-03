@@ -27,15 +27,24 @@ interface AgentOrgProposalRow {
 }
 
 /**
- * The proposal status state machine (#817). Fail-closed: any transition not
- * explicitly listed here is rejected. `proposed -> applied` (skipping
- * `approved`) is the auto-apply lane for low-risk, reversible proposals per
- * the maintainer's full-autonomy-with-rollback policy (2026-07-02) — the
- * repository permits it unconditionally; gating specific proposal `kind`s to
- * human approval is a caller-side policy decision made before calling
- * updateStatusAsync.
+ * The proposal status state machine (#817, extended by #857). Fail-closed:
+ * any transition not explicitly listed here is rejected. `proposed ->
+ * applied` (skipping `approved`) is the auto-apply lane for low-risk,
+ * reversible proposals per the maintainer's full-autonomy-with-rollback
+ * policy (2026-07-02) — the repository permits it unconditionally; gating
+ * specific proposal `kind`s to human approval is a caller-side policy
+ * decision made before calling updateStatusAsync.
  *
- * `rejected`, `active`, and `reverted` are terminal — no outgoing transitions.
+ * #857 — `active -> reverted`: a proposal that was already measured and kept
+ * (`active`) can still need a human-triggered undo later (e.g. a reviewer
+ * notices a bad prune after the fact, as happened on the first live
+ * optimizer run — see docs/ai/runs/2026-07-02-mega-buildout-fork-eval-memory.md).
+ * Before this, `revertProposal` calling `updateStatusAsync(id, 'reverted')`
+ * on an `active` row threw "Illegal status transition 'active' -> 'reverted'",
+ * so the only way to undo an already-kept proposal was a manual DB edit.
+ *
+ * `rejected` and `reverted` are terminal — no outgoing transitions.
+ * `active`'s only outgoing transition is the new revert path.
  */
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   proposed: ['approved', 'rejected', 'applied'],
@@ -43,7 +52,7 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   applied: ['measuring'],
   measuring: ['active', 'reverted'],
   rejected: [],
-  active: [],
+  active: ['reverted'],
   reverted: [],
 };
 

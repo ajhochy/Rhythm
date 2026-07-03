@@ -421,7 +421,16 @@ export class AgentSessionsRepository {
       .get(parentSdkSessionId) as { id: string; agent_kind: string } | undefined;
     if (!parentRow) return null;
     const parentLocalId = parentRow.id;
-    const inheritedAgentKind = parentRow.agent_kind ?? 'claude-code';
+    // #867 smoke fix: the engine's task tool composes the child title as
+    // "<description> (@<agentName> subagent)" (fork tool/task.ts) and there
+    // is no dedicated agent field on Session.Info — the title is the only
+    // carrier of the child's REAL specialist identity. Parse it out;
+    // otherwise every delegated child was persisted under the parent's
+    // (usually 'claude-code') kind, so the UI showed the wrong agent and a
+    // reply was sent under the default binding.
+    const specialistMatch = /\(@([^)\s]+) subagent\)\s*$/.exec(title ?? '');
+    const inheritedAgentKind =
+      specialistMatch?.[1] ?? parentRow.agent_kind ?? 'claude-code';
 
     // Check whether the child row already exists (idempotent).
     const existingRow = getDb()

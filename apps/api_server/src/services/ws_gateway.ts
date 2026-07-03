@@ -7,6 +7,7 @@ import { bridgePty, ptyEngineUrl } from './pty_proxy';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
 import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
+import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
 import { resolveProfileScope } from './agent_profile_scope';
 
 export interface WsMessage {
@@ -784,6 +785,20 @@ export async function handleInputFrame(
           console.log(
             `[ws_gateway] session ${id}: injected ${memPreface.memoryIds.length} relevant memory item(s) into prompt preface (owner=global)`,
           );
+        }
+        // #862 — record provenance for THIS turn (overwrites the session's
+        // previous record) so the desktop app can render "Memories used in
+        // this reply: …", including the explicit "none" case when
+        // memoryIds is empty. Non-fatal: a recording failure must never
+        // block the turn.
+        try {
+          new AgentSessionMemoryProvenanceRepository().record(
+            id,
+            memPreface.memoryIds,
+            memPreface.notePaths,
+          );
+        } catch (err) {
+          console.error(`[ws_gateway] memory provenance record failed (non-fatal):`, err);
         }
       } catch (err) {
         // Non-fatal — never block a turn on retrieval failure.

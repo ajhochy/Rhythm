@@ -94,12 +94,16 @@ function agentFilePath(id: string): string {
 }
 
 /**
- * True when this profile should be projected to an opencode agent file.
- * Excludes CLI model presets and opencode built-ins (see module doc).
+ * True when this profile IS (or should become) a real opencode agent,
+ * independent of environment side-effect gating (test/postgres). Excludes CLI
+ * model-selector presets and opencode built-ins (see module doc) — those are
+ * never projected as opencode agent files and never carry a real engine name.
+ *
+ * Pure — safe to call from contexts that need the eligibility question
+ * answered without triggering (or being blocked by) the file-write guards
+ * below, e.g. agent_profile_sync's #858 oc_agent backfill pass.
  */
-export function shouldWriteAgentFile(config: AgentConfig): boolean {
-  if (env.dbClient === 'postgres') return false;
-  if (isTestEnv()) return false;
+export function isProjectableAgentConfig(config: AgentConfig): boolean {
   if (!config.isAgent) return false;
   if (CLI_MODEL_PRESETS.has(config.id)) return false;
   if ((config.presetId ?? '') !== '' && CLI_MODEL_PRESETS.has(config.presetId!)) {
@@ -107,6 +111,18 @@ export function shouldWriteAgentFile(config: AgentConfig): boolean {
   }
   if (BUILTIN_OPENCODE.has(config.id)) return false;
   return true;
+}
+
+/**
+ * True when this profile should be projected to an opencode agent file.
+ * Excludes CLI model presets and opencode built-ins (see module doc), and
+ * additionally gates on environment (no writes under test, no local opencode
+ * engine under Postgres).
+ */
+export function shouldWriteAgentFile(config: AgentConfig): boolean {
+  if (env.dbClient === 'postgres') return false;
+  if (isTestEnv()) return false;
+  return isProjectableAgentConfig(config);
 }
 
 /** Split a `.md` into [frontmatterText, body]. Returns [null, fullText] if none. */

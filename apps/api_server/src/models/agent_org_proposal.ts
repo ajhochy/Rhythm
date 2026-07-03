@@ -19,6 +19,7 @@
  *   approved  -> applied
  *   applied   -> measuring
  *   measuring -> active | reverted
+ *   active    -> reverted   (#857 — human-triggered undo of an already-kept proposal)
  *
  * `proposed -> applied` (skipping `approved`) is the auto-apply lane for
  * low-risk, reversible proposals per the maintainer's full-autonomy-with-

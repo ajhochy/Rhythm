@@ -204,13 +204,18 @@ class _SlowStubAgentsRepository implements AgentsRepository {
       const [];
 
   @override
+  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async =>
+      const {'recorded': false, 'memoryIds': [], 'notePaths': []};
+
+  @override
   Future<List<Map<String, dynamic>>> fetchChildSessions(
           String parentSessionId) async =>
       const [];
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-          String parentSessionId, String childSdkId) async =>
+          String parentSessionId, String childSdkId,
+          {String? cwd}) async =>
       const [];
 
   @override
@@ -518,13 +523,18 @@ class _ThrowingStubRepo implements AgentsRepository {
       inner.fetchSessionTodos(id);
 
   @override
+  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) =>
+      inner.fetchMemoryProvenance(id);
+
+  @override
   Future<List<Map<String, dynamic>>> fetchChildSessions(
           String parentSessionId) =>
       inner.fetchChildSessions(parentSessionId);
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-          String parentSessionId, String childSdkId) =>
+          String parentSessionId, String childSdkId,
+          {String? cwd}) =>
       inner.fetchChildMessages(parentSessionId, childSdkId);
 
   @override

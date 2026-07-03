@@ -198,13 +198,18 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async => [];
 
   @override
+  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async =>
+      {'recorded': false, 'memoryIds': [], 'notePaths': []};
+
+  @override
   Future<List<Map<String, dynamic>>> fetchChildSessions(
           String parentSessionId) async =>
       [];
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-          String parentSessionId, String childSdkId) async =>
+          String parentSessionId, String childSdkId,
+          {String? cwd}) async =>
       [];
 
   @override

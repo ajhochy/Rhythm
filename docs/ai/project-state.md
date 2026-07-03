@@ -2,85 +2,68 @@
 
 ## Current focus
 
-The 2026-07-02 build-out is complete and parked in open PRs for review. It
-delivered the Org Self-Optimizer epic (#816), token-efficiency, the life-layer,
-fork-in-dev enablement, and a repointed Obsidian-vault memory system — all
-verified LIVE against the real fork. Remaining work is the governance/safety
-gaps the live run exposed (#856–#860), none merged.
+The 2026-07-02 governance/safety + agent-UX + infra closeout is complete and parked
+in **PR #882** (open, CI-green) for review. It resolves the risk backlog the prior
+mega build-out exposed (#856–#860) plus agent-UX and infra hardening — 13 issues,
+implemented by parallel worktree-isolated coding agents (contract-first) and folded
+sequentially with the full check suite between folds.
 
-## Active branch / PR (all open — never auto-merge)
+## Active branch / PR (open — never auto-merge)
 
-- **#848** `codex/mega-2026-07-02` — the mega integration (~20 tracks). Server +
-  Desktop + MCP CI green. Closes on merge: #817–#831, #834, #841, #842, #844,
-  #845, #846, #847, #850, #851, #852, #853, #854, #855.
-- **#849** — fork deferred MCP tool loading (#843); needs a signed-release smoke.
-- **#836** — local Qwen via Ollama (opt-in, cloud-first).
-- **#840** — earlier docs snapshot (superseded by the current docs on merge).
-- Pre-existing: **#832** (optimizer plan docs), **#835** (local MCP sidecar).
+- **#882** `workflow/run-2026-07-02` → main. CI green (Server + MCP + Desktop).
+  Closes on merge: #857 #859 #860 #862 #858 #861 #863 #865 #814 #856 #864 #867 #868.
+- This run branched off merged `main` (mega build-out already merged: #848/#849/#835).
 
-## Running the fork engine in dev (IMPORTANT)
+## In progress
 
-`flutter run` does NOT use the fork by default — it falls back to stock
-`~/.opencode/bin/opencode` (v1.14.40, none of the scoping/skill/deferred patches).
-To run the fork in dev:
-1. `cd apps/opencode_fork/packages/opencode && bun install && bun run build --single`
-   → `dist/opencode-darwin-arm64/bin/opencode` (`0.0.0-codex/...`).
-2. `cp` it to `apps/opencode_bin/opencode` (dev discovery path) + `chmod +x`.
-3. Ad-hoc sign: `codesign --force --sign - --entitlements <disable-library-validation plist> --options runtime apps/opencode_bin/opencode`.
-4. Relaunch. Startup log states the engine + whether fork patches are active.
-`RHYTHM_OPENCODE_BIN[_DIR]` env overrides also work (#855). `apps/opencode_bin/`
-is untracked — rebuild per machine.
+- Manual smoke COMPLETE (2026-07-02, 7/7 items PASS after in-run fixes): quick actions
+  (#863: cwd + feedback/nav fixed), Report Card (#865 — surfaced #884), memory edit +
+  integrated Context-tab provenance (#862 — #886 source_id convention fixed), Task-card
+  → existing local child session (#861 — link-first + directory-scoped reads), child
+  identity (#867 — specialist parsed from title + 31-row backfill), tool cards default
+  collapsed, **#815 verified live and CLOSED** (question → macOS notification →
+  click-to-focus). All fixes on #882; CI green on the final commit.
 
-## Memory system (repointed + verified live)
+## Risks / known issues
 
-- Agent memory lives at `~/Documents/Obsidian Vault/AGENT-MEMORY/<kind>/<slug>.md`
-  (kinds: fact|person|project|preference|context). Set via
-  `MEMORY_VAULT_PATH=<vault>/AGENT-MEMORY` + `MEMORY_VAULT_SUBDIR=""` (default
-  `memory` for back-compat). Decision: `2026-07-02-agent-memory-in-obsidian-vault.md`.
-- Injection = top-5 relevance per turn + on-demand `rhythm_search_memory`. Runs are
-  NOT memory (fetched on demand via a `context` pointer → `Runs.base` /
-  `Projects/<repo>/ai-runs/`). Verified live: injection, agent remember→vault+index,
-  self-healing sync all work; integrity solid (no dupes/loss).
-
-## Risks / known issues (open work, not merged)
-
-- **#857 (CRITICAL): optimizer NOT safe unsupervised.** First live run auto-applied
-  16 tighten/prune proposals on THIN history, stripping tools agents use; reverted
-  by hand. Needs a minimum-observation-window guard + a revert-from-`active` path.
-  **Keep the seeded optimizer cron (#830) OFF until #857 lands.**
-- **#860: two parallel memory stores** — Obsidian AGENT-MEMORY vs the `memory`
-  knowledge-graph MCP (`~/Documents/Claude-Memory/memory.jsonl`), both in agent
-  scope. Split-brain vs single-source-of-truth.
-- **#859: memory over-remember** — agents wrote 16 near-duplicate preferences in
-  one session; needs write-time dedup + a consolidation pass.
-- **#858: UUID-keyed agents can't chat** — session-create sends the config id, not
-  `oc_agent` name → "Agent not found" (AI/Theological Researcher, Org
-  Optimizer/Discovery). Data corrected; code fix open. Workaround: slug-keyed agents.
-- **#856: engine caches provider creds** — Claude account switch needs an app
-  restart. Quality-of-life.
-- Fork binary in dev is per-machine (unsigned ad-hoc); release path unchanged.
-- No `PATCH /agent-configs/:id` route — ops edits need direct SQL (noted in #858).
-- 12 npm audit findings; #768 (remove cowork MCP); #814 (pin rhythm MCP version).
+- **Optimizer cron (#830) is actually SEEDED-ON, not off.** Correction (found in
+  #882 smoke): `org_optimizer_seed.ts` (from the mega build, unchanged this run) seeds
+  "Org Self-Optimizer" (daily @ 02:00) + "Org External Discovery" (weekly) at every
+  startup, persisted in the scheduler DB — the earlier "off by construction" claim was
+  wrong. #857 added the data-sufficiency guard (min 7-day window + 10-activity floor,
+  env-overridable) + `active → reverted` revert path, so the daily audit is now SAFE
+  **when running #857 code** (in #882). RISK: the guard is not on `main` yet — if the
+  cron fires @ 02:00 against un-merged main code it can over-prune on thin data (the
+  original #857 incident). External Discovery stays human-gated (HIGH-risk, queued).
+  DECISION (2026-07-02, maintainer): leave the cron ON — **merge #882 before 02:00** so
+  the guard is on main; it then runs autonomously under the data-sufficiency guard +
+  revert (full-autonomy-with-rollback). No enable-flag gate added.
+- **#881 (test fragility):** `opc_curated_mcp_ensure.test.ts` c1 hardcodes
+  `toHaveLength(5)` but #835's `...loadLocalCuratedMcpServers()` makes the array include
+  machine-local sidecar entries. Fails locally on any box with a gitignored
+  `curated_mcp_servers.local.json`; PASSES on CI (clean runner). Fix the assertion.
+- **#870:** Rhythm has no GitHub-issue-filing capability (no tool/scoped MCP/shell) —
+  agents can't self-file issues. Proposed: scoped `rhythm_create_issue` MCP tool.
+- **Parallel-worktree node_modules hazard:** symlinking one `node_modules` across
+  worktrees + agents running `npm ci` concurrently races/corrupts it. Give each
+  worktree its own install, or forbid reinstalls in agent prompts (used here). See
+  the run log.
+- **#814 bundling** (`desktop_release.yml` mcp_server steps) not yet exercised by a real
+  release run; **#856** engine bounce not yet exercised by a real account-switch;
+  **#868** oMLX provider needs the oMLX app installed to live-smoke. All unit-covered.
 
 ## Test status
 
-- Mega branch: tsc clean; full vitest ~213 files / ~1839 pass / 1 skip;
-  `smoke_org_optimizer.sh` exit 0; Flutter analyze + agent_optimizer/agent_skills
-  green; Server + Desktop + MCP CI green.
-- Live (fork engine, `apps/opencode_bin`): MCP scoping trims to scoped tool set
-  (secretary 44 tools, not ~150K); optimizer loop wrote 16 proposals; delegation
-  guardrails enforce; memory loop verified end-to-end on AGENT-MEMORY.
+- PR #882 @ `784c7abc7`: api_server `tsc` clean + vitest **1996 pass** / 1 skip / 1 fail
+  (the #881 machine-local test — passes on CI); mcp_server build clean + **59 pass**;
+  Flutter analyze **0 errors** + `dart format` clean + **773 pass**. CI: all 3 green.
 
 ## Next step
 
-1. **#857 first** — data-sufficiency guard + revert-from-active; optimizer cron stays OFF until then.
-2. Review/merge PRs #848 (+#849 after a signed-release fork smoke, #836 as opt-in).
-   On merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
-3. Memory governance: **#859** (write-time dedup + consolidation) and **#860**
-   (collapse the two stores into the Obsidian vault).
-4. **#858** (session-create uses `oc_agent`; sync backfills `oc_agent`) to make
-   UUID-keyed agents chat-usable; consider a `PATCH /agent-configs/:id` route.
-5. **#856** engine credential reload (quality-of-life).
-6. Optional: hand-prune the 16 near-duplicate preferences in `AGENT-MEMORY/preference/`.
+1. Human review + merge **#882** (leave open until manual smoke).
+2. Live-smoke **#815** (question → notification), then close it.
+3. Manual UI smoke of the new surfaces.
+4. Triage the follow-up backlog: #881 (quick), #870 + setup-agent wave #871–#880.
+5. After merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
 
-## Filed this run (2026-07-02): #854 #855 #856 #857 #858 #859 #860 (see runs/2026-07-02-mega-buildout-fork-eval-memory.md)
+## Filed this run (2026-07-02): #867 #870 #871 #872 #873 #874 #875 #876 #877 #878 #879 #880 #881 (see runs/2026-07-02-workflow-run-13-issues.md); #869 closed (no secret present)

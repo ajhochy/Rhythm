@@ -459,6 +459,22 @@ class AgentsDataSource {
     return list.cast<Map<String, dynamic>>();
   }
 
+  /// Issue #862 — GET /agent-sessions/:id/memory-provenance
+  ///
+  /// Returns "Memories used in this reply" for the session's latest turn:
+  /// `{ recorded, memoryIds, notePaths }`. `recorded: false` means no turn has
+  /// ever been recorded (e.g. memory injection is disabled or the session
+  /// predates this feature) — distinct from a recorded turn whose
+  /// `memoryIds` is an empty list (that turn genuinely used no memories).
+  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async {
+    final response = await _client.get(
+      Uri.parse('$_baseUrl/agent-sessions/$id/memory-provenance'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
   /// OPC-M3-6 — GET /agent-sessions/:id/children
   ///
   /// Returns the list of child session summaries (raw JSON maps) for the
@@ -482,11 +498,18 @@ class AgentsDataSource {
   /// AgentSessionMessage objects (same structured M1-2 shape). Throws on
   /// HTTP error.
   Future<List<AgentSessionMessage>> fetchChildMessages(
-      String parentSessionId, String childSdkId) async {
+      String parentSessionId, String childSdkId,
+      {String? cwd}) async {
     final encodedChildId = Uri.encodeComponent(childSdkId);
+    // #861 smoke fix: engine session reads are directory-scoped. For nested
+    // hops the parent id is a raw SDK id with no local row, so the server
+    // can't resolve the cwd itself — pass the root session's cwd along.
+    final query = (cwd != null && cwd.isNotEmpty)
+        ? '?cwd=${Uri.encodeQueryComponent(cwd)}'
+        : '';
     final response = await _client.get(
       Uri.parse(
-          '$_baseUrl/agent-sessions/$parentSessionId/children/$encodedChildId/messages'),
+          '$_baseUrl/agent-sessions/$parentSessionId/children/$encodedChildId/messages$query'),
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);
