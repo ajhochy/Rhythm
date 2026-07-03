@@ -43,6 +43,25 @@ sequentially with the full check suite between folds.
   Not yet folded into the mega branch. Fix: `rhythm_delegate` added to secretary's
   `.mcp-roles` tool scope + a new reproducible role-file → `agent_configs` backfill
   seed for `is_manager`/roster (previously DB-only, hand-edited via the designer).
+- **#888** (quick-action buttons spawned "Coding Workflow" instead of Secretary,
+  silently breaking #883's delegation): Flutter half done on current branch
+  `workflow/run-2026-07-03`, verification-gate PASSED, **not yet committed**.
+  `quick_actions_bar.dart` now passes `agentId` (resolved via
+  `AgentConfigsController.managerAgent?.ocAgent`) alongside `mcpRole` on both
+  `createSession(...)` calls. See
+  `docs/ai/runs/2026-07-03-issue-888-quick-actions-agentid.md`. Note: #888 is
+  Flutter-only and does NOT touch `apps/api_server` — the `server.ts` /
+  `auth_credential_watcher.ts` changes on this same branch belong to the
+  unrelated #856 fix below (a prior run's note conflating the two was
+  mistaken; corrected here).
+- **#856 (reopened)** (engine did not pick up refreshed Claude credentials
+  after a `claude` CLI re-auth): done on current branch
+  `workflow/run-2026-07-03`, verification-gate PASSED, **not yet committed**.
+  Second `AuthCredentialWatcher` added on Claude Code's local credentials
+  file, forcing a `credentialsBridge.bridgeAnthropic(..., { force: true })`
+  re-bridge on change instead of a stale-`auth.json` bounce. See
+  `docs/ai/runs/2026-07-03-issue-856-reopened-claude-reauth.md`. Outstanding:
+  a live manual smoke of an actual `claude` re-auth (see Risks below).
 
 ## Risks / known issues
 
@@ -69,8 +88,14 @@ sequentially with the full check suite between folds.
   worktree its own install, or forbid reinstalls in agent prompts (used here). See
   the run log.
 - **#814 bundling** (`desktop_release.yml` mcp_server steps) not yet exercised by a real
-  release run; **#856** engine bounce not yet exercised by a real account-switch;
-  **#868** oMLX provider needs the oMLX app installed to live-smoke. All unit-covered.
+  release run; **#868** oMLX provider needs the oMLX app installed to live-smoke. All unit-covered.
+- **#856 (reopened, fixed this run, uncommitted):** the new Claude-credentials-file
+  watcher assumes `claude`'s CLI re-auth writes `~/.claude/.credentials` in
+  lockstep with the macOS Keychain entry on this machine — not yet verified
+  against a live `claude` re-auth (unit-tested only). Manual smoke: run
+  `claude` to re-auth, watch for `"claude re-auth detected — re-bridged: ok"`
+  in the server log, then confirm a new agent session doesn't error on
+  expired Claude credentials.
 
 ## Test status
 
@@ -89,6 +114,11 @@ sequentially with the full check suite between folds.
   api_server vitest: 234/234 files, 2008 pass / 1 skipped, 0 fail on a clean standalone
   run (one `issue_755_role_separation.test.ts` timeout flaked under `--level pr`'s full
   parallel load, confirmed unrelated — this branch touches zero `apps/api_server` files).
+- `workflow/run-2026-07-03` @ `a832ea277` (working tree, uncommitted — #888 Flutter
+  half + #856-reopened backend fix, both verification-gate PASSED independently):
+  `ai-workflow checks --level pr` green — flutter analyze 0 errors + `dart format`
+  clean + **793 Flutter pass**; api_server `tsc` clean + **2336 vitest pass / 1
+  skip / 0 fail** (273 files, the #881 machine-local skip only).
 
 ## Next step
 
@@ -105,10 +135,42 @@ sequentially with the full check suite between folds.
 5. Fold **#885** (worktree ready, see In progress) into the next integration branch; live
    Settings-screenshot follow-up still outstanding.
 6. After merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
+7. Commit + push `workflow/run-2026-07-03` (currently uncommitted: #888
+   Flutter fix + #856-reopened backend fix, both verification-gate PASSED)
+   and open a PR closing both issues. Manual smoke before merge: (a) tap a
+   quick-action button and confirm it spawns Secretary, not Coding Workflow
+   (#888); (b) run `claude` to re-auth and confirm the server log shows
+   "claude re-auth detected — re-bridged: ok" with no app restart needed
+   (#856).
 
 ## Filed this run (2026-07-02): #867 #870 #871 #872 #873 #874 #875 #876 #877 #878 #879 #880 #881 (see runs/2026-07-02-workflow-run-13-issues.md); #869 closed (no secret present)
 
 ## Recent coding-agent runs
+
+### 2026-07-03 — #888 (quick-action buttons spawn Coding Workflow instead of Secretary) — Flutter half
+verification-gate PASSED. Full detail moved to
+`docs/ai/runs/2026-07-03-issue-888-quick-actions-agentid.md`. Summary: both
+quick-action `createSession(...)` call sites in `quick_actions_bar.dart` now
+also pass `agentId` (resolved via `AgentConfigsController.managerAgent?.ocAgent
+?? 'secretary'`) — previously only `mcpRole: 'secretary'` was passed, which
+only scopes MCP tools, not which engine agent runs the session; the server
+defaulted to "Coding Workflow" instead of Secretary. Flutter: 793/793 pass,
+0 errors, format clean. Not yet committed. Backend half (server-side
+`agentId`/`mcpRole` resolution) owned by a separate concurrent agent — see the
+`#856` entry immediately below for that agent's own in-flight work.
+
+### 2026-07-03 — #856 (reopened): engine does not pick up refreshed Claude credentials after `claude` re-auth
+verification-gate PASSED. Full detail moved to
+`docs/ai/runs/2026-07-03-issue-856-reopened-claude-reauth.md`. Summary: the
+original #856 watcher only watched opencode's `auth.json`, which a `claude`
+CLI re-auth never touches (it writes the Keychain + the local Claude Code
+credentials file instead) — so the watch never fired, and even a bounce
+never re-invoked `bridgeAnthropic`. Fix: added a second
+`AuthCredentialWatcher` on the Claude Code credentials file whose `onReload`
+forces `credentialsBridge.bridgeAnthropic(client, { force: true })`;
+extended `authIdentityFingerprint` to parse that file's `claudeAiOauth`
+shape. `apps/api_server` `tsc` clean, full vitest **2336 pass / 1 skip**
+(273 files). Not yet committed.
 
 ### 2026-07-02 — #870 (rhythm_create_issue MCP tool)
 - Files modified:

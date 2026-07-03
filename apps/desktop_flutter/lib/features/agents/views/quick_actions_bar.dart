@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../../tasks/controllers/tasks_controller.dart';
 import '../controllers/agents_controller.dart';
 import '../models/quick_action_context.dart';
@@ -162,6 +163,7 @@ class _QuickActionsBarState extends State<QuickActionsBar> {
 
   Future<void> _runChatAction(_QuickActionKind kind) async {
     final agentsController = context.read<AgentsController>();
+    final agentConfigsController = context.read<AgentConfigsController>();
     final session = await agentsController.createSession(
       // A staff-facing helper session isn't tied to a code checkout, but the
       // engine requires a non-empty working dir — default to HOME, matching
@@ -169,6 +171,13 @@ class _QuickActionsBarState extends State<QuickActionsBar> {
       // required" (the #863 smoke bug).
       cwd: Platform.environment['HOME'] ?? '/',
       name: _sessionName(kind),
+      // #888: mcpRole alone only scopes the MCP tool allowlist — the server
+      // resolves which engine agent actually RUNS the session solely from
+      // agentId. Without this, the server fell back to the first authorized
+      // catalog entry ("Coding Workflow") instead of Secretary, so no
+      // delegation (#883) ever happened. Resolve the manager (Secretary)
+      // profile's engine agent dynamically rather than hardcoding it.
+      agentId: agentConfigsController.managerAgent?.ocAgent ?? 'secretary',
       mcpRole: 'secretary',
       taskId: widget.context_.kind == 'task' ? widget.context_.sourceId : null,
     );
@@ -220,6 +229,7 @@ class _QuickActionsBarState extends State<QuickActionsBar> {
     // Also launch an agent to propose any additional follow-up tasks this
     // item needs, reusing the same preset-invocation path as the chat
     // actions above.
+    final agentConfigsController = context.read<AgentConfigsController>();
     final session = await agentsController.createSession(
       // A staff-facing helper session isn't tied to a code checkout, but the
       // engine requires a non-empty working dir — default to HOME, matching
@@ -227,6 +237,9 @@ class _QuickActionsBarState extends State<QuickActionsBar> {
       // required" (the #863 smoke bug).
       cwd: Platform.environment['HOME'] ?? '/',
       name: _sessionName(_QuickActionKind.followUpTasks),
+      // #888: see _runChatAction — agentId must be passed explicitly or the
+      // server defaults to "Coding Workflow" instead of Secretary.
+      agentId: agentConfigsController.managerAgent?.ocAgent ?? 'secretary',
       mcpRole: 'secretary',
       taskId: widget.context_.kind == 'task' ? widget.context_.sourceId : null,
     );
