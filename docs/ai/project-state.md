@@ -214,3 +214,68 @@ is untracked — rebuild per machine.
   - The review-queue "revert" UI action (Flutter side) is NOT implemented —
     only the API route/controller. Flagged as a natural follow-up if the
     reviewer wants a button rather than calling the endpoint directly.
+### 2026-07-02 — #814 pin/bundle rhythm MCP server version
+- Files modified: `apps/api_server/src/services/opencode_client_service.ts`
+  (new `resolveRhythmMcpCommand()` + `readRhythmMcpServerVersion()`;
+  `ensureRhythmMcp()` now calls the resolver instead of hardcoding argv);
+  `apps/api_server/src/__tests__/opc_rhythm_mcp_ensure.test.ts` (fixture now
+  derives `DESIRED.command` from the resolver instead of the old bare spec);
+  `apps/api_server/src/__tests__/opc_rhythm_mcp_command.test.ts` (new, 11
+  tests); `.github/workflows/desktop_release.yml` (new bundling steps: build
+  `apps/mcp_server`, copy `dist/+package.json/-lock+node_modules` into
+  `Contents/Resources/mcp_server`, verify payload).
+- Checks run: `tsc --noEmit` (api_server) — pass. `vitest run` full suite —
+  215 files / 1855 pass / 1 pre-existing skip. `apps/mcp_server`: `npm run
+  build` (tsc --noCheck) — pass. `desktop_release.yml` YAML parsed with
+  `python3 -c "import yaml..."` — valid syntax (not run through actual CI in
+  this session).
+- Decisions made: bundle-with-pinned-fallback per issue recommendation; see
+  `docs/ai/decisions/2026-07-02-pin-bundle-rhythm-mcp-version.md` for the full
+  resolution order, alternatives, and follow-up risk note.
+- Deviations from spec: none. Real-binary smoke (spawn + assert `tools/list`
+  contains `rhythm_remember_memory`/`rhythm_list_sessions`) not run in this
+  env; documented as a manual step in the new test file's trailing comment,
+  backed by a source grep confirming both tools exist in
+  `apps/mcp_server/src/tools/{agentMemory,agentSessions}.ts`.
+- Concerns: the new `desktop_release.yml` bundling steps are untested by an
+  actual CI run — flagged as a follow-up in the decision doc (low risk:
+  mcp_server's only runtime deps, `@modelcontextprotocol/sdk` and `zod`, are
+  pure JS with no native bindings, unlike `better-sqlite3` in api_server).
+
+### 2026-07-02 — #856 reload provider credentials on auth change
+- Files modified: `apps/api_server/src/services/auth_credential_watcher.ts`
+  (new — pure `decideReload()` decision function + `AuthCredentialWatcher`
+  class with injectable fs/timer deps); `apps/api_server/src/services/
+  auth_credential_watcher.test.ts` (new, 11 tests); `apps/api_server/src/
+  services/opencode_client_service.ts` (`EngineStatus` gained `'reloading'`;
+  new `reloadCredentials()` method does dispose()+initialize() bounce;
+  `statusMessage` surfaces `'Reloading credentials…'`; added
+  `currentStatusForLogging()` helper to work around a TS narrowing quirk);
+  `apps/api_server/src/services/opencode_client_service.test.ts` (new
+  `describe('reloadCredentials (#856)')`, 5 tests); `apps/api_server/src/
+  server.ts` (wires `AuthCredentialWatcher` watching `~/.local/share/
+  opencode/auth.json`, started after `opencodeClient.initialize()` inside the
+  `agentExecutionEnabled` block; stopped in the shutdown handler).
+- Checks run: `tsc --noEmit` (api_server) — pass. `vitest run` full suite —
+  216 files / 1871 pass / 1 pre-existing skip (up from 215/1855 after #814;
+  16 new tests, no regressions).
+- Decisions made: api_server-side fs.watch + debounce, NOT an in-engine/fork
+  change (per the issue's lowest-risk guidance); a full dispose()+initialize()
+  bounce rather than a partial re-`restoreAuth()`, because the issue's own
+  diagnosis is that the SDK client/subprocess hold the stale token beyond
+  what re-calling `setAuth`/`setOAuthCredentials` alone would override. See
+  `docs/ai/decisions/2026-07-02-auth-credential-watcher-bounce.md` for full
+  rationale, alternatives, and the desired UX message state
+  (`statusMessage === 'Reloading credentials…'` while `status ===
+  'reloading'`).
+- Deviations from spec: none. No Flutter-side UI change made — the desktop
+  client already polls the existing `statusMessage`/`isReady` surface, so it
+  picks up the new message without further api_server work, but a follow-up
+  should verify the client's UI treatment is prominent enough (noted in the
+  decision doc).
+- Concerns: no end-to-end test spawns a real opencode engine and rewrites a
+  real `auth.json` — `initialize()`/`dispose()` are spied/mocked in the
+  `reloadCredentials()` unit tests (the standard seam already used elsewhere
+  in this file, since the real SDK spawn is a dynamic ESM import not
+  exercised in the unit suite). A manual account-switch smoke is recommended
+  before considering #856 fully closed.

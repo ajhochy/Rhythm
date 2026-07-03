@@ -300,6 +300,80 @@ describe('OpencodeClientService', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Issue #856 — reloadCredentials() bounces the engine (dispose + re-init) so
+// a changed auth.json is picked up without a full app restart. The real SDK
+// spawn (initialize()'s dynamic import) is not exercised here — these tests
+// verify the orchestration: dispose+re-init is invoked, `_shuttingDown` does
+// not leak from dispose()'s side effect, `status` reflects 'reloading' during
+// the bounce, and a shutdown-in-progress engine is left alone.
+// ---------------------------------------------------------------------------
+describe('reloadCredentials (#856)', () => {
+  it('calls dispose() then initialize() to bounce the engine', async () => {
+    const service = new OpencodeClientService();
+    const disposeSpy = vi.spyOn(service, 'dispose');
+    const initializeSpy = vi
+      .spyOn(service, 'initialize')
+      .mockResolvedValue(undefined);
+
+    await service.reloadCredentials();
+
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+    expect(initializeSpy).toHaveBeenCalledTimes(1);
+    // dispose() must be called before initialize() re-spawns.
+    expect(disposeSpy.mock.invocationCallOrder[0]).toBeLessThan(
+      initializeSpy.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('resets _shuttingDown after dispose() so the bounce is not mistaken for a permanent shutdown', async () => {
+    const service = new OpencodeClientService();
+    vi.spyOn(service, 'initialize').mockImplementation(async () => {
+      // Assert the flag is already reset by the time initialize() would run
+      // for real (initialize() itself does not check _shuttingDown, but a
+      // concurrent ensureReady() call during the bounce window does).
+      expect(
+        (service as unknown as Record<string, unknown>)['_shuttingDown'],
+      ).toBe(false);
+    });
+
+    await service.reloadCredentials();
+
+    expect(
+      (service as unknown as Record<string, unknown>)['_shuttingDown'],
+    ).toBe(false);
+  });
+
+  it('is a no-op when the app is already in intentional shutdown', async () => {
+    const service = new OpencodeClientService();
+    (service as unknown as Record<string, unknown>)['_shuttingDown'] = true;
+    const disposeSpy = vi.spyOn(service, 'dispose');
+    const initializeSpy = vi.spyOn(service, 'initialize');
+
+    await service.reloadCredentials();
+
+    expect(disposeSpy).not.toHaveBeenCalled();
+    expect(initializeSpy).not.toHaveBeenCalled();
+  });
+
+  it('sets status to error and records the error when re-initialization throws', async () => {
+    const service = new OpencodeClientService();
+    vi.spyOn(service, 'initialize').mockRejectedValue(new Error('spawn failed'));
+
+    await service.reloadCredentials();
+
+    expect(service.isReady).toBe(false);
+    expect(service.statusMessage).toContain('spawn failed');
+  });
+
+  it('statusMessage reports "Reloading credentials…" while status is reloading', () => {
+    const service = new OpencodeClientService();
+    (service as unknown as Record<string, unknown>)['status'] = 'reloading';
+    expect(service.statusMessage).toBe('Reloading credentials…');
+    expect(service.isReady).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // mcp-scope-04: createSession body-level mcpAllowlist tests
 // ---------------------------------------------------------------------------
 //

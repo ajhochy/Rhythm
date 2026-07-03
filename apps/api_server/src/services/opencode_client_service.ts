@@ -38,7 +38,15 @@ async function runCommand(file: string, args: string[]): Promise<string> {
   return stdout;
 }
 
-type EngineStatus = 'uninitialized' | 'ready' | 'error';
+/**
+ * #856 — 'reloading' is a transient state entered by
+ * {@link OpencodeClientService.reloadCredentials} while the engine is being
+ * bounced after a provider auth change (e.g. a Claude account switch writes
+ * fresh tokens to auth.json). Surfaced via `statusMessage` so callers show a
+ * brief "reloading credentials…" message instead of opaque 401s during the
+ * bounce window.
+ */
+type EngineStatus = 'uninitialized' | 'ready' | 'error' | 'reloading';
 
 /** Providers that are usable over loopback without an auth-store credential. */
 const KEYLESS_LOCAL_PROVIDER_IDS = new Set(['ollama']);
@@ -197,6 +205,114 @@ export async function reclaimStalePortForOpencode(
   throw new Error(
     `Failed to reclaim port ${port} from stale opencode process (PID ${pid}) after SIGTERM and SIGKILL.`,
   );
+}
+
+/**
+ * The exact `@ajhochy/rhythm-mcp-server` version this build of Rhythm was
+ * shipped/tested against, read once from `apps/mcp_server/package.json`.
+ * Single source of truth for the pinned-fallback command (issue #814) — bump
+ * `apps/mcp_server/package.json`'s `version` and this pin tracks it
+ * automatically; no second place to edit.
+ *
+ * Resolution order mirrors {@link augmentPathForOpencode}'s bundled-binary
+ * probe: try the compiled/dev-module-relative candidate paths, using the
+ * first one whose package.json actually exists. `__dirname/../../../mcp_server`
+ * resolves correctly from BOTH `apps/api_server/dist/services` (bundled
+ * release) and `apps/api_server/src/services` (dev via tsx/vitest, no
+ * dist/), because `dist`/`src` and `mcp_server` are siblings under `apps/`.
+ * A flattened `dist/` (two levels up) is probed as a defensive fallback.
+ * Returns `undefined` (never throws) when no package.json can be found or
+ * parsed, so callers can fall back to a bare, unpinned spec rather than
+ * crash (see {@link resolveRhythmMcpCommand}).
+ */
+export function readRhythmMcpServerVersion(): string | undefined {
+  const candidates = [
+    // dist/services or src/services → apps/mcp_server (dev + bundled release)
+    join(__dirname, '..', '..', '..', 'mcp_server', 'package.json'),
+    // Flattened dist/ variant
+    join(__dirname, '..', '..', 'mcp_server', 'package.json'),
+  ];
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue;
+    try {
+      const parsed = JSON.parse(readFileSync(candidate, 'utf8')) as {
+        version?: unknown;
+      };
+      if (typeof parsed.version === 'string' && parsed.version.trim()) {
+        return parsed.version.trim();
+      }
+    } catch {
+      // Fall through to the next candidate / the undefined fallback below.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Issue #814 — resolve the argv used to launch the rhythm MCP server, never a
+ * bare unversioned package spec.
+ *
+ * Problem: `npx -y @ajhochy/rhythm-mcp-server` (no version) lets a STALE
+ * GLOBAL install of the package shadow the version the app was built/tested
+ * against — observed in the wild (a stale global 0.6.0 shadowed a published
+ * 0.6.1). `npx` also requires network access at launch time, which is fragile
+ * offline.
+ *
+ * Resolution order (first match wins), mirroring
+ * {@link augmentPathForOpencode}'s bundled-vs-PATH precedence:
+ *   1. `RHYTHM_MCP_SERVER_BIN` dev override — an explicit absolute path to a
+ *      built `dist/index.js` entrypoint, for pointing at a locally-built
+ *      mcp_server without a release build (parity with
+ *      RHYTHM_OPENCODE_BIN[_DIR] for the fork engine).
+ *   2. A BUNDLED mcp_server payload shipped inside the app bundle
+ *      (`Contents/Resources/mcp_server/dist/index.js`, sibling of the
+ *      bundled `api_server` and `opencode_bin` — see desktop_release.yml's
+ *      "Bundle rhythm MCP server into app" step). Launched by absolute path
+ *      via `node` — no npx, no global, no network.
+ *   3. FALLBACK (dev, or a release predating the bundling step): an EXPLICIT
+ *      PINNED version spec `@ajhochy/rhythm-mcp-server@<version>` sourced
+ *      from {@link readRhythmMcpServerVersion}, so a stale global install can
+ *      never shadow it. Only when the version cannot be resolved at all do
+ *      we fall back to the historical bare spec (logged as a WARN — this
+ *      should not happen in a checked-out monorepo).
+ */
+export function resolveRhythmMcpCommand(): string[] {
+  const devBinPath = process.env.RHYTHM_MCP_SERVER_BIN?.trim();
+  if (devBinPath) {
+    if (existsSync(devBinPath)) {
+      logger.info(
+        `[OpencodeClientService] RHYTHM_MCP_SERVER_BIN override active — rhythm MCP will launch from ${devBinPath}`,
+      );
+      return ['node', devBinPath];
+    }
+    logger.warn(
+      `[WARN] RHYTHM_MCP_SERVER_BIN="${devBinPath}" does not exist — ignoring override`,
+    );
+  }
+
+  const candidateBundledEntrypoints = [
+    // Bundled release layout: Resources/api_server/dist/services → Resources/mcp_server
+    join(__dirname, '..', '..', '..', 'mcp_server', 'dist', 'index.js'),
+    // Flattened dist/ variant
+    join(__dirname, '..', '..', 'mcp_server', 'dist', 'index.js'),
+  ];
+  const bundledEntrypoint = candidateBundledEntrypoints.find((p) =>
+    existsSync(p),
+  );
+  if (bundledEntrypoint) {
+    return ['node', bundledEntrypoint];
+  }
+
+  const pinnedVersion = readRhythmMcpServerVersion();
+  if (pinnedVersion) {
+    return ['npx', '-y', `@ajhochy/rhythm-mcp-server@${pinnedVersion}`];
+  }
+
+  logger.warn(
+    '[WARN] rhythm MCP: no bundled payload and no resolvable mcp_server/package.json version — ' +
+      'falling back to an unpinned npx spec, which a stale global install can shadow',
+  );
+  return ['npx', '-y', '@ajhochy/rhythm-mcp-server'];
 }
 
 /**
@@ -381,6 +497,18 @@ export class OpencodeClientService {
   }
 
   /**
+   * Indirection around `this.status` used where TypeScript's control-flow
+   * narrowing would otherwise (incorrectly) hold a property read to a
+   * literal type assigned earlier in the same method, across intervening
+   * calls that reassign it (e.g. {@link reloadCredentials}'s
+   * `this.status = 'reloading'` → `this.dispose()` → `this.initialize()`
+   * sequence). Going through a method call forces a fresh read.
+   */
+  private currentStatusForLogging(): EngineStatus {
+    return this.status;
+  }
+
+  /**
    * Ensure the engine is ready, auto-reinitializing if it was previously
    * disposed or never initialized. Returns true once ready, false if
    * initialization fails or if the engine is in intentional shutdown.
@@ -413,6 +541,9 @@ export class OpencodeClientService {
     if (this.status === 'ready') return 'Opencode SDK ready';
     if (this.status === 'error')
       return `Opencode SDK error: ${this.error?.message}`;
+    // #856 — surfaced during reloadCredentials()'s dispose+reinit bounce so
+    // callers show a brief, honest status instead of opaque 401s.
+    if (this.status === 'reloading') return 'Reloading credentials…';
     return 'Opencode SDK not initialized';
   }
 
@@ -1738,7 +1869,8 @@ export class OpencodeClientService {
       'http://localhost:4001';
     const desired = {
       type: 'local' as const,
-      command: ['npx', '-y', '@ajhochy/rhythm-mcp-server'],
+      // #814 — never a bare unversioned spec; see resolveRhythmMcpCommand.
+      command: resolveRhythmMcpCommand(),
       environment: {
         RHYTHM_API_URL: apiUrl,
         RHYTHM_AGENT_URL: agentUrl,
@@ -2310,4 +2442,67 @@ export class OpencodeClientService {
     this.status = 'uninitialized';
   }
   private _disposeLogged = false;
+
+  /**
+   * Issue #856 — bounce the opencode engine subprocess so it re-reads
+   * `auth.json` after a provider credential change (e.g. switching Claude
+   * accounts). The engine caches the token it loaded at spawn time
+   * ({@link restoreAuth} only runs during {@link initialize}), so a content
+   * change on disk is otherwise invisible to the running process until a
+   * full app restart — every call 401s in the meantime.
+   *
+   * This is a graceful restart, NOT an in-engine/fork change: dispose the
+   * current subprocess (closing its port cleanly) and re-run the normal
+   * {@link initialize} path, which re-spawns `opencode serve` and calls
+   * {@link restoreAuth} against the fresh file content. `status` is set to
+   * `'reloading'` for the duration so `statusMessage` / `isReady` reflect a
+   * brief, honest "reloading credentials…" window instead of exposing
+   * transient 401s as a hard error.
+   *
+   * Intended to be called by an {@link AuthCredentialWatcher} instance wired
+   * up in server.ts, NOT on every auth.json touch — the watcher's
+   * change-detection + debounce logic decides when a bounce is warranted.
+   */
+  async reloadCredentials(): Promise<void> {
+    if (this._shuttingDown) {
+      logger.info(
+        '[OpencodeClientService] reloadCredentials: skipped — app is shutting down',
+      );
+      return;
+    }
+    logger.info(
+      '[OpencodeClientService] reloadCredentials: bouncing engine to pick up changed auth.json',
+    );
+    this.status = 'reloading';
+    // dispose() sets _shuttingDown=true as a side effect (shared with the
+    // app-shutdown path) — reset it immediately so this is understood as a
+    // planned bounce, not a permanent shutdown, before any other code
+    // observes `_shuttingDown`.
+    this.dispose();
+    this._shuttingDown = false;
+    this._disposeLogged = false;
+    try {
+      await this.initialize();
+      // Read through a getter-shaped indirection so TS does not (incorrectly)
+      // keep narrowing this.status to the 'reloading' literal assigned above
+      // across the intervening dispose()/initialize() calls.
+      const statusAfterReinit: EngineStatus = this.currentStatusForLogging();
+      if (statusAfterReinit === 'ready') {
+        logger.info(
+          '[OpencodeClientService] reloadCredentials: engine restarted, credentials reloaded',
+        );
+      } else {
+        logger.warn(
+          `[OpencodeClientService] reloadCredentials: engine did not reach ready after bounce (status=${statusAfterReinit})`,
+        );
+      }
+    } catch (err) {
+      this.status = 'error';
+      this.error = err instanceof Error ? err : new Error(String(err));
+      logger.error(
+        '[OpencodeClientService] reloadCredentials: re-initialization failed:',
+        this.error,
+      );
+    }
+  }
 }

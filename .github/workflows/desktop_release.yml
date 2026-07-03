@@ -125,6 +125,41 @@ jobs:
           test -d "$DEST/node_modules"
           test -f "$DEST/node_modules/better-sqlite3/package.json"
 
+      - name: Build rhythm MCP server
+        working-directory: apps/mcp_server
+        run: |
+          npm install
+          npm run build
+
+      - name: Bundle rhythm MCP server into app (#814)
+        working-directory: apps/desktop_flutter
+        run: |
+          # Sibling of Resources/api_server + Resources/opencode_bin. Launched
+          # by absolute path (resolveRhythmMcpCommand in opencode_client_service.ts)
+          # — no npx, no global install, no network at launch time. When this
+          # payload is absent (e.g. an older release predating this step), the
+          # command builder falls back to a version-PINNED npx spec, never a
+          # bare unversioned one.
+          APP="build/macos/Build/Products/Release/Rhythm.app"
+          DEST="$APP/Contents/Resources/mcp_server"
+          mkdir -p "$DEST"
+          cp -r ../mcp_server/dist "$DEST/"
+          cp ../mcp_server/package.json "$DEST/"
+          cp ../mcp_server/package-lock.json "$DEST/"
+          (
+            cd "$DEST"
+            npm install --omit=dev
+          )
+
+      - name: Verify bundled rhythm MCP server payload
+        working-directory: apps/desktop_flutter
+        run: |
+          DEST="build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/mcp_server"
+          test -f "$DEST/dist/index.js"
+          test -f "$DEST/package.json"
+          test -d "$DEST/node_modules"
+          test -f "$DEST/node_modules/@modelcontextprotocol/sdk/package.json"
+
       - name: Smoke-test bundled CLI server
         shell: bash
         run: |

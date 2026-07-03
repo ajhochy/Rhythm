@@ -53,6 +53,15 @@ async function main() {
   // here so the shutdown handler's `memoryVaultSyncJob?.stop()` stays valid in
   // the 'cloud' role where the job is never started.
   let memoryVaultSyncJob: { stop: () => void } | null = null;
+  // Issue #856: watches ~/.local/share/opencode/auth.json and bounces the
+  // opencode engine on a genuine credential change (e.g. a Claude account
+  // switch), so the engine re-reads fresh tokens instead of 401ing on stale
+  // in-memory creds until a full app restart. Declared nullable here (like
+  // the jobs above) so the shutdown handler's `?.stop()` stays valid in the
+  // 'cloud' role, where the opencode engine — and therefore this watcher —
+  // is never started.
+  let authCredentialWatcher: { start: () => Promise<void>; stop: () => void } | null =
+    null;
 
   if (env.agentExecutionEnabled) {
     // Issue #805: rebuild the DERIVED memory index from the vault ONCE on
@@ -351,6 +360,32 @@ async function main() {
     .catch((err) => {
       console.warn('[Opencode] SDK init failed (non-fatal):', err);
     });
+
+    // #856 — start watching auth.json for provider credential changes once
+    // the engine's initial spawn has been kicked off. Non-fatal: a watcher
+    // start failure (e.g. the auth.json directory doesn't exist yet on a
+    // fresh install) must never block server startup; the engine simply
+    // keeps whatever credentials it loaded at spawn time until the next
+    // restart, which matches today's pre-#856 behavior.
+    try {
+      const { AuthCredentialWatcher } = await import(
+        './services/auth_credential_watcher'
+      );
+      const { homedir } = await import('os');
+      const { join } = await import('path');
+      authCredentialWatcher = new AuthCredentialWatcher({
+        path: join(homedir(), '.local', 'share', 'opencode', 'auth.json'),
+        onReload: async () => {
+          await opencodeClient.reloadCredentials();
+        },
+      });
+      await authCredentialWatcher.start();
+      logger.info('[server] auth credential watcher started (#856)');
+    } catch (err) {
+      logger.warn(
+        `[server] auth credential watcher failed to start (non-fatal): ${String(err)}`,
+      );
+    }
   }
 
   httpServer.listen(port, () => {
@@ -376,6 +411,9 @@ async function main() {
     try { syncJob?.stop(); } catch (_) { /* ignore */ }
     try { memoryVaultSyncJob?.stop(); } catch (_) { /* ignore */ }
     try { agentSchedulerJob?.stop(); } catch (_) { /* ignore */ }
+    // #856 — stop the auth.json watcher so a credential write during
+    // shutdown can't trigger a bounce of an engine we're about to dispose.
+    try { authCredentialWatcher?.stop(); } catch (_) { /* ignore */ }
 
     // 2. Dispose the Opencode SDK subprocess.
     try { opencodeClient.dispose(); } catch (_) { /* ignore */ }
