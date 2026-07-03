@@ -7,7 +7,7 @@
 ///   3. Search field (client-side filter over CHATS).
 ///   4. CHATS section: "By Project" dropdown selector + filtered session list.
 ///   5. TOOLS section: Brain, Deep Research, Tasks, Webhooks, Profiles,
-///      Cookbook, Review Queue, Email, Gallery.
+///      Cookbook, Review Queue, Report Card, Email, Gallery.
 ///   6. Footer: Account label + ⚙ Settings icon.
 library;
 
@@ -27,6 +27,7 @@ import '../../agent_research/views/agent_research_view.dart';
 import '../../agent_schedules/views/agent_schedules_view.dart';
 import '../../agent_skills/views/agent_skills_view.dart';
 import '../../agent_webhooks/views/agent_webhooks_view.dart';
+import '../../run_quality/views/run_quality_view.dart';
 import '../../settings/views/settings_view.dart';
 import '../controllers/agents_controller.dart';
 import '_agent_profile_sheet.dart';
@@ -742,6 +743,18 @@ class _ToolsSection extends StatelessWidget {
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => const OrgProposalsView(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          _ToolsRow(
+            key: const ValueKey('tools-row-run-quality'),
+            icon: '📋',
+            label: 'Report Card',
+            subtitle: 'How agents have been doing lately',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const RunQualityView(),
               ),
             ),
           ),

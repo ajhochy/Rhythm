@@ -29,6 +29,7 @@ import { agentSkillsRouter } from './routes/agentSkillsRoutes';
 import { agentSessionsRouter } from './routes/agent_sessions_routes';
 import { agentsCapabilitiesRouter } from './routes/agents_capabilities_routes';
 import { usageBudgetRouter } from './routes/usage_budget_routes';
+import { runQualityRouter } from './routes/run_quality_routes';
 import { agentsModelsRouter } from './routes/agents_models_routes';
 import { notificationsAgentRouter } from './routes/notifications_agent_routes';
 import { opencodeAuthRouter } from './routes/opencode_auth_routes';
@@ -117,6 +118,7 @@ export function createApp() {
     // NOTE: /agents/capabilities is unauthenticated for now; Phase 3.1 will add the AGENT_LOCAL bypass.
     app.use('/agents/capabilities', agentsCapabilitiesRouter);
     app.use('/agents/usage-budget', usageBudgetRouter);
+    app.use('/agents/run-quality', runQualityRouter);
     app.use('/agents/models', agentsModelsRouter);
     app.use('/agent-configs', agentConfigsRouter);
     app.use('/agent-delegation', agentDelegationRouter);

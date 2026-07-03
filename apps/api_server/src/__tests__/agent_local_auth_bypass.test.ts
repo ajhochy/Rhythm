@@ -28,6 +28,7 @@ const AGENT_LOCAL_ROUTES = [
   '/agent-cookbook',
   '/agent-designs',
   '/agent-org-proposals',
+  '/agents/run-quality',
 ];
 
 async function makeApp(agentLocal: boolean): Promise<{

@@ -84,3 +84,50 @@ is untracked — rebuild per machine.
 6. Optional: hand-prune the 16 near-duplicate preferences in `AGENT-MEMORY/preference/`.
 
 ## Filed this run (2026-07-02): #854 #855 #856 #857 #858 #859 #860 (see runs/2026-07-02-mega-buildout-fork-eval-memory.md)
+
+## Recent coding-agent runs
+
+### 2026-07-02 — #865 agent run QUALITY scorecard
+- Files modified/added: `apps/api_server/src/services/run_quality_service.ts`
+  (new — per-agent-kind rollup: completion vs escalation, token waste,
+  corrections, repeated mistakes, all computed from existing
+  `agent_sessions`/`agent_session_messages` tables, no new columns);
+  `apps/api_server/src/routes/run_quality_routes.ts` (new — `GET
+  /agents/run-quality`, mirrors `usage_budget_routes.ts`'s AGENT_LOCAL-bypass
+  pattern); `apps/api_server/src/app.ts` (mounted the router under the
+  `agentExecutionEnabled` gate, alongside `/agents/usage-budget`);
+  `apps/api_server/src/__tests__/agent_local_auth_bypass.test.ts` (added
+  `/agents/run-quality` to the shared AGENT_LOCAL regression list);
+  `apps/desktop_flutter/lib/features/run_quality/**` (new feature — model,
+  data source hard-coded to `AppConstants.agentLocalBaseUrl`, repository,
+  controller, plain-language `RunQualityView`); `main.dart` +
+  `_agents_nav_column.dart` (minimal additive wiring — one provider entry,
+  one "Report Card" TOOLS row).
+- Checks run: `tsc --noEmit` (api_server) — clean. `vitest run` (api_server,
+  full suite) — 216 files / 1856 passed / 1 skipped. `flutter analyze
+  --no-fatal-infos` — 0 errors (pre-existing infos only). `flutter test
+  test/features/` — 623 passed. `dart format --set-exit-if-changed .` — 0
+  changed.
+- Decisions made: "token waste" is defined as tokens spent on runs that
+  either ended in `status='error'` OR required 2+ user corrections without
+  ever completing — a SUBSET of total spend, not a duplicate of it (an
+  all-clean agent has `wastedTokens=0` despite nonzero `totalTokens`). Thin
+  history: fewer than `MIN_RUNS_FOR_SIGNAL` (5) measurable (completed +
+  escalated) runs sets `notEnoughData=true` and every rate field to `null`
+  rather than a misleading 0%/100%. Unmeasured: a session whose `status`
+  isn't a recognized terminal or live state is counted in `unmeasuredRuns`,
+  never folded into completed or dropped. Repeated mistakes: `status_message`
+  values are normalized (ids/numbers collapsed) and surfaced only at 2+
+  occurrences. No new DB columns — everything reads existing
+  `agent_sessions`/`agent_session_messages` (tokens_json, status,
+  status_message, message role sequence).
+- Deviations from spec: none — read-only, not wired into the org-optimizer
+  auto-tune loop (#816 stays separate); no SQLite-only tables touched
+  `postgres_bootstrap.ts`.
+- Concerns: "user corrections" is inferred from input-role message count
+  after the first per session (a proxy — no `revert`/permission-deny events
+  are persisted today, so a real "did the user hit Reject/Deny" signal would
+  need a new event log, out of scope here). Repeated-mistake grouping is a
+  light regex normalization; may under/over-group on messages with unusual
+  formatting — acceptable for a human-facing plain-language rollup, not used
+  for any automated decision.
