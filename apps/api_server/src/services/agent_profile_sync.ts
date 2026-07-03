@@ -27,7 +27,10 @@ import { AgentConfigsRepository } from '../repositories/agent_configs_repository
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { normalizeDerivedAllowedMcps } from './mcp_name_alignment';
-import { isProjectableAgentConfig } from './opencode_agent_writer';
+import {
+  isProjectableAgentConfig,
+  writeAgentProfileFile,
+} from './opencode_agent_writer';
 
 /**
  * opencode primaries that drive background machinery, not user-facing sessions.
@@ -741,6 +744,14 @@ export async function syncOpencodeAgentProfiles(
   try {
     const { seedSecretaryDelegation } = await import('./secretary_delegation_seed');
     await seedSecretaryDelegation();
+    // #889: the reconcile above only touches the DB row. The engine reads the
+    // projected `~/.config/opencode/agents/secretary.md`, NOT the DB — so
+    // re-project it here so the reconciled roster and the hub routing preamble
+    // (rhythm_delegate for domain work) actually reach the running agent.
+    // Without this the .md stays stale (pre-#889 preamble) and Secretary never
+    // delegates. writeAgentProfileFile no-ops under postgres/test.
+    const secretary = repo.getById('secretary');
+    if (secretary) writeAgentProfileFile(secretary);
   } catch (err) {
     logger.warn(`[AgentProfileSync] #883 secretary delegation seed failed (non-fatal): ${String(err)}`);
   }
