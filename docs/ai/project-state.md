@@ -67,3 +67,49 @@ sequentially with the full check suite between folds.
 5. After merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
 
 ## Filed this run (2026-07-02): #867 #870 #871 #872 #873 #874 #875 #876 #877 #878 #879 #880 #881 (see runs/2026-07-02-workflow-run-13-issues.md); #869 closed (no secret present)
+
+## Recent coding-agent runs
+
+### 2026-07-02 — #880 Agent Profile export/import
+- Files modified: `apps/api_server/src/controllers/agent_configs_controller.ts` (added
+  `export`/`import` handlers), `apps/api_server/src/routes/agent_configs_routes.ts`
+  (registered `GET /agent-configs/export` and `POST /agent-configs/import` ahead of
+  `/:id`, same pattern as the existing `sync-opencode` route).
+- Files added: `apps/api_server/src/services/agent_config_export_import.ts` (bundle
+  schema v1, secret-pattern export guard, upsert-by-id import with preset
+  protection + no-op detection), `apps/api_server/src/__tests__/agent_configs_export_import.test.ts`
+  (9 contract tests: export shape, secret-pattern scan, id-filtering, create,
+  update, preset-skip, round-trip, idempotent re-import, version-reject).
+- Checks run: `tsc -p tsconfig.json --noEmit` clean; targeted vitest
+  (`agent_configs_export_import` + `agent_configs_routes` + `agent_local_auth_bypass`)
+  35/35 pass; `agent_profile_sync*` suites 113/113 pass; full api_server suite
+  **2018 pass / 1 skip** (pre-existing #881 machine-local skip, unrelated).
+- Decisions made: issue #880's body describes a `rhythm profile export/import`
+  **CLI** (depends on `rhythm doctor`/`rhythm setup`, neither of which exist in
+  this repo — that's a different, aspirational setup-agent-wave issue body that
+  doesn't match this codebase). Implemented instead, per explicit dispatch
+  instructions, as an HTTP API on the existing `agent_configs` local-agent-server
+  router: `GET /agent-configs/export[?ids=...]` and `POST /agent-configs/import`.
+  Collision policy: **upsert by id** (never remap); preset rows (claude-code/
+  codex/gemini-cli/opencode) are always reported `skipped` and never overwritten,
+  mirroring the PATCH route's `PRESET_PROTECTED_FIELDS` protection. Import
+  triggers `syncOpencodeAgentProfiles()` once after all rows are written so
+  imported profiles register with the opencode engine. No Flutter UI was added —
+  out of scope per dispatch ("the API is the core deliverable").
+- Deviations from spec: the GitHub issue's literal acceptance criteria (CLI
+  subcommands, `rhythm doctor` integration, cross-OS bundle portability, secure
+  interactive key-prompting) do not apply to this codebase's actual shape and
+  were not implemented as written — see decision above. The delivered contract
+  (versioned JSON bundle, no secret values, upsert-by-id, idempotent re-import)
+  satisfies the *spirit* of the acceptance criteria adapted to `agent_configs`.
+- Concerns: `.mcp-roles/*.mcp.json` files exist but are keyed by *agent name*,
+  not by `agent_configs.id` — import does not attempt to sync or validate
+  against `.mcp-roles`, since `allowedMcpsJson` is already the profile-level
+  scope mechanism and importing a profile does not change which `.mcp-roles`
+  file (if any) a session-create call resolves. Also: the worktree's root
+  `node_modules` symlink was missing (only `apps/api_server/node_modules` and
+  `apps/mcp_server/node_modules` existed), which broke `better-sqlite3` /
+  `pg` / `ws` / `resend` resolution for both `tsc` and `vitest` region-wide —
+  added `node_modules -> /Users/ajhochhalter/Documents/Rhythm/node_modules`
+  (same symlink-to-main-checkout pattern as the two existing ones, gitignored,
+  not part of the commit) so this worktree's checks can run at all.
