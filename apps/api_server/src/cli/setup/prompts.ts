@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import * as readline from 'node:readline';
 
 /**
@@ -21,11 +22,90 @@ export interface PromptIO {
 }
 
 /**
+ * Non-TTY backing for `createReadlinePromptIO` — see the note there for why
+ * this exists. Reads all of stdin synchronously (fd 0) exactly once, before
+ * the first prompt, and serves every subsequent question from that buffer
+ * in order. Running out of buffered lines throws (same "surfaces a bug
+ * immediately rather than hanging" contract as `ScriptedPromptIO`).
+ */
+function createBufferedPromptIO(): PromptIO {
+  let lines: string[] = [];
+  try {
+    const raw = readFileSync(0, 'utf8');
+    // ''.split('\n') is ['' ] (one empty "line"), not zero lines — that would
+    // let the FIRST question silently succeed with an empty answer instead
+    // of throwing "out of input" (which is what a Ctrl+C / truly empty
+    // stdin must do, so setup never writes a blank value to .env). Also drop
+    // one trailing empty element from a normal trailing-newline file.
+    lines = raw.length === 0 ? [] : raw.split('\n');
+    if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  } catch {
+    // fd 0 not readable (e.g. no stdin attached at all) — treat as empty input.
+    lines = [];
+  }
+  let cursor = 0;
+
+  const nextLine = (question: string): string => {
+    if (cursor >= lines.length) {
+      throw new Error(
+        `rhythm setup: no more input available to answer "${question}" (stdin reached EOF).`,
+      );
+    }
+    const line = lines[cursor];
+    cursor += 1;
+    return line;
+  };
+
+  return {
+    info(message: string) {
+      // eslint-disable-next-line no-console
+      console.log(message);
+    },
+    async ask(question: string) {
+      return nextLine(question).trim();
+    },
+    async askSecret(question: string) {
+      return nextLine(question).trim();
+    },
+    async confirm(question: string, defaultValue = false) {
+      const raw = nextLine(question).trim().toLowerCase();
+      if (raw === '') return defaultValue;
+      return raw === 'y' || raw === 'yes';
+    },
+    close() {
+      // no-op — nothing to release; stdin was already fully drained up front.
+    },
+  };
+}
+
+/**
  * Real terminal-backed implementation used by `rhythm setup` outside tests.
  * Secret input is masked by intercepting stdin's raw write to stdout — a
  * minimal approach sufficient for a CLI wizard (no external dependency).
+ *
+ * Non-TTY note: Node's `readline.Interface` closes itself as soon as the
+ * underlying input stream emits `'end'` (EOF). A real terminal (TTY) never
+ * sends EOF mid-session, so interactive use is unaffected. But piped/heredoc/
+ * CI stdin delivers all of its data and then EOF essentially immediately —
+ * if ANY `question()` call happens after an `await`/microtask gap (e.g. this
+ * wizard's `info()` calls or a dynamic `import()` between steps), the
+ * interface can already be closed by the time that call runs, surfacing
+ * `ERR_USE_AFTER_CLOSE`, and — because piped data is consumed exactly once —
+ * there is no way to recover it after the fact by recreating the interface.
+ *
+ * Fix: for non-TTY stdin, eagerly drain the entire input into a line buffer
+ * up front (before any prompt is shown) and serve every subsequent
+ * `ask`/`askSecret`/`confirm` call from that buffer instead of a live
+ * `readline.question()`. TTY stdin keeps using live `readline.question()`
+ * calls exactly as before.
  */
 export function createReadlinePromptIO(): PromptIO {
+  const isInteractiveTty = process.stdin.isTTY === true;
+
+  if (!isInteractiveTty) {
+    return createBufferedPromptIO();
+  }
+
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
   const askRaw = (question: string): Promise<string> =>

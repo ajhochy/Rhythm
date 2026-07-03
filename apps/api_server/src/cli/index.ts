@@ -6,6 +6,17 @@
  */
 
 async function main(): Promise<void> {
+  // Load .env from cwd (the same location write_env_config.ts's
+  // defaultEnvPath() writes to) into process.env BEFORE dispatching to any
+  // subcommand. This is what lets `rhythm setup`'s final `rhythm doctor`
+  // verification step see a key just written in the SAME process — without
+  // it, `checkApiKeys` would only see values already present in the shell's
+  // environment, not ones this run just persisted to disk. Mirrors
+  // server.ts's own `loadDotenv` call; done here (not at module load) so
+  // importing doctor.ts/setup.ts for tests stays side-effect-free.
+  const { config: loadDotenv } = await import('dotenv');
+  loadDotenv();
+
   const [, , subcommand, ...rest] = process.argv;
 
   switch (subcommand) {

@@ -60,6 +60,14 @@ export async function runSetup(options: RunSetupOptions): Promise<RunSetupResult
   if (Object.keys(values).length > 0) {
     const path = defaultEnvPath();
     await writeEnvConfigFn(values, defaultWriteEnvConfigDeps(path));
+
+    // Make the newly-written values visible to THIS process immediately —
+    // otherwise the "run doctor as the final verification step" acceptance
+    // criterion would see stale process.env (dotenv is only loaded once, at
+    // process startup, before these values existed on disk).
+    for (const [key, value] of Object.entries(values)) {
+      process.env[key] = value;
+    }
   }
 
   const doctorReport = await runDoctorFn();

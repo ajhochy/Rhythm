@@ -1,10 +1,13 @@
+import type { RhythmConfig } from '../config/rhythm_config';
 import { checkApiKeys } from './checks/api_keys';
+import { checkCapabilityStatus } from './checks/capability_status';
 import { checkConfigValidity, defaultConfigPaths } from './checks/config_validity';
 import { loadConfiguredMcpServers } from './checks/load_mcp_servers';
 import { checkMcpReachability } from './checks/mcp_reachability';
 import { checkNodeVersion } from './checks/node_version';
 import { checkPythonVersion } from './checks/python_version';
 import type { CheckResult } from './checks/types';
+import { defaultLoadDeps, loadRhythmConfig } from './setup/rhythm_config_store';
 
 export interface RunDoctorOptions {
   env?: NodeJS.ProcessEnv;
@@ -18,6 +21,8 @@ export interface RunDoctorOptions {
     mcpReachability?: (
       servers: ReturnType<typeof loadConfiguredMcpServers>,
     ) => Promise<CheckResult[]>;
+    /** #879 — loads the Rhythm capabilities config (Blank Slate awareness). Defaults to reading rhythm-capabilities.json; an all-unconfigured config on a normal (non-Blank-Slate) install. */
+    rhythmConfig?: () => RhythmConfig;
   };
 }
 
@@ -59,12 +64,17 @@ export async function runDoctor(options: RunDoctorOptions = {}): Promise<DoctorR
     servers,
   );
 
+  const defaultRhythmConfig = (): RhythmConfig => loadRhythmConfig(defaultLoadDeps());
+  const rhythmConfig = (deps.rhythmConfig ?? defaultRhythmConfig)();
+  const capabilityResults = checkCapabilityStatus(rhythmConfig);
+
   const results: CheckResult[] = [
     ...apiKeyResults,
     nodeResult,
     pythonResult,
     ...configResults,
     ...mcpResults,
+    ...capabilityResults,
   ];
 
   const passCount = results.filter((r) => r.pass).length;

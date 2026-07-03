@@ -19,6 +19,7 @@ describe('runDoctor (integration)', () => {
         configValidity: async () => [{ label: '.env file', pass: true, status: 'ok' }],
         mcpServers: () => [],
         mcpReachability: async () => [],
+        rhythmConfig: () => ({ capabilities: {}, disabledMcpServers: [], enabledSkills: null }),
       },
     });
 
@@ -35,6 +36,7 @@ describe('runDoctor (integration)', () => {
         configValidity: async () => [],
         mcpServers: () => [],
         mcpReachability: async () => [],
+        rhythmConfig: () => ({ capabilities: {}, disabledMcpServers: [], enabledSkills: null }),
       },
     });
 
@@ -56,6 +58,7 @@ describe('runDoctor (integration)', () => {
         mcpReachability: async () => [
           { label: 'MCP server: Slow', pass: false, remediation: 'Slow timed out after 3000ms.' },
         ],
+        rhythmConfig: () => ({ capabilities: {}, disabledMcpServers: [], enabledSkills: null }),
       },
     });
 
@@ -73,6 +76,7 @@ describe('runDoctor (integration)', () => {
         configValidity: async () => [],
         mcpServers: () => [],
         mcpReachability: async () => [],
+        rhythmConfig: () => ({ capabilities: {}, disabledMcpServers: [], enabledSkills: null }),
       },
     });
 
