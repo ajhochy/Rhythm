@@ -38,7 +38,9 @@ import {
   vaultKeyToMemoryDirRelative,
 } from './memoryVaultSyncService';
 import { MemoryIndexService } from './memory_index_service';
+import type { AgentMemory, AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { logger } from '../utils/logger';
+import { MEMORY_MERGE_THRESHOLD, mergeMemoryContent, textSimilarity } from './memory_similarity';
 
 /** Allowed memory kinds — must match memoryVaultSyncService's VALID_KINDS. */
 export const VALID_MEMORY_KINDS = ['fact', 'person', 'project', 'preference', 'context'] as const;
@@ -142,7 +144,7 @@ function assertValidKind(kind: string): MemoryKind {
  * inside the memory dir. Rejects `..`, absolute components, and any resolved
  * path that escapes the boundary. Returns the absolute path.
  */
-function resolveWithinMemoryDir(memoryDir: string, relPath: string): string {
+export function resolveWithinMemoryDir(memoryDir: string, relPath: string): string {
   if (path.isAbsolute(relPath)) {
     throw new MemoryWriteError(`Note path must be relative: ${relPath}`);
   }
@@ -155,11 +157,11 @@ function resolveWithinMemoryDir(memoryDir: string, relPath: string): string {
 }
 
 /** Today's date as YYYY-MM-DD (matches the existing frontmatter convention). */
-function isoDate(d = new Date()): string {
+export function isoDate(d = new Date()): string {
   return d.toISOString().slice(0, 10);
 }
 
-interface NoteFrontmatter {
+export interface NoteFrontmatter {
   id: string;
   kind: MemoryKind;
   tags: string[];
@@ -193,23 +195,37 @@ export function renderMemoryNote(fm: NoteFrontmatter, body: string): string {
 
 /** Minimal frontmatter read for dedup: extract `id` + `created` from a note. */
 async function readNoteMeta(abs: string): Promise<{ id?: string; created?: string }> {
+  const full = await readNoteFull(abs);
+  return { id: full.id, created: full.created };
+}
+
+/**
+ * Full frontmatter + body read, used by merge-on-capture (#859a) and the
+ * consolidation pass (#859b) to compare/merge note CONTENT, not just metadata.
+ * Returns an empty body ('') alongside undefined metadata when the file is
+ * missing or malformed — never throws.
+ */
+export async function readNoteFull(abs: string): Promise<{ id?: string; created?: string; body: string }> {
   let raw: string;
   try {
     raw = await fs.readFile(abs, 'utf8');
   } catch {
-    return {};
+    return { body: '' };
   }
   const norm = raw.replace(/\r\n/g, '\n');
-  if (!norm.startsWith('---\n')) return {};
+  if (!norm.startsWith('---\n')) return { body: norm.trim() };
   const closeIdx = norm.slice(4).search(/\n---\s*(\n|$)/);
-  if (closeIdx === -1) return {};
+  if (closeIdx === -1) return { body: norm.trim() };
   const fm = norm.slice(4, 4 + closeIdx);
+  const rest = norm.slice(4 + closeIdx + 1);
+  const nl = rest.indexOf('\n');
+  const body = (nl === -1 ? '' : rest.slice(nl + 1)).trim();
   const out: { id?: string; created?: string } = {};
   for (const line of fm.split('\n')) {
     const m = /^(id|created):\s*(.+)$/.exec(line.trim());
     if (m) out[m[1] as 'id' | 'created'] = m[2].trim().replace(/^["']|["']$/g, '');
   }
-  return out;
+  return { ...out, body };
 }
 
 export interface MemoryVaultWriteOptions {
@@ -244,13 +260,20 @@ export async function rememberToVault(
   const index = options.index ?? new MemoryIndexService();
   const kindDir = path.join(memoryDir, kind);
 
-  // --- DEDUP -----------------------------------------------------------------
+  // --- DEDUP / MERGE-ON-CAPTURE -----------------------------------------------
   // 1) If the caller supplied an id, that is the dedup key: a note with that id
   //    in this kind's dir is updated in place. 2) Otherwise the normalized
   //    content key picks the basename, so identical content maps to one file.
+  // 3) Issue #859a — if neither of those finds an exact match, scan this kind's
+  //    notes for one that RESTATES/EXTENDS the same theme (high lexical
+  //    similarity) and MERGE onto it instead of writing a near-duplicate. This
+  //    is deliberately scoped to the no-explicit-id path only: an id-keyed
+  //    remember (e.g. a scheduled task updating its own note) always means
+  //    "update this exact note", never "find something similar".
   let id = typeof input.id === 'string' && input.id.trim() !== '' ? input.id.trim() : '';
   let relPath: string;
   let createdToPreserve: string | undefined;
+  let contentToWrite = content;
 
   if (id) {
     // Find an existing note in this kind's dir carrying the same frontmatter id.
@@ -274,6 +297,18 @@ export async function rememberToVault(
     if (meta.id) {
       id = meta.id;
       createdToPreserve = meta.created;
+    } else {
+      // No exact content-key match — look for a note that GENUINELY overlaps
+      // in theme (same kind, high similarity) and merge onto it instead of
+      // creating a near-duplicate file.
+      const similar = await findBestSimilarNoteInKind(kindDir, memoryDir, content);
+      if (similar) {
+        relPath = similar.relPath;
+        id = similar.id;
+        const meta2 = await readNoteMeta(resolveWithinMemoryDir(memoryDir, similar.relPath));
+        createdToPreserve = meta2.created;
+        contentToWrite = mergeMemoryContent(similar.body, content);
+      }
     }
   }
 
@@ -299,7 +334,7 @@ export async function rememberToVault(
   // --- VAULT-FIRST WRITE -----------------------------------------------------
   // If this throws, we return before touching the index (mandatory ordering).
   await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, renderMemoryNote(fm, content), 'utf8');
+  await fs.writeFile(abs, renderMemoryNote(fm, contentToWrite), 'utf8');
 
   // --- DERIVED INDEX (only after the write succeeded) ------------------------
   // Canonical index key = path relative to the VAULT ROOT (e.g.
@@ -308,7 +343,7 @@ export async function rememberToVault(
   const vaultRelKey = toVaultRelativeKey(path.dirname(path.resolve(memoryDir)), abs);
   await index.upsertNote({
     sourceId: vaultRelKey,
-    parsed: { kind, tags, content: content.trim() },
+    parsed: { kind, tags, content: contentToWrite.trim() },
   });
 
   logger.info(`[MemoryWrite] remembered note (kind=${kind} path=${vaultRelKey})`);
@@ -342,6 +377,43 @@ async function findNoteByIdInKind(
 }
 
 /**
+ * Issue #859a — merge-on-capture: scan a kind's dir for the note whose body
+ * is MOST similar to `content` (Jaccard over tokens), returning it only if it
+ * clears {@link MEMORY_MERGE_THRESHOLD}. Returns null when the dir has no
+ * notes, or none clears the bar — the caller then falls through to writing a
+ * new note, so genuinely distinct memories are never forced together.
+ *
+ * Bounded to the ONE kind dir: merging is intentionally scoped to same-kind
+ * memories only (a `fact` and a `preference` that happen to share wording are
+ * never merged into each other — different kinds are different themes by
+ * construction).
+ */
+async function findBestSimilarNoteInKind(
+  kindDir: string,
+  memoryDir: string,
+  content: string,
+): Promise<{ relPath: string; id: string; body: string } | null> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(kindDir);
+  } catch {
+    return null;
+  }
+  let best: { relPath: string; id: string; body: string; score: number } | null = null;
+  for (const name of entries) {
+    if (!name.toLowerCase().endsWith('.md')) continue;
+    const abs = path.join(kindDir, name);
+    const full = await readNoteFull(abs);
+    if (!full.id) continue;
+    const score = textSimilarity(content, full.body);
+    if (score >= MEMORY_MERGE_THRESHOLD && (!best || score > best.score)) {
+      best = { relPath: path.relative(memoryDir, abs), id: full.id, body: full.body, score };
+    }
+  }
+  return best ? { relPath: best.relPath, id: best.id, body: best.body } : null;
+}
+
+/**
  * Vault-first `forget`: remove the note FILE (confined to the memory dir) and
  * then remove the derived index row. The index row's `sourceId` is the
  * canonical VAULT-ROOT-relative note path (e.g. `memory/fact/abc.md`); it is
@@ -371,4 +443,43 @@ export async function forgetFromVault(
     // caller. Any other error propagates.
     if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
   }
+}
+
+/**
+ * Issue #859d (forget-404 bug fix) — resolve a memory by the id `remember()`
+ * RETURNS to its caller (the note's frontmatter `id`, a ULID), which is a
+ * DIFFERENT id space from the derived index row's own `agent_memory.id` (a
+ * randomUUID minted independently by `upsertBySourceAsync`). Scans every kind
+ * dir under the memory dir for a note whose frontmatter `id` matches, then
+ * looks up the corresponding index row via its canonical vault-relative path.
+ *
+ * Returns null when no note carries that frontmatter id (or the matching note
+ * has no corresponding index row yet) — callers treat that as "not found".
+ */
+export async function findMemoryRowByRememberId(
+  rememberId: string,
+  repo: AgentMemoryRepository,
+  options: MemoryVaultWriteOptions = {},
+): Promise<AgentMemory | null> {
+  const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
+  let kindDirs: string[];
+  try {
+    kindDirs = (await fs.readdir(memoryDir, { withFileTypes: true }))
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+  } catch {
+    return null;
+  }
+
+  for (const kind of kindDirs) {
+    const kindDir = path.join(memoryDir, kind);
+    const relPath = await findNoteByIdInKind(kindDir, memoryDir, rememberId);
+    if (!relPath) continue;
+    const abs = resolveWithinMemoryDir(memoryDir, relPath);
+    const vaultRelKey = toVaultRelativeKey(path.dirname(path.resolve(memoryDir)), abs);
+    const rows = await repo.listAsync(undefined, undefined, 1000);
+    const match = rows.find((r) => r.sourceId === vaultRelKey);
+    if (match) return match;
+  }
+  return null;
 }

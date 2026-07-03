@@ -80,6 +80,11 @@ async function main() {
     agentMemoryService.seedConsolidationTask().catch((err) => {
       logger.warn(`[server] Memory consolidation seed failed (non-fatal): ${String(err)}`);
     });
+    // Issue #859c — memory-interview bootstrap/refresh flow, seeded alongside
+    // the passive consolidation task above.
+    agentMemoryService.seedMemoryInterviewTask().catch((err) => {
+      logger.warn(`[server] Memory interview seed failed (non-fatal): ${String(err)}`);
+    });
 
     // One-time seed of vetted agent-stack skills into agent_skills (local SQLite
     // only). Guarded by a zero-count check on source='agent-stack-seed' so it
