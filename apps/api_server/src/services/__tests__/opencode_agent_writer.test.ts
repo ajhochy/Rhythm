@@ -93,10 +93,16 @@ describe('injectManagerPreamble — hub manager with a non-empty roster (#889)',
   const roster = ['theologian', 'librarian', 'worship-planning', 'worship-production'];
   const original = 'You are Secretary. Delegate to the approved specialist.';
 
-  it('contains rhythm_delegate, the roster ids, and the coding hand-off; omits the old blanket line', () => {
+  it('routes domain work via the `task` tool + subagent_type (NOT rhythm_delegate), ' +
+      'lists the roster, keeps the coding hand-off, omits the old blanket line', () => {
     const result = injectManagerPreamble(original, true, roster);
 
-    expect(result).toContain('rhythm_delegate');
+    // #891: domain delegation must use the engine-native `task` tool (a real
+    // subagent that nests under the caller), NOT the rhythm_delegate MCP tool
+    // (which orphans a top-level session with no parent link).
+    expect(result).not.toContain('rhythm_delegate');
+    expect(result).toContain('`task` tool');
+    expect(result).toContain('subagent_type');
     for (const id of roster) {
       expect(result).toContain(id);
     }
@@ -123,11 +129,12 @@ describe('injectManagerPreamble — hub manager with a non-empty roster (#889)',
     expect(twice).toBe(once);
   });
 
-  it('mentions the callerAgentConfigId / targetAgentConfigId / prompt call convention', () => {
+  it('names the specialist explicitly via subagent_type and forbids the generic agent',
+      () => {
     const result = injectManagerPreamble(original, true, roster);
-    expect(result).toContain('callerAgentConfigId');
-    expect(result).toContain('targetAgentConfigId');
-    expect(result).toContain('prompt');
+    expect(result).toContain('subagent_type');
+    // Same guardrail as the coding hand-off: never fall back to the generic agent.
+    expect(result).toContain('"general"');
   });
 
   it('instructs handling only trivial admin work directly', () => {
@@ -157,11 +164,14 @@ describe('injectManagerPreamble — manager WITHOUT a roster stays on the plain 
 });
 
 describe('buildHubRoutingPreamble', () => {
-  it('lists every roster id and names the rhythm_delegate tool', () => {
+  it('lists every roster id and routes domain work via the `task` tool (#891)', () => {
     const roster = ['theologian', 'AI-Trend-Researcher', 'fantasy-gm'];
     const result = buildHubRoutingPreamble(roster);
 
-    expect(result).toContain('rhythm_delegate');
+    // #891: engine-native `task`/subagent_type (nests), NOT rhythm_delegate (orphans).
+    expect(result).not.toContain('rhythm_delegate');
+    expect(result).toContain('`task` tool');
+    expect(result).toContain('subagent_type');
     for (const id of roster) {
       expect(result).toContain(id);
     }

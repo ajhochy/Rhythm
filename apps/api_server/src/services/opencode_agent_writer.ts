@@ -72,21 +72,27 @@ const CODING_HANDOFF_BODY =
  * Build the combined routing preamble for a manager that has a non-empty
  * `allowedDelegates` roster (a "hub" manager, e.g. Secretary). Unlike the
  * plain `MANAGER_ROUTING_PREAMBLE` (dev-only manager, no roster), this
- * preamble routes ALL work rather than handling non-dev tasks itself:
- *   (a) domain/ministry work → `rhythm_delegate` to a roster specialist
- *   (b) coding/dev work → workflow-orchestrator via `task` (unchanged wording)
+ * preamble routes ALL work rather than handling non-dev tasks itself. BOTH
+ * domain and coding work go through the engine-native `task` tool (a real
+ * subagent that nests under the caller in the UI) — NOT the `rhythm_delegate`
+ * MCP tool, which creates an orphaned top-level session with no parent link
+ * (#891). subagent_type selects the specialist:
+ *   (a) domain/ministry work → `task` with `subagent_type=<specialist>`
+ *   (b) coding/dev work → `task` with `subagent_type=workflow-orchestrator`
  *   (c) only trivial admin/summarize/read work is handled directly
  */
 export function buildHubRoutingPreamble(roster: string[]): string {
   const rosterList = roster.map((id) => `\`${id}\``).join(', ');
   return (
     `${HUB_PREAMBLE_MARKER}\n` +
-    'You are a routing hub. Do not attempt domain or coding work yourself — route it.\n\n' +
+    'You are a routing hub. Do not attempt domain or coding work yourself — route it ' +
+    'through the `task` tool so the delegated run appears as a subagent under this ' +
+    'session.\n\n' +
     '**Domain / ministry work:** delegate to the fitting specialist by calling the ' +
-    '`rhythm_delegate` tool with `callerAgentConfigId` set to your own profile id, ' +
-    `\`targetAgentConfigId\` set to one of your approved specialists (${rosterList}), ` +
-    'and `prompt` set to the focused task for that specialist. Pick whichever specialist ' +
-    'fits the request, delegate, then summarize the result for the user.\n\n' +
+    '`task` tool with `subagent_type` set to one of your approved specialists ' +
+    `(${rosterList}) and the focused task as the prompt. Name the specialist ` +
+    'explicitly; never use `"general"` and never omit `subagent_type`. Pick whichever ' +
+    'specialist fits the request, delegate, then summarize the result for the user.\n\n' +
     `**Coding / development work:** ${CODING_HANDOFF_BODY}\n\n` +
     'Only handle trivial admin yourself — quick summaries, reading back information, or ' +
     'simple lookups that do not require a specialist or the coding workflow.'
