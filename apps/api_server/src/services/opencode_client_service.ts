@@ -1592,10 +1592,16 @@ export class OpencodeClientService {
    */
   async listMessages(
     sdkId: string,
+    directory?: string,
   ): Promise<import('@opencode-ai/sdk').Message[]> {
     const client = this.requireClient();
+    // #861 smoke fix: engine session reads are DIRECTORY-SCOPED — without
+    // ?directory=<session cwd> the engine looks in its default instance and
+    // reports "Session not found" for sessions created under another cwd
+    // (e.g. subagent sessions under $HOME). Same gotcha as respond/abort.
     const raw = await client.session.messages({
       path: { id: sdkId },
+      ...(directory ? { query: { directory } } : {}),
     });
     if (raw.error) {
       throw new AppError(
@@ -1614,10 +1620,13 @@ export class OpencodeClientService {
    */
   async getTodo(
     sdkId: string,
+    directory?: string,
   ): Promise<import('@opencode-ai/sdk').Todo[]> {
     const client = this.requireClient();
+    // #861 smoke fix: directory-scoped read (see listMessages).
     const raw = await client.session.todo({
       path: { id: sdkId },
+      ...(directory ? { query: { directory } } : {}),
     });
     if (raw.error) {
       throw new AppError(
@@ -1739,10 +1748,13 @@ export class OpencodeClientService {
    */
   async listChildren(
     sdkId: string,
+    directory?: string,
   ): Promise<import('@opencode-ai/sdk').Session[]> {
     const client = this.requireClient();
+    // #861 smoke fix: directory-scoped read (see listMessages).
     const raw = await client.session.children({
       path: { id: sdkId },
+      ...(directory ? { query: { directory } } : {}),
     });
     if (raw.error) {
       throw new AppError(

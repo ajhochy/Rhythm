@@ -208,7 +208,8 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-          String parentSessionId, String childSdkId) async =>
+          String parentSessionId, String childSdkId,
+          {String? cwd}) async =>
       [];
 
   @override

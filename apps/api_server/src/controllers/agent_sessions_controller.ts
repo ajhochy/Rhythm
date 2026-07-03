@@ -1204,7 +1204,16 @@ export class AgentSessionsController {
         // No local row — assume `:id` is a child/grandchild SDK session id.
         opencodeId = req.params.id;
       }
-      const children = await opencodeClient.listChildren(opencodeId);
+      // #861 smoke fix: engine session reads are directory-scoped. Use the
+      // local row's cwd when we have one; for nested hops (no local row) the
+      // client passes the root session's cwd as ?cwd=.
+      const queryCwd = (req.query as Record<string, unknown> | undefined)?.cwd;
+      const directory =
+        session?.cwd ??
+        (typeof queryCwd === 'string' && queryCwd.trim() !== ''
+          ? queryCwd
+          : undefined);
+      const children = await opencodeClient.listChildren(opencodeId, directory);
       res.json(children);
     } catch (err) {
       next(err);
@@ -1230,7 +1239,17 @@ export class AgentSessionsController {
   async getChildMessages(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { childSdkId } = req.params;
-      const sdkMessages = await opencodeClient.listMessages(childSdkId);
+      // #861 smoke fix: directory-scoped read — resolve the cwd from the
+      // parent's local row when `:id` is a local session id, else from the
+      // client-provided ?cwd= (nested hop where `:id` is a raw SDK id).
+      const parentRow = repo.findById(req.params.id);
+      const queryCwd = (req.query as Record<string, unknown> | undefined)?.cwd;
+      const directory =
+        parentRow?.cwd ??
+        (typeof queryCwd === 'string' && queryCwd.trim() !== ''
+          ? queryCwd
+          : undefined);
+      const sdkMessages = await opencodeClient.listMessages(childSdkId, directory);
       // Map SDK Message[] → M1-2-compatible structured shape.
       const messages = sdkMessages.map((msg, idx) => {
         // SDK role 'user' → 'input', 'assistant' → 'output'
@@ -1294,7 +1313,8 @@ export class AgentSessionsController {
         res.json([]);
         return;
       }
-      const todos = await opencodeClient.getTodo(opencodeId);
+      // #861 smoke fix: directory-scoped read (session row always exists here).
+      const todos = await opencodeClient.getTodo(opencodeId, session.cwd);
       res.json(todos);
     } catch (err) {
       next(err);

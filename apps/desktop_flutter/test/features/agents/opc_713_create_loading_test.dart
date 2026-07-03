@@ -214,7 +214,8 @@ class _SlowStubAgentsRepository implements AgentsRepository {
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-          String parentSessionId, String childSdkId) async =>
+          String parentSessionId, String childSdkId,
+          {String? cwd}) async =>
       const [];
 
   @override
@@ -532,7 +533,8 @@ class _ThrowingStubRepo implements AgentsRepository {
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-          String parentSessionId, String childSdkId) =>
+          String parentSessionId, String childSdkId,
+          {String? cwd}) =>
       inner.fetchChildMessages(parentSessionId, childSdkId);
 
   @override

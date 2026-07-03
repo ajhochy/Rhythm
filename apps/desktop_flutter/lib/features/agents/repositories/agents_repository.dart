@@ -148,8 +148,9 @@ class AgentsRepository {
   /// OPC-M3-6 — GET /agent-sessions/:id/children/:childSdkId/messages
   /// Returns the child session's messages in M1-2 structured shape.
   Future<List<AgentSessionMessage>> fetchChildMessages(
-          String parentSessionId, String childSdkId) =>
-      _dataSource.fetchChildMessages(parentSessionId, childSdkId);
+          String parentSessionId, String childSdkId,
+          {String? cwd}) =>
+      _dataSource.fetchChildMessages(parentSessionId, childSdkId, cwd: cwd);
 
   /// OPC-M4-2 — POST /agent-sessions/:id/fork — fork the session at the given
   /// message. Returns the new [AgentSession].

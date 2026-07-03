@@ -850,9 +850,17 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _loadingChildIds.add(childSdkId);
     notifyListeners();
     try {
+      // #861 smoke fix: engine session reads are directory-scoped. For nested
+      // hops parentSessionId is a raw SDK id with no local row, so the server
+      // can't resolve the cwd itself — pass the selected root session's cwd.
+      final rootCwd = _sessions
+          .where((s) => s.id == _selectedSessionId)
+          .map((s) => s.cwd)
+          .firstOrNull;
       final messages = await _repository.fetchChildMessages(
         parentSessionId,
         childSdkId,
+        cwd: rootCwd,
       );
       if (_disposed) return;
       _childMessagesByChildId[childSdkId] = messages;

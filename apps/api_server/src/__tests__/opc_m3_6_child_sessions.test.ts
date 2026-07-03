@@ -153,8 +153,11 @@ function makeDb() {
   return db;
 }
 
-function makeReq(params: Record<string, string> = {}): Request {
-  return { params, body: {}, headers: {} } as unknown as Request;
+function makeReq(
+  params: Record<string, string> = {},
+  query: Record<string, string> = {},
+): Request {
+  return { params, query, body: {}, headers: {} } as unknown as Request;
 }
 
 function makeRes(): {
@@ -227,7 +230,7 @@ describe('issue-699-c1a: GET /agent-sessions/:id/children calls listChildren and
 
     expect(next).not.toHaveBeenCalled();
     expect(listChildrenSpy).toHaveBeenCalledOnce();
-    expect(listChildrenSpy).toHaveBeenCalledWith(sdkId);
+    expect(listChildrenSpy).toHaveBeenCalledWith(sdkId, os.homedir());
 
     const result = (res.json as ReturnType<typeof vi.fn>).mock.calls[0][0] as typeof kChildSessionFixture;
     expect(result).toHaveLength(2);
@@ -249,7 +252,7 @@ describe('issue-699-c1a: GET /agent-sessions/:id/children calls listChildren and
 
     expect(next).not.toHaveBeenCalled();
     expect(listChildrenSpy).toHaveBeenCalledOnce();
-    expect(listChildrenSpy).toHaveBeenCalledWith(grandchildSdkId);
+    expect(listChildrenSpy).toHaveBeenCalledWith(grandchildSdkId, undefined);
     const result = (res.json as ReturnType<typeof vi.fn>).mock.calls[0][0] as typeof kChildSessionFixture;
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('sdk-child-session-002');
@@ -352,7 +355,7 @@ describe('issue-699-c1b: GET /agent-sessions/:id/children/:childSdkId/messages r
 
     expect(next).not.toHaveBeenCalled();
     expect(listMessagesSpy).toHaveBeenCalledOnce();
-    expect(listMessagesSpy).toHaveBeenCalledWith(childSdkId);
+    expect(listMessagesSpy).toHaveBeenCalledWith(childSdkId, os.homedir());
 
     const result = (res.json as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       messages: unknown[];
@@ -396,11 +399,36 @@ describe('issue-699-c1b: GET /agent-sessions/:id/children/:childSdkId/messages r
 
     expect(next).not.toHaveBeenCalled();
     expect(listMessagesSpy).toHaveBeenCalledOnce();
-    expect(listMessagesSpy).toHaveBeenCalledWith(grandchildSdkId);
+    expect(listMessagesSpy).toHaveBeenCalledWith(grandchildSdkId, undefined);
     const result = (res.json as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
       messages: unknown[];
     };
     expect(result.messages).toHaveLength(2);
+  });
+
+  it('issue-861-cwd: nested hop (no local row) forwards the client-provided '
+    + '?cwd= as the directory — engine session reads are directory-scoped', async () => {
+    const childSdkIdAsParent = 'sdk-child-session-002';
+    const grandchildSdkId = 'sdk-grandchild-session-002';
+    listMessagesSpy.mockResolvedValueOnce(kChildMessagesFixture);
+
+    const { res } = makeRes();
+    const next = vi.fn();
+
+    await controller.getChildMessages(
+      makeReq(
+        { id: childSdkIdAsParent, childSdkId: grandchildSdkId },
+        { cwd: '/Users/example/home' },
+      ),
+      res,
+      next as NextFunction,
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(listMessagesSpy).toHaveBeenCalledWith(
+      grandchildSdkId,
+      '/Users/example/home',
+    );
   });
 
   it('issue-699-c1b-sdk-error: SDK error → AppError 502 forwarded via next()', async () => {

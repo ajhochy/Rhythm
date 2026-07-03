@@ -156,8 +156,9 @@ class _StubAgentsRepository implements AgentsRepository {
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
     String parentSessionId,
-    String childSdkId,
-  ) async {
+    String childSdkId, {
+    String? cwd,
+  }) async {
     fetchChildMessagesCalls.add((parentSessionId, childSdkId));
     return messagesByChildId[childSdkId] ?? const [];
   }

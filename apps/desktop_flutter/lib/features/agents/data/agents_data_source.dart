@@ -498,11 +498,18 @@ class AgentsDataSource {
   /// AgentSessionMessage objects (same structured M1-2 shape). Throws on
   /// HTTP error.
   Future<List<AgentSessionMessage>> fetchChildMessages(
-      String parentSessionId, String childSdkId) async {
+      String parentSessionId, String childSdkId,
+      {String? cwd}) async {
     final encodedChildId = Uri.encodeComponent(childSdkId);
+    // #861 smoke fix: engine session reads are directory-scoped. For nested
+    // hops the parent id is a raw SDK id with no local row, so the server
+    // can't resolve the cwd itself — pass the root session's cwd along.
+    final query = (cwd != null && cwd.isNotEmpty)
+        ? '?cwd=${Uri.encodeQueryComponent(cwd)}'
+        : '';
     final response = await _client.get(
       Uri.parse(
-          '$_baseUrl/agent-sessions/$parentSessionId/children/$encodedChildId/messages'),
+          '$_baseUrl/agent-sessions/$parentSessionId/children/$encodedChildId/messages$query'),
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);
