@@ -730,5 +730,20 @@ export async function syncOpencodeAgentProfiles(
     logger.warn(`[AgentProfileSync] #858 oc_agent backfill pass failed (non-fatal): ${String(err)}`);
   }
 
+  // #883 — reconcile the secretary row's is_manager / allowed_delegates_json
+  // against .mcp-roles/secretary.mcp.json's isManager/allowedDelegates fields.
+  // Runs here (after the main loop, alongside the #858 repair pass above) so
+  // the reconciliation applies as soon as the secretary row exists — not just
+  // at server boot — since this function is also invoked on-demand via
+  // GET /agent-sessions/agents (fire-and-forget) and POST
+  // /agent-configs/sync-opencode. Backfill-only; never overwrites a value a
+  // human already set in the designer. Never throws.
+  try {
+    const { seedSecretaryDelegation } = await import('./secretary_delegation_seed');
+    await seedSecretaryDelegation();
+  } catch (err) {
+    logger.warn(`[AgentProfileSync] #883 secretary delegation seed failed (non-fatal): ${String(err)}`);
+  }
+
   return { synced };
 }

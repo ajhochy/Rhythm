@@ -37,6 +37,12 @@ sequentially with the full check suite between folds.
   outstanding: a live `flutter run -d macos` screenshot of the new Settings section
   (blocked in-run by a port/DB collision with another running instance) and manual
   migration/prune of the 3 stale legacy Memory-Vault notes (intentionally not automated).
+- **#883** (secretary delegate authorization) implemented in isolated worktree
+  `883-secretary` / branch `issue-883-secretary-delegate`, commit `f33ecacd5`.
+  verification-gate PASSED (see `docs/ai/runs/2026-07-02-issue-883-secretary-delegate.md`).
+  Not yet folded into the mega branch. Fix: `rhythm_delegate` added to secretary's
+  `.mcp-roles` tool scope + a new reproducible role-file → `agent_configs` backfill
+  seed for `is_manager`/roster (previously DB-only, hand-edited via the designer).
 
 ## Risks / known issues
 

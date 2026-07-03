@@ -32,6 +32,26 @@ automatically at runtime — they are documentation + a config template for the
 2. When creating a scheduled task, set `allowedMcps` to the list of MCP server names
    from the role's `mcpServers` keys.
 
+## Manager roles: `isManager` + `allowedDelegates` (#883)
+
+A role file may declare `"isManager": true` plus an `"allowedDelegates"` array
+(a list of `agent_configs.id` values — the opencode agent-name slug, e.g.
+`"theologian"`, not a raw UUID) to describe the delegation roster a manager
+profile is entitled to invoke via the `rhythm_delegate` MCP tool
+(`agent_delegation_service.ts` authorizes on `caller.isManager` +
+`target ∈ allowedDelegatesJson`).
+
+These two fields are **not** loaded by `resolveMcpRole()` at session-create
+time (that path only reads `mcpServers`/`disabledMcpServers`) — they are
+reconciled into `agent_configs.is_manager` / `agent_configs.allowed_delegates_json`
+by the boot-time seed in `apps/api_server/src/services/secretary_delegation_seed.ts`
+(mirrors the read-only role-file pattern in `ministry_recipes_seed.ts`). The
+seed only **backfills a still-unset column** — `is_manager` still `false` /
+`allowed_delegates_json` still `null` — so a value a human already set via the
+Agent Profiles designer is never clobbered on a later boot. This makes the
+manager/roster configuration reproducible from a clean database without
+manual SQL or UI edits, while preserving live user edits.
+
 ## Security notes
 
 - Roles do **not** grant additional access beyond what the agent's session token allows.
