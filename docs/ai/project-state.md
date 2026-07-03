@@ -72,6 +72,14 @@ sequentially with the full check suite between folds.
   opencode-`auth.json` watcher are untouched. See
   `docs/ai/decisions/2026-07-03-keychain-poll-replaces-file-watch.md`.
   Outstanding: live re-smoke of an actual `claude` re-auth (see Risks).
+- **#890** (default agent profile configurable via app-level picker):
+  verification-gate PASSED, on `workflow/run-2026-07-03`, not yet committed.
+  New `DefaultAgentProfileService` + a "Default profile" picker at the top of
+  the Agent Profile manager sheet; `AgentsController` resolution order is now
+  configured-override → Secretary (#889) → first authorized (#653). See
+  `docs/ai/runs/2026-07-03-issue-890-default-agent-profile-picker.md`.
+  Outstanding: live `flutter run -d macos` smoke of the picker (unit + widget
+  tested only).
 
 ## Risks / known issues
 
@@ -130,6 +138,13 @@ sequentially with the full check suite between folds.
   `ai-workflow checks --level pr` green — flutter analyze 0 errors + `dart format`
   clean + **793 Flutter pass**; api_server `tsc` clean + **2336 vitest pass / 1
   skip / 0 fail** (273 files, the #881 machine-local skip only).
+- `workflow/run-2026-07-03` @ `7ef7692ac0a` (working tree, uncommitted — adds
+  #890 on top of the above, verification-gate PASSED): `flutter analyze
+  --no-fatal-infos` 0 errors/warnings; `dart format --set-exit-if-changed .`
+  clean (382 files, 0 changed); full `flutter test` — **813 pass**, 0 fail
+  (up from 793 — 6 new service tests + 3 new widget tests + others queued on
+  the branch); `ai-workflow checks --level pr` green (api_server untouched,
+  confirms no cross-package regression).
 
 ## Next step
 
@@ -147,16 +162,34 @@ sequentially with the full check suite between folds.
    Settings-screenshot follow-up still outstanding.
 6. After merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
 7. Commit + push `workflow/run-2026-07-03` (currently uncommitted: #888
-   Flutter fix + #856-reopened backend fix, both verification-gate PASSED)
-   and open a PR closing both issues. Manual smoke before merge: (a) tap a
+   Flutter fix + #856-reopened backend fix + #889 (Secretary delegation) +
+   #890 (default profile picker), all verification-gate PASSED) and open a
+   PR closing all four issues. Manual smoke before merge: (a) tap a
    quick-action button and confirm it spawns Secretary, not Coding Workflow
    (#888); (b) run `claude` to re-auth and confirm the server log shows
    "claude re-auth detected — re-bridged: ok" with no app restart needed
-   (#856).
+   (#856); (c) ask Secretary a ministry-domain question and confirm it calls
+   `rhythm_delegate` and spawns a "Delegated: <Specialist>" child session
+   (#889); (d) open Agent Profiles, use the new "Default profile" picker to
+   pick a non-Secretary profile, create a new session with no explicit
+   agent, and confirm it uses the picked profile — then clear the override
+   and confirm it falls back to Secretary (#890).
 
 ## Filed this run (2026-07-02): #867 #870 #871 #872 #873 #874 #875 #876 #877 #878 #879 #880 #881 (see runs/2026-07-02-workflow-run-13-issues.md); #869 closed (no secret present)
 
 ## Recent coding-agent runs
+
+### 2026-07-03 — #890 (default agent profile configurable via app-level picker)
+verification-gate **PASSED**. Full detail moved to
+`docs/ai/runs/2026-07-03-issue-890-default-agent-profile-picker.md`. Summary:
+new `DefaultAgentProfileService` (client-side `shared_preferences` override)
++ a "Default profile" picker in the Agent Profile manager sheet;
+`AgentsController._resolveDefaultAgentIdForCreate()` now prefers a configured,
+still-authorized override before falling back to Secretary (#889) then the
+first authorized catalog entry (#653). Flutter-only, not yet committed.
+`flutter analyze` 0 errors/warnings; full `flutter test` **813/813 pass**.
+Residual risk: not yet live-smoked in a running `flutter run -d macos`
+session.
 
 ### 2026-07-03 — #889 (Secretary won't delegate; manager preamble handles non-dev work itself + dirty roster)
 verification-gate pending (about to run). Root cause confirmed as triaged: the

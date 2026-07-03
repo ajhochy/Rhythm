@@ -14,6 +14,7 @@ import 'app/core/layout/app_shell.dart';
 import 'app/core/notifications/local_notification_service.dart';
 import 'app/core/server/api_server_controller.dart';
 import 'app/core/server/api_server_service.dart';
+import 'app/core/services/default_agent_profile_service.dart';
 import 'app/core/services/memory_vault_config_service.dart';
 import 'app/core/services/server_config_service.dart';
 import 'app/core/services/theme_mode_service.dart';
@@ -138,6 +139,10 @@ void main() async {
   // first launch (auto-detects the Obsidian AGENT-MEMORY vault when present).
   final memoryVaultConfigService = MemoryVaultConfigService();
   await memoryVaultConfigService.load();
+  // #890 — load the user's app-level "Default profile" override (if any)
+  // before runApp so AgentsController's resolver has it from first launch.
+  final defaultAgentProfileService = DefaultAgentProfileService();
+  await defaultAgentProfileService.load();
 
   // Create the server controller and kick off startup before runApp so the
   // service object is available immediately. The UI shows a loading screen
@@ -189,6 +194,7 @@ void main() async {
       keybindsService: keybindsService,
       opencodeServerService: opencodeServerService,
       memoryVaultConfigService: memoryVaultConfigService,
+      defaultAgentProfileService: defaultAgentProfileService,
     ),
   );
 }
@@ -206,6 +212,7 @@ class RhythmApp extends StatefulWidget {
     required this.keybindsService,
     required this.opencodeServerService,
     required this.memoryVaultConfigService,
+    required this.defaultAgentProfileService,
   });
 
   final AuthSessionService authSessionService;
@@ -218,6 +225,7 @@ class RhythmApp extends StatefulWidget {
   final KeybindsService keybindsService;
   final OpencodeServerService opencodeServerService;
   final MemoryVaultConfigService memoryVaultConfigService;
+  final DefaultAgentProfileService defaultAgentProfileService;
 
   @override
   State<RhythmApp> createState() => _RhythmAppState();
@@ -258,6 +266,7 @@ class _RhythmAppState extends State<RhythmApp> with WidgetsBindingObserver {
       keybindsService: widget.keybindsService,
       opencodeServerService: widget.opencodeServerService,
       memoryVaultConfigService: widget.memoryVaultConfigService,
+      defaultAgentProfileService: widget.defaultAgentProfileService,
     );
   }
 }
@@ -274,6 +283,7 @@ class _RhythmAppContent extends StatelessWidget {
     required this.keybindsService,
     required this.opencodeServerService,
     required this.memoryVaultConfigService,
+    required this.defaultAgentProfileService,
   });
 
   final AuthSessionService authSessionService;
@@ -286,6 +296,7 @@ class _RhythmAppContent extends StatelessWidget {
   final KeybindsService keybindsService;
   final OpencodeServerService opencodeServerService;
   final MemoryVaultConfigService memoryVaultConfigService;
+  final DefaultAgentProfileService defaultAgentProfileService;
 
   @override
   Widget build(BuildContext context) {
@@ -301,6 +312,7 @@ class _RhythmAppContent extends StatelessWidget {
         ChangeNotifierProvider.value(value: keybindsService),
         ChangeNotifierProvider.value(value: opencodeServerService),
         ChangeNotifierProvider.value(value: memoryVaultConfigService),
+        ChangeNotifierProvider.value(value: defaultAgentProfileService),
         ChangeNotifierProvider(
           create: (_) => TasksController(
             TasksRepository(TasksLocalDataSource(baseUrl: baseUrl)),
@@ -431,6 +443,11 @@ class _RhythmAppContent extends StatelessWidget {
               localNotificationService,
               ctx.read<NotificationsController>(),
               managerAgentNameResolver: () => cfgCtrl.managerAgent?.ocAgent,
+              // #890: app-level "Default profile" override, read lazily so a
+              // later change from the Agent Profile sheet takes effect on the
+              // next createSession call without reconstructing the controller.
+              configuredDefaultAgentResolver: () =>
+                  defaultAgentProfileService.defaultOcAgent,
             )..initialize();
             _maybeSeedDebugTrigger(controller);
             return controller;

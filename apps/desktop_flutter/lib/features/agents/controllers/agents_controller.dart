@@ -112,9 +112,19 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // the SDK built-in 'build'. Falls back to null (SDK default) if absent or
     // if the resolver returns null (e.g. no manager profile configured yet).
     String? Function()? managerAgentNameResolver,
+    // #890: optional resolver that returns the app-level "Default profile"
+    // override configured via the Agent Profile manager sheet
+    // (DefaultAgentProfileService.defaultOcAgent). When it returns a
+    // non-null ocAgent that matches an authorized catalog entry, new
+    // sessions default to it instead of Secretary. Distinct from
+    // [managerAgentNameResolver] — that resolver drives which agent handles
+    // manager-preamble routing; this one is a pure user preference for the
+    // default new-session profile.
+    String? Function()? configuredDefaultAgentResolver,
   })  : _modelsDataSource = modelsDataSource ?? AgentModelsDataSource(),
         _commandsDataSource = CommandsDataSource(),
-        _managerAgentNameResolver = managerAgentNameResolver;
+        _managerAgentNameResolver = managerAgentNameResolver,
+        _configuredDefaultAgentResolver = configuredDefaultAgentResolver;
 
   final AgentsRepository _repository;
   final AgentModelsDataSource _modelsDataSource;
@@ -125,6 +135,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // #745: resolves the manager profile's opencode agent name at call time.
   // Nullable so tests and legacy construction sites can omit it safely.
   final String? Function()? _managerAgentNameResolver;
+  // #890: resolves the user-configured default profile's ocAgent at call
+  // time. Nullable so tests and legacy construction sites can omit it safely.
+  final String? Function()? _configuredDefaultAgentResolver;
 
   AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
 
@@ -1562,12 +1575,24 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// one. Returns null when the catalog hasn't loaded yet or has no authorized
   /// entries — caller surfaces an error in that case.
   ///
-  /// #889: Secretary is the default hub — new sessions route through it (it
-  /// delegates domain work to specialists and coding to the
-  /// workflow-orchestrator). Prefer the authorized Secretary profile; otherwise
-  /// fall back to the first authorized catalog entry (#653).
+  /// #890: resolution order is
+  ///   1. The app-level "Default profile" override from
+  ///      [_configuredDefaultAgentResolver], IF it matches an `authorized`
+  ///      catalog entry with a non-empty agent slug. An override pointing at
+  ///      a since-removed/unauthorized profile is ignored (falls through).
+  ///   2. Secretary (#889) — the seeded default hub; delegates domain work to
+  ///      specialists and coding to the workflow-orchestrator.
+  ///   3. The first authorized catalog entry (#653).
   String? _resolveDefaultAgentIdForCreate() {
     if (!_catalogLoaded) return null;
+    final configured = _configuredDefaultAgentResolver?.call();
+    if (configured != null && configured.isNotEmpty) {
+      for (final entry in _catalog) {
+        if (entry.agent == configured && entry.authorized) {
+          return entry.agent;
+        }
+      }
+    }
     for (final entry in _catalog) {
       if (entry.agent == _secretaryAgentSlug && entry.authorized) {
         return entry.agent;

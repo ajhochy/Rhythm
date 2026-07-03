@@ -393,6 +393,144 @@ void main() {
   });
 
   // --------------------------------------------------------------------------
+  // createSession default agent — configured default override (#890)
+  // --------------------------------------------------------------------------
+
+  group('createSession default agent — configured override (#890)', () {
+    CatalogModelEntry entry(String agent, {bool authorized = true}) =>
+        CatalogModelEntry(
+          agent: agent,
+          provider: 'anthropic',
+          modelId: 'claude-sonnet-4-6',
+          displayName: agent,
+          route: 'direct',
+          authorized: authorized,
+          authProvider: 'anthropic',
+        );
+
+    test('resolver returning an authorized catalog entry wins over Secretary',
+        () async {
+      final withResolver = AgentsController(
+        fakeRepo,
+        _FakeAgentServerController(ready: true, anyAgent: true),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        configuredDefaultAgentResolver: () => 'theologian',
+      );
+      addTearDown(withResolver.dispose);
+      withResolver.setCatalogForTest([
+        entry('secretary'),
+        entry('claude-code'),
+        entry('theologian'),
+      ]);
+
+      await withResolver.createSession(cwd: '/tmp');
+
+      expect(fakeRepo.lastCreateAgentId, equals('theologian'));
+    });
+
+    test(
+        'resolver returning an ocAgent that is NOT an authorized catalog '
+        'entry falls through to Secretary', () async {
+      final withResolver = AgentsController(
+        fakeRepo,
+        _FakeAgentServerController(ready: true, anyAgent: true),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        // 'theologian' is unauthorized; 'ghost-agent' isn't in the catalog
+        // at all — both must be rejected in favor of Secretary.
+        configuredDefaultAgentResolver: () => 'ghost-agent',
+      );
+      addTearDown(withResolver.dispose);
+      withResolver.setCatalogForTest([
+        entry('secretary'),
+        entry('theologian', authorized: false),
+      ]);
+
+      await withResolver.createSession(cwd: '/tmp');
+
+      expect(fakeRepo.lastCreateAgentId, equals('secretary'));
+    });
+
+    test(
+        'resolver returning an unauthorized entry falls through to the '
+        'first authorized entry when Secretary is also absent', () async {
+      final withResolver = AgentsController(
+        fakeRepo,
+        _FakeAgentServerController(ready: true, anyAgent: true),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        configuredDefaultAgentResolver: () => 'theologian',
+      );
+      addTearDown(withResolver.dispose);
+      withResolver.setCatalogForTest([
+        entry('theologian', authorized: false),
+        entry('claude-code'),
+        entry('codex'),
+      ]);
+
+      await withResolver.createSession(cwd: '/tmp');
+
+      expect(fakeRepo.lastCreateAgentId, equals('claude-code'));
+    });
+
+    test('resolver returning null preserves existing Secretary behavior',
+        () async {
+      final withResolver = AgentsController(
+        fakeRepo,
+        _FakeAgentServerController(ready: true, anyAgent: true),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        configuredDefaultAgentResolver: () => null,
+      );
+      addTearDown(withResolver.dispose);
+      withResolver.setCatalogForTest([
+        entry('workflow-orchestrator'),
+        entry('secretary'),
+        entry('claude-code'),
+      ]);
+
+      await withResolver.createSession(cwd: '/tmp');
+
+      expect(fakeRepo.lastCreateAgentId, equals('secretary'));
+    });
+
+    test(
+        'resolver returning null preserves existing first-authorized '
+        'fallback when Secretary is absent', () async {
+      final withResolver = AgentsController(
+        fakeRepo,
+        _FakeAgentServerController(ready: true, anyAgent: true),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        configuredDefaultAgentResolver: () => null,
+      );
+      addTearDown(withResolver.dispose);
+      withResolver.setCatalogForTest([
+        entry('gemini-cli', authorized: false),
+        entry('claude-code'),
+        entry('codex'),
+      ]);
+
+      await withResolver.createSession(cwd: '/tmp');
+
+      expect(fakeRepo.lastCreateAgentId, equals('claude-code'));
+    });
+
+    test('no resolver provided (omitted) preserves existing behavior',
+        () async {
+      // `controller` (from setUp) is built WITHOUT
+      // configuredDefaultAgentResolver — this exercises the default-arg-
+      // omitted path distinctly from passing an explicit `() => null`.
+      controller.setCatalogForTest([entry('secretary'), entry('claude-code')]);
+
+      await controller.createSession(cwd: '/tmp');
+
+      expect(fakeRepo.lastCreateAgentId, equals('secretary'));
+    });
+  });
+
+  // --------------------------------------------------------------------------
   // initialize()
   // --------------------------------------------------------------------------
 
