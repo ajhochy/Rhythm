@@ -31,6 +31,7 @@ import {
   isManagedLocation,
   readSkillContentAtLocation,
   InvalidSkillNameError,
+  ContextInjectionBlockedError,
 } from '../services/rhythm_managed_skills';
 
 export const opencodeSkillsRouter = Router();
@@ -216,6 +217,11 @@ async function upsertManagedSkill(
     } catch (err) {
       if (err instanceof InvalidSkillNameError) {
         return next(new AppError(400, 'BAD_REQUEST', err.message));
+      }
+      // #873 — the body failed the prompt-injection context scan. Surface the
+      // block warning to the client; the skill is not written.
+      if (err instanceof ContextInjectionBlockedError) {
+        return next(new AppError(400, 'CONTEXT_INJECTION_BLOCKED', err.warning));
       }
       throw err;
     }

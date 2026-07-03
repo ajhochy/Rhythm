@@ -29,6 +29,7 @@ import { join } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
+import { scanContextContent } from '../security/context_scanner';
 import type { AgentConfig } from '../repositories/agent_configs_repository';
 
 /**
@@ -143,9 +144,24 @@ function setFrontmatterKey(fm: string, key: string, value: string): string {
 /**
  * Write (or merge-update) the opencode agent file for a profile. Never throws —
  * failures degrade to a logged warning. No-op when the profile is out of scope.
+ *
+ * #873: `config.systemPrompt` is user-authored text that becomes the agent's
+ * system prompt the moment the engine loads this file — exactly the
+ * "context file loaded into the agent's prompt" case the issue targets. It is
+ * scanned before the write; a high-confidence match skips the write entirely
+ * (degrading to the same logged-warning outcome as any other write failure,
+ * per this function's existing never-throws contract) rather than silently
+ * projecting a hijacked prompt into a file the engine will load.
  */
 export function writeAgentProfileFile(config: AgentConfig): void {
   if (!shouldWriteAgentFile(config)) return;
+  if (config.systemPrompt && config.systemPrompt.trim() !== '') {
+    const scan = scanContextContent(config.systemPrompt, `agent profile "${config.id}"`);
+    if (scan.blocked) {
+      logger.warn(`[OpencodeAgentWriter] ${scan.warning}`);
+      return;
+    }
+  }
   try {
     const dir = agentsDir();
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });

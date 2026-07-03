@@ -46,6 +46,7 @@ import {
   writeManagedSkill,
   isManagedLocation,
   InvalidSkillNameError,
+  ContextInjectionBlockedError,
 } from './rhythm_managed_skills';
 import { opencodeClient } from './opencode_engine';
 import type { AgentSkill } from '../models/agent_skill';
@@ -224,6 +225,12 @@ export async function applyToEngineSkill(
         // Defence in depth: a name that can't resolve inside the managed dir is
         // rejected rather than written anywhere unsafe.
         logger.warn(`[skill-apply] rejected unsafe skill name '${candidate.name}': ${err.message}`);
+        return 'skipped';
+      }
+      if (err instanceof ContextInjectionBlockedError) {
+        // #873 — an auto-distilled skill revision failed the prompt-injection
+        // scan. Never apply it; degrade to a skip like the name-rejection path.
+        logger.warn(`[skill-apply] rejected '${candidate.name}': ${err.warning}`);
         return 'skipped';
       }
       throw err;
