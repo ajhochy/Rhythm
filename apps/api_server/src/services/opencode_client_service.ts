@@ -38,7 +38,15 @@ async function runCommand(file: string, args: string[]): Promise<string> {
   return stdout;
 }
 
-type EngineStatus = 'uninitialized' | 'ready' | 'error';
+/**
+ * #856 — 'reloading' is a transient state entered by
+ * {@link OpencodeClientService.reloadCredentials} while the engine is being
+ * bounced after a provider auth change (e.g. a Claude account switch writes
+ * fresh tokens to auth.json). Surfaced via `statusMessage` so callers show a
+ * brief "reloading credentials…" message instead of opaque 401s during the
+ * bounce window.
+ */
+type EngineStatus = 'uninitialized' | 'ready' | 'error' | 'reloading';
 
 /** Providers that are usable over loopback without an auth-store credential. */
 const KEYLESS_LOCAL_PROVIDER_IDS = new Set(['ollama']);
@@ -489,6 +497,18 @@ export class OpencodeClientService {
   }
 
   /**
+   * Indirection around `this.status` used where TypeScript's control-flow
+   * narrowing would otherwise (incorrectly) hold a property read to a
+   * literal type assigned earlier in the same method, across intervening
+   * calls that reassign it (e.g. {@link reloadCredentials}'s
+   * `this.status = 'reloading'` → `this.dispose()` → `this.initialize()`
+   * sequence). Going through a method call forces a fresh read.
+   */
+  private currentStatusForLogging(): EngineStatus {
+    return this.status;
+  }
+
+  /**
    * Ensure the engine is ready, auto-reinitializing if it was previously
    * disposed or never initialized. Returns true once ready, false if
    * initialization fails or if the engine is in intentional shutdown.
@@ -521,6 +541,9 @@ export class OpencodeClientService {
     if (this.status === 'ready') return 'Opencode SDK ready';
     if (this.status === 'error')
       return `Opencode SDK error: ${this.error?.message}`;
+    // #856 — surfaced during reloadCredentials()'s dispose+reinit bounce so
+    // callers show a brief, honest status instead of opaque 401s.
+    if (this.status === 'reloading') return 'Reloading credentials…';
     return 'Opencode SDK not initialized';
   }
 
@@ -2419,4 +2442,67 @@ export class OpencodeClientService {
     this.status = 'uninitialized';
   }
   private _disposeLogged = false;
+
+  /**
+   * Issue #856 — bounce the opencode engine subprocess so it re-reads
+   * `auth.json` after a provider credential change (e.g. switching Claude
+   * accounts). The engine caches the token it loaded at spawn time
+   * ({@link restoreAuth} only runs during {@link initialize}), so a content
+   * change on disk is otherwise invisible to the running process until a
+   * full app restart — every call 401s in the meantime.
+   *
+   * This is a graceful restart, NOT an in-engine/fork change: dispose the
+   * current subprocess (closing its port cleanly) and re-run the normal
+   * {@link initialize} path, which re-spawns `opencode serve` and calls
+   * {@link restoreAuth} against the fresh file content. `status` is set to
+   * `'reloading'` for the duration so `statusMessage` / `isReady` reflect a
+   * brief, honest "reloading credentials…" window instead of exposing
+   * transient 401s as a hard error.
+   *
+   * Intended to be called by an {@link AuthCredentialWatcher} instance wired
+   * up in server.ts, NOT on every auth.json touch — the watcher's
+   * change-detection + debounce logic decides when a bounce is warranted.
+   */
+  async reloadCredentials(): Promise<void> {
+    if (this._shuttingDown) {
+      logger.info(
+        '[OpencodeClientService] reloadCredentials: skipped — app is shutting down',
+      );
+      return;
+    }
+    logger.info(
+      '[OpencodeClientService] reloadCredentials: bouncing engine to pick up changed auth.json',
+    );
+    this.status = 'reloading';
+    // dispose() sets _shuttingDown=true as a side effect (shared with the
+    // app-shutdown path) — reset it immediately so this is understood as a
+    // planned bounce, not a permanent shutdown, before any other code
+    // observes `_shuttingDown`.
+    this.dispose();
+    this._shuttingDown = false;
+    this._disposeLogged = false;
+    try {
+      await this.initialize();
+      // Read through a getter-shaped indirection so TS does not (incorrectly)
+      // keep narrowing this.status to the 'reloading' literal assigned above
+      // across the intervening dispose()/initialize() calls.
+      const statusAfterReinit: EngineStatus = this.currentStatusForLogging();
+      if (statusAfterReinit === 'ready') {
+        logger.info(
+          '[OpencodeClientService] reloadCredentials: engine restarted, credentials reloaded',
+        );
+      } else {
+        logger.warn(
+          `[OpencodeClientService] reloadCredentials: engine did not reach ready after bounce (status=${statusAfterReinit})`,
+        );
+      }
+    } catch (err) {
+      this.status = 'error';
+      this.error = err instanceof Error ? err : new Error(String(err));
+      logger.error(
+        '[OpencodeClientService] reloadCredentials: re-initialization failed:',
+        this.error,
+      );
+    }
+  }
 }
