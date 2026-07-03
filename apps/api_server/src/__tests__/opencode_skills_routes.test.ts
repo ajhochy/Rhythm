@@ -250,6 +250,7 @@ describe('/opencode/skills', () => {
         postScore: 0.9,
         measureReason: null,
         isExternalFork: false,
+        env: { missing: [], satisfied: true },
       });
 
       // (b) external + sidecar row (location-derived managed stays false)
@@ -265,6 +266,7 @@ describe('/opencode/skills', () => {
         postScore: 0.4,
         measureReason: null,
         isExternalFork: true,
+        env: { missing: [], satisfied: true },
       });
 
       // (c) skill with NO sidecar row → null/default metadata
@@ -280,6 +282,7 @@ describe('/opencode/skills', () => {
         postScore: null,
         measureReason: null,
         isExternalFork: false,
+        env: { missing: [], satisfied: true },
       });
     });
 

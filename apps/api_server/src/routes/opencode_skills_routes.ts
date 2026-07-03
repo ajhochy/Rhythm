@@ -32,6 +32,8 @@ import {
   readSkillContentAtLocation,
   InvalidSkillNameError,
 } from '../services/rhythm_managed_skills';
+import { parseSkillFrontmatter } from '../services/skill_frontmatter';
+import { checkRequiredEnv } from '../services/skill_env_validator';
 
 export const opencodeSkillsRouter = Router();
 
@@ -66,6 +68,17 @@ interface SkillMetadata {
    */
   measureReason: string | null;
   isExternalFork: boolean;
+  /**
+   * #874 (setup-04) — required-env-var status parsed from this skill's raw
+   * SKILL.md `required_environment_variables` frontmatter. A skill that
+   * doesn't declare the field reports `missing: []` / `satisfied: true` —
+   * identical to a skill that declares it and has every var already set, so
+   * a skill with no declaration behaves exactly as before (no UI change).
+   */
+  env: {
+    missing: string[];
+    satisfied: boolean;
+  };
 }
 
 interface SkillListEntryWithMetadata extends SkillListEntry {
@@ -87,6 +100,7 @@ const DEFAULT_METADATA: SkillMetadata = {
   postScore: null,
   measureReason: null,
   isExternalFork: false,
+  env: { missing: [], satisfied: true },
 };
 
 const VALID_STATUSES = new Set(['active', 'measuring', 'reverted']);
@@ -119,10 +133,30 @@ opencodeSkillsRouter.get(
       // a sidecar row that targets no live skill simply does not appear, and a
       // sidecar row with status measuring/reverted surfaces only as metadata.
       const repo = new AgentSkillsRepository();
+
+      // #874 — a second engine call that keeps raw `content` (frontmatter +
+      // body), needed to read `required_environment_variables`. Best-effort:
+      // an empty/failed fetch just means every skill reports the "no env
+      // declared" default (fail-open — never blocks the base skill list).
+      let envByName = new Map<string, { missing: string[]; satisfied: boolean }>();
+      try {
+        const withContent = await opencodeClient.listSkillsWithContent(directory);
+        envByName = new Map(
+          withContent.map((s) => {
+            const fm = parseSkillFrontmatter(s.content);
+            const check = checkRequiredEnv(fm.requiredEnv);
+            return [s.name, { missing: check.missing.map((v) => v.name), satisfied: check.allSatisfied }];
+          }),
+        );
+      } catch {
+        // Non-fatal — envByName stays empty, every entry falls back to DEFAULT_METADATA.env.
+      }
+
       const withMetadata: SkillListEntryWithMetadata[] = entries.map((entry) => {
+        const env = envByName.get(entry.name) ?? { ...DEFAULT_METADATA.env };
         const row = repo.findByName(entry.name);
         if (!row) {
-          return { ...entry, metadata: { ...DEFAULT_METADATA } };
+          return { ...entry, metadata: { ...DEFAULT_METADATA, env } };
         }
         const status = VALID_STATUSES.has(row.status)
           ? (row.status as 'active' | 'measuring' | 'reverted')
@@ -139,6 +173,7 @@ opencodeSkillsRouter.get(
             postScore: row.postScore ?? null,
             measureReason: row.measureReason ?? null,
             isExternalFork: (row.isExternal ?? 0) === 1,
+            env,
           },
         };
       });
