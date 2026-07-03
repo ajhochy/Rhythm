@@ -75,6 +75,11 @@ async function main() {
   // is never started.
   let authCredentialWatcher: { start: () => Promise<void>; stop: () => void } | null =
     null;
+  // #856 (reopened) — companion watcher on Claude Code's own credentials
+  // file (see the wiring below); same nullable/shutdown-safe pattern as
+  // `authCredentialWatcher` above.
+  let claudeCredentialWatcher: { start: () => Promise<void>; stop: () => void } | null =
+    null;
 
   if (env.agentExecutionEnabled) {
     // Issue #805: rebuild the DERIVED memory index from the vault ONCE on
@@ -413,6 +418,49 @@ async function main() {
         `[server] auth credential watcher failed to start (non-fatal): ${String(err)}`,
       );
     }
+
+    // #856 (reopened) — ALSO watch Claude Code's own credentials file.
+    // Root cause: a `claude` re-auth writes fresh tokens to
+    // `~/.claude/.credentials.json` (and the macOS Keychain) — it never
+    // touches opencode's auth.json above, so that watcher alone never fires
+    // on a `claude` re-auth and the engine keeps a stale/expired token until
+    // a full app restart.
+    //
+    // Unlike the auth.json watcher, reloading here must NOT just bounce the
+    // engine (that would only re-read the still-stale auth.json via
+    // `restoreAuth`) — it must re-pull the fresh Keychain/file token and push
+    // it into the LIVE engine via `credentialsBridge.bridgeAnthropic(...,
+    // { force: true })`, exactly like the #658 "Reconnect" button and the
+    // launch-time auto-bridge above. `force: true` invalidates the bridge's
+    // in-memory cache so it re-reads the Keychain instead of riding a token
+    // snapshot that predates this re-auth.
+    try {
+      const { AuthCredentialWatcher } = await import(
+        './services/auth_credential_watcher'
+      );
+      const { homedir } = await import('os');
+      const { join } = await import('path');
+      const { credentialsBridge } = await import('./routes/opencode_auth_routes');
+      claudeCredentialWatcher = new AuthCredentialWatcher({
+        path: join(homedir(), '.claude', '.credentials.json'),
+        onReload: async () => {
+          const result = await credentialsBridge.bridgeAnthropic(opencodeClient, {
+            force: true,
+          });
+          logger.info(
+            `[server] claude re-auth detected — re-bridged: ${
+              result.success ? 'ok' : `failed (${result.reason})`
+            }`,
+          );
+        },
+      });
+      await claudeCredentialWatcher.start();
+      logger.info('[server] claude credentials watcher started (#856 reopen)');
+    } catch (err) {
+      logger.warn(
+        `[server] claude credentials watcher failed to start (non-fatal): ${String(err)}`,
+      );
+    }
   }
 
   httpServer.listen(port, () => {
@@ -441,6 +489,8 @@ async function main() {
     // #856 — stop the auth.json watcher so a credential write during
     // shutdown can't trigger a bounce of an engine we're about to dispose.
     try { authCredentialWatcher?.stop(); } catch (_) { /* ignore */ }
+    // #856 (reopened) — same reasoning for the Claude Code credentials watcher.
+    try { claudeCredentialWatcher?.stop(); } catch (_) { /* ignore */ }
 
     // 2. Dispose the Opencode SDK subprocess.
     try { opencodeClient.dispose(); } catch (_) { /* ignore */ }
