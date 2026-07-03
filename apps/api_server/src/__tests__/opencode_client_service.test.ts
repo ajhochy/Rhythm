@@ -309,4 +309,36 @@ describe('OpencodeClientService.listAuthedProviders', () => {
 
     expect(await svc.listAuthedProviders()).toEqual(['anthropic']);
   });
+
+  it('#868 includes configured omlx without an auth-store entry, same as ollama', async () => {
+    const fakeStore: Pick<OpencodeAuthStore, 'listAuthedProviders'> = {
+      listAuthedProviders: vi.fn().mockReturnValue(['anthropic']),
+    };
+    const svc = makeService({
+      config: {
+        providers: vi.fn().mockResolvedValue({
+          data: { providers: [{ id: 'anthropic' }, { id: 'omlx' }] },
+        }),
+      },
+    });
+    (svc as unknown as { authStore: typeof fakeStore }).authStore = fakeStore;
+
+    expect(await svc.listAuthedProviders()).toEqual(['anthropic', 'omlx']);
+  });
+
+  it('#868 does not include omlx when it is absent from the live provider catalog (feature-flag off)', async () => {
+    const fakeStore: Pick<OpencodeAuthStore, 'listAuthedProviders'> = {
+      listAuthedProviders: vi.fn().mockReturnValue(['anthropic']),
+    };
+    const svc = makeService({
+      config: {
+        providers: vi.fn().mockResolvedValue({
+          data: { providers: [{ id: 'anthropic' }] },
+        }),
+      },
+    });
+    (svc as unknown as { authStore: typeof fakeStore }).authStore = fakeStore;
+
+    expect(await svc.listAuthedProviders()).toEqual(['anthropic']);
+  });
 });

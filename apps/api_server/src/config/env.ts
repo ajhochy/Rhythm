@@ -259,4 +259,46 @@ export const env = {
    * Defaults to every 10 minutes. Overridable via MEMORY_VAULT_SYNC_CRON.
    */
   memoryVaultSyncCron: process.env.MEMORY_VAULT_SYNC_CRON ?? '*/10 * * * *',
+  /**
+   * #868 — Apple-Silicon-native local inference provider (oMLX). OPTIONAL and
+   * OFF by default: the manually-proven setup (oMLX 0.4.4 serving
+   * `mlx-community/gpt-oss-20b-MXFP4-Q8` on an OpenAI-compatible loopback
+   * endpoint) is only written into the generated opencode config when this
+   * flag is explicitly enabled. This must never affect cloud/default profile
+   * behavior — see `ensureOmlxProviderConfig()` in opencode_client_service.ts,
+   * which is the single place this config is materialized.
+   *
+   * Only the literal string 'true' enables it (unset/anything else stays off) —
+   * the inverse convention of the other feature flags above, because this one
+   * gates a NEW opt-in capability (Apple-Silicon-only, requires the oMLX app
+   * running locally) rather than narrowing an existing default-on behavior.
+   */
+  omlxProviderEnabled: (process.env.RHYTHM_LOCAL_OMLX_ENABLED ?? '').trim().toLowerCase() === 'true',
+  /**
+   * #868 — oMLX server endpoint. Always loopback-only by convention (the oMLX
+   * app is a local Apple Silicon process); host/port are still overridable via
+   * env rather than hardcoded so the generated config is never machine- or
+   * port-assumption-specific. No secret is required for a loopback
+   * OpenAI-compatible endpoint, so none is ever written into opencode.json.
+   */
+  omlxBaseUrl: process.env.RHYTHM_LOCAL_OMLX_BASE_URL ?? 'http://127.0.0.1:8000/v1',
+  /**
+   * #868 — model id oMLX is serving (must match what was loaded into the oMLX
+   * server; e.g. `mlx-community/gpt-oss-20b-MXFP4-Q8` is loaded as
+   * `gpt-oss-20b-MXFP4-Q8` in the OpenAI-compatible `/v1/models` listing).
+   */
+  omlxModelId: process.env.RHYTHM_LOCAL_OMLX_MODEL_ID ?? 'gpt-oss-20b-MXFP4-Q8',
+  /** #868 — context window (tokens) for the oMLX model entry in opencode.json. */
+  omlxContextLimit: Number(process.env.RHYTHM_LOCAL_OMLX_CONTEXT_LIMIT ?? 65536),
+  /** #868 — max output tokens for the oMLX model entry in opencode.json. */
+  omlxOutputLimit: Number(process.env.RHYTHM_LOCAL_OMLX_OUTPUT_LIMIT ?? 8192),
+  /**
+   * #868 — name of the competing local Ollama model to detect/unload before
+   * the oMLX engine loads (a 32 GB Apple Silicon Mac cannot hold both an
+   * ~23 GB Ollama model and the MLX model in memory at once). Matches the
+   * `qwen3.6-work` Ollama model already wired in agent_model_resolver.ts.
+   * Overridable via env since the exact local model name is a per-machine
+   * choice, not a Rhythm constant.
+   */
+  omlxCompetingOllamaModel: process.env.RHYTHM_LOCAL_OMLX_OLLAMA_MODEL ?? 'qwen3.6-work',
 };

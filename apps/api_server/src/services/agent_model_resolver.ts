@@ -19,6 +19,11 @@ export const PROVIDER_TO_AGENT_KIND: Record<string, string> = {
   openai: 'codex',
   google: 'gemini-cli',
   ollama: 'opencode',
+  // #868 — Apple-Silicon-native local provider (oMLX). Mapped to the same
+  // generic 'opencode' agent kind as ollama; it is never a default route (see
+  // ROUTE_FALLBACKS_BY_AGENT.opencode below) and is only registered at all
+  // when RHYTHM_LOCAL_OMLX_ENABLED=true (see local_omlx_provider.ts).
+  omlx: 'opencode',
 };
 
 /**
@@ -95,12 +100,25 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
   // Keep the cloud route first for unscoped generic sessions: the complete
   // Rhythm tool surface is too large for practical local-model prefill. Ollama
   // remains directly selectable and is the fallback when no cloud route exists.
+  // #868 — oMLX is listed LAST and is intentionally never authed via the
+  // normal auth-store path (it's KEYLESS_LOCAL_PROVIDER_IDS-gated AND only
+  // exists in the engine catalog at all when RHYTHM_LOCAL_OMLX_ENABLED=true —
+  // see local_omlx_provider.ts). It is explicitly selectable (via the
+  // constrained `local` agent profile written by that same module) but is
+  // NEVER the default/auto-picked route for this generic 'opencode' kind:
+  // resolveModelForAgent only reaches it when nothing earlier in this list is
+  // authed, which requires Ollama to ALSO be absent/unauthed.
   opencode: [
     { providerID: 'openrouter', modelID: 'anthropic/claude-sonnet-4.6' },
     {
       providerID: 'ollama',
       modelID: 'qwen3.6-work',
       variantLabel: 'Local',
+    },
+    {
+      providerID: 'omlx',
+      modelID: 'gpt-oss-20b-MXFP4-Q8',
+      variantLabel: 'Local (Apple Silicon)',
     },
   ],
 };

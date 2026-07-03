@@ -13,6 +13,10 @@ import {
 } from '../config/curated_mcp_servers';
 import { ensureGeminiProjectConfig } from './gemini_project_config';
 import { expandMcpAllowlist } from './mcp_allowlist_expander';
+import {
+  ensureOmlxProviderConfig,
+  detectAndUnloadCompetingOllamaModel,
+} from './local_omlx_provider';
 
 /**
  * MCP-6 — resolves a FRESH OAuth access token for a curated server's
@@ -48,8 +52,13 @@ async function runCommand(file: string, args: string[]): Promise<string> {
  */
 type EngineStatus = 'uninitialized' | 'ready' | 'error' | 'reloading';
 
-/** Providers that are usable over loopback without an auth-store credential. */
-const KEYLESS_LOCAL_PROVIDER_IDS = new Set(['ollama']);
+/**
+ * Providers that are usable over loopback without an auth-store credential.
+ * `omlx` (#868) is the Apple-Silicon-native oMLX provider — optional/feature-
+ * flagged, but once its opencode.json entry exists it needs no OAuth/API-key
+ * credential either, exactly like `ollama`.
+ */
+const KEYLESS_LOCAL_PROVIDER_IDS = new Set(['ollama', 'omlx']);
 
 /**
  * The fixed TCP port the bundled opencode engine listens on. The SDK's
@@ -621,6 +630,31 @@ export class OpencodeClientService {
         `[OpencodeClientService] ensured Gemini Code Assist projectId=${geminiCfg.projectId} (changed=${geminiCfg.changed})`,
       );
       logger.info(`[Opencode][timing] geminiProjectConfig took ${Date.now() - t3}ms`);
+
+      // Phase 3b (#868): ensure the OPTIONAL oMLX provider + constrained
+      // `local` agent profile are on disk BEFORE createOpencode() spawns the
+      // engine (same ordering reason as Phase 3 — the engine reads
+      // opencode.json's `provider`/`agent` blocks at startup). No-ops
+      // entirely unless RHYTHM_LOCAL_OMLX_ENABLED=true — cloud/default
+      // profiles are unaffected either way. Never throws; logs and continues.
+      const t3b = Date.now();
+      const omlxCfg = ensureOmlxProviderConfig();
+      if (omlxCfg.enabled) {
+        logger.info(
+          `[OpencodeClientService] ensured oMLX provider (${omlxCfg.providerId}/${omlxCfg.modelId}) + '${omlxCfg.agentId}' agent (changed=${omlxCfg.changed})`,
+        );
+        // #868 — a 32 GB Apple Silicon Mac can't hold both a large Ollama
+        // model and the oMLX model in Metal memory at once. Detect + (best
+        // effort) unload the configured competing Ollama model before the
+        // engine spawns. Never throws / never blocks startup either way.
+        const unloadResult = await detectAndUnloadCompetingOllamaModel();
+        if (unloadResult.detected && !unloadResult.unloaded) {
+          logger.warn(
+            `[OpencodeClientService] oMLX enabled but Ollama model '${unloadResult.model}' is still loaded — run '${unloadResult.action}' to free Metal memory before using the local agent`,
+          );
+        }
+      }
+      logger.info(`[Opencode][timing] omlxProviderConfig took ${Date.now() - t3b}ms`);
 
       // Phase 4: reclaim stale port.
       // #655 — Before spawning, reclaim :4096 from a stale opencode orphan
