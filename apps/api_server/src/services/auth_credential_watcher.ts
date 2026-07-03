@@ -71,21 +71,6 @@ export function authIdentityFingerprint(content: string | null): string {
   if (!parsed || typeof parsed !== 'object') return content;
   const src = parsed as Record<string, unknown>;
 
-  // Claude Code's `.credentials.json` shape (#856 reopen): a single
-  // `claudeAiOauth` entry, not a map of provider ids. This is the file
-  // `claude` itself writes on re-auth -- it never touches opencode's
-  // auth.json, which is why the original #856 watcher never fired on a
-  // `claude` re-auth. Normalize it to the same provider-keyed identity shape
-  // (under a fixed synthetic key) so refresh-token rotation compares the same
-  // way as the generic provider loop below.
-  if (src.claudeAiOauth && typeof src.claudeAiOauth === 'object') {
-    const oauth = src.claudeAiOauth as Record<string, unknown>;
-    const refresh = oauth.refreshToken ?? oauth.refresh_token ?? oauth.refresh;
-    return JSON.stringify({
-      claudeAiOauth: { type: 'oauth', refresh, key: undefined },
-    });
-  }
-
   // Insert providers in sorted order with a fixed inner-field order so the
   // serialized string is canonical (provider/field reordering alone is not a
   // change). NOTE: do NOT pass an array as JSON.stringify's 2nd arg — that is a

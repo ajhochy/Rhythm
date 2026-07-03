@@ -60,13 +60,18 @@ sequentially with the full check suite between folds.
   unrelated #856 fix below (a prior run's note conflating the two was
   mistaken; corrected here).
 - **#856 (reopened)** (engine did not pick up refreshed Claude credentials
-  after a `claude` CLI re-auth): done on current branch
-  `workflow/run-2026-07-03`, verification-gate PASSED, **not yet committed**.
-  Second `AuthCredentialWatcher` added on Claude Code's local credentials
-  file, forcing a `credentialsBridge.bridgeAnthropic(..., { force: true })`
-  re-bridge on change instead of a stale-`auth.json` bounce. See
-  `docs/ai/runs/2026-07-03-issue-856-reopened-claude-reauth.md`. Outstanding:
-  a live manual smoke of an actual `claude` re-auth (see Risks below).
+  after a `claude` CLI re-auth): on branch `workflow/run-2026-07-03`.
+  Round 1 (a file watcher, commit `15f36db38`) was the WRONG mechanism — live
+  smoke proved current `claude` stores creds in the macOS Keychain only and
+  does not persist the local creds file, so the watch never fires on a real
+  re-auth. Round 2 (this rework) replaces it with a change-gated **Keychain
+  poll** in `CredentialsBridgeService` (`startKeychainPoll`, default 60s via
+  `CLAUDE_KEYCHAIN_POLL_MS`): it fingerprints the Keychain refresh token each
+  tick and force-re-bridges only when it changes, self-healing past the
+  transient denial seen during a logout→login. The `#658` 15-min loop and the
+  opencode-`auth.json` watcher are untouched. See
+  `docs/ai/decisions/2026-07-03-keychain-poll-replaces-file-watch.md`.
+  Outstanding: live re-smoke of an actual `claude` re-auth (see Risks).
 
 ## Risks / known issues
 
@@ -94,13 +99,14 @@ sequentially with the full check suite between folds.
   the run log.
 - **#814 bundling** (`desktop_release.yml` mcp_server steps) not yet exercised by a real
   release run; **#868** oMLX provider needs the oMLX app installed to live-smoke. All unit-covered.
-- **#856 (reopened, fixed this run, uncommitted):** the new Claude-credentials-file
-  watcher assumes `claude`'s CLI re-auth writes `~/.claude/.credentials` in
-  lockstep with the macOS Keychain entry on this machine — not yet verified
-  against a live `claude` re-auth (unit-tested only). Manual smoke: run
-  `claude` to re-auth, watch for `"claude re-auth detected — re-bridged: ok"`
-  in the server log, then confirm a new agent session doesn't error on
-  expired Claude credentials.
+- **#856 (reopened, round 2 — Keychain poll):** polling `security
+  find-generic-password` every ~60s could in theory prompt for Keychain access
+  on some machines (not observed; the `#658` loop already reads it every 15
+  min without incident, but the tighter cadence widens exposure). Not yet
+  re-smoked against a live `claude` logout→login (unit-tested only). Manual
+  smoke: re-auth with the app running, watch for `"keychain poll: refresh
+  token changed — re-bridged ok"` in the server log within ~60s (no restart),
+  then confirm a new agent session doesn't error on expired Claude creds.
 
 ## Test status
 
@@ -151,6 +157,83 @@ sequentially with the full check suite between folds.
 ## Filed this run (2026-07-02): #867 #870 #871 #872 #873 #874 #875 #876 #877 #878 #879 #880 #881 (see runs/2026-07-02-workflow-run-13-issues.md); #869 closed (no secret present)
 
 ## Recent coding-agent runs
+
+### 2026-07-03 — #856 (reopened, SECOND attempt): file-watch replaced with change-gated Keychain poll
+verification-gate pending (about to run). This supersedes the "2026-07-03 —
+#856 (reopened)" entry immediately below: LIVE SMOKE proved the file-watch
+fix was the wrong mechanism — the current `claude` CLI stores credentials in
+the macOS **Keychain ONLY**; `claude logout`/`login` deletes any stale
+`~/.claude/.credentials (JSON)` and never recreates it, so the file-watcher
+essentially never fires on a real re-auth (it fired once, by luck, on the
+stale file's *deletion*, hitting a transient `keychain_denied`). The Keychain
+cannot be `fs.watch`ed.
+- Files modified:
+  - `apps/api_server/src/services/credentials_bridge_service.ts` — added
+    `refreshTokenFingerprint()` (SHA-256 of the refresh token, never logs/
+    exposes the raw token), `startKeychainPoll()`/`stopKeychainPoll()`
+    (injectable `KeychainPollDeps` seam), and a `lastBridgedRefreshFingerprint`
+    baseline that `bridgeAnthropic()` now updates on every successful bridge
+    (launch-time, "Reconnect", the #658 refresh loop, or the poll itself) so
+    the poll never redundantly re-fires for a token it didn't cause. Default
+    interval 60s, env-overridable via `CLAUDE_KEYCHAIN_POLL_MS`.
+  - `apps/api_server/src/server.ts` — removed the `claudeCredentialWatcher`
+    (`AuthCredentialWatcher` on `~/.claude/.credentials (JSON)`) block and its
+    shutdown `.stop()`; the launch-time Claude auto-bridge block now also
+    calls `credentialsBridge.startKeychainPoll(opencodeClient)` unconditionally
+    (even when no creds exist yet at launch, so a later first-time sign-in is
+    also picked up), and the shutdown handler calls
+    `credentialsBridgeRef?.stopKeychainPoll()` via a module-scope ref captured
+    at launch (the shutdown handler is synchronous, so it can't `await
+    import()` the route module fresh). The ORIGINAL `#856` `auth.json`
+    watcher (opencode's own provider-credential file) is UNTOUCHED and still
+    running.
+  - `apps/api_server/src/services/auth_credential_watcher.ts` — removed the
+    dead `claudeAiOauth`-shape branch from `authIdentityFingerprint` (it
+    normalized `~/.claude/.credentials (JSON)`'s shape, which is now unused
+    since nothing watches that file anymore). Kept: the opencode-auth.json
+    fingerprint/decision logic and the pre-existing `content === null` →
+    `' null'` sentinel (no stray NUL reintroduced).
+  - `apps/api_server/src/services/auth_credential_watcher.test.ts` — removed
+    the 3 `claudeAiOauth`-shape fingerprint tests AND the "Claude credentials
+    watcher wiring" describe block (3 more tests) that exercised the
+    now-removed `~/.claude/.credentials (JSON)` `AuthCredentialWatcher` wiring
+    in `server.ts` — that wiring no longer exists, so those tests were dead
+    coverage for removed code, not just the literal 3 named in the dispatch.
+    Kept every other pre-existing test (opencode auth.json fingerprint +
+    decision + integration tests) unchanged. 16 tests remain, all pass.
+  - `apps/api_server/src/services/credentials_bridge_service.test.ts` (new)
+    — 11 tests: fingerprint determinism/uniqueness/non-exposure; unchanged
+    fingerprint → bridge not called; changed fingerprint → forced re-bridge
+    exactly once + baseline updates so the next unchanged tick is a no-op;
+    transient null-read and thrown-error failures → bridge not called, no
+    exception escapes, existing baseline untouched, self-heals on next good
+    tick; a failed (`success:false`) bridge doesn't update the baseline so
+    the next tick retries; idempotent start; `stopKeychainPoll` clears the
+    interval; the interval handle is `unref()`'d.
+- Checks run: `npx tsc --noEmit` — clean. `npx vitest run
+  src/services/credentials_bridge_service.test.ts
+  src/services/auth_credential_watcher.test.ts` — **27/27 pass**. Also ran
+  the pre-existing `src/__tests__/credentials_bridge_service.test.ts` (the
+  #658 bridge/refresh-loop suite, untouched, outside this issue's file list)
+  to confirm no regression from `bridgeAnthropic` now also setting the
+  fingerprint baseline — **16/16 pass**. Fail-before/pass-after confirmed via
+  `git stash` on `credentials_bridge_service.ts` alone: all 11 new poll tests
+  fail with `startKeychainPoll is not a function` before the implementation,
+  pass after.
+- Decisions made: see
+  `docs/ai/decisions/2026-07-03-keychain-poll-replaces-file-watch.md` — why
+  polling (change-gated) instead of file-watching, why the fingerprint
+  baseline lives on `bridgeAnthropic` success rather than only inside the
+  poll tick, why the poll starts unconditionally at launch instead of only
+  when `hasClaudeCode()` is true.
+- Deviations from spec: none — matches the dispatch's required behavior
+  (poll default ~60s env-overridable, change-gated on refresh-token
+  fingerprint, transient-failure self-heal, unref'd timer, existing #658 loop
+  and the original opencode-auth.json watcher both left intact).
+- Concerns: not yet live-smoked against a real `claude logout`/`login` cycle
+  (unit-tested only, per this dispatch's no-real-Keychain constraint) — see
+  Risks below for the manual-smoke item, including a macOS permission-prompt
+  risk from polling `security` every ~60s.
 
 ### 2026-07-03 — #888 (quick-action buttons spawn Coding Workflow instead of Secretary) — Flutter half
 verification-gate PASSED. Full detail moved to

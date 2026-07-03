@@ -75,11 +75,13 @@ async function main() {
   // is never started.
   let authCredentialWatcher: { start: () => Promise<void>; stop: () => void } | null =
     null;
-  // #856 (reopened) — companion watcher on Claude Code's own credentials
-  // file (see the wiring below); same nullable/shutdown-safe pattern as
-  // `authCredentialWatcher` above.
-  let claudeCredentialWatcher: { start: () => Promise<void>; stop: () => void } | null =
-    null;
+  // #856 (reopened, second attempt): reference to the shared credentials
+  // bridge singleton, captured once it's imported below, so the shutdown
+  // handler can stop the Keychain poll without an async import (the
+  // shutdown handler itself is synchronous). Declared nullable here (like
+  // the jobs above) so `?.stopKeychainPoll()` stays valid in the 'cloud'
+  // role, where the bridge is never imported/started.
+  let credentialsBridgeRef: { stopKeychainPoll: () => void } | null = null;
 
   if (env.agentExecutionEnabled) {
     // Issue #805: rebuild the DERIVED memory index from the vault ONCE on
@@ -373,18 +375,35 @@ async function main() {
       // Claude Code isn't installed/signed-in.
       try {
         const { credentialsBridge } = await import('./routes/opencode_auth_routes');
+        credentialsBridgeRef = credentialsBridge;
         if (!credentialsBridge.hasClaudeCode()) {
           logger.info('[server] Claude auto-bridge: no Claude Code creds — skipping');
-          return;
+        } else {
+          const result = await credentialsBridge.bridgeAnthropic(opencodeClient, {
+            force: true,
+          });
+          logger.info(
+            `[server] Claude auto-bridge: ${
+              result.success ? 'ok' : `failed (${result.reason})`
+            }`,
+          );
         }
-        const result = await credentialsBridge.bridgeAnthropic(opencodeClient, {
-          force: true,
-        });
-        logger.info(
-          `[server] Claude auto-bridge: ${
-            result.success ? 'ok' : `failed (${result.reason})`
-          }`,
-        );
+
+        // #856 (reopened, second attempt) — start the change-gated Keychain
+        // poll so a LATER `claude` re-auth (account switch / re-login, or a
+        // first-time sign-in after this server was already running) is
+        // picked up without an app restart. File-watching
+        // ~/.claude/.credentials.json (the prior fix) doesn't work: the
+        // current `claude` CLI keeps credentials in the macOS Keychain ONLY
+        // and never rewrites that file on re-auth, so the watch essentially
+        // never fires. Polling is change-gated on the refresh-token
+        // fingerprint, so an unchanged token is a no-op every tick — only a
+        // genuine re-auth (or a first sign-in) triggers a forced re-bridge.
+        // Started unconditionally (even when no creds exist yet at launch)
+        // so a later first-time sign-in is also picked up. See
+        // CredentialsBridgeService.startKeychainPoll for the full rationale.
+        credentialsBridge.startKeychainPoll(opencodeClient);
+        logger.info('[server] claude keychain poll started (#856 reopen v2)');
       } catch (e) {
         logger.warn(`[server] Claude auto-bridge errored (non-fatal): ${String(e)}`);
       }
@@ -419,48 +438,6 @@ async function main() {
       );
     }
 
-    // #856 (reopened) — ALSO watch Claude Code's own credentials file.
-    // Root cause: a `claude` re-auth writes fresh tokens to
-    // `~/.claude/.credentials.json` (and the macOS Keychain) — it never
-    // touches opencode's auth.json above, so that watcher alone never fires
-    // on a `claude` re-auth and the engine keeps a stale/expired token until
-    // a full app restart.
-    //
-    // Unlike the auth.json watcher, reloading here must NOT just bounce the
-    // engine (that would only re-read the still-stale auth.json via
-    // `restoreAuth`) — it must re-pull the fresh Keychain/file token and push
-    // it into the LIVE engine via `credentialsBridge.bridgeAnthropic(...,
-    // { force: true })`, exactly like the #658 "Reconnect" button and the
-    // launch-time auto-bridge above. `force: true` invalidates the bridge's
-    // in-memory cache so it re-reads the Keychain instead of riding a token
-    // snapshot that predates this re-auth.
-    try {
-      const { AuthCredentialWatcher } = await import(
-        './services/auth_credential_watcher'
-      );
-      const { homedir } = await import('os');
-      const { join } = await import('path');
-      const { credentialsBridge } = await import('./routes/opencode_auth_routes');
-      claudeCredentialWatcher = new AuthCredentialWatcher({
-        path: join(homedir(), '.claude', '.credentials.json'),
-        onReload: async () => {
-          const result = await credentialsBridge.bridgeAnthropic(opencodeClient, {
-            force: true,
-          });
-          logger.info(
-            `[server] claude re-auth detected — re-bridged: ${
-              result.success ? 'ok' : `failed (${result.reason})`
-            }`,
-          );
-        },
-      });
-      await claudeCredentialWatcher.start();
-      logger.info('[server] claude credentials watcher started (#856 reopen)');
-    } catch (err) {
-      logger.warn(
-        `[server] claude credentials watcher failed to start (non-fatal): ${String(err)}`,
-      );
-    }
   }
 
   httpServer.listen(port, () => {
@@ -489,8 +466,9 @@ async function main() {
     // #856 — stop the auth.json watcher so a credential write during
     // shutdown can't trigger a bounce of an engine we're about to dispose.
     try { authCredentialWatcher?.stop(); } catch (_) { /* ignore */ }
-    // #856 (reopened) — same reasoning for the Claude Code credentials watcher.
-    try { claudeCredentialWatcher?.stop(); } catch (_) { /* ignore */ }
+    // #856 (reopened, second attempt) — stop the Keychain poll, mirroring the
+    // watcher lifecycle above.
+    try { credentialsBridgeRef?.stopKeychainPoll(); } catch (_) { /* ignore */ }
 
     // 2. Dispose the Opencode SDK subprocess.
     try { opencodeClient.dispose(); } catch (_) { /* ignore */ }

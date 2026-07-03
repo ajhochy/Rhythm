@@ -1,4 +1,5 @@
 import { execSync } from 'child_process';
+import { createHash } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -35,6 +36,42 @@ export type BridgeResult =
   | { success: false; reason: BridgeReason; message?: string };
 
 const KEYCHAIN_REFRESH_BUFFER_MS = 60 * 1000;
+
+/**
+ * #856 (reopened, second attempt) — fingerprint a Claude refresh token for
+ * change detection.
+ *
+ * Never log or expose the raw refresh token: this returns a one-way SHA-256
+ * hash so the poll below can detect "the refresh token changed" (a genuine
+ * re-auth / account switch) without ever holding onto — or printing — the
+ * secret itself.
+ */
+export function refreshTokenFingerprint(refresh: string): string {
+  return createHash('sha256').update(refresh).digest('hex');
+}
+
+/**
+ * Default poll interval for {@link CredentialsBridgeService.startKeychainPoll}.
+ * Env-overridable via `CLAUDE_KEYCHAIN_POLL_MS` (e.g. for faster manual-smoke
+ * verification of a live `claude` re-auth without waiting a full minute).
+ * Falls back to the 60s default on a missing/non-numeric/non-positive value.
+ */
+function resolveKeychainPollMs(): number {
+  const raw = process.env.CLAUDE_KEYCHAIN_POLL_MS;
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 60 * 1000;
+}
+const DEFAULT_KEYCHAIN_POLL_MS = resolveKeychainPollMs();
+
+/** Injectable seam for the keychain poll (real impl reads via `readClaudeCreds`). */
+export interface KeychainPollDeps {
+  /** Reads current creds; null on transient failure (keychain denied/missing). */
+  readCreds: () => ClaudeCreds | null;
+  /** Performs the forced re-bridge once a refresh-token change is detected. */
+  bridge: (client: OpencodeClientService) => Promise<BridgeResult>;
+  setInterval: (fn: () => void, ms: number) => { unref?: () => void } & object;
+  clearInterval: (handle: unknown) => void;
+}
 
 export class CredentialsBridgeService {
   private cached: ClaudeCreds | null = null;
@@ -121,6 +158,12 @@ export class CredentialsBridgeService {
     });
     if (ok) {
       this.startRefreshLoop(client);
+      // Keep the keychain-poll's change-detection baseline in sync with
+      // whatever refresh token was JUST successfully bridged, regardless of
+      // which caller triggered this bridge (launch-time, "Reconnect", the
+      // #658 refresh loop, or the poll itself) — otherwise the poll could
+      // immediately re-fire on its next tick for a token it didn't cause.
+      this.lastBridgedRefreshFingerprint = refreshTokenFingerprint(creds.refresh);
       return {
         success: true,
         provider: 'anthropic',
@@ -164,6 +207,106 @@ export class CredentialsBridgeService {
       clearInterval(this.refreshTimer);
       this.refreshTimer = null;
     }
+  }
+
+  private keychainPollTimer: { unref?: () => void } | null = null;
+  private lastBridgedRefreshFingerprint: string | null = null;
+
+  /**
+   * #856 (reopened, second attempt) — change-gated Keychain poll.
+   *
+   * File-watching `~/.claude/.credentials.json` (the original reopen fix)
+   * does not work: the current `claude` CLI stores credentials in the macOS
+   * Keychain ONLY — `claude logout`/`login` never rewrites that file, so the
+   * watch essentially never fires on a real re-auth. The Keychain itself
+   * cannot be `fs.watch`ed, so this polls it on an interval instead, but only
+   * acts when the refresh-token FINGERPRINT actually changes (a genuine
+   * re-auth / account switch) — an unchanged fingerprint is a no-op, so
+   * steady-state polling does not churn `setOAuthCredentials` or Anthropic
+   * refresh calls every tick.
+   *
+   * On a transient read failure (e.g. `keychain_denied` during the split
+   * second of a logout→login transition), the already-bridged good token is
+   * left untouched — we simply skip this tick and retry on the next one.
+   *
+   * Idempotent: a second call while already running is a no-op, mirroring
+   * {@link startRefreshLoop}.
+   */
+  startKeychainPoll(
+    client: OpencodeClientService,
+    intervalMs: number = DEFAULT_KEYCHAIN_POLL_MS,
+    deps?: Partial<KeychainPollDeps>,
+  ): void {
+    if (this.keychainPollTimer) return;
+
+    const readCreds = deps?.readCreds ?? (() => this.readClaudeCreds());
+    const bridge = deps?.bridge ?? ((c: OpencodeClientService) => this.bridgeAnthropic(c, { force: true }));
+    const setIntervalFn: KeychainPollDeps['setInterval'] = deps?.setInterval ?? setInterval;
+    const clearIntervalFn: KeychainPollDeps['clearInterval'] =
+      deps?.clearInterval ?? ((handle: unknown) => clearInterval(handle as NodeJS.Timeout));
+
+    const tick = async () => {
+      let creds: ClaudeCreds | null;
+      try {
+        creds = readCreds();
+      } catch (err) {
+        logger.info(
+          `[CredentialsBridge] keychain poll: transient read error (non-fatal): ${String(err)}`,
+        );
+        return;
+      }
+      if (!creds) {
+        // Transient (keychain_denied/missing) — do not disturb the existing
+        // bridged token; just retry next tick.
+        logger.info(
+          `[CredentialsBridge] keychain poll: no creds available this tick (${this.lastReadReason()}) — skipping`,
+        );
+        return;
+      }
+      const fingerprint = refreshTokenFingerprint(creds.refresh);
+      if (fingerprint === this.lastBridgedRefreshFingerprint) {
+        return; // No change — do nothing.
+      }
+      try {
+        const result = await bridge(client);
+        if (result.success) {
+          this.lastBridgedRefreshFingerprint = fingerprint;
+          logger.info('[CredentialsBridge] keychain poll: refresh token changed — re-bridged ok');
+        } else {
+          logger.info(
+            `[CredentialsBridge] keychain poll: re-bridge after refresh-token change failed (${result.reason}) — will retry next tick`,
+          );
+        }
+      } catch (err) {
+        logger.warn(`[CredentialsBridge] keychain poll: bridge threw: ${String(err)}`);
+      }
+    };
+
+    this.keychainPollTimer = setIntervalFn(() => {
+      void tick();
+    }, intervalMs);
+    if (typeof this.keychainPollTimer?.unref === 'function') this.keychainPollTimer.unref();
+    // Expose a stop handle bound to the injected clearInterval.
+    this.stopKeychainPollFn = () => {
+      if (this.keychainPollTimer) {
+        clearIntervalFn(this.keychainPollTimer);
+        this.keychainPollTimer = null;
+      }
+    };
+  }
+
+  private stopKeychainPollFn: (() => void) | null = null;
+
+  stopKeychainPoll(): void {
+    if (this.stopKeychainPollFn) {
+      this.stopKeychainPollFn();
+      this.stopKeychainPollFn = null;
+    }
+  }
+
+  /** Test-only accessor for the last-bridged refresh fingerprint. */
+  getLastBridgedRefreshFingerprint(): string | null {
+    return this.lastBridgedRefreshFingerprint;
   }
 
   /** Narrows lastReason to the subset that the bridge can surface. */
