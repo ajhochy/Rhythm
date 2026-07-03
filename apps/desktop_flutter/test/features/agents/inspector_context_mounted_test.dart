@@ -266,6 +266,92 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
+    '#862: memory provenance is an integrated Context-tab section — '
+    'count row + readable titles, no raw slug, no separate footer panel',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final repo = _StubAgentsRepository();
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+
+      await tester.runAsync(() async {
+        await controller.initialize();
+        controller.setActiveSessionForTest('s1', _makeSession('s1'));
+        _seedMessage(
+          controller,
+          sessionId: 's1',
+          messageId: 'm1',
+          cost: 0.001,
+          tokens: const {'input': 10, 'output': 5},
+        );
+      });
+      controller.setMemoryProvenanceForTest('s1', {
+        'recorded': true,
+        'memoryIds': ['mem-1'],
+        'notePaths': [
+          'memory/preference/standing-instruction-archive-research.md',
+        ],
+      });
+
+      await tester
+          .pumpWidget(await _buildTestApp(agentsController: controller));
+      await tester.pump();
+
+      // The section renders inside the Context tab's detail list.
+      expect(find.text('Memories used'), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('context-memories-count')))
+            .data,
+        '1',
+      );
+      // Readable title (kind + de-slugged basename), NOT the raw path.
+      expect(find.text('preference'), findsOneWidget);
+      expect(
+        find.text('Standing instruction archive research'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('memory/preference/standing-instruction-archive-research.md'),
+        findsNothing,
+      );
+
+      // Empty-but-recorded state says so explicitly.
+      controller.setMemoryProvenanceForTest('s1', {
+        'recorded': true,
+        'memoryIds': <String>[],
+        'notePaths': <String>[],
+      });
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey('context-memories-none')),
+        findsOneWidget,
+      );
+
+      // Never recorded → no section at all.
+      controller.setMemoryProvenanceForTest('s1', {'recorded': false});
+      await tester.pump();
+      expect(find.text('Memories used'), findsNothing);
+
+      // Flush any rebuild-triggered unawaited controller fetches (the stub's
+      // noSuchMethod rejects them) BEFORE teardown, so nothing lands during a
+      // later test and retro-fails this one.
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)),
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
     'Context tab shows cost, token breakdown, model and message count',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(1600, 900));
