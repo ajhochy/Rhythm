@@ -176,6 +176,90 @@ describe('Agent Sessions API', () => {
     expect(session.agentKind).toBe('codex');
   });
 
+  // ── #858: UUID-keyed agent_configs must resolve to their engine name ───────
+
+  it('#858: session-create for a UUID-keyed agent persists agentKind = ocAgent, not the config id', async () => {
+    const configsRepo = new AgentConfigsRepository();
+    const uuidId = '11111111-1111-4111-8111-111111111111';
+    configsRepo.insert({
+      id: uuidId,
+      label: 'AI Trend Researcher',
+      icon: '',
+      isAgent: true,
+      enabled: true,
+      ocAgent: 'ai-trend-researcher',
+      sessionSelectable: true,
+    });
+
+    const payload = {
+      agentId: uuidId,
+      cwd: os.homedir(),
+      name: 'UUID Agent Session',
+    };
+
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(201);
+    const session = (await res.json()) as { agentKind: string };
+    // The engine must receive/persist the resolved ENGINE NAME (ocAgent), not
+    // the raw agent_configs UUID — the UUID is not a registered engine agent.
+    expect(session.agentKind).toBe('ai-trend-researcher');
+    expect(session.agentKind).not.toBe(uuidId);
+  });
+
+  it('#858: session-create falls back to the config id when ocAgent is empty', async () => {
+    const configsRepo = new AgentConfigsRepository();
+    const uuidId = '22222222-2222-4222-8222-222222222222';
+    configsRepo.insert({
+      id: uuidId,
+      label: 'Never Synced Agent',
+      icon: '',
+      isAgent: true,
+      enabled: true,
+      // ocAgent intentionally omitted (null) — simulates a profile created
+      // before agent_profile_sync has had a chance to backfill it.
+      sessionSelectable: true,
+    });
+
+    const payload = {
+      agentId: uuidId,
+      cwd: os.homedir(),
+      name: 'Never Synced Session',
+    };
+
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(201);
+    const session = (await res.json()) as { agentKind: string };
+    expect(session.agentKind).toBe(uuidId);
+  });
+
+  it('#858 regression: slug-keyed agent (claude-code, ocAgent null) still persists its id unchanged', async () => {
+    const payload = {
+      agentId: 'claude-code',
+      cwd: os.homedir(),
+      name: 'Slug Agent Session',
+    };
+
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(201);
+    const session = (await res.json()) as { agentKind: string };
+    expect(session.agentKind).toBe('claude-code');
+  });
+
   it('deletes a session', async () => {
     // Create first
     const createRes = await fetch(`${baseUrl}/agent-sessions`, {
@@ -246,6 +330,47 @@ describe('Agent Sessions API', () => {
     });
     expect(delRes.status).toBe(204);
     expect(opencodeSessionMap.has(inserted.id)).toBe(false);
+  });
+
+  it('#858: resume with a UUID-keyed agentId re-resolves the persisted agentKind to the engine name', async () => {
+    const configsRepo = new AgentConfigsRepository();
+    const uuidId = '33333333-3333-4333-8333-333333333333';
+    configsRepo.insert({
+      id: uuidId,
+      label: 'Org Optimizer Discovery',
+      icon: '',
+      isAgent: true,
+      enabled: true,
+      ocAgent: 'org-optimizer-discovery',
+      sessionSelectable: true,
+    });
+
+    const sessionsRepoLocal = new AgentSessionsRepository();
+    const inserted = sessionsRepoLocal.insert({
+      // Simulates a pre-fix row that stored the raw UUID as agentKind.
+      agentKind: uuidId as unknown as import('../models/agent_session').AgentKind,
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'Resumable UUID Session',
+    });
+    sessionsRepoLocal.updateToken(inserted.id, 'sdk-prior-token');
+    sessionsRepoLocal.updateStatus(inserted.id, 'resumable');
+
+    const { opencodeClient } = await import('../services/opencode_engine');
+    const mockClient = opencodeClient as unknown as { createSession: ReturnType<typeof vi.fn> };
+    mockClient.createSession.mockResolvedValueOnce({ id: 'sdk-resumed-uuid-session' });
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${inserted.id}/resume`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: uuidId }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { agentKind: string };
+    expect(body.agentKind).toBe('org-optimizer-discovery');
+    expect(body.agentKind).not.toBe(uuidId);
   });
 
   it('returns 400 when resuming a session that is not in resumable status', async () => {
