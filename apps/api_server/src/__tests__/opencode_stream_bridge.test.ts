@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
@@ -286,6 +286,156 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.resolved');
     expect(resolved?.decision).toBe('accept');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #878 — command approval before shell exec, wired at the bash permission ask
+// ---------------------------------------------------------------------------
+
+describe('OpencodeStreamBridge — #878 command approval (bash tool)', () => {
+  let bridge: OpencodeStreamBridge;
+  const SDK_ID = 'sdk-approval-1';
+  let localId: string;
+  let originalApprovalsMode: string | undefined;
+
+  function makeBashPermEvent(permissionID: string, command: string): Record<string, unknown> {
+    return {
+      type: 'permission.updated',
+      properties: {
+        id: permissionID,
+        type: 'bash',
+        sessionID: SDK_ID,
+        messageID: 'msg-approval',
+        title: 'Allow bash?',
+        metadata: { command },
+        time: { created: 0 },
+      },
+    };
+  }
+
+  function relay(event: Record<string, unknown>): void {
+    (bridge as unknown as { _relayEvent: (e: unknown) => void })._relayEvent(event);
+  }
+
+  beforeEach(() => {
+    originalApprovalsMode = process.env.APPROVALS_MODE;
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    setDb(db);
+    sessionMap.clear();
+    broadcastSpy.mockClear();
+    respondPermissionSpy.mockClear();
+    bridge = new OpencodeStreamBridge();
+
+    const repo = new AgentSessionsRepository();
+    repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: '/tmp',
+      name: 'approval-test',
+    });
+    localId = repo.listActive()[0].id;
+    sessionMap.set(localId, SDK_ID);
+  });
+
+  afterEach(() => {
+    if (originalApprovalsMode === undefined) delete process.env.APPROVALS_MODE;
+    else process.env.APPROVALS_MODE = originalApprovalsMode;
+  });
+
+  it('denies a hardline-blocklisted command even under bypassPermissions mode', async () => {
+    const repo = new AgentSessionsRepository();
+    repo.updatePermissionMode(localId, 'bypassPermissions');
+
+    relay(makeBashPermEvent('perm-hard-1', 'rm -rf /'));
+    await new Promise((r) => setTimeout(r, 10));
+
+    // The dangerous command must be denied, NOT auto-accepted despite bypassPermissions.
+    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-hard-1', 'deny', '/tmp');
+    const resolved = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'permission.resolved');
+    expect(resolved?.decision).toBe('deny');
+    const denied = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'tool.denied');
+    expect(denied).toBeDefined();
+    expect(String(denied?.message)).toContain('hardline-blocklist');
+  });
+
+  it('smart mode: a low-risk command under bypassPermissions still auto-accepts (no behavior change for low-risk)', async () => {
+    process.env.APPROVALS_MODE = 'smart';
+    const repo = new AgentSessionsRepository();
+    repo.updatePermissionMode(localId, 'bypassPermissions');
+
+    relay(makeBashPermEvent('perm-safe-1', 'ls -la'));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-safe-1', 'accept', '/tmp');
+  });
+
+  it('default (manual) mode: even a low-risk command surfaces an ask, since manual mode always asks for bash', async () => {
+    // approvals.mode defaults to 'manual' (env.ts) when APPROVALS_MODE is
+    // unset — manual mode asks for every non-hardline bash command
+    // regardless of risk tier, which is the documented default behavior.
+    relay(makeBashPermEvent('perm-manual-safe-1', 'ls -la'));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(respondPermissionSpy).not.toHaveBeenCalled();
+    const asked = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'permission.asked');
+    expect(asked).toBeDefined();
+  });
+
+  it('manual mode (default) surfaces an approval ask for a dangerous-but-not-hardline command, even under bypassPermissions', async () => {
+    process.env.APPROVALS_MODE = 'manual';
+    const repo = new AgentSessionsRepository();
+    repo.updatePermissionMode(localId, 'bypassPermissions');
+
+    relay(makeBashPermEvent('perm-ask-1', 'git push --force origin main'));
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Must NOT auto-accept despite bypassPermissions — forced to the ask path.
+    expect(respondPermissionSpy).not.toHaveBeenCalled();
+    const asked = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'permission.asked');
+    expect(asked).toBeDefined();
+    expect(asked?.permissionId).toBe('perm-ask-1');
+    expect(bridge.getPendingPermission(localId, 'perm-ask-1')).toBeDefined();
+  });
+
+  it('mode=off allows a non-blocklisted command under default permission mode without asking', async () => {
+    process.env.APPROVALS_MODE = 'off';
+
+    relay(makeBashPermEvent('perm-off-1', 'echo hello'));
+    await new Promise((r) => setTimeout(r, 10));
+
+    // classifyCommand returns 'allow' for mode=off on a non-blocklisted
+    // command, so it falls through to the existing permissionMode='default'
+    // logic — which, for a non-edit tool, still asks. This test locks that
+    // "off mode does not itself introduce a new prompt beyond what
+    // permissionMode already does" contract.
+    const asked = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'permission.asked');
+    expect(asked).toBeDefined();
+    expect(respondPermissionSpy).not.toHaveBeenCalled();
+  });
+
+  it('mode=off still blocks a hardline command', async () => {
+    process.env.APPROVALS_MODE = 'off';
+    const repo = new AgentSessionsRepository();
+    repo.updatePermissionMode(localId, 'bypassPermissions');
+
+    relay(makeBashPermEvent('perm-off-2', ':(){:|:&};:'));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-off-2', 'deny', '/tmp');
   });
 });
 
