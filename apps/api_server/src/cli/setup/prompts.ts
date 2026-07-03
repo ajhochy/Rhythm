@@ -28,10 +28,12 @@ export interface PromptIO {
  * in order. Running out of buffered lines throws (same "surfaces a bug
  * immediately rather than hanging" contract as `ScriptedPromptIO`).
  */
-function createBufferedPromptIO(): PromptIO {
+function createBufferedPromptIO(rawInput?: string): PromptIO {
   let lines: string[] = [];
   try {
-    const raw = readFileSync(0, 'utf8');
+    // rawInput is a test seam (see createReadlinePromptIO); undefined ⇒ read
+    // fd 0. An explicit '' is a real empty-stdin case and must NOT read fd 0.
+    const raw = rawInput !== undefined ? rawInput : readFileSync(0, 'utf8');
     // ''.split('\n') is ['' ] (one empty "line"), not zero lines — that would
     // let the FIRST question silently succeed with an empty answer instead
     // of throwing "out of input" (which is what a Ctrl+C / truly empty
@@ -99,7 +101,14 @@ function createBufferedPromptIO(): PromptIO {
  * `readline.question()`. TTY stdin keeps using live `readline.question()`
  * calls exactly as before.
  */
-export function createReadlinePromptIO(): PromptIO {
+export function createReadlinePromptIO(options?: { bufferedInput?: string }): PromptIO {
+  // Test seam: when bufferedInput is provided, use buffered mode with that
+  // content directly — no fd-0 read and no node:fs mock. This avoids the
+  // cross-test mock leakage that made the buffered-mode tests flaky on CI.
+  if (options?.bufferedInput !== undefined) {
+    return createBufferedPromptIO(options.bufferedInput);
+  }
+
   const isInteractiveTty = process.stdin.isTTY === true;
 
   if (!isInteractiveTty) {
