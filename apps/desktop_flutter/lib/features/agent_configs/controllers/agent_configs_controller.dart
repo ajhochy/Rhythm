@@ -38,12 +38,30 @@ class AgentConfigsController extends ChangeNotifier {
     });
 
   /// The manager agent (is_manager = true). Returns null if none set.
+  ///
+  /// NOTE: the data model assumes exactly one manager, but real installs also
+  /// carry the dev `workflow-orchestrator` profile (also is_manager) synced
+  /// into the catalog. This returns the FIRST match and is therefore ambiguous
+  /// — callers that specifically need Secretary must use [secretaryAgent].
   AgentConfig? get managerAgent {
     for (final c in _configs) {
       if (c.isManager) return c;
     }
     return null;
   }
+
+  /// The Secretary manager profile specifically, resolved by its stable slug
+  /// (`secretary`) rather than by "the first manager". Quick actions and
+  /// delegation must target Secretary even when other manager profiles (e.g.
+  /// the dev `workflow-orchestrator`) are present in the catalog (#888).
+  AgentConfig? get secretaryAgent {
+    for (final c in _configs) {
+      if (c.ocAgent == _secretarySlug || c.id == _secretarySlug) return c;
+    }
+    return null;
+  }
+
+  static const String _secretarySlug = 'secretary';
 
   /// All specialist configs (enabled + isAgent + not manager), sorted by sortOrder.
   List<AgentConfig> get specialistAgents =>

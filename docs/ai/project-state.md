@@ -44,11 +44,16 @@ sequentially with the full check suite between folds.
   `.mcp-roles` tool scope + a new reproducible role-file → `agent_configs` backfill
   seed for `is_manager`/roster (previously DB-only, hand-edited via the designer).
 - **#888** (quick-action buttons spawned "Coding Workflow" instead of Secretary,
-  silently breaking #883's delegation): Flutter half done on current branch
-  `workflow/run-2026-07-03`, verification-gate PASSED, **not yet committed**.
-  `quick_actions_bar.dart` now passes `agentId` (resolved via
-  `AgentConfigsController.managerAgent?.ocAgent`) alongside `mcpRole` on both
-  `createSession(...)` calls. See
+  silently breaking #883's delegation): committed to `workflow/run-2026-07-03`.
+  Two rounds: (1) `quick_actions_bar.dart` passes `agentId` alongside `mcpRole`;
+  (2) **live-smoke fix** — the first round resolved `agentId` from
+  `managerAgent`, but production has TWO `isManager=true` configs (secretary +
+  the dev `workflow-orchestrator`), so it picked the wrong manager and spawned
+  workflow-orchestrator. Now resolves Secretary by its stable slug via a new
+  `AgentConfigsController.secretaryAgent` getter, guarded by a two-manager
+  regression test (`test/features/agent_configs/agent_configs_controller_test.dart`).
+  Postmortem: `.agent-stack/postmortems/2026-07-03-issue-888.json` (C2 — fixture-
+  convenient test: the widget fake had a single manager). See
   `docs/ai/runs/2026-07-03-issue-888-quick-actions-agentid.md`. Note: #888 is
   Flutter-only and does NOT touch `apps/api_server` — the `server.ts` /
   `auth_credential_watcher.ts` changes on this same branch belong to the

@@ -180,3 +180,11 @@
 - **Category**: C2 (wrong contracts) dominant
 - **Root cause**: contract tests modeled fixture-convenient environments, not production shape — legacy-only vault layout (#886), engine directory-scoping (#861), generic-agent child rows (#867), empty-cwd test fake (#863), no user-feedback assertion (#863).
 - **Suggested fix**: acceptance contracts must pin the PRODUCTION environment (clean layout env vars, real id spaces the UI sends, delegated-row shapes); verification-gate's boot-smoke should include one interactive-path probe per changed surface.
+
+## 2026-07-03 — Issue 888 — quick action spawned wrong manager (workflow-orchestrator, not secretary)
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C2 — wrong/fixture-convenient contract
+- **Criteria affected**: quick-action → Secretary
+- **Root cause**: fix resolved agentId from `managerAgent` (first isManager match), but production has TWO managers (secretary + dev workflow-orchestrator); the widget test's fake overrode `managerAgent` to a lone secretary, so it passed while real multi-manager resolution picks workflow-orchestrator.
+- **Suggested fix**: resolve Secretary by its stable slug via a dedicated `secretaryAgent` getter; regression-test the real getter with two managers (workflow-orchestrator first).

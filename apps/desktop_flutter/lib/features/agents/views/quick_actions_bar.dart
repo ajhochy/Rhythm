@@ -175,9 +175,11 @@ class _QuickActionsBarState extends State<QuickActionsBar> {
       // resolves which engine agent actually RUNS the session solely from
       // agentId. Without this, the server fell back to the first authorized
       // catalog entry ("Coding Workflow") instead of Secretary, so no
-      // delegation (#883) ever happened. Resolve the manager (Secretary)
-      // profile's engine agent dynamically rather than hardcoding it.
-      agentId: agentConfigsController.managerAgent?.ocAgent ?? 'secretary',
+      // delegation (#883) ever happened. Resolve Secretary by its stable slug
+      // via secretaryAgent — NOT managerAgent, which returns the first of
+      // possibly-many managers (e.g. the dev workflow-orchestrator) and picked
+      // the wrong one in the #888 smoke.
+      agentId: agentConfigsController.secretaryAgent?.ocAgent ?? 'secretary',
       mcpRole: 'secretary',
       taskId: widget.context_.kind == 'task' ? widget.context_.sourceId : null,
     );
@@ -237,9 +239,10 @@ class _QuickActionsBarState extends State<QuickActionsBar> {
       // required" (the #863 smoke bug).
       cwd: Platform.environment['HOME'] ?? '/',
       name: _sessionName(_QuickActionKind.followUpTasks),
-      // #888: see _runChatAction — agentId must be passed explicitly or the
-      // server defaults to "Coding Workflow" instead of Secretary.
-      agentId: agentConfigsController.managerAgent?.ocAgent ?? 'secretary',
+      // #888: see _runChatAction — agentId must be passed explicitly (resolved
+      // via secretaryAgent, not managerAgent) or the server defaults to
+      // "Coding Workflow" instead of Secretary.
+      agentId: agentConfigsController.secretaryAgent?.ocAgent ?? 'secretary',
       mcpRole: 'secretary',
       taskId: widget.context_.kind == 'task' ? widget.context_.sourceId : null,
     );

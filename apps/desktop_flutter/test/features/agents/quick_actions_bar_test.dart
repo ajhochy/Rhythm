@@ -175,20 +175,23 @@ class _StubAgentsRepository implements AgentsRepository {
 }
 
 /// Data source stub so the controller never makes a real HTTP call —
-/// [_FakeAgentConfigsController] overrides [managerAgent] directly and never
+/// [_FakeAgentConfigsController] overrides [secretaryAgent] directly and never
 /// calls [refresh], so this is only needed to satisfy the constructor chain.
 class _StubAgentConfigsDataSource extends AgentConfigsDataSource {}
 
-/// Test double for [AgentConfigsController] exposing a manager (Secretary)
-/// profile whose `ocAgent` is `'secretary'` — the shape the quick actions bar
-/// must resolve `agentId` from (issue #888).
+/// Test double for [AgentConfigsController] exposing the Secretary profile
+/// whose `ocAgent` is `'secretary'` — the shape the quick actions bar must
+/// resolve `agentId` from (issue #888). Overrides [secretaryAgent] (NOT
+/// managerAgent): the bar must target Secretary specifically even when other
+/// managers exist. The real getter's multi-manager resolution is guarded
+/// separately in agent_configs_controller_test.dart.
 class _FakeAgentConfigsController extends AgentConfigsController {
   _FakeAgentConfigsController()
       : super(AgentConfigsRepository(_StubAgentConfigsDataSource()));
 
   @override
-  AgentConfig? get managerAgent => AgentConfig(
-        id: 'secretary-profile',
+  AgentConfig? get secretaryAgent => AgentConfig(
+        id: 'secretary',
         label: 'Secretary',
         icon: '',
         enabled: true,
