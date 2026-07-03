@@ -84,3 +84,33 @@ is untracked — rebuild per machine.
 6. Optional: hand-prune the 16 near-duplicate preferences in `AGENT-MEMORY/preference/`.
 
 ## Filed this run (2026-07-02): #854 #855 #856 #857 #858 #859 #860 (see runs/2026-07-02-mega-buildout-fork-eval-memory.md)
+
+## Recent coding-agent runs
+
+### 2026-07-02 — #814 pin/bundle rhythm MCP server version
+- Files modified: `apps/api_server/src/services/opencode_client_service.ts`
+  (new `resolveRhythmMcpCommand()` + `readRhythmMcpServerVersion()`;
+  `ensureRhythmMcp()` now calls the resolver instead of hardcoding argv);
+  `apps/api_server/src/__tests__/opc_rhythm_mcp_ensure.test.ts` (fixture now
+  derives `DESIRED.command` from the resolver instead of the old bare spec);
+  `apps/api_server/src/__tests__/opc_rhythm_mcp_command.test.ts` (new, 11
+  tests); `.github/workflows/desktop_release.yml` (new bundling steps: build
+  `apps/mcp_server`, copy `dist/+package.json/-lock+node_modules` into
+  `Contents/Resources/mcp_server`, verify payload).
+- Checks run: `tsc --noEmit` (api_server) — pass. `vitest run` full suite —
+  215 files / 1855 pass / 1 pre-existing skip. `apps/mcp_server`: `npm run
+  build` (tsc --noCheck) — pass. `desktop_release.yml` YAML parsed with
+  `python3 -c "import yaml..."` — valid syntax (not run through actual CI in
+  this session).
+- Decisions made: bundle-with-pinned-fallback per issue recommendation; see
+  `docs/ai/decisions/2026-07-02-pin-bundle-rhythm-mcp-version.md` for the full
+  resolution order, alternatives, and follow-up risk note.
+- Deviations from spec: none. Real-binary smoke (spawn + assert `tools/list`
+  contains `rhythm_remember_memory`/`rhythm_list_sessions`) not run in this
+  env; documented as a manual step in the new test file's trailing comment,
+  backed by a source grep confirming both tools exist in
+  `apps/mcp_server/src/tools/{agentMemory,agentSessions}.ts`.
+- Concerns: the new `desktop_release.yml` bundling steps are untested by an
+  actual CI run — flagged as a follow-up in the decision doc (low risk:
+  mcp_server's only runtime deps, `@modelcontextprotocol/sdk` and `zod`, are
+  pure JS with no native bindings, unlike `better-sqlite3` in api_server).

@@ -200,6 +200,114 @@ export async function reclaimStalePortForOpencode(
 }
 
 /**
+ * The exact `@ajhochy/rhythm-mcp-server` version this build of Rhythm was
+ * shipped/tested against, read once from `apps/mcp_server/package.json`.
+ * Single source of truth for the pinned-fallback command (issue #814) — bump
+ * `apps/mcp_server/package.json`'s `version` and this pin tracks it
+ * automatically; no second place to edit.
+ *
+ * Resolution order mirrors {@link augmentPathForOpencode}'s bundled-binary
+ * probe: try the compiled/dev-module-relative candidate paths, using the
+ * first one whose package.json actually exists. `__dirname/../../../mcp_server`
+ * resolves correctly from BOTH `apps/api_server/dist/services` (bundled
+ * release) and `apps/api_server/src/services` (dev via tsx/vitest, no
+ * dist/), because `dist`/`src` and `mcp_server` are siblings under `apps/`.
+ * A flattened `dist/` (two levels up) is probed as a defensive fallback.
+ * Returns `undefined` (never throws) when no package.json can be found or
+ * parsed, so callers can fall back to a bare, unpinned spec rather than
+ * crash (see {@link resolveRhythmMcpCommand}).
+ */
+export function readRhythmMcpServerVersion(): string | undefined {
+  const candidates = [
+    // dist/services or src/services → apps/mcp_server (dev + bundled release)
+    join(__dirname, '..', '..', '..', 'mcp_server', 'package.json'),
+    // Flattened dist/ variant
+    join(__dirname, '..', '..', 'mcp_server', 'package.json'),
+  ];
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue;
+    try {
+      const parsed = JSON.parse(readFileSync(candidate, 'utf8')) as {
+        version?: unknown;
+      };
+      if (typeof parsed.version === 'string' && parsed.version.trim()) {
+        return parsed.version.trim();
+      }
+    } catch {
+      // Fall through to the next candidate / the undefined fallback below.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Issue #814 — resolve the argv used to launch the rhythm MCP server, never a
+ * bare unversioned package spec.
+ *
+ * Problem: `npx -y @ajhochy/rhythm-mcp-server` (no version) lets a STALE
+ * GLOBAL install of the package shadow the version the app was built/tested
+ * against — observed in the wild (a stale global 0.6.0 shadowed a published
+ * 0.6.1). `npx` also requires network access at launch time, which is fragile
+ * offline.
+ *
+ * Resolution order (first match wins), mirroring
+ * {@link augmentPathForOpencode}'s bundled-vs-PATH precedence:
+ *   1. `RHYTHM_MCP_SERVER_BIN` dev override — an explicit absolute path to a
+ *      built `dist/index.js` entrypoint, for pointing at a locally-built
+ *      mcp_server without a release build (parity with
+ *      RHYTHM_OPENCODE_BIN[_DIR] for the fork engine).
+ *   2. A BUNDLED mcp_server payload shipped inside the app bundle
+ *      (`Contents/Resources/mcp_server/dist/index.js`, sibling of the
+ *      bundled `api_server` and `opencode_bin` — see desktop_release.yml's
+ *      "Bundle rhythm MCP server into app" step). Launched by absolute path
+ *      via `node` — no npx, no global, no network.
+ *   3. FALLBACK (dev, or a release predating the bundling step): an EXPLICIT
+ *      PINNED version spec `@ajhochy/rhythm-mcp-server@<version>` sourced
+ *      from {@link readRhythmMcpServerVersion}, so a stale global install can
+ *      never shadow it. Only when the version cannot be resolved at all do
+ *      we fall back to the historical bare spec (logged as a WARN — this
+ *      should not happen in a checked-out monorepo).
+ */
+export function resolveRhythmMcpCommand(): string[] {
+  const devBinPath = process.env.RHYTHM_MCP_SERVER_BIN?.trim();
+  if (devBinPath) {
+    if (existsSync(devBinPath)) {
+      logger.info(
+        `[OpencodeClientService] RHYTHM_MCP_SERVER_BIN override active — rhythm MCP will launch from ${devBinPath}`,
+      );
+      return ['node', devBinPath];
+    }
+    logger.warn(
+      `[WARN] RHYTHM_MCP_SERVER_BIN="${devBinPath}" does not exist — ignoring override`,
+    );
+  }
+
+  const candidateBundledEntrypoints = [
+    // Bundled release layout: Resources/api_server/dist/services → Resources/mcp_server
+    join(__dirname, '..', '..', '..', 'mcp_server', 'dist', 'index.js'),
+    // Flattened dist/ variant
+    join(__dirname, '..', '..', 'mcp_server', 'dist', 'index.js'),
+  ];
+  const bundledEntrypoint = candidateBundledEntrypoints.find((p) =>
+    existsSync(p),
+  );
+  if (bundledEntrypoint) {
+    return ['node', bundledEntrypoint];
+  }
+
+  const pinnedVersion = readRhythmMcpServerVersion();
+  if (pinnedVersion) {
+    return ['npx', '-y', `@ajhochy/rhythm-mcp-server@${pinnedVersion}`];
+  }
+
+  logger.warn(
+    '[WARN] rhythm MCP: no bundled payload and no resolvable mcp_server/package.json version — ' +
+      'falling back to an unpinned npx spec, which a stale global install can shadow',
+  );
+  return ['npx', '-y', '@ajhochy/rhythm-mcp-server'];
+}
+
+/**
  * Directories the SDK's `cross-spawn("opencode")` may need on PATH. GUI-spawned
  * .app children on macOS only inherit `/usr/bin:/bin:/usr/sbin:/sbin` — none of
  * which contain the opencode binary. Idempotent: prepends each dir at most once.
@@ -1738,7 +1846,8 @@ export class OpencodeClientService {
       'http://localhost:4001';
     const desired = {
       type: 'local' as const,
-      command: ['npx', '-y', '@ajhochy/rhythm-mcp-server'],
+      // #814 — never a bare unversioned spec; see resolveRhythmMcpCommand.
+      command: resolveRhythmMcpCommand(),
       environment: {
         RHYTHM_API_URL: apiUrl,
         RHYTHM_AGENT_URL: agentUrl,

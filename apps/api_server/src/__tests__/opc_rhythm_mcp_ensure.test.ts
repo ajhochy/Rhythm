@@ -2,11 +2,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
-import { OpencodeClientService } from '../services/opencode_client_service';
+import {
+  OpencodeClientService,
+  resolveRhythmMcpCommand,
+} from '../services/opencode_client_service';
 
+// #814 — the command is resolved dynamically (bundled path, dev override, or
+// pinned @version fallback); never assert the historical bare spec here.
 const DESIRED = {
   type: 'local',
-  command: ['npx', '-y', '@ajhochy/rhythm-mcp-server'],
+  command: resolveRhythmMcpCommand(),
   environment: {
     RHYTHM_API_URL: 'https://api.vcrcapps.com',
     // #804 — memory MCP tools target the local agent server, not prod.
