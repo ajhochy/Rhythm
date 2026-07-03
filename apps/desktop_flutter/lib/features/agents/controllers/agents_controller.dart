@@ -1113,6 +1113,13 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     if (sessionAgentId != null && !_genericAgentIds.contains(sessionAgentId)) {
       return sessionAgentId;
     }
+    // #890: a brand-new session shows the profile it WILL be created as — the
+    // user-configured "Default profile" override first, matching
+    // _resolveDefaultAgentIdForCreate so the picker and the spawned agent
+    // agree. Falls back to the manager-name resolver (wired to the Secretary
+    // profile in main.dart), then null.
+    final override = _configuredDefaultAgentResolver?.call();
+    if (override != null && override.isNotEmpty) return override;
     return _managerAgentNameResolver?.call();
   }
 
@@ -1584,26 +1591,19 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   ///      specialists and coding to the workflow-orchestrator.
   ///   3. The first authorized catalog entry (#653).
   String? _resolveDefaultAgentIdForCreate() {
-    if (!_catalogLoaded) return null;
-    final configured = _configuredDefaultAgentResolver?.call();
-    if (configured != null && configured.isNotEmpty) {
-      for (final entry in _catalog) {
-        if (entry.agent == configured && entry.authorized) {
-          return entry.agent;
-        }
-      }
-    }
-    for (final entry in _catalog) {
-      if (entry.agent == _secretaryAgentSlug && entry.authorized) {
-        return entry.agent;
-      }
-    }
-    for (final entry in _catalog) {
-      if (entry.authorized && entry.agent.isNotEmpty) {
-        return entry.agent;
-      }
-    }
-    return null;
+    // The default agent is an agent PROFILE (ocAgent, e.g. 'secretary'), which
+    // the server resolves — NOT a `_catalog` entry. `_catalog` lists only
+    // engine kinds (claude-code/codex/gemini-cli/opencode), so gating the
+    // profile default on catalog membership never matched and silently fell
+    // through to an engine kind (the #889/#890 bug). Return the profile
+    // directly instead.
+    // #890: the user-configured "Default profile" override wins.
+    final override = _configuredDefaultAgentResolver?.call();
+    if (override != null && override.isNotEmpty) return override;
+    // #889: Secretary is the seeded product-default hub (always seeded), which
+    // then delegates domain work to specialists and coding to the
+    // workflow-orchestrator.
+    return _secretaryAgentSlug;
   }
 
   /// Stable engine-agent slug for the Secretary manager profile (#888/#889).

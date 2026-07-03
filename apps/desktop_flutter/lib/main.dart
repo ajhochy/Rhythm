@@ -442,7 +442,13 @@ class _RhythmAppContent extends StatelessWidget {
               agentServerController,
               localNotificationService,
               ctx.read<NotificationsController>(),
-              managerAgentNameResolver: () => cfgCtrl.managerAgent?.ocAgent,
+              // #888/#889: resolve the SECRETARY profile specifically (by slug),
+              // not `managerAgent` — the catalog carries more than one manager
+              // (e.g. the dev workflow-orchestrator / "Coding Workflow"), and
+              // managerAgent returns the first, which is the wrong default.
+              managerAgentNameResolver: () =>
+                  cfgCtrl.secretaryAgent?.ocAgent ??
+                  cfgCtrl.managerAgent?.ocAgent,
               // #890: app-level "Default profile" override, read lazily so a
               // later change from the Agent Profile sheet takes effect on the
               // next createSession call without reconstructing the controller.
