@@ -7,6 +7,7 @@ import { AgentSessionMessagesRepository } from '../repositories/agent_session_me
 import { DeniedToolEventsRepository } from '../repositories/denied_tool_events_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { queueSkillExtraction } from './skill_extractor';
+import { extractInvokedSkillNamesFromParts, ensureLazyDepsForTurn } from './lazy_deps_turn_hook';
 import { isToolAllowed } from './mcp_dispatch_guard';
 import type { AgentSession, PermissionMode } from '../models/agent_session';
 
@@ -981,6 +982,27 @@ export class OpencodeStreamBridge {
             // turn-completion point (the >= 2 rounds gate is enforced inside
             // queueSkillExtraction). Must NOT block or reject the turn.
             queueSkillExtraction(localSessionId);
+
+            // #876 — "on first use" lazy dependency install. The real skill
+            // invocation happens inside the vendored fork's `skill` tool
+            // (out of reach here); the persisted tool-call PARTS for this
+            // session (upsertPart, above) are the only observable record of
+            // which skills were actually invoked. Scan them for `skill` tool
+            // calls and best-effort install each invoked skill's declared
+            // python_dependencies. Fire-and-forget, never blocks/rejects the
+            // turn — mirrors queueSkillExtraction's posture exactly.
+            try {
+              const structured = this.messagesRepo.listBySessionStructured(localSessionId);
+              const allParts = structured.flatMap((m) => m.parts ?? []);
+              const invokedSkillNames = extractInvokedSkillNamesFromParts(allParts);
+              if (invokedSkillNames.length > 0) {
+                ensureLazyDepsForTurn(invokedSkillNames).catch((err) =>
+                  logger.warn(`[OpencodeStreamBridge] ensureLazyDepsForTurn failed (non-fatal): ${String(err)}`),
+                );
+              }
+            } catch (err) {
+              logger.warn(`[OpencodeStreamBridge] lazy-deps turn scan failed (non-fatal): ${String(err)}`);
+            }
           } else {
             // Zero tokens streamed this turn — surface as user-visible error (#636)
             broadcast({

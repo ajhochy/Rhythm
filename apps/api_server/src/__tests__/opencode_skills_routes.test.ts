@@ -29,6 +29,8 @@ vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
     isReady: true,
     listSkills: (...args: unknown[]) => listSkills(...args),
+    listSkillsWithContent: () => Promise.resolve([]),
+    listMcp: () => Promise.resolve({}),
     reloadSkills: (...args: unknown[]) => reloadSkills(...args),
   },
   opencodeSessionMap: new Map(),
@@ -250,6 +252,7 @@ describe('/opencode/skills', () => {
         postScore: 0.9,
         measureReason: null,
         isExternalFork: false,
+        env: { missing: [], satisfied: true },
       });
 
       // (b) external + sidecar row (location-derived managed stays false)
@@ -265,6 +268,7 @@ describe('/opencode/skills', () => {
         postScore: 0.4,
         measureReason: null,
         isExternalFork: true,
+        env: { missing: [], satisfied: true },
       });
 
       // (c) skill with NO sidecar row → null/default metadata
@@ -280,6 +284,7 @@ describe('/opencode/skills', () => {
         postScore: null,
         measureReason: null,
         isExternalFork: false,
+        env: { missing: [], satisfied: true },
       });
     });
 

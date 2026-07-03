@@ -1080,6 +1080,46 @@ export class OpencodeClientService {
   }
 
   /**
+   * #874/#875/#876 — same `GET /skill` call as {@link listSkills}, but keeps the
+   * raw `content` field (the full SKILL.md text, frontmatter + body) that the
+   * fork's `Skill.Info` schema already returns. `listSkills` strips it because
+   * the picker/allowlist-derivation callers never needed it; the extended
+   * frontmatter fields these issues add (required env vars, toolset visibility
+   * conditions, python dependencies) are NOT parsed by the fork, so api_server
+   * must read them out of this raw content itself (see skill_frontmatter.ts).
+   * Returns [] when the engine is unavailable — same fail-safe posture as
+   * {@link listSkills}.
+   */
+  async listSkillsWithContent(
+    directory?: string,
+  ): Promise<Array<{ name: string; description?: string; location: string; content: string }>> {
+    const dir = directory ?? homedir();
+    try {
+      const base = this.serverUrl;
+      const res = await fetch(`${base}/skill?directory=${encodeURIComponent(dir)}`);
+      if (!res.ok) {
+        logger.warn('[OpencodeClientService] listSkillsWithContent HTTP %s', res.status);
+        return [];
+      }
+      const data = (await res.json()) as Array<{
+        name: string;
+        description?: string;
+        location: string;
+        content?: string;
+      }>;
+      return data.map((s) => ({
+        name: s.name,
+        description: s.description,
+        location: s.location,
+        content: s.content ?? '',
+      }));
+    } catch (err) {
+      logger.error('[OpencodeClientService] listSkillsWithContent failed:', err);
+      return [];
+    }
+  }
+
+  /**
    * Unify-2 — force the fork to re-scan its skill directories (it memoizes
    * discovery per-instance, so a freshly-written SKILL.md is invisible until
    * this is called). Calls the fork's POST /skill/reload and returns the fresh
