@@ -33,7 +33,8 @@ import { scanContextContent } from '../security/context_scanner';
 import type { AgentConfig } from '../repositories/agent_configs_repository';
 
 /**
- * Prepended to every manager-profile body so that the orchestrator role is
+ * Prepended to a manager-profile body WITHOUT a delegate roster (the dev
+ * manager, e.g. workflow-orchestrator) so that the orchestrator role is
  * explicit to opencode when it loads the file. Must appear exactly once.
  * The distinctive heading "## Routing (mandatory)" is used as the idempotency
  * marker — see `injectManagerPreamble`.
@@ -46,21 +47,92 @@ export const MANAGER_ROUTING_PREAMBLE =
   '`"general"` and never omit `subagent_type`. Do this regardless of how the request is ' +
   'phrased. Only handle non-development tasks yourself.';
 
-/** Idempotency marker: substring whose presence means the preamble is already there. */
+/** Idempotency marker: substring whose presence means the plain preamble is already there. */
 const PREAMBLE_MARKER = '## Routing (mandatory)';
 
 /**
- * If `isManager` is true and the preamble is not already in `body`, prepend
- * `MANAGER_ROUTING_PREAMBLE` followed by a blank line. No-op for non-managers
- * and when the marker is already present (idempotent re-write safety).
+ * Idempotency marker for the COMBINED (hub) preamble — used by managers that
+ * carry a non-empty `allowedDelegates` roster (e.g. Secretary). Distinct from
+ * `PREAMBLE_MARKER` so the two variants never collide or duplicate on re-write.
+ */
+const HUB_PREAMBLE_MARKER = '## Routing (mandatory — hub)';
+
+/**
+ * Coding hand-off section reused verbatim (content, not heading) inside the
+ * combined hub preamble — see `buildHubRoutingPreamble`.
+ */
+const CODING_HANDOFF_BODY =
+  'For any coding, development, implementation, debugging, refactor, or PR/issue task, ' +
+  'you MUST hand off to the workflow-orchestrator by calling the `task` tool with ' +
+  '`subagent_type="workflow-orchestrator"` — name that delegate explicitly; never use ' +
+  '`"general"` and never omit `subagent_type`. Do this regardless of how the request is ' +
+  'phrased.';
+
+/**
+ * Build the combined routing preamble for a manager that has a non-empty
+ * `allowedDelegates` roster (a "hub" manager, e.g. Secretary). Unlike the
+ * plain `MANAGER_ROUTING_PREAMBLE` (dev-only manager, no roster), this
+ * preamble routes ALL work rather than handling non-dev tasks itself:
+ *   (a) domain/ministry work → `rhythm_delegate` to a roster specialist
+ *   (b) coding/dev work → workflow-orchestrator via `task` (unchanged wording)
+ *   (c) only trivial admin/summarize/read work is handled directly
+ */
+export function buildHubRoutingPreamble(roster: string[]): string {
+  const rosterList = roster.map((id) => `\`${id}\``).join(', ');
+  return (
+    `${HUB_PREAMBLE_MARKER}\n` +
+    'You are a routing hub. Do not attempt domain or coding work yourself — route it.\n\n' +
+    '**Domain / ministry work:** delegate to the fitting specialist by calling the ' +
+    '`rhythm_delegate` tool with `callerAgentConfigId` set to your own profile id, ' +
+    `\`targetAgentConfigId\` set to one of your approved specialists (${rosterList}), ` +
+    'and `prompt` set to the focused task for that specialist. Pick whichever specialist ' +
+    'fits the request, delegate, then summarize the result for the user.\n\n' +
+    `**Coding / development work:** ${CODING_HANDOFF_BODY}\n\n` +
+    'Only handle trivial admin yourself — quick summaries, reading back information, or ' +
+    'simple lookups that do not require a specialist or the coding workflow.'
+  );
+}
+
+/**
+ * If `isManager` is true, prepend the appropriate routing preamble:
+ *  - a non-empty `delegateRoster` → the combined hub preamble (routes BOTH
+ *    domain work via `rhythm_delegate` and coding work via the dev hand-off).
+ *  - no roster → the existing plain `MANAGER_ROUTING_PREAMBLE` (coding hand-off
+ *    only), unchanged from prior behavior.
+ * No-op for non-managers. Idempotent: re-injecting either variant does not
+ * duplicate it, and injecting one variant when the other is already present
+ * is a no-op too (only one routing preamble should ever apply to a profile).
  *
  * Exported for unit testing — callers outside this module should not need it.
  */
-export function injectManagerPreamble(body: string, isManager: boolean): string {
+export function injectManagerPreamble(
+  body: string,
+  isManager: boolean,
+  delegateRoster: string[] = [],
+): string {
   if (!isManager) return body;
-  if (body.includes(PREAMBLE_MARKER)) return body;
+  if (body.includes(PREAMBLE_MARKER) || body.includes(HUB_PREAMBLE_MARKER)) return body;
+
+  const preamble =
+    delegateRoster.length > 0 ? buildHubRoutingPreamble(delegateRoster) : MANAGER_ROUTING_PREAMBLE;
   const separator = body.length > 0 && !body.startsWith('\n') ? '\n\n' : '\n';
-  return `${MANAGER_ROUTING_PREAMBLE}${separator}${body}`;
+  return `${preamble}${separator}${body}`;
+}
+
+/**
+ * Parse `config.allowedDelegatesJson` into a roster array for
+ * `injectManagerPreamble`. Returns `[]` on missing/malformed/empty JSON so
+ * callers always get a plain array to branch on (empty roster → the existing
+ * dev-manager preamble; non-empty → the combined hub preamble).
+ */
+function parseDelegateRoster(config: AgentConfig): string[] {
+  if (!config.allowedDelegatesJson) return [];
+  try {
+    const parsed = JSON.parse(config.allowedDelegatesJson);
+    return Array.isArray(parsed) && parsed.every((v) => typeof v === 'string') ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 /** opencode built-in / internal agents — no source file; never write these. */
@@ -196,7 +268,7 @@ export function writeAgentProfileFile(config: AgentConfig): void {
       body = config.systemPrompt ?? '';
     }
 
-    body = injectManagerPreamble(body, config.isManager === true);
+    body = injectManagerPreamble(body, config.isManager === true, parseDelegateRoster(config));
 
     const out = `---\n${fm}\n---\n${body.startsWith('\n') ? body.slice(1) : body}`;
     writeFileSync(path, out.endsWith('\n') ? out : `${out}\n`, 'utf8');

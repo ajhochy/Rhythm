@@ -116,18 +116,52 @@ describe('seedSecretaryDelegation — backfill against the REAL role file', () =
     expect(afterSecond.isManager).toBe(afterFirst.isManager);
   });
 
-  it('never clobbers a human-set allowed_delegates_json (USER-OWNED overlay)', async () => {
+  it('reconciles a drifted allowed_delegates_json to the role-file roster (#889 — was a non-clobber overlay, now a secretary-only reconcile)', async () => {
     const repo = new AgentConfigsRepository();
+    // A dirty roster shaped like the live #889 regression: raw UUIDs and
+    // spaced display names instead of the hyphenated slugs the role file and
+    // agent_delegation_service expect.
+    const dirtyRoster = [
+      '3f9a1c2e-8b4d-4a1e-9c3f-1a2b3c4d5e6f',
+      'AI Trend Researcher',
+      'Theological Researcher',
+      'workflow-orchestrator',
+      'graphic-designer',
+    ];
     insertSecretaryRow(repo, {
       isManager: true,
-      allowedDelegatesJson: JSON.stringify(['coding-agent']),
+      allowedDelegatesJson: JSON.stringify(dirtyRoster),
+    });
+
+    const result = await seedSecretaryDelegation();
+    expect(result.delegatesBackfilled).toBe(true);
+
+    const after = repo.getById('secretary')!;
+    const roster = JSON.parse(after.allowedDelegatesJson!);
+    // Exactly the role-file's 7 slugs — the dirty entries are gone.
+    expect(roster).toEqual(
+      expect.arrayContaining(['theologian', 'librarian', 'worship-planning', 'fantasy-gm']),
+    );
+    expect(roster).not.toEqual(expect.arrayContaining(['workflow-orchestrator', 'graphic-designer']));
+    for (const dirty of dirtyRoster) {
+      expect(roster).not.toContain(dirty);
+    }
+  });
+
+  it('is a no-op when the existing roster already matches the role file (order-independent)', async () => {
+    const repo = new AgentConfigsRepository();
+    const raw = JSON.parse(readFileSync(REAL_SECRETARY_ROLE_FILE, 'utf8'));
+    const reordered = [...raw.allowedDelegates].reverse();
+    insertSecretaryRow(repo, {
+      isManager: true,
+      allowedDelegatesJson: JSON.stringify(reordered),
     });
 
     const result = await seedSecretaryDelegation();
     expect(result.delegatesBackfilled).toBe(false);
 
     const after = repo.getById('secretary')!;
-    expect(after.allowedDelegatesJson).toBe(JSON.stringify(['coding-agent']));
+    expect(after.allowedDelegatesJson).toBe(JSON.stringify(reordered));
   });
 
   it('never flips is_manager from true back to false, and never touches an already-true row', async () => {

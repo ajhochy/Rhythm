@@ -1558,12 +1558,21 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  /// Issue #653: pick the first authorized catalog entry's agent as a safe
-  /// default for `createSession` callers that haven't already chosen one.
-  /// Returns null when the catalog hasn't been loaded yet or contains no
-  /// authorized entries — caller must surface an error in that case.
+  /// Picks the default agent for `createSession` callers that haven't chosen
+  /// one. Returns null when the catalog hasn't loaded yet or has no authorized
+  /// entries — caller surfaces an error in that case.
+  ///
+  /// #889: Secretary is the default hub — new sessions route through it (it
+  /// delegates domain work to specialists and coding to the
+  /// workflow-orchestrator). Prefer the authorized Secretary profile; otherwise
+  /// fall back to the first authorized catalog entry (#653).
   String? _resolveDefaultAgentIdForCreate() {
     if (!_catalogLoaded) return null;
+    for (final entry in _catalog) {
+      if (entry.agent == _secretaryAgentSlug && entry.authorized) {
+        return entry.agent;
+      }
+    }
     for (final entry in _catalog) {
       if (entry.authorized && entry.agent.isNotEmpty) {
         return entry.agent;
@@ -1571,6 +1580,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
     return null;
   }
+
+  /// Stable engine-agent slug for the Secretary manager profile (#888/#889).
+  static const String _secretaryAgentSlug = 'secretary';
 
   // ==========================================================================
   // Issue #653: client-owned composer drafts

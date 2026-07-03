@@ -158,6 +158,84 @@ sequentially with the full check suite between folds.
 
 ## Recent coding-agent runs
 
+### 2026-07-03 — #889 (Secretary won't delegate; manager preamble handles non-dev work itself + dirty roster)
+verification-gate pending (about to run). Root cause confirmed as triaged: the
+single `MANAGER_ROUTING_PREAMBLE` was prepended to EVERY `isManager` profile,
+telling it to "handle non-development tasks yourself" — Secretary (a manager
+with a delegate roster) inherited dev-manager wording and never called
+`rhythm_delegate`. Separately, Secretary's live `allowed_delegates_json` had
+drifted into a mixed bag of raw UUIDs and spaced display names that don't
+resolve against `agent_delegation_service`'s validation.
+- Files modified:
+  - `apps/api_server/src/services/opencode_agent_writer.ts` — `injectManagerPreamble`
+    now takes a third `delegateRoster: string[] = []` param. Empty roster (e.g.
+    workflow-orchestrator) → unchanged `MANAGER_ROUTING_PREAMBLE` behavior,
+    byte-for-byte identical to before. Non-empty roster (e.g. Secretary) → new
+    `buildHubRoutingPreamble()` combined block under its own idempotency marker
+    (`## Routing (mandatory — hub)`, distinct from the plain `## Routing
+    (mandatory)` marker so the two variants can never collide/duplicate):
+    names `rhythm_delegate` with the `callerAgentConfigId`/`targetAgentConfigId`/
+    `prompt` call convention and lists the roster ids for domain/ministry work,
+    keeps the coding hand-off to workflow-orchestrator via `task`/`subagent_type`
+    verbatim, and replaces "Only handle non-development tasks yourself" with
+    "Only handle trivial admin yourself...". New `parseDelegateRoster(config)`
+    helper parses `config.allowedDelegatesJson` defensively (bad JSON/non-array
+    → `[]`, falls back to the old plain-preamble path). The sole call site
+    (`writeAgentProfileFile`, ~line 199) now passes `parseDelegateRoster(config)`.
+  - `apps/api_server/src/services/secretary_delegation_seed.ts` — the
+    `allowed_delegates_json` non-clobber rule is now a **secretary-only
+    exception**: reconciled to the role file's roster whenever it differs
+    (order-independent `rosterMatches()` set-comparison), not just when NULL.
+    `is_manager` overlay behavior (false→true only) is unchanged. Logs a
+    distinct "reconciled drifted secretary allowed_delegates_json..." line
+    (with the stale value) when a non-null roster is actually replaced, on top
+    of the existing backfill log line.
+  - `apps/api_server/src/services/__tests__/opencode_agent_writer.test.ts` —
+    added: hub-preamble contains `rhythm_delegate` + roster ids + coding
+    hand-off, omits the old blanket line; idempotent re-inject; distinct hub
+    marker; non-manager ignores a passed roster; manager WITHOUT a roster (both
+    explicit `[]` and the default-arg omitted case) still gets the byte-identical
+    plain preamble; `buildHubRoutingPreamble` unit coverage.
+  - `apps/api_server/src/__tests__/secretary_delegation_seed.test.ts` — replaced
+    the old "never clobbers a human-set allowed_delegates_json" test (which
+    directly contradicted the new required behavior) with a reconcile test using
+    a dirty roster shaped like the live #889 regression (a UUID, two spaced
+    display names, `workflow-orchestrator`, `graphic-designer`) → asserts it's
+    replaced with exactly the role file's 7 slugs; added a no-op test for an
+    already-matching roster in different order.
+- Checks run:
+  - `cd apps/api_server && npx tsc --noEmit` — clean.
+  - `cd apps/api_server && npx vitest run src/services/__tests__/opencode_agent_writer.test.ts src/__tests__/secretary_delegation_seed.test.ts` —
+    **29/29 pass**.
+  - Fail-before/pass-after: `git stash` on both source files (writer + seed),
+    re-ran the same two test files — **7 tests failed** against the
+    pre-fix code (hub marker/content assertions + `buildHubRoutingPreamble is
+    not a function` + the reconcile test), confirming the tests exercise real
+    new behavior, not tautologies. `git stash pop` restored the fix; re-run
+    confirmed 29/29 green again.
+- Decisions made: kept the plain `MANAGER_ROUTING_PREAMBLE` constant and its
+  marker completely unchanged for zero-roster managers (byte-identical output)
+  rather than folding it into one shared template, to guarantee no behavior
+  change for workflow-orchestrator. Used a distinct hub marker (with the
+  em-dash suffix) rather than trying to reuse `## Routing (mandatory)` for
+  both variants, so idempotency checks for either preamble never false-positive
+  against the other. Made the roster-reconcile logic (`rosterMatches`)
+  order-independent so a human simply reordering the role file's array doesn't
+  trigger a spurious "reconciled" log/write.
+- Deviations from spec: none.
+- Concerns / residual risk: **the roster reconcile runs inside
+  `syncOpencodeAgentProfiles()`**, which fires on `GET /agent-sessions/agents`
+  and on-demand sync, not strictly "at server startup" — a running server needs
+  that endpoint hit (or a relaunch) before the live dirty roster is actually
+  repaired in the DB. This was NOT live-smoked: no relaunch was performed, and
+  no live check that Secretary now actually calls `rhythm_delegate` and spawns
+  a "Delegated: <Specialist>" child session for a ministry request. **Manual
+  smoke required**: relaunch (or trigger a sync), then ask Secretary something
+  like "plan the worship set" and confirm (a) the DB roster is reconciled to
+  the 7 role-file slugs, (b) Secretary calls `rhythm_delegate` rather than
+  answering directly, and (c) a `Delegated: <Specialist>` child session
+  actually spawns.
+
 ### 2026-07-03 — #856 (reopened, SECOND attempt): file-watch replaced with change-gated Keychain poll
 verification-gate pending (about to run). This supersedes the "2026-07-03 —
 #856 (reopened)" entry immediately below: LIVE SMOKE proved the file-watch

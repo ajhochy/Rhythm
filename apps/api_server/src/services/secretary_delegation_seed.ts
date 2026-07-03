@@ -16,17 +16,21 @@
  * mirrors `ministry_recipes_seed.ts`'s role-file reader) and reconciling them
  * into the `secretary` `agent_configs` row.
  *
- * Non-clobber discipline (same USER-OWNED overlay contract as
- * `agent_profile_sync.ts`'s allowed_mcps_json / allowed_skills_json /
- * allowed_delegates_json handling): a column is backfilled ONLY when it is
- * still at its unset default —
- *   - `is_manager`            → only flips false → true, never true → false.
- *   - `allowed_delegates_json` → only backfilled when still NULL; an existing
- *     (possibly hand-edited, possibly narrower or broader) roster is left
- *     completely untouched.
- * This makes the manager/roster configuration reproducible on a clean
- * database without manual SQL or UI edits, while never overwriting a value a
- * human already set in the designer.
+ * Non-clobber discipline for `is_manager` (same USER-OWNED overlay contract
+ * as `agent_profile_sync.ts`'s allowed_mcps_json / allowed_skills_json
+ * handling): it only flips false → true, never true → false.
+ *
+ * `allowed_delegates_json` is the ONE exception to that overlay contract,
+ * scoped to the secretary seed only: the role file
+ * (`.mcp-roles/secretary.mcp.json`) is the reproducible source of truth for
+ * Secretary's roster, and the live roster has drifted into a broken mixed
+ * state (raw UUIDs and spaced display names instead of the hyphenated agent
+ * slugs `agent_delegation_service` validates against) — a NULL-only backfill
+ * can never repair that drift. So for `secretary` specifically, this seed
+ * RECONCILES `allowed_delegates_json` to the role file's `allowedDelegates`
+ * whenever the two differ (including non-null → different value), not just
+ * when it is NULL. This makes the manager/roster configuration reproducible
+ * on a clean OR a drifted database without manual SQL or UI edits.
  *
  * Invoked from `agent_profile_sync.syncOpencodeAgentProfiles()` (appended
  * after its main loop, alongside the #858 oc_agent repair pass) rather than
@@ -88,7 +92,11 @@ function readSecretaryRoleFile(): SecretaryRoleFile | null {
 export interface SecretaryDelegationSeedResult {
   /** True when is_manager was flipped false → true this pass. */
   managerBackfilled: boolean;
-  /** True when allowed_delegates_json was backfilled from null this pass. */
+  /**
+   * True when allowed_delegates_json was written this pass — either backfilled
+   * from null, or RECONCILED because the existing (possibly dirty/drifted)
+   * roster differed from the role file's roster. See module doc.
+   */
   delegatesBackfilled: boolean;
   /** True when the secretary agent_configs row does not exist yet (skipped). */
   secretaryRowMissing: boolean;
@@ -152,8 +160,18 @@ export async function seedSecretaryDelegation(): Promise<SecretaryDelegationSeed
     patch.isManager = true;
   }
 
-  if (existing.allowedDelegatesJson === null && roleFile.allowedDelegates) {
-    patch.allowedDelegatesJson = JSON.stringify(roleFile.allowedDelegates);
+  let reconciled = false;
+  if (roleFile.allowedDelegates) {
+    const desiredJson = JSON.stringify(roleFile.allowedDelegates);
+    if (existing.allowedDelegatesJson === null) {
+      patch.allowedDelegatesJson = desiredJson;
+    } else if (!rosterMatches(existing.allowedDelegatesJson, roleFile.allowedDelegates)) {
+      // Secretary-only exception to the USER-OWNED overlay contract: the live
+      // roster is reconciled to the role file's roster even when it already
+      // holds a (dirty/drifted) non-null value — see module doc.
+      patch.allowedDelegatesJson = desiredJson;
+      reconciled = true;
+    }
   }
 
   if (Object.keys(patch).length === 0) {
@@ -164,6 +182,11 @@ export async function seedSecretaryDelegation(): Promise<SecretaryDelegationSeed
     repo.update(SECRETARY_ROLE_SLUG, patch);
     result.managerBackfilled = patch.isManager === true;
     result.delegatesBackfilled = patch.allowedDelegatesJson !== undefined;
+    if (reconciled) {
+      logger.info(
+        `[secretary-delegation-seed] reconciled drifted secretary allowed_delegates_json to role-file roster (was: ${existing.allowedDelegatesJson})`,
+      );
+    }
     logger.info(
       `[secretary-delegation-seed] backfilled secretary agent_configs: managerBackfilled=${result.managerBackfilled} delegatesBackfilled=${result.delegatesBackfilled}`,
     );
@@ -172,4 +195,23 @@ export async function seedSecretaryDelegation(): Promise<SecretaryDelegationSeed
   }
 
   return result;
+}
+
+/**
+ * True when `existingJson` (raw `allowed_delegates_json` column value) parses
+ * to an array of strings that is set-equal to `desired` (order-independent).
+ * Malformed/non-array JSON is treated as NOT matching, so a corrupt column
+ * value is also repaired rather than left alone.
+ */
+function rosterMatches(existingJson: string, desired: string[]): boolean {
+  try {
+    const parsed = JSON.parse(existingJson);
+    if (!Array.isArray(parsed) || !parsed.every((v) => typeof v === 'string')) return false;
+    if (parsed.length !== desired.length) return false;
+    const a = [...parsed].sort();
+    const b = [...desired].sort();
+    return a.every((v, i) => v === b[i]);
+  } catch {
+    return false;
+  }
 }

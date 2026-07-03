@@ -6,6 +6,7 @@ import 'package:rhythm_desktop/app/core/notifications/local_notification_service
 import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
 import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
+import 'package:rhythm_desktop/features/agents/models/catalog_model_entry.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
 import 'package:rhythm_desktop/features/agents/models/chat_models.dart';
@@ -133,8 +134,13 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
   }) async {
+    lastCreateAgentId = agentId;
     return _makeSession('new-session', AgentSessionStatus.starting);
   }
+
+  /// #889: the agentId passed to the most recent createSession call, so tests
+  /// can assert default-agent resolution.
+  String? lastCreateAgentId;
 
   final List<String> closeSessionCalls = [];
   final List<String> deleteSessionCalls = [];
@@ -332,6 +338,58 @@ void main() {
 
   tearDown(() {
     controller.dispose();
+  });
+
+  // --------------------------------------------------------------------------
+  // createSession default agent (#889)
+  // --------------------------------------------------------------------------
+
+  group('createSession default agent (#889)', () {
+    CatalogModelEntry entry(String agent, {bool authorized = true}) =>
+        CatalogModelEntry(
+          agent: agent,
+          provider: 'anthropic',
+          modelId: 'claude-sonnet-4-6',
+          displayName: agent,
+          route: 'direct',
+          authorized: authorized,
+          authProvider: 'anthropic',
+        );
+
+    test(
+        'defaults new sessions to Secretary when present + authorized, even if '
+        'another authorized agent sorts first', () async {
+      controller.setCatalogForTest([
+        entry('workflow-orchestrator'),
+        entry('secretary'),
+        entry('claude-code'),
+      ]);
+
+      await controller.createSession(cwd: '/tmp');
+
+      expect(fakeRepo.lastCreateAgentId, equals('secretary'));
+    });
+
+    test('falls back to the first authorized agent when Secretary is absent',
+        () async {
+      controller.setCatalogForTest([
+        entry('gemini-cli', authorized: false),
+        entry('claude-code'),
+        entry('codex'),
+      ]);
+
+      await controller.createSession(cwd: '/tmp');
+
+      expect(fakeRepo.lastCreateAgentId, equals('claude-code'));
+    });
+
+    test('does not override an explicitly-passed agentId', () async {
+      controller.setCatalogForTest([entry('secretary'), entry('claude-code')]);
+
+      await controller.createSession(cwd: '/tmp', agentId: 'theologian');
+
+      expect(fakeRepo.lastCreateAgentId, equals('theologian'));
+    });
   });
 
   // --------------------------------------------------------------------------
