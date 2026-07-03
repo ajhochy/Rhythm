@@ -255,3 +255,51 @@ Automated coverage already proves this by composition: api_server `opencode_clie
 fork `mcp_allowlist_e2e.test.ts` (gate filters offered tools to exactly the allowlist:
 5→3→1→0), and `mcp_allowlist_expander.test.ts` (Secretary → 36). The manual smoke is
 the live full-stack visual confirmation with the bundled binary.
+
+## Deferred MCP tool schema loading smoke (tokens-03, #843)
+
+Verifies that a session with `mcpAllowlist.deferred = true` advertises its allowlisted
+MCP tools as a names-only catalog + ONE dispatcher tool (`mcp_dispatch`) instead of one
+full JSON Schema per tool, and that dispatching a call by name still executes the real
+tool. **Requires the patched fork engine**, same build/PATH steps as the MCP allowlist
+smoke above.
+
+**Measurement instrument:** `resolveTools complete` (same DEBUG log line as the MCP
+allowlist smoke) now also carries `deferredMcpActive` (bool) and `deferredMcpCatalogSize`
+(the MCP tool count that would otherwise have been individually schema-injected).
+`resolveToolsCount` in deferred mode reflects builtins + 1 (the dispatcher), NOT
+builtins + N (one per MCP tool) — that count drop is the direct evidence of the fix.
+
+**Analytical before/after (recorded 2026-07-02, via tokens-01's `estimateToolSurface`):**
+Secretary role (36 allowlisted MCP tools): eager ≈ 6125 session-start tokens → deferred
+≈ 2830 tokens, a **3295-token (53.8%) drop**. An unscoped/dev-role session (~20 connected
+servers, inherit-all estimate) drops even further: ≈ 64125 → ≈ 16750 tokens (**47375
+tokens, 73.9%**). Method: `before` = the estimator's existing calibrated 500-chars/tool
+JSON-Schema estimate (unchanged); `after` = a conservative 120-chars/tool names-only
+catalog entry (name + server + one-line description, no JSON Schema fields — see
+`mcp_deferred_tools.ts`'s `formatDeferredToolCatalog`) plus one 500-char dispatcher schema.
+**This is an analytical estimate from the same estimator #841 shipped, not a live-engine
+byte count** — the live-engine confirmation below is the required follow-up.
+
+Checklist (requires the live signed/built fork binary — NOT yet run in this environment,
+recorded here as the explicit required manual smoke per issue #843's contract):
+- [ ] Open a session with `mcpAllowlist.deferred: true` and a profile allowlist (e.g.
+  Secretary) → engine log `deferredMcpActive: true`, `resolveToolsCount` is small
+  (builtins + 1), `deferredMcpCatalogSize` equals the allowlist's tool count (36 for
+  Secretary).
+- [ ] The model can still successfully call an allowlisted tool by name via
+  `mcp_dispatch` and get real output back.
+- [ ] Dispatching an out-of-scope tool name is rejected (does not execute).
+- [ ] A profile-less or `deferred: false/absent` session is completely unaffected
+  (byte-identical eager behavior, same `resolveToolsCount` as before this patch).
+
+Automated coverage already proves the logic by composition: fork
+`mcp_deferred_tools.test.ts` (pure-unit: catalog shape, dispatch-time allowlist gating,
+parity with `filterMcpToolsByAllowlist`) and `mcp_allowlist_e2e.test.ts` Cases E-H
+(E2E: real `resolveTools` → LLM request body proves only `mcp_dispatch` is offered and
+individual MCP schemas are absent; F proves an empty allowlist yields an empty catalog;
+G proves dispatching a real tool by name executes it and returns real output; H proves
+dispatching an out-of-scope name is rejected, falsified in the implementing run by
+temporarily removing the guard and confirming the test failed). The manual smoke above
+is the live full-stack visual + token-count confirmation with the bundled binary, not
+yet run.

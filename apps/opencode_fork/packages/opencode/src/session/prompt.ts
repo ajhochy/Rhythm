@@ -23,6 +23,12 @@ import { ToolRegistry } from "@/tool/registry"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { MCP } from "../mcp"
 import { filterMcpToolsByAllowlist } from "./mcp_allowlist"
+import {
+  buildDeferredToolCatalog,
+  formatDeferredToolCatalog,
+  isDeferredMcpToolAllowed,
+  MCP_DISPATCH_TOOL_ID,
+} from "./mcp_deferred_tools"
 import { LSP } from "@/lsp/lsp"
 import { ulid } from "ulid"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
@@ -81,6 +87,23 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 
 const log = Log.create({ service: "session.prompt" })
 const elog = EffectLogger.create({ service: "session.prompt" })
+
+// Rhythm carried patch (tokens-03, #843): deferred MCP tool schema loading.
+// See session/mcp_deferred_tools.ts for the full design rationale (mirrors
+// the skill-scope dispatcher pattern in tool/skill.ts, #775).
+const MCP_DISPATCH_DESCRIPTION =
+  "Call an MCP tool by name. Use this when the task matches one of the tools listed below. " +
+  'Pass { "name": "<tool_name>", "arguments": { ... } } where <tool_name> is exactly one of the ' +
+  "names in the catalog below and arguments matches that tool's own expected input."
+
+/** composedKey -> description, read from the AI SDK Tool objects mcp.tools() returns. */
+function deferredDescriptions(mcpToolsAll: Record<string, AITool>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, item] of Object.entries(mcpToolsAll)) {
+    out[key] = item.description ?? ""
+  }
+  return out
+}
 
 type ReferencePromptMetadata = {
   name: string
@@ -616,10 +639,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         filterMcpToolsByAllowlist(Object.keys(mcpToolsAll), keyToServer, input.session.mcpAllowlist),
       )
 
-      for (const [key, item] of Object.entries(mcpToolsAll)) {
-        if (!allowedKeys.has(key)) continue
+      // Rhythm carried patch (tokens-03, #843): wraps ONE MCP tool's raw execute
+      // with the same permission/plugin-trigger/truncation pipeline every MCP
+      // tool has always gone through. Extracted to a closure so both the eager
+      // path (below, unchanged behavior) and the deferred dispatcher's execute
+      // (mcp_dispatch, only built when input.session.mcpAllowlist?.deferred is
+      // true) share exactly one wrapping implementation — the dispatcher must
+      // never grow a second, divergent execution path for MCP tool calls.
+      const wrapMcpTool = Effect.fn("SessionPrompt.wrapMcpTool")(function* (key: string, item: AITool) {
         const execute = item.execute
-        if (!execute) continue
+        if (!execute) return undefined
 
         const schema = yield* Effect.promise(() => Promise.resolve(asSchema(item.inputSchema).jsonSchema))
         const transformed = ProviderTransform.schema(input.model, schema)
@@ -701,7 +730,78 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               return output
             }),
           )
-        tools[key] = item
+        return item
+      })
+
+      // Rhythm carried patch (tokens-03, #843): deferred MCP tool schema loading.
+      // Opt-in via session.mcpAllowlist.deferred. When true: advertise the
+      // allowlisted MCP tools as a names-only catalog (system prompt) plus ONE
+      // dispatcher tool (mcp_dispatch) whose OWN schema is tiny and fixed; the
+      // real tool's full JSON Schema is resolved (via wrapMcpTool, above) and
+      // executed only when the model actually dispatches a call by name. When
+      // false/absent (default): unchanged eager behavior — one schema injected
+      // per allowlisted tool, exactly as before this patch (back-compat).
+      const deferredMcp = input.session.mcpAllowlist?.deferred === true
+
+      if (deferredMcp) {
+        const catalog = buildDeferredToolCatalog(allowedKeys, keyToServer, deferredDescriptions(mcpToolsAll))
+        tools[MCP_DISPATCH_TOOL_ID] = tool({
+          description: MCP_DISPATCH_DESCRIPTION + "\n\n" + formatDeferredToolCatalog(catalog),
+          inputSchema: jsonSchema({
+            type: "object",
+            properties: {
+              name: {
+                type: "string",
+                description: "The MCP tool name to call, exactly as listed in the tool catalog above.",
+              },
+              arguments: {
+                type: "object",
+                description: "The arguments object for the named tool, matching its own input schema.",
+              },
+            },
+            required: ["name"],
+            additionalProperties: false,
+          }),
+          execute: async (rawArgs: unknown) => {
+            const { name, arguments: toolArgs } = (rawArgs ?? {}) as { name?: string; arguments?: unknown }
+            if (typeof name !== "string" || name.length === 0) {
+              throw new Error("mcp_dispatch requires a `name` naming one of the tools in the catalog.")
+            }
+            // Rhythm carried patch (tokens-03, #843): execute-time re-check —
+            // mirrors tool/skill.ts's isSkillAllowed guard (#775). The catalog
+            // already excludes out-of-scope tools, but a model could still try
+            // to dispatch a name it hallucinates or remembers from an earlier
+            // turn; this must fail closed exactly like the eager-mode gate
+            // (filterMcpToolsByAllowlist) so deferred mode is never MORE
+            // permissive than eager mode for the same allowlist.
+            if (!isDeferredMcpToolAllowed(name, keyToServer, input.session.mcpAllowlist)) {
+              throw new Error(`MCP tool "${name}" is not permitted for this session's allowlist.`)
+            }
+            const rawItem = mcpToolsAll[name]
+            if (!rawItem) {
+              throw new Error(`MCP tool "${name}" not found. Available tools: ${[...allowedKeys].join(", ") || "none"}`)
+            }
+            const wrapped = await run.promise(wrapMcpTool(name, rawItem))
+            if (!wrapped?.execute) {
+              throw new Error(`MCP tool "${name}" has no executable implementation.`)
+            }
+            // AI SDK tool.execute signature requires (args, options); mcp_dispatch's
+            // own wrapper is invoked without per-call ToolExecutionOptions plumbed
+            // through a second dispatch hop, so we synthesize a minimal-but-valid
+            // options object mirroring what the SDK passes to top-level tools.
+            return wrapped.execute(toolArgs ?? {}, {
+              toolCallId: ulid(),
+              messages: [],
+            } as ToolExecutionOptions)
+          },
+        })
+      } else {
+        for (const [key, item] of Object.entries(mcpToolsAll)) {
+          if (!allowedKeys.has(key)) continue
+          const wrapped = yield* wrapMcpTool(key, item)
+          if (!wrapped) continue
+          tools[key] = wrapped
+        }
       }
 
       // Rhythm carried patch (mcp-scope): measurement instrument for the per-session
@@ -709,9 +809,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       // model context; allowlistActive indicates whether the session was scoped by a
       // profile (false → all MCP tools injected, back-compat). Read from engine logs
       // during the Secretary smoke (see docs/ai/testing-guide.md "MCP allowlist smoke").
+      // deferredMcpActive (tokens-03, #843) indicates whether THIS session used the
+      // names-only catalog + dispatcher instead of per-tool schema injection;
+      // deferredMcpCatalogSize is the number of MCP tools in that catalog (the count
+      // that would otherwise have been individually schema-injected).
       log.debug("resolveTools complete", {
         resolveToolsCount: Object.keys(tools).length,
         allowlistActive: !!input.session.mcpAllowlist,
+        deferredMcpActive: deferredMcp,
+        deferredMcpCatalogSize: deferredMcp ? allowedKeys.size : undefined,
       })
 
       return tools
