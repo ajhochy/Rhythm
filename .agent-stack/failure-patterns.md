@@ -174,3 +174,9 @@
 - **Criteria affected**: clean-boot; #857 cron-off
 - **Root cause**: verification-gate ran build+unit+analyze but never BOOTED the server, so startup-only issues were invisible — (A) reloadSkills ECONNREFUSED before the engine listens; (B) #856 auth watcher self-bouncing on its own OAuth access-token refresh (raw-byte compare). Separately, #857's coding-agent claimed the optimizer cron was "off by construction" without booting to verify — it was seeded-ON.
 - **Suggested fix**: add a boot-smoke to verification-gate for server-spawning repos (launch backend against the real engine; assert zero error-level lines + no spurious restart in first N seconds). Coding-agents must not assert runtime state ("cron off") without a boot check.
+
+## 2026-07-02 — Run #882 UI smoke — 5 of 7 items fail-then-fixed despite green suites
+- **Result**: smoke FAIL→fixed in-run (verification claimed PASS) — divergence=true
+- **Category**: C2 (wrong contracts) dominant
+- **Root cause**: contract tests modeled fixture-convenient environments, not production shape — legacy-only vault layout (#886), engine directory-scoping (#861), generic-agent child rows (#867), empty-cwd test fake (#863), no user-feedback assertion (#863).
+- **Suggested fix**: acceptance contracts must pin the PRODUCTION environment (clean layout env vars, real id spaces the UI sends, delegated-row shapes); verification-gate's boot-smoke should include one interactive-path probe per changed surface.

@@ -16,14 +16,13 @@ sequentially with the full check suite between folds.
 
 ## In progress
 
-- **#815** — VERIFICATION-ONLY (native ask-notification). Feature is fully implemented
-  on main (`local_notification_service.dart` + `agents_controller.dart` #815 logic +
-  `main.dart` tap→nav + `opencode_stream_bridge` question/permission handling). Needs a
-  live smoke (role-scoped agent raises a question → macOS notification appears → click
-  focuses the session), then close. No code in #882.
-- Manual/AI **UI visual smoke** of the new surfaces (quick actions, Report Card,
-  memory edit + provenance, nested Task-card nav, session-agent binding) — repo has no
-  Flutter golden tooling, so this is the manual smoke step.
+- Manual smoke COMPLETE (2026-07-02, 7/7 items PASS after in-run fixes): quick actions
+  (#863: cwd + feedback/nav fixed), Report Card (#865 — surfaced #884), memory edit +
+  integrated Context-tab provenance (#862 — #886 source_id convention fixed), Task-card
+  → existing local child session (#861 — link-first + directory-scoped reads), child
+  identity (#867 — specialist parsed from title + 31-row backfill), tool cards default
+  collapsed, **#815 verified live and CLOSED** (question → macOS notification →
+  click-to-focus). All fixes on #882; CI green on the final commit.
 
 ## Risks / known issues
 

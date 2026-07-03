@@ -86,3 +86,29 @@ the full check suite between folds, CI watched to green. Mobile #418/#71 exclude
   handoff's "plaintext credentials" was a projectId + local endpoints, nothing to rotate).
 - Also filed 10 setup-agent issues on the maintainer's behalf (they'd been generated
   locally by a shell-less session as `docs/ai/generated-issues/setup-0*.md` but never pushed).
+
+## Manual smoke round (post-PR, fixes folded into #882)
+
+7/7 items PASS after in-run repairs; every fix pushed + CI green on `8123b222c`:
+1. Boot: reloadSkills ECONNREFUSED spam (isReady guard) + #856 self-bounce on token
+   refresh (identity fingerprint) + optimizer-cron doc corrected (seeded-ON; decision:
+   merge #882 before 02:00).
+2. #863: `cwd:''` → 400 (HOME default); "spun then did nothing" → SnackBar +
+   navigate-to-session via the #815 pending-nav path.
+3. #865 PASS — Report Card surfaced the recurring Gemini 512-function-declaration
+   failure → #884.
+4. #862: app read the OLD Memory-Vault (env never wired → #885); edit 404 from the
+   source_id convention split (#886, fixed + contract test); provenance redesigned into
+   the Context tab.
+5. #861: child transcript empty (engine reads are directory-scoped → ?directory=
+   threading) then redesigned link-first to the EXISTING local child session
+   (sdkSessionId on the Flutter model); bash/tool cards default collapsed.
+6. #867: child rows persisted agent_kind='claude-code' — specialist now parsed from the
+   engine title at upsert + 31 live rows backfilled; identity + reply binding verified.
+7. #815 verified live (question tool → macOS notification → click-to-focus) — CLOSED.
+
+Postmortems: `.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json` (boot) +
+`2026-07-02-issue-882-ui-smoke.json` (UI round; C2-dominant — contracts modeled
+fixture-convenient environments, not production shape).
+Also filed/closed this round: #883 (secretary delegation gap, corrected), #884, #885,
+#886 (fixed in-run), #869 closed (no secret), #870–#881 (see above).
