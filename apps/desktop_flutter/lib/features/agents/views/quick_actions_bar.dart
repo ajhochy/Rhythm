@@ -11,6 +11,8 @@
 /// [AgentsController.sendInput] so the user never has to type anything.
 library;
 
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -161,7 +163,11 @@ class _QuickActionsBarState extends State<QuickActionsBar> {
   Future<void> _runChatAction(_QuickActionKind kind) async {
     final agentsController = context.read<AgentsController>();
     final session = await agentsController.createSession(
-      cwd: '',
+      // A staff-facing helper session isn't tied to a code checkout, but the
+      // engine requires a non-empty working dir — default to HOME, matching
+      // the normal chat launchers (agents_view.dart). '' → 400 "cwd is
+      // required" (the #863 smoke bug).
+      cwd: Platform.environment['HOME'] ?? '/',
       name: _sessionName(kind),
       mcpRole: 'secretary',
       taskId: widget.context_.kind == 'task' ? widget.context_.sourceId : null,
@@ -214,7 +220,11 @@ class _QuickActionsBarState extends State<QuickActionsBar> {
     // item needs, reusing the same preset-invocation path as the chat
     // actions above.
     final session = await agentsController.createSession(
-      cwd: '',
+      // A staff-facing helper session isn't tied to a code checkout, but the
+      // engine requires a non-empty working dir — default to HOME, matching
+      // the normal chat launchers (agents_view.dart). '' → 400 "cwd is
+      // required" (the #863 smoke bug).
+      cwd: Platform.environment['HOME'] ?? '/',
       name: _sessionName(_QuickActionKind.followUpTasks),
       mcpRole: 'secretary',
       taskId: widget.context_.kind == 'task' ? widget.context_.sourceId : null,

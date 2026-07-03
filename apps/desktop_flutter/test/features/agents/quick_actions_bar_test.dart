@@ -79,6 +79,7 @@ class _StubAgentsRepository implements AgentsRepository {
 
   String? lastMcpRole;
   String? lastTaskId;
+  String? lastCwd;
   bool createSessionShouldFail = false;
   final List<Map<String, dynamic>> sentMessages = [];
 
@@ -146,6 +147,7 @@ class _StubAgentsRepository implements AgentsRepository {
     }
     lastMcpRole = mcpRole;
     lastTaskId = taskId;
+    lastCwd = cwd;
     final now = DateTime.now();
     return AgentSession(
       id: 'test-session-id',
@@ -324,6 +326,11 @@ void main() {
 
       expect(stubAgentsRepo.lastMcpRole, equals('secretary'));
       expect(stubAgentsRepo.lastTaskId, equals('task-42'));
+      // Regression (#863 smoke): the quick action must pass a NON-EMPTY cwd —
+      // POST /agent-sessions rejects '' with 400 "cwd is required", which
+      // silently broke the agent-launch half of the action in the live app.
+      expect(stubAgentsRepo.lastCwd, isNotNull);
+      expect(stubAgentsRepo.lastCwd, isNotEmpty);
       expect(agentsController.selectedSessionId, equals('test-session-id'));
 
       final inputFrames = stubAgentsRepo.sentMessages
