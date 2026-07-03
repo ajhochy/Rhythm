@@ -17,9 +17,11 @@ class ToolCallPart extends StatefulWidget {
 }
 
 class _ToolCallPartState extends State<ToolCallPart> {
-  // Default-expanded so the tool output is visible inline. Users can
-  // collapse manually for noisy ones.
-  bool _expanded = true;
+  // Default-COLLAPSED (maintainer smoke feedback, 2026-07-02): opening a
+  // session with a tool-heavy transcript rendered every args/output body
+  // expanded, drowning the conversation. The header (tool name + status)
+  // stays visible; users expand the calls they care about.
+  bool _expanded = false;
 
   Color _statusColor(BuildContext context) {
     switch (widget.part.toolStatus) {
