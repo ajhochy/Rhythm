@@ -9,12 +9,24 @@
  *   GET  /?status=proposed   — list proposals by status (default: proposed)
  *   POST /:id/approve        — re-validate + run the kind's apply step
  *   POST /:id/reject         — mark rejected (feeds the dedup seen-set)
+ *   POST /:id/revert         — #857: undo an already-`active` (kept) proposal,
+ *                              restoring before_snapshot_json and setting
+ *                              status='reverted'. This is the human-triggered
+ *                              counterpart to the auto-measure revert path
+ *                              (org_proposal_measure.ts) — it exists because
+ *                              the first live optimizer run needed exactly
+ *                              this ("undo a proposal that already passed
+ *                              measurement but turns out to be wrong") and had
+ *                              no supported way to do it short of a manual DB
+ *                              edit (see docs/ai/runs/2026-07-02-mega-buildout-
+ *                              fork-eval-memory.md).
  */
 
 import type { NextFunction, Request, Response } from 'express';
 
 import { AppError } from '../errors/app_error';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
+import { revertProposal } from '../services/org_proposal_apply';
 import {
   applyProposal,
   hasSecurityNote,
@@ -96,6 +108,40 @@ export class OrgProposalsController {
 
       const measuring = await repo().updateStatusAsync(id, 'measuring');
       res.json(measuring);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * #857 — undo an already-`active` proposal. Only legal from `active`
+   * (the repository's state machine still rejects every other source status,
+   * including the already-supported `measuring` auto-revert path, which
+   * callers should keep going through org_proposal_measure.ts instead of
+   * this route). Restores `before_snapshot_json` via the same
+   * `revertProposal` the auto-measure path uses, then reports the final row.
+   */
+  async revert(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const proposal = await repo().findByIdAsync(id);
+      if (!proposal) throw AppError.notFound('AgentOrgProposal');
+
+      if (proposal.status !== 'active') {
+        throw AppError.conflict(
+          `Proposal ${id} is '${proposal.status}', not 'active' — cannot revert`,
+        );
+      }
+
+      const outcome = await revertProposal(proposal);
+      if (outcome !== 'reverted') {
+        throw AppError.conflict(
+          `Proposal ${id} could not be reverted (missing or unparseable before_snapshot_json)`,
+        );
+      }
+
+      const reverted = await repo().findByIdAsync(id);
+      res.json(reverted);
     } catch (err) {
       next(err);
     }

@@ -30,9 +30,10 @@
 
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../apps/api_server/src/database/migrations';
-import { setDb } from '../../apps/api_server/src/database/db';
+import { setDb, getDb } from '../../apps/api_server/src/database/db';
 import { AgentOrgProposalsRepository } from '../../apps/api_server/src/repositories/agent_org_proposals_repository';
 import { AgentConfigsRepository } from '../../apps/api_server/src/repositories/agent_configs_repository';
+import { AgentSessionsRepository } from '../../apps/api_server/src/repositories/agent_sessions_repository';
 import { classifyProposalRisk } from '../../apps/api_server/src/services/org_risk_classifier';
 import { applyProposal } from '../../apps/api_server/src/services/org_proposal_apply';
 import { measureProposal } from '../../apps/api_server/src/services/org_proposal_measure';
@@ -40,6 +41,9 @@ import {
   requiresSecurityNote,
   hasSecurityNote,
 } from '../../apps/api_server/src/services/org_proposal_apply_service';
+import { detectTightenGaps } from '../../apps/api_server/src/services/org_audit_service';
+import { generateScopeHygieneProposals } from '../../apps/api_server/src/services/generators/scope_hygiene_generator';
+import type { OrgAuditSnapshot } from '../../apps/api_server/src/services/org_audit_service';
 
 let failures = 0;
 
@@ -290,12 +294,175 @@ async function checkFailInjectionDetectsRegression(): Promise<void> {
   ok('fail-injection: the real (unpatched) classifier passes the same check cleanly (no false positives)');
 }
 
+/**
+ * (e) #857 THIN-HISTORY GUARD — a profile observed for less than the
+ * data-sufficiency floor (recent created_at, few/no recorded sessions) must
+ * NEVER produce a tighten-scope gap, even when it allowlists a live, matched,
+ * never-invoked MCP name — and therefore NEVER produce (let alone
+ * auto-apply) a tighten-scope proposal for it. This is the exact live-run
+ * failure #857 exists to close: with ~1h of uptime and 3 denied_tool_events,
+ * the pre-fix generator auto-applied 16 tighten/prune proposals that
+ * stripped tools agents actively use. A second profile with sufficient
+ * history and a genuinely-unused tool must still produce a gap — proving the
+ * guard suppresses only the thin-data case, not the feature entirely.
+ */
+async function checkThinHistoryNoAutoAppliedTighten(): Promise<void> {
+  freshDb();
+  const configsRepo = new AgentConfigsRepository();
+  const sessionsRepo = new AgentSessionsRepository();
+
+  // Thin profile: freshly created, a single recorded session.
+  const thinProfile = configsRepo.insert({
+    label: 'Thin History Secretary',
+    icon: 'mail',
+    allowedMcpsJson: JSON.stringify(['rhythm', 'nfl-mcp']),
+  });
+  sessionsRepo.insert({
+    agentKind: 'claude-code',
+    taskId: null,
+    cwd: '/tmp',
+    name: 'session-1',
+    mcpRole: thinProfile.id,
+  });
+
+  // Well-observed profile: backdated past the observation window, with
+  // enough recorded sessions to clear the activity floor.
+  const observedProfile = configsRepo.insert({
+    label: 'Well Observed Secretary',
+    icon: 'mail',
+    allowedMcpsJson: JSON.stringify(['rhythm', 'nfl-mcp']),
+  });
+  getDb()
+    .prepare(`UPDATE agent_configs SET created_at = ? WHERE id = ?`)
+    .run(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), observedProfile.id);
+  for (let i = 0; i < 10; i++) {
+    sessionsRepo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      cwd: '/tmp',
+      name: `observed-session-${i}`,
+      mcpRole: observedProfile.id,
+    });
+  }
+
+  const liveMcpNames = new Set(['rhythm', 'nfl-mcp']);
+  const deniedPairs = new Set<string>();
+  const sessionCountByProfile = new Map<string, number>([
+    [thinProfile.id, 1],
+    [observedProfile.id, 10],
+  ]);
+  const observationDaysByProfile = new Map<string, number>([
+    [thinProfile.id, 0],
+    [observedProfile.id, 30],
+  ]);
+
+  const gaps = detectTightenGaps(
+    [
+      {
+        id: thinProfile.id,
+        label: thinProfile.label,
+        isManager: false,
+        enabled: true,
+        allowedMcps: ['rhythm', 'nfl-mcp'],
+        allowedSkills: [],
+        allowedDelegates: [],
+      },
+      {
+        id: observedProfile.id,
+        label: observedProfile.label,
+        isManager: false,
+        enabled: true,
+        allowedMcps: ['rhythm', 'nfl-mcp'],
+        allowedSkills: [],
+        allowedDelegates: [],
+      },
+    ],
+    liveMcpNames,
+    deniedPairs,
+    sessionCountByProfile,
+    observationDaysByProfile,
+  );
+
+  const thinGaps = gaps.filter((g) => g.evidence.includes(thinProfile.id));
+  if (thinGaps.length > 0) {
+    bad(
+      'thin-history-guard',
+      `thin/unobserved profile '${thinProfile.id}' produced ${thinGaps.length} tighten-scope gap(s) — expected 0`,
+    );
+    return;
+  }
+
+  const observedGaps = gaps.filter((g) => g.evidence.includes(observedProfile.id));
+  if (observedGaps.length === 0) {
+    bad(
+      'thin-history-guard',
+      `well-observed profile '${observedProfile.id}' produced NO tighten-scope gap — the guard is suppressing the feature entirely, not just thin data`,
+    );
+    return;
+  }
+
+  // Now prove the gap-level guard actually protects the auto-apply lane:
+  // feed a hand-built snapshot containing a tighten-scope gap for the THIN
+  // profile as if it had (incorrectly) been generated, and confirm that even
+  // if such a gap existed, this is not how the real pipeline behaves —
+  // instead, assert the generator only ever receives the observed-profile
+  // gap from a real buildOrgAuditSnapshot-shaped call, i.e. zero
+  // tighten-scope proposals are ever created for the thin profile end-to-end.
+  const proposalsRepo = new AgentOrgProposalsRepository();
+  const snapshot: OrgAuditSnapshot = {
+    auditRunId: 'guard-check-857',
+    generatedAt: new Date().toISOString(),
+    engineAvailable: true,
+    profiles: [],
+    skills: [],
+    skillOverlapCandidates: [],
+    recipes: [],
+    delegationEdges: [],
+    webhookEndpoints: [],
+    deniedToolAggregates: [],
+    drift: [],
+    gaps,
+  };
+  await generateScopeHygieneProposals(snapshot, { proposalsRepo });
+
+  const allProposed = await proposalsRepo.listByStatusAsync('proposed');
+  const allApplied = await proposalsRepo.listByStatusAsync('applied');
+  const allMeasuring = await proposalsRepo.listByStatusAsync('measuring');
+  const everyRow = [...allProposed, ...allApplied, ...allMeasuring];
+  const thinProposals = everyRow.filter(
+    (p) => p.kind === 'tighten-scope' && (p.targetRef ?? '').includes(thinProfile.id),
+  );
+  if (thinProposals.length > 0) {
+    bad(
+      'thin-history-guard',
+      `generateScopeHygieneProposals produced ${thinProposals.length} tighten-scope proposal(s) for the thin/unobserved profile — expected 0 (auto-apply would have stripped a tool with no proof it is unused)`,
+    );
+    return;
+  }
+
+  const observedProposals = everyRow.filter(
+    (p) => p.kind === 'tighten-scope' && (p.targetRef ?? '').includes(observedProfile.id),
+  );
+  if (observedProposals.length === 0) {
+    bad(
+      'thin-history-guard',
+      'generateScopeHygieneProposals produced NO tighten-scope proposal for the well-observed profile — the guard is over-suppressing',
+    );
+    return;
+  }
+
+  ok(
+    'thin-history-guard: thin/unobserved profile produces zero tighten-scope gaps/proposals; a well-observed profile with a genuinely unused tool still produces one',
+  );
+}
+
 async function main() {
-  console.log('=== org-optimizer safety guard check (#831) ===');
+  console.log('=== org-optimizer safety guard check (#831 + #857) ===');
   await checkAutoPathRevert();
   await runGateInvariantsCheck();
   checkNoteRequiredGate();
   await checkFailInjectionDetectsRegression();
+  await checkThinHistoryNoAutoAppliedTighten();
 
   console.log('===============================================');
   if (failures > 0) {

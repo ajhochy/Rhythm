@@ -148,6 +148,32 @@ function titleSimilarity(a: string, b: string): number {
 
 const SKILL_OVERLAP_THRESHOLD = 0.5;
 
+/**
+ * #857 data-sufficiency guard for the tighten-scope ("never invoked") signal.
+ *
+ * The live-run failure this closes: with almost no usage history (minutes of
+ * uptime, a single session), EVERY granted tool looks "never invoked" —
+ * indistinguishable from a tool proven unused over a meaningful window. A
+ * profile below either floor is "unobserved", not "unused", and must never
+ * produce a tighten-scope gap. Both are configurable via env for operators
+ * who want a stricter/looser bar without a code change; defaults are
+ * deliberately conservative (a week of wall-clock age AND a double-digit
+ * session count) given the cost of a wrong auto-applied prune.
+ *
+ * Scope: this guard applies ONLY to the usage-based tighten-scope signal.
+ * `detectPruneGaps` (a dead/drifted allowlist name — a correctness fix, not a
+ * usage judgement) is intentionally NEVER gated by this window.
+ */
+export const MIN_TIGHTEN_OBSERVATION_DAYS = Number(process.env.ORG_OPTIMIZER_MIN_OBSERVATION_DAYS ?? 7);
+export const MIN_TIGHTEN_ACTIVITY_COUNT = Number(process.env.ORG_OPTIMIZER_MIN_ACTIVITY_COUNT ?? 10);
+
+function daysSince(isoDate: string): number {
+  const then = new Date(isoDate).getTime();
+  if (Number.isNaN(then)) return 0;
+  const ms = Date.now() - then;
+  return ms <= 0 ? 0 : ms / (24 * 60 * 60 * 1000);
+}
+
 function findSkillOverlapCandidates(skills: AgentSkill[]): SkillOverlapCandidate[] {
   const out: SkillOverlapCandidate[] = [];
   for (let i = 0; i < skills.length; i++) {
@@ -255,21 +281,32 @@ function detectPruneGaps(drift: AllowlistDrift[]): OrgAuditGap[] {
  * A tighten-scope gap: a profile's live, matched MCP allowlist entry that has
  * zero denied-tool events AND zero sessions attributed to that profile that
  * could plausibly have exercised it — the "granted but never used" signal
- * (decision doc §4). Conservative: only fires when the profile has at least
- * one session on record (so we have SOME activity to judge "never used"
- * against) — a brand-new profile with no sessions yet is not flagged.
+ * (decision doc §4).
+ *
+ * #857 data-sufficiency guard: "never invoked" is only a valid prune signal
+ * once the profile has been observed for AT LEAST `MIN_TIGHTEN_OBSERVATION_DAYS`
+ * (wall-clock age since the profile/grant was created, via
+ * `observationDaysByProfile`) AND has AT LEAST `MIN_TIGHTEN_ACTIVITY_COUNT`
+ * recorded sessions. A profile below EITHER floor is under-observed, not
+ * over-scoped — no gap is emitted for it at all (not even a low-confidence
+ * one), matching the issue's "no data at all must NEVER produce a prune"
+ * requirement. A profile with a long history but a genuinely unused tool
+ * still produces a gap exactly as before.
  */
-function detectTightenGaps(
+export function detectTightenGaps(
   profiles: ProfileScopeSnapshot[],
   liveMcpNames: Set<string>,
   deniedPairs: Set<string>,
   sessionCountByProfile: Map<string, number>,
+  observationDaysByProfile: Map<string, number>,
 ): OrgAuditGap[] {
   if (liveMcpNames.size === 0) return [];
   const gaps: OrgAuditGap[] = [];
   for (const profile of profiles) {
     const sessionCount = sessionCountByProfile.get(profile.id) ?? 0;
-    if (sessionCount === 0) continue;
+    const observationDays = observationDaysByProfile.get(profile.id) ?? 0;
+    if (sessionCount < MIN_TIGHTEN_ACTIVITY_COUNT) continue;
+    if (observationDays < MIN_TIGHTEN_OBSERVATION_DAYS) continue;
     for (const name of profile.allowedMcps) {
       const { resolved, matched } = alignMcpName(name, liveMcpNames);
       if (!matched) continue; // dead names are prune candidates, not tighten
@@ -278,7 +315,7 @@ function detectTightenGaps(
       gaps.push({
         gapId: stableGapId('tighten-scope', profile.id, resolved),
         kind: 'tighten-scope',
-        evidence: `profile=${profile.id} neverInvokedTool=${resolved} sessionCount=${sessionCount}`,
+        evidence: `profile=${profile.id} neverInvokedTool=${resolved} sessionCount=${sessionCount} observationDays=${Math.floor(observationDays)}`,
       });
     }
   }
@@ -360,6 +397,16 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
     );
   }
 
+  // #857 — observation window per profile: wall-clock age since the profile
+  // (and therefore its scope grants) was created. This is the best available
+  // proxy for "how long has this grant had a chance to be exercised" — there
+  // is no separate per-scope-entry grant timestamp, only the profile row's
+  // own created_at.
+  const observationDaysByProfile = new Map<string, number>();
+  for (const config of configs) {
+    observationDaysByProfile.set(config.id, daysSince(config.createdAt));
+  }
+
   const deniedEvents = await deniedRepo.listAllAsync();
   const deniedToolAggregates = aggregateDeniedTool(deniedEvents, sessionsRepo, validConfigIds);
   const deniedPairs = new Set(
@@ -400,7 +447,7 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
 
   const gaps: OrgAuditGap[] = [
     ...detectPruneGaps(drift),
-    ...detectTightenGaps(profiles, liveMcpNames, deniedPairs, sessionCountByProfile),
+    ...detectTightenGaps(profiles, liveMcpNames, deniedPairs, sessionCountByProfile, observationDaysByProfile),
     ...detectWebhookGaps(sessions, webhookEndpoints),
   ];
 
