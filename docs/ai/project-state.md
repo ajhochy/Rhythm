@@ -36,7 +36,9 @@ sequentially with the full check suite between folds.
   **when running #857 code** (in #882). RISK: the guard is not on `main` yet — if the
   cron fires @ 02:00 against un-merged main code it can over-prune on thin data (the
   original #857 incident). External Discovery stays human-gated (HIGH-risk, queued).
-  Decision pending: leave it on now the guard is in, or add an explicit enable-flag gate.
+  DECISION (2026-07-02, maintainer): leave the cron ON — **merge #882 before 02:00** so
+  the guard is on main; it then runs autonomously under the data-sufficiency guard +
+  revert (full-autonomy-with-rollback). No enable-flag gate added.
 - **#881 (test fragility):** `opc_curated_mcp_ensure.test.ts` c1 hardcodes
   `toHaveLength(5)` but #835's `...loadLocalCuratedMcpServers()` makes the array include
   machine-local sidecar entries. Fails locally on any box with a gitignored

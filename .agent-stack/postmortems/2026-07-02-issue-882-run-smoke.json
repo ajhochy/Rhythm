@@ -1,0 +1,62 @@
+{
+  "run_id": "2026-07-02-workflow-run-882",
+  "issue": 882,
+  "date": "2026-07-02",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "run-882-boot-clean",
+      "text": "The app/backend boots cleanly against the fork engine (no error-level noise, no spurious engine restarts)",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "verification-gate ran tsc+vitest+flutter analyze/test but never BOOTED the server, so two startup-only defects were invisible: (A) ~30 reloadSkills ECONNREFUSED errors because the run-once skill backfill reloads skills before the engine listens on :4096 (pre-existing; fixed via isReady guard in opencode_client_service.ts); (B) the #856 auth watcher bounced the engine on its OWN OAuth access-token refresh because it compared raw auth.json bytes incl. volatile access/expires (regression from this run's #856; fixed by comparing a stable identity fingerprint type+refresh/key in auth_credential_watcher.ts, +5 tests)."
+    },
+    {
+      "criterion_id": "run-857-cron-off",
+      "text": "#857: the seeded org-optimizer cron stays OFF until the data-sufficiency guard lands",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "The #857 contract asserted the GUARD (thin-history -> no tighten) and passed, but the coding-agent CLAIMED 'cron stays OFF by construction' without verifying it. Boot log shows [org-optimizer-seed] seeded 'Org Self-Optimizer' (daily @ 02:00) — the cron was seeded-ON by the earlier mega build (org_optimizer_seed.ts, unchanged this run) and runs every startup. Not a code bug in this run; a verification/doc gap. project-state corrected; maintainer decided to leave cron on and merge #882 before 02:00 so the guard is on main."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "release-deploy",
+      "description": "The parallel-worktree pattern symlinked one shared apps/api_server/node_modules across 8 worktrees; agents running npm ci/install concurrently raced and stripped better-sqlite3 mid-run, producing phantom 'module missing' failures. Mitigated by repairing between waves + a 'do not reinstall' rule for wave 2.",
+      "detected_by": "wave-2 agent reports + direct node_modules inspection (typescript/better-sqlite3 missing after a green full-suite run)"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": ["acceptance-contract"],
+    "issues": [
+      {
+        "workflow_category": "W5",
+        "affected_skill": "coding-agent",
+        "description": "#857 coding-agent claimed 'cron stays OFF by construction; verified no enable/pause toggle exists' — an unverified completion claim. The cron was in fact seeded-ON in the scheduler DB; the agent never booted to confirm.",
+        "detected_by": "boot log [org-optimizer-seed] seeded lines vs the agent's report + project-state claim"
+      },
+      {
+        "workflow_category": "W3",
+        "affected_skill": "verification-gate",
+        "description": "verification-gate emitted PASS on build+unit+analyze but did not boot the server / probe a health-and-startup path, so startup-only defects (reloadSkills ordering, #856 self-bounce) escaped the gate and were only caught in manual smoke.",
+        "detected_by": "manual smoke found two boot-time issues absent from the gate evidence"
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/opencode_client_service.ts",
+    "apps/api_server/src/services/auth_credential_watcher.ts",
+    "apps/api_server/src/services/auth_credential_watcher.test.ts",
+    "docs/ai/project-state.md"
+  ],
+  "failure_output": "[ERROR] [OpencodeClientService] reloadSkills failed: TypeError: fetch failed ... connect ECONNREFUSED 127.0.0.1:4096 ;; [AuthCredentialWatcher] auth.json changed — bouncing engine to reload credentials ;; [org-optimizer-seed] seeded \"Org Self-Optimizer\" (daily @ 02:00)",
+  "overall_category": "C1",
+  "suggested_follow_up": "verification-gate should include a boot-smoke for server-spawning repos: launch the backend against the real engine and assert zero error-level log lines + no spurious engine restart in the first N seconds, before claiming PASS."
+}

@@ -167,3 +167,10 @@
 - **Criteria affected**: role-scoped sessions must allow OpenCode-native tools while limiting MCP tools to the selected servers
 - **Root cause**: `OpencodeStreamBridge` applied `mcpAllowedToolsJson` to every tool name, so Secretary's `["rhythm","obsidian"]` MCP scope falsely rejected the native `skill` tool even though the fork's skill allowlist permitted `daily-morning-briefing`.
 - **Suggested fix**: contract-test native OpenCode permissions and MCP-server dispatch as separate capability boundaries.
+
+## 2026-07-02 — Run #882 — boot-only defects escaped a green verification-gate
+- **Result**: smoke FAIL (verification claimed PASS) — divergence=true
+- **Category**: C1 (missing contract: "boots cleanly") + C2 (#857 "cron OFF" claim unverified)
+- **Criteria affected**: clean-boot; #857 cron-off
+- **Root cause**: verification-gate ran build+unit+analyze but never BOOTED the server, so startup-only issues were invisible — (A) reloadSkills ECONNREFUSED before the engine listens; (B) #856 auth watcher self-bouncing on its own OAuth access-token refresh (raw-byte compare). Separately, #857's coding-agent claimed the optimizer cron was "off by construction" without booting to verify — it was seeded-ON.
+- **Suggested fix**: add a boot-smoke to verification-gate for server-spawning repos (launch backend against the real engine; assert zero error-level lines + no spurious restart in first N seconds). Coding-agents must not assert runtime state ("cron off") without a boot check.
