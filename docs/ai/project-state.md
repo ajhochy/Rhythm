@@ -2,86 +2,60 @@
 
 ## Current focus
 
-The 2026-07-02 build-out is complete and parked in open PRs for review. It
-delivered the Org Self-Optimizer epic (#816), token-efficiency, the life-layer,
-fork-in-dev enablement, and a repointed Obsidian-vault memory system — all
-verified LIVE against the real fork. Remaining work is the governance/safety
-gaps the live run exposed (#856–#860), none merged.
+Issue #863 — one-tap, jargon-free agent quick actions attached to a task
+(and to the dashboard). Implemented and verified in this worktree. Not
+yet opened as a PR.
 
-## Active branch / PR (all open — never auto-merge)
+## Active branch / PR
 
-- **#848** `codex/mega-2026-07-02` — the mega integration (~20 tracks). Server +
-  Desktop + MCP CI green. Closes on merge: #817–#831, #834, #841, #842, #844,
-  #845, #846, #847, #850, #851, #852, #853, #854, #855.
-- **#849** — fork deferred MCP tool loading (#843); needs a signed-release smoke.
-- **#836** — local Qwen via Ollama (opt-in, cloud-first).
-- **#840** — earlier docs snapshot (superseded by the current docs on merge).
-- Pre-existing: **#832** (optimizer plan docs), **#835** (local MCP sidecar).
+- **`issue-863-quick-actions`** — branches directly off `main` (not the
+  mega-828 branch). Implements #863. No PR opened yet.
+- Commit `73756ead664c460a9018ce47516e8ae96638a9b1`.
 
-## Running the fork engine in dev (IMPORTANT)
+## In progress
 
-`flutter run` does NOT use the fork by default — it falls back to stock
-`~/.opencode/bin/opencode` (v1.14.40, none of the scoping/skill/deferred patches).
-To run the fork in dev:
-1. `cd apps/opencode_fork/packages/opencode && bun install && bun run build --single`
-   → `dist/opencode-darwin-arm64/bin/opencode` (`0.0.0-codex/...`).
-2. `cp` it to `apps/opencode_bin/opencode` (dev discovery path) + `chmod +x`.
-3. Ad-hoc sign: `codesign --force --sign - --entitlements <disable-library-validation plist> --options runtime apps/opencode_bin/opencode`.
-4. Relaunch. Startup log states the engine + whether fork patches are active.
-`RHYTHM_OPENCODE_BIN[_DIR]` env overrides also work (#855). `apps/opencode_bin/`
-is untracked — rebuild per machine.
+- PR for `issue-863-quick-actions` not yet opened — next step is to push
+  the branch and open a draft PR, then hand off for manual smoke (see
+  Next step).
 
-## Memory system (repointed + verified live)
+## Risks / known issues
 
-- Agent memory lives at `~/Documents/Obsidian Vault/AGENT-MEMORY/<kind>/<slug>.md`
-  (kinds: fact|person|project|preference|context). Set via
-  `MEMORY_VAULT_PATH=<vault>/AGENT-MEMORY` + `MEMORY_VAULT_SUBDIR=""` (default
-  `memory` for back-compat). Decision: `2026-07-02-agent-memory-in-obsidian-vault.md`.
-- Injection = top-5 relevance per turn + on-demand `rhythm_search_memory`. Runs are
-  NOT memory (fetched on demand via a `context` pointer → `Runs.base` /
-  `Projects/<repo>/ai-runs/`). Verified live: injection, agent remember→vault+index,
-  self-healing sync all work; integrity solid (no dupes/loss).
-
-## Risks / known issues (open work, not merged)
-
-- **#857 (CRITICAL): optimizer NOT safe unsupervised.** First live run auto-applied
-  16 tighten/prune proposals on THIN history, stripping tools agents use; reverted
-  by hand. Needs a minimum-observation-window guard + a revert-from-`active` path.
-  **Keep the seeded optimizer cron (#830) OFF until #857 lands.**
-- **#860: two parallel memory stores** — Obsidian AGENT-MEMORY vs the `memory`
-  knowledge-graph MCP (`~/Documents/Claude-Memory/memory.jsonl`), both in agent
-  scope. Split-brain vs single-source-of-truth.
-- **#859: memory over-remember** — agents wrote 16 near-duplicate preferences in
-  one session; needs write-time dedup + a consolidation pass.
-- **#858: UUID-keyed agents can't chat** — session-create sends the config id, not
-  `oc_agent` name → "Agent not found" (AI/Theological Researcher, Org
-  Optimizer/Discovery). Data corrected; code fix open. Workaround: slug-keyed agents.
-- **#856: engine caches provider creds** — Claude account switch needs an app
-  restart. Quality-of-life.
-- Fork binary in dev is per-machine (unsigned ad-hoc); release path unchanged.
-- No `PATCH /agent-configs/:id` route — ops edits need direct SQL (noted in #858).
-- 12 npm audit findings; #768 (remove cowork MCP); #814 (pin rhythm MCP version).
+- No automated visual/screenshot smoke exists for Flutter in this repo
+  (confirmed: no golden tests, no `visual-smoke*` script, no
+  `.claude/launch.json`). Flutter UI changes are verified manually via
+  `RHYTHM_LOCAL_SMOKE=1 flutter run -d macos` per
+  `docs/testing/manual-smoke.md` §9 — this is a standing repo convention,
+  not specific to this change.
+- `AgentsDataSource.send()` silently drops a WebSocket frame if the
+  channel is null, with no delivery confirmation. Quick Actions guards on
+  `agentsController.connectivity.isWsDisconnected` before sending, which
+  narrows but does not eliminate a race between the check and the send.
+  Pre-existing repo-wide property, not introduced by this change. See
+  `docs/ai/decisions/2026-07-02-quick-actions-send-vs-draft.md`.
+- No widget test exists for `dashboard_view.dart`'s new quick-actions card
+  specifically (no existing dashboard test harness to extend within this
+  issue's scope) — verified via `flutter analyze` + manual code trace.
 
 ## Test status
 
-- Mega branch: tsc clean; full vitest ~213 files / ~1839 pass / 1 skip;
-  `smoke_org_optimizer.sh` exit 0; Flutter analyze + agent_optimizer/agent_skills
-  green; Server + Desktop + MCP CI green.
-- Live (fork engine, `apps/opencode_bin`): MCP scoping trims to scoped tool set
-  (secretary 44 tools, not ~150K); optimizer loop wrote 16 proposals; delegation
-  guardrails enforce; memory loop verified end-to-end on AGENT-MEMORY.
+- `flutter test` (full suite): 754/754 pass.
+- `flutter analyze --no-fatal-infos`: 0 errors/warnings (267 pre-existing
+  info-level lints, unchanged from baseline).
+- `dart format . --set-exit-if-changed`: clean.
+- Full detail: `docs/ai/runs/2026-07-02-issue-863-quick-actions.md`.
 
 ## Next step
 
-1. **#857 first** — data-sufficiency guard + revert-from-active; optimizer cron stays OFF until then.
-2. Review/merge PRs #848 (+#849 after a signed-release fork smoke, #836 as opt-in).
-   On merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
-3. Memory governance: **#859** (write-time dedup + consolidation) and **#860**
-   (collapse the two stores into the Obsidian vault).
-4. **#858** (session-create uses `oc_agent`; sync backfills `oc_agent`) to make
-   UUID-keyed agents chat-usable; consider a `PATCH /agent-configs/:id` route.
-5. **#856** engine credential reload (quality-of-life).
-6. Optional: hand-prune the 16 near-duplicate preferences in `AGENT-MEMORY/preference/`.
+1. Push `issue-863-quick-actions` and open a draft PR for #863 (do not
+   merge — leave open for manual review/smoke per the repo's PR
+   workflow).
+2. Manual smoke handoff: `RHYTHM_LOCAL_SMOKE=1 flutter run -d macos`,
+   then open a task's inspector (confirm "Quick Actions" renders 4
+   buttons at the bottom of the right panel) and the Dashboard (confirm
+   the quick-actions card appears for the next open task); tap "Help me
+   finish this" and confirm a new agent session opens with the task's
+   context pre-loaded and no typing required.
+3. Only merge to `main` after the user confirms manual smoke passed.
 
 ## Filed this run (2026-07-02): #854 #855 #856 #857 #858 #859 #860 (see runs/2026-07-02-mega-buildout-fork-eval-memory.md)
 
@@ -419,3 +393,12 @@ is untracked — rebuild per machine.
     (it truncates at the first non-alphanumeric character). Real opencode
     ids never contain underscores, so this is not a product bug, but it is
     a sharp edge for anyone hand-writing future fixtures.
+---
+
+> Note: this worktree branches directly off `main`. Earlier snapshot
+> content describing the separate `codex/mega-2026-07-02` integration
+> branch (#848 and related) lives on that branch's own history — it was
+> not this branch's context and has been removed from this file to keep
+> it an accurate snapshot for `issue-863-quick-actions`. See
+> `docs/ai/runs/2026-07-02-mega-buildout-fork-eval-memory.md` for that
+> work if needed.
