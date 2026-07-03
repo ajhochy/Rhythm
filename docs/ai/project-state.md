@@ -23,6 +23,15 @@ sequentially with the full check suite between folds.
   identity (#867 — specialist parsed from title + 31-row backfill), tool cards default
   collapsed, **#815 verified live and CLOSED** (question → macOS notification →
   click-to-focus). All fixes on #882; CI green on the final commit.
+- **#885 done in worktree** `issue-885-vault-env` @ `ea1c53595` (not yet folded/PR'd):
+  desktop app now injects `MEMORY_VAULT_PATH`/`MEMORY_VAULT_SUBDIR` into the spawned
+  agent api_server, auto-detecting the Obsidian `AGENT-MEMORY` vault when present (falls
+  back to the legacy path otherwise); explicit env vars still win. New
+  `MemoryVaultConfigService` + Settings UI section. See
+  `docs/ai/runs/2026-07-02-885-memory-vault-env.md` and the linked decision doc. Follow-up
+  outstanding: a live `flutter run -d macos` screenshot of the new Settings section
+  (blocked in-run by a port/DB collision with another running instance) and manual
+  migration/prune of the 3 stale legacy Memory-Vault notes (intentionally not automated).
 
 ## Risks / known issues
 
@@ -57,6 +66,11 @@ sequentially with the full check suite between folds.
 - PR #882 @ `784c7abc7`: api_server `tsc` clean + vitest **1996 pass** / 1 skip / 1 fail
   (the #881 machine-local test — passes on CI); mcp_server build clean + **59 pass**;
   Flutter analyze **0 errors** + `dart format` clean + **773 pass**. CI: all 3 green.
+- Worktree `issue-885-vault-env` @ `ea1c53595` (#885, not yet folded): `ai-workflow checks
+  --level issue` and `--level pr` both PASS. Flutter: **793 pass**, 0 fail (18 new).
+  api_server vitest: 234/234 files, 2008 pass / 1 skipped, 0 fail on a clean standalone
+  run (one `issue_755_role_separation.test.ts` timeout flaked under `--level pr`'s full
+  parallel load, confirmed unrelated — this branch touches zero `apps/api_server` files).
 
 ## Next step
 
@@ -64,6 +78,8 @@ sequentially with the full check suite between folds.
 2. Live-smoke **#815** (question → notification), then close it.
 3. Manual UI smoke of the new surfaces.
 4. Triage the follow-up backlog: #881 (quick), #870 + setup-agent wave #871–#880.
-5. After merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
+5. Fold **#885** (worktree ready, see In progress) into the next integration branch; live
+   Settings-screenshot follow-up still outstanding.
+6. After merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
 
 ## Filed this run (2026-07-02): #867 #870 #871 #872 #873 #874 #875 #876 #877 #878 #879 #880 #881 (see runs/2026-07-02-workflow-run-13-issues.md); #869 closed (no secret present)

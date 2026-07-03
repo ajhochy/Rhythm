@@ -9,6 +9,7 @@ import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/server/api_server_service.dart';
 import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/auth/auth_user.dart';
+import '../../../app/core/services/memory_vault_config_service.dart';
 import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/updates/update_controller.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
@@ -215,6 +216,8 @@ class _SettingsViewState extends State<SettingsView> {
           const _ClaudeIntegrationSection(),
           const SizedBox(height: 24),
           const _AgentServerSection(),
+          const SizedBox(height: 24),
+          const MemoryVaultSection(),
           const SizedBox(height: 24),
           const _WorkspaceSectionWidget(),
           Text(
@@ -1120,6 +1123,143 @@ class _AgentServerReady extends StatelessWidget {
           style: TextStyle(
             fontWeight: FontWeight.w600,
             color: context.rhythm.textPrimary,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Memory Vault path (#885)
+// ---------------------------------------------------------------------------
+
+/// Settings section for the local Memory Vault path. Persists to
+/// [MemoryVaultConfigService], which the app injects into the spawned
+/// api_server's environment as `MEMORY_VAULT_PATH` / `MEMORY_VAULT_SUBDIR`.
+///
+/// A restart of the local agent server (Retry in the Agent Server section, or
+/// relaunching Rhythm) is required for a changed path to take effect, since
+/// the env var is only read once at process spawn time.
+class MemoryVaultSection extends StatefulWidget {
+  const MemoryVaultSection({super.key});
+
+  @override
+  State<MemoryVaultSection> createState() => _MemoryVaultSectionState();
+}
+
+class _MemoryVaultSectionState extends State<MemoryVaultSection> {
+  late final TextEditingController _pathController;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final svc = context.read<MemoryVaultConfigService>();
+    _pathController = TextEditingController(text: svc.path);
+  }
+
+  @override
+  void dispose() {
+    _pathController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final value = _pathController.text.trim();
+    if (value.isEmpty) return;
+    setState(() => _saving = true);
+    await context.read<MemoryVaultConfigService>().save(value);
+    setState(() => _saving = false);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Saved. Restart the agent server (or relaunch Rhythm) to apply.',
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final svc = context.watch<MemoryVaultConfigService>();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'MEMORY VAULT',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: context.rhythm.textSecondary,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: context.rhythm.surfaceRaised,
+            borderRadius: BorderRadius.circular(RhythmRadius.xl),
+            border: Border.all(color: context.rhythm.borderSubtle),
+            boxShadow: RhythmElevation.panel,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Memory Vault path',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: context.rhythm.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Folder the agent memory view reads from. Defaults to the '
+                'Obsidian AGENT-MEMORY vault when present on this Mac.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: context.rhythm.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Resolved: ${svc.resolvedPath}',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontFamily: 'JetBrainsMono',
+                  color: context.rhythm.textMuted,
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _pathController,
+                decoration: const InputDecoration(
+                  hintText: '~/Documents/Obsidian Vault/AGENT-MEMORY',
+                  isDense: true,
+                ),
+                autocorrect: false,
+                onFieldSubmitted: (_) => _save(),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: _saving ? null : _save,
+                child: _saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('Save'),
+              ),
+            ],
           ),
         ),
       ],

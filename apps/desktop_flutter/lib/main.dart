@@ -14,6 +14,7 @@ import 'app/core/layout/app_shell.dart';
 import 'app/core/notifications/local_notification_service.dart';
 import 'app/core/server/api_server_controller.dart';
 import 'app/core/server/api_server_service.dart';
+import 'app/core/services/memory_vault_config_service.dart';
 import 'app/core/services/server_config_service.dart';
 import 'app/core/services/theme_mode_service.dart';
 import 'app/core/updates/update_controller.dart';
@@ -132,6 +133,11 @@ void main() async {
   await keybindsService.load();
   final opencodeServerService = OpencodeServerService();
   await opencodeServerService.load();
+  // #885 — load the persisted Memory Vault path/subdir before spawning the
+  // local agent server so MEMORY_VAULT_PATH/SUBDIR are set from the very
+  // first launch (auto-detects the Obsidian AGENT-MEMORY vault when present).
+  final memoryVaultConfigService = MemoryVaultConfigService();
+  await memoryVaultConfigService.load();
 
   // Create the server controller and kick off startup before runApp so the
   // service object is available immediately. The UI shows a loading screen
@@ -141,7 +147,10 @@ void main() async {
     serverUrl: serverConfigService.url,
   )..initialize();
 
-  final agentService = ApiServerService();
+  final agentService = ApiServerService(
+    memoryVaultPath: memoryVaultConfigService.resolvedPath,
+    memoryVaultSubdir: memoryVaultConfigService.subdir,
+  );
   final agentServerController = AgentServerController(
     agentService,
     serverConfigService: serverConfigService,
@@ -179,6 +188,7 @@ void main() async {
       destructiveModalService: destructiveModalService,
       keybindsService: keybindsService,
       opencodeServerService: opencodeServerService,
+      memoryVaultConfigService: memoryVaultConfigService,
     ),
   );
 }
@@ -195,6 +205,7 @@ class RhythmApp extends StatefulWidget {
     required this.destructiveModalService,
     required this.keybindsService,
     required this.opencodeServerService,
+    required this.memoryVaultConfigService,
   });
 
   final AuthSessionService authSessionService;
@@ -206,6 +217,7 @@ class RhythmApp extends StatefulWidget {
   final DestructiveModalService destructiveModalService;
   final KeybindsService keybindsService;
   final OpencodeServerService opencodeServerService;
+  final MemoryVaultConfigService memoryVaultConfigService;
 
   @override
   State<RhythmApp> createState() => _RhythmAppState();
@@ -245,6 +257,7 @@ class _RhythmAppState extends State<RhythmApp> with WidgetsBindingObserver {
       destructiveModalService: widget.destructiveModalService,
       keybindsService: widget.keybindsService,
       opencodeServerService: widget.opencodeServerService,
+      memoryVaultConfigService: widget.memoryVaultConfigService,
     );
   }
 }
@@ -260,6 +273,7 @@ class _RhythmAppContent extends StatelessWidget {
     required this.destructiveModalService,
     required this.keybindsService,
     required this.opencodeServerService,
+    required this.memoryVaultConfigService,
   });
 
   final AuthSessionService authSessionService;
@@ -271,6 +285,7 @@ class _RhythmAppContent extends StatelessWidget {
   final DestructiveModalService destructiveModalService;
   final KeybindsService keybindsService;
   final OpencodeServerService opencodeServerService;
+  final MemoryVaultConfigService memoryVaultConfigService;
 
   @override
   Widget build(BuildContext context) {
@@ -285,6 +300,7 @@ class _RhythmAppContent extends StatelessWidget {
         ChangeNotifierProvider.value(value: destructiveModalService),
         ChangeNotifierProvider.value(value: keybindsService),
         ChangeNotifierProvider.value(value: opencodeServerService),
+        ChangeNotifierProvider.value(value: memoryVaultConfigService),
         ChangeNotifierProvider(
           create: (_) => TasksController(
             TasksRepository(TasksLocalDataSource(baseUrl: baseUrl)),
