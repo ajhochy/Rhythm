@@ -57,6 +57,14 @@ interface SkillMetadata {
   uses: number | null;
   baselineScore: number | null;
   postScore: number | null;
+  /**
+   * #845 — the LLM-judge's one-sentence rationale for the most recent
+   * measurement (see skill_measurement.ts): a scored keep/revert narrative
+   * (e.g. `baseline=60 (ok); post=82 (better); decision=keep`) or a
+   * `reverted:hash:<sha256>` marker for a revert event. Null when the skill
+   * has never been measured.
+   */
+  measureReason: string | null;
   isExternalFork: boolean;
 }
 
@@ -77,6 +85,7 @@ const DEFAULT_METADATA: SkillMetadata = {
   uses: null,
   baselineScore: null,
   postScore: null,
+  measureReason: null,
   isExternalFork: false,
 };
 
@@ -128,6 +137,7 @@ opencodeSkillsRouter.get(
             uses: row.uses ?? null,
             baselineScore: row.baselineScore ?? null,
             postScore: row.postScore ?? null,
+            measureReason: row.measureReason ?? null,
             isExternalFork: (row.isExternal ?? 0) === 1,
           },
         };

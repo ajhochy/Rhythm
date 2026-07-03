@@ -82,3 +82,8 @@ apps/opencode_fork/**/*.tsbuildinfo
 
 # dev-only: locally-built opencode fork for smoke (issue #764)
 apps/api_server/opencode_bin/
+
+# dev-only: agent eval harness scorecards (tools/dev/agent_eval_driver.ts).
+# Generated locally, may contain (redacted/truncated) transcript excerpts —
+# never committed.
+docs/testing/results/

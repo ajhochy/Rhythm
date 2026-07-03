@@ -1,0 +1,40 @@
+{
+  "issue": 823,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-823-c1",
+      "text": "A repeated multi-step prompt pattern with no matching cookbook entry -> one create-recipe proposal (HIGH); change_json carries the proposed title/description/steps_json; never auto-applied.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/generators/__tests__/recipe_generator.test.ts",
+      "test_id": "issue-823-c1: repeated pattern with no matching recipe emits one create-recipe proposal (high, change_json has title/description/steps_json)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-823-c2",
+      "text": "An existing recipe whose body can be improved -> one refine-recipe proposal (LOW); measured/kept via the #821 body scorer.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/generators/__tests__/recipe_generator.test.ts",
+      "test_id": "issue-823-c2: an improvable existing recipe emits one refine-recipe proposal (low, change_json is a body-refinement payload consumable by org_proposal_measure)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-823-c3",
+      "text": "Emitted risk tiers match classifyProposalRisk (create-recipe=high, refine-recipe=low).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/generators/__tests__/recipe_generator.test.ts",
+      "test_id": "issue-823-c3: emitted risk tiers equal classifyProposalRisk's verdict for each kind",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-823-c4",
+      "text": "No proposal when an adequate recipe already exists. dedup_key set; duplicates skipped.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/generators/__tests__/recipe_generator.test.ts",
+      "test_id": "issue-823-c4: an adequate existing recipe (no refinement candidate) yields no proposal, and a second run against the same signal is deduped",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

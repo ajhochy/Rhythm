@@ -1,0 +1,64 @@
+{
+  "issue": 854,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-854-c1",
+      "text": "secretary (agent_configs=anthropic/claude-sonnet-4-6), no session pin, no override → resolves to anthropic/claude-sonnet-4-6.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/issue_854_contract.test.ts",
+      "test_id": "issue-854-c1: secretary with agent_configs model, no session pin, no override -> resolves to agent_configs model",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-854-c2",
+      "text": "Agent with a configured model that is NOT authed/in catalog → falls through to the existing fallback (no dead route, no regression).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/issue_854_contract.test.ts",
+      "test_id": "issue-854-c2: agent_configs model not authed -> falls through to resolveModelForAgent static fallback",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-854-c3",
+      "text": "Per-turn override and session pin STILL win over the agent_configs model.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/issue_854_contract.test.ts",
+      "test_id": "issue-854-c3: per-turn override and session pin still win over the agent_configs model",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-854-c4",
+      "text": "Base kinds (claude-code/codex/gemini-cli/opencode) + workflow-orchestrator resolve exactly as before (regression tests).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/issue_854_contract.test.ts",
+      "test_id": "issue-854-c4: base kinds and workflow-orchestrator (no agent_configs model) resolve exactly as before",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-854-c5",
+      "text": "#844 tiered routing + Ollama cloud-first behavior unchanged.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/agent_model_resolver.test.ts",
+      "test_id": "pre-existing agent_model_resolver.test.ts + model_routing.test.ts suites (unmodified) continue to pass",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-854-c6",
+      "text": "Resolver error (e.g. repo lookup throws) must not throw into the caller — fail-soft, falls through to step 4.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/issue_854_contract.test.ts",
+      "test_id": "issue-854-c6: agent_configs lookup throwing does not propagate — falls through to static fallback",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-854-c7",
+      "text": "Eval driver pins each agent's configured model (sessionProviderId/sessionModelId) from agent_configs at session-create time, independent of the resolver fix.",
+      "mode": "unit",
+      "test_file": "tools/dev/__tests__/agent_eval_driver.test.ts",
+      "test_id": "issue-854-c7: session create body includes sessionProviderId/sessionModelId sourced from agent_configs when available",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

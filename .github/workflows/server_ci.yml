@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'apps/api_server/**'
+      - 'tools/release/smoke_org_optimizer.sh'
+      - 'tools/release/org_optimizer_guard_check.ts'
       - '.github/workflows/server_ci.yml'
 
 jobs:
@@ -30,3 +32,6 @@ jobs:
           sleep 2
           curl --fail --silent http://localhost:4000/health
           kill $SERVER_PID
+      - name: Smoke org-optimizer safety guards (#831 — auto-path revert, gate invariants, note-required, fail-injection)
+        working-directory: .
+        run: tools/release/smoke_org_optimizer.sh

@@ -36,6 +36,13 @@ export interface AgentConfig {
    * seeded false so they exist as profiles without cluttering the picker.
    */
   sessionSelectable: boolean;
+  /**
+   * #844 — optional tier preference ('cheap' | 'standard' | 'frontier') fed to
+   * agent_model_resolver.resolveModelTier() as the `explicitTierHint`. Wins
+   * over the task-kind default; itself loses to an explicit per-call model
+   * override. Null means "no profile-level tier preference".
+   */
+  modelTierHint: string | null;
   // Legacy CLI fields — retained on the row but no longer used by the
   // Opencode-based client. Marked optional so consumers do not depend on
   // them. New writes set these to NULL / empty defaults (issue #581).
@@ -67,6 +74,8 @@ export interface AgentConfigInput {
   ocAgent?: string | null;
   /** Whether this profile appears in session-level agent pickers. Default true. */
   sessionSelectable?: boolean;
+  /** #844 — optional tier preference ('cheap' | 'standard' | 'frontier'). Null = no preference. */
+  modelTierHint?: string | null;
   // Legacy fields — accepted on the input shape for back-compat with stale
   // clients, but silently ignored by insert()/update() (issue #581).
   command?: string;
@@ -100,6 +109,7 @@ interface AgentConfigRow {
   model_id: string | null;
   oc_agent: string | null;
   session_selectable: number;
+  model_tier_hint: string | null;
 }
 
 function rowToModel(row: AgentConfigRow): AgentConfig {
@@ -127,6 +137,7 @@ function rowToModel(row: AgentConfigRow): AgentConfig {
     modelId: row.model_id ?? null,
     ocAgent: row.oc_agent ?? null,
     sessionSelectable: (row.session_selectable ?? 1) !== 0,
+    modelTierHint: row.model_tier_hint ?? null,
   };
 }
 
@@ -170,9 +181,9 @@ export class AgentConfigsRepository {
           (id, label, icon, command, enabled, is_agent, is_manager, system_prompt,
            allowed_mcps_json, allowed_skills_json, allowed_delegates_json, can_resume,
            resume_command, session_id_pattern, output_marker, preset_id, sort_order,
-           model_provider, model_id, oc_agent, session_selectable,
+           model_provider, model_id, oc_agent, session_selectable, model_tier_hint,
            created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -196,6 +207,7 @@ export class AgentConfigsRepository {
         config.modelId ?? null,
         config.ocAgent ?? null,
         config.sessionSelectable === false ? 0 : 1,
+        config.modelTierHint ?? null,
         now,
         now,
       );
@@ -264,6 +276,10 @@ export class AgentConfigsRepository {
     if (patch.sessionSelectable !== undefined) {
       fields.push('session_selectable = ?');
       values.push(patch.sessionSelectable ? 1 : 0);
+    }
+    if (patch.modelTierHint !== undefined) {
+      fields.push('model_tier_hint = ?');
+      values.push(patch.modelTierHint ?? null);
     }
     // Legacy CLI fields (command, canResume, resumeCommand, sessionIdPattern,
     // outputMarker) are silently ignored on update so stale clients can't

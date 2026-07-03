@@ -1,0 +1,65 @@
+{
+  "issue": "fix-trigger-nullable",
+  "source": "coordinator brief: make pending_claude_triggers.task_id nullable for taskless (scheduler/webhook/research) triggers",
+  "generated": "2026-07-02",
+  "stack": "typescript",
+  "summary": "pending_claude_triggers.task_id is declared TEXT NOT NULL in both SQLite (migrations.ts) and Postgres (postgres_bootstrap.ts), but scheduler/webhook/research triggers insert task_id=NULL. Every taskless insert fails at runtime with a NOT NULL constraint violation. Make task_id nullable in both engines while preserving UNIQUE(task_id) and ON DELETE CASCADE.",
+  "criteria": [
+    {
+      "criterion_id": "tn-c1",
+      "text": "A fresh migrated SQLite DB: inserting a trigger with task_id=NULL (plus scheduled_task_id/prompt) SUCCEEDS.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/trigger_nullable.test.ts",
+      "test_id": "AC1: fresh migrated DB accepts a NULL task_id trigger insert",
+      "status": "PASS"
+    },
+    {
+      "criterion_id": "tn-c2",
+      "text": "An EXISTING SQLite DB created with the old NOT NULL schema + seeded rows: after migration task_id is nullable, all pre-existing rows preserved, and a NULL insert succeeds.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/trigger_nullable.test.ts",
+      "test_id": "AC2: existing NOT NULL DB is rebuilt, rows preserved, NULL insert then succeeds",
+      "status": "PASS"
+    },
+    {
+      "criterion_id": "tn-c3",
+      "text": "UNIQUE(task_id) still enforced for NON-null task_ids (duplicate non-null insert rejected) AND multiple NULL task_ids allowed.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/trigger_nullable.test.ts",
+      "test_id": "AC3: UNIQUE(task_id) rejects duplicate non-null but permits multiple NULLs",
+      "status": "PASS"
+    },
+    {
+      "criterion_id": "tn-c4",
+      "text": "ON DELETE CASCADE still works (deleting a task removes its trigger).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/trigger_nullable.test.ts",
+      "test_id": "AC4: deleting a task cascades to remove its pending trigger",
+      "status": "PASS"
+    },
+    {
+      "criterion_id": "tn-c5",
+      "text": "Postgres bootstrap statements are present and idempotent (nullable CREATE + ALTER ... DROP NOT NULL).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/trigger_nullable.test.ts",
+      "test_id": "AC5: postgres_bootstrap declares task_id nullable and DROP NOT NULL statement present",
+      "status": "PASS"
+    },
+    {
+      "criterion_id": "tn-c6",
+      "text": "The scheduler/webhook/research insert paths now succeed against the migrated schema (direct NULL insert mirroring agentSchedulerService's INSERT columns).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/trigger_nullable.test.ts",
+      "test_id": "AC6: scheduler-shaped taskless INSERT (full scheduler column set) succeeds",
+      "status": "PASS"
+    },
+    {
+      "criterion_id": "tn-c7",
+      "text": "tsc build stays clean and the full api_server vitest suite stays green (0 regressions).",
+      "mode": "integration",
+      "test_file": "apps/api_server (tsc + full vitest)",
+      "test_id": "./node_modules/.bin/tsc --noEmit && npx vitest run",
+      "status": "PASS"
+    }
+  ]
+}

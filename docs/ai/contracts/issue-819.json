@@ -1,0 +1,56 @@
+{
+  "issue": 819,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-819-c1",
+      "text": "`buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot>` returns a typed digest with: profiles + their scopes, skills (w/ overlap candidates), recipes, delegation edges, webhook endpoints, recent session/task clusters, denied-tool aggregates, drift (allowlist names not in the live set), and a `gaps[]` list (each gap has a stable `gapId`, `kind`, evidence).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/org_audit_service.test.ts",
+      "test_id": "issue-819-c1: buildOrgAuditSnapshot returns every documented section with correct shape",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-819-c2",
+      "text": "The service performs no writes to any table (assert read-only).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/org_audit_service.test.ts",
+      "test_id": "issue-819-c2: buildOrgAuditSnapshot never mutates any table row count or content",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-819-c3",
+      "text": "Drift detection uses `mcp_name_alignment` to flag `allowed_*` names that no longer resolve to a live engine id (the prune-scope signal).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/org_audit_service.test.ts",
+      "test_id": "issue-819-c3: a dead allowlist name is flagged via alignMcpName against the live MCP set",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-819-c4",
+      "text": "Each `gap` carries enough evidence (session ids / counts / task names) to populate a proposal's `signal_ref`.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/org_audit_service.test.ts",
+      "test_id": "issue-819-c4: every gap includes a non-empty evidence payload usable as signal_ref",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-819-c5",
+      "text": "Respects the #746 cold-start window \u2014 does not call the engine before it is ready; degrades gracefully if the engine listing is empty (does not emit false \"dead name\" gaps when the live set is unavailable).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/org_audit_service.test.ts",
+      "test_id": "issue-819-c5: engine not ready -> no engine calls made and no false prune gaps emitted",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-819-c6",
+      "text": "audit-snapshot contract: snapshot shape; read-only (no DB mutations); a dead allowlist name produces a prune gap; an empty live set produces NO false prune gaps; an over-broad never-invoked tool produces a tighten gap; a repeated inbound pattern produces a webhook gap.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/org_audit_service.test.ts",
+      "test_id": "issue-819-c6: required-tests suite \u2014 snapshot shape, read-only, prune gap, no-false-prune, tighten gap, webhook gap",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

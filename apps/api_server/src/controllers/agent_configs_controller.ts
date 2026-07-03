@@ -15,6 +15,10 @@ const repo = new AgentConfigsRepository();
 // no longer persisted or used (#575/#577/#581).
 const PRESET_PROTECTED_FIELDS = ['label', 'icon', 'isAgent'];
 
+// #844 — valid values for the per-profile tier hint consumed by
+// agent_model_resolver.resolveModelTier() as the `explicitTierHint`.
+const VALID_MODEL_TIER_HINTS = new Set(['cheap', 'standard', 'frontier']);
+
 function validateBody(body: Record<string, unknown>, requireLabel = true): void {
   if (requireLabel) {
     if (!body.label || typeof body.label !== 'string' || body.label.trim() === '') {
@@ -24,6 +28,16 @@ function validateBody(body: Record<string, unknown>, requireLabel = true): void 
     if (typeof body.label !== 'string' || body.label.trim() === '') {
       throw AppError.badRequest('label must be a non-empty string');
     }
+  }
+
+  if (
+    body.modelTierHint !== undefined &&
+    body.modelTierHint !== null &&
+    !(typeof body.modelTierHint === 'string' && VALID_MODEL_TIER_HINTS.has(body.modelTierHint))
+  ) {
+    throw AppError.badRequest(
+      `modelTierHint must be one of 'cheap', 'standard', 'frontier', or null`,
+    );
   }
 
   // Legacy CLI fields (command, canResume, resumeCommand, sessionIdPattern,
@@ -76,6 +90,7 @@ export class AgentConfigsController {
         modelId: typeof body.modelId === 'string' ? body.modelId : null,
         ocAgent: typeof body.ocAgent === 'string' ? body.ocAgent : null,
         sessionSelectable: body.sessionSelectable !== false,
+        modelTierHint: typeof body.modelTierHint === 'string' ? body.modelTierHint : null,
         canResume: false,
         resumeCommand: null,
         sessionIdPattern: null,
@@ -128,6 +143,7 @@ export class AgentConfigsController {
       if (body.modelId !== undefined) patch.modelId = typeof body.modelId === 'string' ? body.modelId : null;
       if (body.ocAgent !== undefined) patch.ocAgent = typeof body.ocAgent === 'string' ? body.ocAgent : null;
       if (body.sessionSelectable !== undefined) patch.sessionSelectable = Boolean(body.sessionSelectable);
+      if (body.modelTierHint !== undefined) patch.modelTierHint = typeof body.modelTierHint === 'string' ? body.modelTierHint : null;
       // Legacy CLI fields (#581) — accept on the wire for back-compat
       // with old payloads but never propagate to the repository layer.
 

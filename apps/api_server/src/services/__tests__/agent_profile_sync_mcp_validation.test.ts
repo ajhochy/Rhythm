@@ -105,7 +105,7 @@ describe('agent_profile_sync — live MCP-name validation (#788)', () => {
     ).toBe(true);
   });
 
-  it('BOUNDARY — empty/unavailable live MCP set falls back to the default ["rhythm"] without crashing (AC#5)', async () => {
+  it('BOUNDARY — empty/unavailable live MCP set falls back to the curated default without crashing (AC#5)', async () => {
     // Engine momentarily down: listMcp throws. The sync must not crash and must
     // not empty the default scope just because the live set could not be read.
     listMcp.mockRejectedValue(new Error('engine not ready'));
@@ -115,15 +115,16 @@ describe('agent_profile_sync — live MCP-name validation (#788)', () => {
     ).resolves.toEqual({ synced: 1 });
 
     const row = repo.getById('newcomer')!;
-    expect(JSON.parse(row.allowedMcpsJson!)).toEqual(['rhythm', 'obsidian']);
+    // #842 widened the curated default to rhythm+obsidian+pdf-tools.
+    expect(JSON.parse(row.allowedMcpsJson!)).toEqual(['rhythm', 'obsidian', 'pdf-tools']);
   });
 
-  it('BOUNDARY — empty live set (engine returns no servers) also preserves the default', async () => {
+  it('BOUNDARY — empty live set (engine returns no servers) also preserves the curated default', async () => {
     listMcp.mockResolvedValue({});
 
     await syncOpencodeAgentProfiles([ocAgent('newcomer', 'primary')]);
 
     const row = repo.getById('newcomer')!;
-    expect(JSON.parse(row.allowedMcpsJson!)).toEqual(['rhythm', 'obsidian']);
+    expect(JSON.parse(row.allowedMcpsJson!)).toEqual(['rhythm', 'obsidian', 'pdf-tools']);
   });
 });

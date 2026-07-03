@@ -1,0 +1,56 @@
+{
+  "issue": 820,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-820-c1",
+      "text": "LOW (auto): refine-skill, consolidate-skill, tighten-scope, prune-scope, refine-recipe.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/org_risk_classifier.test.ts",
+      "test_id": "issue-820-c1: LOW (auto) kinds classify to low > classifies refine-skill, consolidate-skill, tighten-scope, prune-scope, refine-recipe as low",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-820-c2",
+      "text": "HIGH (gate): create-agent, grant-delegation, expand-delegation, broaden-scope, create-recipe, webhook-wiring, external-adoption.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/org_risk_classifier.test.ts",
+      "test_id": "issue-820-c2: HIGH (gate) kinds classify to high > classifies create-agent, grant-delegation, expand-delegation, broaden-scope, create-recipe, webhook-wiring, external-adoption as high",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-820-c3",
+      "text": "Any unknown/unlisted kind -> 'high' (fail-closed).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/org_risk_classifier.test.ts",
+      "test_id": "issue-820-c3: unknown/unlisted kind defaults to high (fail-closed) > returns high for a kind not in either documented list",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-820-c4",
+      "text": "external-adoption additionally implies the external flag is set (extra vetting gate downstream); webhook-wiring additionally requires the security note downstream — the predicate exposes a helper requiresSecurityNote(kind): boolean returning true for both.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/org_risk_classifier.test.ts",
+      "test_id": "issue-820-c4: requiresSecurityNote true only for webhook-wiring and external-adoption > returns true for webhook-wiring and external-adoption, false for every other documented kind",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-820-c5",
+      "text": "Pure function — no DB, no IO, deterministic.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/org_risk_classifier.test.ts",
+      "test_id": "issue-820-c5: pure function — no DB, no IO, deterministic > returns the same result across repeated calls and does not touch the DB module",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-820-c6",
+      "text": "Documented hard rules enforced: any allowed_delegates_json write is HIGH; any agent_configs INSERT is HIGH; any allowlist addition is HIGH while removal is LOW; any webhook-endpoint create is HIGH; any external adoption is HIGH.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/org_risk_classifier.test.ts",
+      "test_id": "issue-820-c6: documented hard rules enforced via change-shape predicate",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

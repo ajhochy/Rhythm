@@ -99,8 +99,9 @@ describe('agent_profile_sync — live MCP-name alignment (#789)', () => {
     await syncOpencodeAgentProfiles([ocAgent('newcomer')]);
 
     const row = repo.getById('newcomer')!;
-    // Empty live set ⇒ skip normalization ⇒ raw default preserved (never emptied).
-    expect(JSON.parse(row.allowedMcpsJson!) as string[]).toEqual(['rhythm', 'obsidian']);
+    // Empty live set ⇒ skip normalization ⇒ raw curated default preserved
+    // (never emptied). #842 widened the default to rhythm+obsidian+pdf-tools.
+    expect(JSON.parse(row.allowedMcpsJson!) as string[]).toEqual(['rhythm', 'obsidian', 'pdf-tools']);
   });
 
   it('falls back to the raw default when listMcp throws (engine not ready)', async () => {
@@ -109,7 +110,7 @@ describe('agent_profile_sync — live MCP-name alignment (#789)', () => {
     await syncOpencodeAgentProfiles([ocAgent('newcomer')]);
 
     const row = repo.getById('newcomer')!;
-    expect(JSON.parse(row.allowedMcpsJson!) as string[]).toEqual(['rhythm', 'obsidian']);
+    expect(JSON.parse(row.allowedMcpsJson!) as string[]).toEqual(['rhythm', 'obsidian', 'pdf-tools']);
   });
 
   it('AC#2 back-compat: a user-set allowed_mcps_json is NEVER rewritten on re-sync', async () => {

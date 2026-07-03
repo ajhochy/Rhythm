@@ -159,6 +159,71 @@ async function main() {
       );
     }
 
+    // #846 — One-time seed of the three ministry recipe exemplars (Sunday
+    // Service Prep / Volunteer Follow-up / Weekly Ministry Review), each a
+    // scheduled task + managed skill pair bound to the correct scoped agent
+    // profile (worship-planning / secretary). Idempotent by task name + skill
+    // title (mirrors the seeds above). Non-fatal — a seed failure must never
+    // block startup.
+    try {
+      const { seedMinistryRecipes } = await import('./services/ministry_recipes_seed');
+      const r = await seedMinistryRecipes();
+      logger.info(
+        `[server] ministry recipes seed: tasksSeeded=${r.tasksSeeded} tasksSkipped=${r.tasksSkipped} ` +
+          `skillsSeeded=${r.skillsSeeded} skillsSkipped=${r.skillsSkipped} ` +
+          `missingRoleFiles=${r.missingRoleFiles.join(',') || 'none'} ` +
+          `unresolvedRoles=${r.unresolvedRoles.join(',') || 'none'}`,
+      );
+    } catch (err) {
+      logger.warn(`[server] ministry recipes seed failed (non-fatal): ${String(err)}`);
+    }
+
+    // #846 follow-up (agent-eval harness finding) — idempotent repair for
+    // ministry-recipe scheduled tasks seeded BEFORE the resolution fix above,
+    // whose agent_config_id points at a dangling role-file UUID (no matching
+    // agent_configs row). Runs every boot; a no-op once every recipe task
+    // resolves (the seed above already keeps new tasks correct). Non-fatal —
+    // a repair failure must never block startup.
+    try {
+      const { repairMinistryRecipeAgentBindings } = await import('./services/ministry_recipes_seed');
+      const r = await repairMinistryRecipeAgentBindings();
+      if (r.repaired > 0 || r.stillUnresolved.length > 0) {
+        logger.info(
+          `[server] ministry recipes agent-binding repair: repaired=${r.repaired} ` +
+            `stillUnresolved=${r.stillUnresolved.join(',') || 'none'}`,
+        );
+      }
+    } catch (err) {
+      logger.warn(`[server] ministry recipes agent-binding repair failed (non-fatal): ${String(err)}`);
+    }
+
+    // #830 — Wire all six org-optimizer generators' apply steps into the
+    // shared org_proposal_apply_service registry ONCE at startup, then seed
+    // the "Org Self-Optimizer" (daily) + "Org External Discovery" (weekly)
+    // scheduled tasks. Wiring runs BEFORE seeding so a scheduled run that
+    // fires immediately after boot never sees an unregistered proposal kind.
+    // Non-fatal — a failure in either step must never block startup.
+    try {
+      const { registerAllProposalAppliers } = await import(
+        './services/org_proposal_appliers_wiring'
+      );
+      registerAllProposalAppliers();
+    } catch (err) {
+      logger.warn(`[server] org-optimizer applier wiring failed (non-fatal): ${String(err)}`);
+    }
+    try {
+      const { seedOrgOptimizerTask } = await import('./services/org_optimizer_seed');
+      const r = await seedOrgOptimizerTask();
+      logger.info(
+        `[server] org-optimizer seed: auditTaskSeeded=${r.auditTaskSeeded}` +
+          `${r.auditTaskSkippedReason ? ` (${r.auditTaskSkippedReason})` : ''} ` +
+          `externalTaskSeeded=${r.externalTaskSeeded}` +
+          `${r.externalTaskSkippedReason ? ` (${r.externalTaskSkippedReason})` : ''}`,
+      );
+    } catch (err) {
+      logger.warn(`[server] org-optimizer seed failed (non-fatal): ${String(err)}`);
+    }
+
     // #794 + #795 — Crash recovery for the auto-apply self-improvement loop. A
     // revision applied before a crash leaves its sidecar row at
     // `status='measuring'`; if the process died before the measure step ran,

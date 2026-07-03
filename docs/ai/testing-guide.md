@@ -142,12 +142,92 @@ After deploying the Opencode engine:
 - [ ] `DELETE /agent-sessions/:id` — returns 204, session map entry is cleared
 - [ ] `flutter run -d macos` — app launches without errors, AI Account section shows connected providers on open
 
+## Running the fork engine in dev (issue #855)
+
+**Finding:** in ordinary `npm run dev` / `flutter run` development, the api_server
+spawns whatever `opencode` binary is first on `PATH` — via `@opencode-ai/sdk`'s
+`createOpencode()`, which shells out to the literal command name `opencode`
+(`cross-spawn("opencode", ...)`, no absolute-path option). `augmentPathForOpencode()`
+(in `apps/api_server/src/services/opencode_client_service.ts`) only prepends the
+**bundled** Rhythm fork binary's directory when it can find one at
+`<Resources>/opencode_bin/opencode` — a path that only exists inside a signed
+release `.app` bundle. In dev, that candidate never exists, so it logs a WARN and
+falls through to the ambient PATH — almost always a **stock** upstream opencode
+install (e.g. the official installer's `~/.opencode/bin/opencode`, symlinked from
+`~/.local/bin/opencode`). Stock opencode carries NONE of the Rhythm-carried
+patches (`filterMcpToolsByAllowlist`, per-session `mcpAllowlist`/`skillAllowlist`
+on `Session.Info`, etc.) — every MCP tool schema is injected unconditionally,
+which is why per-session scoping can appear completely inactive in dev even when
+every api_server-side push (`ws_gateway` → `updateSessionAllowlist`) is correct.
+
+### Build the fork binary
+
+```bash
+cd apps/opencode_fork/packages/opencode
+bun run build --single
+# → dist/opencode-<platform>-<arch>/bin/opencode  (e.g. dist/opencode-darwin-arm64/bin/opencode)
+```
+
+`--single` (defined in `script/build.ts`) builds only the binary matching the
+current host platform/arch — much faster than the full multi-target build used
+by CI (`--macos`, which the release workflow uses for the universal arm64+x64
+DMG bundle). See `docs/ai/decisions/2026-06-25-opencode-fork-vendoring.md` for the
+subtree/build background.
+
+### Point dev at the fork build
+
+Two env vars, read by `augmentPathForOpencode()` at api_server startup, checked
+**before** the bundled-release path so an explicit dev override always wins:
+
+- `RHYTHM_OPENCODE_BIN_DIR=/abs/path/to/dist/opencode-darwin-arm64/bin` — a
+  directory containing an `opencode` executable.
+- `RHYTHM_OPENCODE_BIN=/abs/path/to/dist/opencode-darwin-arm64/bin/opencode` — the
+  full path to the executable itself (its parent dir is prepended).
+
+```bash
+cd apps/api_server
+export RHYTHM_OPENCODE_BIN_DIR="$(cd ../opencode_fork/packages/opencode && pwd)/dist/opencode-darwin-arm64/bin"
+npm run dev
+```
+
+Unset (the default), behavior is byte-for-byte unchanged from before #855 — no
+regression risk for anyone not opting in. An invalid/missing path is logged as a
+WARN and the override is ignored (falls through to the pre-#855 candidates), it
+never silently no-ops without a trace.
+
+### Confirm which engine is actually running
+
+Every api_server startup now logs exactly one of:
+
+```
+[OpencodeClientService] engine: /path/to/fork/dist/.../opencode (dev override — fork patches expected active)
+[OpencodeClientService] engine: /path/to/opencode_bin/opencode (bundled fork build — fork patches expected active)
+[OpencodeClientService] engine: opencode resolved from PATH (stock PATH — scoping inactive unless RHYTHM_OPENCODE_BIN[_DIR] is set)
+```
+
+Read this line first any time MCP/skill allowlist scoping seems inactive. Only
+the first two lines mean the fork's `resolveTools` gate can possibly be active;
+the third line means every MCP tool schema will be injected regardless of what
+the api_server pushes — the bug is "wrong binary," not "wrong allowlist logic."
+
+**Still requires a human to verify live:** this env override was validated at
+the PATH-resolution unit level (`augmentPathForOpencode` tests in
+`opencode_client_service.test.ts`) in this environment. Actually building the
+fork binary (`bun run build --single`) and confirming a real profiled session's
+`resolveTools complete { resolveToolsCount, allowlistActive }` debug log shows
+`allowlistActive: true` with a trimmed `resolveToolsCount` — end to end, against
+the real spawned fork process — was **not** performed in this pass and still
+needs a human (or a follow-up agent with a build-capable sandbox) to run.
+
 ## MCP allowlist smoke (per-session tool-schema scoping — mcp-scope)
 
 Verifies a profile-scoped session injects only its allowlisted MCP tool schemas.
-**Requires the patched fork engine** — either a locally-built fork binary on PATH
-(`cd apps/opencode_fork/packages/opencode && bun run build --single && export PATH="$PWD/dist/opencode-darwin-arm64/bin:$PATH"`) or the bundled fork from a release build (`Contents/Resources/opencode_bin/opencode`). Confirm the fork is in use: its
-`--version` is NOT a stock `1.x.y` (it embeds the branch, e.g. `0.0.0-feature/...`).
+**Requires the patched fork engine** — either `RHYTHM_OPENCODE_BIN_DIR` pointed at
+a locally-built fork binary (see "Running the fork engine in dev" above) or the
+bundled fork from a release build (`Contents/Resources/opencode_bin/opencode`).
+Confirm the fork is in use via the api_server startup log line described above,
+or by checking the engine's `--version` directly: it is NOT a stock `1.x.y` (it
+embeds the branch, e.g. `0.0.0-feature/...`).
 
 **Measurement instrument:** the fork's `resolveTools` emits a DEBUG log on every
 prompt: `resolveTools complete { resolveToolsCount, allowlistActive }`. Read it from
@@ -175,3 +255,51 @@ Automated coverage already proves this by composition: api_server `opencode_clie
 fork `mcp_allowlist_e2e.test.ts` (gate filters offered tools to exactly the allowlist:
 5→3→1→0), and `mcp_allowlist_expander.test.ts` (Secretary → 36). The manual smoke is
 the live full-stack visual confirmation with the bundled binary.
+
+## Deferred MCP tool schema loading smoke (tokens-03, #843)
+
+Verifies that a session with `mcpAllowlist.deferred = true` advertises its allowlisted
+MCP tools as a names-only catalog + ONE dispatcher tool (`mcp_dispatch`) instead of one
+full JSON Schema per tool, and that dispatching a call by name still executes the real
+tool. **Requires the patched fork engine**, same build/PATH steps as the MCP allowlist
+smoke above.
+
+**Measurement instrument:** `resolveTools complete` (same DEBUG log line as the MCP
+allowlist smoke) now also carries `deferredMcpActive` (bool) and `deferredMcpCatalogSize`
+(the MCP tool count that would otherwise have been individually schema-injected).
+`resolveToolsCount` in deferred mode reflects builtins + 1 (the dispatcher), NOT
+builtins + N (one per MCP tool) — that count drop is the direct evidence of the fix.
+
+**Analytical before/after (recorded 2026-07-02, via tokens-01's `estimateToolSurface`):**
+Secretary role (36 allowlisted MCP tools): eager ≈ 6125 session-start tokens → deferred
+≈ 2830 tokens, a **3295-token (53.8%) drop**. An unscoped/dev-role session (~20 connected
+servers, inherit-all estimate) drops even further: ≈ 64125 → ≈ 16750 tokens (**47375
+tokens, 73.9%**). Method: `before` = the estimator's existing calibrated 500-chars/tool
+JSON-Schema estimate (unchanged); `after` = a conservative 120-chars/tool names-only
+catalog entry (name + server + one-line description, no JSON Schema fields — see
+`mcp_deferred_tools.ts`'s `formatDeferredToolCatalog`) plus one 500-char dispatcher schema.
+**This is an analytical estimate from the same estimator #841 shipped, not a live-engine
+byte count** — the live-engine confirmation below is the required follow-up.
+
+Checklist (requires the live signed/built fork binary — NOT yet run in this environment,
+recorded here as the explicit required manual smoke per issue #843's contract):
+- [ ] Open a session with `mcpAllowlist.deferred: true` and a profile allowlist (e.g.
+  Secretary) → engine log `deferredMcpActive: true`, `resolveToolsCount` is small
+  (builtins + 1), `deferredMcpCatalogSize` equals the allowlist's tool count (36 for
+  Secretary).
+- [ ] The model can still successfully call an allowlisted tool by name via
+  `mcp_dispatch` and get real output back.
+- [ ] Dispatching an out-of-scope tool name is rejected (does not execute).
+- [ ] A profile-less or `deferred: false/absent` session is completely unaffected
+  (byte-identical eager behavior, same `resolveToolsCount` as before this patch).
+
+Automated coverage already proves the logic by composition: fork
+`mcp_deferred_tools.test.ts` (pure-unit: catalog shape, dispatch-time allowlist gating,
+parity with `filterMcpToolsByAllowlist`) and `mcp_allowlist_e2e.test.ts` Cases E-H
+(E2E: real `resolveTools` → LLM request body proves only `mcp_dispatch` is offered and
+individual MCP schemas are absent; F proves an empty allowlist yields an empty catalog;
+G proves dispatching a real tool by name executes it and returns real output; H proves
+dispatching an out-of-scope name is rejected, falsified in the implementing run by
+temporarily removing the guard and confirming the test failed). The manual smoke above
+is the live full-stack visual + token-count confirmation with the bundled binary, not
+yet run.

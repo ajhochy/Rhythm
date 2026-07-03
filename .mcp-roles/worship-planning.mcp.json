@@ -42,12 +42,19 @@
         "obsidian_put_file",
         "obsidian_patch_file",
         "obsidian_post_file",
+        "obsidian_delete_file",
         "obsidian_simple_search",
         "obsidian_search_dataview",
         "obsidian_status",
         "obsidian_list_vault_directory",
         "obsidian_list_vault_root",
-        "obsidian_get_active"
+        "obsidian_get_active",
+        "obsidian_patch_active",
+        "obsidian_put_active",
+        "obsidian_put_periodic",
+        "obsidian_patch_periodic",
+        "obsidian_get_commands",
+        "obsidian_execute_command"
       ]
     },
     "rhythm": {

@@ -1,0 +1,32 @@
+{
+  "issue": 841,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-841-c1",
+      "text": "at session start or on demand, the local agent server records/exposes tool count + estimated schema tokens per server and a session total (chars/4 estimation fine — comparability over precision)",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/tool_surface.test.ts",
+      "test_id": "issue-841-c1: reports a per-server tool count + estimated token cost, plus builtins, plus a session total",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-841-c2",
+      "text": "queryable per session (e.g. GET /agent-sessions/:id/tool-surface) and logged as ONE structured line (no schema bodies in logs)",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/tool_surface.test.ts",
+      "test_id": "issue-841-c2: returns the tool-surface report for a persisted session by id; issue-841-c2: logs exactly ONE structured line per report, with no raw schema bodies",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-841-c3",
+      "text": "scoped vs unscoped sessions show materially different totals (role-scoped fixture test)",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/tool_surface.test.ts",
+      "test_id": "issue-841-c3: an unknown/unscoped role (mcpRole=null) reports a materially larger surface than a role-scoped session",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

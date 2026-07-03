@@ -730,4 +730,287 @@ void main() {
       expect(AppConstants.agentLocalBaseUrl, contains('localhost'));
     });
   });
+
+  group('AgentSkillsView — #845 skill-effectiveness dashboard', () {
+    /// Returns the on-screen top-to-bottom order of the given skill names by
+    /// their vertical position (mirrors the #813 sort-order helper).
+    List<String> orderedNames(WidgetTester tester, List<String> names) {
+      final pairs = names
+          .where((n) => find.text(n).evaluate().isNotEmpty)
+          .map((n) => MapEntry(n, tester.getTopLeft(find.text(n)).dy))
+          .toList()
+        ..sort((a, b) => a.value.compareTo(b.value));
+      return pairs.map((e) => e.key).toList();
+    }
+
+    testWidgets(
+      'issue-845-c1a: table header exposes sortable Score and Usage columns',
+      (tester) async {
+        final ds = _FakeSkillsDataSource([
+          _skill('release-notes', managed: true),
+        ]);
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('skills-sort-score')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('skills-sort-usage')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'issue-845-c1b: clicking the Score header sorts rows by postScore asc/desc',
+      (tester) async {
+        // Names are inverse of score order so a score sort produces a
+        // different row order than the default Name sort.
+        final ds = _FakeSkillsDataSource([
+          _skill(
+            'alpha',
+            managed: true,
+            metadata: const OpencodeSkillMetadata(postScore: 90),
+          ),
+          _skill(
+            'bravo',
+            managed: true,
+            metadata: const OpencodeSkillMetadata(postScore: 10),
+          ),
+          _skill(
+            'charlie',
+            managed: true,
+            metadata: const OpencodeSkillMetadata(postScore: 50),
+          ),
+        ]);
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        // Sanity: default Name-asc order.
+        expect(
+          orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+          equals(['alpha', 'bravo', 'charlie']),
+        );
+
+        // Score ascending: bravo(10) < charlie(50) < alpha(90).
+        await tester.tap(find.byKey(const ValueKey('skills-sort-score')));
+        await tester.pumpAndSettle();
+        expect(
+          orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+          equals(['bravo', 'charlie', 'alpha']),
+        );
+        expect(
+          find.byKey(const ValueKey('skills-sort-score-asc')),
+          findsOneWidget,
+        );
+
+        // Toggle to descending: alpha(90) > charlie(50) > bravo(10).
+        await tester.tap(find.byKey(const ValueKey('skills-sort-score')));
+        await tester.pumpAndSettle();
+        expect(
+          orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+          equals(['alpha', 'charlie', 'bravo']),
+        );
+        expect(
+          find.byKey(const ValueKey('skills-sort-score-desc')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'issue-845-c1c: clicking the Usage header sorts rows by uses asc/desc',
+      (tester) async {
+        final ds = _FakeSkillsDataSource([
+          _skill(
+            'alpha',
+            managed: true,
+            metadata: const OpencodeSkillMetadata(uses: 42),
+          ),
+          _skill(
+            'bravo',
+            managed: true,
+            metadata: const OpencodeSkillMetadata(uses: 1),
+          ),
+          _skill(
+            'charlie',
+            managed: true,
+            metadata: const OpencodeSkillMetadata(uses: 7),
+          ),
+        ]);
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const ValueKey('skills-sort-usage')));
+        await tester.pumpAndSettle();
+        // Usage ascending: bravo(1) < charlie(7) < alpha(42).
+        expect(
+          orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+          equals(['bravo', 'charlie', 'alpha']),
+        );
+        expect(
+          find.byKey(const ValueKey('skills-sort-usage-asc')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'issue-845-c1d: a skill with no metadata score/usage sorts as lowest '
+      '(treated as absent, not crashing the comparator)',
+      (tester) async {
+        final ds = _FakeSkillsDataSource([
+          _skill(
+            'alpha',
+            managed: true,
+            metadata: const OpencodeSkillMetadata(postScore: 5),
+          ),
+          _skill('bravo', managed: true), // default metadata: no scores
+        ]);
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const ValueKey('skills-sort-score')));
+        await tester.pumpAndSettle();
+        // No crash; bravo (no score) sorts before alpha (score 5) ascending.
+        expect(
+          orderedNames(tester, ['alpha', 'bravo']),
+          equals(['bravo', 'alpha']),
+        );
+      },
+    );
+
+    testWidgets(
+      'issue-845-c1e: Score and Usage values render inline in the row',
+      (tester) async {
+        final ds = _FakeSkillsDataSource([
+          _skill(
+            'release-notes',
+            managed: true,
+            metadata: const OpencodeSkillMetadata(postScore: 87, uses: 23),
+          ),
+        ]);
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        expect(find.textContaining('87'), findsWidgets);
+        expect(find.textContaining('23'), findsWidgets);
+      },
+    );
+
+    testWidgets(
+      'issue-845-c2a: expansion area shows measurement history with baseline '
+      '→ post score and the judge reason for a KEPT measurement',
+      (tester) async {
+        final ds = _FakeSkillsDataSource([
+          _skill(
+            'measured-skill',
+            managed: true,
+            metadata: const OpencodeSkillMetadata(
+              status: 'active',
+              baselineScore: 60,
+              postScore: 82,
+              measureReason:
+                  'baseline=60 (ok); post=82 (better); decision=keep',
+            ),
+          ),
+        ]);
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey('skill-row-measured-skill')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('measurement-history-measured-skill')),
+          findsOneWidget,
+        );
+        expect(find.textContaining('60'), findsWidgets);
+        expect(find.textContaining('82'), findsWidgets);
+        expect(find.textContaining('decision=keep'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'issue-845-c2b: expansion area surfaces a revert event distinctly from '
+      'a kept measurement',
+      (tester) async {
+        final ds = _FakeSkillsDataSource([
+          _skill(
+            'reverted-skill',
+            managed: true,
+            metadata: const OpencodeSkillMetadata(
+              status: 'reverted',
+              baselineScore: 70,
+              postScore: 55,
+              measureReason: 'reverted:hash:abc123',
+            ),
+          ),
+        ]);
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey('skill-row-reverted-skill')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('measurement-history-reverted-skill')),
+          findsOneWidget,
+        );
+        expect(find.textContaining('Reverted'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'issue-845-c2c: a skill with no measurement ledger shows no history '
+      'section (not a crash, not a fabricated entry)',
+      (tester) async {
+        final ds = _FakeSkillsDataSource([
+          _skill('untouched-skill', managed: true),
+        ]);
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey('skill-row-untouched-skill')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('measurement-history-untouched-skill')),
+          findsNothing,
+        );
+      },
+    );
+  });
 }

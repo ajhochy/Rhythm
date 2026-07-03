@@ -42,7 +42,9 @@ export const SessionTable = sqliteTable(
     revert: text({ mode: "json" }).$type<{ messageID: MessageID; partID?: PartID; snapshot?: string; diff?: string }>(),
     permission: text({ mode: "json" }).$type<Permission.Ruleset>(),
     // Rhythm carried patch (mcp-scope): per-session MCP tool allowlist (nullable JSON).
-    mcp_allowlist: text({ mode: "json" }).$type<{ servers: string[]; tools: string[] }>(),
+    // `deferred` (tokens-03, #843) is optional and additive — no migration
+    // needed; existing rows simply decode with deferred=undefined (eager mode).
+    mcp_allowlist: text({ mode: "json" }).$type<{ servers: string[]; tools: string[]; deferred?: boolean }>(),
     // Rhythm carried patch (skill-scope, #775): per-session skill allowlist (nullable JSON).
     skill_allowlist: text({ mode: "json" }).$type<{ skills: string[] }>(),
     agent: text(),

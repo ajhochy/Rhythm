@@ -1,0 +1,64 @@
+{
+  "issue": 850,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-850-c1",
+      "text": "Calling the tool executes audit->generate->persist->auto-apply in one server-side op; high-risk kinds NEVER auto-apply.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_850_contract.test.ts",
+      "test_id": "issue-850-c1: runOrgOptimizer executes audit->generate->persist->auto-apply, and never auto-applies a high-risk kind",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-850-c2",
+      "text": "Per-run caps (proposals/run, LLM calls/run) enforced.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_850_contract.test.ts",
+      "test_id": "issue-850-c2: runOrgOptimizer stops emitting proposals once maxProposalsPerRun is reached and reports a capped run",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-850-c3",
+      "text": "Respect #830 per-run caps + #746 cold-start.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_850_contract.test.ts",
+      "test_id": "issue-850-c3: runOrgOptimizer skips the run entirely during the #746 engine cold-start window",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-850-c4",
+      "text": "Within the optimizer role's scope; a non-optimizer session calling it is denied by the dispatch guard (add the tool to .mcp-roles/org-optimizer.mcp.json).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_850_contract.test.ts",
+      "test_id": "issue-850-c4: rhythm_run_org_optimizer is allowed for the org-optimizer role scope and denied for a differently-scoped session",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-850-c5",
+      "text": "Returns a run summary (counts by kind/risk/outcome).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_850_contract.test.ts",
+      "test_id": "issue-850-c5: runOrgOptimizer returns a structured summary with counts by kind, risk, and outcome",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-850-c6",
+      "text": "Writes an audit_run_id linking proposals.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_850_contract.test.ts",
+      "test_id": "issue-850-c6: every proposal created by a run shares the same audit_run_id returned in the summary",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-850-c7",
+      "text": "Idempotent re-runs dedup (no duplicate proposals for unchanged gaps).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_850_contract.test.ts",
+      "test_id": "issue-850-c7: running the loop twice against unchanged gaps does not create duplicate proposals",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

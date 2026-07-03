@@ -2,38 +2,85 @@
 
 ## Current focus
 
-PR #812 is merged into `main`. Current work isolates machine-local MCP server
-extensions from the separate local Ollama integration.
+The 2026-07-02 build-out is complete and parked in open PRs for review. It
+delivered the Org Self-Optimizer epic (#816), token-efficiency, the life-layer,
+fork-in-dev enablement, and a repointed Obsidian-vault memory system — all
+verified LIVE against the real fork. Remaining work is the governance/safety
+gaps the live run exposed (#856–#860), none merged.
 
-## Active branch / PR
+## Active branch / PR (all open — never auto-merge)
 
-- `main` includes PR #812 at merge commit `368002168`.
-- MCP sidecar branch: `codex/local-mcp-sidecar`; draft PR #835.
-- Ollama work is preserved locally on `codex/local-ollama-wip-2026-07-01`.
+- **#848** `codex/mega-2026-07-02` — the mega integration (~20 tracks). Server +
+  Desktop + MCP CI green. Closes on merge: #817–#831, #834, #841, #842, #844,
+  #845, #846, #847, #850, #851, #852, #853, #854, #855.
+- **#849** — fork deferred MCP tool loading (#843); needs a signed-release smoke.
+- **#836** — local Qwen via Ollama (opt-in, cloud-first).
+- **#840** — earlier docs snapshot (superseded by the current docs on merge).
+- Pre-existing: **#832** (optimizer plan docs), **#835** (local MCP sidecar).
 
-## In progress
+## Running the fork engine in dev (IMPORTANT)
 
-- Add a gitignored `curated_mcp_servers.local.json` sidecar.
-- Validate local server definitions and fail soft on missing, malformed, or
-  structurally invalid files.
-- Support `RHYTHM_LOCAL_MCP_SERVERS_PATH` for explicit runtime placement.
+`flutter run` does NOT use the fork by default — it falls back to stock
+`~/.opencode/bin/opencode` (v1.14.40, none of the scoping/skill/deferred patches).
+To run the fork in dev:
+1. `cd apps/opencode_fork/packages/opencode && bun install && bun run build --single`
+   → `dist/opencode-darwin-arm64/bin/opencode` (`0.0.0-codex/...`).
+2. `cp` it to `apps/opencode_bin/opencode` (dev discovery path) + `chmod +x`.
+3. Ad-hoc sign: `codesign --force --sign - --entitlements <disable-library-validation plist> --options runtime apps/opencode_bin/opencode`.
+4. Relaunch. Startup log states the engine + whether fork patches are active.
+`RHYTHM_OPENCODE_BIN[_DIR]` env overrides also work (#855). `apps/opencode_bin/`
+is untracked — rebuild per machine.
 
-## Risks / known issues
+## Memory system (repointed + verified live)
 
-- The local sidecar may contain personal API keys and must never be committed.
-- Invalid sidecars are ignored with a warning so API startup remains available.
-- The bundled-fork event-stream regression remains tracked separately by #759.
+- Agent memory lives at `~/Documents/Obsidian Vault/AGENT-MEMORY/<kind>/<slug>.md`
+  (kinds: fact|person|project|preference|context). Set via
+  `MEMORY_VAULT_PATH=<vault>/AGENT-MEMORY` + `MEMORY_VAULT_SUBDIR=""` (default
+  `memory` for back-compat). Decision: `2026-07-02-agent-memory-in-obsidian-vault.md`.
+- Injection = top-5 relevance per turn + on-demand `rhythm_search_memory`. Runs are
+  NOT memory (fetched on demand via a `context` pointer → `Runs.base` /
+  `Projects/<repo>/ai-runs/`). Verified live: injection, agent remember→vault+index,
+  self-healing sync all work; integrity solid (no dupes/loss).
+
+## Risks / known issues (open work, not merged)
+
+- **#857 (CRITICAL): optimizer NOT safe unsupervised.** First live run auto-applied
+  16 tighten/prune proposals on THIN history, stripping tools agents use; reverted
+  by hand. Needs a minimum-observation-window guard + a revert-from-`active` path.
+  **Keep the seeded optimizer cron (#830) OFF until #857 lands.**
+- **#860: two parallel memory stores** — Obsidian AGENT-MEMORY vs the `memory`
+  knowledge-graph MCP (`~/Documents/Claude-Memory/memory.jsonl`), both in agent
+  scope. Split-brain vs single-source-of-truth.
+- **#859: memory over-remember** — agents wrote 16 near-duplicate preferences in
+  one session; needs write-time dedup + a consolidation pass.
+- **#858: UUID-keyed agents can't chat** — session-create sends the config id, not
+  `oc_agent` name → "Agent not found" (AI/Theological Researcher, Org
+  Optimizer/Discovery). Data corrected; code fix open. Workaround: slug-keyed agents.
+- **#856: engine caches provider creds** — Claude account switch needs an app
+  restart. Quality-of-life.
+- Fork binary in dev is per-machine (unsigned ad-hoc); release path unchanged.
+- No `PATCH /agent-configs/:id` route — ops edits need direct SQL (noted in #858).
+- 12 npm audit findings; #768 (remove cowork MCP); #814 (pin rhythm MCP version).
 
 ## Test status
 
-- PR #812 Desktop, Server, and MCP GitHub CI: pass.
-- `ai-workflow checks --level pr`: pass.
-- API tests: 178 files / 1,526 tests passed.
-- API production TypeScript build: pass.
-- Compiled-loader smoke with an explicit sidecar path: pass.
-- GitNexus pre-edit impact: LOW risk, no affected execution flows.
+- Mega branch: tsc clean; full vitest ~213 files / ~1839 pass / 1 skip;
+  `smoke_org_optimizer.sh` exit 0; Flutter analyze + agent_optimizer/agent_skills
+  green; Server + Desktop + MCP CI green.
+- Live (fork engine, `apps/opencode_bin`): MCP scoping trims to scoped tool set
+  (secretary 44 tools, not ~150K); optimizer loop wrote 16 proposals; delegation
+  guardrails enforce; memory loop verified end-to-end on AGENT-MEMORY.
 
 ## Next step
 
-Confirm Desktop, Server, and MCP CI on draft PR #835, then review the local
-sidecar contract before marking it ready.
+1. **#857 first** — data-sufficiency guard + revert-from-active; optimizer cron stays OFF until then.
+2. Review/merge PRs #848 (+#849 after a signed-release fork smoke, #836 as opt-in).
+   On merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
+3. Memory governance: **#859** (write-time dedup + consolidation) and **#860**
+   (collapse the two stores into the Obsidian vault).
+4. **#858** (session-create uses `oc_agent`; sync backfills `oc_agent`) to make
+   UUID-keyed agents chat-usable; consider a `PATCH /agent-configs/:id` route.
+5. **#856** engine credential reload (quality-of-life).
+6. Optional: hand-prune the 16 near-duplicate preferences in `AGENT-MEMORY/preference/`.
+
+## Filed this run (2026-07-02): #854 #855 #856 #857 #858 #859 #860 (see runs/2026-07-02-mega-buildout-fork-eval-memory.md)

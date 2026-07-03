@@ -1,0 +1,64 @@
+{
+  "issue": 817,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-817-c1",
+      "text": "agent_org_proposals in migrations.ts with columns: id, audit_run_id, kind, risk, external, status, title, rationale, signal_ref, target_ref, change_json, before_snapshot_json, provenance_json, dedup_key, baseline_score, post_score, measure_reason, decided_by_user_id, created_at, updated_at (decision doc §5 for exact DDL).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/agent_org_proposals.test.ts",
+      "test_id": "issue-817-c1: agent_org_proposals table exists in SQLite with the specified columns > has every column from the decision-doc DDL",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-817-c2",
+      "text": "Indexes: idx_org_proposals_status on status; UNIQUE idx_org_proposals_dedup on dedup_key.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/agent_org_proposals.test.ts",
+      "test_id": "issue-817-c2: required indexes exist (status + unique dedup)",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-817-c3",
+      "text": "NOT in postgres_bootstrap.ts (a test asserts absence there).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/agent_org_proposals.test.ts",
+      "test_id": "issue-817-c3: agent_org_proposals must NOT be added to postgres_bootstrap.ts > postgres_bootstrap.ts source contains no reference to agent_org_proposals",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-817-c4",
+      "text": "AgentOrgProposal TS interface matches all columns with fromJson/toJson.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/agent_org_proposals.test.ts",
+      "test_id": "issue-817-c4: AgentOrgProposal model has fromJson/toJson matching all columns > fromJson/toJson round-trips every column-backed field",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-817-c5",
+      "text": "Repository: createAsync(input), findByIdAsync(id), listByStatusAsync(status), listProposedAsync(), existsByDedupKeyAsync(key), updateStatusAsync(id, status, patch?).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/agent_org_proposals.test.ts",
+      "test_id": "issue-817-c5: repository CRUD + status listing (createAsync->findByIdAsync round-trip; listByStatusAsync; listProposedAsync; existsByDedupKeyAsync)",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-817-c6",
+      "text": "Status transitions enforced: proposed → approved|rejected; proposed|approved → applied → measuring → active|reverted. Illegal transitions rejected.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/agent_org_proposals.test.ts",
+      "test_id": "issue-817-c6: status transitions are enforced (legal allowed, illegal rejected)",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-817-c7",
+      "text": "Duplicate dedup_key insert is a no-op/skip (idempotent), not a crash.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/agent_org_proposals.test.ts",
+      "test_id": "issue-817-c7: duplicate dedup_key insert is a no-op/skip, not a crash > createAsync with an already-used dedup_key does not throw and does not double-insert",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

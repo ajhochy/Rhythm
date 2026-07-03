@@ -1,0 +1,81 @@
+{
+  "issue": "855",
+  "title": "Populate per-session MCP allowlist before tool injection (scope actually trims the surface)",
+  "date": "2026-07-02",
+  "author": "coding-agent",
+  "status": "implemented",
+
+  "summary": "ws_gateway.handleInputFrame's per-turn PATCH to the fork session (the #765 'push the resolved MCP allowlist onto the existing fork session' block) derived the pushed `servers` list by JSON.parsing wsMcpRoleConfig.allowedToolsJson and casting it `as string[]`. That field is the RAW, UNEXPANDED profile allowed_mcps_json column value, which — per agent_profile_scope.ts _buildMcpRoleConfig — can be EITHER a bare server-name array (`[\"canva\",\"obsidian\"]`, parses fine) OR a tools-map object (`{\"canva\":[\"tool1\"],\"obsidian\":[...]}`, parses to a plain object). When a profile's allowed_mcps_json is stored in tools-map form, the cast lied: `updateSessionAllowlist` sent `{ mcpAllowlist: { servers: <object>, tools: [] } }` to the fork's PATCH /session/:id endpoint. The fork's Session.McpAllowlist schema declares `servers: Schema.Array(Schema.String)` — Effect Schema rejects an object where an array is required, the PATCH fails, and ws_gateway's wrapping try/catch swallows the failure as 'non-fatal'. The session's mcpAllowlist is left undefined on the fork, so prompt.ts's filterMcpToolsByAllowlist takes the `undefined` branch (all tools pass) and injects the FULL ~150K tool surface for every profiled turn on that code path — reproducing the confirmed Gemini 400 function_declaration-exceeds symptom even though the ws_gateway log correctly reported the resolved profile and its servers.",
+
+  "diagnosis": {
+    "which": "(a) + (c) combined — not (b). The PATCH IS awaited before promptFn is dispatched (no race), but the guard `if (wsMcpRoleConfig?.allowedToolsJson)` only checks presence/truthiness, and the value it gates on (`allowedToolsJson`) is the wrong, unexpanded field: it is the raw profile JSON string (array OR tools-map shape) rather than the already-tested, schema-matching {servers[], tools[]} shape that createSession's expandMcpAllowlist() produces for the exact same McpRoleConfig type.",
+    "confirmed_by": "apps/opencode_fork/packages/opencode/src/session/session.ts line ~211-214 (McpAllowlist = Schema.Struct({ servers: Schema.mutable(Schema.Array(Schema.String)), tools: ... })); apps/api_server/src/controllers/agent_sessions_controller.ts line ~476-487 (mcpAllowedToolsJson is built as JSON.stringify(Record<string,string[]>) — an OBJECT — whenever a session is created via an .mcp-roles/<slug>.mcp.json role file, which is the per-tool-scoped shape graphic-designer's canva/obsidian restriction requires); apps/api_server/src/services/agent_profile_scope.ts `_buildMcpRoleConfig` (accepts + passes through BOTH array and tools-map JSON forms as allowedToolsJson unchanged)."
+  },
+
+  "constraints": {
+    "additive_only": false,
+    "back_compat_required": true,
+    "fix_location": "api_server-side only (ws_gateway.ts call site + opencode_client_service.updateSessionAllowlist signature) — no fork change needed; the fork's schema/filter logic was already correct and unit-tested",
+    "single_choke_point": "updateSessionAllowlist now takes the whole McpRoleConfig and calls the SAME expandMcpAllowlist() helper createSession already uses, so the PATCH path and the init-time create path can never diverge in shape again",
+    "dispatch_enforcement_unchanged": "#765/#775 dispatch enforcement (mcp_dispatch_guard) untouched — this fix only corrects what shape is PATCHed to the fork session, not the dispatch-time guard"
+  },
+
+  "acceptance_tests": [
+    {
+      "id": "AC-01",
+      "description": "updateSessionAllowlist(sessionId, mcpRoleConfig) PATCHes body.mcpAllowlist deep-equal to expandMcpAllowlist(mcpRoleConfig) — correct shape for a tools-map-form profile (e.g. graphic-designer: canva with explicit allowedTools)",
+      "file": "apps/api_server/src/services/opencode_client_service.test.ts",
+      "assertion": "capturedBody.mcpAllowlist.servers and .tools are both string[] (never an object) and deep-equal expandMcpAllowlist(roleConfig)"
+    },
+    {
+      "id": "AC-02",
+      "description": "updateSessionAllowlist correctly expands a bare-array-form profile too (back-compat with the simple designer-UI server-toggle case)",
+      "file": "apps/api_server/src/services/opencode_client_service.test.ts",
+      "assertion": "servers[] contains inherit-all server names; tools[] empty for those servers"
+    },
+    {
+      "id": "AC-03",
+      "description": "ws_gateway pushes the allowlist for EVERY profiled turn (guard keys on wsMcpRoleConfig presence, not on the now-removed allowedToolsJson shape check) — falsifiable: reverting the guard to check allowedToolsJson truthiness must not un-falsify this, since allowedToolsJson is always truthy when mcpRoleConfig is non-null (this AC targets the shape bug, not the presence guard)",
+      "file": "apps/api_server/src/services/ws_gateway.test.ts",
+      "assertion": "opencodeClient.updateSessionAllowlist is called once per handleInputFrame invocation with the exact wsMcpRoleConfig object when a profile resolves"
+    },
+    {
+      "id": "AC-04",
+      "description": "Unprofiled session (no mcpRoleConfig resolved) — back-compat: updateSessionAllowlist is NOT called at all, leaving the fork session's allowlist untouched (unrestricted)",
+      "file": "apps/api_server/src/services/ws_gateway.test.ts",
+      "assertion": "opencodeClient.updateSessionAllowlist is not called when resolveProfileScope returns mcpRoleConfig: null"
+    },
+    {
+      "id": "AC-05",
+      "description": "Falsification: a tools-map-shaped allowedToolsJson previously produced a non-array `servers` field on the PATCH body (reproducing the pre-fix bug) — this test fails against the OLD code and passes against the NEW code",
+      "file": "apps/api_server/src/services/opencode_client_service.test.ts",
+      "assertion": "Array.isArray(capturedBody.mcpAllowlist.servers) === true for a ROLE_CONFIG built from a tools-map-form allowedToolsJson"
+    }
+  ],
+
+  "call_sites": {
+    "ws_gateway_per_turn_patch": {
+      "file": "apps/api_server/src/services/ws_gateway.ts",
+      "line_approx": 580,
+      "before": "if (wsMcpRoleConfig?.allowedToolsJson) { const servers = JSON.parse(wsMcpRoleConfig.allowedToolsJson) as string[]; await opencodeClient.updateSessionAllowlist(opencodeId, servers); }",
+      "after": "if (wsMcpRoleConfig) { await opencodeClient.updateSessionAllowlist(opencodeId, wsMcpRoleConfig); }"
+    },
+    "update_session_allowlist": {
+      "file": "apps/api_server/src/services/opencode_client_service.ts",
+      "line_approx": 683,
+      "before": "async updateSessionAllowlist(sessionId: string, servers: string[]): body = { mcpAllowlist: { servers, tools: [] } }",
+      "after": "async updateSessionAllowlist(sessionId: string, mcpRoleConfig: McpRoleConfig): body = { mcpAllowlist: expandMcpAllowlist(mcpRoleConfig) }"
+    }
+  },
+
+  "not_in_scope": {
+    "fork_changes": "none required — apps/opencode_fork/packages/opencode/src/session/{prompt.ts,mcp_allowlist.ts,session.ts} were already correct; this is purely an api_server-side wrong-shape-push bug",
+    "real_binary_smoke": "NOT required for this fix, since no fork code changed — the fix corrects the JSON shape sent to an ALREADY-CORRECT, already-shipped fork schema/filter. Standard `npx vitest run` + `tsc --noEmit` on api_server is sufficient evidence. (If a future issue touches the fork itself, that would need a real-binary smoke per AGENTS.md.)"
+  },
+
+  "validation_commands": [
+    "cd apps/api_server && npx vitest run ws_gateway mcp_allowlist mcp_dispatch_guard opencode_client",
+    "cd apps/api_server && npx tsc --noEmit",
+    "cd apps/api_server && npx vitest run"
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "issue": 852,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-852-c1",
+      "text": "A consolidate-skill proposal gains a drafted merged body and becomes measurable (no longer parks in 'measuring').",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/skill_consolidation_drafter.test.ts",
+      "test_id": "issue-852-c1: drafts a merged body onto the proposal changeJson so measureProposal no longer skips it",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-852-c2",
+      "text": "Merged body = mechanical merge of the two source skills' bodies (concatenate + dedup sections is acceptable v1; note if you do more). Populate change_json into the BodyRefinementChange shape.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/skill_consolidation_drafter.test.ts",
+      "test_id": "issue-852-c2: draftConsolidatedSkillBody concatenates + dedupes shared section headers from both bodies; draftConsolidationChangeJson reshapes the pairing payload into the BodyRefinementChange shape",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-852-c3",
+      "text": "Measured via skill_refiner.scoreSkillBody; kept ONLY if the merged body scores strictly higher than baseline, else reverted (per #821).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/skill_consolidation_drafter.test.ts",
+      "test_id": "issue-852-c3: keeps the consolidate-skill proposal when the merged body scores strictly higher than baseline; reverts on a tie or lower merged score (fail-closed)",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-852-c4",
+      "text": "Apply consolidates: merged skill written, redundant one retired/marked; before_snapshot_json supports full revert.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/skill_consolidation_drafter.test.ts",
+      "test_id": "issue-852-c4: kept - the surviving skill body reflects the merge and the redundant skill is retired; reverted - before_snapshot_json restores BOTH skills to their pre-merge state",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-852-c5",
+      "text": "Stays LOW-risk / auto-lane eligible (consolidate-skill is LOW).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/skill_consolidation_drafter.test.ts",
+      "test_id": "issue-852-c5: the drafted BodyRefinementChange payload never introduces a top-level `add` key (hard-rule high escalation)",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

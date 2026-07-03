@@ -1,0 +1,56 @@
+{
+  "issue": 846,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "fix-recipe-binding-c1",
+      "text": "Fresh seed against a slug-keyed agent_configs DB → tasks bound to the SLUG rows (verifiable join count = 3).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/ministry_recipes_agent_binding.test.ts",
+      "test_id": "fix-recipe-binding-c1: fresh seed resolves to slug-keyed agent_configs rows when the role file's agentConfigId is dangling",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "fix-recipe-binding-c2",
+      "text": "Existing dangling-bound task rows → repaired on next boot (join count goes 0→3); repair is idempotent and never duplicates tasks.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/ministry_recipes_agent_binding.test.ts",
+      "test_id": "fix-recipe-binding-c2: repair pass re-binds dangling ministry-recipe tasks to resolvable rows (0->3), idempotent on repeat",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "fix-recipe-binding-c3",
+      "text": "A role whose agent cannot be resolved at all → recipe skipped with warning, no dangling row.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/ministry_recipes_agent_binding.test.ts",
+      "test_id": "fix-recipe-binding-c3: unresolvable role skips seeding the recipe and writes no task row",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "fix-recipe-binding-c4",
+      "text": "Repair pass never touches non-recipe scheduled task rows.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/ministry_recipes_agent_binding.test.ts",
+      "test_id": "fix-recipe-binding-c4: repair pass leaves non-recipe scheduled tasks untouched even when their agent_config_id is also dangling",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "fix-recipe-binding-c5",
+      "text": "Existing ministry_recipes_seed tests stay green (superseding the old verbatim-UUID assertion with the new correct resolution behavior).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/ministry_recipes_seed.test.ts",
+      "test_id": "issue-846-c1: seeds exactly 3 scheduled tasks bound to the correct agent profile",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "fix-recipe-binding-c6",
+      "text": "org_optimizer_seed.ts checked for the same dangling-binding hazard; if present, apply the same resolution, else report why it's already safe.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/org_optimizer_seed_agent_binding.test.ts",
+      "test_id": "fix-recipe-binding-c6: org_optimizer_seed always self-creates a resolvable agent_configs row keyed by its own agentConfigId (no dangling-binding hazard)",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
