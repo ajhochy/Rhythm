@@ -84,3 +84,27 @@ is untracked — rebuild per machine.
 6. Optional: hand-prune the 16 near-duplicate preferences in `AGENT-MEMORY/preference/`.
 
 ## Filed this run (2026-07-02): #854 #855 #856 #857 #858 #859 #860 (see runs/2026-07-02-mega-buildout-fork-eval-memory.md)
+
+## Recent coding-agent runs
+
+### 2026-07-02 — issue-863-quick-actions
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agents/models/quick_action_context.dart` (new) — generic `{kind, sourceId, title, description}` value object so the shared quick-actions widget doesn't depend on Task/ProjectInstance/MessageThread models directly.
+  - `apps/desktop_flutter/lib/features/agents/views/quick_actions_bar.dart` (new) — shared `QuickActionsBar` widget: 4 one-tap buttons ("Help me finish this", "Draft next steps", "Summarize", "Create follow-up tasks"), each a preset agent invocation with zero typing required.
+  - `apps/desktop_flutter/lib/app/core/ui/rhythm_inspector.dart` — added a "Quick Actions" `_InspectorSection` to the task inspector's `aside` column (last, after Metadata, to avoid shifting the existing "Add collaborator" button position — see Deviations).
+  - `apps/desktop_flutter/lib/features/dashboard/views/dashboard_view.dart` — added `_NextTaskQuickActionsCard`, shown under the hero panel for the single most relevant open task (today's first, else this week's first).
+  - `apps/desktop_flutter/test/features/agents/quick_actions_bar_test.dart` (new) — 7 widget tests covering all 4 actions, real task creation + linking, session-ready callback, and visible-failure-on-createSession-error.
+- Checks run:
+  - `flutter test` (full suite): 754/754 pass (0 regressions; baseline was 747 before the 7 new tests).
+  - `flutter analyze --no-fatal-infos`: 0 errors/warnings (267 pre-existing info-level lints, unchanged from baseline).
+  - `dart format . --set-exit-if-changed`: clean (0 changed after auto-format applied once to the new widget file).
+- Decisions made:
+  - Reused `AgentsController.createSession(mcpRole: 'secretary')` + `selectSession` + `sendInput` — the exact same session-creation path as `agent_email_view.dart`/`agent_gallery_view.dart` — but call `sendInput` immediately after `selectSession` instead of `setComposerDraft`, since #863 requires zero user typing (the draft pattern still needs the user to press Enter). Guarded on `agentsController.connectivity.isWsDisconnected` before sending, since `AgentsDataSource.send` silently drops frames when the WS channel is null (confirmed via source read + a background research agent) — this makes the "failure is visible" acceptance criterion hold even though `sendInput` itself has no delivery confirmation.
+  - "Create follow-up tasks" directly calls `TasksController.createTask(...)` client-side (deterministic, testable, guaranteed real+linked task) rather than relying on an agent's tool call to create it (non-deterministic, unverifiable in a widget test) — then additionally launches a secretary-agent session to propose further follow-ups, satisfying both the "real Rhythm task" and "preset agent invocation" halves of the acceptance criteria.
+  - Placed the task-inspector's Quick Actions section LAST in the `aside` column, not first, after discovering `test/features/tasks/issue_651_contract_test.dart` taps "Add collaborator" without scrolling — inserting a new section above it pushed the button out of the pre-scroll hit-test area. Appending after "Metadata" avoids shifting any already-tested content.
+  - No new provider wiring in `main.dart`/`app_shell.dart` — `AgentsController` and `TasksController` are already globally provided; `QuickActionsBar` and `_NextTaskQuickActionsCard` consume them via `context.read`.
+- Deviations from spec: none functionally; the dashboard placement (a small card for the single next task, not a bar embedded in every task row) was chosen to avoid touching the heavily-shared `FocusBusinessProjectProgress`/`_TaskPreviewRow` widgets, keeping the change additive and low-conflict-risk per the "minimize fold conflicts" constraint.
+- Concerns:
+  - `sendInput` has no delivery confirmation beyond the `isWsDisconnected` connectivity flag; a mid-flight disconnect between the check and the actual `send()` call would still silently drop the prompt (pre-existing repo-wide limitation of `AgentsDataSource.send`, not introduced by this change).
+  - `TasksController.errorMessage` is controller-global state; a stale error from an unrelated prior action could theoretically leak into the follow-up-task failure check (pre-existing `TasksController` API shape, reused as-is).
+  - No widget test was added directly for `dashboard_view.dart`'s new card (no existing dashboard test harness to extend within scope); verified via `flutter analyze` (0 issues) and manual code trace only.
