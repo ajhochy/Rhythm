@@ -61,6 +61,108 @@ yet opened as a PR.
 
 ## Recent coding-agent runs
 
+### 2026-07-02 — issue #867 (session UI doesn't reflect / reply re-binds dispatched agent) — worktree `867-session`, branch `issue-867-session-agent-binding`
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart`
+    — added `_sessionById(sessionId)` (looks up active/resumable/archived by
+    id, independent of the currently-selected session) and a
+    `_genericAgentIds = {'', 'claude-code'}` constant. `selectedAgentFor()`
+    resolution order changed from (explicit override → app-wide manager
+    default → null) to (explicit override → **the session's own
+    `AgentSession.agentId`, when not generic** → app-wide manager default →
+    null). `hasExplicitAgentSelection()` doc updated to clarify a session
+    merely showing its own dispatched identity is NOT an "override".
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` —
+    `AgentSelectorPill`'s resolution-order doc comment updated to match (no
+    behavior change there; it already fully delegated to `selectedAgentFor`).
+  - `apps/desktop_flutter/test/features/agents/issue_867_session_agent_binding_test.dart`
+    (new, 7 tests) — mounted-surface tests pumping the real
+    `InputAreaTestHarness` (the real `_InputArea`/`AgentSelectorPill`), per
+    the "agents inspector was orphaned" lesson: AC1 (dispatched session shows
+    its own agent, both unit + real-surface), AC2 (`sendInput` ships the
+    session's own agent on the wire, not the app-wide default) + regression
+    (a fresh top-level session still uses the picker as its INITIAL agent),
+    AC3 (changing the app-wide default does not retroactively re-bind an
+    already-dispatched session), AC4 (switching a session's agent requires an
+    explicit `setSelectedAgent`/popup-menu action, both unit + real-surface).
+- Checks run:
+  - `flutter test test/features/agents/issue_867_session_agent_binding_test.dart`
+    — 7/7 pass.
+  - `flutter test test/features/agents/` (full folder, after the fix) —
+    487/487 pass (0 regressions; initially 1 pre-existing test in
+    `opc_m4_4_agent_selection_test.dart` regressed because its fixture
+    sessions hardcode `agentId: 'claude-code'` — fixed by treating
+    `'claude-code'` as a generic/no-identity placeholder alongside `''`,
+    see Decisions).
+  - `flutter test` (full suite) — 773/773 pass.
+  - `flutter analyze --no-fatal-infos` — 0 errors/warnings; 269 pre-existing
+    info-level lints (267 baseline + 2 `prefer_const_constructors` in the new
+    test file).
+  - `dart format . --set-exit-if-changed` — clean (1 file auto-formatted on
+    first run, re-verified clean).
+  - `cd apps/api_server && node_modules/.bin/tsc --noEmit` — same
+    pre-existing baseline errors only (missing `ws`/`resend`/`pg` type decls,
+    implicit-any in unrelated repository files); zero backend files were
+    touched by this change.
+  - `cd apps/api_server && node_modules/.bin/vitest run src/__tests__/agent_sessions.test.ts`
+    — BLOCKED: `Cannot find package 'better-sqlite3'` — confirmed via
+    `ls /Users/ajhochhalter/Documents/Rhythm/apps/api_server/node_modules/`
+    that `better-sqlite3` is absent from the SHARED main-checkout
+    `node_modules` this worktree symlinks to (109 entries total, no sqlite
+    package) — a pre-existing environment gap, not caused by this change (no
+    backend files were edited). Per the worktree's dependency constraints,
+    did NOT run `npm install`/`ci`/`rebuild`; reporting rather than working
+    around it.
+- Decisions made:
+  - Root-caused to the Flutter client only: the backend (`ws_gateway.ts`'s
+    `perTurnAgent ?? agentKind`, `resolveModelForSessionTurn`'s
+    override→session→agent_configs→static precedence, and the existing
+    `PATCH /agent-sessions/:id` explicit-update route) already implements
+    the exact per-session precedence #867 asks for. `PermissionModePicker`
+    and `UnifiedAgentModelPicker`/`SessionModelPicker` already read
+    `session.permissionMode`/`session.providerId`/`session.modelId` directly
+    and only mutate via an explicit "apply as" dialog — verified by full
+    trace, no changes needed there. The ONLY defect was
+    `AgentSelectorPill`/`selectedAgentFor()` falling through straight to the
+    app-wide manager-profile default instead of the session's own
+    `agentId` (see decision doc for full trace of the 4 checked surfaces).
+  - Treated `AgentSession.agentId == 'claude-code'` as equivalent to `''`
+    (no distinguishing identity) rather than a real dispatched agent —
+    `'claude-code'` is the generic base-kind fallback used both client-side
+    (`AgentSession.fromJson`'s absent-key default) and server-side
+    (`upsertChildSession`'s `inheritedAgentKind` fallback), not a signal that
+    a profile was actually dispatched. Without this, every session
+    defaulting to the generic base kind would permanently shadow the
+    app-wide picker's INITIAL-default role for brand-new sessions (caught by
+    the pre-existing `opc_m4_4_agent_selection_test.dart` c5 regression).
+  - Did NOT touch `_pendingTurnOverride` (the model per-turn-override field,
+    which is a bare global rather than session-keyed) — traced its only
+    write sites (`setTurnOverride`, `setSessionModel`) and confirmed
+    `selectSession()` unconditionally nulls it before any await on every
+    session switch, so it cannot leak across sessions in the normal
+    navigation flow. Session-keying it was judged out of scope / unnecessary
+    hardening for #867's actual defect.
+  - See `docs/ai/decisions/2026-07-02-session-agent-binding-fallback.md` for
+    the full resolution-order rationale and alternatives considered.
+- Deviations from spec: none against the 5 acceptance criteria (session
+  shows its own agent; reply continues as session's agent; global picker
+  change doesn't re-bind a running session; switching is explicit-only;
+  regression for fresh top-level sessions).
+- Concerns:
+  - `apps/api_server` vitest could not be run at all in this worktree due to
+    the missing `better-sqlite3` in the shared `node_modules` — flagged
+    above as a blocker to report, not something this run fixed or worked
+    around. No backend code was changed, so this is a pure environment gap,
+    not a regression risk from this PR.
+  - A specialist profile's `ocAgent` name that isn't in
+    `AgentConfigsController.sessionSelectableAgents` (e.g. not
+    session-selectable, or the profile sync hasn't caught up) will now show
+    as its raw engine name in the pill rather than a friendly label — this
+    is a pre-existing `AgentSelectorPill` label-fallback behavior (unchanged
+    by this fix), just newly reachable now that the pill can display a
+    session's own agent. Not a regression, but worth a follow-up if raw
+    names turn out to look unpolished in practice.
+
 ### 2026-07-02 — issue #864 (MCP stateless-readiness audit)
 - Files modified:
   - `docs/ai/decisions/2026-07-02-mcp-stateless-readiness.md` (new) — full audit
