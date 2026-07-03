@@ -92,7 +92,19 @@ const SECRETS_REFERENCE_PATTERNS: InjectionPattern[] = [
     id: 'secrets-dotenv',
     class: 'secrets-reference',
     description: 'reference to a .env file',
-    regex: /\.env\b/,
+    // Must look like a FILE reference, not a property-access chain such as
+    // `process.env.API_KEY` or `import.meta.env`. Require: not immediately
+    // preceded by an identifier character (so `process.env` doesn't match
+    // the `.env` after it), and not immediately followed by another
+    // `.identifier` segment (which would make it `.env.SOMETHING`, i.e. an
+    // env-var access, not a file path). A trailing quote/whitespace/path
+    // separator/extension boundary or end-of-string is fine (`.env`,
+    // `.env.local`'s directory-style mentions are covered by the word
+    // boundary alone since `.env.local` still isn't `.env.<PROPERTY>` in the
+    // "read this identifier" sense — but to keep the pattern conservative we
+    // only require the "not preceded by an identifier char" condition, which
+    // is what actually caused the process.env.X false positive).
+    regex: /(?<![A-Za-z0-9_])\.env\b(?!\.[A-Za-z_])/,
   },
   {
     id: 'secrets-credentials-file',

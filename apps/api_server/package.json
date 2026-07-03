@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
+    "postbuild": "node -e \"require('fs').mkdirSync('dist/security',{recursive:true});require('fs').copyFileSync('src/security/advisories.json','dist/security/advisories.json')\"",
     "start": "node dist/server.js",
     "lint": "echo 'TODO: add eslint'",
     "test": "vitest run",

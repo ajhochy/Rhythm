@@ -74,6 +74,25 @@ describe('scanContextContent (#873)', () => {
       const result = scanContextContent('Check the .netrc file for credentials.', 'fixture.md');
       expect(result.blocked).toBe(true);
     });
+
+    it('does not false-positive on process.env.* / import.meta.env.* property access', () => {
+      // Regression: a skill/doc that documents reading an env VARIABLE (not a
+      // .env FILE) via normal code, e.g. `if (!process.env.TEST_DB_URL) { ... }`,
+      // must not be treated as a secrets-file reference. Found via the real
+      // "acceptance-contract" skill body during manual smoke of #877/#873.
+      const samples = [
+        'if (!process.env.TEST_DB_URL) { throw new Error("missing"); }',
+        'const key = import.meta.env.API_KEY;',
+        'Read process.env.NODE_ENV to decide the mode.',
+      ];
+      for (const text of samples) {
+        const result = scanContextContent(text, 'fixture.md');
+        expect(
+          result.matches.some((m) => m.class === 'secrets-reference'),
+          `unexpected block for: ${text}`,
+        ).toBe(false);
+      }
+    });
   });
 
   describe('exfiltration class', () => {

@@ -3,6 +3,7 @@ import path from 'path';
 import { config as loadDotenv } from 'dotenv';
 import { opencodeClient } from './services/opencode_engine';
 import { managedChromeService } from './services/managed_chrome_service';
+import { runAdvisoryCheck, formatStartupWarning } from './security/security_advisories';
 
 // Load .env from the api_server root (one level above dist/).
 // CI writes OAuth secrets here before bundling into the .app.
@@ -32,6 +33,18 @@ async function main() {
   ]);
 
   const port = Number(process.env.PORT ?? 4000);
+
+  // #877 — supply-chain advisory scan. stdlib-only (no network request),
+  // reads the already-resolved package-lock.json; a warning here is the
+  // ONLY startup-banner surface until `rhythm doctor` (setup-01) ships.
+  // Never blocks or fails startup — a scan failure degrades to silence.
+  try {
+    const matches = runAdvisoryCheck();
+    const warning = formatStartupWarning(matches);
+    if (warning) logger.warn(warning);
+  } catch (err) {
+    logger.warn(`[server] advisory check failed (non-fatal): ${String(err)}`);
+  }
 
   await initDb();
   logger.info('Database initialized');

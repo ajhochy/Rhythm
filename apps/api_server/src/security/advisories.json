@@ -1,0 +1,34 @@
+[
+  {
+    "id": "RHYTHM-SA-2025-001",
+    "package": "@ctrl/tinycolor",
+    "affected_versions": ["4.1.1", "4.1.2"],
+    "description": "Shai-Hulud npm worm (Sept 2025) — postinstall script harvested and exfiltrated developer credentials (npm tokens, cloud keys) from compromised packages in the tinycolor supply-chain attack.",
+    "remediation": "npm install @ctrl/tinycolor@latest",
+    "severity": "critical"
+  },
+  {
+    "id": "RHYTHM-SA-2025-002",
+    "package": "eslint-config-prettier",
+    "affected_versions": ["8.10.1", "9.1.1", "10.1.6", "10.1.7"],
+    "description": "Compromised maintainer-account publish (Sept 2025) injected a Windows-targeted malicious install script into eslint-config-prettier releases.",
+    "remediation": "npm install eslint-config-prettier@latest",
+    "severity": "high"
+  },
+  {
+    "id": "RHYTHM-SA-2025-003",
+    "package": "chalk",
+    "affected_versions": ["5.6.1"],
+    "description": "npm account phishing compromise (Sept 2025) published a malicious chalk release with a crypto-clipper payload targeting browser wallet traffic.",
+    "remediation": "npm install chalk@latest",
+    "severity": "critical"
+  },
+  {
+    "id": "RHYTHM-SA-2025-004",
+    "package": "debug",
+    "affected_versions": ["4.4.2"],
+    "description": "npm account phishing compromise (Sept 2025) — the widely-depended-on `debug` package was published with the same crypto-clipper payload as the chalk incident.",
+    "remediation": "npm install debug@latest",
+    "severity": "critical"
+  }
+]
