@@ -67,3 +67,50 @@ sequentially with the full check suite between folds.
 5. After merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
 
 ## Filed this run (2026-07-02): #867 #870 #871 #872 #873 #874 #875 #876 #877 #878 #879 #880 #881 (see runs/2026-07-02-workflow-run-13-issues.md); #869 closed (no secret present)
+
+## Recent coding-agent runs
+
+### 2026-07-02 — #873 + #877 + #878 (security, worktree `issue-873-877-878-security`)
+
+- Files modified: see the three individual commits on this branch
+  (`a37c7b8cf` #873, `a307af3c6` #877, `672fc4fd1` #878) for full lists. New
+  module dir: `apps/api_server/src/security/` (context_scanner, injection_patterns,
+  security_advisories, advisories.json, advisory_acks, command_blocklist,
+  command_risk_classifier, command_approval, approval_store + tests for each).
+  Integration edits: `rhythm_managed_skills.ts`, `opencode_agent_writer.ts`,
+  `skill_apply.ts`, `opencode_skills_routes.ts` (#873); `server.ts`, `package.json`
+  (postbuild copy step), `.github/workflows/server_ci.yml` (#877);
+  `opencode_stream_bridge.ts`, `config/env.ts` (#878).
+- Checks run: `tsc --noEmit` clean after each issue; full `vitest run` — 2120
+  pass / 1 skip (pre-existing #881 machine-local test, passes on CI) after
+  #878; `python3 -c "import yaml..."` validated `server_ci.yml`; manually
+  built + ran `dist/server.js` twice (before/after a false-positive fix) to
+  confirm real startup behavior, not just unit tests.
+- Decisions made: the issue bodies referenced Python/pip prior art
+  (hermes-agent) and non-existent "likely files" (`context_loader.ts`,
+  `shell_tool.ts`, `doctor.ts`) — this is a Node/TypeScript repo, so all three
+  were adapted to real chokepoints found via code search: #873 wired into
+  `writeManagedSkill`/`writeAgentProfileFile` (where file content actually
+  becomes model-loadable); #877's advisory format changed from
+  `pip install` to `npm install` and scans `package-lock.json`; #878 wired
+  into the existing `permission.asked`/`permission.updated` handling in
+  `opencode_stream_bridge.ts` (the same #736 dispatch-guard chokepoint)
+  rather than a new interception layer. See
+  `docs/ai/decisions/2026-07-02-security-issues-873-877-878-adapted-to-node-stack.md`.
+- Deviations from spec: #877's `rhythm doctor` CLI (setup-01) does not exist
+  yet — only the startup-banner half was wired; `runAdvisoryCheck()` /
+  `formatDoctorReport()` / `AdvisoryAckStore` are ready for `doctor` to call
+  once setup-01 lands. #878's "smart" mode AI assessment is a local
+  deterministic heuristic classifier (`command_risk_classifier.ts`), not an
+  LLM call, per the issue's own data-safety constraint.
+- Concerns: two real bugs were only caught by manually running the built
+  server / re-checking test discrimination, not by the first pass of unit
+  tests — see the decisions doc. Both are fixed and now regression-tested,
+  but it's a signal that "vitest green" alone was insufficient for these
+  three issues; the manual `dist/server.js` smoke should be repeated after
+  any further edits to `rhythm_managed_skills.ts`, `opencode_agent_writer.ts`,
+  or `opencode_stream_bridge.ts`. #878's bash-arg key name (`command`) was
+  inferred from reading `apps/opencode_fork/packages/opencode/src/tool/shell.ts`
+  read-only (never edited) — worth a real end-to-end smoke once an opencode
+  engine is available in this environment, since the unit tests mock the
+  event shape rather than exercising a live bash permission-ask.
