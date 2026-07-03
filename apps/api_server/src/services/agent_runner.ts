@@ -691,11 +691,16 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     }
 
     // ── Create session ────────────────────────────────────────────────────────
+    // #884: pass the already-resolved provider so createSession can trim the
+    // MCP allowlist to Gemini's function-declaration cap when this run is
+    // routed to `google` (direct route or a model-fallback route) — a no-op
+    // for every other provider.
     const sessionResult = await opencodeClient.createSession(
       effectiveName,
       effectiveCwd,
       mcpRoleConfig,
       skillNames,
+      resolvedModel.providerID,
     );
 
     if (!sessionResult?.id) {
