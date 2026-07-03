@@ -13,6 +13,7 @@ import {
 } from '../config/curated_mcp_servers';
 import { ensureGeminiProjectConfig } from './gemini_project_config';
 import { expandMcpAllowlist } from './mcp_allowlist_expander';
+import { capMcpAllowlistForProvider } from './gemini_tool_cap';
 import {
   ensureOmlxProviderConfig,
   detectAndUnloadCompetingOllamaModel,
@@ -847,6 +848,13 @@ export class OpencodeClientService {
    *   "store on session row + WS gateway enforcement" path rather than writing a
    *   per-session .mcp.json file (which would scope to the cwd directory, not to
    *   the session, and would affect all concurrent sessions sharing that cwd).
+   *
+   * #884 — Gemini function-declaration cap:
+   *   When `providerId` is `'google'`, the expanded allowlist is passed through
+   *   {@link capMcpAllowlistForProvider} before being placed on the body. This
+   *   is a no-op for every other provider (including when `providerId` is
+   *   omitted, e.g. a caller that hasn't resolved a model yet) — see
+   *   `gemini_tool_cap.ts` for the trim policy and cap constants.
    */
   async createSession(
     title: string,
@@ -860,6 +868,12 @@ export class OpencodeClientService {
     // (non-empty), the fork scopes the model's available skills to this set —
     // the skill analogue of mcpRoleConfig. Undefined/empty = unrestricted.
     skillAllowlist?: string[],
+    // #884 — resolved provider ID for this session's turn, when known at
+    // create time (e.g. agent_runner resolves the model before calling
+    // createSession). Undefined means "provider not yet known" — the cap is
+    // skipped (same as any non-google provider) and can still be applied
+    // later via `updateSessionAllowlist` once resolved.
+    providerId?: string | null,
   ): Promise<{ id: string } | null> {
     if (!this.client) return null;
 
@@ -877,6 +891,13 @@ export class OpencodeClientService {
     if (mcpRoleConfig) {
       try {
         mcpAllowlist = expandMcpAllowlist(mcpRoleConfig);
+        // #884 — trim to Gemini's function-declaration cap when this session's
+        // turn is routed to `google`. No-op for every other provider.
+        const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId);
+        mcpAllowlist = capResult.allowlist;
+        if (capResult.trimmed) {
+          logger.warn(capResult.warning ?? '[GeminiToolCap] allowlist trimmed');
+        }
         logger.info(
           '[OpencodeClientService] createSession: mcpRole=%s allowlist servers=%s tools=%s',
           mcpRoleConfig.role,
@@ -951,13 +972,24 @@ export class OpencodeClientService {
    * Centralizing on expandMcpAllowlist (already covered by
    * mcp_allowlist_expander.test.ts) guarantees this call site can never regress
    * to that wrong shape again, the same way createSession is protected today.
+   *
+   * #884 — when `providerId` is `'google'`, the expanded allowlist is trimmed
+   * to Gemini's function-declaration cap via {@link capMcpAllowlistForProvider}
+   * before being PATCHed. No-op for every other provider (including when
+   * `providerId` is omitted).
    */
   async updateSessionAllowlist(
     sessionId: string,
     mcpRoleConfig: import('./agent_profile_scope').McpRoleConfig,
+    providerId?: string | null,
   ): Promise<boolean> {
     try {
-      const mcpAllowlist = expandMcpAllowlist(mcpRoleConfig);
+      let mcpAllowlist = expandMcpAllowlist(mcpRoleConfig);
+      const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId);
+      mcpAllowlist = capResult.allowlist;
+      if (capResult.trimmed) {
+        logger.warn(capResult.warning ?? '[GeminiToolCap] allowlist trimmed');
+      }
       const base = this.serverUrl;
       const res = await fetch(`${base}/session/${sessionId}`, {
         method: 'PATCH',

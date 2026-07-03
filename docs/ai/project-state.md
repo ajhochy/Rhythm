@@ -13,6 +13,11 @@ sequentially with the full check suite between folds.
 - **#882** `workflow/run-2026-07-02` → main. CI green (Server + MCP + Desktop).
   Closes on merge: #857 #859 #860 #862 #858 #861 #863 #865 #814 #856 #864 #867 #868.
 - This run branched off merged `main` (mega build-out already merged: #848/#849/#835).
+- **#884** `issue-884-gemini-tool-cap` (worktree `rhythm-worktrees/884-gemini`,
+  parallel to #882) — Gemini 512-function-declaration cap fix, implemented and
+  verified (commit `98a5be656`), NOT pushed/PR'd yet. See
+  `runs/2026-07-02-884-gemini-tool-cap.md` and
+  `decisions/2026-07-02-gemini-tool-cap-choke-point.md`.
 
 ## In progress
 
@@ -57,6 +62,13 @@ sequentially with the full check suite between folds.
 - PR #882 @ `784c7abc7`: api_server `tsc` clean + vitest **1996 pass** / 1 skip / 1 fail
   (the #881 machine-local test — passes on CI); mcp_server build clean + **59 pass**;
   Flutter analyze **0 errors** + `dart format` clean + **773 pass**. CI: all 3 green.
+- `issue-884-gemini-tool-cap` @ `98a5be656` (separate worktree, not folded into
+  #882): api_server `tsc` clean + `npm run build` clean + vitest **2017 pass**
+  / 1 skip / 0 fail (235 files); mcp_server build clean + **59 pass**
+  (unaffected, confirms no cross-package regression). No Flutter/Dart files
+  touched. GitNexus `detect_changes` unavailable for this worktree (not in
+  its indexed repo list) — fell back to `git diff --stat main...HEAD` to
+  confirm change scope.
 
 ## Next step
 
@@ -65,5 +77,10 @@ sequentially with the full check suite between folds.
 3. Manual UI smoke of the new surfaces.
 4. Triage the follow-up backlog: #881 (quick), #870 + setup-agent wave #871–#880.
 5. After merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
+6. Push `issue-884-gemini-tool-cap` and open a PR (currently local-only,
+   verified). Manual smoke idea once merged: force a session onto the
+   `google` route with a large/unscoped MCP profile and confirm no "At most
+   512 function declarations" error, plus a `[GeminiToolCap]` warning log
+   line when trimming occurs.
 
 ## Filed this run (2026-07-02): #867 #870 #871 #872 #873 #874 #875 #876 #877 #878 #879 #880 #881 (see runs/2026-07-02-workflow-run-13-issues.md); #869 closed (no secret present)

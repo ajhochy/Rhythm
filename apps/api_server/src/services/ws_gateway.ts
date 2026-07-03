@@ -385,6 +385,34 @@ export async function handleInputFrame(
   // init-time scoping. Non-fatal: a missing/unknown profile id returns null
   // mcpRoleConfig (no restriction).
   const scopeAgentId = perTurnAgent ?? agentKind ?? null;
+
+  // #884 — resolve the model/provider for this turn ONCE, BEFORE
+  // building/pushing the MCP allowlist, so createSession/updateSessionAllowlist
+  // can trim the allowlist to Gemini's function-declaration cap when the
+  // resolved provider is `google` (direct route or a model-fallback route).
+  // The prompt-send path further below reuses `resolvedTurnModel` instead of
+  // calling resolveModelForSessionTurn a second time — same inputs
+  // (agentKind/sessionProviderId/sessionModelId/perTurnOverride) each produce
+  // the same result, so this is a pure move, not a behavior change. Non-fatal:
+  // a resolution failure here leaves `resolvedTurnModel` undefined, which is
+  // treated as "not google" (no cap applied) here — the prompt-send path's own
+  // undefined-model guard still runs unchanged below.
+  let resolvedTurnModel: { providerID: string; modelID: string } | undefined;
+  if (agentKind) {
+    try {
+      const { resolveModelForSessionTurn } = await import('./agent_model_resolver');
+      resolvedTurnModel = await resolveModelForSessionTurn({
+        agentId: agentKind,
+        sessionProviderId,
+        sessionModelId,
+        perTurnOverride,
+      });
+    } catch (err) {
+      console.error(`[ws_gateway] early model resolution for Gemini tool cap failed (non-fatal):`, err);
+    }
+  }
+  const resolvedTurnProviderId: string | null = resolvedTurnModel?.providerID ?? null;
+
   let wsMcpRoleConfig: import('./agent_profile_scope').McpRoleConfig | undefined;
   let wsAllowedSkillsJson: string | null = null;
   // #775 (skill-scope): the resolved profile's permitted skill NAMES, parsed from
@@ -486,6 +514,7 @@ export async function handleInputFrame(
             cwd,
             wsMcpRoleConfig,
             wsSkillNames,
+            resolvedTurnProviderId,
           );
           if (!freshSession) {
             ws.send(
@@ -523,6 +552,7 @@ export async function handleInputFrame(
           cwd,
           wsMcpRoleConfig,
           wsSkillNames,
+          resolvedTurnProviderId,
         );
         if (!opencodeSession) {
           ws.send(
@@ -592,7 +622,7 @@ export async function handleInputFrame(
   // and injected the FULL tool surface for every profiled turn.
   if (wsMcpRoleConfig) {
     try {
-      await opencodeClient.updateSessionAllowlist(opencodeId, wsMcpRoleConfig);
+      await opencodeClient.updateSessionAllowlist(opencodeId, wsMcpRoleConfig, resolvedTurnProviderId);
     } catch (allowlistErr) {
       console.error(`[ws_gateway] updateSessionAllowlist failed (non-fatal):`, allowlistErr);
     }
@@ -614,17 +644,10 @@ export async function handleInputFrame(
   }
 
   try {
-    const { resolveModelForSessionTurn } = await import(
-      './agent_model_resolver'
-    );
-    const model = agentKind
-      ? await resolveModelForSessionTurn({
-          agentId: agentKind,
-          sessionProviderId,
-          sessionModelId,
-          perTurnOverride,
-        })
-      : undefined;
+    // #884: reuse the model resolved earlier (before the MCP allowlist push)
+    // instead of calling resolveModelForSessionTurn again — same inputs,
+    // same result, one fewer auth-catalog round trip per turn.
+    const model = resolvedTurnModel;
 
     // Guard: if model is undefined (unknown agentKind not in the
     // resolver's fallback table), surface the problem explicitly
