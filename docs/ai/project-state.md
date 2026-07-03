@@ -28,6 +28,15 @@ sequentially with the full check suite between folds.
   identity (#867 — specialist parsed from title + 31-row backfill), tool cards default
   collapsed, **#815 verified live and CLOSED** (question → macOS notification →
   click-to-focus). All fixes on #882; CI green on the final commit.
+- **#885 done in worktree** `issue-885-vault-env` @ `ea1c53595` (not yet folded/PR'd):
+  desktop app now injects `MEMORY_VAULT_PATH`/`MEMORY_VAULT_SUBDIR` into the spawned
+  agent api_server, auto-detecting the Obsidian `AGENT-MEMORY` vault when present (falls
+  back to the legacy path otherwise); explicit env vars still win. New
+  `MemoryVaultConfigService` + Settings UI section. See
+  `docs/ai/runs/2026-07-02-885-memory-vault-env.md` and the linked decision doc. Follow-up
+  outstanding: a live `flutter run -d macos` screenshot of the new Settings section
+  (blocked in-run by a port/DB collision with another running instance) and manual
+  migration/prune of the 3 stale legacy Memory-Vault notes (intentionally not automated).
 
 ## Risks / known issues
 
@@ -69,6 +78,11 @@ sequentially with the full check suite between folds.
   touched. GitNexus `detect_changes` unavailable for this worktree (not in
   its indexed repo list) — fell back to `git diff --stat main...HEAD` to
   confirm change scope.
+- Worktree `issue-885-vault-env` @ `ea1c53595` (#885, not yet folded): `ai-workflow checks
+  --level issue` and `--level pr` both PASS. Flutter: **793 pass**, 0 fail (18 new).
+  api_server vitest: 234/234 files, 2008 pass / 1 skipped, 0 fail on a clean standalone
+  run (one `issue_755_role_separation.test.ts` timeout flaked under `--level pr`'s full
+  parallel load, confirmed unrelated — this branch touches zero `apps/api_server` files).
 
 ## Next step
 
@@ -82,6 +96,9 @@ sequentially with the full check suite between folds.
    `google` route with a large/unscoped MCP profile and confirm no "At most
    512 function declarations" error, plus a `[GeminiToolCap]` warning log
    line when trimming occurs.
+5. Fold **#885** (worktree ready, see In progress) into the next integration branch; live
+   Settings-screenshot follow-up still outstanding.
+6. After merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
 
 ## Filed this run (2026-07-02): #867 #870 #871 #872 #873 #874 #875 #876 #877 #878 #879 #880 #881 (see runs/2026-07-02-workflow-run-13-issues.md); #869 closed (no secret present)
 
