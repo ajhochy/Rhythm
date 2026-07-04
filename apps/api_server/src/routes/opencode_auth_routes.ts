@@ -5,6 +5,8 @@ import { join } from 'path';
 import { opencodeClient } from '../services/opencode_engine';
 import { CredentialsBridgeService } from '../services/credentials_bridge_service';
 import { githubCopilotDeviceAuth } from '../services/github_copilot_device_auth';
+import { anthropicAccountsService } from '../services/anthropic_accounts_service';
+import { AnthropicOauthService } from '../services/anthropic_oauth_service';
 
 export const opencodeAuthRouter = Router();
 
@@ -164,4 +166,105 @@ opencodeAuthRouter.post('/anthropic/bridge', async (req: Request, res: Response)
         ? 503
         : 500;
   res.status(status).json(result);
+});
+
+// ── Multi-account Anthropic login (dual-accounts plan, Task B) ──────────────
+// The accounts store is the single source of truth for Claude tokens; these
+// routes only ever return REDACTED account shapes — tokens never leave the
+// server in any HTTP response body.
+
+const anthropicOauth = new AnthropicOauthService(anthropicAccountsService);
+const ACCOUNT_ID_RE = /^[a-z0-9-]{1,32}$/;
+
+// GET /accounts — redacted account list + default id
+opencodeAuthRouter.get('/accounts', (_req: Request, res: Response) => {
+  res.json(anthropicAccountsService.listRedacted());
+});
+
+// POST /accounts/login-start {accountId, label} → {authorizeUrl}
+opencodeAuthRouter.post('/accounts/login-start', (req: Request, res: Response) => {
+  const { accountId, label } = req.body as { accountId?: string; label?: string };
+  if (!accountId || !ACCOUNT_ID_RE.test(accountId)) {
+    res.status(400).json({ error: 'accountId must match [a-z0-9-]{1,32}' });
+    return;
+  }
+  res.json(anthropicOauth.startLogin(accountId, label || accountId));
+});
+
+// POST /accounts/login-complete {accountId, code:"<authcode>#<state>"}
+opencodeAuthRouter.post(
+  '/accounts/login-complete',
+  async (req: Request, res: Response) => {
+    const { accountId, code } = req.body as { accountId?: string; code?: string };
+    if (!accountId || !ACCOUNT_ID_RE.test(accountId)) {
+      res.status(400).json({ error: 'accountId must match [a-z0-9-]{1,32}' });
+      return;
+    }
+    if (typeof code !== 'string' || !code.trim()) {
+      res.status(400).json({ error: 'code is required' });
+      return;
+    }
+    if (!anthropicOauth.hasPending(accountId)) {
+      // 404 = the server has never seen this account; 409 = it exists but no
+      // login is in flight (e.g. a stale dialog after a server restart).
+      const status = anthropicAccountsService.getAccount(accountId) ? 409 : 404;
+      res.status(status).json({ error: 'no pending login', reason: 'no_pending_login' });
+      return;
+    }
+    const result = await anthropicOauth.completeLogin(accountId, code);
+    if (!result.ok) {
+      const status = result.reason === 'bad_code' ? 400 : 502;
+      res.status(status).json({ error: result.reason, reason: result.reason });
+      return;
+    }
+    // Push default-account creds into the engine so auth.json stays
+    // oauth-typed and the plugin loader activates. Engine may not be up yet
+    // (e.g. mid-boot) — that's fine; boot wiring pushes on init too.
+    const stored = anthropicAccountsService.getAccount(accountId);
+    const { defaultAccountId } = anthropicAccountsService.listRedacted();
+    if (stored && stored.id === defaultAccountId && opencodeClient.isReady) {
+      await opencodeClient.setOAuthCredentials('anthropic', {
+        access: stored.access,
+        refresh: stored.refresh,
+        expires: stored.expires,
+      });
+    }
+    res.json({
+      account: stored
+        ? {
+            id: stored.id,
+            label: stored.label,
+            status: stored.status,
+            subscriptionType: stored.subscriptionType,
+            expires: stored.expires,
+          }
+        : { id: accountId, status: 'ok' },
+    });
+  },
+);
+
+// PATCH /accounts/default {accountId}
+opencodeAuthRouter.patch('/accounts/default', (req: Request, res: Response) => {
+  const { accountId } = req.body as { accountId?: string };
+  if (!accountId || !ACCOUNT_ID_RE.test(accountId)) {
+    res.status(400).json({ error: 'accountId must match [a-z0-9-]{1,32}' });
+    return;
+  }
+  if (!anthropicAccountsService.getAccount(accountId)) {
+    res.status(404).json({ error: `unknown account: '${accountId}'` });
+    return;
+  }
+  anthropicAccountsService.setDefault(accountId);
+  res.json({ ok: true, defaultAccountId: accountId });
+});
+
+// DELETE /accounts/:id — idempotent removal
+opencodeAuthRouter.delete('/accounts/:id', (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!ACCOUNT_ID_RE.test(id)) {
+    res.status(400).json({ error: 'accountId must match [a-z0-9-]{1,32}' });
+    return;
+  }
+  anthropicAccountsService.removeAccount(id);
+  res.json({ ok: true });
 });
