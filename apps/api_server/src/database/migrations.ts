@@ -1742,4 +1742,20 @@ export function runMigrations(db: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  // Dual Anthropic accounts (Task D) — per-session account routing + a
+  // per-profile default. anthropic_account_id is the account a session's
+  // Anthropic requests are routed to (nullable = engine default); it is
+  // updated in place when the vendored plugin reports a rate-limit spillover.
+  // default_anthropic_account_id on agent_configs is the profile-level default
+  // consumed by the session-create resolution chain (body → profile → store
+  // default). SQLite-only: agent tables never sync to Postgres.
+  const sessColsForAcct = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!sessColsForAcct.includes('anthropic_account_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN anthropic_account_id TEXT`);
+  }
+  const cfgColsForAcct = (db.pragma('table_info(agent_configs)') as { name: string }[]).map((c) => c.name);
+  if (!cfgColsForAcct.includes('default_anthropic_account_id')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN default_anthropic_account_id TEXT`);
+  }
 }

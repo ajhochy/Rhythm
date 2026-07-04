@@ -45,6 +45,15 @@ function validateBody(body: Record<string, unknown>, requireLabel = true): void 
     );
   }
 
+  // Task D — profile-level default Anthropic account id (nullable string).
+  if (
+    body.defaultAnthropicAccountId !== undefined &&
+    body.defaultAnthropicAccountId !== null &&
+    typeof body.defaultAnthropicAccountId !== 'string'
+  ) {
+    throw AppError.badRequest('defaultAnthropicAccountId must be a string or null');
+  }
+
   // Legacy CLI fields (command, canResume, resumeCommand, sessionIdPattern,
   // outputMarker) used to be required here. The Opencode SDK migration
   // dropped them from the data model (#575) and the Flutter client no
@@ -96,6 +105,8 @@ export class AgentConfigsController {
         ocAgent: typeof body.ocAgent === 'string' ? body.ocAgent : null,
         sessionSelectable: body.sessionSelectable !== false,
         modelTierHint: typeof body.modelTierHint === 'string' ? body.modelTierHint : null,
+        defaultAnthropicAccountId:
+          typeof body.defaultAnthropicAccountId === 'string' ? body.defaultAnthropicAccountId : null,
         canResume: false,
         resumeCommand: null,
         sessionIdPattern: null,
@@ -149,6 +160,7 @@ export class AgentConfigsController {
       if (body.ocAgent !== undefined) patch.ocAgent = typeof body.ocAgent === 'string' ? body.ocAgent : null;
       if (body.sessionSelectable !== undefined) patch.sessionSelectable = Boolean(body.sessionSelectable);
       if (body.modelTierHint !== undefined) patch.modelTierHint = typeof body.modelTierHint === 'string' ? body.modelTierHint : null;
+      if (body.defaultAnthropicAccountId !== undefined) patch.defaultAnthropicAccountId = typeof body.defaultAnthropicAccountId === 'string' ? body.defaultAnthropicAccountId : null;
       // Legacy CLI fields (#581) — accept on the wire for back-compat
       // with old payloads but never propagate to the repository layer.
 

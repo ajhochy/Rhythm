@@ -71,6 +71,12 @@ export interface AgentSession {
    * user-visible (isSystem = false).
    */
   isSystem: boolean;
+  /**
+   * Dual Anthropic accounts (Task D) — the account id this session's Anthropic
+   * requests are routed to (mirrors the routing map in anthropic-accounts.json).
+   * Null = engine default. Updated in place on rate-limit spillover.
+   */
+  anthropicAccountId: string | null;
 }
 
 export interface UpdateAgentSessionDto {
@@ -130,4 +136,6 @@ export interface CreateAgentSessionDto {
   scheduledTaskId?: string | null;
   /** #747 — Mark this session as a background system session (curator, scheduler, memory). */
   isSystem?: boolean;
+  /** Dual Anthropic accounts (Task D) — resolved account id (body → profile → store default). Null = engine default. */
+  anthropicAccountId?: string | null;
 }
