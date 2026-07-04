@@ -19,12 +19,12 @@ describe('agent_configs migration', () => {
     expect(table?.name).toBe('agent_configs');
   });
 
-  it('seeds exactly four preset rows', () => {
+  it('seeds exactly four preset rows plus the Config Doctor profile', () => {
     const db = makeDb();
     const count = (
       db.prepare(`SELECT COUNT(*) as cnt FROM agent_configs`).get() as { cnt: number }
     ).cnt;
-    expect(count).toBe(4);
+    expect(count).toBe(5);
   });
 
   it('has correct column shape', () => {
@@ -129,7 +129,7 @@ describe('agent_configs migration', () => {
     const count = (
       db.prepare(`SELECT COUNT(*) as cnt FROM agent_configs`).get() as { cnt: number }
     ).cnt;
-    expect(count).toBe(4);
+    expect(count).toBe(5);
   });
 });
 

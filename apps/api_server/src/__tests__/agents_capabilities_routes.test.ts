@@ -222,9 +222,9 @@ describe('GET /agents/capabilities', () => {
     const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
     const caps = (await res.json()) as Record<string, unknown>;
 
-    // Should have 4 presets + 1 custom = 5 capability keys, plus providerToAgentKind
+    // Should have 4 presets + Config Doctor + 1 custom = 6 capability keys, plus providerToAgentKind
     const ids = Object.keys(caps).filter((k) => k !== 'providerToAgentKind');
-    expect(ids.length).toBe(5);
+    expect(ids.length).toBe(6);
   });
 
   // ── #858: a UUID-keyed config must not be reported promptable when its
@@ -310,7 +310,7 @@ describe('GET /agents/capabilities', () => {
     expect(res.status).toBe(200);
     const caps = (await res.json()) as Record<string, unknown>;
     const ids = Object.keys(caps).filter((k) => k !== 'providerToAgentKind');
-    expect(ids.length).toBe(5);
+    expect(ids.length).toBe(6);
   });
 });
 
