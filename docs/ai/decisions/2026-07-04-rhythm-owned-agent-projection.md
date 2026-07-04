@@ -30,4 +30,3 @@ projecting `workflow-orchestrator.md`: a self-safe coding handoff and
 
 Rhythm resyncs remain self-healing for these two requirements. Other profiles'
 unmanaged frontmatter and routing behavior remain unchanged.
-

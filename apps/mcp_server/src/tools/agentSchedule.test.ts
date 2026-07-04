@@ -55,4 +55,3 @@ describe('rhythm_create_scheduled_task agent profile binding', () => {
     }
   });
 });
-

@@ -39,4 +39,3 @@ index: "[[Rhythm]]"
   The live API server was restarted with its original database and memory-vault
   configuration, and all documented health probes returned healthy afterward.
 - The external agent-stack repository was not changed.
-

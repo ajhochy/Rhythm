@@ -48,4 +48,3 @@ frontmatter by inserting or replacing the nested `permission.write` entry with
 - A task without `agentConfigId` retains generic `opencode` behavior.
 - A projected workflow-orchestrator file contains `write: allow`, mentions
   `coding-agent`, and contains no self-delegation instruction.
-
