@@ -23,9 +23,57 @@ typedef AgentServerStartResult = ({
   String? failureMessage,
 });
 
+/// Builds the environment map passed to the spawned api_server process.
+///
+/// #885 — Pure function (no I/O) so the precedence rules are unit-testable
+/// without spawning a real process:
+///   1. Start from [baseEnv] (normally `Platform.environment`).
+///   2. Overlay the fixed keys the app always sets (`PORT`, `DB_PATH`,
+///      `AGENT_LOCAL`).
+///   3. Overlay `MEMORY_VAULT_PATH` / `MEMORY_VAULT_SUBDIR` from the
+///      persisted Memory Vault setting — UNLESS [baseEnv] already has a
+///      non-empty explicit value for that key, in which case the explicit
+///      env var wins (keeps `export MEMORY_VAULT_PATH=...` dev overrides
+///      working).
+Map<String, String> buildApiServerEnvironment({
+  required Map<String, String> baseEnv,
+  required String port,
+  required String dbPath,
+  String? memoryVaultPath,
+  String? memoryVaultSubdir,
+}) {
+  final env = <String, String>{
+    ...baseEnv,
+    'PORT': port,
+    'DB_PATH': dbPath,
+    'AGENT_LOCAL': 'true',
+  };
+
+  if (memoryVaultPath != null && !baseEnv.containsKey('MEMORY_VAULT_PATH')) {
+    env['MEMORY_VAULT_PATH'] = memoryVaultPath;
+  }
+  if (memoryVaultSubdir != null &&
+      !baseEnv.containsKey('MEMORY_VAULT_SUBDIR')) {
+    env['MEMORY_VAULT_SUBDIR'] = memoryVaultSubdir;
+  }
+
+  return env;
+}
+
 /// Manages the lifecycle of the local Node.js API server process.
 class ApiServerService {
+  ApiServerService({String? memoryVaultPath, String? memoryVaultSubdir})
+      : _memoryVaultPath = memoryVaultPath,
+        _memoryVaultSubdir = memoryVaultSubdir;
+
   Process? _process;
+
+  /// #885 — Optional persisted Memory Vault path/subdir to inject into the
+  /// spawned api_server's environment. Null means "let the api_server use
+  /// its own built-in default" (back-compat when no setting has been wired,
+  /// e.g. in unrelated call sites/tests that construct this service bare).
+  final String? _memoryVaultPath;
+  final String? _memoryVaultSubdir;
 
   /// Rolling buffer of recent stderr lines from the spawned server process.
   /// Capped at 20 lines x 200 chars (~4 KB) to bound memory.
@@ -147,12 +195,13 @@ class ApiServerService {
         // misses Cmd+Q.  --parent-pid fixes that for both dev and production.
         [...serverInfo.args, '--parent-pid=$pid'],
         workingDirectory: serverInfo.workingDir,
-        environment: {
-          ...Platform.environment,
-          'PORT': '4001',
-          'DB_PATH': dbPath,
-          'AGENT_LOCAL': 'true',
-        },
+        environment: buildApiServerEnvironment(
+          baseEnv: Platform.environment,
+          port: '4001',
+          dbPath: dbPath,
+          memoryVaultPath: _memoryVaultPath,
+          memoryVaultSubdir: _memoryVaultSubdir,
+        ),
       );
     } catch (e) {
       stderr.writeln('[ApiServerService] Process.start threw: $e');

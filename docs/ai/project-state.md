@@ -2,17 +2,44 @@
 
 ## Current focus
 
-The 2026-07-02 governance/safety + agent-UX + infra closeout is complete and parked
-in **PR #882** (open, CI-green) for review. It resolves the risk backlog the prior
-mega build-out exposed (#856–#860) plus agent-UX and infra hardening — 13 issues,
-implemented by parallel worktree-isolated coding agents (contract-first) and folded
-sequentially with the full check suite between folds.
+**PR #887 (`workflow/run-2026-07-03`) — agent delegation + auth + default-profile
+closeout. CI green across every commit; live-smoked; open for review/merge.**
+This run started as the 15-issue backlog sweep, then a live manual-smoke round
+drove a chain of agent-infra fixes:
+- **#856** Claude re-auth pickup — replaced the (wrong) file-watch with a Keychain
+  fingerprint poll (`CLAUDE_KEYCHAIN_POLL_MS`, default 60s) that re-bridges on
+  refresh-token change; the current `claude` CLI stores creds Keychain-only.
+- **#888** task quick-actions spawn Secretary (pass `agentId`), resolved by the
+  stable `secretaryAgent` slug (two-manager ambiguity).
+- **#889** Secretary is the default hub AND delegates. Two regressions found+fixed
+  in live smoke: (a) the default was resolved by searching `_catalog` (engine kinds
+  only → inert) → now returns the profile ocAgent directly (override → Secretary),
+  and `secretary.md` is re-projected after the roster reconcile; (b) domain
+  delegation was routed via the `rhythm_delegate` MCP tool (orphan session) → now
+  via the engine-native `task`/`subagent_type=<specialist>` (nests under the caller,
+  live-verified). See #891.
+- **#890** configurable app-level "Default profile" picker (client `DefaultAgentProfileService`).
+- **#872** de-flaked `cli/setup/prompts.test.ts` (stdin-mock leak).
+Delegation is live-verified end-to-end: Secretary → `task` → theologian nests under
+Secretary and returns a real vault-backed answer. Postmortem:
+`.agent-stack/postmortems/2026-07-03-issue-891.json` (C2 — unit tests codified the
+wrong mechanism; only live UI smoke caught it).
+**Open follow-up:** **#892** — a specialist whose MCP backend is unauthenticated
+(e.g. worship-planning + PCO in dev) hangs the engine until a headers timeout;
+should fail fast with a clear "not connected" message.
+
+The prior 2026-07-02 closeout (**PR #882**) merged earlier.
 
 ## Active branch / PR (open — never auto-merge)
 
 - **#882** `workflow/run-2026-07-02` → main. CI green (Server + MCP + Desktop).
   Closes on merge: #857 #859 #860 #862 #858 #861 #863 #865 #814 #856 #864 #867 #868.
 - This run branched off merged `main` (mega build-out already merged: #848/#849/#835).
+- **#884** `issue-884-gemini-tool-cap` (worktree `rhythm-worktrees/884-gemini`,
+  parallel to #882) — Gemini 512-function-declaration cap fix, implemented and
+  verified (commit `98a5be656`), NOT pushed/PR'd yet. See
+  `runs/2026-07-02-884-gemini-tool-cap.md` and
+  `decisions/2026-07-02-gemini-tool-cap-choke-point.md`.
 
 ## In progress
 
@@ -23,6 +50,58 @@ sequentially with the full check suite between folds.
   identity (#867 — specialist parsed from title + 31-row backfill), tool cards default
   collapsed, **#815 verified live and CLOSED** (question → macOS notification →
   click-to-focus). All fixes on #882; CI green on the final commit.
+- **#885 done in worktree** `issue-885-vault-env` @ `ea1c53595` (not yet folded/PR'd):
+  desktop app now injects `MEMORY_VAULT_PATH`/`MEMORY_VAULT_SUBDIR` into the spawned
+  agent api_server, auto-detecting the Obsidian `AGENT-MEMORY` vault when present (falls
+  back to the legacy path otherwise); explicit env vars still win. New
+  `MemoryVaultConfigService` + Settings UI section. See
+  `docs/ai/runs/2026-07-02-885-memory-vault-env.md` and the linked decision doc. Follow-up
+  outstanding: a live `flutter run -d macos` screenshot of the new Settings section
+  (blocked in-run by a port/DB collision with another running instance) and manual
+  migration/prune of the 3 stale legacy Memory-Vault notes (intentionally not automated).
+- **#883** (secretary delegate authorization) implemented in isolated worktree
+  `883-secretary` / branch `issue-883-secretary-delegate`, commit `f33ecacd5`.
+  verification-gate PASSED (see `docs/ai/runs/2026-07-02-issue-883-secretary-delegate.md`).
+  Not yet folded into the mega branch. Fix: `rhythm_delegate` added to secretary's
+  `.mcp-roles` tool scope + a new reproducible role-file → `agent_configs` backfill
+  seed for `is_manager`/roster (previously DB-only, hand-edited via the designer).
+- **#888** (quick-action buttons spawned "Coding Workflow" instead of Secretary,
+  silently breaking #883's delegation): committed to `workflow/run-2026-07-03`.
+  Two rounds: (1) `quick_actions_bar.dart` passes `agentId` alongside `mcpRole`;
+  (2) **live-smoke fix** — the first round resolved `agentId` from
+  `managerAgent`, but production has TWO `isManager=true` configs (secretary +
+  the dev `workflow-orchestrator`), so it picked the wrong manager and spawned
+  workflow-orchestrator. Now resolves Secretary by its stable slug via a new
+  `AgentConfigsController.secretaryAgent` getter, guarded by a two-manager
+  regression test (`test/features/agent_configs/agent_configs_controller_test.dart`).
+  Postmortem: `.agent-stack/postmortems/2026-07-03-issue-888.json` (C2 — fixture-
+  convenient test: the widget fake had a single manager). See
+  `docs/ai/runs/2026-07-03-issue-888-quick-actions-agentid.md`. Note: #888 is
+  Flutter-only and does NOT touch `apps/api_server` — the `server.ts` /
+  `auth_credential_watcher.ts` changes on this same branch belong to the
+  unrelated #856 fix below (a prior run's note conflating the two was
+  mistaken; corrected here).
+- **#856 (reopened)** (engine did not pick up refreshed Claude credentials
+  after a `claude` CLI re-auth): on branch `workflow/run-2026-07-03`.
+  Round 1 (a file watcher, commit `15f36db38`) was the WRONG mechanism — live
+  smoke proved current `claude` stores creds in the macOS Keychain only and
+  does not persist the local creds file, so the watch never fires on a real
+  re-auth. Round 2 (this rework) replaces it with a change-gated **Keychain
+  poll** in `CredentialsBridgeService` (`startKeychainPoll`, default 60s via
+  `CLAUDE_KEYCHAIN_POLL_MS`): it fingerprints the Keychain refresh token each
+  tick and force-re-bridges only when it changes, self-healing past the
+  transient denial seen during a logout→login. The `#658` 15-min loop and the
+  opencode-`auth.json` watcher are untouched. See
+  `docs/ai/decisions/2026-07-03-keychain-poll-replaces-file-watch.md`.
+  Outstanding: live re-smoke of an actual `claude` re-auth (see Risks).
+- **#890** (default agent profile configurable via app-level picker):
+  verification-gate PASSED, on `workflow/run-2026-07-03`, not yet committed.
+  New `DefaultAgentProfileService` + a "Default profile" picker at the top of
+  the Agent Profile manager sheet; `AgentsController` resolution order is now
+  configured-override → Secretary (#889) → first authorized (#653). See
+  `docs/ai/runs/2026-07-03-issue-890-default-agent-profile-picker.md`.
+  Outstanding: live `flutter run -d macos` smoke of the picker (unit + widget
+  tested only).
 
 ## Risks / known issues
 
@@ -49,14 +128,45 @@ sequentially with the full check suite between folds.
   worktree its own install, or forbid reinstalls in agent prompts (used here). See
   the run log.
 - **#814 bundling** (`desktop_release.yml` mcp_server steps) not yet exercised by a real
-  release run; **#856** engine bounce not yet exercised by a real account-switch;
-  **#868** oMLX provider needs the oMLX app installed to live-smoke. All unit-covered.
+  release run; **#868** oMLX provider needs the oMLX app installed to live-smoke. All unit-covered.
+- **#856 (reopened, round 2 — Keychain poll):** polling `security
+  find-generic-password` every ~60s could in theory prompt for Keychain access
+  on some machines (not observed; the `#658` loop already reads it every 15
+  min without incident, but the tighter cadence widens exposure). Not yet
+  re-smoked against a live `claude` logout→login (unit-tested only). Manual
+  smoke: re-auth with the app running, watch for `"keychain poll: refresh
+  token changed — re-bridged ok"` in the server log within ~60s (no restart),
+  then confirm a new agent session doesn't error on expired Claude creds.
 
 ## Test status
 
 - PR #882 @ `784c7abc7`: api_server `tsc` clean + vitest **1996 pass** / 1 skip / 1 fail
   (the #881 machine-local test — passes on CI); mcp_server build clean + **59 pass**;
   Flutter analyze **0 errors** + `dart format` clean + **773 pass**. CI: all 3 green.
+- `issue-884-gemini-tool-cap` @ `98a5be656` (separate worktree, not folded into
+  #882): api_server `tsc` clean + `npm run build` clean + vitest **2017 pass**
+  / 1 skip / 0 fail (235 files); mcp_server build clean + **59 pass**
+  (unaffected, confirms no cross-package regression). No Flutter/Dart files
+  touched. GitNexus `detect_changes` unavailable for this worktree (not in
+  its indexed repo list) — fell back to `git diff --stat main...HEAD` to
+  confirm change scope.
+- Worktree `issue-885-vault-env` @ `ea1c53595` (#885, not yet folded): `ai-workflow checks
+  --level issue` and `--level pr` both PASS. Flutter: **793 pass**, 0 fail (18 new).
+  api_server vitest: 234/234 files, 2008 pass / 1 skipped, 0 fail on a clean standalone
+  run (one `issue_755_role_separation.test.ts` timeout flaked under `--level pr`'s full
+  parallel load, confirmed unrelated — this branch touches zero `apps/api_server` files).
+- `workflow/run-2026-07-03` @ `a832ea277` (working tree, uncommitted — #888 Flutter
+  half + #856-reopened backend fix, both verification-gate PASSED independently):
+  `ai-workflow checks --level pr` green — flutter analyze 0 errors + `dart format`
+  clean + **793 Flutter pass**; api_server `tsc` clean + **2336 vitest pass / 1
+  skip / 0 fail** (273 files, the #881 machine-local skip only).
+- `workflow/run-2026-07-03` @ `7ef7692ac0a` (working tree, uncommitted — adds
+  #890 on top of the above, verification-gate PASSED): `flutter analyze
+  --no-fatal-infos` 0 errors/warnings; `dart format --set-exit-if-changed .`
+  clean (382 files, 0 changed); full `flutter test` — **813 pass**, 0 fail
+  (up from 793 — 6 new service tests + 3 new widget tests + others queued on
+  the branch); `ai-workflow checks --level pr` green (api_server untouched,
+  confirms no cross-package regression).
 
 ## Next step
 
@@ -65,5 +175,339 @@ sequentially with the full check suite between folds.
 3. Manual UI smoke of the new surfaces.
 4. Triage the follow-up backlog: #881 (quick), #870 + setup-agent wave #871–#880.
 5. After merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
+6. Push `issue-884-gemini-tool-cap` and open a PR (currently local-only,
+   verified). Manual smoke idea once merged: force a session onto the
+   `google` route with a large/unscoped MCP profile and confirm no "At most
+   512 function declarations" error, plus a `[GeminiToolCap]` warning log
+   line when trimming occurs.
+5. Fold **#885** (worktree ready, see In progress) into the next integration branch; live
+   Settings-screenshot follow-up still outstanding.
+6. After merge, resolve `docs/ai/project-state.md` in favor of the branch copy.
+7. Commit + push `workflow/run-2026-07-03` (currently uncommitted: #888
+   Flutter fix + #856-reopened backend fix + #889 (Secretary delegation) +
+   #890 (default profile picker), all verification-gate PASSED) and open a
+   PR closing all four issues. Manual smoke before merge: (a) tap a
+   quick-action button and confirm it spawns Secretary, not Coding Workflow
+   (#888); (b) run `claude` to re-auth and confirm the server log shows
+   "claude re-auth detected — re-bridged: ok" with no app restart needed
+   (#856); (c) ask Secretary a ministry-domain question and confirm it calls
+   `rhythm_delegate` and spawns a "Delegated: <Specialist>" child session
+   (#889); (d) open Agent Profiles, use the new "Default profile" picker to
+   pick a non-Secretary profile, create a new session with no explicit
+   agent, and confirm it uses the picked profile — then clear the override
+   and confirm it falls back to Secretary (#890).
 
 ## Filed this run (2026-07-02): #867 #870 #871 #872 #873 #874 #875 #876 #877 #878 #879 #880 #881 (see runs/2026-07-02-workflow-run-13-issues.md); #869 closed (no secret present)
+
+## Recent coding-agent runs
+
+### 2026-07-03 — #890 (default agent profile configurable via app-level picker)
+verification-gate **PASSED**. Full detail moved to
+`docs/ai/runs/2026-07-03-issue-890-default-agent-profile-picker.md`. Summary:
+new `DefaultAgentProfileService` (client-side `shared_preferences` override)
++ a "Default profile" picker in the Agent Profile manager sheet;
+`AgentsController._resolveDefaultAgentIdForCreate()` now prefers a configured,
+still-authorized override before falling back to Secretary (#889) then the
+first authorized catalog entry (#653). Flutter-only, not yet committed.
+`flutter analyze` 0 errors/warnings; full `flutter test` **813/813 pass**.
+Residual risk: not yet live-smoked in a running `flutter run -d macos`
+session.
+
+### 2026-07-03 — #889 (Secretary won't delegate; manager preamble handles non-dev work itself + dirty roster)
+verification-gate pending (about to run). Root cause confirmed as triaged: the
+single `MANAGER_ROUTING_PREAMBLE` was prepended to EVERY `isManager` profile,
+telling it to "handle non-development tasks yourself" — Secretary (a manager
+with a delegate roster) inherited dev-manager wording and never called
+`rhythm_delegate`. Separately, Secretary's live `allowed_delegates_json` had
+drifted into a mixed bag of raw UUIDs and spaced display names that don't
+resolve against `agent_delegation_service`'s validation.
+- Files modified:
+  - `apps/api_server/src/services/opencode_agent_writer.ts` — `injectManagerPreamble`
+    now takes a third `delegateRoster: string[] = []` param. Empty roster (e.g.
+    workflow-orchestrator) → unchanged `MANAGER_ROUTING_PREAMBLE` behavior,
+    byte-for-byte identical to before. Non-empty roster (e.g. Secretary) → new
+    `buildHubRoutingPreamble()` combined block under its own idempotency marker
+    (`## Routing (mandatory — hub)`, distinct from the plain `## Routing
+    (mandatory)` marker so the two variants can never collide/duplicate):
+    names `rhythm_delegate` with the `callerAgentConfigId`/`targetAgentConfigId`/
+    `prompt` call convention and lists the roster ids for domain/ministry work,
+    keeps the coding hand-off to workflow-orchestrator via `task`/`subagent_type`
+    verbatim, and replaces "Only handle non-development tasks yourself" with
+    "Only handle trivial admin yourself...". New `parseDelegateRoster(config)`
+    helper parses `config.allowedDelegatesJson` defensively (bad JSON/non-array
+    → `[]`, falls back to the old plain-preamble path). The sole call site
+    (`writeAgentProfileFile`, ~line 199) now passes `parseDelegateRoster(config)`.
+  - `apps/api_server/src/services/secretary_delegation_seed.ts` — the
+    `allowed_delegates_json` non-clobber rule is now a **secretary-only
+    exception**: reconciled to the role file's roster whenever it differs
+    (order-independent `rosterMatches()` set-comparison), not just when NULL.
+    `is_manager` overlay behavior (false→true only) is unchanged. Logs a
+    distinct "reconciled drifted secretary allowed_delegates_json..." line
+    (with the stale value) when a non-null roster is actually replaced, on top
+    of the existing backfill log line.
+  - `apps/api_server/src/services/__tests__/opencode_agent_writer.test.ts` —
+    added: hub-preamble contains `rhythm_delegate` + roster ids + coding
+    hand-off, omits the old blanket line; idempotent re-inject; distinct hub
+    marker; non-manager ignores a passed roster; manager WITHOUT a roster (both
+    explicit `[]` and the default-arg omitted case) still gets the byte-identical
+    plain preamble; `buildHubRoutingPreamble` unit coverage.
+  - `apps/api_server/src/__tests__/secretary_delegation_seed.test.ts` — replaced
+    the old "never clobbers a human-set allowed_delegates_json" test (which
+    directly contradicted the new required behavior) with a reconcile test using
+    a dirty roster shaped like the live #889 regression (a UUID, two spaced
+    display names, `workflow-orchestrator`, `graphic-designer`) → asserts it's
+    replaced with exactly the role file's 7 slugs; added a no-op test for an
+    already-matching roster in different order.
+- Checks run:
+  - `cd apps/api_server && npx tsc --noEmit` — clean.
+  - `cd apps/api_server && npx vitest run src/services/__tests__/opencode_agent_writer.test.ts src/__tests__/secretary_delegation_seed.test.ts` —
+    **29/29 pass**.
+  - Fail-before/pass-after: `git stash` on both source files (writer + seed),
+    re-ran the same two test files — **7 tests failed** against the
+    pre-fix code (hub marker/content assertions + `buildHubRoutingPreamble is
+    not a function` + the reconcile test), confirming the tests exercise real
+    new behavior, not tautologies. `git stash pop` restored the fix; re-run
+    confirmed 29/29 green again.
+- Decisions made: kept the plain `MANAGER_ROUTING_PREAMBLE` constant and its
+  marker completely unchanged for zero-roster managers (byte-identical output)
+  rather than folding it into one shared template, to guarantee no behavior
+  change for workflow-orchestrator. Used a distinct hub marker (with the
+  em-dash suffix) rather than trying to reuse `## Routing (mandatory)` for
+  both variants, so idempotency checks for either preamble never false-positive
+  against the other. Made the roster-reconcile logic (`rosterMatches`)
+  order-independent so a human simply reordering the role file's array doesn't
+  trigger a spurious "reconciled" log/write.
+- Deviations from spec: none.
+- Concerns / residual risk: **the roster reconcile runs inside
+  `syncOpencodeAgentProfiles()`**, which fires on `GET /agent-sessions/agents`
+  and on-demand sync, not strictly "at server startup" — a running server needs
+  that endpoint hit (or a relaunch) before the live dirty roster is actually
+  repaired in the DB. This was NOT live-smoked: no relaunch was performed, and
+  no live check that Secretary now actually calls `rhythm_delegate` and spawns
+  a "Delegated: <Specialist>" child session for a ministry request. **Manual
+  smoke required**: relaunch (or trigger a sync), then ask Secretary something
+  like "plan the worship set" and confirm (a) the DB roster is reconciled to
+  the 7 role-file slugs, (b) Secretary calls `rhythm_delegate` rather than
+  answering directly, and (c) a `Delegated: <Specialist>` child session
+  actually spawns.
+
+### 2026-07-03 — #856 (reopened, SECOND attempt): file-watch replaced with change-gated Keychain poll
+verification-gate pending (about to run). This supersedes the "2026-07-03 —
+#856 (reopened)" entry immediately below: LIVE SMOKE proved the file-watch
+fix was the wrong mechanism — the current `claude` CLI stores credentials in
+the macOS **Keychain ONLY**; `claude logout`/`login` deletes any stale
+`~/.claude/.credentials (JSON)` and never recreates it, so the file-watcher
+essentially never fires on a real re-auth (it fired once, by luck, on the
+stale file's *deletion*, hitting a transient `keychain_denied`). The Keychain
+cannot be `fs.watch`ed.
+- Files modified:
+  - `apps/api_server/src/services/credentials_bridge_service.ts` — added
+    `refreshTokenFingerprint()` (SHA-256 of the refresh token, never logs/
+    exposes the raw token), `startKeychainPoll()`/`stopKeychainPoll()`
+    (injectable `KeychainPollDeps` seam), and a `lastBridgedRefreshFingerprint`
+    baseline that `bridgeAnthropic()` now updates on every successful bridge
+    (launch-time, "Reconnect", the #658 refresh loop, or the poll itself) so
+    the poll never redundantly re-fires for a token it didn't cause. Default
+    interval 60s, env-overridable via `CLAUDE_KEYCHAIN_POLL_MS`.
+  - `apps/api_server/src/server.ts` — removed the `claudeCredentialWatcher`
+    (`AuthCredentialWatcher` on `~/.claude/.credentials (JSON)`) block and its
+    shutdown `.stop()`; the launch-time Claude auto-bridge block now also
+    calls `credentialsBridge.startKeychainPoll(opencodeClient)` unconditionally
+    (even when no creds exist yet at launch, so a later first-time sign-in is
+    also picked up), and the shutdown handler calls
+    `credentialsBridgeRef?.stopKeychainPoll()` via a module-scope ref captured
+    at launch (the shutdown handler is synchronous, so it can't `await
+    import()` the route module fresh). The ORIGINAL `#856` `auth.json`
+    watcher (opencode's own provider-credential file) is UNTOUCHED and still
+    running.
+  - `apps/api_server/src/services/auth_credential_watcher.ts` — removed the
+    dead `claudeAiOauth`-shape branch from `authIdentityFingerprint` (it
+    normalized `~/.claude/.credentials (JSON)`'s shape, which is now unused
+    since nothing watches that file anymore). Kept: the opencode-auth.json
+    fingerprint/decision logic and the pre-existing `content === null` →
+    `' null'` sentinel (no stray NUL reintroduced).
+  - `apps/api_server/src/services/auth_credential_watcher.test.ts` — removed
+    the 3 `claudeAiOauth`-shape fingerprint tests AND the "Claude credentials
+    watcher wiring" describe block (3 more tests) that exercised the
+    now-removed `~/.claude/.credentials (JSON)` `AuthCredentialWatcher` wiring
+    in `server.ts` — that wiring no longer exists, so those tests were dead
+    coverage for removed code, not just the literal 3 named in the dispatch.
+    Kept every other pre-existing test (opencode auth.json fingerprint +
+    decision + integration tests) unchanged. 16 tests remain, all pass.
+  - `apps/api_server/src/services/credentials_bridge_service.test.ts` (new)
+    — 11 tests: fingerprint determinism/uniqueness/non-exposure; unchanged
+    fingerprint → bridge not called; changed fingerprint → forced re-bridge
+    exactly once + baseline updates so the next unchanged tick is a no-op;
+    transient null-read and thrown-error failures → bridge not called, no
+    exception escapes, existing baseline untouched, self-heals on next good
+    tick; a failed (`success:false`) bridge doesn't update the baseline so
+    the next tick retries; idempotent start; `stopKeychainPoll` clears the
+    interval; the interval handle is `unref()`'d.
+- Checks run: `npx tsc --noEmit` — clean. `npx vitest run
+  src/services/credentials_bridge_service.test.ts
+  src/services/auth_credential_watcher.test.ts` — **27/27 pass**. Also ran
+  the pre-existing `src/__tests__/credentials_bridge_service.test.ts` (the
+  #658 bridge/refresh-loop suite, untouched, outside this issue's file list)
+  to confirm no regression from `bridgeAnthropic` now also setting the
+  fingerprint baseline — **16/16 pass**. Fail-before/pass-after confirmed via
+  `git stash` on `credentials_bridge_service.ts` alone: all 11 new poll tests
+  fail with `startKeychainPoll is not a function` before the implementation,
+  pass after.
+- Decisions made: see
+  `docs/ai/decisions/2026-07-03-keychain-poll-replaces-file-watch.md` — why
+  polling (change-gated) instead of file-watching, why the fingerprint
+  baseline lives on `bridgeAnthropic` success rather than only inside the
+  poll tick, why the poll starts unconditionally at launch instead of only
+  when `hasClaudeCode()` is true.
+- Deviations from spec: none — matches the dispatch's required behavior
+  (poll default ~60s env-overridable, change-gated on refresh-token
+  fingerprint, transient-failure self-heal, unref'd timer, existing #658 loop
+  and the original opencode-auth.json watcher both left intact).
+- Concerns: not yet live-smoked against a real `claude logout`/`login` cycle
+  (unit-tested only, per this dispatch's no-real-Keychain constraint) — see
+  Risks below for the manual-smoke item, including a macOS permission-prompt
+  risk from polling `security` every ~60s.
+
+### 2026-07-03 — #888 (quick-action buttons spawn Coding Workflow instead of Secretary) — Flutter half
+verification-gate PASSED. Full detail moved to
+`docs/ai/runs/2026-07-03-issue-888-quick-actions-agentid.md`. Summary: both
+quick-action `createSession(...)` call sites in `quick_actions_bar.dart` now
+also pass `agentId` (resolved via `AgentConfigsController.managerAgent?.ocAgent
+?? 'secretary'`) — previously only `mcpRole: 'secretary'` was passed, which
+only scopes MCP tools, not which engine agent runs the session; the server
+defaulted to "Coding Workflow" instead of Secretary. Flutter: 793/793 pass,
+0 errors, format clean. Not yet committed. Backend half (server-side
+`agentId`/`mcpRole` resolution) owned by a separate concurrent agent — see the
+`#856` entry immediately below for that agent's own in-flight work.
+
+### 2026-07-03 — #856 (reopened): engine does not pick up refreshed Claude credentials after `claude` re-auth
+verification-gate PASSED. Full detail moved to
+`docs/ai/runs/2026-07-03-issue-856-reopened-claude-reauth.md`. Summary: the
+original #856 watcher only watched opencode's `auth.json`, which a `claude`
+CLI re-auth never touches (it writes the Keychain + the local Claude Code
+credentials file instead) — so the watch never fired, and even a bounce
+never re-invoked `bridgeAnthropic`. Fix: added a second
+`AuthCredentialWatcher` on the Claude Code credentials file whose `onReload`
+forces `credentialsBridge.bridgeAnthropic(client, { force: true })`;
+extended `authIdentityFingerprint` to parse that file's `claudeAiOauth`
+shape. `apps/api_server` `tsc` clean, full vitest **2336 pass / 1 skip**
+(273 files). Not yet committed.
+
+### 2026-07-02 — #870 (rhythm_create_issue MCP tool)
+- Files modified:
+  - `apps/mcp_server/src/tools/githubIssues.ts` (new) — `registerGithubIssueTools`; POSTs directly to
+    `https://api.github.com/repos/{repo}/issues` (no api_server hop, no new deps — global `fetch`).
+  - `apps/mcp_server/src/tools/githubIssues.test.ts` (new) — 8 tests: registration, happy path
+    (asserts URL/headers/body + number+url return), `GITHUB_TOKEN` fallback, `RHYTHM_GITHUB_REPO`
+    override, missing-token error, empty/whitespace title validation, oversized-body validation,
+    GitHub 4xx surfaced as `isError: true`.
+  - `apps/mcp_server/src/index.ts` — import + `registerGithubIssueTools(server)` call (no apiUrl/token
+    args passed through; the tool reads GitHub creds from env itself).
+- Checks run:
+  - `npm run build` (tsc --noCheck) — clean.
+  - `npm run typecheck` (tsc --noEmit) — clean.
+  - `node_modules/.bin/vitest run` — **67 pass** (59 pre-existing + 8 new), 0 fail.
+- Decisions made:
+  - Went with issue Option A (first-class MCP tool) per the issue's own recommendation.
+  - Token resolution: `RHYTHM_GITHUB_TOKEN` then `GITHUB_TOKEN` fallback, read at call time inside the
+    tool (never passed into `registerGithubIssueTools`, never touches `opencode.json`). Missing token
+    throws before any network call — no hallucinated success.
+  - Repo defaults to `ajhochy/Rhythm`, overridable via `RHYTHM_GITHUB_REPO` env var.
+  - Scoping: did **not** edit any `.mcp-roles/*.mcp.json` file. `dev.mcp.json` already grants
+    `"allowedTools": ["*"]` on the `rhythm` MCP server, which automatically covers the new tool — it's
+    the only dev-facing profile with wildcard access, so no other role needed (or should get) an
+    explicit grant. All other roles keep narrow, task-specific allowlists.
+  - Validation caps: non-empty (trimmed) title required; body capped at 60,000 chars — both checked
+    before any fetch call, returned as `isError: true` tool errors.
+- Deviations from spec: none — implemented Option A exactly as issue described (direct GitHub REST
+  call from mcp_server, env-sourced token, scoped to dev role only).
+- Concerns: no live smoke against the real GitHub API (network calls are mocked in tests, per the
+  worktree's no-side-effects constraint). Recommend a one-time manual `rhythm_create_issue` smoke
+  test with `RHYTHM_GITHUB_TOKEN` set before relying on this in a live agent session.
+### 2026-07-02 — #880 Agent Profile export/import
+- Files modified: `apps/api_server/src/controllers/agent_configs_controller.ts` (added
+  `export`/`import` handlers), `apps/api_server/src/routes/agent_configs_routes.ts`
+  (registered `GET /agent-configs/export` and `POST /agent-configs/import` ahead of
+  `/:id`, same pattern as the existing `sync-opencode` route).
+- Files added: `apps/api_server/src/services/agent_config_export_import.ts` (bundle
+  schema v1, secret-pattern export guard, upsert-by-id import with preset
+  protection + no-op detection), `apps/api_server/src/__tests__/agent_configs_export_import.test.ts`
+  (9 contract tests: export shape, secret-pattern scan, id-filtering, create,
+  update, preset-skip, round-trip, idempotent re-import, version-reject).
+- Checks run: `tsc -p tsconfig.json --noEmit` clean; targeted vitest
+  (`agent_configs_export_import` + `agent_configs_routes` + `agent_local_auth_bypass`)
+  35/35 pass; `agent_profile_sync*` suites 113/113 pass; full api_server suite
+  **2018 pass / 1 skip** (pre-existing #881 machine-local skip, unrelated).
+- Decisions made: issue #880's body describes a `rhythm profile export/import`
+  **CLI** (depends on `rhythm doctor`/`rhythm setup`, neither of which exist in
+  this repo — that's a different, aspirational setup-agent-wave issue body that
+  doesn't match this codebase). Implemented instead, per explicit dispatch
+  instructions, as an HTTP API on the existing `agent_configs` local-agent-server
+  router: `GET /agent-configs/export[?ids=...]` and `POST /agent-configs/import`.
+  Collision policy: **upsert by id** (never remap); preset rows (claude-code/
+  codex/gemini-cli/opencode) are always reported `skipped` and never overwritten,
+  mirroring the PATCH route's `PRESET_PROTECTED_FIELDS` protection. Import
+  triggers `syncOpencodeAgentProfiles()` once after all rows are written so
+  imported profiles register with the opencode engine. No Flutter UI was added —
+  out of scope per dispatch ("the API is the core deliverable").
+- Deviations from spec: the GitHub issue's literal acceptance criteria (CLI
+  subcommands, `rhythm doctor` integration, cross-OS bundle portability, secure
+  interactive key-prompting) do not apply to this codebase's actual shape and
+  were not implemented as written — see decision above. The delivered contract
+  (versioned JSON bundle, no secret values, upsert-by-id, idempotent re-import)
+  satisfies the *spirit* of the acceptance criteria adapted to `agent_configs`.
+- Concerns: `.mcp-roles/*.mcp.json` files exist but are keyed by *agent name*,
+  not by `agent_configs.id` — import does not attempt to sync or validate
+  against `.mcp-roles`, since `allowedMcpsJson` is already the profile-level
+  scope mechanism and importing a profile does not change which `.mcp-roles`
+  file (if any) a session-create call resolves. Also: the worktree's root
+  `node_modules` symlink was missing (only `apps/api_server/node_modules` and
+  `apps/mcp_server/node_modules` existed), which broke `better-sqlite3` /
+  `pg` / `ws` / `resend` resolution for both `tsc` and `vitest` region-wide —
+  added `node_modules -> /Users/ajhochhalter/Documents/Rhythm/node_modules`
+  (same symlink-to-main-checkout pattern as the two existing ones, gitignored,
+  not part of the commit) so this worktree's checks can run at all.
+### 2026-07-02 — #873 + #877 + #878 (security, worktree `issue-873-877-878-security`)
+
+- Files modified: see the three individual commits on this branch
+  (`a37c7b8cf` #873, `a307af3c6` #877, `672fc4fd1` #878) for full lists. New
+  module dir: `apps/api_server/src/security/` (context_scanner, injection_patterns,
+  security_advisories, advisories.json, advisory_acks, command_blocklist,
+  command_risk_classifier, command_approval, approval_store + tests for each).
+  Integration edits: `rhythm_managed_skills.ts`, `opencode_agent_writer.ts`,
+  `skill_apply.ts`, `opencode_skills_routes.ts` (#873); `server.ts`, `package.json`
+  (postbuild copy step), `.github/workflows/server_ci.yml` (#877);
+  `opencode_stream_bridge.ts`, `config/env.ts` (#878).
+- Checks run: `tsc --noEmit` clean after each issue; full `vitest run` — 2120
+  pass / 1 skip (pre-existing #881 machine-local test, passes on CI) after
+  #878; `python3 -c "import yaml..."` validated `server_ci.yml`; manually
+  built + ran `dist/server.js` twice (before/after a false-positive fix) to
+  confirm real startup behavior, not just unit tests.
+- Decisions made: the issue bodies referenced Python/pip prior art
+  (hermes-agent) and non-existent "likely files" (`context_loader.ts`,
+  `shell_tool.ts`, `doctor.ts`) — this is a Node/TypeScript repo, so all three
+  were adapted to real chokepoints found via code search: #873 wired into
+  `writeManagedSkill`/`writeAgentProfileFile` (where file content actually
+  becomes model-loadable); #877's advisory format changed from
+  `pip install` to `npm install` and scans `package-lock.json`; #878 wired
+  into the existing `permission.asked`/`permission.updated` handling in
+  `opencode_stream_bridge.ts` (the same #736 dispatch-guard chokepoint)
+  rather than a new interception layer. See
+  `docs/ai/decisions/2026-07-02-security-issues-873-877-878-adapted-to-node-stack.md`.
+- Deviations from spec: #877's `rhythm doctor` CLI (setup-01) does not exist
+  yet — only the startup-banner half was wired; `runAdvisoryCheck()` /
+  `formatDoctorReport()` / `AdvisoryAckStore` are ready for `doctor` to call
+  once setup-01 lands. #878's "smart" mode AI assessment is a local
+  deterministic heuristic classifier (`command_risk_classifier.ts`), not an
+  LLM call, per the issue's own data-safety constraint.
+- Concerns: two real bugs were only caught by manually running the built
+  server / re-checking test discrimination, not by the first pass of unit
+  tests — see the decisions doc. Both are fixed and now regression-tested,
+  but it's a signal that "vitest green" alone was insufficient for these
+  three issues; the manual `dist/server.js` smoke should be repeated after
+  any further edits to `rhythm_managed_skills.ts`, `opencode_agent_writer.ts`,
+  or `opencode_stream_bridge.ts`. #878's bash-arg key name (`command`) was
+  inferred from reading `apps/opencode_fork/packages/opencode/src/tool/shell.ts`
+  read-only (never edited) — worth a real end-to-end smoke once an opencode
+  engine is available in this environment, since the unit tests mock the
+  event shape rather than exercising a live bash permission-ask.

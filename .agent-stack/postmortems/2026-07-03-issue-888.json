@@ -1,0 +1,40 @@
+{
+  "run_id": "2026-07-03-issue-888",
+  "issue": 888,
+  "date": "2026-07-03",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-888-c1",
+      "text": "Tapping a task quick-action button spawns the Secretary agent (which then delegates), not the default profile.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Live smoke: 'Help me finish' created a session with agentKind=workflow-orchestrator (rendered as 'Gemini CLI' because that profile has no live Claude token — see #856), NOT secretary. The widget test asserted lastAgentId=='secretary' but used a _FakeAgentConfigsController that overrode managerAgent to return a SINGLE secretary manager. Production carries TWO isManager=true configs (secretary AND the dev workflow-orchestrator profile synced into the catalog), and AgentConfigsController.managerAgent returns the FIRST match (workflow-orchestrator sorts first). The AgentConfig model itself documents the invariant 'Exactly one agent_config should have isManager=true' (agent_config.dart:71) which production violates. So the fix targeted 'a manager' when it needed to target 'secretary specifically'; the fixture-convenient test could not surface the ambiguity."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": ["workflow-orchestrator", "failure-triage", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "failure-triage", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W5",
+        "affected_skill": "verification-gate",
+        "description": "verification-gate emitted PASS on the strengthened widget test without exercising the real AgentConfigsController.managerAgent getter against a multi-manager catalog; the gate's own 'Test value gate' (a green test is not evidence if it can't fail on the real bug) should have flagged that the fake bypassed the getter entirely. The residual-risk note ('final session->engine-agent binding is server-side') named the gap but the gate still passed.",
+        "detected_by": "live smoke divergence + inspection of _FakeAgentConfigsController overriding managerAgent directly (quick_actions_bar_test.dart:190)"
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/desktop_flutter/lib/features/agents/views/quick_actions_bar.dart",
+    "apps/desktop_flutter/test/features/agents/quick_actions_bar_test.dart"
+  ],
+  "failure_output": "Live: session 'Help me finish: Read 1 Corinthians 2:1-5' created 2026-07-03T16:58:12 with agentKind=workflow-orchestrator (expected secretary). Server /agent-configs shows two isManager=true rows: workflow-orchestrator and secretary.",
+  "overall_category": "C2",
+  "suggested_follow_up": "When a test double overrides the exact getter under test (here managerAgent), verification-gate must treat it as coverage-not-evidence and require a test that exercises the real resolver against production-shaped data (multiple managers)."
+}

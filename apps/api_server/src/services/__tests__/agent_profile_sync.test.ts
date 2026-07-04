@@ -54,9 +54,13 @@ describe('syncOpencodeAgentProfiles — overlay-field preservation', () => {
     repo = new AgentConfigsRepository();
   });
 
-  it('preserves all three user-set overlay JSON fields on re-sync (UPDATE)', async () => {
-    // Seed an existing profile with user-customised overlay allowlists, as if a
-    // user had scoped "Secretary" in the designer.
+  it('preserves user mcps/skills overlays but reconciles Secretary\'s delegate roster to the role file on re-sync (#889)', async () => {
+    // A user scoped "Secretary" in the designer. mcps/skills stay user-owned;
+    // the delegate roster is role-file-managed (#889 — Secretary delegates to
+    // church specialists via rhythm_delegate, so a stray 'coding-agent' entry
+    // is reconciled away to the canonical `.mcp-roles/secretary.mcp.json`
+    // roster, not preserved). Other managers' overrides still survive — see the
+    // workflow-orchestrator case below.
     repo.insert({
       id: 'secretary',
       label: 'Secretary',
@@ -74,9 +78,15 @@ describe('syncOpencodeAgentProfiles — overlay-field preservation', () => {
     await syncOpencodeAgentProfiles([ocAgent('secretary')]);
 
     const after = repo.getById('secretary')!;
+    // User-owned overlays survive.
     expect(after.allowedMcpsJson).toBe('["rhythm","gmail-work","pco-services"]');
     expect(after.allowedSkillsJson).toBe('["smoke-test","verification-gate"]');
-    expect(after.allowedDelegatesJson).toBe('["coding-agent"]');
+    // Delegate roster is reconciled to the canonical role-file roster, NOT the
+    // stray user value.
+    expect(after.allowedDelegatesJson).not.toBe('["coding-agent"]');
+    const delegates = JSON.parse(after.allowedDelegatesJson!) as string[];
+    expect(delegates).toContain('theologian');
+    expect(delegates).not.toContain('coding-agent');
   });
 
   it('still preserves user-set model + systemPrompt on re-sync (UPDATE)', async () => {

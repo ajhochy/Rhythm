@@ -24,6 +24,8 @@ jobs:
       - run: npm install --workspaces=false
       - run: npm run lint
       - run: npm test
+      - name: Supply-chain advisory scan (#877 — fail CI on known-compromised package version)
+        run: npx vitest run src/security/security_advisories.test.ts
       - run: npm run build
       - name: API smoke test
         run: |

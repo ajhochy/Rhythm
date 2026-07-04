@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/core/services/default_agent_profile_service.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../../agent_configs/models/agent_config.dart';
@@ -151,6 +152,8 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
               ],
             ),
             const SizedBox(height: RhythmSpacing.sm),
+            const _DefaultProfilePicker(),
+            const SizedBox(height: RhythmSpacing.md),
             if (profiles.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: RhythmSpacing.xl),
@@ -238,6 +241,103 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// #890 — App-level "Default profile" picker shown at the top of the Agent
+/// Profiles manager sheet. Lists the profiles selectable for a new session
+/// (mirrors the session composer's own picker) plus a "Secretary (default)"
+/// entry representing "unset" (falls back to the seeded Secretary default,
+/// or the first authorized catalog entry if Secretary isn't configured).
+///
+/// Reads/writes [DefaultAgentProfileService] via Provider — no local state,
+/// since the manager sheet already rebuilds via `context.watch` on the
+/// surrounding `AgentConfigsController`.
+class _DefaultProfilePicker extends StatelessWidget {
+  const _DefaultProfilePicker();
+
+  @override
+  Widget build(BuildContext context) {
+    final rhythm = context.rhythm;
+    final configsController = context.watch<AgentConfigsController>();
+    final defaultService = context.watch<DefaultAgentProfileService>();
+
+    final selectable = configsController.sessionSelectableAgents;
+    final currentOcAgent = defaultService.defaultOcAgent;
+    // If the persisted override no longer matches a selectable profile
+    // (removed/disabled profile), show it as unset rather than a dangling
+    // selection the dropdown can't render.
+    final currentValue = (currentOcAgent != null &&
+            selectable.any((c) => c.ocAgent == currentOcAgent))
+        ? currentOcAgent
+        : null;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: RhythmSpacing.sm,
+        vertical: RhythmSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+        border: Border.all(color: rhythm.borderSubtle),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.star_outline, size: 16, color: rhythm.textMuted),
+          const SizedBox(width: RhythmSpacing.xs),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Default profile',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: rhythm.textPrimary,
+                  ),
+                ),
+                Text(
+                  'Used for new sessions unless another profile is chosen.',
+                  style: TextStyle(fontSize: 11, color: rhythm.textMuted),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: RhythmSpacing.sm),
+          DropdownButton<String?>(
+            value: currentValue,
+            dropdownColor: rhythm.surface,
+            style: TextStyle(color: rhythm.textPrimary, fontSize: 13),
+            underline: const SizedBox.shrink(),
+            items: [
+              DropdownMenuItem<String?>(
+                value: null,
+                child: Text(
+                  'Secretary (default)',
+                  style: TextStyle(color: rhythm.textMuted, fontSize: 13),
+                ),
+              ),
+              ...selectable.map(
+                (c) => DropdownMenuItem<String?>(
+                  value: c.ocAgent,
+                  child: Text(
+                    c.label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: rhythm.textPrimary, fontSize: 13),
+                  ),
+                ),
+              ),
+            ],
+            onChanged: (value) {
+              context.read<DefaultAgentProfileService>().setDefault(value);
+            },
+          ),
+        ],
       ),
     );
   }

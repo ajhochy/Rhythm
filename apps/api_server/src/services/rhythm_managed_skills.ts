@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, statSync } 
 import { dirname, join, resolve, sep } from 'path';
 import { homedir } from 'os';
 import { logger } from '../utils/logger';
+import { scanContextContent } from '../security/context_scanner';
 
 /**
  * The canonical Rhythm-managed skills dir. Registered additively with the fork
@@ -62,6 +63,22 @@ export class InvalidSkillNameError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'InvalidSkillNameError';
+  }
+}
+
+/**
+ * Issue #873 — thrown by {@link writeManagedSkill} when the skill body fails
+ * the prompt-injection context scan. The skill is NOT written; callers should
+ * treat this the same as {@link InvalidSkillNameError} (reject the write, do
+ * not crash the caller). `warning` is the user-facing block message; the
+ * scanner has already logged the triggering pattern id(s), never the content.
+ */
+export class ContextInjectionBlockedError extends Error {
+  readonly warning: string;
+  constructor(warning: string) {
+    super(warning);
+    this.name = 'ContextInjectionBlockedError';
+    this.warning = warning;
   }
 }
 
@@ -170,8 +187,21 @@ export function ensureManagedSkillsDirRegistered(): boolean {
  * Write (create or overwrite) a managed skill's SKILL.md. Returns the absolute
  * location of the written file. Throws {@link InvalidSkillNameError} for bad
  * names. Never writes outside {@link RHYTHM_MANAGED_SKILLS_DIR}.
+ *
+ * #873: the skill body is scanned for prompt-injection markers BEFORE it is
+ * written. A managed skill's body is exactly the content the opencode engine
+ * loads into the model's context (via `config.skills.paths`), so this is the
+ * load-bearing chokepoint for "scan context files before loading." A
+ * high-confidence match throws {@link ContextInjectionBlockedError} and the
+ * file is NOT written — the caller decides how to surface the block (route
+ * handlers map it to 400; internal auto-apply callers already catch
+ * `InvalidSkillNameError`-style errors and degrade to a skip).
  */
 export function writeManagedSkill(skill: ManagedSkillInput): string {
+  const scan = scanContextContent(skill.body, `skill "${skill.name}"`);
+  if (scan.blocked) {
+    throw new ContextInjectionBlockedError(scan.warning!);
+  }
   const dir = managedSkillDir(skill.name);
   mkdirSync(dir, { recursive: true });
   const location = join(dir, 'SKILL.md');

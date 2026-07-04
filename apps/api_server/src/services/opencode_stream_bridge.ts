@@ -7,7 +7,10 @@ import { AgentSessionMessagesRepository } from '../repositories/agent_session_me
 import { DeniedToolEventsRepository } from '../repositories/denied_tool_events_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { queueSkillExtraction } from './skill_extractor';
+import { extractInvokedSkillNamesFromParts, ensureLazyDepsForTurn } from './lazy_deps_turn_hook';
 import { isToolAllowed } from './mcp_dispatch_guard';
+import { classifyCommand, extractBashCommand } from '../security/command_approval';
+import { resolveApprovalsMode } from '../config/env';
 import type { AgentSession, PermissionMode } from '../models/agent_session';
 
 /**
@@ -981,6 +984,27 @@ export class OpencodeStreamBridge {
             // turn-completion point (the >= 2 rounds gate is enforced inside
             // queueSkillExtraction). Must NOT block or reject the turn.
             queueSkillExtraction(localSessionId);
+
+            // #876 — "on first use" lazy dependency install. The real skill
+            // invocation happens inside the vendored fork's `skill` tool
+            // (out of reach here); the persisted tool-call PARTS for this
+            // session (upsertPart, above) are the only observable record of
+            // which skills were actually invoked. Scan them for `skill` tool
+            // calls and best-effort install each invoked skill's declared
+            // python_dependencies. Fire-and-forget, never blocks/rejects the
+            // turn — mirrors queueSkillExtraction's posture exactly.
+            try {
+              const structured = this.messagesRepo.listBySessionStructured(localSessionId);
+              const allParts = structured.flatMap((m) => m.parts ?? []);
+              const invokedSkillNames = extractInvokedSkillNamesFromParts(allParts);
+              if (invokedSkillNames.length > 0) {
+                ensureLazyDepsForTurn(invokedSkillNames).catch((err) =>
+                  logger.warn(`[OpencodeStreamBridge] ensureLazyDepsForTurn failed (non-fatal): ${String(err)}`),
+                );
+              }
+            } catch (err) {
+              logger.warn(`[OpencodeStreamBridge] lazy-deps turn scan failed (non-fatal): ${String(err)}`);
+            }
           } else {
             // Zero tokens streamed this turn — surface as user-visible error (#636)
             broadcast({
@@ -1238,6 +1262,82 @@ export class OpencodeStreamBridge {
           });
           this.broadcastToolDenied(localSessionId, localSessionId, toolName);
           break;
+        }
+
+        // #878 — command-approval classification for the bash tool. This runs
+        // BEFORE the permissionMode auto-accept check below so a hardline-
+        // blocked or high-risk command is never let through by
+        // `bypassPermissions`/`acceptEdits` — approval gating for destructive
+        // commands must not be weaker than the default prompt-driven flow.
+        // Low-risk / explicitly-allowed commands fall through unchanged to the
+        // existing permissionMode logic (no behavior change for safe commands).
+        if (toolName.toLowerCase() === 'bash') {
+          const command = extractBashCommand(args);
+          if (command) {
+            const classification = classifyCommand(command, resolveApprovalsMode());
+            if (classification.decision === 'deny') {
+              const dir = (() => {
+                try {
+                  return this.sessionsRepo.findById(localSessionId)?.cwd;
+                } catch {
+                  return undefined;
+                }
+              })();
+              (async () => {
+                try {
+                  await opencodeClient.respondPermission(sdkSessionId, permissionId, 'deny', dir);
+                } catch (err) {
+                  logger.error(
+                    '[OpencodeStreamBridge] #878 command-approval auto-deny respondPermission failed:',
+                    err,
+                  );
+                }
+              })();
+              broadcast({
+                v: 1,
+                type: 'permission.resolved',
+                sessionId: localSessionId,
+                permissionId,
+                decision: 'deny',
+              });
+              broadcast({
+                v: 1,
+                type: 'tool.denied',
+                id: localSessionId,
+                sessionId: localSessionId,
+                tool: toolName,
+                message: `Command blocked: ${classification.detail} (reason: ${classification.reason})`,
+              });
+              logger.warn(
+                `[OpencodeStreamBridge] #878 denied bash command (reason=${classification.reason}): ${classification.detail}`,
+              );
+              break;
+            }
+            if (classification.decision === 'ask') {
+              // Force this to the pending/broadcast path below regardless of
+              // permissionMode — a manual-mode or smart-uncertain command must
+              // surface an approval ask even under bypassPermissions/acceptEdits.
+              const pending: PendingPermission = {
+                permissionId,
+                toolName,
+                args,
+                summary: `${summary} — ${classification.detail}`,
+                sdkSessionId,
+              };
+              this.pendingPermissions.set(`${localSessionId}:${permissionId}`, pending);
+              broadcast({
+                v: 1,
+                type: 'permission.asked',
+                sessionId: localSessionId,
+                permissionId,
+                toolName,
+                args,
+                summary: pending.summary,
+              });
+              break;
+            }
+            // classification.decision === 'allow' — fall through unchanged.
+          }
         }
 
         // Consult the session's permission_mode to decide whether to

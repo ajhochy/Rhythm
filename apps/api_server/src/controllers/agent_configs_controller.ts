@@ -7,6 +7,11 @@ import {
   writeAgentProfileFile,
   deleteAgentProfileFile,
 } from '../services/opencode_agent_writer';
+import {
+  buildAgentConfigExportBundle,
+  importAgentConfigBundle,
+  parseAgentConfigBundle,
+} from '../services/agent_config_export_import';
 
 const repo = new AgentConfigsRepository();
 
@@ -166,6 +171,47 @@ export class AgentConfigsController {
       const result = await syncOpencodeAgentProfiles();
       res.json(result);
     } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /agent-configs/export[?ids=a,b,c] — a versioned, portable bundle of
+   * agent profiles. Omitting `ids` exports every profile. Never includes
+   * secret values (see agent_config_export_import.ts module doc); a bundle
+   * that somehow would is rejected with a 500 rather than shipped.
+   */
+  export(req: Request, res: Response, next: NextFunction): void {
+    try {
+      const idsParam = req.query.ids;
+      const ids =
+        typeof idsParam === 'string' && idsParam.trim() !== ''
+          ? idsParam.split(',').map((s) => s.trim()).filter(Boolean)
+          : undefined;
+      const bundle = buildAgentConfigExportBundle(ids);
+      res.json(bundle);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /agent-configs/import — validates the bundle version/shape, upserts
+   * each profile by id (preset rows are skipped, never overwritten), triggers
+   * `syncOpencodeAgentProfiles()` once so imported profiles register with the
+   * engine, and returns a per-profile created/updated/skipped/error result.
+   */
+  async import(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const body = req.body as Record<string, unknown>;
+      const bundle = parseAgentConfigBundle(body.bundle ?? body);
+      const results = await importAgentConfigBundle(bundle);
+      res.json({ results });
+    } catch (err) {
+      if (err instanceof Error) {
+        next(AppError.badRequest(err.message));
+        return;
+      }
       next(err);
     }
   }

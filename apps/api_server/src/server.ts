@@ -3,6 +3,7 @@ import path from 'path';
 import { config as loadDotenv } from 'dotenv';
 import { opencodeClient } from './services/opencode_engine';
 import { managedChromeService } from './services/managed_chrome_service';
+import { runAdvisoryCheck, formatStartupWarning } from './security/security_advisories';
 
 // Load .env from the api_server root (one level above dist/).
 // CI writes OAuth secrets here before bundling into the .app.
@@ -33,6 +34,18 @@ async function main() {
 
   const port = Number(process.env.PORT ?? 4000);
 
+  // #877 — supply-chain advisory scan. stdlib-only (no network request),
+  // reads the already-resolved package-lock.json; a warning here is the
+  // ONLY startup-banner surface until `rhythm doctor` (setup-01) ships.
+  // Never blocks or fails startup — a scan failure degrades to silence.
+  try {
+    const matches = runAdvisoryCheck();
+    const warning = formatStartupWarning(matches);
+    if (warning) logger.warn(warning);
+  } catch (err) {
+    logger.warn(`[server] advisory check failed (non-fatal): ${String(err)}`);
+  }
+
   await initDb();
   logger.info('Database initialized');
 
@@ -62,6 +75,13 @@ async function main() {
   // is never started.
   let authCredentialWatcher: { start: () => Promise<void>; stop: () => void } | null =
     null;
+  // #856 (reopened, second attempt): reference to the shared credentials
+  // bridge singleton, captured once it's imported below, so the shutdown
+  // handler can stop the Keychain poll without an async import (the
+  // shutdown handler itself is synchronous). Declared nullable here (like
+  // the jobs above) so `?.stopKeychainPoll()` stays valid in the 'cloud'
+  // role, where the bridge is never imported/started.
+  let credentialsBridgeRef: { stopKeychainPoll: () => void } | null = null;
 
   if (env.agentExecutionEnabled) {
     // Issue #805: rebuild the DERIVED memory index from the vault ONCE on
@@ -355,18 +375,35 @@ async function main() {
       // Claude Code isn't installed/signed-in.
       try {
         const { credentialsBridge } = await import('./routes/opencode_auth_routes');
+        credentialsBridgeRef = credentialsBridge;
         if (!credentialsBridge.hasClaudeCode()) {
           logger.info('[server] Claude auto-bridge: no Claude Code creds — skipping');
-          return;
+        } else {
+          const result = await credentialsBridge.bridgeAnthropic(opencodeClient, {
+            force: true,
+          });
+          logger.info(
+            `[server] Claude auto-bridge: ${
+              result.success ? 'ok' : `failed (${result.reason})`
+            }`,
+          );
         }
-        const result = await credentialsBridge.bridgeAnthropic(opencodeClient, {
-          force: true,
-        });
-        logger.info(
-          `[server] Claude auto-bridge: ${
-            result.success ? 'ok' : `failed (${result.reason})`
-          }`,
-        );
+
+        // #856 (reopened, second attempt) — start the change-gated Keychain
+        // poll so a LATER `claude` re-auth (account switch / re-login, or a
+        // first-time sign-in after this server was already running) is
+        // picked up without an app restart. File-watching
+        // ~/.claude/.credentials.json (the prior fix) doesn't work: the
+        // current `claude` CLI keeps credentials in the macOS Keychain ONLY
+        // and never rewrites that file on re-auth, so the watch essentially
+        // never fires. Polling is change-gated on the refresh-token
+        // fingerprint, so an unchanged token is a no-op every tick — only a
+        // genuine re-auth (or a first sign-in) triggers a forced re-bridge.
+        // Started unconditionally (even when no creds exist yet at launch)
+        // so a later first-time sign-in is also picked up. See
+        // CredentialsBridgeService.startKeychainPoll for the full rationale.
+        credentialsBridge.startKeychainPoll(opencodeClient);
+        logger.info('[server] claude keychain poll started (#856 reopen v2)');
       } catch (e) {
         logger.warn(`[server] Claude auto-bridge errored (non-fatal): ${String(e)}`);
       }
@@ -400,6 +437,7 @@ async function main() {
         `[server] auth credential watcher failed to start (non-fatal): ${String(err)}`,
       );
     }
+
   }
 
   httpServer.listen(port, () => {
@@ -428,6 +466,9 @@ async function main() {
     // #856 — stop the auth.json watcher so a credential write during
     // shutdown can't trigger a bounce of an engine we're about to dispose.
     try { authCredentialWatcher?.stop(); } catch (_) { /* ignore */ }
+    // #856 (reopened, second attempt) — stop the Keychain poll, mirroring the
+    // watcher lifecycle above.
+    try { credentialsBridgeRef?.stopKeychainPoll(); } catch (_) { /* ignore */ }
 
     // 2. Dispose the Opencode SDK subprocess.
     try { opencodeClient.dispose(); } catch (_) { /* ignore */ }

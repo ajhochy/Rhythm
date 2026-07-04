@@ -133,8 +133,13 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
   }) async {
+    lastCreateAgentId = agentId;
     return _makeSession('new-session', AgentSessionStatus.starting);
   }
+
+  /// #889: the agentId passed to the most recent createSession call, so tests
+  /// can assert default-agent resolution.
+  String? lastCreateAgentId;
 
   final List<String> closeSessionCalls = [];
   final List<String> deleteSessionCalls = [];
@@ -332,6 +337,53 @@ void main() {
 
   tearDown(() {
     controller.dispose();
+  });
+
+  // --------------------------------------------------------------------------
+  // createSession default agent (#889/#890)
+  // --------------------------------------------------------------------------
+
+  group('createSession default agent (#889/#890)', () {
+    AgentsController build({String? Function()? resolver}) {
+      final c = AgentsController(
+        fakeRepo,
+        _FakeAgentServerController(ready: true, anyAgent: true),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        configuredDefaultAgentResolver: resolver,
+      );
+      addTearDown(c.dispose);
+      return c;
+    }
+
+    test(
+        'defaults to Secretary (the seeded hub) when no override is configured',
+        () async {
+      // `controller` (from setUp) has no configuredDefaultAgentResolver.
+      await controller.createSession(cwd: '/tmp');
+      expect(fakeRepo.lastCreateAgentId, equals('secretary'));
+    });
+
+    test(
+        'uses the configured default profile override directly — a profile '
+        'ocAgent (e.g. theologian), NOT gated on the engine-kind catalog',
+        () async {
+      final c = build(resolver: () => 'theologian');
+      await c.createSession(cwd: '/tmp');
+      expect(fakeRepo.lastCreateAgentId, equals('theologian'));
+    });
+
+    test('override returning null falls back to the seeded Secretary default',
+        () async {
+      final c = build(resolver: () => null);
+      await c.createSession(cwd: '/tmp');
+      expect(fakeRepo.lastCreateAgentId, equals('secretary'));
+    });
+
+    test('does not override an explicitly-passed agentId', () async {
+      await controller.createSession(cwd: '/tmp', agentId: 'worship-planning');
+      expect(fakeRepo.lastCreateAgentId, equals('worship-planning'));
+    });
   });
 
   // --------------------------------------------------------------------------

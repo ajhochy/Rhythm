@@ -200,12 +200,18 @@ describe('POST /opencode/mcp/curated/ensure route (c5)', () => {
 //        as {type:'remote',url}.
 // ─────────────────────────────────────────────────────────────────────────────
 describe('Verified curated registry completeness + shape', () => {
-  it('c1: contains exactly 5 entries with the expected id set (no google/pco)', () => {
-    expect(CURATED_MCP_SERVERS).toHaveLength(5);
-    const ids = CURATED_MCP_SERVERS.map((s) => s.id).sort();
-    expect(ids).toEqual(
-      ['canva', 'mailchimp', 'notion', 'pdf-tools', 'stripe'].sort(),
-    );
+  it('c1: contains the 5 built-in entries (no google/pco); machine-local sidecar entries may extend it (#881)', () => {
+    // #835 appends `...loadLocalCuratedMcpServers()` (the gitignored
+    // curated_mcp_servers.local.json sidecar), so the runtime array length is
+    // 5 + N machine-local entries. Assert the 5 built-ins as a SUBSET with no
+    // id collisions, not a hard length — a hard toHaveLength(5) fails on any
+    // dev box with a sidecar while passing on CI's clean runner (#881).
+    const ids = CURATED_MCP_SERVERS.map((s) => s.id);
+    const builtins = ['canva', 'mailchimp', 'notion', 'pdf-tools', 'stripe'];
+    for (const b of builtins) expect(ids).toContain(b);
+    expect(CURATED_MCP_SERVERS.length).toBeGreaterThanOrEqual(builtins.length);
+    // No duplicate ids (a sidecar entry must not shadow a built-in).
+    expect(new Set(ids).size).toBe(ids.length);
     // Dropped entries are gone.
     expect(ids).not.toContain('google-workspace');
     expect(ids).not.toContain('planning-center');

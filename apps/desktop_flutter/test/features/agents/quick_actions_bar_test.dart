@@ -25,6 +25,10 @@ import 'package:provider/provider.dart';
 import 'package:rhythm_desktop/app/core/agents/agent_server_controller.dart';
 import 'package:rhythm_desktop/app/core/notifications/local_notification_service.dart';
 import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
+import 'package:rhythm_desktop/features/agent_configs/controllers/agent_configs_controller.dart';
+import 'package:rhythm_desktop/features/agent_configs/models/agent_config.dart';
+import 'package:rhythm_desktop/features/agent_configs/repositories/agent_configs_repository.dart';
+import 'package:rhythm_desktop/features/agent_configs/data/agent_configs_data_source.dart';
 import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
@@ -80,6 +84,7 @@ class _StubAgentsRepository implements AgentsRepository {
   String? lastMcpRole;
   String? lastTaskId;
   String? lastCwd;
+  String? lastAgentId;
   bool createSessionShouldFail = false;
   final List<Map<String, dynamic>> sentMessages = [];
 
@@ -148,6 +153,7 @@ class _StubAgentsRepository implements AgentsRepository {
     lastMcpRole = mcpRole;
     lastTaskId = taskId;
     lastCwd = cwd;
+    lastAgentId = agentId;
     final now = DateTime.now();
     return AgentSession(
       id: 'test-session-id',
@@ -166,6 +172,34 @@ class _StubAgentsRepository implements AgentsRepository {
 
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Data source stub so the controller never makes a real HTTP call —
+/// [_FakeAgentConfigsController] overrides [secretaryAgent] directly and never
+/// calls [refresh], so this is only needed to satisfy the constructor chain.
+class _StubAgentConfigsDataSource extends AgentConfigsDataSource {}
+
+/// Test double for [AgentConfigsController] exposing the Secretary profile
+/// whose `ocAgent` is `'secretary'` — the shape the quick actions bar must
+/// resolve `agentId` from (issue #888). Overrides [secretaryAgent] (NOT
+/// managerAgent): the bar must target Secretary specifically even when other
+/// managers exist. The real getter's multi-manager resolution is guarded
+/// separately in agent_configs_controller_test.dart.
+class _FakeAgentConfigsController extends AgentConfigsController {
+  _FakeAgentConfigsController()
+      : super(AgentConfigsRepository(_StubAgentConfigsDataSource()));
+
+  @override
+  AgentConfig? get secretaryAgent => AgentConfig(
+        id: 'secretary',
+        label: 'Secretary',
+        icon: '',
+        enabled: true,
+        isAgent: true,
+        sortOrder: 0,
+        isManager: true,
+        ocAgent: 'secretary',
+      );
 }
 
 class _FakeLocalNotificationService extends LocalNotificationService {
@@ -222,6 +256,7 @@ class _FakeTasksLocalDataSource extends TasksLocalDataSource {
 Future<Widget> _buildApp({
   required AgentsController agentsController,
   required TasksController tasksController,
+  required AgentConfigsController agentConfigsController,
   required QuickActionContext quickActionContext,
   QuickActionSessionOpener? onSessionReady,
 }) async {
@@ -229,6 +264,9 @@ Future<Widget> _buildApp({
     providers: [
       ChangeNotifierProvider<AgentsController>.value(value: agentsController),
       ChangeNotifierProvider<TasksController>.value(value: tasksController),
+      ChangeNotifierProvider<AgentConfigsController>.value(
+        value: agentConfigsController,
+      ),
     ],
     child: MaterialApp(
       home: Scaffold(
@@ -248,6 +286,7 @@ void main() {
   late AgentsController agentsController;
   late _FakeTasksLocalDataSource fakeTasksDataSource;
   late TasksController tasksController;
+  late AgentConfigsController agentConfigsController;
 
   const taskContext = QuickActionContext(
     kind: 'task',
@@ -266,6 +305,7 @@ void main() {
     );
     fakeTasksDataSource = _FakeTasksLocalDataSource();
     tasksController = TasksController(TasksRepository(fakeTasksDataSource));
+    agentConfigsController = _FakeAgentConfigsController();
   });
 
   tearDown(() {
@@ -279,6 +319,7 @@ void main() {
         await _buildApp(
           agentsController: agentsController,
           tasksController: tasksController,
+          agentConfigsController: agentConfigsController,
           quickActionContext: taskContext,
         ),
       );
@@ -314,6 +355,7 @@ void main() {
         await _buildApp(
           agentsController: agentsController,
           tasksController: tasksController,
+          agentConfigsController: agentConfigsController,
           quickActionContext: taskContext,
         ),
       );
@@ -325,6 +367,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(stubAgentsRepo.lastMcpRole, equals('secretary'));
+      // Regression (#888): mcpRole alone only scopes the MCP tool allowlist —
+      // the server resolves which engine agent actually runs the session
+      // from agentId. Without this, the server fell back to the default
+      // catalog entry ("Coding Workflow") instead of Secretary.
+      expect(stubAgentsRepo.lastAgentId, equals('secretary'));
       expect(stubAgentsRepo.lastTaskId, equals('task-42'));
       // Regression (#863 smoke): the quick action must pass a NON-EMPTY cwd —
       // POST /agent-sessions rejects '' with 400 "cwd is required", which
@@ -349,6 +396,7 @@ void main() {
         await _buildApp(
           agentsController: agentsController,
           tasksController: tasksController,
+          agentConfigsController: agentConfigsController,
           quickActionContext: taskContext,
         ),
       );
@@ -364,6 +412,8 @@ void main() {
           .toList();
       expect(inputFrames, hasLength(1));
       expect(inputFrames.first['data'], contains('Draft the next steps'));
+      // Regression (#888): agentId must resolve to the Secretary profile.
+      expect(stubAgentsRepo.lastAgentId, equals('secretary'));
     });
 
     testWidgets('"Summarize" sends a summarize preset prompt', (tester) async {
@@ -371,6 +421,7 @@ void main() {
         await _buildApp(
           agentsController: agentsController,
           tasksController: tasksController,
+          agentConfigsController: agentConfigsController,
           quickActionContext: taskContext,
         ),
       );
@@ -384,6 +435,8 @@ void main() {
           .toList();
       expect(inputFrames, hasLength(1));
       expect(inputFrames.first['data'], contains('Summarize this'));
+      // Regression (#888): agentId must resolve to the Secretary profile.
+      expect(stubAgentsRepo.lastAgentId, equals('secretary'));
     });
 
     testWidgets(
@@ -393,6 +446,7 @@ void main() {
         await _buildApp(
           agentsController: agentsController,
           tasksController: tasksController,
+          agentConfigsController: agentConfigsController,
           quickActionContext: taskContext,
         ),
       );
@@ -417,6 +471,9 @@ void main() {
 
       // An agent session was also started for further follow-up suggestions.
       expect(stubAgentsRepo.lastMcpRole, equals('secretary'));
+      // Regression (#888): agentId must resolve to the Secretary profile —
+      // otherwise this session also silently ran under "Coding Workflow".
+      expect(stubAgentsRepo.lastAgentId, equals('secretary'));
     });
 
     testWidgets(
@@ -427,6 +484,7 @@ void main() {
         await _buildApp(
           agentsController: agentsController,
           tasksController: tasksController,
+          agentConfigsController: agentConfigsController,
           quickActionContext: taskContext,
           onSessionReady: (id) => readySessionId = id,
         ),
@@ -449,6 +507,7 @@ void main() {
         await _buildApp(
           agentsController: agentsController,
           tasksController: tasksController,
+          agentConfigsController: agentConfigsController,
           quickActionContext: taskContext,
         ),
       );

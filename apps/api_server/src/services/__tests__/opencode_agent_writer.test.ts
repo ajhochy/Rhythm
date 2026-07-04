@@ -11,9 +11,14 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { MANAGER_ROUTING_PREAMBLE, injectManagerPreamble } from '../opencode_agent_writer';
+import {
+  MANAGER_ROUTING_PREAMBLE,
+  injectManagerPreamble,
+  buildHubRoutingPreamble,
+} from '../opencode_agent_writer';
 
 const MARKER = '## Routing (mandatory)';
+const HUB_MARKER = '## Routing (mandatory — hub)';
 
 describe('MANAGER_ROUTING_PREAMBLE', () => {
   it('contains the mandatory routing marker heading', () => {
@@ -75,5 +80,100 @@ describe('injectManagerPreamble — non-manager profile (isManager: false)', () 
 
   it('returns an empty body unchanged', () => {
     expect(injectManagerPreamble('', false)).toBe('');
+  });
+
+  it('does NOT inject even when a roster is passed (isManager gates everything)', () => {
+    const original = 'You are a research assistant.';
+    const result = injectManagerPreamble(original, false, ['theologian', 'librarian']);
+    expect(result).toBe(original);
+  });
+});
+
+describe('injectManagerPreamble — hub manager with a non-empty roster (#889)', () => {
+  const roster = ['theologian', 'librarian', 'worship-planning', 'worship-production'];
+  const original = 'You are Secretary. Delegate to the approved specialist.';
+
+  it('routes domain work via the `task` tool + subagent_type (NOT rhythm_delegate), ' +
+      'lists the roster, keeps the coding hand-off, omits the old blanket line', () => {
+    const result = injectManagerPreamble(original, true, roster);
+
+    // #891: domain delegation must use the engine-native `task` tool (a real
+    // subagent that nests under the caller), NOT the rhythm_delegate MCP tool
+    // (which orphans a top-level session with no parent link).
+    expect(result).not.toContain('rhythm_delegate');
+    expect(result).toContain('`task` tool');
+    expect(result).toContain('subagent_type');
+    for (const id of roster) {
+      expect(result).toContain(id);
+    }
+    // Coding hand-off path is preserved.
+    expect(result).toContain('workflow-orchestrator');
+    expect(result).toContain('subagent_type="workflow-orchestrator"');
+    // The blanket dev-only instruction must NOT appear for a hub manager.
+    expect(result).not.toContain('Only handle non-development tasks yourself.');
+    // Original system prompt is preserved.
+    expect(result).toContain(original);
+  });
+
+  it('uses the distinct hub marker, not the plain dev-manager marker', () => {
+    const result = injectManagerPreamble(original, true, roster);
+    expect(result).toContain(HUB_MARKER);
+  });
+
+  it('is idempotent — re-injecting does not duplicate the hub preamble', () => {
+    const once = injectManagerPreamble(original, true, roster);
+    const twice = injectManagerPreamble(once, true, roster);
+
+    const count = (twice.match(/## Routing \(mandatory — hub\)/g) ?? []).length;
+    expect(count).toBe(1);
+    expect(twice).toBe(once);
+  });
+
+  it('names the specialist explicitly via subagent_type and forbids the generic agent',
+      () => {
+    const result = injectManagerPreamble(original, true, roster);
+    expect(result).toContain('subagent_type');
+    // Same guardrail as the coding hand-off: never fall back to the generic agent.
+    expect(result).toContain('"general"');
+  });
+
+  it('instructs handling only trivial admin work directly', () => {
+    const result = injectManagerPreamble(original, true, roster);
+    expect(result.toLowerCase()).toContain('trivial admin');
+  });
+});
+
+describe('injectManagerPreamble — manager WITHOUT a roster stays on the plain preamble (#889)', () => {
+  it('a manager with an empty roster gets the unchanged MANAGER_ROUTING_PREAMBLE', () => {
+    const original = 'You are workflow-orchestrator.';
+    const result = injectManagerPreamble(original, true, []);
+
+    expect(result.startsWith(MARKER)).toBe(true);
+    expect(result).not.toContain(HUB_MARKER);
+    expect(result).toContain(MANAGER_ROUTING_PREAMBLE);
+    expect(result).toContain('Only handle non-development tasks yourself.');
+  });
+
+  it('defaults to the plain preamble when no roster argument is passed at all', () => {
+    const original = 'You are workflow-orchestrator.';
+    const result = injectManagerPreamble(original, true);
+
+    expect(result).toContain(MANAGER_ROUTING_PREAMBLE);
+    expect(result).not.toContain(HUB_MARKER);
+  });
+});
+
+describe('buildHubRoutingPreamble', () => {
+  it('lists every roster id and routes domain work via the `task` tool (#891)', () => {
+    const roster = ['theologian', 'AI-Trend-Researcher', 'fantasy-gm'];
+    const result = buildHubRoutingPreamble(roster);
+
+    // #891: engine-native `task`/subagent_type (nests), NOT rhythm_delegate (orphans).
+    expect(result).not.toContain('rhythm_delegate');
+    expect(result).toContain('`task` tool');
+    expect(result).toContain('subagent_type');
+    for (const id of roster) {
+      expect(result).toContain(id);
+    }
   });
 });

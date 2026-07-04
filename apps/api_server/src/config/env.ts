@@ -106,6 +106,42 @@ function parseDbClient(value: string): DbClient {
   );
 }
 
+/**
+ * #878 — command-approval mode. See command_approval.ts for the full
+ * decision tree. `manual` is the safe DEFAULT; `off` must be explicitly set
+ * (never activated by default or environment detection, per the issue).
+ *   - `manual` — always prompt for dangerous (non-hardline) commands.
+ *   - `smart`  — low-risk auto-approves, high-risk auto-denies, uncertain
+ *               escalates to a manual prompt.
+ *   - `off`    — no prompts for non-blocklisted commands. Trusted-automation
+ *               only; the hardline blocklist is NEVER affected by this mode.
+ */
+export type ApprovalsMode = 'manual' | 'smart' | 'off';
+
+function parseApprovalsMode(value: string): ApprovalsMode {
+  if (value === 'manual' || value === 'smart' || value === 'off') {
+    return value;
+  }
+  throw new Error(
+    `Unsupported APPROVALS_MODE "${value}". Expected "manual", "smart", or "off".`,
+  );
+}
+
+/**
+ * Resolve the command-approval mode FRESH from process.env at call time (no
+ * module-load snapshot) — mirrors `resolveMemoryVaultPath()`'s "read live"
+ * convention. Needed because a test (or a future runtime config reload) must
+ * be able to flip `APPROVALS_MODE` without a process restart; `env.approvalsMode`
+ * below is a one-time snapshot for documentation/callers that don't need
+ * live behavior.
+ */
+export function resolveApprovalsMode(): ApprovalsMode {
+  const raw = (process.env.APPROVALS_MODE ?? '').trim().toLowerCase();
+  return parseApprovalsMode(raw === '' ? 'manual' : raw);
+}
+
+const approvalsMode = resolveApprovalsMode();
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 4000),
@@ -301,4 +337,11 @@ export const env = {
    * choice, not a Rhythm constant.
    */
   omlxCompetingOllamaModel: process.env.RHYTHM_LOCAL_OMLX_OLLAMA_MODEL ?? 'qwen3.6-work',
+  /** #878 — command-approval mode; see {@link ApprovalsMode}. Default 'manual'. */
+  approvalsMode,
+  /**
+   * #878 — approval prompt timeout in seconds. On timeout: automatically deny
+   * (fail-closed), per the issue. Default 60s, overridable via env.
+   */
+  approvalsTimeoutSeconds: Number(process.env.APPROVALS_TIMEOUT_SECONDS ?? 60),
 };

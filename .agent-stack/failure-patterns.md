@@ -180,3 +180,19 @@
 - **Category**: C2 (wrong contracts) dominant
 - **Root cause**: contract tests modeled fixture-convenient environments, not production shape — legacy-only vault layout (#886), engine directory-scoping (#861), generic-agent child rows (#867), empty-cwd test fake (#863), no user-feedback assertion (#863).
 - **Suggested fix**: acceptance contracts must pin the PRODUCTION environment (clean layout env vars, real id spaces the UI sends, delegated-row shapes); verification-gate's boot-smoke should include one interactive-path probe per changed surface.
+
+## 2026-07-03 — Issue 888 — quick action spawned wrong manager (workflow-orchestrator, not secretary)
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C2 — wrong/fixture-convenient contract
+- **Criteria affected**: quick-action → Secretary
+- **Root cause**: fix resolved agentId from `managerAgent` (first isManager match), but production has TWO managers (secretary + dev workflow-orchestrator); the widget test's fake overrode `managerAgent` to a lone secretary, so it passed while real multi-manager resolution picks workflow-orchestrator.
+- **Suggested fix**: resolve Secretary by its stable slug via a dedicated `secretaryAgent` getter; regression-test the real getter with two managers (workflow-orchestrator first).
+
+## 2026-07-03 — Issue 889/890/891 — delegation regression: wrong tool + inert catalog-gated default
+
+- **Result**: smoke PASS (after fixes; divergence caught in live UI smoke)
+- **Category**: C2 — tests codified the wrong mechanism (fixture-convenient / prompt-text assertions)
+- **Criteria affected**: Secretary delegation nesting (#891); session-picker default = Secretary (#890)
+- **Root cause**: (a) #889 hub preamble delegated domain work via the rhythm_delegate MCP tool (orphan top-level session) instead of engine-native `task`/subagent_type (nests); (b) #890 resolved the default by searching _catalog (engine kinds only), so the profile default was inert → fell to the ambiguous first manager. Both had GREEN unit tests that asserted the wrong thing (presence of 'rhythm_delegate'; a faked 'secretary' catalog entry).
+- **Suggested fix**: agent-behavior changes (prompt/preamble, runtime-shape-dependent resolution) need live/integration outcome probes, not unit assertions on prompt text or fixture-convenient catalogs.
