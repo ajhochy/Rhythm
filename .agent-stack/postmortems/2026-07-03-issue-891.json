@@ -1,0 +1,64 @@
+{
+  "run_id": "2026-07-03-issue-889-890-891",
+  "issue": 891,
+  "date": "2026-07-03",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-889-delegation-nests",
+      "text": "Secretary delegates domain/ministry work to a specialist, and the delegated run appears as a nested subagent under the Secretary session.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "C2",
+      "notes": "Delegation FUNCTIONALLY worked from the first fix (theologian ran + returned a real vault-backed devotional), but the child session was ORPHANED (parent_session_id=null) so it never nested in the UI. Root: #889's hub preamble told Secretary to delegate via the rhythm_delegate MCP tool (→ separate top-level session via runAgent, no parent link) instead of the engine-native `task`/subagent_type mechanism the coding path uses (which nests, #861/#867). The #889/#890 unit tests asserted the preamble CONTAINED 'rhythm_delegate' — i.e. they codified the wrong mechanism — so they passed while the user-visible nesting regressed. User caught it in live UI smoke and correctly hypothesized the cause ('is it bc its doing it through the rhythm mcp server not through the task'). Fixed in #891: buildHubRoutingPreamble routes domain work via `task` subagent_type=<specialist>; tests rewritten to assert the task/subagent_type contract. Final smoke: theologian nests under Secretary. PASS."
+    },
+    {
+      "criterion_id": "issue-890-picker-default",
+      "text": "The session agent picker and new-session default reflect the configured Default profile (Secretary), not 'Coding Workflow'.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "C2",
+      "notes": "First #890 impl resolved the default by searching _catalog (CatalogModelEntry) — which only lists engine kinds (claude-code/codex/gemini-cli/opencode), never agent PROFILES like secretary — so the configured-default/Secretary preference was INERT and fell through to the ambiguous first manager (workflow-orchestrator = 'Coding Workflow'). Unit tests faked a 'secretary' catalog entry (fixture-convenient), so they passed. Fixed: resolve the default as a profile ocAgent returned DIRECTLY (override -> Secretary), and wire selectedAgentFor + managerAgentNameResolver to secretaryAgent (not the ambiguous managerAgent)."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "P4",
+      "description": "The delegated-specialist run (worship-planning) timed out with UND_ERR_HEADERS_TIMEOUT because its MCP backend (PCO) is unauthenticated in dev — the engine hung until the api_server->engine fetch timed out instead of failing fast. Env/config gap surfaced as an opaque timeout.",
+      "detected_by": "smoke8/smoke7 server log: 'Planning Center OAuth is not configured' + listQuestions/prompt HeadersTimeout at opencode_client_service.ts:1620. Filed #892."
+    },
+    {
+      "process_category": "P2",
+      "description": "Two pre-existing environment-sensitive test flakes surfaced under the parallel vitest suite (cli/setup/prompts.test.ts stdin-mock leak; real_server.test.ts port/UND_ERR_SOCKET recycling). prompts flake was de-flaked (#872 seam); real_server passes in isolation and in the full run — left as a known infra flake.",
+      "detected_by": "Server CI red on prompts.test.ts (same code green on prior runs); real_server 1-fail in one full run, 3/3 in isolation."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": ["workflow-orchestrator", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "failure-triage", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "verification-gate",
+        "description": "Multiple verification-gate PASS blocks (the #889 catalog-gated resolution, the #890 default, the #889 rhythm_delegate preamble) were emitted on GREEN UNIT TESTS that codified the wrong mechanism — the tests asserted 'contains rhythm_delegate' / a faked 'secretary' catalog entry rather than the user-visible outcome (nesting, picker default). The value-gate ('a green test is not evidence if it can't fail on the real bug') should have flagged that these tests couldn't catch the mechanism/orphan regressions; only live UI smoke did.",
+        "detected_by": "live UI smoke divergences (user reports) across smoke7-smoke10 vs the green unit suites"
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/opencode_agent_writer.ts",
+    "apps/api_server/src/services/secretary_delegation_seed.ts",
+    "apps/api_server/src/services/agent_profile_sync.ts",
+    "apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart",
+    "apps/desktop_flutter/lib/features/agents/views/quick_actions_bar.dart",
+    "apps/desktop_flutter/lib/app/core/services/default_agent_profile_service.dart",
+    "apps/desktop_flutter/lib/main.dart"
+  ],
+  "failure_output": "Delegated child session: id=33850e33, agentKind=theologian, title 'Delegated: Theologian', parent_session_id=null (orphan) → not nested in UI. Cause: rhythm_delegate MCP path vs engine-native task/subagent_type.",
+  "overall_category": "C2",
+  "suggested_follow_up": "When a fix changes agent BEHAVIOR via a prompt/preamble or a resolution that depends on runtime data shape (catalog vs profiles, delegation mechanism), the acceptance test must assert the user-visible OUTCOME against production-shaped data (does the child nest? does the picker show X?) — not the mere presence of a tool name or a fixture-convenient catalog entry. Prefer a live/integration probe for agent-behavior changes over unit assertions on prompt text."
+}

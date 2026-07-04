@@ -2,11 +2,33 @@
 
 ## Current focus
 
-The 2026-07-02 governance/safety + agent-UX + infra closeout is complete and parked
-in **PR #882** (open, CI-green) for review. It resolves the risk backlog the prior
-mega build-out exposed (#856–#860) plus agent-UX and infra hardening — 13 issues,
-implemented by parallel worktree-isolated coding agents (contract-first) and folded
-sequentially with the full check suite between folds.
+**PR #887 (`workflow/run-2026-07-03`) — agent delegation + auth + default-profile
+closeout. CI green across every commit; live-smoked; open for review/merge.**
+This run started as the 15-issue backlog sweep, then a live manual-smoke round
+drove a chain of agent-infra fixes:
+- **#856** Claude re-auth pickup — replaced the (wrong) file-watch with a Keychain
+  fingerprint poll (`CLAUDE_KEYCHAIN_POLL_MS`, default 60s) that re-bridges on
+  refresh-token change; the current `claude` CLI stores creds Keychain-only.
+- **#888** task quick-actions spawn Secretary (pass `agentId`), resolved by the
+  stable `secretaryAgent` slug (two-manager ambiguity).
+- **#889** Secretary is the default hub AND delegates. Two regressions found+fixed
+  in live smoke: (a) the default was resolved by searching `_catalog` (engine kinds
+  only → inert) → now returns the profile ocAgent directly (override → Secretary),
+  and `secretary.md` is re-projected after the roster reconcile; (b) domain
+  delegation was routed via the `rhythm_delegate` MCP tool (orphan session) → now
+  via the engine-native `task`/`subagent_type=<specialist>` (nests under the caller,
+  live-verified). See #891.
+- **#890** configurable app-level "Default profile" picker (client `DefaultAgentProfileService`).
+- **#872** de-flaked `cli/setup/prompts.test.ts` (stdin-mock leak).
+Delegation is live-verified end-to-end: Secretary → `task` → theologian nests under
+Secretary and returns a real vault-backed answer. Postmortem:
+`.agent-stack/postmortems/2026-07-03-issue-891.json` (C2 — unit tests codified the
+wrong mechanism; only live UI smoke caught it).
+**Open follow-up:** **#892** — a specialist whose MCP backend is unauthenticated
+(e.g. worship-planning + PCO in dev) hangs the engine until a headers timeout;
+should fail fast with a clear "not connected" message.
+
+The prior 2026-07-02 closeout (**PR #882**) merged earlier.
 
 ## Active branch / PR (open — never auto-merge)
 
