@@ -104,7 +104,11 @@ describe('grantObsidianScope (pure)', () => {
 describe('backfillObsidianReadScope (real DB)', () => {
   it('grants obsidian to selectable array + object-map scopes; preserves entries; idempotent', () => {
     // NOTE: migrations seed preset rows (claude-code/codex/gemini-cli/opencode),
-    // all selectable with NULL scope. Use unique ids and assert on our own rows.
+    // all selectable with NULL scope, plus the Config Doctor profile which is
+    // selectable with an explicit empty-array scope ('[]') — array-scoped and
+    // selectable, so it IS eligible for this backfill same as any other
+    // array-scoped row (see the seed comment in migrations.ts). Use unique
+    // ids and assert on our own rows for everything else.
     seed('test-array-agent', '["rhythm"]'); // array, selectable
     seed('test-object-agent', '{"rhythm":["rhythm_list_tasks"],"gmail-work":["search_emails"]}'); // object-map
     seed('test-has-obsidian-array', '["obsidian","rhythm"]'); // already has obsidian (array)
@@ -115,9 +119,9 @@ describe('backfillObsidianReadScope (real DB)', () => {
     const r = backfillObsidianReadScope();
 
     expect(r.alreadyDone).toBe(false);
-    // Exactly our two grantable rows are granted (preset rows have null scope →
-    // skipped, never granted).
-    expect(r.arrayGranted).toBe(1); // test-array-agent
+    // test-array-agent + the seeded Config Doctor profile (empty array) are
+    // both granted (preset rows have null scope → skipped, never granted).
+    expect(r.arrayGranted).toBe(2); // test-array-agent, config-doctor
     expect(r.objectGranted).toBe(1); // test-object-agent
 
     // test-array-agent: array gained obsidian, rhythm preserved + ordered.

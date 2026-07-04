@@ -20,7 +20,7 @@ describe('checkApiKeys', () => {
   });
 
   it('fails the combined AI provider check with remediation when no key is present', () => {
-    const results = checkApiKeys({});
+    const results = checkApiKeys({}, []);
 
     const provider = results.find((r) => r.label === 'AI provider (Anthropic or OpenAI)');
     expect(provider?.pass).toBe(false);
@@ -36,7 +36,7 @@ describe('checkApiKeys', () => {
   });
 
   it('treats an empty-string env var the same as missing', () => {
-    const results = checkApiKeys({ ANTHROPIC_API_KEY: '' });
+    const results = checkApiKeys({ ANTHROPIC_API_KEY: '' }, []);
     const anthropic = results.find((r) => r.label === 'Anthropic API key');
     expect(anthropic?.status).toBe('unconfigured');
 
@@ -64,10 +64,45 @@ describe('checkApiKeys', () => {
   });
 
   it('accepts an OpenAI key as an alternative to Anthropic for the AI provider check', () => {
-    const results = checkApiKeys({ OPENAI_API_KEY: 'sk-openai' });
+    const results = checkApiKeys({ OPENAI_API_KEY: 'sk-openai' }, []);
     const anthropic = results.find((r) => r.label === 'Anthropic API key');
     expect(anthropic?.status).toBe('unconfigured');
 
+    const provider = results.find((r) => r.label === 'AI provider (Anthropic or OpenAI)');
+    expect(provider?.pass).toBe(true);
+  });
+
+  it('passes the AI provider check when Anthropic is OAuth-authed with no env var set', () => {
+    const results = checkApiKeys({}, ['anthropic']);
+
+    const anthropic = results.find((r) => r.label === 'Anthropic API key');
+    expect(anthropic?.status).toBe('ok');
+
+    const provider = results.find((r) => r.label === 'AI provider (Anthropic or OpenAI)');
+    expect(provider?.pass).toBe(true);
+  });
+
+  it('passes the AI provider check when OpenAI is OAuth-authed with no env var set', () => {
+    const results = checkApiKeys({}, ['openai']);
+
+    const provider = results.find((r) => r.label === 'AI provider (Anthropic or OpenAI)');
+    expect(provider?.pass).toBe(true);
+  });
+
+  it('still passes via dotenv-equivalent env var when no OAuth provider is authed', () => {
+    const results = checkApiKeys({ ANTHROPIC_API_KEY: 'sk-test' }, []);
+    const provider = results.find((r) => r.label === 'AI provider (Anthropic or OpenAI)');
+    expect(provider?.pass).toBe(true);
+  });
+
+  it('fails the AI provider check when neither env var nor OAuth provider is present', () => {
+    const results = checkApiKeys({}, ['google', 'github-copilot']);
+    const provider = results.find((r) => r.label === 'AI provider (Anthropic or OpenAI)');
+    expect(provider?.pass).toBe(false);
+  });
+
+  it('passes when both env var and OAuth are configured', () => {
+    const results = checkApiKeys({ ANTHROPIC_API_KEY: 'sk-test' }, ['anthropic', 'openai']);
     const provider = results.find((r) => r.label === 'AI provider (Anthropic or OpenAI)');
     expect(provider?.pass).toBe(true);
   });

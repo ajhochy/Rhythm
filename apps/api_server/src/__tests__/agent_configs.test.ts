@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
+import { scanContextContent } from '../security/context_scanner';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -19,12 +20,30 @@ describe('agent_configs migration', () => {
     expect(table?.name).toBe('agent_configs');
   });
 
-  it('seeds exactly four preset rows', () => {
+  it('seeds exactly four preset rows plus the Config Doctor profile', () => {
     const db = makeDb();
     const count = (
       db.prepare(`SELECT COUNT(*) as cnt FROM agent_configs`).get() as { cnt: number }
     ).cnt;
-    expect(count).toBe(4);
+    expect(count).toBe(5);
+  });
+
+  it('Config Doctor system prompt passes the context scanner (never silently orphaned)', () => {
+    // Regression guard: writeAgentProfileFile() silently skips writing the
+    // ~/.config/opencode/agents/config-doctor.md file (never throws — just
+    // logs a warning) if the stored systemPrompt trips the prompt-injection
+    // scanner. A skipped write means every session routed to this profile
+    // crashes with "UnknownError: UnknownError" the moment you message it —
+    // this exact bug happened once already (a ".env" file reference tripped
+    // the secrets-dotenv pattern). This test catches a future edit to the
+    // seeded prompt reintroducing a trigger phrase before it ships.
+    const db = makeDb();
+    const row = db
+      .prepare(`SELECT system_prompt FROM agent_configs WHERE id = 'config-doctor'`)
+      .get() as { system_prompt: string } | undefined;
+    expect(row).toBeDefined();
+    const scan = scanContextContent(row!.system_prompt, 'agent profile "config-doctor"');
+    expect(scan.blocked).toBe(false);
   });
 
   it('has correct column shape', () => {
@@ -129,7 +148,7 @@ describe('agent_configs migration', () => {
     const count = (
       db.prepare(`SELECT COUNT(*) as cnt FROM agent_configs`).get() as { cnt: number }
     ).cnt;
-    expect(count).toBe(4);
+    expect(count).toBe(5);
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { checkApiKeys } from './checks/api_keys';
 import { formatDoctorReport, runDoctor } from './doctor';
 
 describe('runDoctor (integration)', () => {
@@ -31,6 +32,7 @@ describe('runDoctor (integration)', () => {
     const report = await runDoctor({
       env: {},
       deps: {
+        apiKeys: () => checkApiKeys({}, []),
         nodeVersion: () => ({ label: 'Node.js version', pass: true }),
         pythonVersion: async () => ({ label: 'Python version', pass: true }),
         configValidity: async () => [],
@@ -71,6 +73,7 @@ describe('runDoctor (integration)', () => {
     const report = await runDoctor({
       env: {},
       deps: {
+        apiKeys: () => checkApiKeys({}, []),
         nodeVersion: () => ({ label: 'Node.js version', pass: true }),
         pythonVersion: async () => ({ label: 'Python version', pass: true }),
         configValidity: async () => [],

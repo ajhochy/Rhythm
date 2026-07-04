@@ -206,6 +206,29 @@ async function main() {
       );
     }
 
+    // Config Doctor's agent profile is seeded via a raw DB insert in
+    // migrations.ts (not the normal create/patch API path), so it never
+    // automatically gets its ~/.config/opencode/agents/config-doctor.md file
+    // written the way profiles created through the UI/API do. Without this,
+    // every session routed to it crashes with "UnknownError: UnknownError"
+    // (agents.get() finds nothing) the moment you message it — exactly the
+    // #900 class of bug this profile exists to catch. Ensure its file exists
+    // on every boot; writeAgentProfileFile is idempotent and never throws.
+    try {
+      const { AgentConfigsRepository } = await import(
+        './repositories/agent_configs_repository'
+      );
+      const { writeAgentProfileFile } = await import(
+        './services/opencode_agent_writer'
+      );
+      const configDoctor = new AgentConfigsRepository().getById('config-doctor');
+      if (configDoctor) writeAgentProfileFile(configDoctor);
+    } catch (err) {
+      logger.warn(
+        `[server] config-doctor agent file ensure failed (non-fatal): ${String(err)}`,
+      );
+    }
+
     // #846 — One-time seed of the three ministry recipe exemplars (Sunday
     // Service Prep / Volunteer Follow-up / Weekly Ministry Review), each a
     // scheduled task + managed skill pair bound to the correct scoped agent

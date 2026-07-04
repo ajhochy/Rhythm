@@ -1,3 +1,4 @@
+import { OpencodeAuthStore } from '../../services/opencode_auth_store';
 import type { CheckResult } from './types';
 
 /**
@@ -7,9 +8,17 @@ import type { CheckResult } from './types';
  * `env` defaults to `process.env` but is injectable so tests (and future
  * `rhythm doctor --env-file <fixture>` runs) can check a fixture env without
  * mutating the real process environment.
+ *
+ * `authedProviders` defaults to reading opencode's `auth.json` via
+ * `OpencodeAuthStore`. Agent dispatch actually runs through the opencode CLI
+ * (see `agent_runner.ts` / `opencode_engine.ts`), which is commonly
+ * authenticated via OAuth plugins rather than a raw env-var key — a user
+ * signed in that way has a real, working provider even with neither
+ * `ANTHROPIC_API_KEY` nor `OPENAI_API_KEY` set.
  */
 export function checkApiKeys(
   env: NodeJS.ProcessEnv = process.env,
+  authedProviders: string[] = new OpencodeAuthStore().listAuthedProviders(),
 ): CheckResult[] {
   const isSet = (key: string): boolean => {
     const value = env[key];
@@ -19,19 +28,20 @@ export function checkApiKeys(
   const results: CheckResult[] = [];
 
   // The AI provider is the one hard requirement — Rhythm cannot run its
-  // agent without at least one of Anthropic or OpenAI configured. The two
-  // individual provider checks are informational (status: 'unconfigured')
-  // so a user who only set one provider isn't shown a false failure for the
-  // other; the combined check below is what actually gates doctor's exit
-  // code for this requirement.
-  const hasAnthropic = isSet('ANTHROPIC_API_KEY');
+  // agent without at least one of Anthropic or OpenAI configured, whether
+  // via env var or OAuth (opencode auth.json). The two individual provider
+  // checks are informational (status: 'unconfigured') so a user who only
+  // set one provider isn't shown a false failure for the other; the
+  // combined check below is what actually gates doctor's exit code for
+  // this requirement.
+  const hasAnthropic = isSet('ANTHROPIC_API_KEY') || authedProviders.includes('anthropic');
   results.push({
     label: 'Anthropic API key',
     pass: true,
     status: hasAnthropic ? 'ok' : 'unconfigured',
   });
 
-  const hasOpenAi = isSet('OPENAI_API_KEY');
+  const hasOpenAi = isSet('OPENAI_API_KEY') || authedProviders.includes('openai');
   results.push({
     label: 'OpenAI API key',
     pass: true,
@@ -44,7 +54,7 @@ export function checkApiKeys(
     remediation:
       hasAnthropic || hasOpenAi
         ? undefined
-        : 'No AI provider is configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY, or run `rhythm setup`.',
+        : 'No AI provider is configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY, sign in via `opencode auth login`, or run `rhythm setup`.',
   });
 
   // The remaining integrations are optional — an unset value is reported as

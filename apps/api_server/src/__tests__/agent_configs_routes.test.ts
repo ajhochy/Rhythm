@@ -45,17 +45,18 @@ describe('GET /agent-configs', () => {
     await closeServer();
   });
 
-  it('returns all seeded preset rows', async () => {
+  it('returns all seeded preset rows plus the Config Doctor profile', async () => {
     const res = await fetch(`${baseUrl}/agent-configs`, { headers: authHeaders });
     expect(res.status).toBe(200);
     const configs = (await res.json()) as Array<{ id: string }>;
     expect(Array.isArray(configs)).toBe(true);
-    expect(configs.length).toBe(4);
+    expect(configs.length).toBe(5);
     const ids = configs.map((c) => c.id);
     expect(ids).toContain('claude-code');
     expect(ids).toContain('codex');
     expect(ids).toContain('gemini-cli');
     expect(ids).toContain('opencode');
+    expect(ids).toContain('config-doctor');
   });
 });
 
@@ -387,6 +388,39 @@ describe('DELETE /agent-configs/:id', () => {
   it('returns 404 for unknown id', async () => {
     const res = await fetch(`${baseUrl}/agent-configs/nonexistent`, {
       method: 'DELETE',
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('POST /agent-configs/:id/resync-agent-file', () => {
+  let baseUrl: string;
+  let closeServer: () => Promise<void>;
+  let authHeaders: Record<string, string>;
+
+  beforeEach(async () => {
+    ({ baseUrl, closeServer, authHeaders } = await setup());
+  });
+
+  afterEach(async () => {
+    await closeServer();
+  });
+
+  it('returns the config for a known id', async () => {
+    const res = await fetch(`${baseUrl}/agent-configs/config-doctor/resync-agent-file`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string; label: string };
+    expect(body.id).toBe('config-doctor');
+    expect(body.label).toBe('Config Doctor');
+  });
+
+  it('404s for an unknown id', async () => {
+    const res = await fetch(`${baseUrl}/agent-configs/does-not-exist/resync-agent-file`, {
+      method: 'POST',
       headers: authHeaders,
     });
     expect(res.status).toBe(404);

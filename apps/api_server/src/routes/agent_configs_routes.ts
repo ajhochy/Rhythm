@@ -18,3 +18,4 @@ agentConfigsRouter.get('/:id', controller.getOne.bind(controller));
 agentConfigsRouter.post('/', controller.create.bind(controller));
 agentConfigsRouter.patch('/:id', controller.patch.bind(controller));
 agentConfigsRouter.delete('/:id', controller.remove.bind(controller));
+agentConfigsRouter.post('/:id/resync-agent-file', controller.resyncAgentFile.bind(controller));

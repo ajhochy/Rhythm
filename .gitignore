@@ -82,6 +82,7 @@ apps/opencode_fork/**/*.tsbuildinfo
 
 # dev-only: locally-built opencode fork for smoke (issue #764)
 apps/api_server/opencode_bin/
+apps/opencode_bin/
 
 # Vendored engine plugins (the compiled JS IS the source we ship) — un-ignore
 # their dist/ from the global **/dist/ rule above. See

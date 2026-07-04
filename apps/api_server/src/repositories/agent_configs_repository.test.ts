@@ -22,10 +22,10 @@ describe('AgentConfigsRepository', () => {
   describe('list()', () => {
     it('returns all rows ordered by sort_order, label', () => {
       const configs = repo.list();
-      expect(configs.length).toBe(4);
+      expect(configs.length).toBe(5);
       // Verify ordering by sort_order
       const sortOrders = configs.map((c) => c.sortOrder);
-      expect(sortOrders).toEqual([0, 1, 2, 3]);
+      expect(sortOrders).toEqual([0, 1, 2, 3, 5]);
     });
 
     it('returns booleans (not 0/1 integers)', () => {
@@ -60,13 +60,13 @@ describe('AgentConfigsRepository', () => {
       db.prepare(`UPDATE agent_configs SET enabled = 0 WHERE id = 'codex'`).run();
 
       const enabled = repo.listEnabled();
-      expect(enabled.length).toBe(3);
+      expect(enabled.length).toBe(4);
       expect(enabled.find((c) => c.id === 'codex')).toBeUndefined();
     });
 
-    it('returns all four when all are enabled', () => {
+    it('returns all five when all are enabled', () => {
       const enabled = repo.listEnabled();
-      expect(enabled.length).toBe(4);
+      expect(enabled.length).toBe(5);
     });
   });
 
@@ -270,8 +270,8 @@ describe('AgentConfigsRepository', () => {
       for (const id of ['claude-code', 'codex', 'gemini-cli', 'opencode']) {
         expect(repo.remove(id)).toBe(false);
       }
-      // All four still exist
-      expect(repo.list().length).toBe(4);
+      // All four presets plus Config Doctor still exist
+      expect(repo.list().length).toBe(5);
     });
 
     it('returns false for a non-existent id', () => {
