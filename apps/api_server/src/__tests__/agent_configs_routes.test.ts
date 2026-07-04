@@ -393,3 +393,36 @@ describe('DELETE /agent-configs/:id', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('POST /agent-configs/:id/resync-agent-file', () => {
+  let baseUrl: string;
+  let closeServer: () => Promise<void>;
+  let authHeaders: Record<string, string>;
+
+  beforeEach(async () => {
+    ({ baseUrl, closeServer, authHeaders } = await setup());
+  });
+
+  afterEach(async () => {
+    await closeServer();
+  });
+
+  it('returns the config for a known id', async () => {
+    const res = await fetch(`${baseUrl}/agent-configs/config-doctor/resync-agent-file`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string; label: string };
+    expect(body.id).toBe('config-doctor');
+    expect(body.label).toBe('Config Doctor');
+  });
+
+  it('404s for an unknown id', async () => {
+    const res = await fetch(`${baseUrl}/agent-configs/does-not-exist/resync-agent-file`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(404);
+  });
+});

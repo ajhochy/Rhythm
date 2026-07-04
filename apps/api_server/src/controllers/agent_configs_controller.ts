@@ -82,6 +82,24 @@ export class AgentConfigsController {
     }
   }
 
+  /**
+   * Regenerates ~/.config/opencode/agents/<ocAgent>.md for an existing
+   * profile using the same internal writer normal profile creation/sync
+   * uses. Fixes the #900 class of bug (a profile row with no matching agent
+   * file) without ever hand-writing frontmatter — used by the Config Doctor
+   * agent profile as its non-freehand fix path.
+   */
+  resyncAgentFile(req: Request, res: Response, next: NextFunction): void {
+    try {
+      const config = repo.getById(req.params.id);
+      if (!config) throw AppError.notFound('AgentConfig');
+      writeAgentProfileFile(config);
+      res.json(config);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   create(req: Request, res: Response, next: NextFunction): void {
     try {
       const body = req.body as Record<string, unknown>;
