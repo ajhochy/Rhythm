@@ -233,6 +233,76 @@ describe('POST /agent-sessions — anthropic account resolution', () => {
   });
 });
 
+describe('PATCH /agent-sessions/:id — switch anthropic account', () => {
+  function seedSession(opts: { sdkSessionId?: string } = {}) {
+    const session = repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'Switchable',
+      anthropicAccountId: 'team',
+    });
+    if (opts.sdkSessionId) repo.setSdkSessionId(session.id, opts.sdkSessionId);
+    return session;
+  }
+
+  it('happy path: row updated + setRouting(sdkId, id) + session.updated broadcast', async () => {
+    seedAccount('team');
+    seedAccount('personal');
+    const session = seedSession({ sdkSessionId: 'sdk-switch-1' });
+
+    const { status, body } = await req('PATCH', `/agent-sessions/${session.id}`, {
+      anthropicAccountId: 'personal',
+    });
+    expect(status).toBe(200);
+    expect(body.anthropicAccountId).toBe('personal');
+    expect(repo.findById(session.id)!.anthropicAccountId).toBe('personal');
+    expect(setRoutingSpy).toHaveBeenCalledWith('sdk-switch-1', 'personal');
+    expect(sessionUpdatedCalls).toHaveLength(1);
+    expect((sessionUpdatedCalls[0] as any).anthropicAccountId).toBe('personal');
+  });
+
+  it('unknown account id → 400, row untouched', async () => {
+    seedAccount('team');
+    const session = seedSession({ sdkSessionId: 'sdk-switch-2' });
+
+    const { status, body } = await req('PATCH', `/agent-sessions/${session.id}`, {
+      anthropicAccountId: 'ghost',
+    });
+    expect(status).toBe(400);
+    expect(JSON.stringify(body)).toContain('ghost');
+    expect(repo.findById(session.id)!.anthropicAccountId).toBe('team');
+    expect(setRoutingSpy).not.toHaveBeenCalled();
+  });
+
+  it('null → 400 (clearing is not supported)', async () => {
+    seedAccount('team');
+    const session = seedSession();
+
+    const { status } = await req('PATCH', `/agent-sessions/${session.id}`, {
+      anthropicAccountId: null,
+    });
+    expect(status).toBe(400);
+    expect(repo.findById(session.id)!.anthropicAccountId).toBe('team');
+  });
+
+  it('session without sdk_session_id: row updates, no setRouting call', async () => {
+    seedAccount('team');
+    seedAccount('personal');
+    const session = seedSession();
+
+    const { status, body } = await req('PATCH', `/agent-sessions/${session.id}`, {
+      anthropicAccountId: 'personal',
+    });
+    expect(status).toBe(200);
+    expect(body.anthropicAccountId).toBe('personal');
+    expect(repo.findById(session.id)!.anthropicAccountId).toBe('personal');
+    expect(setRoutingSpy).not.toHaveBeenCalled();
+    expect(sessionUpdatedCalls).toHaveLength(1);
+  });
+});
+
 describe('POST /opencode/spillover — engine plugin failover intake', () => {
   it('5. known sdkSessionId → row updated + setRouting + broadcasts → 200', async () => {
     seedAccount('team');

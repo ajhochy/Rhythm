@@ -780,6 +780,26 @@ export class AgentSessionsController {
         fields.fastMode = body.fastMode;
       }
 
+      // Dual-account follow-up — switch the session's Claude account from the
+      // header badge. Rejects null/unknown ids (clearing is not supported);
+      // updates the routing file only when the SDK session already exists.
+      if (body.anthropicAccountId !== undefined) {
+        if (
+          typeof body.anthropicAccountId !== 'string' ||
+          body.anthropicAccountId.trim() === ''
+        ) {
+          throw AppError.badRequest('anthropicAccountId must be a non-empty string');
+        }
+        const accountId = body.anthropicAccountId;
+        if (!anthropicAccountsService.getAccount(accountId)) {
+          throw AppError.badRequest(`unknown anthropic account: '${accountId}'`);
+        }
+        repo.setAnthropicAccountId(session.id, accountId);
+        if (session.sdkSessionId) {
+          anthropicAccountsService.setRouting(session.sdkSessionId, accountId);
+        }
+      }
+
       // Issue #601 — archive / unarchive via PATCH { archived: boolean }
       if (body.archived !== undefined) {
         if (typeof body.archived !== 'boolean') {

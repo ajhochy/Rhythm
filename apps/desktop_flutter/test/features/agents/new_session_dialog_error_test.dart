@@ -150,6 +150,7 @@ class _ErrorAgentsRepository implements AgentsRepository {
     bool clearProvider = false,
     bool clearModel = false,
     bool? fastMode,
+    String? anthropicAccountId,
   }) async {
     throw UnimplementedError();
   }

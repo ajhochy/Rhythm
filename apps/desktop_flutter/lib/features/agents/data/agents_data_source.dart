@@ -226,6 +226,7 @@ class AgentsDataSource {
     // Use Object? sentinel so callers can pass null explicitly to clear the field.
     Object? thinkingBudget = _dssentinel,
     bool? fastMode,
+    String? anthropicAccountId,
   }) async {
     final payload = <String, dynamic>{};
     if (name != null) payload['name'] = name;
@@ -247,6 +248,9 @@ class AgentsDataSource {
     }
     if (fastMode != null) {
       payload['fastMode'] = fastMode;
+    }
+    if (anthropicAccountId != null) {
+      payload['anthropicAccountId'] = anthropicAccountId;
     }
     final response = await _client.patch(
       Uri.parse('$_baseUrl/agent-sessions/$id'),

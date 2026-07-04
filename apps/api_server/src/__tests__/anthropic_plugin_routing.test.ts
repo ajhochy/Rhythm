@@ -26,7 +26,15 @@ import {
 } from 'vitest';
 import { createServer, Server, IncomingMessage, ServerResponse } from 'http';
 import { AddressInfo } from 'net';
-import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from 'fs';
+import {
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  readFileSync,
+  existsSync,
+  statSync,
+  utimesSync,
+} from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -136,7 +144,9 @@ const PERSONAL_TOKEN = 'personal-access-token';
 
 let storeFile = '';
 
-function writeStoreFixture(): void {
+function writeStoreFixture(
+  routing: Record<string, string> = { ses_b: 'personal' },
+): void {
   writeFileSync(
     storeFile,
     JSON.stringify({
@@ -160,7 +170,7 @@ function writeStoreFixture(): void {
         },
       ],
       defaultAccountId: 'team',
-      routing: { ses_b: 'personal' },
+      routing,
     }),
   );
 }
@@ -290,6 +300,31 @@ describe('rhythm-anthropic-accounts plugin routing', () => {
       toAccountId: 'personal',
       reason: 'rate_limited',
     });
+  });
+
+  it('a fresh store write beats a stale spillover override', async () => {
+    // Spill ses_a from team → personal (records the in-memory override).
+    rateLimitedBearer = TEAM_TOKEN;
+    const opts = await loadPluginFetch();
+    const res = await opts.fetch(messagesUrl(), requestInit('ses_a'));
+    expect(res.status).toBe(200);
+    expect(anthropicRequests[anthropicRequests.length - 1].auth).toBe(
+      `Bearer ${PERSONAL_TOKEN}`,
+    );
+
+    // api_server rewrites the store routing ses_a back to team. Force the
+    // mtime strictly forward — same-ms rewrites must still win.
+    rateLimitedBearer = null;
+    writeStoreFixture({ ses_a: 'team' });
+    const bumped = new Date(statSync(storeFile).mtimeMs + 2000);
+    utimesSync(storeFile, bumped, bumped);
+
+    // The newer file routing wins; the stale override is discarded.
+    anthropicRequests = [];
+    const res2 = await opts.fetch(messagesUrl(), requestInit('ses_a'));
+    expect(res2.status).toBe(200);
+    expect(anthropicRequests).toHaveLength(1);
+    expect(anthropicRequests[0].auth).toBe(`Bearer ${TEAM_TOKEN}`);
   });
 
   it('falls back to the legacy Claude Code path when the store file disappears', async () => {

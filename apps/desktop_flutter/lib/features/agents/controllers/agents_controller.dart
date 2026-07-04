@@ -1882,6 +1882,33 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Dual-account follow-up: switch the Claude account an existing session is
+  /// routed to (header badge menu). Optimistic local update; the server also
+  /// echoes the change via the session.updated WS broadcast.
+  Future<void> setSessionAnthropicAccount(
+    String sessionId,
+    String accountId,
+  ) async {
+    _sessions = [
+      for (final s in _sessions)
+        if (s.id == sessionId) s.copyWith(anthropicAccountId: accountId) else s,
+    ];
+    notifyListeners();
+    try {
+      final updated = await _repository.updateSession(
+        sessionId,
+        anthropicAccountId: accountId,
+      );
+      _sessions = [
+        for (final s in _sessions) s.id == sessionId ? updated : s,
+      ];
+      notifyListeners();
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
   Future<void> closeSession(String id) async {
     if (!_agentServerController.isReady) {
       _sessions = _sessions.where((s) => s.id != id).toList();

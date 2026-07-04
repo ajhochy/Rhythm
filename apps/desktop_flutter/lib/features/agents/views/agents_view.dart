@@ -765,24 +765,7 @@ class _TranscriptHeader extends StatelessWidget {
           // Dual-account: which Anthropic account this session is routed to.
           if (session.anthropicAccountId != null) ...[
             const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: context.rhythm.surfaceMuted,
-                borderRadius: BorderRadius.circular(RhythmRadius.pill),
-                border: Border.all(color: context.rhythm.border),
-              ),
-              child: Text(
-                AnthropicAccountsLabelCache.labelFor(
-                  session.anthropicAccountId!,
-                ),
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: context.rhythm.textSecondary,
-                ),
-              ),
-            ),
+            _AnthropicAccountBadge(session: session),
           ],
           const SizedBox(width: 10),
           Expanded(
@@ -920,6 +903,71 @@ class _TranscriptHeader extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Dual-account: session header badge showing the routed Claude account.
+/// With ≥2 connected accounts it becomes a menu that switches the session's
+/// account in place; with one account it stays a plain badge.
+class _AnthropicAccountBadge extends StatelessWidget {
+  const _AnthropicAccountBadge({required this.session});
+
+  final AgentSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final badge = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.pill),
+        border: Border.all(color: context.rhythm.border),
+      ),
+      child: Text(
+        AnthropicAccountsLabelCache.labelFor(session.anthropicAccountId!),
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: context.rhythm.textSecondary,
+        ),
+      ),
+    );
+    final accounts = AnthropicAccountsLabelCache.accounts;
+    if (accounts.length < 2) return badge;
+    return PopupMenuButton<String>(
+      key: const Key('anthropic-account-badge-menu'),
+      tooltip: 'Switch Claude account for this session',
+      padding: EdgeInsets.zero,
+      onSelected: (accountId) {
+        if (accountId == session.anthropicAccountId) return;
+        context
+            .read<AgentsController>()
+            .setSessionAnthropicAccount(session.id, accountId);
+      },
+      itemBuilder: (context) => [
+        for (final account in accounts)
+          PopupMenuItem<String>(
+            value: account.id,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  child: account.id == session.anthropicAccountId
+                      ? Icon(
+                          Icons.check,
+                          size: 16,
+                          color: context.rhythm.accent,
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 4),
+                Text(account.label),
+              ],
+            ),
+          ),
+      ],
+      child: badge,
     );
   }
 }

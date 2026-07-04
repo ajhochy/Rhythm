@@ -66,6 +66,7 @@ class AgentsRepository {
     bool clearModel = false,
     String? permissionMode,
     bool? fastMode,
+    String? anthropicAccountId,
   }) =>
       _dataSource.updateSession(
         id,
@@ -76,6 +77,7 @@ class AgentsRepository {
         clearModel: clearModel,
         permissionMode: permissionMode,
         fastMode: fastMode,
+        anthropicAccountId: anthropicAccountId,
       );
 
   /// Issue #604 — dedicated helper to update thinking budget (null = clear).

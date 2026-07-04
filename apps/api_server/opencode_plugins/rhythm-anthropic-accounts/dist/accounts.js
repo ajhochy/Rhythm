@@ -19,6 +19,10 @@ function apiBase() {
 
 let cache = { path: null, mtimeMs: -1, data: EMPTY };
 // Session-scoped overrides recorded on failover; consulted before file routing.
+// Each entry carries the store file's mtime at set time so a NEWER file write
+// (api_server is the single writer) invalidates the override — a fresh
+// routing decision from the app must beat a stale in-memory spillover.
+// Values: { accountId, storeMtimeMs }.
 const overrides = new Map();
 
 export function readStore() {
@@ -44,10 +48,16 @@ export function hasAccounts() {
 /** Resolve {account, fallback} for a request. sessionId may be undefined (non-session calls). */
 export function resolveForSession(sessionId) {
     const store = readStore();
+    let override = sessionId ? overrides.get(sessionId) : undefined;
+    if (override && cache.mtimeMs > override.storeMtimeMs) {
+        // Store file rewritten since the spillover → file routing wins.
+        overrides.delete(sessionId);
+        override = undefined;
+    }
     const usable = (store.accounts ?? []).filter((a) => a.status === "ok" && a.access);
     if (usable.length === 0)
         return { account: undefined, fallback: undefined };
-    const wantedId = (sessionId && overrides.get(sessionId)) ||
+    const wantedId = override?.accountId ||
         (sessionId && store.routing?.[sessionId]) ||
         store.defaultAccountId;
     const account = usable.find((a) => a.id === wantedId) ?? usable[0];
@@ -57,8 +67,10 @@ export function resolveForSession(sessionId) {
 
 /** Record failover and notify api_server (fire-and-forget; api_server persists routing). */
 export function markSpillover(sessionId, fromAccountId, toAccountId) {
-    if (sessionId)
-        overrides.set(sessionId, toAccountId);
+    if (sessionId) {
+        readStore(); // refresh cache.mtimeMs to the store's current mtime
+        overrides.set(sessionId, { accountId: toAccountId, storeMtimeMs: cache.mtimeMs });
+    }
     fetch(`${apiBase()}/opencode/spillover`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -182,6 +182,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool clearProvider = false,
     bool clearModel = false,
     bool? fastMode,
+    String? anthropicAccountId,
   }) async {
     final idx = _store.indexWhere((s) => s.id == id);
     final s = _store[idx];

@@ -104,6 +104,7 @@ class AnthropicAccountsDataSource {
 /// Falls back to the raw id until [ensureLoaded] completes.
 class AnthropicAccountsLabelCache {
   static final Map<String, String> _labels = {};
+  static List<AnthropicAccount> _accounts = const [];
   static Future<void>? _loading;
 
   /// Fetch labels once per app run (best-effort; failures leave the cache
@@ -112,6 +113,7 @@ class AnthropicAccountsLabelCache {
     return _loading ??= () async {
       try {
         final result = await AnthropicAccountsDataSource().list();
+        _accounts = result.accounts;
         for (final a in result.accounts) {
           _labels[a.id] = a.label;
         }
@@ -122,4 +124,8 @@ class AnthropicAccountsLabelCache {
   }
 
   static String labelFor(String id) => _labels[id] ?? id;
+
+  /// Connected accounts (empty until [ensureLoaded] completes). Backs the
+  /// session-header account switcher menu.
+  static List<AnthropicAccount> get accounts => _accounts;
 }
