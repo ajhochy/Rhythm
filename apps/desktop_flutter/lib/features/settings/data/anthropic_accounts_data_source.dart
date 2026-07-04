@@ -98,3 +98,28 @@ class AnthropicAccountsDataSource {
     }
   }
 }
+
+/// App-run-scoped id → label cache so sync UI (session header badge,
+/// spillover toast) can resolve account labels without a per-render fetch.
+/// Falls back to the raw id until [ensureLoaded] completes.
+class AnthropicAccountsLabelCache {
+  static final Map<String, String> _labels = {};
+  static Future<void>? _loading;
+
+  /// Fetch labels once per app run (best-effort; failures leave the cache
+  /// empty so [labelFor] falls back to raw ids).
+  static Future<void> ensureLoaded() {
+    return _loading ??= () async {
+      try {
+        final result = await AnthropicAccountsDataSource().list();
+        for (final a in result.accounts) {
+          _labels[a.id] = a.label;
+        }
+      } catch (_) {
+        _loading = null; // allow a retry on the next call
+      }
+    }();
+  }
+
+  static String labelFor(String id) => _labels[id] ?? id;
+}

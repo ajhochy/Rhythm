@@ -146,6 +146,7 @@ class _StubAgentsRepository implements AgentsRepository {
     String? stash,
     bool createBranch = false,
     String? mcpRole,
+    String? anthropicAccountId,
   }) async {
     if (createSessionShouldFail) {
       throw Exception('boom');

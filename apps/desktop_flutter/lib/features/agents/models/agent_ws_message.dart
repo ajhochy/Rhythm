@@ -51,6 +51,8 @@ abstract class AgentWsMessage {
         return SessionCompactedMessage.fromJson(json);
       case 'todo.updated':
         return SessionTodoUpdatedMessage.fromJson(json);
+      case 'session.spillover':
+        return SessionSpilloverMessage.fromJson(json);
       case 'error':
         return WsErrorMessage.fromJson(json);
       default:
@@ -536,6 +538,30 @@ class SessionTodoUpdatedMessage extends AgentWsMessage {
     return SessionTodoUpdatedMessage(
       sessionId: asString(json['id']) ?? '',
       todos: todos,
+    );
+  }
+}
+
+/// Dual-account spillover: the engine plugin failed a session over to the
+/// other Anthropic account after a rate limit; api_server broadcasts
+/// `{v:1, type:'session.spillover', sessionId, fromAccountId, toAccountId,
+/// reason}` with the LOCAL session id.
+class SessionSpilloverMessage extends AgentWsMessage {
+  const SessionSpilloverMessage({
+    required this.sessionId,
+    required this.fromAccountId,
+    required this.toAccountId,
+  });
+
+  final String sessionId;
+  final String fromAccountId;
+  final String toAccountId;
+
+  factory SessionSpilloverMessage.fromJson(Map<String, dynamic> json) {
+    return SessionSpilloverMessage(
+      sessionId: asString(json['sessionId']) ?? '',
+      fromAccountId: asString(json['fromAccountId']) ?? '',
+      toAccountId: asString(json['toAccountId']) ?? '',
     );
   }
 }

@@ -8,6 +8,8 @@ import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/errors/app_error.dart';
 import '../../../app/core/notifications/local_notification_service.dart';
 import '../../notifications/controllers/notifications_controller.dart';
+import '../../settings/data/anthropic_accounts_data_source.dart'
+    show AnthropicAccountsLabelCache;
 import '../data/agent_models_data_source.dart';
 import '../data/commands_data_source.dart';
 import '../models/agent_model_route.dart';
@@ -1394,6 +1396,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
     _wsConnected = true;
+    // Warm the account-label cache (best-effort) so the session header badge
+    // and spillover toast can resolve labels synchronously.
+    unawaited(AnthropicAccountsLabelCache.ensureLoaded());
     await _repository.connect();
     _wsSub = _repository.messages.listen(_onWsMessage);
     _connectivitySub = _repository.connectivityStream.listen((connected) {
@@ -1536,6 +1541,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     String? stash,
     bool createBranch = false,
     String? mcpRole,
+    String? anthropicAccountId,
   }) async {
     _error = null;
     _lastErrorStatus = null;
@@ -1559,6 +1565,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         stash: stash,
         createBranch: createBranch,
         mcpRole: mcpRole,
+        anthropicAccountId: anthropicAccountId,
       );
       _sessions = [..._sessions, session];
       sessionFirstSeenAt[session.id] = DateTime.now();
@@ -2785,6 +2792,38 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // OPC-M3-5: todo.updated event — replace the session's todo state in-place.
       // State is keyed per session; an update for session B must not affect A.
       _sessionTodosBySession[msg.sessionId] = List.of(msg.todos);
+    } else if (msg is SessionSpilloverMessage) {
+      // Dual-account spillover: the engine failed this session over to the
+      // other Anthropic account after a rate limit. Flip the badge and toast.
+      _sessions = _sessions
+          .map((s) => s.id == msg.sessionId
+              ? s.copyWith(anthropicAccountId: msg.toAccountId)
+              : s)
+          .toList();
+      final toLabel = AnthropicAccountsLabelCache.labelFor(msg.toAccountId);
+      _notificationsController.pushAgentNotification(
+        id: DateTime.now().millisecondsSinceEpoch,
+        title: 'Claude account switched',
+        body: 'Session hit a rate limit — continued on "$toLabel".',
+      );
+      // Inline transcript marker via the same local system-message append the
+      // WsErrorMessage branch uses.
+      final markerId =
+          'spillover-${msg.sessionId}-${DateTime.now().millisecondsSinceEpoch}';
+      (_chatMessagesBySession[msg.sessionId] ??= []).add(ChatMessage(
+        id: markerId,
+        sessionId: msg.sessionId,
+        role: 'system',
+        createdAt: DateTime.now(),
+      ));
+      _chatPartsByMessage[markerId] = [
+        ChatPart(
+          id: '${markerId}_text',
+          messageId: markerId,
+          type: 'text',
+          text: '— continued on "$toLabel" after a rate limit —',
+        ),
+      ];
     }
     notifyListeners();
   }

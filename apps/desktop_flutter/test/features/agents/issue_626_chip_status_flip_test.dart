@@ -112,6 +112,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? stash,
     bool createBranch = false,
     String? mcpRole,
+    String? anthropicAccountId,
   }) async =>
       _makeSession('new', AgentSessionStatus.starting);
 

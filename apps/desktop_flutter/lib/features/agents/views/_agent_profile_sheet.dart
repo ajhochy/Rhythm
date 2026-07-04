@@ -7,6 +7,7 @@ import '../../../app/core/services/default_agent_profile_service.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../../agent_configs/models/agent_config.dart';
+import '../../settings/data/anthropic_accounts_data_source.dart';
 import '../data/agent_models_data_source.dart';
 import '../data/opencode_mcp_data_source.dart';
 import '../data/opencode_skills_data_source.dart';
@@ -418,6 +419,12 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
   List<CatalogModelEntry> _catalogModels = [];
   CatalogModelEntry? _selectedModel;
 
+  // Claude account picker state — null means "App default". The field is
+  // hidden until accounts load successfully AND at least one exists.
+  List<AnthropicAccount> _anthropicAccounts = [];
+  bool _anthropicAccountsLoaded = false;
+  String? _selectedAnthropicAccountId;
+
   // Live skills/MCPs sourced from the engine (the single source of truth —
   // never a hardcoded array; #775). Loaded asynchronously on open.
   late final OpencodeSkillsDataSource _skillsDataSource;
@@ -452,10 +459,25 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         : null;
     _skillsDataSource = widget._skillsDataSource ?? OpencodeSkillsDataSource();
     _mcpDataSource = widget._mcpDataSource ?? OpencodeMcpDataSource();
+    _selectedAnthropicAccountId = cfg?.defaultAnthropicAccountId;
     // Load catalog + live skills/MCPs asynchronously — do not block render.
     _loadCatalog();
     _loadSkills();
     _loadMcps();
+    _loadAnthropicAccounts();
+  }
+
+  Future<void> _loadAnthropicAccounts() async {
+    try {
+      final result = await AnthropicAccountsDataSource().list();
+      if (!mounted) return;
+      setState(() {
+        _anthropicAccounts = result.accounts;
+        _anthropicAccountsLoaded = true;
+      });
+    } catch (_) {
+      // Fetch failure → keep the field hidden (single-account/legacy setups).
+    }
   }
 
   Future<void> _loadCatalog() async {
@@ -558,6 +580,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
             : null,
         'modelProvider': _selectedModel?.provider,
         'modelId': _selectedModel?.modelId,
+        'defaultAnthropicAccountId': _selectedAnthropicAccountId,
       };
       final ok = await controller.update(widget.config!.id, patch);
       if (ok) {
@@ -636,6 +659,11 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
                 ],
                 const SizedBox(height: 24),
                 _buildModelSection(),
+                if (_anthropicAccountsLoaded &&
+                    _anthropicAccounts.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  _buildClaudeAccountSection(),
+                ],
                 const SizedBox(height: 24),
                 _buildMcpsSection(),
                 const SizedBox(height: 24),
@@ -911,6 +939,59 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         const SizedBox(height: 4),
         Text(
           'Used by the autonomous agent runner for scheduled and cookbook runs.',
+          style: TextStyle(color: context.rhythm.textMuted, fontSize: 11),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildClaudeAccountSection() {
+    // Guard against a stale persisted id (account since removed) — the
+    // dropdown asserts when `value` has no matching item.
+    final value =
+        _anthropicAccounts.any((a) => a.id == _selectedAnthropicAccountId)
+            ? _selectedAnthropicAccountId
+            : null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionLabel('Claude Account'),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String?>(
+          initialValue: value,
+          dropdownColor: context.rhythm.surface,
+          style: TextStyle(color: context.rhythm.textPrimary, fontSize: 13),
+          decoration: _inputDecoration(context, 'App default'),
+          items: [
+            DropdownMenuItem<String?>(
+              value: null,
+              child: Text(
+                'App default',
+                style: TextStyle(
+                  color: context.rhythm.textMuted,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            ..._anthropicAccounts.map(
+              (a) => DropdownMenuItem<String?>(
+                value: a.id,
+                child: Text(
+                  a.label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: context.rhythm.textPrimary,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ),
+          ],
+          onChanged: (v) => setState(() => _selectedAnthropicAccountId = v),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Default Anthropic account for sessions started with this profile.',
           style: TextStyle(color: context.rhythm.textMuted, fontSize: 11),
         ),
       ],

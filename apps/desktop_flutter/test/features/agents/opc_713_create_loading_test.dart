@@ -117,6 +117,7 @@ class _SlowStubAgentsRepository implements AgentsRepository {
     String? stash,
     bool createBranch = false,
     String? mcpRole,
+    String? anthropicAccountId,
   }) async {
     await Future<void>.delayed(delay);
     return _makeSession('new-session');
@@ -388,6 +389,7 @@ class _ThrowingStubRepo implements AgentsRepository {
     String? stash,
     bool createBranch = false,
     String? mcpRole,
+    String? anthropicAccountId,
   }) async {
     if (shouldThrow()) throw Exception('stubbed error');
     return inner.createSession(

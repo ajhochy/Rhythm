@@ -127,6 +127,7 @@ class _StubAgentsRepository implements AgentsRepository {
     String? stash,
     bool createBranch = false,
     String? mcpRole,
+    String? anthropicAccountId,
   }) async {
     lastMcpRole = mcpRole;
     final now = DateTime.now();

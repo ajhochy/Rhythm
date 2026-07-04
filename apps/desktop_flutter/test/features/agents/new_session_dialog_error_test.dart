@@ -122,6 +122,7 @@ class _ErrorAgentsRepository implements AgentsRepository {
     String? stash,
     bool createBranch = false,
     String? mcpRole,
+    String? anthropicAccountId,
   }) async {
     throw AppError(
       message,

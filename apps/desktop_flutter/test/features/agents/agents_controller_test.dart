@@ -132,6 +132,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? stash,
     bool createBranch = false,
     String? mcpRole,
+    String? anthropicAccountId,
   }) async {
     lastCreateAgentId = agentId;
     return _makeSession('new-session', AgentSessionStatus.starting);
@@ -290,12 +291,16 @@ class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
       : super(NotificationsRepository(NotificationsDataSource()));
 
+  final List<({String title, String body})> pushed = [];
+
   @override
   void pushAgentNotification({
     required int id,
     required String title,
     required String body,
-  }) {}
+  }) {
+    pushed.add((title: title, body: body));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -606,6 +611,83 @@ void main() {
       expect(controller.sessions.map((s) => s.id), containsAll(['a', 'b']));
       expect(controller.resumable, hasLength(1));
       expect(controller.resumable.first.id, 'r1');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // session.spillover (dual Anthropic accounts)
+  // --------------------------------------------------------------------------
+
+  group('session.spillover', () {
+    test('parse() maps session.spillover to SessionSpilloverMessage', () {
+      final msg = AgentWsMessage.parse({
+        'v': 1,
+        'type': 'session.spillover',
+        'sessionId': 's1',
+        'fromAccountId': 'team',
+        'toAccountId': 'personal',
+        'reason': 'rate_limited',
+      });
+      expect(msg, isA<SessionSpilloverMessage>());
+      final spill = msg as SessionSpilloverMessage;
+      expect(spill.sessionId, 's1');
+      expect(spill.fromAccountId, 'team');
+      expect(spill.toAccountId, 'personal');
+    });
+
+    test(
+        'SessionSpilloverMessage updates the session account and pushes a '
+        'notification', () async {
+      final notifications = _FakeNotificationsController();
+      final localController = AgentsController(
+        fakeRepo,
+        _FakeAgentServerController(ready: true, anyAgent: true),
+        _FakeLocalNotificationService(),
+        notifications,
+      );
+      addTearDown(localController.dispose);
+      await localController.initialize();
+
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeSession('spill-sess', AgentSessionStatus.working),
+      ));
+      await Future<void>.delayed(Duration.zero);
+      expect(localController.sessions.single.anthropicAccountId, isNull);
+
+      fakeRepo.emit(const SessionSpilloverMessage(
+        sessionId: 'spill-sess',
+        fromAccountId: 'team',
+        toAccountId: 'personal',
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        localController.sessions.single.anthropicAccountId,
+        'personal',
+        reason: 'spillover must flip the session account (badge source)',
+      );
+      expect(notifications.pushed, hasLength(1));
+      expect(notifications.pushed.single.title, 'Claude account switched');
+      // No label cache in tests → body falls back to the raw account id.
+      expect(notifications.pushed.single.body, contains('personal'));
+    });
+
+    test('spillover for an unknown session leaves other sessions untouched',
+        () async {
+      await controller.initialize();
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeSession('other-sess', AgentSessionStatus.idle),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      fakeRepo.emit(const SessionSpilloverMessage(
+        sessionId: 'nonexistent',
+        fromAccountId: 'team',
+        toAccountId: 'personal',
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.sessions.single.anthropicAccountId, isNull);
     });
   });
 

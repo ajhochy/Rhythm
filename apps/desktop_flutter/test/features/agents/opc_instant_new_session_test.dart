@@ -139,6 +139,7 @@ class _StubAgentsRepository implements AgentsRepository {
     String? stash,
     bool createBranch = false,
     String? mcpRole,
+    String? anthropicAccountId,
   }) async {
     createSessionCallCount++;
     lastCreateCwd = cwd;
