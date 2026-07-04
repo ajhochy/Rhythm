@@ -194,4 +194,48 @@ describe('model-c5 / scope-c5: REST POST /agent-schedules', () => {
     expect(body.allowedMcpsJson).toBeNull();
     expect(body.allowedSkillsJson).toBeNull();
   });
+
+  it('issue-0-c2: REST create and list round-trip agentConfigId', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-schedules`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        name: 'MarcoKaz YouTube Monitor — AI Trend Researcher',
+        scheduleType: 'daily',
+        scheduledTime: '09:00',
+        prompt: 'Monitor the channel',
+        agentConfigId: 'AI-Trend-Researcher',
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const created = (await createRes.json()) as {
+      id: string;
+      agentKind: string;
+      agentConfigId: string | null;
+    };
+    expect(created.agentKind).toBe('AI-Trend-Researcher');
+    expect(created.agentConfigId).toBe('AI-Trend-Researcher');
+
+    const listRes = await fetch(`${baseUrl}/agent-schedules`, {
+      headers: authHeaders,
+    });
+    expect(listRes.status).toBe(200);
+    const listed = (await listRes.json()) as Array<{
+      id: string;
+      agentConfigId: string | null;
+    }>;
+    expect(listed.find((task) => task.id === created.id)?.agentConfigId)
+      .toBe('AI-Trend-Researcher');
+
+    const triggerRes = await fetch(
+      `${baseUrl}/agent-schedules/${created.id}/trigger-now`,
+      { method: 'POST', headers: authHeaders },
+    );
+    expect(triggerRes.status).toBe(200);
+    const due = await new AgentScheduledTasksRepository().findDueAsync();
+    expect(due.find((task) => task.id === created.id)).toMatchObject({
+      agentKind: 'AI-Trend-Researcher',
+      agentConfigId: 'AI-Trend-Researcher',
+    });
+  });
 });

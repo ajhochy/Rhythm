@@ -176,4 +176,16 @@ describe('buildHubRoutingPreamble', () => {
       expect(result).toContain(id);
     }
   });
+
+  it('issue-0-c5: workflow-orchestrator routing targets coding-agent', () => {
+    const result = injectManagerPreamble(
+      'You are the workflow manager.',
+      true,
+      ['coding-agent', 'verification-gate'],
+      'workflow-orchestrator',
+    );
+
+    expect(result).toContain('subagent_type="coding-agent"');
+    expect(result).not.toContain('subagent_type="workflow-orchestrator"');
+  });
 });
