@@ -42,7 +42,7 @@ export interface ModelRoute {
  *
  * The SDK only successfully routes to providers with a built-in loader
  * (openrouter, openai, github-copilot, opencode) plus any community plugin
- * loaders the user has installed (anthropic via opencode-claude-auth,
+ * loaders the user has installed (anthropic via the vendored rhythm-anthropic-accounts plugin,
  * google via opencode-gemini-auth, openai-codex via
  * opencode-openai-codex-auth).
  *
