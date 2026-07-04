@@ -6,6 +6,8 @@ import { addExcludedBeta, getExcludedBetas, getModelBetas, getNextBetaToExclude,
 import { transformBody, transformResponseStream } from "./transforms.js";
 import { applyOpencodeConfig } from "./plugin-config.js";
 import { getCachedCredentials, getCredentialsForSync, syncAuthJson, initAccounts, setActiveAccountSource, loadPersistedAccountSource, saveAccountSource, refreshAccountsList, } from "./credentials.js";
+// rhythm: multi-account routing (see VENDORED.md)
+import { hasAccounts, resolveForSession, markSpillover, forcedSpilloverAccountId, } from "./accounts.js";
 export { addExcludedBeta, getExcludedBetas, getModelBetas, getNextBetaToExclude, isLongContextError, LONG_CONTEXT_BETAS, } from "./betas.js";
 export { resetExcludedBetas } from "./betas.js";
 export { stripToolPrefix, transformBody, transformResponseStream, } from "./transforms.js";
@@ -147,14 +149,20 @@ const SYNC_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const plugin = async () => {
     initLogger();
     let accounts = [];
-    try {
-        accounts = readAllClaudeAccounts();
-    }
-    catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        log("plugin_init_error", { error });
-        console.warn("opencode-claude-auth: Failed to read Claude Code credentials:", error);
-        return {};
+    // rhythm: when the Rhythm accounts store is live, api_server owns the
+    // credentials — skip the Claude Code keychain entirely (no keychain read,
+    // no auth.json sync loop). The store absent → legacy behaviour unchanged.
+    const rhythmStoreLive = hasAccounts();
+    if (!rhythmStoreLive) {
+        try {
+            accounts = readAllClaudeAccounts();
+        }
+        catch (err) {
+            const error = err instanceof Error ? err.message : String(err);
+            log("plugin_init_error", { error });
+            console.warn("opencode-claude-auth: Failed to read Claude Code credentials:", error);
+            return {};
+        }
     }
     initAccounts(accounts);
     const defaultAccountSource = accounts[0]?.source ?? null;
@@ -187,6 +195,9 @@ const plugin = async () => {
             }
         }, SYNC_INTERVAL);
         syncTimer.unref();
+    }
+    else if (rhythmStoreLive) {
+        log("plugin_init_rhythm_store", { reason: "Rhythm accounts store is live; keychain skipped" });
     }
     else {
         log("plugin_init_no_accounts", { reason: "no credentials found" });
@@ -229,12 +240,47 @@ const plugin = async () => {
                 });
                 return {
                     apiKey: "",
-                    baseURL: "https://api.anthropic.com/v1",
+                    // rhythm: test/override knob for the upstream host
+                    baseURL: process.env.RHYTHM_ANTHROPIC_BASE_URL ??
+                        "https://api.anthropic.com/v1",
                     async fetch(input, init) {
-                        const latest = getCachedCredentials();
-                        if (!latest) {
-                            log("fetch_no_credentials", { modelId: "unknown" });
-                            throw new Error("Claude Code credentials are unavailable or expired. Run `claude` to refresh them.");
+                        // rhythm: per-request account resolution — the engine tags every
+                        // session request with x-session-affinity (fork llm.ts).
+                        const rhythmInitHeaders = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+                        const rhythmSessionId = rhythmInitHeaders.get("x-session-affinity") ?? undefined;
+                        let rhythmAccount;
+                        let rhythmFallback;
+                        if (hasAccounts()) {
+                            ({ account: rhythmAccount, fallback: rhythmFallback } =
+                                resolveForSession(rhythmSessionId));
+                            if (!rhythmAccount) {
+                                log("fetch_no_credentials", { modelId: "unknown" });
+                                throw new Error("Rhythm account store has no usable Anthropic account — connect one in Settings.");
+                            }
+                        }
+                        else {
+                            // Legacy keychain path, unchanged when the store is absent.
+                            const latest = getCachedCredentials();
+                            if (!latest) {
+                                log("fetch_no_credentials", { modelId: "unknown" });
+                                throw new Error("Claude Code credentials are unavailable or expired. Run `claude` to refresh them.");
+                            }
+                            rhythmAccount = { id: "keychain", access: latest.accessToken };
+                        }
+                        // rhythm: RHYTHM_FORCE_SPILLOVER=<accountId> deterministically routes
+                        // that account's traffic to the fallback BEFORE sending (test knob —
+                        // avoids burning a real request; still records + reports spillover).
+                        const rhythmForced = forcedSpilloverAccountId();
+                        if (rhythmForced &&
+                            rhythmForced === rhythmAccount.id &&
+                            rhythmFallback) {
+                            log("fetch_forced_spillover", {
+                                from: rhythmAccount.id,
+                                to: rhythmFallback.id,
+                            });
+                            markSpillover(rhythmSessionId, rhythmAccount.id, rhythmFallback.id);
+                            rhythmAccount = rhythmFallback;
+                            rhythmFallback = undefined;
                         }
                         const requestInit = init ?? {};
                         const bodyStr = typeof requestInit.body === "string"
@@ -250,13 +296,13 @@ const plugin = async () => {
                         }
                         log("fetch_credentials", {
                             modelId,
-                            accessToken: latest.accessToken,
-                            expiresAt: latest.expiresAt,
+                            accountId: rhythmAccount.id,
+                            accessToken: rhythmAccount.access,
                         });
                         // Get excluded betas for this model (from previous failed requests)
                         const excluded = getExcludedBetas(modelId);
                         const requestUrl = buildRequestUrl(input);
-                        const headers = buildRequestHeaders(input, requestInit, latest.accessToken, modelId, excluded);
+                        const headers = buildRequestHeaders(input, requestInit, rhythmAccount.access, modelId, excluded);
                         const body = transformBody(requestInit.body);
                         const headerKeys = [];
                         headers.forEach((_, key) => headerKeys.push(key));
@@ -274,13 +320,45 @@ const plugin = async () => {
                             modelId,
                             retryAttempt: 0,
                         });
+                        // rhythm: quota-exhaustion failover. fetchWithRetry only returns a
+                        // 429/529 once its retries are exhausted or retry-after exceeded the
+                        // cap — i.e. this account is out of quota. Retry once on the other
+                        // account; keep the original response if the fallback fares no better.
+                        if ((response.status === 429 || response.status === 529) &&
+                            rhythmFallback) {
+                            log("fetch_spillover", {
+                                from: rhythmAccount.id,
+                                to: rhythmFallback.id,
+                                status: response.status,
+                            });
+                            const spillHeaders = buildRequestHeaders(input, requestInit, rhythmFallback.access, modelId, excluded);
+                            const retryResponse = await fetchWithRetry(requestUrl, {
+                                ...requestInit,
+                                body,
+                                headers: spillHeaders,
+                            });
+                            if (retryResponse.ok || retryResponse.status !== response.status) {
+                                markSpillover(rhythmSessionId, rhythmAccount.id, rhythmFallback.id);
+                                response = retryResponse;
+                                rhythmAccount = rhythmFallback;
+                                rhythmFallback = undefined;
+                            }
+                        }
                         // On 401, force a credential refresh and retry once.
                         // This handles the common case of token expiry mid-session.
+                        // rhythm: with the store live, re-read it instead of the keychain —
+                        // api_server refreshes tokens and rewrites the file.
                         if (response.status === 401) {
                             log("fetch_401_retry", { modelId });
-                            const refreshed = getCachedCredentials();
-                            if (refreshed && refreshed.accessToken !== latest.accessToken) {
-                                const retryHeaders = buildRequestHeaders(input, requestInit, refreshed.accessToken, modelId, excluded);
+                            const refreshed = hasAccounts()
+                                ? resolveForSession(rhythmSessionId).account
+                                : (() => {
+                                    const c = getCachedCredentials();
+                                    return c ? { id: "keychain", access: c.accessToken } : undefined;
+                                })();
+                            if (refreshed && refreshed.access !== rhythmAccount.access) {
+                                rhythmAccount = refreshed;
+                                const retryHeaders = buildRequestHeaders(input, requestInit, refreshed.access, modelId, excluded);
                                 response = await fetchWithRetry(requestUrl, {
                                     ...requestInit,
                                     body,
@@ -313,8 +391,10 @@ const plugin = async () => {
                                 excludedBeta: betaToExclude,
                             });
                             // Rebuild headers without the excluded beta and retry
-                            const currentCreds = getCachedCredentials();
-                            const retryToken = currentCreds?.accessToken ?? latest.accessToken;
+                            // rhythm: store-aware token source (falls back to current account)
+                            const retryToken = (hasAccounts()
+                                ? resolveForSession(rhythmSessionId).account?.access
+                                : getCachedCredentials()?.accessToken) ?? rhythmAccount.access;
                             const newExcluded = getExcludedBetas(modelId);
                             const newHeaders = buildRequestHeaders(input, requestInit, retryToken, modelId, newExcluded);
                             response = await fetchWithRetry(requestUrl, {

@@ -1,5 +1,5 @@
 {
-  "name": "opencode-claude-auth",
+  "name": "rhythm-anthropic-accounts",
   "version": "1.5.3",
   "description": "OpenCode plugin that uses your Claude Code credentials — no separate login needed.",
   "keywords": [
