@@ -33,9 +33,10 @@ import { scanContextContent } from '../security/context_scanner';
 import type { AgentConfig } from '../repositories/agent_configs_repository';
 
 /**
- * Prepended to a manager-profile body WITHOUT a delegate roster (the dev
- * manager, e.g. workflow-orchestrator) so that the orchestrator role is
- * explicit to opencode when it loads the file. Must appear exactly once.
+ * Prepended to a manager-profile body WITHOUT a delegate roster so that the
+ * orchestrator role is explicit to opencode when it loads the file. Must
+ * appear exactly once. workflow-orchestrator gets a profile-aware variant
+ * below so it never delegates to itself.
  * The distinctive heading "## Routing (mandatory)" is used as the idempotency
  * marker — see `injectManagerPreamble`.
  */
@@ -68,6 +69,12 @@ const CODING_HANDOFF_BODY =
   '`"general"` and never omit `subagent_type`. Do this regardless of how the request is ' +
   'phrased.';
 
+const WORKFLOW_ORCHESTRATOR_CODING_BODY =
+  'Own the coding workflow in this session. Delegate implementation work through the ' +
+  '`task` tool with `subagent_type="coding-agent"` and use the other approved workflow ' +
+  'specialists for planning, verification, failure triage, and project-state updates. ' +
+  'Never delegate to `workflow-orchestrator` from workflow-orchestrator itself.';
+
 /**
  * Build the combined routing preamble for a manager that has a non-empty
  * `allowedDelegates` roster (a "hub" manager, e.g. Secretary). Unlike the
@@ -78,11 +85,16 @@ const CODING_HANDOFF_BODY =
  * MCP tool, which creates an orphaned top-level session with no parent link
  * (#891). subagent_type selects the specialist:
  *   (a) domain/ministry work → `task` with `subagent_type=<specialist>`
- *   (b) coding/dev work → `task` with `subagent_type=workflow-orchestrator`
+ *   (b) coding/dev work → workflow-orchestrator, or coding-agent when the
+ *       current profile is workflow-orchestrator itself
  *   (c) only trivial admin/summarize/read work is handled directly
  */
-export function buildHubRoutingPreamble(roster: string[]): string {
+export function buildHubRoutingPreamble(roster: string[], profileId?: string): string {
   const rosterList = roster.map((id) => `\`${id}\``).join(', ');
+  const codingHandoff =
+    profileId === 'workflow-orchestrator'
+      ? WORKFLOW_ORCHESTRATOR_CODING_BODY
+      : CODING_HANDOFF_BODY;
   return (
     `${HUB_PREAMBLE_MARKER}\n` +
     'You are a routing hub. Do not attempt domain or coding work yourself — route it ' +
@@ -93,7 +105,7 @@ export function buildHubRoutingPreamble(roster: string[]): string {
     `(${rosterList}) and the focused task as the prompt. Name the specialist ` +
     'explicitly; never use `"general"` and never omit `subagent_type`. Pick whichever ' +
     'specialist fits the request, delegate, then summarize the result for the user.\n\n' +
-    `**Coding / development work:** ${CODING_HANDOFF_BODY}\n\n` +
+    `**Coding / development work:** ${codingHandoff}\n\n` +
     'Only handle trivial admin yourself — quick summaries, reading back information, or ' +
     'simple lookups that do not require a specialist or the coding workflow.'
   );
@@ -104,7 +116,7 @@ export function buildHubRoutingPreamble(roster: string[]): string {
  *  - a non-empty `delegateRoster` → the combined hub preamble (routes BOTH
  *    domain work via `rhythm_delegate` and coding work via the dev hand-off).
  *  - no roster → the existing plain `MANAGER_ROUTING_PREAMBLE` (coding hand-off
- *    only), unchanged from prior behavior.
+ *    only), except workflow-orchestrator receives its self-safe variant.
  * No-op for non-managers. Idempotent: re-injecting either variant does not
  * duplicate it, and injecting one variant when the other is already present
  * is a no-op too (only one routing preamble should ever apply to a profile).
@@ -115,12 +127,17 @@ export function injectManagerPreamble(
   body: string,
   isManager: boolean,
   delegateRoster: string[] = [],
+  profileId?: string,
 ): string {
   if (!isManager) return body;
   if (body.includes(PREAMBLE_MARKER) || body.includes(HUB_PREAMBLE_MARKER)) return body;
 
   const preamble =
-    delegateRoster.length > 0 ? buildHubRoutingPreamble(delegateRoster) : MANAGER_ROUTING_PREAMBLE;
+    delegateRoster.length > 0
+      ? buildHubRoutingPreamble(delegateRoster, profileId)
+      : profileId === 'workflow-orchestrator'
+        ? `${PREAMBLE_MARKER}\n${WORKFLOW_ORCHESTRATOR_CODING_BODY}`
+        : MANAGER_ROUTING_PREAMBLE;
   const separator = body.length > 0 && !body.startsWith('\n') ? '\n\n' : '\n';
   return `${preamble}${separator}${body}`;
 }
@@ -219,6 +236,34 @@ function setFrontmatterKey(fm: string, key: string, value: string): string {
   return fm.length > 0 ? `${fm}\n${line}` : line;
 }
 
+/** Ensure a direct child entry exists inside the top-level permission block. */
+function setPermissionKey(fm: string, key: string, value: string): string {
+  const lines = fm.split('\n');
+  const permissionIndex = lines.findIndex((line) => /^permission:\s*$/.test(line));
+  if (permissionIndex === -1) {
+    return `${fm}${fm.length > 0 ? '\n' : ''}permission:\n  ${key}: ${value}`;
+  }
+
+  let blockEnd = lines.length;
+  for (let i = permissionIndex + 1; i < lines.length; i += 1) {
+    if (/^\S/.test(lines[i])) {
+      blockEnd = i;
+      break;
+    }
+  }
+
+  const keyPattern = new RegExp(`^  ${key}:`);
+  const existingIndex = lines
+    .slice(permissionIndex + 1, blockEnd)
+    .findIndex((line) => keyPattern.test(line));
+  if (existingIndex >= 0) {
+    lines[permissionIndex + 1 + existingIndex] = `  ${key}: ${value}`;
+  } else {
+    lines.splice(blockEnd, 0, `  ${key}: ${value}`);
+  }
+  return lines.join('\n');
+}
+
 /**
  * Write (or merge-update) the opencode agent file for a profile. Never throws —
  * failures degrade to a logged warning. No-op when the profile is out of scope.
@@ -274,7 +319,15 @@ export function writeAgentProfileFile(config: AgentConfig): void {
       body = config.systemPrompt ?? '';
     }
 
-    body = injectManagerPreamble(body, config.isManager === true, parseDelegateRoster(config));
+    if (config.id === 'workflow-orchestrator') {
+      fm = setPermissionKey(fm, 'write', 'allow');
+    }
+    body = injectManagerPreamble(
+      body,
+      config.isManager === true,
+      parseDelegateRoster(config),
+      config.id,
+    );
 
     const out = `---\n${fm}\n---\n${body.startsWith('\n') ? body.slice(1) : body}`;
     writeFileSync(path, out.endsWith('\n') ? out : `${out}\n`, 'utf8');

@@ -34,6 +34,7 @@ modelProvider + modelId optionally override the bound profile's model for this t
       cronExpression: z.string().optional().describe('5-field cron expression e.g. "0 8 * * 1-5"'),
       runAt: z.string().optional().describe('ISO 8601 datetime for once-off tasks.'),
       timezone: z.string().optional().describe('IANA timezone, default America/Los_Angeles.'),
+      agentConfigId: z.string().optional().describe('Rhythm agent profile id to run, e.g. "AI-Trend-Researcher".'),
       allowedMcps: z.array(z.string()).optional().describe('MCP server names allowed for this run. Omit to inherit the profile scope.'),
       allowedSkills: z.array(z.string()).optional().describe('Skill names allowed for this run. Omit to inherit the profile scope.'),
       modelProvider: z.string().optional().describe('Override the profile model provider for this task (e.g. "anthropic"). Set together with modelId.'),

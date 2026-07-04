@@ -1,0 +1,56 @@
+{
+  "issue": 0,
+  "generated": "2026-07-04",
+  "criteria": [
+    {
+      "criterion_id": "issue-0-c1",
+      "text": "Creating a scheduled task can set agentConfigId.",
+      "mode": "integration",
+      "test_file": "apps/mcp_server/src/tools/agentSchedule.test.ts",
+      "test_id": "issue-0-c1: MCP create forwards agentConfigId",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c2",
+      "text": "Listing scheduled tasks shows non-null agentConfigId.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/scheduled_task_columns_contract.test.ts",
+      "test_id": "issue-0-c2: REST create and list round-trip agentConfigId",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c3",
+      "text": "Triggering it no longer fails with failed to create opencode session due to missing profile.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/scheduler_dispatch_contract.test.ts",
+      "test_id": "issue-0-c3: scheduler dispatches the bound profile",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c4",
+      "text": "Existing scheduled tasks without agentConfigId keep working as before.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/scheduler_dispatch_contract.test.ts",
+      "test_id": "issue-0-c4: scheduler preserves generic opencode dispatch",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c5",
+      "text": "Rhythm's workflow-orchestrator profile must not delegate coding work to itself.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+      "test_id": "issue-0-c5: workflow-orchestrator routing targets coding-agent",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c6",
+      "text": "Rhythm's workflow-orchestrator profile can create new files.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer.test.ts",
+      "test_id": "issue-0-c6: workflow-orchestrator projection grants write",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

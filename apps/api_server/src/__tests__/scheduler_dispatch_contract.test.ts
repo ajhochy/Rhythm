@@ -168,4 +168,26 @@ describe('scheduler dispatch — per-task model override + profile scope inherit
     const arg = await dispatchAndCaptureRunArg(makeDueTask({ allowedSkillsJson: null }));
     expect(arg.allowedSkillsJson).toBeUndefined();
   });
+
+  it('issue-0-c3: scheduler dispatches the bound profile', async () => {
+    const arg = await dispatchAndCaptureRunArg(
+      makeDueTask({
+        agentKind: 'AI-Trend-Researcher',
+        agentConfigId: 'AI-Trend-Researcher',
+      }),
+    );
+    expect(arg.agentKind).toBe('AI-Trend-Researcher');
+    expect(arg.agentConfigId).toBe('AI-Trend-Researcher');
+  });
+
+  it('issue-0-c4: scheduler preserves generic opencode dispatch', async () => {
+    const arg = await dispatchAndCaptureRunArg(
+      makeDueTask({
+        agentKind: 'opencode',
+        agentConfigId: null,
+      }),
+    );
+    expect(arg.agentKind).toBe('opencode');
+    expect(arg.agentConfigId).toBe('opencode');
+  });
 });
