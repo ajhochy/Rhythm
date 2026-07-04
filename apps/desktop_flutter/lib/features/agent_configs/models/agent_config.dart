@@ -27,6 +27,7 @@ class AgentConfig {
     this.modelId,
     this.ocAgent,
     this.sessionSelectable = true,
+    this.defaultAnthropicAccountId,
   });
 
   factory AgentConfig.fromJson(Map<String, dynamic> json) {
@@ -50,6 +51,7 @@ class AgentConfig {
       modelId: asString(json['modelId']),
       ocAgent: asString(json['ocAgent']),
       sessionSelectable: asBool(json['sessionSelectable']) ?? true,
+      defaultAnthropicAccountId: asString(json['defaultAnthropicAccountId']),
     );
   }
 
@@ -99,6 +101,10 @@ class AgentConfig {
   /// AgentSelectorPill). Subagents / opencode internal primaries are false.
   final bool sessionSelectable;
 
+  /// Default Anthropic account id for sessions created with this profile.
+  /// Null means use the app-level default account.
+  final String? defaultAnthropicAccountId;
+
   /// Returns true when this config was created from a preset.
   bool get isPreset => presetId != null;
 
@@ -133,6 +139,7 @@ class AgentConfig {
         'modelId': modelId,
         'ocAgent': ocAgent,
         'sessionSelectable': sessionSelectable,
+        'defaultAnthropicAccountId': defaultAnthropicAccountId,
       };
 
   AgentConfig copyWith({
@@ -151,6 +158,7 @@ class AgentConfig {
     Object? modelId = _sentinel,
     Object? ocAgent = _sentinel,
     bool? sessionSelectable,
+    Object? defaultAnthropicAccountId = _sentinel,
   }) {
     return AgentConfig(
       id: id,
@@ -182,6 +190,9 @@ class AgentConfig {
       ocAgent:
           identical(ocAgent, _sentinel) ? this.ocAgent : ocAgent as String?,
       sessionSelectable: sessionSelectable ?? this.sessionSelectable,
+      defaultAnthropicAccountId: identical(defaultAnthropicAccountId, _sentinel)
+          ? this.defaultAnthropicAccountId
+          : defaultAnthropicAccountId as String?,
     );
   }
 }

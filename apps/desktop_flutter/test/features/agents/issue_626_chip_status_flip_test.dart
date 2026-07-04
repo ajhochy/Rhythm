@@ -112,6 +112,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? stash,
     bool createBranch = false,
     String? mcpRole,
+    String? anthropicAccountId,
   }) async =>
       _makeSession('new', AgentSessionStatus.starting);
 
@@ -134,6 +135,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool clearProvider = false,
     bool clearModel = false,
     bool? fastMode,
+    String? anthropicAccountId,
   }) async =>
       throw UnimplementedError();
 

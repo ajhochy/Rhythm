@@ -146,6 +146,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? stash,
     bool createBranch = false,
     String? mcpRole,
+    String? anthropicAccountId,
   }) async {
     final session = AgentSession(
       id: 'sid-${_store.length + 1}',
@@ -181,6 +182,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool clearProvider = false,
     bool clearModel = false,
     bool? fastMode,
+    String? anthropicAccountId,
   }) async {
     final idx = _store.indexWhere((s) => s.id == id);
     final s = _store[idx];

@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# Vendored engine plugins: the compiled JS IS the source we ship — keep dist/
+!opencode_plugins/**/dist/
 *.db
 *.db-shm
 *.db-wal

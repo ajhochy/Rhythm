@@ -15,6 +15,7 @@ import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine'
 import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 import { estimateToolSurface } from '../services/tool_surface_estimator';
 import { streamBridge } from '../services/opencode_stream_bridge';
+import { anthropicAccountsService } from '../services/anthropic_accounts_service';
 import { broadcastSessionUpdated, broadcastSessionRemoved } from '../services/ws_gateway';
 import { logger } from '../utils/logger';
 import { getCuratorExtractStatus } from '../services/skill_extractor';
@@ -418,6 +419,8 @@ export class AgentSessionsController {
       // (id === ocAgent there) and only diverges for UUID-keyed configs whose
       // ocAgent has been resolved to a real engine name.
       let resolvedEngineAgentKind: string = '';
+      // Task D — profile-level default Anthropic account (agent_configs).
+      let profileDefaultAnthropicAccountId: string | null = null;
       if (typeof agentId === 'string' && agentId.trim() !== '') {
         normalizedAgentId = normalizeAgentId(agentId);
         const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
@@ -431,7 +434,31 @@ export class AgentSessionsController {
           agentConfig.ocAgent && agentConfig.ocAgent.trim() !== ''
             ? agentConfig.ocAgent
             : normalizedAgentId;
+        profileDefaultAnthropicAccountId = agentConfig.defaultAnthropicAccountId ?? null;
       }
+
+      // Task D — resolve the Anthropic account this session routes to:
+      // body override → profile default → store default → null (engine default).
+      // An unknown body id is a client error (400, before any row is created).
+      if (
+        body.anthropicAccountId !== undefined &&
+        body.anthropicAccountId !== null &&
+        typeof body.anthropicAccountId !== 'string'
+      ) {
+        throw AppError.badRequest('anthropicAccountId must be a string or null');
+      }
+      const requestedAccountId =
+        typeof body.anthropicAccountId === 'string' && body.anthropicAccountId.trim() !== ''
+          ? body.anthropicAccountId
+          : null;
+      if (requestedAccountId && !anthropicAccountsService.getAccount(requestedAccountId)) {
+        throw AppError.badRequest(`unknown anthropic account: '${requestedAccountId}'`);
+      }
+      const resolvedAccountId =
+        requestedAccountId ??
+        profileDefaultAnthropicAccountId ??
+        anthropicAccountsService.defaultAccount()?.id ??
+        null;
 
       if (!cwd || typeof cwd !== 'string' || cwd.trim() === '') {
         throw AppError.badRequest('cwd is required and must be a non-empty string');
@@ -568,6 +595,8 @@ export class AgentSessionsController {
         // C1 — MCP role (null when no role was requested).
         mcpRole: resolvedMcpRole,
         mcpAllowedToolsJson,
+        // Task D — resolved Anthropic account (null = engine default).
+        anthropicAccountId: resolvedAccountId,
       };
 
       const session = repo.insert(dto);
@@ -646,6 +675,13 @@ export class AgentSessionsController {
       // OPC-M1-5 — Persist the SDK session id on the DB row so resume() can
       // re-attach to the EXISTING SDK conversation rather than creating a new one.
       repo.setSdkSessionId(session.id, opencodeSession.id);
+
+      // Task D — record the session→account routing in the accounts file so
+      // the engine plugin resolves the right bearer token per request. Only
+      // when an account resolved; null means "engine default", no routing entry.
+      if (resolvedAccountId) {
+        anthropicAccountsService.setRouting(opencodeSession.id, resolvedAccountId);
+      }
 
       // Start streaming Opencode events through the WebSocket gateway.
       // Pass the cwd so the bridge can subscribe to /event with the right
@@ -742,6 +778,26 @@ export class AgentSessionsController {
           throw AppError.badRequest('fastMode must be a boolean');
         }
         fields.fastMode = body.fastMode;
+      }
+
+      // Dual-account follow-up — switch the session's Claude account from the
+      // header badge. Rejects null/unknown ids (clearing is not supported);
+      // updates the routing file only when the SDK session already exists.
+      if (body.anthropicAccountId !== undefined) {
+        if (
+          typeof body.anthropicAccountId !== 'string' ||
+          body.anthropicAccountId.trim() === ''
+        ) {
+          throw AppError.badRequest('anthropicAccountId must be a non-empty string');
+        }
+        const accountId = body.anthropicAccountId;
+        if (!anthropicAccountsService.getAccount(accountId)) {
+          throw AppError.badRequest(`unknown anthropic account: '${accountId}'`);
+        }
+        repo.setAnthropicAccountId(session.id, accountId);
+        if (session.sdkSessionId) {
+          anthropicAccountsService.setRouting(session.sdkSessionId, accountId);
+        }
       }
 
       // Issue #601 — archive / unarchive via PATCH { archived: boolean }

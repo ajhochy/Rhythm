@@ -187,6 +187,7 @@ class AgentsDataSource {
     String? stash,
     bool createBranch = false,
     String? mcpRole,
+    String? anthropicAccountId,
   }) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions'),
@@ -203,6 +204,8 @@ class AgentsDataSource {
         if (stash != null) 'stash': stash,
         if (createBranch) 'createBranch': true,
         if (mcpRole != null) 'mcpRole': mcpRole,
+        if (anthropicAccountId != null)
+          'anthropicAccountId': anthropicAccountId,
       }),
     );
     assertOk(response);
@@ -223,6 +226,7 @@ class AgentsDataSource {
     // Use Object? sentinel so callers can pass null explicitly to clear the field.
     Object? thinkingBudget = _dssentinel,
     bool? fastMode,
+    String? anthropicAccountId,
   }) async {
     final payload = <String, dynamic>{};
     if (name != null) payload['name'] = name;
@@ -244,6 +248,9 @@ class AgentsDataSource {
     }
     if (fastMode != null) {
       payload['fastMode'] = fastMode;
+    }
+    if (anthropicAccountId != null) {
+      payload['anthropicAccountId'] = anthropicAccountId;
     }
     final response = await _client.patch(
       Uri.parse('$_baseUrl/agent-sessions/$id'),

@@ -37,6 +37,7 @@ import { agentModelVisibilityRouter } from './routes/agent_model_visibility_rout
 import { opencodeModelsRouter } from './routes/opencode_models_routes';
 import { opencodeMcpRouter } from './routes/opencode_mcp_routes';
 import { opencodeSkillsRouter } from './routes/opencode_skills_routes';
+import { opencodeSpilloverRouter } from './routes/opencode_spillover_routes';
 import { syncRouter } from './routes/sync_routes';
 import { ptyRouter } from './routes/pty_routes';
 import { opencodeClient } from './services/opencode_engine';
@@ -155,6 +156,9 @@ export function createApp() {
     app.use('/opencode/mcp', opencodeMcpRouter);
     // Unify-2 — skills source of truth: live fork skills + Rhythm-managed writes
     app.use('/opencode/skills', opencodeSkillsRouter);
+    // Task D (dual Anthropic accounts) — rate-limit spillover intake from the
+    // vendored engine plugin (POST http://localhost:4001/opencode/spillover).
+    app.use('/opencode/spillover', opencodeSpilloverRouter);
     // Issue #609 — agent model visibility CRUD
     app.use('/agent-models/visibility', agentModelVisibilityRouter);
 

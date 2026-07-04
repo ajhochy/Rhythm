@@ -40,6 +40,8 @@ interface AgentSessionRow {
   parent_session_id: string | null;
   /** #747 — 1 when this is a background/system session (curator, scheduler, memory). */
   is_system: number;
+  /** Task D — Anthropic account id this session is routed to. Null = engine default. */
+  anthropic_account_id: string | null;
 }
 
 function rowToModel(row: AgentSessionRow): AgentSession {
@@ -71,6 +73,7 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     scheduledTaskId: row.scheduled_task_id ?? null,
     parentSessionId: row.parent_session_id ?? null,
     isSystem: row.is_system === 1,
+    anthropicAccountId: row.anthropic_account_id ?? null,
   };
 }
 
@@ -82,8 +85,9 @@ export class AgentSessionsRepository {
       .prepare(
         `INSERT INTO agent_sessions
            (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
-            mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
+            anthropic_account_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -97,6 +101,7 @@ export class AgentSessionsRepository {
         dto.mcpAllowedToolsJson ?? null,
         dto.scheduledTaskId ?? null,
         dto.isSystem ? 1 : 0,
+        dto.anthropicAccountId ?? null,
         now,
         now,
       );
@@ -222,6 +227,19 @@ export class AgentSessionsRepository {
         `UPDATE agent_sessions SET sdk_session_id = ?, updated_at = ? WHERE id = ?`,
       )
       .run(sdkSessionId, now, id);
+  }
+
+  /**
+   * Task D — Update the Anthropic account a session is routed to. Called by
+   * the spillover intake when the engine plugin fails over in place.
+   */
+  setAnthropicAccountId(id: string, accountId: string | null): void {
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `UPDATE agent_sessions SET anthropic_account_id = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(accountId, now, id);
   }
 
   /**

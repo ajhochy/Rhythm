@@ -122,6 +122,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? stash,
     bool createBranch = false,
     String? mcpRole,
+    String? anthropicAccountId,
   }) async {
     final now = DateTime.now();
     return AgentSession(
@@ -154,6 +155,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool clearProvider = false,
     bool clearModel = false,
     bool? fastMode,
+    String? anthropicAccountId,
   }) async {
     throw UnimplementedError();
   }

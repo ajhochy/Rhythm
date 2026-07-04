@@ -10,6 +10,7 @@ import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agents/views/_open_router_models_section.dart';
+import '../data/anthropic_accounts_data_source.dart';
 
 /// Settings section for connecting AI provider accounts.
 ///
@@ -34,6 +35,10 @@ class _AiAccountSectionState extends State<AiAccountSection> {
 
   bool _hasClaudeCode = false;
 
+  final _accountsDataSource = AnthropicAccountsDataSource();
+  List<AnthropicAccount> _accounts = [];
+  String? _defaultAccountId;
+
   @override
   void initState() {
     super.initState();
@@ -42,6 +47,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
     }
     _refreshConnectedProviders();
     _refreshSources();
+    _refreshAccounts();
   }
 
   @override
@@ -90,6 +96,375 @@ class _AiAccountSectionState extends State<AiAccountSection> {
     if (mounted) {
       context.read<AgentServerController>().refreshCapabilities();
     }
+  }
+
+  // ── Claude account slots ──
+
+  Future<void> _refreshAccounts() async {
+    try {
+      final result = await _accountsDataSource.list();
+      if (!mounted) return;
+      setState(() {
+        _accounts = result.accounts;
+        _defaultAccountId = result.defaultAccountId;
+      });
+    } catch (_) {
+      // ignore — local server may not be ready yet
+    }
+  }
+
+  Future<void> _setDefaultAccount(String accountId) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _accountsDataSource.setDefault(accountId);
+      await _refreshAccounts();
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Failed to set default account: $e')),
+      );
+    }
+  }
+
+  Future<void> _removeAccount(AnthropicAccount account) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _accountsDataSource.remove(account.id);
+      messenger.showSnackBar(
+        SnackBar(content: Text('${account.label} removed')),
+      );
+      await _refreshAccounts();
+      _refreshAgentCapabilities();
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Failed to remove ${account.label}: $e')),
+      );
+    }
+  }
+
+  Future<void> _addClaudeAccount() async {
+    final label = await _promptForAccountLabel(
+      initial: _accounts.isEmpty ? 'Team' : 'Personal',
+    );
+    if (label == null || label.isEmpty || !mounted) return;
+    final accountId = _slugify(label);
+    if (accountId.isEmpty) {
+      setState(() => _statusMessage = 'Label must contain letters or numbers');
+      return;
+    }
+    await _connectAccount(accountId, label);
+  }
+
+  /// Derive an account id slug from the label: lowercase, runs of
+  /// non-alphanumerics collapse to `-`, max 32 chars (server contract).
+  String _slugify(String label) {
+    final slug = label
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+    return slug.length > 32 ? slug.substring(0, 32) : slug;
+  }
+
+  Future<String?> _promptForAccountLabel({required String initial}) async {
+    final controller = TextEditingController(text: initial);
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Add Claude account'),
+          content: SizedBox(
+            width: 360,
+            child: TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Account label',
+                hintText: 'e.g. Team or Personal',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(null),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+              child: const Text('Continue'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  /// Connect (or reconnect) a Claude account: login-start opens the claude.ai
+  /// consent page in the browser; the user approves, copies the code Anthropic
+  /// shows ("xxxx#yyyy"), and pastes it into the dialog.
+  Future<void> _connectAccount(String accountId, String label) async {
+    final messenger = ScaffoldMessenger.of(context);
+    String authorizeUrl;
+    try {
+      authorizeUrl = await _accountsDataSource.loginStart(accountId, label);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _statusMessage = 'Failed to start Claude sign-in: $e');
+      return;
+    }
+    final uri = Uri.parse(authorizeUrl);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (!mounted) return;
+      setState(() => _statusMessage =
+          'Could not open browser. Visit $authorizeUrl manually.');
+      return;
+    }
+
+    if (!mounted) return;
+    final connected = await _showAccountConnectDialog(
+      accountId: accountId,
+      label: label,
+    );
+    if (!mounted || !connected) return;
+    messenger.showSnackBar(SnackBar(content: Text('✓ $label connected')));
+    await _refreshAccounts();
+    await _refreshConnectedProviders();
+    _refreshAgentCapabilities();
+  }
+
+  Future<bool> _showAccountConnectDialog({
+    required String accountId,
+    required String label,
+  }) async {
+    final controller = TextEditingController();
+    try {
+      final result = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) {
+          String? error;
+          var busy = false;
+          return StatefulBuilder(
+            builder: (ctx, setDialogState) {
+              Future<void> submit() async {
+                final code = controller.text.trim();
+                if (code.isEmpty) return;
+                setDialogState(() {
+                  busy = true;
+                  error = null;
+                });
+                try {
+                  await _accountsDataSource.loginComplete(accountId, code);
+                  if (ctx.mounted) Navigator.of(ctx).pop(true);
+                } catch (e) {
+                  if (!ctx.mounted) return;
+                  setDialogState(() {
+                    busy = false;
+                    error = e.toString().replaceFirst('Exception: ', '');
+                  });
+                }
+              }
+
+              return AlertDialog(
+                title: Text('Connect Claude account — $label'),
+                content: SizedBox(
+                  width: 460,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '1. Approve in the browser that just opened.\n'
+                        '2. Copy the code Anthropic shows you.\n'
+                        '3. Paste it below.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: ctx.rhythm.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: controller,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          hintText: 'Paste the code (looks like xxxx#yyyy)…',
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                        onSubmitted: (_) => submit(),
+                      ),
+                      if (error != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          error!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: ctx.rhythm.danger,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: busy ? null : () => Navigator.of(ctx).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: busy ? null : submit,
+                    child: busy
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text('Connect'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+      return result ?? false;
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  Widget _buildAccountRow(AnthropicAccount account) {
+    final isOk = account.status == 'ok';
+    final statusText = isOk
+        ? '✓ Connected'
+            '${account.subscriptionType != null ? ' (${account.subscriptionType})' : ''}'
+        : 'Needs re-login';
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: context.rhythm.border),
+      ),
+      child: Row(
+        children: [
+          Radio<String>(
+            value: account.id,
+            visualDensity: VisualDensity.compact,
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  account.label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: context.rhythm.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  statusText,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color:
+                        isOk ? context.rhythm.success : context.rhythm.danger,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: () => _connectAccount(account.id, account.label),
+            style: FilledButton.styleFrom(
+              backgroundColor: context.rhythm.accent,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Reconnect', style: TextStyle(fontSize: 12)),
+          ),
+          IconButton(
+            onPressed: () => _removeAccount(account),
+            icon: const Icon(Icons.close, size: 16),
+            tooltip: 'Remove account',
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The Claude block: account slot rows when accounts exist; otherwise the
+  /// legacy Claude Code bridge (feeds the server-side migration) or the API
+  /// key fallback. '+ Add Claude account' shows while there's room for more.
+  List<Widget> _claudeAccountWidgets() {
+    final rows = <Widget>[];
+    if (_accounts.isNotEmpty) {
+      rows.add(RadioGroup<String>(
+        groupValue: _defaultAccountId,
+        onChanged: (v) {
+          if (v != null) _setDefaultAccount(v);
+        },
+        child: Column(
+          children: [
+            for (final (i, account) in _accounts.indexed) ...[
+              if (i > 0) const SizedBox(height: 8),
+              _buildAccountRow(account),
+            ],
+          ],
+        ),
+      ));
+    } else if (_hasClaudeCode) {
+      rows.add(SubscriptionTile(
+        label: 'Claude',
+        description: 'Use your existing Claude Code subscription',
+        connected: _authorizedProviders.contains('anthropic'),
+        isSaving: _isSaving,
+        onConnect: _bridgeAnthropic,
+      ));
+    } else {
+      rows.add(_ApiKeyProviderTile(
+        provider: 'anthropic',
+        label: 'Anthropic API',
+        description:
+            'Pro/Max subscriptions require Claude Code installed. Paste an API key to use Anthropic without it.',
+        hintText: 'Paste your Anthropic API key…',
+        controller: _apiKeyControllers.putIfAbsent(
+          'anthropic',
+          () => TextEditingController(),
+        ),
+        isSaving: _isSaving,
+        onSave: () => _saveApiKey('anthropic'),
+        connected: _authorizedProviders.contains('anthropic'),
+      ));
+    }
+    if (_accounts.length < 2) {
+      rows.add(Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: _addClaudeAccount,
+          icon: const Icon(Icons.add, size: 16),
+          label: const Text(
+            'Add Claude account',
+            style: TextStyle(fontSize: 12),
+          ),
+        ),
+      ));
+    }
+    return rows;
   }
 
   Future<void> _authorizeOAuth(String provider) async {
@@ -672,29 +1047,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
             title: 'Your subscriptions',
             subtitle: 'Sign in with your existing account'),
         const SizedBox(height: 10),
-        if (_hasClaudeCode)
-          SubscriptionTile(
-            label: 'Claude',
-            description: 'Use your existing Claude Code subscription',
-            connected: _authorizedProviders.contains('anthropic'),
-            isSaving: _isSaving,
-            onConnect: _bridgeAnthropic,
-          )
-        else
-          _ApiKeyProviderTile(
-            provider: 'anthropic',
-            label: 'Anthropic API',
-            description:
-                'Pro/Max subscriptions require Claude Code installed. Paste an API key to use Anthropic without it.',
-            hintText: 'Paste your Anthropic API key…',
-            controller: _apiKeyControllers.putIfAbsent(
-              'anthropic',
-              () => TextEditingController(),
-            ),
-            isSaving: _isSaving,
-            onSave: () => _saveApiKey('anthropic'),
-            connected: _authorizedProviders.contains('anthropic'),
-          ),
+        ..._claudeAccountWidgets(),
         const SizedBox(height: 8),
         _OAuthProviderTile(
           provider: 'openai',

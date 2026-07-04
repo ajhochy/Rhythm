@@ -43,6 +43,11 @@ export interface AgentConfig {
    * override. Null means "no profile-level tier preference".
    */
   modelTierHint: string | null;
+  /**
+   * Task D (dual Anthropic accounts) — profile-level default account id for
+   * sessions created with this profile. Null = fall back to the store default.
+   */
+  defaultAnthropicAccountId: string | null;
   // Legacy CLI fields — retained on the row but no longer used by the
   // Opencode-based client. Marked optional so consumers do not depend on
   // them. New writes set these to NULL / empty defaults (issue #581).
@@ -76,6 +81,8 @@ export interface AgentConfigInput {
   sessionSelectable?: boolean;
   /** #844 — optional tier preference ('cheap' | 'standard' | 'frontier'). Null = no preference. */
   modelTierHint?: string | null;
+  /** Task D — profile-level default Anthropic account id. Null = store default. */
+  defaultAnthropicAccountId?: string | null;
   // Legacy fields — accepted on the input shape for back-compat with stale
   // clients, but silently ignored by insert()/update() (issue #581).
   command?: string;
@@ -110,6 +117,7 @@ interface AgentConfigRow {
   oc_agent: string | null;
   session_selectable: number;
   model_tier_hint: string | null;
+  default_anthropic_account_id: string | null;
 }
 
 function rowToModel(row: AgentConfigRow): AgentConfig {
@@ -138,6 +146,7 @@ function rowToModel(row: AgentConfigRow): AgentConfig {
     ocAgent: row.oc_agent ?? null,
     sessionSelectable: (row.session_selectable ?? 1) !== 0,
     modelTierHint: row.model_tier_hint ?? null,
+    defaultAnthropicAccountId: row.default_anthropic_account_id ?? null,
   };
 }
 
@@ -182,8 +191,8 @@ export class AgentConfigsRepository {
            allowed_mcps_json, allowed_skills_json, allowed_delegates_json, can_resume,
            resume_command, session_id_pattern, output_marker, preset_id, sort_order,
            model_provider, model_id, oc_agent, session_selectable, model_tier_hint,
-           created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           default_anthropic_account_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -208,6 +217,7 @@ export class AgentConfigsRepository {
         config.ocAgent ?? null,
         config.sessionSelectable === false ? 0 : 1,
         config.modelTierHint ?? null,
+        config.defaultAnthropicAccountId ?? null,
         now,
         now,
       );
@@ -280,6 +290,10 @@ export class AgentConfigsRepository {
     if (patch.modelTierHint !== undefined) {
       fields.push('model_tier_hint = ?');
       values.push(patch.modelTierHint ?? null);
+    }
+    if (patch.defaultAnthropicAccountId !== undefined) {
+      fields.push('default_anthropic_account_id = ?');
+      values.push(patch.defaultAnthropicAccountId ?? null);
     }
     // Legacy CLI fields (command, canResume, resumeCommand, sessionIdPattern,
     // outputMarker) are silently ignored on update so stale clients can't

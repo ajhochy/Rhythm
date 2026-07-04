@@ -11,6 +11,7 @@ import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../../settings/views/settings_view.dart';
+import '../../settings/data/anthropic_accounts_data_source.dart';
 import '../../tasks/controllers/tasks_controller.dart';
 import '../../tasks/models/task.dart';
 import '../../agent_projects/controllers/agent_projects_controller.dart';
@@ -761,6 +762,11 @@ class _TranscriptHeader extends StatelessWidget {
             providerId: session.providerId,
             modelId: session.modelId,
           ),
+          // Dual-account: which Anthropic account this session is routed to.
+          if (session.anthropicAccountId != null) ...[
+            const SizedBox(width: 6),
+            _AnthropicAccountBadge(session: session),
+          ],
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -897,6 +903,71 @@ class _TranscriptHeader extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Dual-account: session header badge showing the routed Claude account.
+/// With ≥2 connected accounts it becomes a menu that switches the session's
+/// account in place; with one account it stays a plain badge.
+class _AnthropicAccountBadge extends StatelessWidget {
+  const _AnthropicAccountBadge({required this.session});
+
+  final AgentSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final badge = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.pill),
+        border: Border.all(color: context.rhythm.border),
+      ),
+      child: Text(
+        AnthropicAccountsLabelCache.labelFor(session.anthropicAccountId!),
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: context.rhythm.textSecondary,
+        ),
+      ),
+    );
+    final accounts = AnthropicAccountsLabelCache.accounts;
+    if (accounts.length < 2) return badge;
+    return PopupMenuButton<String>(
+      key: const Key('anthropic-account-badge-menu'),
+      tooltip: 'Switch Claude account for this session',
+      padding: EdgeInsets.zero,
+      onSelected: (accountId) {
+        if (accountId == session.anthropicAccountId) return;
+        context
+            .read<AgentsController>()
+            .setSessionAnthropicAccount(session.id, accountId);
+      },
+      itemBuilder: (context) => [
+        for (final account in accounts)
+          PopupMenuItem<String>(
+            value: account.id,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  child: account.id == session.anthropicAccountId
+                      ? Icon(
+                          Icons.check,
+                          size: 16,
+                          color: context.rhythm.accent,
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 4),
+                Text(account.label),
+              ],
+            ),
+          ),
+      ],
+      child: badge,
     );
   }
 }
@@ -2363,9 +2434,15 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
   bool _newBranchMode = false;
   final _newBranchController = TextEditingController();
 
+  // Anthropic account override (dual-account feature). null = profile
+  // default. The dropdown is hidden unless 2+ accounts are connected.
+  List<AnthropicAccount> _anthropicAccounts = [];
+  String? _selectedAnthropicAccountId;
+
   @override
   void initState() {
     super.initState();
+    _loadAnthropicAccounts();
     // Default the cwd to the selected project's folder when one is active;
     // otherwise fall back to $HOME. Read once in initState — the user can
     // still type a different path manually.
@@ -2393,6 +2470,16 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
         await _loadBranches(project.id);
       }
     });
+  }
+
+  Future<void> _loadAnthropicAccounts() async {
+    try {
+      final result = await AnthropicAccountsDataSource().list();
+      if (!mounted) return;
+      setState(() => _anthropicAccounts = result.accounts);
+    } catch (_) {
+      // Fetch failure → dropdown stays hidden (legacy/single-account setups).
+    }
   }
 
   Future<void> _loadBranches(String projectId) async {
@@ -2498,6 +2585,7 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
       branch: isSwitchingBranch || createBranch ? targetBranch : null,
       stash: stashMode,
       createBranch: createBranch,
+      anthropicAccountId: _selectedAnthropicAccountId,
     );
 
     if (!mounted) return;
@@ -2810,6 +2898,50 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
                     }
                   },
                 ),
+            ],
+
+            // Anthropic account override — only shown when 2+ accounts are
+            // connected (with one account there is nothing to choose).
+            if (_anthropicAccounts.length >= 2) ...[
+              const SizedBox(height: 14),
+              Text(
+                'Account',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: context.rhythm.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 6),
+              DropdownButtonFormField<String?>(
+                initialValue: _selectedAnthropicAccountId,
+                isExpanded: true,
+                dropdownColor: context.rhythm.surfaceRaised,
+                decoration: _inputDecoration(context, hint: 'Profile default'),
+                style:
+                    TextStyle(fontSize: 13, color: context.rhythm.textPrimary),
+                items: [
+                  DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text(
+                      'Profile default',
+                      style: TextStyle(color: context.rhythm.textMuted),
+                    ),
+                  ),
+                  ..._anthropicAccounts.map(
+                    (a) => DropdownMenuItem<String?>(
+                      value: a.id,
+                      child: Text(
+                        a.label,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: context.rhythm.textPrimary),
+                      ),
+                    ),
+                  ),
+                ],
+                onChanged: (v) =>
+                    setState(() => _selectedAnthropicAccountId = v),
+              ),
             ],
 
             if (_error != null) ...[

@@ -93,6 +93,7 @@ class AgentSession {
     required this.updatedAt,
     this.parentId,
     this.sdkSessionId,
+    this.anthropicAccountId,
   });
 
   final String id;
@@ -136,6 +137,10 @@ class AgentSession {
   /// engine.
   final String? sdkSessionId;
 
+  /// Anthropic account id this session is routed to (dual-account feature).
+  /// Null means the app/profile default; updated live on spillover.
+  final String? anthropicAccountId;
+
   factory AgentSession.fromJson(Map<String, dynamic> json) {
     // Accept `agent_id` (new) or fall back to `agent_kind` (legacy) for one
     // release, normalising the wire value to the canonical agentId string.
@@ -167,6 +172,7 @@ class AgentSession {
       parentId: asString(json['parentSessionId']) ?? asString(json['parentId']),
       sdkSessionId:
           asString(json['sdkSessionId']) ?? asString(json['sdk_session_id']),
+      anthropicAccountId: asString(json['anthropicAccountId']),
     );
   }
 
@@ -194,6 +200,7 @@ class AgentSession {
       'updatedAt': updatedAt.toUtc().toIso8601String(),
       if (parentId != null) 'parentSessionId': parentId,
       if (sdkSessionId != null) 'sdkSessionId': sdkSessionId,
+      if (anthropicAccountId != null) 'anthropicAccountId': anthropicAccountId,
     };
   }
 
@@ -218,6 +225,7 @@ class AgentSession {
     DateTime? updatedAt,
     Object? parentId = _sentinel,
     Object? sdkSessionId = _sentinel,
+    Object? anthropicAccountId = _sentinel,
   }) {
     return AgentSession(
       id: id ?? this.id,
@@ -254,6 +262,9 @@ class AgentSession {
       sdkSessionId: sdkSessionId == _sentinel
           ? this.sdkSessionId
           : sdkSessionId as String?,
+      anthropicAccountId: anthropicAccountId == _sentinel
+          ? this.anthropicAccountId
+          : anthropicAccountId as String?,
     );
   }
 }

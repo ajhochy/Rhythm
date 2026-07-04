@@ -139,6 +139,7 @@ class _StubAgentsRepository implements AgentsRepository {
     String? stash,
     bool createBranch = false,
     String? mcpRole,
+    String? anthropicAccountId,
   }) async {
     createSessionCallCount++;
     lastCreateCwd = cwd;
@@ -166,6 +167,7 @@ class _StubAgentsRepository implements AgentsRepository {
     bool clearProvider = false,
     bool clearModel = false,
     bool? fastMode,
+    String? anthropicAccountId,
   }) async =>
       _makeSession(id, '');
 

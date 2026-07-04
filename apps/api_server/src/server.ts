@@ -82,6 +82,10 @@ async function main() {
   // the jobs above) so `?.stopKeychainPoll()` stays valid in the 'cloud'
   // role, where the bridge is never imported/started.
   let credentialsBridgeRef: { stopKeychainPoll: () => void } | null = null;
+  // Dual-accounts Task B: reference to the accounts service so the (sync)
+  // shutdown handler can stop the N-account refresh loop. Nullable for the
+  // 'cloud' role where the agent runtime — and this loop — never starts.
+  let anthropicAccountsServiceRef: { stopRefreshLoop: () => void } | null = null;
 
   if (env.agentExecutionEnabled) {
     // Issue #805: rebuild the DERIVED memory index from the vault ONCE on
@@ -368,42 +372,87 @@ async function main() {
         logger.warn(`[server] notifyEngineReady failed (non-fatal): ${String(e)}`);
       }
 
-      // #658: auto-bridge Claude Code credentials on launch so the user never
-      // has to click "Reconnect" after a normal start. force:true re-reads the
-      // keychain fresh; a successful bridge starts the 15-min refresh loop that
-      // keeps opencode's token in sync as Claude Code rotates it. No-op when
-      // Claude Code isn't installed/signed-in.
+      // Dual-accounts Task B — the Rhythm accounts store is the source of
+      // truth for Claude tokens once it has accounts. Boot order:
+      //   1. Store empty + Claude Code creds readable → one-time migration
+      //      (imports the keychain creds as the 'default' account).
+      //   2. Store has accounts → start the N-account refresh loop, push the
+      //      default account into the engine, and SKIP the legacy keychain
+      //      poll (retired while the store is live — the store owns rotation).
+      //   3. Store still empty → legacy #658/#856 path unchanged (auto-bridge
+      //      + change-gated keychain poll), so a fresh install without Claude
+      //      Code and without in-app login behaves exactly as before.
       try {
         const { credentialsBridge } = await import('./routes/opencode_auth_routes');
+        const { anthropicAccountsService } = await import(
+          './services/anthropic_accounts_service'
+        );
         credentialsBridgeRef = credentialsBridge;
-        if (!credentialsBridge.hasClaudeCode()) {
-          logger.info('[server] Claude auto-bridge: no Claude Code creds — skipping');
-        } else {
-          const result = await credentialsBridge.bridgeAnthropic(opencodeClient, {
-            force: true,
-          });
-          logger.info(
-            `[server] Claude auto-bridge: ${
-              result.success ? 'ok' : `failed (${result.reason})`
-            }`,
-          );
+        anthropicAccountsServiceRef = anthropicAccountsService;
+
+        if (!anthropicAccountsService.hasAccounts()) {
+          const creds = credentialsBridge.readClaudeCreds();
+          if (creds) anthropicAccountsService.migrateFromClaudeCode(creds);
         }
 
-        // #856 (reopened, second attempt) — start the change-gated Keychain
-        // poll so a LATER `claude` re-auth (account switch / re-login, or a
-        // first-time sign-in after this server was already running) is
-        // picked up without an app restart. File-watching
-        // ~/.claude/.credentials.json (the prior fix) doesn't work: the
-        // current `claude` CLI keeps credentials in the macOS Keychain ONLY
-        // and never rewrites that file on re-auth, so the watch essentially
-        // never fires. Polling is change-gated on the refresh-token
-        // fingerprint, so an unchanged token is a no-op every tick — only a
-        // genuine re-auth (or a first sign-in) triggers a forced re-bridge.
-        // Started unconditionally (even when no creds exist yet at launch)
-        // so a later first-time sign-in is also picked up. See
-        // CredentialsBridgeService.startKeychainPoll for the full rationale.
-        credentialsBridge.startKeychainPoll(opencodeClient);
-        logger.info('[server] claude keychain poll started (#856 reopen v2)');
+        if (anthropicAccountsService.hasAccounts()) {
+          anthropicAccountsService.startRefreshLoop();
+          // Refresh anything near expiry NOW so the engine never gets a dead
+          // token at boot (skips accounts with >20 min left — no needless
+          // burn of single-use refresh tokens).
+          await anthropicAccountsService.refreshAll();
+          const acct = anthropicAccountsService.defaultAccount();
+          if (acct && acct.status === 'ok') {
+            const ok = await opencodeClient.setOAuthCredentials('anthropic', {
+              access: acct.access,
+              refresh: acct.refresh,
+              expires: acct.expires,
+            });
+            logger.info(
+              `[server] anthropic accounts store live (default='${acct.id}') — ` +
+                `engine push ${ok ? 'ok' : 'failed'}; keychain poll skipped`,
+            );
+          } else {
+            logger.info(
+              '[server] anthropic accounts store live but default account needs re-login — engine push skipped',
+            );
+          }
+        } else {
+          // #658: auto-bridge Claude Code credentials on launch so the user
+          // never has to click "Reconnect" after a normal start. force:true
+          // re-reads the keychain fresh; a successful bridge starts the
+          // 15-min refresh loop that keeps opencode's token in sync as
+          // Claude Code rotates it. No-op when Claude Code isn't
+          // installed/signed-in.
+          if (!credentialsBridge.hasClaudeCode()) {
+            logger.info('[server] Claude auto-bridge: no Claude Code creds — skipping');
+          } else {
+            const result = await credentialsBridge.bridgeAnthropic(opencodeClient, {
+              force: true,
+            });
+            logger.info(
+              `[server] Claude auto-bridge: ${
+                result.success ? 'ok' : `failed (${result.reason})`
+              }`,
+            );
+          }
+
+          // #856 (reopened, second attempt) — start the change-gated Keychain
+          // poll so a LATER `claude` re-auth (account switch / re-login, or a
+          // first-time sign-in after this server was already running) is
+          // picked up without an app restart. File-watching
+          // ~/.claude/.credentials.json (the prior fix) doesn't work: the
+          // current `claude` CLI keeps credentials in the macOS Keychain ONLY
+          // and never rewrites that file on re-auth, so the watch essentially
+          // never fires. Polling is change-gated on the refresh-token
+          // fingerprint, so an unchanged token is a no-op every tick — only a
+          // genuine re-auth (or a first sign-in) triggers a forced re-bridge.
+          // Started unconditionally (even when no creds exist yet at launch)
+          // so a later first-time sign-in is also picked up. See
+          // CredentialsBridgeService.startKeychainPoll for the full rationale.
+          credentialsBridge.startKeychainPoll(opencodeClient);
+          logger.info('[server] claude keychain poll started (#856 reopen v2)');
+        }
       } catch (e) {
         logger.warn(`[server] Claude auto-bridge errored (non-fatal): ${String(e)}`);
       }
@@ -469,6 +518,9 @@ async function main() {
     // #856 (reopened, second attempt) — stop the Keychain poll, mirroring the
     // watcher lifecycle above.
     try { credentialsBridgeRef?.stopKeychainPoll(); } catch (_) { /* ignore */ }
+    // Dual-accounts Task B — stop the accounts refresh loop (timer is unref'd,
+    // but a refresh mid-shutdown would burn a single-use refresh token).
+    try { anthropicAccountsServiceRef?.stopRefreshLoop(); } catch (_) { /* ignore */ }
 
     // 2. Dispose the Opencode SDK subprocess.
     try { opencodeClient.dispose(); } catch (_) { /* ignore */ }

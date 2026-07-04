@@ -101,6 +101,9 @@ jobs:
           mkdir -p "$DEST"
           cp -r ../api_server/dist "$DEST/"
           cp -r ../api_server/scripts "$DEST/"
+          # Vendored engine plugins (rhythm-anthropic-accounts) — resolved at
+          # runtime by rhythmAnthropicPluginPath() as a sibling of dist/
+          cp -r ../api_server/opencode_plugins "$DEST/"
           cp ../api_server/package.json "$DEST/"
           cp ../api_server/package-lock.json "$DEST/"
           (
@@ -119,6 +122,8 @@ jobs:
           DEST="build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/api_server"
           test -f "$DEST/dist/server.js"
           test -f "$DEST/scripts/postinstall.js"
+          test -f "$DEST/opencode_plugins/rhythm-anthropic-accounts/dist/index.js"
+          test -f "$DEST/opencode_plugins/rhythm-anthropic-accounts/dist/accounts.js"
           test -f "$DEST/package.json"
           test -f "$DEST/package-lock.json"
           test -f "$DEST/.env"
