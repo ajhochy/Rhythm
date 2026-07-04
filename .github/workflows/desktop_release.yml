@@ -108,7 +108,11 @@ jobs:
           cp ../api_server/package-lock.json "$DEST/"
           (
             cd "$DEST"
-            npm install --omit=dev
+            # --ignore-scripts: dist/ is already built and copied in above;
+            # without this, npm's prepare lifecycle re-runs `npm run build`
+            # (tsc) even for a bare install, and --omit=dev skips the
+            # typescript devDependency tsc needs, failing with exit 127.
+            npm install --omit=dev --ignore-scripts
           )
           # Write OAuth secrets into a .env file loaded by the CLI server at runtime
           printf 'GOOGLE_CLIENT_ID=%s\nGOOGLE_AUTH_CLIENT_ID=%s\nGOOGLE_AUTH_CLIENT_SECRET=%s\nGOOGLE_CLIENT_SECRET=%s\nGOOGLE_REDIRECT_URI=%s\nPCO_APPLICATION_ID=%s\nPCO_SECRET=%s\nPCO_REDIRECT_URI=%s\n' \
