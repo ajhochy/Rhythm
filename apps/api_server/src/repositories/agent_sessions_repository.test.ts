@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
-import { setDb } from '../database/db';
+import { getDb, setDb } from '../database/db';
 import { AgentSessionsRepository } from './agent_sessions_repository';
 
 function makeDb() {
@@ -142,5 +142,58 @@ describe('AgentSessionsRepository', () => {
     const deleted = repo.deleteOlderThan(cutoff);
     expect(deleted).toBe(0);
     expect(repo.listAll()).toHaveLength(2);
+  });
+
+  // #904 — background loop activity log.
+  describe('listByScheduledTaskId', () => {
+    function seedScheduledTask(id: string) {
+      getDb()
+        .prepare(
+          `INSERT INTO agent_scheduled_tasks (id, name, prompt) VALUES (?, ?, ?)`,
+        )
+        .run(id, `Task ${id}`, 'do the thing');
+    }
+
+    beforeEach(() => {
+      seedScheduledTask('sched-1');
+      seedScheduledTask('sched-2');
+    });
+
+    it('returns only runs for the given scheduled task, most recent first', () => {
+      const s1 = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Run 1',
+        scheduledTaskId: 'sched-1', isSystem: true,
+      });
+      // Back-date s1 so ordering is deterministic regardless of the two
+      // inserts landing within the same second-resolution timestamp.
+      getDb()
+        .prepare(`UPDATE agent_sessions SET created_at = ? WHERE id = ?`)
+        .run(new Date(Date.now() - 60_000).toISOString(), s1.id);
+      const s2 = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Run 2',
+        scheduledTaskId: 'sched-1', isSystem: true,
+      });
+      repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Other task run',
+        scheduledTaskId: 'sched-2', isSystem: true,
+      });
+
+      const runs = repo.listByScheduledTaskId('sched-1');
+      expect(runs.map((r) => r.id)).toEqual([s2.id, s1.id]);
+    });
+
+    it('includes is_system=1 rows (excluded from listAll/listByProject)', () => {
+      repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Background run',
+        scheduledTaskId: 'sched-1', isSystem: true,
+      });
+
+      expect(repo.listByScheduledTaskId('sched-1')).toHaveLength(1);
+      expect(repo.listAll()).toHaveLength(0);
+    });
+
+    it('returns an empty array for a task with no runs yet', () => {
+      expect(repo.listByScheduledTaskId('never-run')).toEqual([]);
+    });
   });
 });

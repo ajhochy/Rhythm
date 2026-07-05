@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
+import '../../agents/models/agent_session.dart';
 import '../controllers/agent_schedules_controller.dart';
 import '../models/agent_scheduled_task.dart';
 
@@ -916,6 +917,20 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
                 ),
               ),
             ),
+            _detailDivider(rhythm),
+            // #904 — activity log: what actually happened on recent runs, not
+            // just the run/no-run status already shown above.
+            Text(
+              'ACTIVITY',
+              style: TextStyle(
+                color: rhythm.textSecondary,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.8,
+              ),
+            ),
+            const SizedBox(height: RhythmSpacing.xs),
+            _ActivityLog(taskId: task.id),
             const SizedBox(height: RhythmSpacing.lg),
             // Actions
             Row(
@@ -1016,6 +1031,132 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
           ],
         ),
       );
+}
+
+// ---------------------------------------------------------------------------
+// #904 — Activity log (recent runs of a scheduled task)
+// ---------------------------------------------------------------------------
+
+class _ActivityLog extends StatelessWidget {
+  const _ActivityLog({required this.taskId});
+
+  final String taskId;
+
+  @override
+  Widget build(BuildContext context) {
+    final rhythm = context.rhythm;
+    return FutureBuilder<List<AgentSession>>(
+      future: context.read<AgentSchedulesController>().listRuns(taskId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: RhythmSpacing.sm),
+            child: Center(
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: rhythm.textMuted,
+                ),
+              ),
+            ),
+          );
+        }
+        if (snapshot.hasError) {
+          return Text(
+            'Could not load activity.',
+            style: TextStyle(color: rhythm.textMuted, fontSize: 12),
+          );
+        }
+        final runs = snapshot.data ?? [];
+        if (runs.isEmpty) {
+          return Text(
+            'No runs yet.',
+            style: TextStyle(color: rhythm.textMuted, fontSize: 12),
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final run in runs) _ActivityLogRow(run: run),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ActivityLogRow extends StatelessWidget {
+  const _ActivityLogRow({required this.run});
+
+  final AgentSession run;
+
+  Color _statusColor(RhythmColorRoles rhythm) {
+    switch (run.status) {
+      case AgentSessionStatus.error:
+        return rhythm.danger;
+      case AgentSessionStatus.working:
+      case AgentSessionStatus.starting:
+        return rhythm.info;
+      default:
+        return rhythm.success;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rhythm = context.rhythm;
+    return Container(
+      margin: const EdgeInsets.only(bottom: RhythmSpacing.xs),
+      padding: const EdgeInsets.all(RhythmSpacing.sm),
+      decoration: BoxDecoration(
+        color: rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+        border: Border.all(color: rhythm.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _statusColor(rhythm),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                _formatDateTime(run.createdAt.toIso8601String()),
+                style: TextStyle(
+                  color: rhythm.textMuted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                run.status.wireValue,
+                style: TextStyle(color: rhythm.textMuted, fontSize: 11),
+              ),
+            ],
+          ),
+          if ((run.lastPreview ?? '').isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              run.lastPreview!,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: rhythm.textSecondary, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

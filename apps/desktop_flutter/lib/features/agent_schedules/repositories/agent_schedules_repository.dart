@@ -1,3 +1,4 @@
+import '../../agents/models/agent_session.dart';
 import '../data/agent_schedules_data_source.dart';
 import '../models/agent_scheduled_task.dart';
 
@@ -18,4 +19,8 @@ class AgentSchedulesRepository {
 
   Future<AgentScheduledTask> triggerNow(String id) =>
       _dataSource.triggerNow(id);
+
+  /// #904 — recent runs of a scheduled task (activity log).
+  Future<List<AgentSession>> listRuns(String scheduledTaskId) =>
+      _dataSource.listRuns(scheduledTaskId);
 }

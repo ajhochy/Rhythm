@@ -128,6 +128,21 @@ export class AgentSessionsRepository {
     return rows.map(rowToModel);
   }
 
+  /**
+   * #904 — every run of a scheduled task, most recent first. Scheduled runs
+   * are recorded with is_system=1 (hidden from the normal chat list) so this
+   * intentionally does NOT apply the is_system=0 filter listAll/listByProject
+   * use — this is the one place background-loop runs are meant to surface.
+   */
+  listByScheduledTaskId(scheduledTaskId: string, limit = 20): AgentSession[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM agent_sessions WHERE scheduled_task_id = ? ORDER BY created_at DESC LIMIT ?`,
+      )
+      .all(scheduledTaskId, limit) as AgentSessionRow[];
+    return rows.map(rowToModel);
+  }
+
   findById(id: string): AgentSession | null {
     const row = getDb()
       .prepare(`SELECT * FROM agent_sessions WHERE id = ?`)

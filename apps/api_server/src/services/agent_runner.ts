@@ -711,7 +711,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
           if (unauthed.length > 0) {
             const msg = `AgentRunner: ${unauthed.join(', ')} isn't connected — connect it in Integrations before delegating to this specialist`;
             logger.warn(`[AgentRunner] ${msg}`);
-            _markSessionError(rhythmSessionId);
+            _markSessionError(rhythmSessionId, msg);
             return {
               sessionId: rhythmSessionId ?? '',
               result: '',
@@ -796,7 +796,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     if (timedOut) {
       await opencodeClient.abortSession(sessionId, cwd).catch(() => {});
       logger.warn(`[AgentRunner] session ${sessionId} timed out after ${timeoutMs}ms`);
-      _markSessionError(rhythmSessionId);
+      _markSessionError(rhythmSessionId, `Run timed out after ${timeoutMs}ms`);
       return {
         sessionId: rhythmSessionId ?? sessionId,
         result: '',
@@ -809,7 +809,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       logger.error(
         `[AgentRunner] session ${sessionId}: prompt returned no response (model ${resolvedModel.providerID}/${resolvedModel.modelID} may be invalid or the provider unauthenticated)`,
       );
-      _markSessionError(rhythmSessionId);
+      _markSessionError(
+        rhythmSessionId,
+        `No response from ${resolvedModel.providerID}/${resolvedModel.modelID} — check the model is valid and the provider is authenticated`,
+      );
       return {
         sessionId: rhythmSessionId ?? sessionId,
         result: '',
@@ -860,7 +863,20 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         if (resultText) {
           msgRepo.append(rhythmSessionId, 'output', resultText, resultText);
         }
-        new AgentSessionsRepository().updateStatus(rhythmSessionId, 'idle');
+        const sessRepo = new AgentSessionsRepository();
+        sessRepo.updateStatus(rhythmSessionId, 'idle');
+        // #904 — background loop "what happened" activity log. Interactive
+        // chats get last_preview from the WS stream bridge; a scheduled/
+        // headless run bypasses that bridge entirely (see comment above), so
+        // without this a background run's session row never carries a
+        // preview of its own output.
+        if (resultText) {
+          sessRepo.updatePreview(
+            rhythmSessionId,
+            resultText.slice(0, 500),
+            new Date().toISOString(),
+          );
+        }
       } catch (err) {
         logger.warn(`[AgentRunner] persist result failed (non-fatal): ${String(err)}`);
       }
@@ -908,7 +924,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   } catch (err) {
     const errMsg = String(err);
     logger.error(`[AgentRunner] unexpected error: ${errMsg}`);
-    _markSessionError(rhythmSessionId);
+    _markSessionError(rhythmSessionId, errMsg);
     return {
       sessionId: rhythmSessionId ?? '',
       result: '',
@@ -920,11 +936,19 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   }
 }
 
-/** Mark a recorded run session as errored (non-fatal best-effort). */
-function _markSessionError(rhythmSessionId: string | null): void {
+/**
+ * Mark a recorded run session as errored (non-fatal best-effort). #904 — an
+ * optional message is recorded as the session's last_preview so the
+ * background-loop activity log shows WHY a run failed, not just that it did.
+ */
+function _markSessionError(rhythmSessionId: string | null, message?: string): void {
   if (!rhythmSessionId) return;
   try {
-    new AgentSessionsRepository().updateStatus(rhythmSessionId, 'error');
+    const repo = new AgentSessionsRepository();
+    repo.updateStatus(rhythmSessionId, 'error');
+    if (message) {
+      repo.updatePreview(rhythmSessionId, message.slice(0, 500), new Date().toISOString());
+    }
   } catch {
     /* non-fatal */
   }

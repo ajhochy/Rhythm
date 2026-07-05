@@ -329,11 +329,17 @@ export class AgentSessionsController {
   list(req: Request, res: Response, next: NextFunction): void {
     try {
       const projectIdParam = req.query.projectId;
+      const scheduledTaskIdParam = req.query.scheduledTaskId;
       const includeArchived = req.query.includeArchived === 'true';
       const archivedOnly = req.query.archivedOnly === 'true';
       const archiveOpts = { includeArchived, archivedOnly };
       let sessions;
-      if (typeof projectIdParam === 'string') {
+      if (typeof scheduledTaskIdParam === 'string' && scheduledTaskIdParam !== '') {
+        // #904 — activity log for a single scheduled task, most recent runs
+        // first. Distinct from the project/all branches below: scheduled
+        // runs are is_system=1 and intentionally excluded from those lists.
+        sessions = repo.listByScheduledTaskId(scheduledTaskIdParam, 20);
+      } else if (typeof projectIdParam === 'string') {
         // Literal "null" → unassigned bucket; any other string → filter by id.
         sessions = projectIdParam === 'null'
           ? repo.listByProject(null, 100, archiveOpts)
