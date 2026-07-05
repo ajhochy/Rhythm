@@ -3,6 +3,11 @@
 /// Mirrors the api_server `usage_budget_service` shapes. All values are real
 /// provider data; `kind == 'unavailable'` means no usable usage API for that
 /// provider (e.g. OpenAI's ChatGPT-plan token).
+///
+/// #907 — `providers` is NOT one-entry-per-provider-string: a user with
+/// multiple connected Anthropic accounts gets one 'anthropic' entry PER
+/// account (distinguished by `accountId` + a per-account `label`), so every
+/// connected account's gauges render simultaneously.
 library;
 
 class UsageBudgetItem {
@@ -43,6 +48,7 @@ class UsageBudgetProvider {
     required this.kind,
     required this.items,
     this.reason,
+    this.accountId,
   });
 
   final String provider; // gemini | openrouter | anthropic | openai
@@ -50,6 +56,12 @@ class UsageBudgetProvider {
   final String kind; // quota | credits | window | unavailable
   final List<UsageBudgetItem> items;
   final String? reason;
+
+  /// #907 — present only for 'anthropic' entries. A connected user can have
+  /// multiple Anthropic accounts; each gets its own provider entry in the
+  /// snapshot (see UsageBudgetSnapshot doc) rather than one merged entry, so
+  /// this panel already renders one block per account with no extra code.
+  final String? accountId;
 
   bool get isUnavailable => kind == 'unavailable';
 
@@ -63,6 +75,7 @@ class UsageBudgetProvider {
           .map((e) => UsageBudgetItem.fromJson(e as Map<String, dynamic>))
           .toList(),
       reason: json['reason'] as String?,
+      accountId: json['accountId'] as String?,
     );
   }
 }
