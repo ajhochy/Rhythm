@@ -150,6 +150,27 @@ class _StubAgentsRepository implements AgentsRepository {
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
       const [];
 
+  /// #903 — supports the rename test below. Mutates the in-memory session
+  /// list so a subsequent read reflects the new name, mirroring the real
+  /// repository's PATCH-then-return-updated-row contract.
+  @override
+  Future<AgentSession> updateSession(
+    String id, {
+    String? name,
+    String? providerId,
+    String? modelId,
+    bool clearProvider = false,
+    bool clearModel = false,
+    String? permissionMode,
+    bool? fastMode,
+    String? anthropicAccountId,
+  }) async {
+    final index = _sessions.indexWhere((s) => s.id == id);
+    final updated = _sessions[index].copyWith(name: name);
+    _sessions[index] = updated;
+    return updated;
+  }
+
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -672,6 +693,113 @@ void main() {
         find.byKey(const ValueKey('tools-row-brain')),
         findsOneWidget,
         reason: 'Brain TOOLS row must be reachable by scrolling at 680px',
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // #903 — sort menu + rename
+  // ---------------------------------------------------------------------------
+
+  group('AgentsNavColumn — #903 sort + rename', () {
+    testWidgets('sort menu reorders sessions by name', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final sessions = [
+        AgentSession(
+          id: 's1',
+          agentId: 'claude-code',
+          name: 'Zebra Session',
+          cwd: '/tmp',
+          status: AgentSessionStatus.idle,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(1000),
+          updatedAt: _kEpoch,
+        ),
+        AgentSession(
+          id: 's2',
+          agentId: 'claude-code',
+          name: 'Alpha Session',
+          cwd: '/tmp',
+          status: AgentSessionStatus.idle,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(2000),
+          updatedAt: _kEpoch,
+        ),
+      ];
+      final controller = _makeControllerWithSessions(sessions);
+
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
+
+      final navCol = find.byKey(const ValueKey('agents-nav-column'));
+
+      // Default sort is dateNewest: s2 (Alpha, createdAt=2000) comes first.
+      Finder rowsInOrder() => find.descendant(
+            of: navCol,
+            matching: find.byType(SessionRow),
+          );
+      expect(
+        tester.widgetList<SessionRow>(rowsInOrder()).first.session.id,
+        's2',
+        reason: 'Default sort (date newest) should put the newer session first',
+      );
+
+      // Switch to name sort.
+      await tester.tap(find.byKey(const ValueKey('session-sort-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Name'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widgetList<SessionRow>(rowsInOrder()).first.session.id,
+        's2',
+        reason: '"Alpha Session" should sort first alphabetically',
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+
+    testWidgets('Rename menu item updates the session name', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final sessions = [_makeSession('s1', 'Old Name')];
+      final controller = _makeControllerWithSessions(sessions);
+
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
+
+      final navCol = find.byKey(const ValueKey('agents-nav-column'));
+      expect(
+        find.descendant(of: navCol, matching: find.text('Old Name')),
+        findsOneWidget,
+      );
+
+      // Open the session's ⋯ menu and tap Rename.
+      await tester.tap(find.byType(SessionRowMenu).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Rename'));
+      await tester.pumpAndSettle();
+
+      // Dialog opens pre-filled with the current name; clear and type a new one.
+      final field = find.byKey(const ValueKey('rename-session-field'));
+      expect(field, findsOneWidget);
+      await tester.enterText(field, 'New Name');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(controller.sessions.first.name, 'New Name');
+      expect(
+        find.descendant(of: navCol, matching: find.text('New Name')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: navCol, matching: find.text('Old Name')),
+        findsNothing,
       );
 
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));

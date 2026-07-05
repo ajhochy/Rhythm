@@ -936,6 +936,20 @@ class SessionRowMenu extends StatelessWidget {
     await context.read<AgentsController>().deleteSession(session.id);
   }
 
+  /// #903 — rename a session in place. Pre-fills the current name (falling
+  /// back to an empty field for an instant-create session with no name yet).
+  Future<void> _rename(BuildContext context) async {
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _RenameSessionDialog(currentName: session.name),
+    );
+    if (newName == null || newName.isEmpty || newName == session.name) return;
+    if (!context.mounted) return;
+    await context
+        .read<AgentsController>()
+        .updateSession(session.id, name: newName);
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
@@ -949,6 +963,20 @@ class SessionRowMenu extends StatelessWidget {
       iconSize: 16,
       splashRadius: 16,
       itemBuilder: (_) => [
+        PopupMenuItem<String>(
+          value: 'rename',
+          child: Row(
+            children: [
+              Icon(
+                Icons.edit_outlined,
+                size: 16,
+                color: context.rhythm.textSecondary,
+              ),
+              const SizedBox(width: 8),
+              const Text('Rename'),
+            ],
+          ),
+        ),
         PopupMenuItem<String>(
           value: 'archive',
           child: Row(
@@ -984,12 +1012,67 @@ class SessionRowMenu extends StatelessWidget {
         ),
       ],
       onSelected: (v) {
-        if (v == 'archive') {
+        if (v == 'rename') {
+          _rename(context);
+        } else if (v == 'archive') {
           context.read<AgentsController>().archiveSession(session.id);
         } else if (v == 'delete') {
           _confirmDelete(context);
         }
       },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// #903 — Rename dialog
+// ---------------------------------------------------------------------------
+
+/// A StatefulWidget (not a bare inline builder) so its TextEditingController
+/// is disposed by State.dispose() at the correct point in the dialog route's
+/// lifecycle. Disposing it manually right after showDialog() returns races
+/// the route's exit transition, which can still be rebuilding the bound
+/// TextField — "A TextEditingController was used after being disposed."
+class _RenameSessionDialog extends StatefulWidget {
+  const _RenameSessionDialog({required this.currentName});
+
+  final String currentName;
+
+  @override
+  State<_RenameSessionDialog> createState() => _RenameSessionDialogState();
+}
+
+class _RenameSessionDialogState extends State<_RenameSessionDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.currentName);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Rename session'),
+      content: TextField(
+        key: const ValueKey('rename-session-field'),
+        controller: _controller,
+        autofocus: true,
+        decoration: const InputDecoration(hintText: 'Session name'),
+        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }
