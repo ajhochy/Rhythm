@@ -1815,4 +1815,33 @@ Rules:
     '[]',
     5,
   );
+
+  // #895 — agent approval gate. SQLite-only, same convention as
+  // agent_sessions/agent_configs: local-agent execution state never syncs to
+  // Postgres. An agent calls rhythm_request_approval() before an irreversible
+  // action (scheduling, emailing, PCO write); this row is the pending record
+  // the Flutter notification panel surfaces as an approve/reject card.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_approvals (
+      id TEXT PRIMARY KEY,
+      session_id TEXT,
+      agent_config_id TEXT,
+      action TEXT NOT NULL,
+      preview TEXT,
+      consequence TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      actor TEXT,
+      decided_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_approvals_status ON agent_approvals(status, created_at);
+  `);
+
+  // Per-profile auto-approve override — some profiles (e.g. a dev/testing
+  // profile) can skip the human gate; church-admin-facing profiles default
+  // to requiring manual approval (column defaults to 0/false).
+  const cfgColsForAutoApprove = (db.pragma('table_info(agent_configs)') as { name: string }[]).map((c) => c.name);
+  if (!cfgColsForAutoApprove.includes('auto_approve_actions')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN auto_approve_actions INTEGER NOT NULL DEFAULT 0`);
+  }
 }

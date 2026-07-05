@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../controllers/agent_approvals_controller.dart';
 import '../controllers/notifications_controller.dart';
+import '../models/agent_approval.dart';
 import '../models/app_notification.dart';
 import '../models/agent_notification.dart';
 
@@ -13,7 +15,10 @@ class NotificationPanel extends StatelessWidget {
     final controller = context.watch<NotificationsController>();
     final notifications = controller.notifications;
     final agentItems = controller.agentNotifications;
-    final hasAny = notifications.isNotEmpty || agentItems.isNotEmpty;
+    final approvals = context.watch<AgentApprovalsController>().pending;
+    final hasAny = notifications.isNotEmpty ||
+        agentItems.isNotEmpty ||
+        approvals.isNotEmpty;
 
     return Material(
       elevation: 8,
@@ -40,6 +45,10 @@ class NotificationPanel extends StatelessWidget {
                   padding: EdgeInsets.zero,
                   shrinkWrap: true,
                   children: [
+                    for (final a in approvals) _ApprovalCard(approval: a),
+                    if (approvals.isNotEmpty &&
+                        (agentItems.isNotEmpty || notifications.isNotEmpty))
+                      Divider(height: 1, color: context.rhythm.borderSubtle),
                     for (final n in agentItems)
                       _AgentNotificationTile(notification: n),
                     if (agentItems.isNotEmpty && notifications.isNotEmpty)
@@ -288,5 +297,105 @@ class _AgentNotificationTile extends StatelessWidget {
     if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     return '${diff.inDays}d ago';
+  }
+}
+
+/// #895 — approval card for a high-stakes agent action awaiting human sign-off.
+class _ApprovalCard extends StatelessWidget {
+  const _ApprovalCard({required this.approval});
+
+  final AgentApproval approval;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.read<AgentApprovalsController>();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(
+                  Icons.pending_actions_outlined,
+                  size: 16,
+                  color: context.rhythm.warning,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      approval.action,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: context.rhythm.textPrimary,
+                      ),
+                    ),
+                    if (approval.preview != null &&
+                        approval.preview!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        approval.preview!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: context.rhythm.textSecondary,
+                        ),
+                      ),
+                    ],
+                    if (approval.consequence != null &&
+                        approval.consequence!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        approval.consequence!,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontStyle: FontStyle.italic,
+                          color: context.rhythm.textMuted,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () => controller.reject(approval.id),
+                style: TextButton.styleFrom(
+                  foregroundColor: context.rhythm.danger,
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                ),
+                child: const Text('Reject'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () => controller.approve(approval.id),
+                style: FilledButton.styleFrom(
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                ),
+                child: const Text('Approve'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }

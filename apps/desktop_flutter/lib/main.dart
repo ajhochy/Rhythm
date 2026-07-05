@@ -56,6 +56,8 @@ import 'app/core/workspace/workspace_controller.dart';
 import 'app/core/workspace/workspace_data_source.dart';
 import 'app/core/workspace/workspace_repository.dart';
 import 'features/notifications/controllers/notifications_controller.dart';
+import 'features/notifications/controllers/agent_approvals_controller.dart';
+import 'features/notifications/data/agent_approvals_data_source.dart';
 import 'features/notifications/data/notifications_data_source.dart';
 import 'features/notifications/repositories/notifications_repository.dart';
 import 'features/settings/services/destructive_modal_service.dart';
@@ -534,6 +536,28 @@ class _RhythmAppContent extends StatelessWidget {
             );
             // Start polling once the agent server is ready; if already ready,
             // start immediately.
+            void onAgentServerChanged() {
+              if (agentServerController.isReady) {
+                agentServerController.removeListener(onAgentServerChanged);
+                controller.startPolling();
+              }
+            }
+
+            if (agentServerController.isReady) {
+              controller.startPolling();
+            } else {
+              agentServerController.addListener(onAgentServerChanged);
+            }
+            return controller;
+          },
+        ),
+        // #895 — agent approval gate. Polls GET /agent-approvals?status=pending
+        // against the local agent server; the notification panel surfaces cards.
+        ChangeNotifierProvider(
+          create: (ctx) {
+            final controller = AgentApprovalsController(
+              AgentApprovalsDataSource(),
+            );
             void onAgentServerChanged() {
               if (agentServerController.isReady) {
                 agentServerController.removeListener(onAgentServerChanged);
