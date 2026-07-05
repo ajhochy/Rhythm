@@ -9,7 +9,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { requireAuth } from '../middleware/auth_middleware';
 import { env } from '../config/env';
-import { writeCapabilityStatus } from '../services/capability_status_checker';
+import { checkCapabilities } from '../services/capability_status_checker';
 
 export const agentCapabilityStatusRouter = Router();
 
@@ -19,7 +19,7 @@ agentCapabilityStatusRouter.get(
   '/',
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
-      const status = await writeCapabilityStatus();
+      const status = await checkCapabilities();
       res.json(status);
     } catch (err) {
       next(err);
