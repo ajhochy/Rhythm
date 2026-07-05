@@ -690,6 +690,41 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       }
     }
 
+    // #892 — preflight: a specialist whose required MCP servers aren't
+    // authenticated (e.g. worship-planning's all-pco-services toolset with no
+    // PCO OAuth configured) previously hung all the way to the createSession +
+    // prompt() timeout race below (up to AGENT_RUN_TIMEOUT_MS, 600s default) —
+    // the engine can't bring up the backend, so the api_server→engine call
+    // eventually dies with a generic UND_ERR_HEADERS_TIMEOUT. Check the live
+    // MCP status map for every server this run's role requires and fail fast
+    // with a clear, actionable message instead. Fail-OPEN on the status check
+    // itself (engine not ready / listMcp() throws) — a preflight-check failure
+    // must never block a run that might otherwise succeed.
+    if (mcpRoleConfig && opencodeClient.isReady) {
+      const requiredServers = Object.keys(mcpRoleConfig.mcpServers);
+      if (requiredServers.length > 0) {
+        try {
+          const statusMap = await opencodeClient.listMcp();
+          const unauthed = requiredServers.filter(
+            (name) => statusMap[name]?.status === 'needs_auth',
+          );
+          if (unauthed.length > 0) {
+            const msg = `AgentRunner: ${unauthed.join(', ')} isn't connected — connect it in Integrations before delegating to this specialist`;
+            logger.warn(`[AgentRunner] ${msg}`);
+            _markSessionError(rhythmSessionId);
+            return {
+              sessionId: rhythmSessionId ?? '',
+              result: '',
+              status: 'error',
+              error: msg,
+            };
+          }
+        } catch (err) {
+          logger.warn(`[AgentRunner] #892 MCP readiness preflight failed (non-fatal, proceeding): ${String(err)}`);
+        }
+      }
+    }
+
     // ── Create session ────────────────────────────────────────────────────────
     // #884: pass the already-resolved provider so createSession can trim the
     // MCP allowlist to Gemini's function-declaration cap when this run is
