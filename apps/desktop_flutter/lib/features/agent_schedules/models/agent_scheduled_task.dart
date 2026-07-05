@@ -102,11 +102,83 @@ class AgentScheduledTask {
       case 'monthly':
         return 'Monthly on day ${scheduledDay ?? '?'}${scheduledTime != null ? ' at $scheduledTime' : ''}';
       case 'cron':
-        return cronExpression ?? 'Custom cron';
+        return cronExpression != null
+            ? humanizeCronExpression(cronExpression!)
+            : 'Custom cron';
       case 'once':
         return runAt != null ? 'Once at $runAt' : 'Once';
       default:
         return scheduleType;
     }
   }
+}
+
+const _cronWeekdays = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday'
+];
+
+/// Formats hour/minute as "9am" / "9:30am" / "12pm" (no leading zero, minutes
+/// omitted when :00) — matches the style used elsewhere in the schedule UI.
+String _formatCronTime(int hour, int minute) {
+  final period = hour < 12 ? 'am' : 'pm';
+  final displayHour = hour % 12 == 0 ? 12 : hour % 12;
+  final minutePart = minute == 0 ? '' : ':${minute.toString().padLeft(2, '0')}';
+  return '$displayHour$minutePart$period';
+}
+
+/// #902 — turns a standard 5-field cron expression (min hour day-of-month
+/// month day-of-week) into a short, human-readable description for the
+/// common patterns this app's schedule form actually produces. Anything it
+/// doesn't recognize (lists, ranges, step values other than day-of-month,
+/// multiple weekdays, etc.) falls back to the raw expression rather than
+/// guessing — a wrong-but-confident description is worse than the honest cron
+/// string.
+String humanizeCronExpression(String expr) {
+  final parts = expr.trim().split(RegExp(r'\s+'));
+  if (parts.length != 5) return expr;
+  final [minuteStr, hourStr, dayStr, monthStr, weekdayStr] = parts;
+
+  final minute = int.tryParse(minuteStr);
+  final hour = int.tryParse(hourStr);
+  if (minute == null || hour == null || monthStr != '*') return expr;
+
+  final time = _formatCronTime(hour, minute);
+
+  // Daily: day-of-month and day-of-week both wildcard.
+  if (dayStr == '*' && weekdayStr == '*') {
+    return 'Daily at $time';
+  }
+
+  // Weekly on a single weekday: day-of-month wildcard, weekday a plain number.
+  if (dayStr == '*') {
+    final weekday = int.tryParse(weekdayStr);
+    if (weekday != null && weekday >= 0 && weekday <= 6) {
+      return 'Every ${_cronWeekdays[weekday]} at $time';
+    }
+    return expr;
+  }
+
+  // Weekday wildcard from here on — day-of-month drives the description.
+  if (weekdayStr != '*') return expr;
+
+  // Interval: */N days.
+  final stepMatch = RegExp(r'^\*/(\d+)$').firstMatch(dayStr);
+  if (stepMatch != null) {
+    final n = int.parse(stepMatch.group(1)!);
+    return 'Every $n day${n == 1 ? '' : 's'} at $time';
+  }
+
+  // Fixed day-of-month.
+  final day = int.tryParse(dayStr);
+  if (day != null && day >= 1 && day <= 31) {
+    return 'Monthly on day $day at $time';
+  }
+
+  return expr;
 }

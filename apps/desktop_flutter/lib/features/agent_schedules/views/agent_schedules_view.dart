@@ -16,13 +16,60 @@ class AgentSchedulesView extends StatefulWidget {
   State<AgentSchedulesView> createState() => _AgentSchedulesViewState();
 }
 
+/// #902 — sort keys for the Scheduled Tasks list.
+enum _ScheduleSortField { name, nextRun, scheduleType, enabled }
+
 class _AgentSchedulesViewState extends State<AgentSchedulesView> {
+  final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+  _ScheduleSortField _sortField = _ScheduleSortField.name;
+  bool _sortAscending = true;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AgentSchedulesController>().refresh();
     });
+    _searchCtrl.addListener(() {
+      setState(() => _searchQuery = _searchCtrl.text);
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  /// #902 — live substring match by name, then sort by the selected field.
+  List<AgentScheduledTask> _visibleTasks(List<AgentScheduledTask> tasks) {
+    final query = _searchQuery.trim().toLowerCase();
+    final filtered = query.isEmpty
+        ? tasks
+        : tasks.where((t) => t.name.toLowerCase().contains(query)).toList();
+
+    final sorted = [...filtered];
+    int compare(AgentScheduledTask a, AgentScheduledTask b) {
+      switch (_sortField) {
+        case _ScheduleSortField.name:
+          return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        case _ScheduleSortField.nextRun:
+          // Tasks with no next run sort last regardless of direction.
+          if (a.nextRunAt == null && b.nextRunAt == null) return 0;
+          if (a.nextRunAt == null) return 1;
+          if (b.nextRunAt == null) return -1;
+          return a.nextRunAt!.compareTo(b.nextRunAt!);
+        case _ScheduleSortField.scheduleType:
+          return a.scheduleType.compareTo(b.scheduleType);
+        case _ScheduleSortField.enabled:
+          return (a.enabled ? 0 : 1).compareTo(b.enabled ? 0 : 1);
+      }
+    }
+
+    sorted.sort(compare);
+    if (!_sortAscending) return sorted.reversed.toList();
+    return sorted;
   }
 
   Future<void> _confirmDelete(
@@ -226,19 +273,167 @@ class _AgentSchedulesViewState extends State<AgentSchedulesView> {
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.all(RhythmSpacing.md),
-      itemCount: controller.tasks.length,
-      separatorBuilder: (_, __) => const SizedBox(height: RhythmSpacing.xs),
-      itemBuilder: (context, index) {
-        final task = controller.tasks[index];
-        return _TaskTile(
-          task: task,
-          onTap: () => _showDetailSheet(context, task),
-          onLongPress: () => _showEnableSheet(context, task),
-          onDelete: () => _confirmDelete(context, task),
-        );
-      },
+    final visible = _visibleTasks(controller.tasks);
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            RhythmSpacing.md,
+            RhythmSpacing.md,
+            RhythmSpacing.md,
+            0,
+          ),
+          child: _SearchAndSortBar(
+            searchController: _searchCtrl,
+            sortField: _sortField,
+            sortAscending: _sortAscending,
+            onSortFieldChanged: (field) => setState(() => _sortField = field),
+            onToggleDirection: () =>
+                setState(() => _sortAscending = !_sortAscending),
+          ),
+        ),
+        Expanded(
+          child: visible.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.search_off_rounded,
+                        color: rhythm.textMuted,
+                        size: 40,
+                      ),
+                      const SizedBox(height: RhythmSpacing.sm),
+                      Text(
+                        'No tasks match "${_searchQuery.trim()}"',
+                        style: TextStyle(color: rhythm.textSecondary),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(RhythmSpacing.md),
+                  itemCount: visible.length,
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(height: RhythmSpacing.xs),
+                  itemBuilder: (context, index) {
+                    final task = visible[index];
+                    return _TaskTile(
+                      task: task,
+                      onTap: () => _showDetailSheet(context, task),
+                      onLongPress: () => _showEnableSheet(context, task),
+                      onDelete: () => _confirmDelete(context, task),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// #902 — Search + sort bar
+// ---------------------------------------------------------------------------
+
+class _SearchAndSortBar extends StatelessWidget {
+  const _SearchAndSortBar({
+    required this.searchController,
+    required this.sortField,
+    required this.sortAscending,
+    required this.onSortFieldChanged,
+    required this.onToggleDirection,
+  });
+
+  final TextEditingController searchController;
+  final _ScheduleSortField sortField;
+  final bool sortAscending;
+  final ValueChanged<_ScheduleSortField> onSortFieldChanged;
+  final VoidCallback onToggleDirection;
+
+  static const _sortLabels = {
+    _ScheduleSortField.name: 'Name',
+    _ScheduleSortField.nextRun: 'Next run',
+    _ScheduleSortField.scheduleType: 'Schedule type',
+    _ScheduleSortField.enabled: 'Enabled status',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final rhythm = context.rhythm;
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            key: const ValueKey('schedule-search-field'),
+            controller: searchController,
+            style: TextStyle(color: rhythm.textPrimary, fontSize: 13),
+            decoration: InputDecoration(
+              hintText: 'Search by name…',
+              hintStyle: TextStyle(color: rhythm.textMuted),
+              prefixIcon:
+                  Icon(Icons.search_rounded, color: rhythm.textMuted, size: 18),
+              isDense: true,
+              filled: true,
+              fillColor: rhythm.surfaceMuted,
+              contentPadding:
+                  const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                borderSide: BorderSide(color: rhythm.borderSubtle),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: RhythmSpacing.sm),
+        PopupMenuButton<_ScheduleSortField>(
+          key: const ValueKey('schedule-sort-menu'),
+          tooltip: 'Sort by',
+          initialValue: sortField,
+          onSelected: onSortFieldChanged,
+          itemBuilder: (context) => _sortLabels.entries
+              .map(
+                (e) => PopupMenuItem(
+                  value: e.key,
+                  child: Text(e.value),
+                ),
+              )
+              .toList(),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: rhythm.surfaceMuted,
+              borderRadius: BorderRadius.circular(RhythmRadius.sm),
+              border: Border.all(color: rhythm.borderSubtle),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.sort_rounded, size: 16, color: rhythm.textSecondary),
+                const SizedBox(width: 4),
+                Text(
+                  _sortLabels[sortField]!,
+                  style: TextStyle(color: rhythm.textSecondary, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        IconButton(
+          key: const ValueKey('schedule-sort-direction'),
+          tooltip: sortAscending ? 'Ascending' : 'Descending',
+          icon: Icon(
+            sortAscending
+                ? Icons.arrow_upward_rounded
+                : Icons.arrow_downward_rounded,
+            size: 18,
+            color: rhythm.textSecondary,
+          ),
+          onPressed: onToggleDirection,
+        ),
+      ],
     );
   }
 }
@@ -321,8 +516,11 @@ class _TaskTile extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (task.lastRunStatus != null)
+                        _EnabledBadge(enabled: task.enabled),
+                        if (task.lastRunStatus != null) ...[
+                          const SizedBox(width: 4),
                           _StatusChip(status: task.lastRunStatus!),
+                        ],
                       ],
                     ),
                     const SizedBox(height: RhythmSpacing.xxs),
@@ -377,6 +575,37 @@ class _TaskTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// #902 — Enabled/disabled badge
+// ---------------------------------------------------------------------------
+
+class _EnabledBadge extends StatelessWidget {
+  const _EnabledBadge({required this.enabled});
+
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final rhythm = context.rhythm;
+    final color = enabled ? rhythm.success : rhythm.textMuted;
+    return Container(
+      key: ValueKey(
+          enabled ? 'schedule-badge-enabled' : 'schedule-badge-disabled'),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(RhythmRadius.pill),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        enabled ? 'Enabled' : 'Disabled',
+        style:
+            TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w600),
       ),
     );
   }
