@@ -607,6 +607,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
             : null,
         'modelProvider': _selectedModel?.provider,
         'modelId': _selectedModel?.modelId,
+        'defaultAnthropicAccountId': _selectedAnthropicAccountId,
       };
       result = await controller.create(input);
     }
