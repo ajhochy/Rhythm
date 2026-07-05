@@ -1188,6 +1188,55 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     );
   }
 
+  /// #906 — Gemini's GenerateContentRequest proto rejects requests with more
+  /// than 512 function declarations. gemini_tool_cap.ts (#884) already trims
+  /// the allowlist at DISPATCH time so a run never actually fails — this is
+  /// the complementary CONFIG-time warning so the user sees the risk while
+  /// picking MCPs instead of only discovering the silent trim in logs later.
+  /// Mirrors gemini_tool_cap.ts's budget/per-server-estimate constants
+  /// (duplicated deliberately, same rationale as that file's own
+  /// PER_SERVER_INHERIT_ALL_ESTIMATE comment: independent, pure client-side
+  /// estimate vs. a network round-trip for a rough heads-up).
+  static const _kGeminiMcpToolBudget = 500; // 512 cap - 12 builtin reserve
+  static const _kGeminiPerServerEstimate = 25;
+
+  Widget? _buildGeminiCapWarning() {
+    if (_selectedModel?.provider != 'google') return null;
+    final serverCount = (_selectedMcps ?? _availableMcps).length;
+    final estimated = serverCount * _kGeminiPerServerEstimate;
+    if (estimated <= _kGeminiMcpToolBudget) return null;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: context.rhythm.warning.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+        border:
+            Border.all(color: context.rhythm.warning.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.warning_amber_rounded,
+              size: 16, color: context.rhythm.warning),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'This many MCP servers may exceed Gemini\'s tool-declaration limit '
+              '(~$estimated est. vs. $_kGeminiMcpToolBudget budget). Rhythm will '
+              'automatically trim the least-recently-added servers at runtime '
+              'rather than fail the session, but restricting to fewer servers '
+              'here avoids relying on that.',
+              style:
+                  TextStyle(color: context.rhythm.textSecondary, fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMcpsSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1223,6 +1272,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
           ],
         ),
         const SizedBox(height: 8),
+        if (_buildGeminiCapWarning() case final warning?) warning,
         if (_selectedMcps == null)
           _allAllowedBanner('All MCPs allowed')
         else if (_availableMcps.isEmpty)
