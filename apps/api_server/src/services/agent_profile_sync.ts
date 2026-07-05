@@ -28,6 +28,7 @@ import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { normalizeDerivedAllowedMcps } from './mcp_name_alignment';
 import {
+  isAgentProfileFileMissing,
   isProjectableAgentConfig,
   writeAgentProfileFile,
 } from './opencode_agent_writer';
@@ -731,6 +732,25 @@ export async function syncOpencodeAgentProfiles(
     }
   } catch (err) {
     logger.warn(`[AgentProfileSync] #858 oc_agent backfill pass failed (non-fatal): ${String(err)}`);
+  }
+
+  // #900 — self-heal any enabled/projectable profile whose ~/.config/opencode/agents/<id>.md
+  // is missing. This happens for rows inserted into agent_configs by a path that never
+  // called writeAgentProfileFile (e.g. a direct DB insert) — the opencode engine has no
+  // agent registered under that id, so any session routed to it fails with a confusing
+  // "UnknownError: UnknownError" (agent-registry lookup, not a provider/network failure).
+  // isAgentProfileFileMissing no-ops under postgres/test, same gating as the write itself.
+  try {
+    for (const config of repo.list()) {
+      if (!config.enabled) continue;
+      if (!isAgentProfileFileMissing(config)) continue;
+      writeAgentProfileFile(config);
+      logger.warn(
+        `[AgentProfileSync] #900 self-healed missing agent file for orphaned profile "${config.id}"`,
+      );
+    }
+  } catch (err) {
+    logger.warn(`[AgentProfileSync] #900 orphaned-profile self-heal pass failed (non-fatal): ${String(err)}`);
   }
 
   // #883 — reconcile the secretary row's is_manager / allowed_delegates_json
