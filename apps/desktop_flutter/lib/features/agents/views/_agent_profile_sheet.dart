@@ -94,7 +94,14 @@ class AgentProfilesManagerSheet extends StatefulWidget {
       _AgentProfilesManagerSheetState();
 }
 
+/// #909 — sort keys for the Agent Profiles manager list.
+enum _ProfileSortField { name, modelProvider }
+
 class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+  _ProfileSortField _sortField = _ProfileSortField.name;
+
   @override
   void initState() {
     super.initState();
@@ -102,6 +109,48 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) context.read<AgentConfigsController>().refresh();
     });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  /// #909 — live substring match on label, then sort.
+  List<AgentConfig> _visibleProfiles(List<AgentConfig> profiles) {
+    final query = _searchQuery.trim().toLowerCase();
+    final filtered = query.isEmpty
+        ? profiles
+        : profiles.where((c) => c.label.toLowerCase().contains(query)).toList();
+
+    final sorted = [...filtered];
+    sorted.sort((a, b) {
+      switch (_sortField) {
+        case _ProfileSortField.name:
+          return a.label.toLowerCase().compareTo(b.label.toLowerCase());
+        case _ProfileSortField.modelProvider:
+          return (a.modelProvider ?? '').compareTo(b.modelProvider ?? '');
+      }
+    });
+    return sorted;
+  }
+
+  /// #909 — rename a profile inline (label only), without opening the full
+  /// profile editor sheet.
+  Future<void> _rename(AgentConfig config) async {
+    final newLabel = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _RenameProfileDialog(currentLabel: config.label),
+    );
+    if (newLabel == null || newLabel.isEmpty || newLabel == config.label) {
+      return;
+    }
+    if (!mounted) return;
+    await context.read<AgentConfigsController>().update(
+      config.id,
+      {'label': newLabel},
+    );
   }
 
   String _subtitle(AgentConfig c) {
@@ -120,6 +169,7 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
     final rhythm = context.rhythm;
     final controller = context.watch<AgentConfigsController>();
     final profiles = controller.configs;
+    final visibleProfiles = _visibleProfiles(profiles);
 
     return SafeArea(
       child: Padding(
@@ -155,6 +205,68 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
             const SizedBox(height: RhythmSpacing.sm),
             const _DefaultProfilePicker(),
             const SizedBox(height: RhythmSpacing.md),
+            if (profiles.isNotEmpty) ...[
+              // #909 — search + sort.
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      key: const ValueKey('profile-search-field'),
+                      controller: _searchController,
+                      style: TextStyle(fontSize: 13, color: rhythm.textPrimary),
+                      decoration: InputDecoration(
+                        hintText: 'Search profiles…',
+                        hintStyle:
+                            TextStyle(fontSize: 13, color: rhythm.textMuted),
+                        prefixIcon: Icon(Icons.search,
+                            size: 16, color: rhythm.textMuted),
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 8,
+                          horizontal: 10,
+                        ),
+                        filled: true,
+                        fillColor: rhythm.surfaceMuted,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(RhythmRadius.md),
+                          borderSide: BorderSide(color: rhythm.border),
+                        ),
+                      ),
+                      onChanged: (v) => setState(() => _searchQuery = v),
+                    ),
+                  ),
+                  const SizedBox(width: RhythmSpacing.sm),
+                  PopupMenuButton<_ProfileSortField>(
+                    key: const ValueKey('profile-sort-menu'),
+                    tooltip: 'Sort profiles',
+                    initialValue: _sortField,
+                    onSelected: (v) => setState(() => _sortField = v),
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: _ProfileSortField.name,
+                        child: Text('Name'),
+                      ),
+                      PopupMenuItem(
+                        value: _ProfileSortField.modelProvider,
+                        child: Text('Model provider'),
+                      ),
+                    ],
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: rhythm.surfaceMuted,
+                        borderRadius: BorderRadius.circular(RhythmRadius.md),
+                        border: Border.all(color: rhythm.borderSubtle),
+                      ),
+                      child: Icon(Icons.sort_rounded,
+                          size: 16, color: rhythm.textSecondary),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: RhythmSpacing.sm),
+            ],
             if (profiles.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: RhythmSpacing.xl),
@@ -164,15 +276,24 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
                   style: TextStyle(color: rhythm.textMuted),
                 ),
               )
+            else if (visibleProfiles.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: RhythmSpacing.xl),
+                child: Text(
+                  'No profiles match "${_searchQuery.trim()}".',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: rhythm.textMuted),
+                ),
+              )
             else
               Flexible(
                 child: ListView.separated(
                   shrinkWrap: true,
-                  itemCount: profiles.length,
+                  itemCount: visibleProfiles.length,
                   separatorBuilder: (_, __) =>
                       const SizedBox(height: RhythmSpacing.xxs),
                   itemBuilder: (_, i) {
-                    final c = profiles[i];
+                    final c = visibleProfiles[i];
                     return Material(
                       color: rhythm.surfaceMuted,
                       borderRadius: BorderRadius.circular(RhythmRadius.md),
@@ -226,6 +347,21 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
                                     ),
                                   ],
                                 ),
+                              ),
+                              // #909 — inline rename, without opening the
+                              // full profile editor sheet.
+                              IconButton(
+                                key: ValueKey('rename-profile-${c.id}'),
+                                icon: Icon(Icons.edit_outlined,
+                                    size: 16, color: rhythm.textMuted),
+                                tooltip: 'Rename',
+                                visualDensity: VisualDensity.compact,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 28,
+                                  minHeight: 28,
+                                ),
+                                onPressed: () => _rename(c),
                               ),
                               Icon(
                                 Icons.chevron_right,
@@ -340,6 +476,59 @@ class _DefaultProfilePicker extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// #909 — Rename dialog
+// ---------------------------------------------------------------------------
+
+/// A StatefulWidget (not a bare inline builder) so its TextEditingController
+/// is disposed by State.dispose() at the correct point in the dialog route's
+/// lifecycle — disposing manually right after showDialog() returns races the
+/// route's exit transition (see the identical fix in _session_list_body.dart
+/// #903, "A TextEditingController was used after being disposed").
+class _RenameProfileDialog extends StatefulWidget {
+  const _RenameProfileDialog({required this.currentLabel});
+
+  final String currentLabel;
+
+  @override
+  State<_RenameProfileDialog> createState() => _RenameProfileDialogState();
+}
+
+class _RenameProfileDialogState extends State<_RenameProfileDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.currentLabel);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Rename profile'),
+      content: TextField(
+        key: const ValueKey('rename-profile-field'),
+        controller: _controller,
+        autofocus: true,
+        decoration: const InputDecoration(hintText: 'Profile name'),
+        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }
