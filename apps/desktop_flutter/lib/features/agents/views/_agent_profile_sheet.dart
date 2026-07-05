@@ -191,6 +191,24 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
                     ),
                   ),
                 ),
+                IconButton(
+                  key: const ValueKey('profile-refresh-button'),
+                  tooltip: 'Refresh profiles',
+                  icon: controller.status == AgentConfigsStatus.loading
+                      ? SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: rhythm.textSecondary,
+                          ),
+                        )
+                      : Icon(Icons.refresh_rounded,
+                          size: 18, color: rhythm.textSecondary),
+                  onPressed: controller.status == AgentConfigsStatus.loading
+                      ? null
+                      : () => controller.refresh(),
+                ),
                 TextButton.icon(
                   onPressed: () => showAgentProfileSheet(
                     context,
