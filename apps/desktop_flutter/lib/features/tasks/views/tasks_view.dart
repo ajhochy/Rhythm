@@ -18,11 +18,40 @@ class TasksView extends StatefulWidget {
   State<TasksView> createState() => _TasksViewState();
 }
 
+/// #908 — sort keys for the tasks list. Applied within each time group
+/// (the existing grouping already provides the primary "organize by date
+/// range" acceptance criterion; this adds the requested explicit sort on
+/// top of it rather than replacing grouping with a flat list).
+enum TaskSortField { dueDate, createdDate, status, title }
+
+/// #908 — sort applied within each time-range group. A missing due date
+/// sorts last (regardless of direction) so tasks without one don't jump
+/// ahead of dated ones under a naive null-first comparison. Top-level (not
+/// State-private) so it's unit-testable without mounting the widget tree.
+int compareTasksBySortField(Task a, Task b, TaskSortField field) {
+  switch (field) {
+    case TaskSortField.dueDate:
+      final aDate = a.dueDate?.isNotEmpty == true ? a.dueDate : a.scheduledDate;
+      final bDate = b.dueDate?.isNotEmpty == true ? b.dueDate : b.scheduledDate;
+      if (aDate == null && bDate == null) return 0;
+      if (aDate == null) return 1;
+      if (bDate == null) return -1;
+      return aDate.compareTo(bDate);
+    case TaskSortField.createdDate:
+      return a.createdAt.compareTo(b.createdAt);
+    case TaskSortField.status:
+      return a.status.index.compareTo(b.status.index);
+    case TaskSortField.title:
+      return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+  }
+}
+
 class _TasksViewState extends State<TasksView> {
   final _searchController = TextEditingController();
   bool _showCompleted = false;
   String _searchQuery = '';
   String? _activeTimeFilter; // null = all, 'today', 'week', 'month'
+  TaskSortField _sortField = TaskSortField.dueDate;
 
   @override
   void initState() {
@@ -115,17 +144,18 @@ class _TasksViewState extends State<TasksView> {
             .where((task) => task.status != TaskStatus.done)
             .toList();
     final query = _searchQuery.trim().toLowerCase();
-    if (query.isNotEmpty) {
-      return tasks.where((task) {
-        final haystack = [
-          task.title,
-          task.notes ?? '',
-          task.sourceName ?? '',
-        ].join(' ').toLowerCase();
-        return haystack.contains(query);
-      }).toList();
-    }
-    return tasks;
+    final searched = query.isEmpty
+        ? tasks
+        : tasks.where((task) {
+            final haystack = [
+              task.title,
+              task.notes ?? '',
+              task.sourceName ?? '',
+            ].join(' ').toLowerCase();
+            return haystack.contains(query);
+          }).toList();
+    return [...searched]
+      ..sort((a, b) => compareTasksBySortField(a, b, _sortField));
   }
 
   Widget _buildHeader(
@@ -209,6 +239,36 @@ class _TasksViewState extends State<TasksView> {
         ),
       ],
       actions: [
+        // #908 — sort control (applies within each time-range group).
+        PopupMenuButton<TaskSortField>(
+          key: const ValueKey('tasks-sort-menu'),
+          tooltip: 'Sort tasks',
+          initialValue: _sortField,
+          onSelected: (v) => setState(() => _sortField = v),
+          itemBuilder: (_) => const [
+            PopupMenuItem(
+              value: TaskSortField.dueDate,
+              child: Text('Due date'),
+            ),
+            PopupMenuItem(
+              value: TaskSortField.createdDate,
+              child: Text('Created date'),
+            ),
+            PopupMenuItem(
+              value: TaskSortField.status,
+              child: Text('Status'),
+            ),
+            PopupMenuItem(
+              value: TaskSortField.title,
+              child: Text('Title'),
+            ),
+          ],
+          child: const RhythmBadge(
+            label: 'Sort',
+            icon: Icons.sort_rounded,
+            compact: true,
+          ),
+        ),
         RhythmBadge(
           label: '$visibleCount tasks',
           icon: Icons.format_list_bulleted,
