@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../../agents/models/agent_session.dart';
+import '../../notifications/controllers/notifications_controller.dart';
 import '../controllers/agent_schedules_controller.dart';
 import '../models/agent_scheduled_task.dart';
 
@@ -1107,53 +1108,66 @@ class _ActivityLogRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rhythm = context.rhythm;
-    return Container(
-      margin: const EdgeInsets.only(bottom: RhythmSpacing.xs),
-      padding: const EdgeInsets.all(RhythmSpacing.sm),
-      decoration: BoxDecoration(
-        color: rhythm.surfaceMuted,
-        borderRadius: BorderRadius.circular(RhythmRadius.sm),
-        border: Border.all(color: rhythm.borderSubtle),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: _statusColor(rhythm),
+    return InkWell(
+      key: ValueKey('activity-log-row-${run.id}'),
+      borderRadius: BorderRadius.circular(RhythmRadius.sm),
+      onTap: () {
+        context.read<NotificationsController>().navigateTo(
+              'agentSession',
+              run.id,
+            );
+        Navigator.of(context, rootNavigator: true).maybePop();
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: RhythmSpacing.xs),
+        padding: const EdgeInsets.all(RhythmSpacing.sm),
+        decoration: BoxDecoration(
+          color: rhythm.surfaceMuted,
+          borderRadius: BorderRadius.circular(RhythmRadius.sm),
+          border: Border.all(color: rhythm.borderSubtle),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _statusColor(rhythm),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                _formatDateTime(run.createdAt.toIso8601String()),
-                style: TextStyle(
-                  color: rhythm.textMuted,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
+                const SizedBox(width: 6),
+                Text(
+                  _formatDateTime(run.createdAt.toIso8601String()),
+                  style: TextStyle(
+                    color: rhythm.textMuted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-              const Spacer(),
+                const Spacer(),
+                Text(
+                  run.status.wireValue,
+                  style: TextStyle(color: rhythm.textMuted, fontSize: 11),
+                ),
+                const SizedBox(width: 4),
+                Icon(Icons.chevron_right, size: 16, color: rhythm.textMuted),
+              ],
+            ),
+            if ((run.lastPreview ?? '').isNotEmpty) ...[
+              const SizedBox(height: 4),
               Text(
-                run.status.wireValue,
-                style: TextStyle(color: rhythm.textMuted, fontSize: 11),
+                run.lastPreview!,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: rhythm.textSecondary, fontSize: 12),
               ),
             ],
-          ),
-          if ((run.lastPreview ?? '').isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              run.lastPreview!,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: rhythm.textSecondary, fontSize: 12),
-            ),
           ],
-        ],
+        ),
       ),
     );
   }

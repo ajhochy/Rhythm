@@ -333,8 +333,14 @@ export class AgentSessionsController {
       const includeArchived = req.query.includeArchived === 'true';
       const archivedOnly = req.query.archivedOnly === 'true';
       const archiveOpts = { includeArchived, archivedOnly };
-      let sessions;
-      if (typeof scheduledTaskIdParam === 'string' && scheduledTaskIdParam !== '') {
+      let sessions: ReturnType<typeof repo.listAll>;
+      if (typeof scheduledTaskIdParam === 'string' && scheduledTaskIdParam === '') {
+        // An empty scheduledTaskId is a caller bug (e.g. a stale/malformed
+        // client-side task object), not "no filter" — never fall through to
+        // listAll() here, which would leak every session in the app into
+        // what's supposed to be one task's activity log.
+        sessions = [];
+      } else if (typeof scheduledTaskIdParam === 'string') {
         // #904 — activity log for a single scheduled task, most recent runs
         // first. Distinct from the project/all branches below: scheduled
         // runs are is_system=1 and intentionally excluded from those lists.
