@@ -1,5 +1,63 @@
 # Rhythm — Codex Agent Instructions
 
+Read this file first, before any other file, when opening this repo cold.
+
+## Monorepo layout
+
+```
+apps/
+├── desktop_flutter/  ← macOS desktop app (Flutter) — THE SHIPPING CLIENT
+├── api_server/       ← Node.js/Express + TypeScript backend (spawned locally by Flutter on :4001)
+├── mcp_server/        ← Rhythm's own MCP server (tool definitions for agent sessions)
+├── opencode_fork/     ← vendored subtree of the opencode engine — see dedicated section below
+├── web/               ← React/Vite UI — design reference / prototype, NOT shipping
+└── electron/          ← Electron wrapper — prototype, NOT shipping
+```
+
+See `docs/ai/repo-map.md` for the full file-level breakdown and `docs/ai/architecture.md` for data flow.
+
+## Database
+
+Production is **Postgres**, hosted on a Synology NAS, reached over a Cloudflare
+tunnel (see `docs/release/hosted_deployment_synology_cloudflare.md`). Local dev
+defaults to SQLite (`DB_CLIENT` env var; `env.dbClient` in `apps/api_server/src/config/env.ts`).
+Several services intentionally no-op under `dbClient === 'postgres'` (e.g. the
+local-only opencode agent-file projection) — check for that gate before assuming
+a fix needs to run in both environments. See [[project_postgres_sqlite_schema_drift]]
+patterns: a new column needs an explicit backfill in the Postgres bootstrap path,
+not just a SQLite migration.
+
+## Key integrations
+
+- **Planning Center Online (PCO)** — `pco-services` MCP tools; OAuth-based, per-user connection tracked via `IntegrationsService`.
+- **ProPresenter** — `propresenter` MCP tools.
+- **Gmail** (work + personal) — `gmail-work` / `gmail-personal` MCP tools.
+- **Rhythm MCP server** (`apps/mcp_server`) — Rhythm's own domain tools (tasks, rhythms, projects, PCO bridge, memory, delegation, etc).
+
+Never edit `apps/mcp_server/src/index.ts` without updating the tool count in the PR description — several docs/config files (this one included, via the GitNexus block below) reference an approximate tool/symbol count.
+
+## Production posture
+
+Rhythm has 10–15 active daily users (church staff) on the production API. No
+untested changes land on `main` directly:
+
+- Work on a feature branch off `main`.
+- Push and open a **draft PR** — do not merge.
+- A human merges after manual smoke testing (see `docs/testing/manual-smoke.md`).
+- Prefer additive changes. Flag anything that looks like a destructive
+  migration (dropping/altering a column with data loss potential, deleting rows
+  in a live table) as requiring manual review before it runs against production.
+
+## Before any Flutter commit
+
+```bash
+cd apps/desktop_flutter
+dart format . --set-exit-if-changed   # CI fails on format violations
+flutter analyze --no-fatal-infos      # must exit 0 (infos are pre-existing, not new)
+```
+
+See `docs/ai/testing-guide.md` for the full command set (api_server tests, opencode fork tests, manual smoke checklist).
+
 ## Project logging (canonical: `docs/ai/`)
 
 Logging lives in **`docs/ai/`** — the single source of truth, surfaced in Obsidian via the `ai-*` symlinks under `Projects/rhythm/`.
