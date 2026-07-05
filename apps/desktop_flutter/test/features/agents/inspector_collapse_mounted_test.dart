@@ -2,9 +2,9 @@
 ///
 /// Pumps the REAL AgentsView with a selected session so SessionSidePanel
 /// mounts, then exercises the collapse/expand affordances:
-///   - expanded by default: inspector-panel + inspector-collapse-button present
-///   - tapping collapse hides the panel and reveals inspector-expand-button
-///   - tapping expand restores the panel
+///   - collapsed by default (#905): inspector-expand-button present, panel absent
+///   - tapping expand shows the panel + inspector-collapse-button
+///   - tapping collapse hides the panel again
 ///
 /// Backed by AgentsController.panelCollapsed / setPanelCollapsed(bool).
 ///
@@ -263,26 +263,26 @@ void main() {
           .pumpWidget(await _buildTestApp(agentsController: controller));
       await tester.pump();
 
-      // Expanded by default.
-      expect(find.byKey(const ValueKey('inspector-panel')), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey('inspector-collapse-button')),
-        findsOneWidget,
-      );
-
-      // Collapse.
-      await tester.tap(find.byKey(const ValueKey('inspector-collapse-button')));
-      await tester.pumpAndSettle();
+      // #905 — collapsed by default.
       expect(find.byKey(const ValueKey('inspector-panel')), findsNothing);
       expect(
         find.byKey(const ValueKey('inspector-expand-button')),
         findsOneWidget,
       );
 
-      // Expand again.
+      // Expand.
       await tester.tap(find.byKey(const ValueKey('inspector-expand-button')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('inspector-panel')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('inspector-collapse-button')),
+        findsOneWidget,
+      );
+
+      // Collapse again.
+      await tester.tap(find.byKey(const ValueKey('inspector-collapse-button')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('inspector-panel')), findsNothing);
 
       // Teardown: detach the tree so widget-owned timers dispose before the
       // controller's stuck-check timer is cancelled.

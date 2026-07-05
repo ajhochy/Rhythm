@@ -20,6 +20,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:rhythm_desktop/app/core/agents/agent_server_controller.dart';
 import 'package:rhythm_desktop/app/core/notifications/local_notification_service.dart';
 import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
@@ -265,6 +266,11 @@ Future<Widget> _buildTestApp(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  // #905 — setPanelCollapsed(false) awaits SharedPreferences.getInstance();
+  // without a registered mock the plugin channel call hangs indefinitely in
+  // this binding, timing out the test. Mirrors the other inspector test files.
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   testWidgets(
     '#862: memory provenance is an integrated Context-tab section — '
     'count row + readable titles, no raw slug, no separate footer panel',
@@ -301,6 +307,12 @@ void main() {
 
       await tester
           .pumpWidget(await _buildTestApp(agentsController: controller));
+      await tester.pump();
+      // #905 — the panel now defaults to collapsed; this file exercises its
+      // contents, so expand it explicitly (after the initial pump, since
+      // AgentsController.initialize() fires an unawaited loadInspectorPrefs()
+      // that would otherwise race and stomp an earlier explicit set).
+      await controller.setPanelCollapsed(false);
       await tester.pump();
 
       // The section renders inside the Context tab's detail list.
@@ -386,6 +398,12 @@ void main() {
       await tester
           .pumpWidget(await _buildTestApp(agentsController: controller));
       await tester.pump();
+      // #905 — the panel now defaults to collapsed; this file exercises its
+      // contents, so expand it explicitly (after the initial pump, since
+      // AgentsController.initialize() fires an unawaited loadInspectorPrefs()
+      // that would otherwise race and stomp an earlier explicit set).
+      await controller.setPanelCollapsed(false);
+      await tester.pump();
 
       // Context tab is the default tab on the inspector panel.
       expect(find.byKey(const ValueKey('context-cost')), findsOneWidget);
@@ -435,6 +453,12 @@ void main() {
 
       await tester
           .pumpWidget(await _buildTestApp(agentsController: controller));
+      await tester.pump();
+      // #905 — the panel now defaults to collapsed; this file exercises its
+      // contents, so expand it explicitly (after the initial pump, since
+      // AgentsController.initialize() fires an unawaited loadInspectorPrefs()
+      // that would otherwise race and stomp an earlier explicit set).
+      await controller.setPanelCollapsed(false);
       await tester.pump();
 
       // No messages → existing empty state, no cost row.

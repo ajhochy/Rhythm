@@ -269,6 +269,12 @@ void main() {
       await tester
           .pumpWidget(await _buildTestApp(agentsController: controller));
       await tester.pump();
+      // #905 — the panel now defaults to collapsed; this test exercises the
+      // resize handle, so expand it explicitly (after the initial pump,
+      // since AgentsController.initialize() fires an unawaited
+      // loadInspectorPrefs() that would otherwise race an earlier explicit set).
+      await controller.setPanelCollapsed(false);
+      await tester.pump();
 
       // Default width 320.
       expect(find.byKey(const ValueKey('inspector-panel')), findsOneWidget);

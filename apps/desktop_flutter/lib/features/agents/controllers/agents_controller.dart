@@ -329,7 +329,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Inspector panel collapse state (persisted via shared_preferences)
   // --------------------------------------------------------------------------
   static const _inspectorCollapsedKey = 'agents.inspector.collapsed';
-  bool _panelCollapsed = false;
+  // #905 — default to collapsed until a persisted preference says otherwise.
+  bool _panelCollapsed = true;
 
   static const _inspectorWidthKey = 'agents.inspector.width';
   static const double _kDefaultPanelWidth = 320;
@@ -1321,7 +1322,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> loadInspectorPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _panelCollapsed = prefs.getBool(_inspectorCollapsedKey) ?? false;
+      // #905 — default to collapsed (true) when no preference has been
+      // stored yet; a user who has explicitly opened it before keeps that.
+      _panelCollapsed = prefs.getBool(_inspectorCollapsedKey) ?? true;
       final storedWidth = prefs.getDouble(_inspectorWidthKey);
       if (storedWidth != null) {
         _panelWidth =
@@ -1329,7 +1332,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
       notifyListeners();
     } catch (_) {
-      _panelCollapsed = false;
+      _panelCollapsed = true;
       _panelWidth = _kDefaultPanelWidth;
     }
   }
