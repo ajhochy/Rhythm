@@ -326,6 +326,37 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   final Set<String> _notifyOnCompletion = {};
 
   // --------------------------------------------------------------------------
+  // #910 — collapsed subagent groups in the session list tree (in-memory only)
+  // --------------------------------------------------------------------------
+
+  /// Parent session ids whose child (subagent) rows are collapsed to a single
+  /// summary line in the session list. In-memory only — resets on relaunch,
+  /// same tier as other pure view-state (e.g. `_resumableSectionExpanded`).
+  final Set<String> _collapsedParentSessions = {};
+
+  bool isParentSessionCollapsed(String parentId) =>
+      _collapsedParentSessions.contains(parentId);
+
+  void toggleParentSessionCollapsed(String parentId) {
+    if (!_collapsedParentSessions.add(parentId)) {
+      _collapsedParentSessions.remove(parentId);
+    }
+    notifyListeners();
+  }
+
+  /// Collapse (or expand) every parent id in [parentIds] at once — backs the
+  /// session list's "collapse all" / "expand all" toggle.
+  void setAllParentSessionsCollapsed(
+      Iterable<String> parentIds, bool collapsed) {
+    if (collapsed) {
+      _collapsedParentSessions.addAll(parentIds);
+    } else {
+      _collapsedParentSessions.removeAll(parentIds);
+    }
+    notifyListeners();
+  }
+
+  // --------------------------------------------------------------------------
   // Inspector panel collapse state (persisted via shared_preferences)
   // --------------------------------------------------------------------------
   static const _inspectorCollapsedKey = 'agents.inspector.collapsed';
