@@ -20,6 +20,7 @@ async function main() {
     { startAgentSchedulerJob },
     { agentMemoryService },
     { startMemoryVaultSyncJob },
+    { sundayPrepService },
   ] = await Promise.all([
     import('./app'),
     import('./database/db'),
@@ -30,6 +31,7 @@ async function main() {
     import('./services/agentSchedulerService'),
     import('./services/agentMemoryService'),
     import('./jobs/memory_vault_sync_job'),
+    import('./services/sundayPrepService'),
   ]);
 
   const port = Number(process.env.PORT ?? 4000);
@@ -117,6 +119,11 @@ async function main() {
     // the passive consolidation task above.
     agentMemoryService.seedMemoryInterviewTask().catch((err) => {
       logger.warn(`[server] Memory interview seed failed (non-fatal): ${String(err)}`);
+    });
+    // #896 — Sunday prep, decomposed into 4 bounded specialist scheduled
+    // tasks (staggered Saturday 10pm-10:30pm) instead of one unbounded session.
+    sundayPrepService.seedSundayPrepTasks().catch((err) => {
+      logger.warn(`[server] Sunday prep seed failed (non-fatal): ${String(err)}`);
     });
     // Issue #860 — single-source-of-truth memory: disable a standalone
     // `memory` knowledge-graph MCP if the user's opencode.json has one
