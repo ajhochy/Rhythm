@@ -1,0 +1,100 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { registerAgentProfileTools } from '../agentProfiles.js';
+
+type ToolHandler = (args: Record<string, unknown>) => Promise<{
+  content: Array<{ type: 'text'; text: string }>;
+  isError?: true;
+}>;
+
+interface RegisteredTool {
+  handler: ToolHandler;
+}
+
+function makeStubServer(): { server: unknown; tools: Map<string, RegisteredTool> } {
+  const tools = new Map<string, RegisteredTool>();
+  const server = {
+    tool(name: string, _description: string, _shape: Record<string, unknown>, handler: ToolHandler) {
+      tools.set(name, { handler });
+    },
+  };
+  return { server, tools };
+}
+
+const AGENT_URL = 'http://localhost:4001';
+
+describe('registerAgentProfileTools', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('POSTs to /agent-configs with the given label, MCPs, skills, and model', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({ id: 'cfg-1', label: 'Sunday Bulletin Assistant' }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { server, tools } = makeStubServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerAgentProfileTools(server as any, AGENT_URL);
+
+    const result = await tools.get('rhythm_create_agent_profile')!.handler({
+      label: 'Sunday Bulletin Assistant',
+      systemPrompt: 'You help draft the Sunday bulletin.',
+      allowedMcps: ['rhythm', 'pco-services'],
+      allowedSkills: ['bulletin-formatting'],
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet-4-5',
+    });
+
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${AGENT_URL}/agent-configs`);
+    const body = JSON.parse(init.body as string);
+    expect(body.label).toBe('Sunday Bulletin Assistant');
+    expect(body.allowedMcpsJson).toBe('["rhythm","pco-services"]');
+    expect(body.allowedSkillsJson).toBe('["bulletin-formatting"]');
+    expect(body.modelProvider).toBe('anthropic');
+    expect(result.content[0].text).toContain('Sunday Bulletin Assistant');
+    expect(result.content[0].text).toContain('cfg-1');
+  });
+
+  it('omits allowedMcpsJson/allowedSkillsJson when unrestricted (no lists given)', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({ id: 'cfg-2', label: 'General Helper' }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { server, tools } = makeStubServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerAgentProfileTools(server as any, AGENT_URL);
+
+    await tools.get('rhythm_create_agent_profile')!.handler({ label: 'General Helper' });
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.allowedMcpsJson).toBeUndefined();
+    expect(body.allowedSkillsJson).toBeUndefined();
+  });
+
+  it('returns a tool error when the agent server rejects the request', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => ({ error: 'label must be a non-empty string' }),
+      }),
+    );
+
+    const { server, tools } = makeStubServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerAgentProfileTools(server as any, AGENT_URL);
+
+    const result = await tools.get('rhythm_create_agent_profile')!.handler({ label: '' });
+
+    expect(result.isError).toBe(true);
+  });
+});
