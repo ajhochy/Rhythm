@@ -71,11 +71,11 @@ describe('#738 — AgentRunner', () => {
     expect(mockCreateSession).toHaveBeenCalledOnce();
     // #738-fix: prompt must be called WITH a resolved model (not undefined).
     // The DB is not initialized in this test so MRU lookup falls back to the
-    // hardcoded default: anthropic / claude-sonnet-4-5.
+    // hardcoded default: anthropic / claude-sonnet-4-6.
     expect(mockPrompt).toHaveBeenCalledWith(
       'sdk-session-1',
       'Say hello',
-      { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+      { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
       undefined,
       expect.objectContaining({ permissionMode: 'bypassPermissions' }),
     );

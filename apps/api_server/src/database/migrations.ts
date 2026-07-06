@@ -1754,10 +1754,23 @@ export function runMigrations(db: Database.Database): void {
   if (!sessColsForAcct.includes('anthropic_account_id')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN anthropic_account_id TEXT`);
   }
+  if (!sessColsForAcct.includes('owner_user_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  }
+  if (!sessColsForAcct.includes('delegation_depth')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN delegation_depth INTEGER NOT NULL DEFAULT 0`);
+  }
   const cfgColsForAcct = (db.pragma('table_info(agent_configs)') as { name: string }[]).map((c) => c.name);
   if (!cfgColsForAcct.includes('default_anthropic_account_id')) {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN default_anthropic_account_id TEXT`);
   }
+  db.exec(`
+    UPDATE agent_configs
+       SET allowed_delegates_json = NULL
+     WHERE id IN ('worship-planning', 'theologian')
+       AND COALESCE(is_manager, 0) = 0
+       AND allowed_delegates_json IS NOT NULL
+  `);
 
   // Config Doctor — a chattable diagnostic/repair agent profile. Runs the
   // existing `rhythm doctor` CLI plus a duplicate-agent-profile check (the
@@ -1870,8 +1883,8 @@ Your job, in order:
 
   db.prepare(
     `INSERT OR IGNORE INTO agent_configs
-      (id, label, icon, command, is_agent, oc_agent, session_selectable, system_prompt, allowed_mcps_json, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, label, icon, command, is_agent, oc_agent, session_selectable, system_prompt, allowed_mcps_json, model_provider, model_id, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     'rhythm-setup',
     'Rhythm Setup',
@@ -1882,6 +1895,206 @@ Your job, in order:
     1,
     rhythmSetupSystemPrompt,
     '["rhythm"]',
+    'anthropic',
+    'claude-sonnet-4-6',
     5,
   );
+
+  // #916/#923 — scope contract repair before [] changes from fail-open to
+  // deny-all. NULL is unrestricted; [] is now explicit deny-all. Existing rows
+  // that stored [] to mean "unrestricted" must be normalized so they do not
+  // silently lose access after the parser fix.
+  const orgOptimizerAllowedMcpsJson = JSON.stringify({
+    rhythm: [
+      'rhythm_ping',
+      'rhythm_get_dashboard',
+      'rhythm_list_sessions',
+      'rhythm_list_scheduled_tasks',
+      'rhythm_list_automations',
+      'rhythm_list_pending_triggers',
+      'rhythm_list_memories',
+      'rhythm_search_memory',
+      'rhythm_remember_memory',
+      'rhythm_run_org_optimizer',
+    ],
+  });
+
+  db.prepare(
+    `UPDATE agent_configs
+        SET allowed_mcps_json = ?
+      WHERE id = 'config-doctor'
+        AND (allowed_mcps_json IS NULL OR TRIM(allowed_mcps_json) = '[]')`,
+  ).run(JSON.stringify(['rhythm']));
+
+  db.prepare(
+    `UPDATE agent_configs
+        SET allowed_mcps_json = ?
+      WHERE (id = '8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f' OR id = 'org-optimizer' OR label = 'Org Optimizer')
+        AND allowed_mcps_json IS NOT NULL`,
+  ).run(orgOptimizerAllowedMcpsJson);
+
+  db.exec(`
+    UPDATE agent_configs
+       SET allowed_mcps_json = NULL
+     WHERE TRIM(allowed_mcps_json) = '[]'
+       AND id <> 'config-doctor';
+
+    UPDATE agent_configs
+       SET allowed_skills_json = NULL
+     WHERE TRIM(allowed_skills_json) = '[]';
+  `);
+
+  // #917/#918/#919 — profile data hygiene repairs. Keep these JSON updates
+  // shape-preserving and idempotent: rows are read, transformed, and then
+  // updated only if the stored value still equals what was read.
+  const updateAgentConfigJson = (
+    id: string,
+    column: 'allowed_mcps_json' | 'allowed_skills_json',
+    transform: (parsed: unknown) => unknown,
+  ) => {
+    const row = db
+      .prepare(`SELECT ${column} AS value FROM agent_configs WHERE id = ?`)
+      .get(id) as { value: string | null } | undefined;
+    if (!row?.value) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.value);
+    } catch {
+      return;
+    }
+    const next = transform(parsed);
+    const nextJson = JSON.stringify(next);
+    if (nextJson === row.value) return;
+    db.prepare(
+      `UPDATE agent_configs
+          SET ${column} = ?
+        WHERE id = ?
+          AND ${column} = ?`,
+    ).run(nextJson, id, row.value);
+  };
+
+  const renameRhythmMemoryTools = (tool: unknown): unknown => {
+    if (tool === 'rhythm_remember') return 'rhythm_remember_memory';
+    if (tool === 'rhythm_search_context') return 'rhythm_search_memory';
+    return tool;
+  };
+
+  const appendUnique = (items: unknown[], additions: string[]): unknown[] => {
+    const out = [...items];
+    for (const item of additions) {
+      if (!out.includes(item)) out.push(item);
+    }
+    return out;
+  };
+
+  const rhythmCalendarTools = [
+    'rhythm_list_calendar_events',
+    'rhythm_create_calendar_event',
+    'rhythm_update_calendar_event',
+  ];
+
+  for (const id of ['theologian', 'worship-planning', 'worship-production', 'fantasy-gm', 'money']) {
+    updateAgentConfigJson(id, 'allowed_mcps_json', (parsed) => {
+      if (Array.isArray(parsed)) return parsed.map(renameRhythmMemoryTools);
+      if (parsed === null || typeof parsed !== 'object') return parsed;
+
+      const out: Record<string, unknown> = {};
+      for (const [server, tools] of Object.entries(parsed as Record<string, unknown>)) {
+        if (server === 'calendar' && id === 'worship-planning') continue;
+        if (Array.isArray(tools)) {
+          out[server] = tools.map(renameRhythmMemoryTools);
+        } else if (
+          tools !== null &&
+          typeof tools === 'object' &&
+          Array.isArray((tools as { allowedTools?: unknown }).allowedTools)
+        ) {
+          out[server] = {
+            ...(tools as Record<string, unknown>),
+            allowedTools: ((tools as { allowedTools: unknown[] }).allowedTools).map(renameRhythmMemoryTools),
+          };
+        } else {
+          out[server] = tools;
+        }
+      }
+
+      if (id === 'worship-planning') {
+        const rhythmTools = Array.isArray(out.rhythm) ? out.rhythm : [];
+        out.rhythm = appendUnique(rhythmTools, rhythmCalendarTools);
+      }
+      return out;
+    });
+  }
+
+  const copyScopeFromDuplicate = (sourceId: string, targetId: string) => {
+    const source = db
+      .prepare(
+        `SELECT allowed_mcps_json, allowed_skills_json
+           FROM agent_configs
+          WHERE id = ?`,
+      )
+      .get(sourceId) as { allowed_mcps_json: string | null; allowed_skills_json: string | null } | undefined;
+    if (!source) return;
+    db.prepare(
+      `UPDATE agent_configs
+          SET allowed_mcps_json = ?,
+              allowed_skills_json = ?
+        WHERE id = ?
+          AND (allowed_mcps_json IS NULL OR TRIM(allowed_mcps_json) IN ('["rhythm","obsidian"]', '["rhythm", "obsidian"]'))
+          AND allowed_skills_json IS NULL`,
+    ).run(source.allowed_mcps_json, source.allowed_skills_json, targetId);
+  };
+
+  copyScopeFromDuplicate(
+    '32294c7d-a26e-4e3a-b5f1-92350225e701',
+    'AI-Trend-Researcher',
+  );
+  copyScopeFromDuplicate(
+    'd74b471f-ca90-4246-8182-e769b10d80c6',
+    'Theological-Researcher',
+  );
+
+  updateAgentConfigJson('research', 'allowed_skills_json', (parsed) => {
+    if (!Array.isArray(parsed)) return parsed;
+    return parsed.filter(
+      (skill) =>
+        skill !== 'searxng-search' &&
+        skill !== 'domain-intel' &&
+        skill !== 'parallel-cli',
+    );
+  });
+
+  db.prepare(
+    `UPDATE agent_configs
+        SET model_provider = 'openrouter',
+            model_id = 'anthropic/claude-sonnet-4.6'
+      WHERE id = 'coding-agent'
+        AND model_provider = 'openrouter'
+        AND model_id = 'openrouter/free'`,
+  ).run();
+
+  db.prepare(
+    `UPDATE agent_configs
+        SET model_provider = 'anthropic',
+            model_id = 'claude-sonnet-4-6'
+      WHERE id = 'rhythm-setup'
+        AND (model_provider IS NULL OR model_id IS NULL)`,
+  ).run();
+
+  db.prepare(
+    `UPDATE agent_configs
+        SET model_provider = 'anthropic',
+            model_id = 'claude-sonnet-4-6',
+            model_tier_hint = 'cheap'
+      WHERE id = 'worship-production'
+        AND (model_id IS NULL OR model_id LIKE '%opus%' OR model_tier_hint IS NULL)`,
+  ).run();
+
+  db.prepare(
+    `UPDATE agent_configs
+        SET model_provider = 'anthropic',
+            model_id = 'claude-haiku-4-5',
+            model_tier_hint = 'cheap'
+      WHERE id IN ('title', 'compaction', 'summary')
+        AND (model_id IS NULL OR model_id <> 'claude-haiku-4-5' OR model_tier_hint IS NULL)`,
+  ).run();
 }

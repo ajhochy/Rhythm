@@ -487,6 +487,13 @@ describe('createSession — mcpAllowlist body field (mcp-scope-04)', () => {
     // The exact omit-vs-empty-object behavior is tested by AC-01/AC-02.
     expect(fakeSessionCreate).toHaveBeenCalledOnce();
   });
+
+  it('createSession sends an explicit empty skill allowlist as deny-all', async () => {
+    await svc.createSession('No Skills Session', '/workspace', undefined, []);
+
+    expect(capturedBody).toHaveProperty('skillAllowlist');
+    expect(capturedBody.skillAllowlist).toEqual({ skills: [] });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -576,6 +583,14 @@ describe('updateSessionAllowlist — mcpAllowlist body shape (#855)', () => {
     expect(allowlist.tools).toEqual([]);
   });
 
+  it('clear sentinel: null mcpRoleConfig PATCHes mcpAllowlist:null', async () => {
+    const ok = await svc.updateSessionAllowlist('sess-clear', null);
+
+    expect(ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(JSON.parse(capturedInit!.body!)).toEqual({ mcpAllowlist: null });
+  });
+
   // Error guard: PATCH failure (non-2xx) returns false, does not throw.
   it('returns false and does not throw when the PATCH responds non-OK', async () => {
     fetchMock.mockResolvedValueOnce({ ok: false, status: 400 });
@@ -590,5 +605,33 @@ describe('updateSessionAllowlist — mcpAllowlist body shape (#855)', () => {
     const cfg: McpRoleConfig = { role: 'r', mcpServers: { a: {} }, allowedToolsJson: '["a"]' };
     const ok = await svc.updateSessionAllowlist('sess-4', cfg);
     expect(ok).toBe(false);
+  });
+});
+
+describe('updateSessionSkillAllowlist — clear sentinel (#923)', () => {
+  let svc: OpencodeClientService;
+  let capturedInit: { body?: string } | undefined;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    svc = new OpencodeClientService();
+    capturedInit = undefined;
+    fetchMock = vi.fn().mockImplementation((_url: string, init: { body?: string }) => {
+      capturedInit = init;
+      return Promise.resolve({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('null skills PATCHes skillAllowlist:null', async () => {
+    const ok = await svc.updateSessionSkillAllowlist('sess-clear-skills', null);
+
+    expect(ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(JSON.parse(capturedInit!.body!)).toEqual({ skillAllowlist: null });
   });
 });

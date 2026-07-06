@@ -7,12 +7,11 @@ export class AgentDelegationController {
       const body = req.body as Record<string, unknown>;
       const result = await delegateToAgent({
         callerAgentConfigId:
-          typeof body.callerAgentConfigId === 'string' ? body.callerAgentConfigId : '',
+          typeof body.callerAgentConfigId === 'string' ? body.callerAgentConfigId : null,
         targetAgentConfigId:
           typeof body.targetAgentConfigId === 'string' ? body.targetAgentConfigId : '',
         prompt: typeof body.prompt === 'string' ? body.prompt : '',
-        callerSessionId: typeof body.callerSessionId === 'string' ? body.callerSessionId : null,
-        depth: typeof body.depth === 'number' ? body.depth : 0,
+        callerSessionId: typeof body.callerSessionId === 'string' ? body.callerSessionId : '',
         context: typeof body.context === 'string' ? body.context : null,
       });
       res.json(result);

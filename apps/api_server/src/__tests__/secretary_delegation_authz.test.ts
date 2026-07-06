@@ -19,6 +19,8 @@ import path from 'node:path';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import type { AgentKind } from '../models/agent_session';
 import { delegateToAgent } from '../services/agent_delegation_service';
 import { seedSecretaryDelegation } from '../services/secretary_delegation_seed';
 
@@ -47,10 +49,22 @@ function makeDb() {
 
 describe('secretary → roster delegation authorization (#883)', () => {
   let repo: AgentConfigsRepository;
+  let sessionRepo: AgentSessionsRepository;
+
+  function seedCallerSession(profileId: string): string {
+    return sessionRepo.insert({
+      agentKind: profileId as AgentKind,
+      taskId: null,
+      cwd: process.cwd(),
+      name: `${profileId} session`,
+      mcpRole: profileId,
+    }).id;
+  }
 
   beforeEach(async () => {
     setDb(makeDb());
     repo = new AgentConfigsRepository();
+    sessionRepo = new AgentSessionsRepository();
 
     // Mirrors what agent_profile_sync.syncOpencodeAgentProfiles actually
     // creates in a real deployment: slug-keyed rows (id = opencode agent
@@ -89,7 +103,7 @@ describe('secretary → roster delegation authorization (#883)', () => {
 
     for (const delegateId of roster) {
       const result = await delegateToAgent({
-        callerAgentConfigId: 'secretary',
+        callerSessionId: seedCallerSession('secretary'),
         targetAgentConfigId: delegateId,
         prompt: `Handle this ${delegateId} task.`,
       });
@@ -105,7 +119,7 @@ describe('secretary → roster delegation authorization (#883)', () => {
   it('rejects delegation to a profile NOT in the roster', async () => {
     await expect(
       delegateToAgent({
-        callerAgentConfigId: 'secretary',
+        callerSessionId: seedCallerSession('secretary'),
         targetAgentConfigId: 'unrelated-specialist',
         prompt: 'Do this.',
       }),
@@ -125,7 +139,7 @@ describe('secretary → roster delegation authorization (#883)', () => {
 
     await expect(
       delegateToAgent({
-        callerAgentConfigId: 'plain-agent',
+        callerSessionId: seedCallerSession('plain-agent'),
         targetAgentConfigId: realRoster()[0],
         prompt: 'Do this.',
       }),

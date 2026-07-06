@@ -160,29 +160,28 @@ export function scoreSkill(query: string, skill: AgentSkill): number {
 
 /**
  * Parse an allowedSkillsJson string into a Set of allowed skill ids/titles.
- * Returns null when the list is null/undefined/empty-array (meaning "all allowed").
- * Returns a non-null Set when a non-empty allowlist is present.
+ * Returns null when the list is null/undefined (meaning "all allowed").
+ * Returns a Set for any present allowlist; an empty Set means deny all.
  *
  * P1b: when non-null, only skills whose id OR title appears in the set are eligible.
- * Fail-open: null → all skills eligible (backward compatible).
+ * Contract: null → all skills eligible; [] or malformed/non-array → deny all.
  */
 function parseAllowlist(allowedSkillsJson: string | null | undefined): Set<string> | null {
-  if (!allowedSkillsJson) return null;
+  if (allowedSkillsJson == null) return null;
   let parsed: unknown;
   try {
     parsed = JSON.parse(allowedSkillsJson);
   } catch {
-    // Malformed JSON — treat as "all allowed" so a broken profile doesn't silence skills.
-    return null;
+    return new Set();
   }
-  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  if (!Array.isArray(parsed)) return new Set();
   const s = new Set<string>();
   for (const entry of parsed) {
     if (typeof entry === 'string' && entry.trim()) {
       s.add(entry.trim());
     }
   }
-  return s.size > 0 ? s : null;
+  return s;
 }
 
 /**
@@ -192,8 +191,9 @@ function parseAllowlist(allowedSkillsJson: string | null | undefined): Set<strin
  * - Empty store or empty/whitespace-only query → [].
  * - Loads every skill via AgentSkillsRepository.list() (no owner scoping).
  * - Pure scoring; does NOT mutate `uses` (P3-2 increments on actual injection).
- * - P1b: when `allowedSkillsJson` is a non-empty JSON array, only skills whose
- *   id or title is in the allowlist are eligible. null/undefined/"[]" = all allowed.
+ * - P1b: when `allowedSkillsJson` is a JSON array, only skills whose id or
+ *   title is in the allowlist are eligible. null/undefined = all allowed.
+ *   [] or malformed/non-array = deny all.
  */
 export function getRelevantSkills(
   query: string,
@@ -258,9 +258,9 @@ export interface BuildSkillsPrefaceOptions {
   getRelevant?: (query: string, topN?: number) => AgentSkill[];
   /**
    * P1b — Profile-level skill allowlist (raw JSON string of id/title array).
-   * When provided (non-null, non-empty array), only skills whose id or title
+   * When provided (non-null array), only skills whose id or title
    * appears in the list are eligible — even if they score higher than any
-   * allowlisted skill. null / undefined / "[]" = all skills eligible (fail-open).
+   * allowlisted skill. null / undefined = all skills eligible; "[]" denies all.
    * Forwarded to getRelevantSkills when getRelevant is not overridden.
    * When a custom getRelevant is injected (e.g. in tests), the allowlist is
    * applied as a POST-filter on the returned skills (so tests can assert the

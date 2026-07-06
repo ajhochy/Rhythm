@@ -2322,15 +2322,9 @@ class _PendingTriggerBanner extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             _TriggerActionButton(
-              label: 'Start Claude',
+              label: 'Start Secretary',
               color: const Color(0xFF6B46C1),
-              onPressed: () => _startAgent(context, 'claude-code', trigger),
-            ),
-            const SizedBox(width: 6),
-            _TriggerActionButton(
-              label: 'Start Codex',
-              color: const Color(0xFF059669),
-              onPressed: () => _startAgent(context, 'codex', trigger),
+              onPressed: () => _startAgent(context, 'secretary', trigger),
             ),
             const SizedBox(width: 6),
             TextButton(

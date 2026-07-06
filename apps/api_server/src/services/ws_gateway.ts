@@ -415,27 +415,30 @@ export async function handleInputFrame(
 
   let wsMcpRoleConfig: import('./agent_profile_scope').McpRoleConfig | undefined;
   let wsAllowedSkillsJson: string | null = null;
-  // #775 (skill-scope): the resolved profile's permitted skill NAMES, parsed from
-  // allowed_skills_json. Pushed to the fork session so the model's available skills
-  // are scoped to this set — the skill analogue of wsMcpRoleConfig. Empty = unrestricted.
-  let wsSkillNames: string[] = [];
+  // #775/#916 (skill-scope): the resolved profile's permitted skill NAMES,
+  // parsed from allowed_skills_json. undefined = unrestricted; [] = deny all.
+  let wsSkillNames: string[] | undefined = undefined;
   let wsSystemPrompt: string | null = null;
   let wsOcAgent: string | null = null;
   try {
     const wsProfileScope = await resolveProfileScope(scopeAgentId);
     wsMcpRoleConfig = wsProfileScope.mcpRoleConfig ?? undefined;
     wsAllowedSkillsJson = wsProfileScope.allowedSkillsJson;
-    // #775 (skill-scope): parse allowed_skills_json (a JSON string[] of skill names)
-    // into the names array pushed to the fork. A non-array / empty / malformed value
-    // yields [] → unrestricted (fail-open, same posture as the MCP path).
-    if (wsAllowedSkillsJson) {
+    // #775/#916 (skill-scope): parse allowed_skills_json into the names array
+    // pushed to the fork. null means unrestricted; a present empty or malformed
+    // value denies all.
+    if (wsAllowedSkillsJson !== null) {
+      wsSkillNames = [];
       try {
         const parsed = JSON.parse(wsAllowedSkillsJson);
         if (Array.isArray(parsed)) {
           wsSkillNames = parsed.filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
         }
       } catch {
-        wsSkillNames = [];
+        console.error(
+          `[ws_gateway] session ${id}: profile=${scopeAgentId ?? 'profile'} invalid allowedSkillsJson; denying all skills. offendingValue=`,
+          wsAllowedSkillsJson,
+        );
       }
     }
     wsSystemPrompt = wsProfileScope.systemPrompt;
@@ -605,10 +608,6 @@ export async function handleInputFrame(
   // were created without an allowlist, so we PATCH it here per-turn.
   // For freshly-created sessions (the if-block above) this is a no-op
   // update to the same value, which is harmless.
-  // Known limitation: if the user switches back to an unrestricted profile
-  // (no mcpRoleConfig), the fork session retains the last-set allowlist for
-  // that session — see docs/ai/project-state.md risk note.
-  //
   // Issue #855: pass the WHOLE wsMcpRoleConfig through to updateSessionAllowlist
   // (which expands it via the same expandMcpAllowlist() createSession uses) —
   // do NOT hand-roll `JSON.parse(wsMcpRoleConfig.allowedToolsJson) as string[]`
@@ -620,27 +619,26 @@ export async function handleInputFrame(
   // swallowed by the catch below as "non-fatal", and the session's
   // mcpAllowlist stayed unset — so filterMcpToolsByAllowlist saw `undefined`
   // and injected the FULL tool surface for every profiled turn.
-  if (wsMcpRoleConfig) {
-    try {
-      await opencodeClient.updateSessionAllowlist(opencodeId, wsMcpRoleConfig, resolvedTurnProviderId);
-    } catch (allowlistErr) {
-      console.error(`[ws_gateway] updateSessionAllowlist failed (non-fatal):`, allowlistErr);
-    }
+  try {
+    await opencodeClient.updateSessionAllowlist(
+      opencodeId,
+      wsMcpRoleConfig ?? null,
+      resolvedTurnProviderId,
+    );
+  } catch (allowlistErr) {
+    console.error(`[ws_gateway] updateSessionAllowlist failed (non-fatal):`, allowlistErr);
   }
 
   // #775 (skill-scope): push the resolved skill allowlist onto the existing fork
   // session so SystemPrompt.skills / the skill tool / its execute-guard scope to it
   // at prompt time. Mirrors the MCP block above — necessary because sessions created
   // by POST /agent-sessions (before the user picked a profile) carry no allowlist, so
-  // we PATCH it here per-turn. Only push when the profile actually restricts skills;
-  // an empty list would deny everything, so an unrestricted profile leaves the fork's
-  // (absent) allowlist untouched.
-  if (wsSkillNames.length > 0) {
-    try {
-      await opencodeClient.updateSessionSkillAllowlist(opencodeId, wsSkillNames);
-    } catch (skillAllowlistErr) {
-      console.error(`[ws_gateway] updateSessionSkillAllowlist failed (non-fatal):`, skillAllowlistErr);
-    }
+  // we PATCH it here per-turn. null clears a stale prior restriction when the user
+  // switches to an unrestricted profile; [] is an explicit deny-all restriction.
+  try {
+    await opencodeClient.updateSessionSkillAllowlist(opencodeId, wsSkillNames ?? null);
+  } catch (skillAllowlistErr) {
+    console.error(`[ws_gateway] updateSessionSkillAllowlist failed (non-fatal):`, skillAllowlistErr);
   }
 
   try {

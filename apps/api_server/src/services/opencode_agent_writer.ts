@@ -212,6 +212,7 @@ export function isAgentProfileFileMissing(config: AgentConfig): boolean {
  * below, e.g. agent_profile_sync's #858 oc_agent backfill pass.
  */
 export function isProjectableAgentConfig(config: AgentConfig): boolean {
+  if (!config.enabled) return false;
   if (!config.isAgent) return false;
   if (CLI_MODEL_PRESETS.has(config.id)) return false;
   if ((config.presetId ?? '') !== '' && CLI_MODEL_PRESETS.has(config.presetId!)) {

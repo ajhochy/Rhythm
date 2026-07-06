@@ -39,23 +39,17 @@ export function registerAgentDelegationTools(
     'rhythm_delegate',
     'Delegate a focused task from a manager profile to an allowed specialist profile. The target run is re-scoped to the target profile.',
     {
-      callerAgentConfigId: z
-        .string()
-        .describe('The manager profile id making the delegation request.'),
       targetAgentConfigId: z
         .string()
         .describe('The specialist profile id to run. Must be in the manager allowedDelegates list.'),
       prompt: z.string().describe('The focused task prompt for the specialist.'),
-      callerSessionId: z.string().optional().describe('The current manager session id, when available.'),
-      depth: z.number().optional().describe('Current delegation depth. Omit for direct manager calls.'),
+      callerSessionId: z.string().describe('The current manager session id.'),
       context: z.string().optional().describe('Optional manager context to prepend to the delegated prompt.'),
     },
     async ({
-      callerAgentConfigId,
       targetAgentConfigId,
       prompt,
       callerSessionId,
-      depth = 0,
       context,
     }) => {
       try {
@@ -63,11 +57,9 @@ export function registerAgentDelegationTools(
           apiUrl,
           apiToken,
           {
-            callerAgentConfigId,
             targetAgentConfigId,
             prompt,
             callerSessionId,
-            depth,
             context,
           },
           fetchImpl,

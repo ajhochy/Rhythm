@@ -609,6 +609,7 @@ export class AgentSessionsController {
         mcpAllowedToolsJson,
         // Task D — resolved Anthropic account (null = engine default).
         anthropicAccountId: resolvedAccountId,
+        ownerUserId: req.auth?.user.id ?? null,
       };
 
       const session = repo.insert(dto);

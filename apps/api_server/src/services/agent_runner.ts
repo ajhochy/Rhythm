@@ -101,6 +101,8 @@ export interface AgentRunOptions {
    * is injected (fail-safe; never cross-user). Skills are unaffected (shared).
    */
   ownerUserId?: number | null;
+  /** Delegation nesting depth stored on agent_sessions for server-side delegation caps. */
+  delegationDepth?: number;
   /**
    * P4-1 (internal) — marks this run as the escalated (teacher) re-run so its
    * OWN error path does NOT escalate again. This is the recursion guard: the
@@ -221,7 +223,7 @@ async function _waitForAssistantReply(
  *  1. agent_configs row with matching id → use model_provider + model_id if set.
  *  2. Most-recently-used model from agent_sessions (any session with provider_id
  *     + model_id populated, ordered by created_at DESC).
- *  3. Hardcoded sensible default: anthropic / claude-sonnet-4-5.
+ *  3. Hardcoded sensible default: anthropic / claude-sonnet-4-6.
  *
  * The function never throws. Returns undefined only if the DB call itself
  * fails — in that case the caller should use the hardcoded default instead
@@ -260,7 +262,7 @@ export function resolveRunModel(
 
   // Step 3 — hardcoded default so a run never silently hangs on undefined
   const DEFAULT_PROVIDER = 'anthropic';
-  const DEFAULT_MODEL = 'claude-sonnet-4-5';
+  const DEFAULT_MODEL = 'claude-sonnet-4-6';
   logger.info(
     `[AgentRunner] resolveRunModel: no agent config or MRU model found — using default (${DEFAULT_PROVIDER}/${DEFAULT_MODEL})`,
   );
@@ -283,6 +285,8 @@ function _recordSession(opts: {
   scheduledTaskId?: string | null;
   mcpRole?: string | null;
   mcpAllowedToolsJson?: string | null;
+  ownerUserId?: number | null;
+  delegationDepth?: number;
   /** #747: mark as a background/system session excluded from the normal session list. */
   isSystem?: boolean;
 }): string | null {
@@ -298,6 +302,8 @@ function _recordSession(opts: {
       mcpRole: opts.mcpRole ?? null,
       mcpAllowedToolsJson: opts.mcpAllowedToolsJson ?? null,
       scheduledTaskId: opts.scheduledTaskId ?? null,
+      ownerUserId: opts.ownerUserId ?? null,
+      delegationDepth: opts.delegationDepth ?? 0,
       // #747: scheduler-spawned and memory runs are background system sessions.
       // isSystem defaults to true when scheduledTaskId is set (all scheduler runs
       // are background; user-facing chat sessions go through the WS gateway).
@@ -490,6 +496,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     sessionName,
     scheduledTaskId,
     ownerUserId,
+    delegationDepth,
     modelOverride,
     taskKind,
   } = opts;
@@ -631,8 +638,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     agentKind: effectiveAgentKind,
     cwd: effectiveCwd,
     scheduledTaskId: scheduledTaskId ?? null,
-    mcpRole: mcpRole ?? null,
-    mcpAllowedToolsJson: allowedMcpsJson ?? null,
+    mcpRole: mcpRole ?? profileScope.mcpRoleConfig?.role ?? null,
+    mcpAllowedToolsJson: allowedMcpsJson ?? profileScope.mcpRoleConfig?.allowedToolsJson ?? null,
+    ownerUserId: ownerUserId ?? null,
+    delegationDepth: delegationDepth ?? 0,
   });
 
   // #862 — record "Memories used in this reply" now that the local session
@@ -675,18 +684,22 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       }
     }
 
-    // #775 (skill-scope): parse the resolved profile/task skill allowlist (JSON
-    // string[] of skill names) so the scheduled session is scoped at create time —
-    // mirrors mcpRoleConfig. Malformed/empty/non-array → [] = unrestricted (fail-open).
-    let skillNames: string[] = [];
-    if (profileScope.allowedSkillsJson) {
+    // #775/#916 (skill-scope): parse the resolved profile/task skill allowlist
+    // so the scheduled session is scoped at create time. null/undefined means
+    // unrestricted; a present empty array means deny all skills.
+    let skillNames: string[] | undefined = undefined;
+    if (profileScope.allowedSkillsJson !== null) {
+      skillNames = [];
       try {
         const parsed = JSON.parse(profileScope.allowedSkillsJson);
         if (Array.isArray(parsed)) {
           skillNames = parsed.filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
         }
       } catch {
-        skillNames = [];
+        logger.error(
+          `[AgentRunner] profile=${effectiveConfigId ?? 'profile'}: invalid allowedSkillsJson JSON; denying all skills. offendingValue=`,
+          profileScope.allowedSkillsJson,
+        );
       }
     }
 
@@ -748,6 +761,13 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     }
 
     const sessionId = sessionResult.id;
+    if (rhythmSessionId) {
+      try {
+        new AgentSessionsRepository().setSdkSessionId(rhythmSessionId, sessionId);
+      } catch (err) {
+        logger.warn(`[AgentRunner] setSdkSessionId failed (non-fatal): ${String(err)}`);
+      }
+    }
 
     // ── Send the prompt SYNCHRONOUSLY and get the full response ───────────────
     // #738-fix (root cause): the runner used promptAsync() — fire-and-forget,

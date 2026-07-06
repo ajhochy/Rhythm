@@ -47,6 +47,266 @@ describe('agent_configs migration', () => {
     expect(scan.blocked).toBe(false);
   });
 
+  it('repairs known fail-open scope rows for the #916/#923 contract flip', () => {
+    const db = makeDb();
+
+    const configDoctor = db
+      .prepare(`SELECT allowed_mcps_json FROM agent_configs WHERE id = 'config-doctor'`)
+      .get() as { allowed_mcps_json: string | null };
+    expect(configDoctor.allowed_mcps_json).toBe(JSON.stringify(['rhythm']));
+
+    const oldOrgOptimizerMcp = JSON.stringify({
+      rhythm: {
+        inherit: true,
+        allowedTools: ['rhythm_ping', 'rhythm_get_dashboard'],
+      },
+    });
+    const expectedOrgOptimizerMcp = {
+      rhythm: [
+        'rhythm_ping',
+        'rhythm_get_dashboard',
+        'rhythm_list_sessions',
+        'rhythm_list_scheduled_tasks',
+        'rhythm_list_automations',
+        'rhythm_list_pending_triggers',
+        'rhythm_list_memories',
+        'rhythm_search_memory',
+        'rhythm_remember_memory',
+        'rhythm_run_org_optimizer',
+      ],
+    };
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, is_agent, allowed_mcps_json, allowed_skills_json)
+       VALUES (?, ?, '', '', 1, ?, ?)`,
+    ).run('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f', 'Org Optimizer', oldOrgOptimizerMcp, '[]');
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, is_agent, allowed_mcps_json, allowed_skills_json)
+       VALUES (?, ?, '', '', 1, ?, ?)`,
+    ).run('money', 'Money', '[]', '[]');
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, is_agent, allowed_mcps_json, allowed_skills_json)
+       VALUES (?, ?, '', '', 1, ?, ?)`,
+    ).run('legacy-empty', 'Legacy Empty', '[]', '[]');
+
+    runMigrations(db);
+
+    const rows = db
+      .prepare(
+        `SELECT id, allowed_mcps_json, allowed_skills_json
+           FROM agent_configs
+          WHERE id IN ('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f', 'money', 'legacy-empty')`,
+      )
+      .all() as Array<{
+        id: string;
+        allowed_mcps_json: string | null;
+        allowed_skills_json: string | null;
+      }>;
+    const byId = new Map(rows.map((row) => [row.id, row]));
+
+    expect(
+      JSON.parse(
+        byId.get('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f')!.allowed_mcps_json!,
+      ),
+    ).toEqual(expectedOrgOptimizerMcp);
+    expect(byId.get('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f')!.allowed_skills_json).toBeNull();
+    expect(byId.get('money')!.allowed_mcps_json).toBeNull();
+    expect(byId.get('money')!.allowed_skills_json).toBeNull();
+    expect(byId.get('legacy-empty')!.allowed_mcps_json).toBeNull();
+    expect(byId.get('legacy-empty')!.allowed_skills_json).toBeNull();
+  });
+
+  it('repairs profile allowlist and model hygiene for #917/#918/#919', () => {
+    const db = makeDb();
+
+    const theologianMcp = {
+      rhythm: ['rhythm_ping', 'rhythm_remember', 'rhythm_search_context'],
+    };
+    const worshipPlanningMcp = {
+      rhythm: ['rhythm_ping', 'rhythm_remember', 'rhythm_search_context'],
+      calendar: ['list_events', 'get_event', 'list_calendars'],
+    };
+    const aiTrendMcp = [
+      'memory',
+      'obsidian',
+      'pdf-tools',
+      'duckduckgo',
+      'scrapling',
+      'minutes',
+      'youtube-transcript',
+      'github-readonly',
+      'rhythm',
+    ];
+    const aiTrendSkills = [
+      'research-synthesis',
+      'obsidian-markdown',
+      'obsidian-cli',
+      'obsidian-bases',
+    ];
+    const theologicalMcp = [
+      'memory',
+      'obsidian',
+      'rhythm',
+      'pdf-tools',
+      'scrapling',
+      'minutes',
+      'youtube-transcript',
+      'github-readonly',
+    ];
+    const theologicalSkills = ['research-synthesis', 'obsidian-cli', 'obsidian-markdown'];
+
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, allowed_mcps_json)
+       VALUES (?, ?, '', '', 1, 1, 1, ?)`,
+    ).run('theologian', 'Theologian', JSON.stringify(theologianMcp));
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, allowed_mcps_json)
+       VALUES (?, ?, '', '', 1, 1, 1, ?)`,
+    ).run('worship-planning', 'Worship Planning', JSON.stringify(worshipPlanningMcp));
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, model_provider, model_id)
+       VALUES (?, ?, '', '', 1, 1, 0, 'openrouter', 'openrouter/free')`,
+    ).run('coding-agent', 'Coding Agent');
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, model_provider, model_id)
+       VALUES (?, ?, '', '', 1, 1, 1, 'anthropic', 'claude-opus-4-7')`,
+    ).run('worship-production', 'Worship Production');
+    for (const id of ['title', 'compaction', 'summary']) {
+      db.prepare(
+        `INSERT INTO agent_configs
+          (id, label, icon, command, enabled, is_agent, session_selectable, model_provider, model_id)
+         VALUES (?, ?, '', '', 1, 1, 0, 'anthropic', 'claude-sonnet-4-6')`,
+      ).run(id, id);
+    }
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, allowed_mcps_json, allowed_skills_json)
+       VALUES (?, ?, '', '', 0, 1, 0, ?, ?)`,
+    ).run(
+      '32294c7d-a26e-4e3a-b5f1-92350225e701',
+      'AI Trend Researcher',
+      JSON.stringify(aiTrendMcp),
+      JSON.stringify(aiTrendSkills),
+    );
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, allowed_mcps_json, allowed_skills_json)
+       VALUES (?, ?, '', '', 1, 1, 1, ?, NULL)`,
+    ).run('AI-Trend-Researcher', 'AI Trend Researcher', '["rhythm", "obsidian"]');
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, allowed_mcps_json, allowed_skills_json)
+       VALUES (?, ?, '', '', 0, 1, 0, ?, ?)`,
+    ).run(
+      'd74b471f-ca90-4246-8182-e769b10d80c6',
+      'Theological Researcher',
+      JSON.stringify(theologicalMcp),
+      JSON.stringify(theologicalSkills),
+    );
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, allowed_mcps_json, allowed_skills_json)
+       VALUES (?, ?, '', '', 1, 1, 1, ?, NULL)`,
+    ).run('Theological-Researcher', 'Theological Researcher', '["rhythm","obsidian"]');
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, allowed_skills_json)
+       VALUES (?, ?, '', '', 0, 1, 0, ?)`,
+    ).run(
+      'research',
+      'Research',
+      JSON.stringify([
+        'research-synthesis',
+        'study-passage',
+        'searxng-search',
+        'duckduckgo-search',
+        'scrapling',
+        'domain-intel',
+        'parallel-cli',
+      ]),
+    );
+
+    runMigrations(db);
+
+    const rows = db
+      .prepare(
+        `SELECT id, model_provider, model_id, model_tier_hint, allowed_mcps_json, allowed_skills_json
+           FROM agent_configs
+          WHERE id IN (
+            'theologian',
+            'worship-planning',
+            'coding-agent',
+            'worship-production',
+            'title',
+            'compaction',
+            'summary',
+            'AI-Trend-Researcher',
+            'Theological-Researcher',
+            'research'
+          )`,
+      )
+      .all() as Array<{
+        id: string;
+        model_provider: string | null;
+        model_id: string | null;
+        model_tier_hint: string | null;
+        allowed_mcps_json: string | null;
+        allowed_skills_json: string | null;
+      }>;
+    const byId = new Map(rows.map((row) => [row.id, row]));
+
+    const theologian = JSON.parse(byId.get('theologian')!.allowed_mcps_json!) as Record<string, string[]>;
+    expect(theologian.rhythm).toEqual([
+      'rhythm_ping',
+      'rhythm_remember_memory',
+      'rhythm_search_memory',
+    ]);
+
+    const worshipPlanning = JSON.parse(
+      byId.get('worship-planning')!.allowed_mcps_json!,
+    ) as Record<string, string[]>;
+    expect(worshipPlanning.calendar).toBeUndefined();
+    expect(worshipPlanning.rhythm).toEqual([
+      'rhythm_ping',
+      'rhythm_remember_memory',
+      'rhythm_search_memory',
+      'rhythm_list_calendar_events',
+      'rhythm_create_calendar_event',
+      'rhythm_update_calendar_event',
+    ]);
+
+    expect(byId.get('coding-agent')!.model_provider).toBe('openrouter');
+    expect(byId.get('coding-agent')!.model_id).toBe('anthropic/claude-sonnet-4.6');
+    expect(byId.get('worship-production')!.model_id).toBe('claude-sonnet-4-6');
+    expect(byId.get('worship-production')!.model_tier_hint).toBe('cheap');
+    for (const id of ['title', 'compaction', 'summary']) {
+      expect(byId.get(id)!.model_id).toBe('claude-haiku-4-5');
+      expect(byId.get(id)!.model_tier_hint).toBe('cheap');
+    }
+
+    expect(JSON.parse(byId.get('AI-Trend-Researcher')!.allowed_mcps_json!)).toEqual(aiTrendMcp);
+    expect(JSON.parse(byId.get('AI-Trend-Researcher')!.allowed_skills_json!)).toEqual(aiTrendSkills);
+    expect(JSON.parse(byId.get('Theological-Researcher')!.allowed_mcps_json!)).toEqual(theologicalMcp);
+    expect(JSON.parse(byId.get('Theological-Researcher')!.allowed_skills_json!)).toEqual(theologicalSkills);
+    expect(JSON.parse(byId.get('research')!.allowed_skills_json!)).toEqual([
+      'research-synthesis',
+      'study-passage',
+      'duckduckgo-search',
+      'scrapling',
+    ]);
+
+    const allAllowedMcps = rows.map((row) => row.allowed_mcps_json ?? '').join('\n');
+    expect(allAllowedMcps).not.toContain('"rhythm_remember"');
+    expect(allAllowedMcps).not.toContain('"rhythm_search_context"');
+    expect(allAllowedMcps).not.toContain('"calendar"');
+  });
+
   it('has correct column shape', () => {
     const db = makeDb();
     const cols = (db.pragma('table_info(agent_configs)') as { name: string }[]).map(
@@ -72,6 +332,35 @@ describe('agent_configs migration', () => {
     for (const col of expected) {
       expect(cols).toContain(col);
     }
+  });
+
+  it('clears misleading non-manager delegation rosters for worship-planning and theologian', () => {
+    const db = makeDb();
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, is_agent, is_manager, allowed_delegates_json)
+       VALUES (?, ?, '', '', 1, ?, ?)`,
+    ).run('worship-planning', 'Worship Planning', 0, JSON.stringify(['someone']));
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, is_agent, is_manager, allowed_delegates_json)
+       VALUES (?, ?, '', '', 1, ?, ?)`,
+    ).run('theologian', 'Theologian', 0, JSON.stringify(['someone']));
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, is_agent, is_manager, allowed_delegates_json)
+       VALUES (?, ?, '', '', 1, ?, ?)`,
+    ).run('secretary', 'Secretary', 1, JSON.stringify(['worship-planning']));
+
+    runMigrations(db);
+
+    const rows = db
+      .prepare(`SELECT id, allowed_delegates_json FROM agent_configs WHERE id IN ('worship-planning', 'theologian', 'secretary')`)
+      .all() as Array<{ id: string; allowed_delegates_json: string | null }>;
+    const byId = new Map(rows.map((row) => [row.id, row.allowed_delegates_json]));
+    expect(byId.get('worship-planning')).toBeNull();
+    expect(byId.get('theologian')).toBeNull();
+    expect(byId.get('secretary')).toBe(JSON.stringify(['worship-planning']));
   });
 
   it('seeds correct values for claude-code row', () => {

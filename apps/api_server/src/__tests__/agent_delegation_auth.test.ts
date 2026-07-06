@@ -3,6 +3,8 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import type { AgentKind } from '../models/agent_session';
 import { delegateToAgent } from '../services/agent_delegation_service';
 
 const { runMock } = vi.hoisted(() => ({
@@ -52,10 +54,30 @@ function seedProfiles(repo: AgentConfigsRepository) {
 }
 
 describe('manager delegation authorization contracts', () => {
+  let sessionRepo: AgentSessionsRepository;
+
+  function seedCallerSession(
+    profileId = 'manager',
+    opts: { depth?: number; ownerUserId?: number | null } = {},
+  ): string {
+    return sessionRepo.insert({
+      agentKind: profileId as AgentKind,
+      taskId: null,
+      cwd: process.cwd(),
+      name: `${profileId} session`,
+      mcpRole: profileId,
+      ownerUserId: opts.ownerUserId ?? 42,
+      delegationDepth: opts.depth ?? 0,
+    }).id;
+  }
+
   beforeEach(() => {
-    setDb(makeDb());
+    const db = makeDb();
+    setDb(db);
+    db.prepare(`INSERT INTO users (id, name, email) VALUES (42, 'Test User', 'test@example.com')`).run();
     const repo = new AgentConfigsRepository();
     seedProfiles(repo);
+    sessionRepo = new AgentSessionsRepository();
     runMock.mockReset();
     runMock.mockResolvedValue({
       sessionId: 'delegate-session',
@@ -68,9 +90,10 @@ describe('manager delegation authorization contracts', () => {
     // Regression caught: delegation runs under the caller profile or bypasses the
     // runner, so the target profile's resolveProfileScope path is never used.
     const result = await delegateToAgent({
-      callerAgentConfigId: 'manager',
+      callerSessionId: seedCallerSession('manager'),
       targetAgentConfigId: 'specialist',
       prompt: 'Implement the focused task.',
+      callerAgentConfigId: 'manager',
     });
 
     expect(result).toMatchObject({
@@ -85,16 +108,18 @@ describe('manager delegation authorization contracts', () => {
         agentKind: 'specialist',
         prompt: 'Implement the focused task.',
         outputTarget: 'session',
+        ownerUserId: 42,
+        delegationDepth: 1,
       }),
     );
   });
 
-  it('issue-P4-manager-delegation-c4: rejects unauthorized, self, and nested calls', async () => {
+  it('issue-P4-manager-delegation-c4: rejects unauthorized and self calls from the resolved caller session', async () => {
     // Regression caught: fail-open authorization lets arbitrary profiles invoke
     // specialists, or delegated specialists recursively fan out.
     await expect(
       delegateToAgent({
-        callerAgentConfigId: 'manager',
+        callerSessionId: seedCallerSession('manager'),
         targetAgentConfigId: 'other-specialist',
         prompt: 'Do this.',
       }),
@@ -102,7 +127,7 @@ describe('manager delegation authorization contracts', () => {
 
     await expect(
       delegateToAgent({
-        callerAgentConfigId: 'non-manager',
+        callerSessionId: seedCallerSession('non-manager'),
         targetAgentConfigId: 'specialist',
         prompt: 'Do this.',
       }),
@@ -110,34 +135,33 @@ describe('manager delegation authorization contracts', () => {
 
     await expect(
       delegateToAgent({
-        callerAgentConfigId: 'manager',
+        callerSessionId: seedCallerSession('manager'),
         targetAgentConfigId: 'manager',
         prompt: 'Do this.',
-      }),
-    ).rejects.toMatchObject({ statusCode: 400 });
-
-    // #742: depth cap is now 2 (3-level chain). depth=2 must be blocked.
-    // depth=1 is now ALLOWED (orchestrator-as-subagent can sub-delegate).
-    await expect(
-      delegateToAgent({
-        callerAgentConfigId: 'manager',
-        targetAgentConfigId: 'specialist',
-        prompt: 'Do this.',
-        depth: 2,
       }),
     ).rejects.toMatchObject({ statusCode: 400 });
 
     expect(runMock).not.toHaveBeenCalled();
   });
 
-  it('issue-742-c-nested: orchestrator-as-subagent (depth=1) can sub-delegate', async () => {
-    // #742: the orchestrator runs as a subagent at depth=1 and must be able
-    // to delegate one further level (depth=1 < MAX_DELEGATION_DEPTH=2).
+  it('issue-914: resolves caller identity from the session row and rejects spoofed caller ids', async () => {
+    await expect(
+      delegateToAgent({
+        callerSessionId: seedCallerSession('non-manager'),
+        callerAgentConfigId: 'manager',
+        targetAgentConfigId: 'specialist',
+        prompt: 'Do this.',
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    expect(runMock).not.toHaveBeenCalled();
+  });
+
+  it('issue-914: derives depth from the caller session row and enforces the cap', async () => {
     const result = await delegateToAgent({
-      callerAgentConfigId: 'manager',
+      callerSessionId: seedCallerSession('manager', { depth: 1 }),
       targetAgentConfigId: 'specialist',
       prompt: 'Implement the task.',
-      depth: 1,
     });
     expect(result).toMatchObject({
       sessionId: 'delegate-session',
@@ -145,5 +169,36 @@ describe('manager delegation authorization contracts', () => {
       targetAgentConfigId: 'specialist',
     });
     expect(runMock).toHaveBeenCalledTimes(1);
+    expect(runMock).toHaveBeenCalledWith(expect.objectContaining({ delegationDepth: 2 }));
+    runMock.mockClear();
+
+    await expect(
+      delegateToAgent({
+        callerSessionId: seedCallerSession('manager', { depth: 2 }),
+        targetAgentConfigId: 'specialist',
+        prompt: 'Do this.',
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(runMock).not.toHaveBeenCalled();
+  });
+
+  it('issue-920: propagates delegated run error detail', async () => {
+    runMock.mockResolvedValueOnce({
+      sessionId: 'delegate-session',
+      status: 'error',
+      result: '',
+      error: 'target MCP is not connected',
+    });
+
+    await expect(
+      delegateToAgent({
+        callerSessionId: seedCallerSession('manager'),
+        targetAgentConfigId: 'specialist',
+        prompt: 'Do this.',
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 500,
+      message: 'target MCP is not connected',
+    });
   });
 });

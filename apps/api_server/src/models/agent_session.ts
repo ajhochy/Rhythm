@@ -77,6 +77,10 @@ export interface AgentSession {
    * Null = engine default. Updated in place on rate-limit spillover.
    */
   anthropicAccountId: string | null;
+  /** Owner used for owner-scoped agent memory. Null means instance-global only. */
+  ownerUserId: number | null;
+  /** Delegation nesting depth for rhythm_delegate-created runs. Root sessions default to 0. */
+  delegationDepth: number;
 }
 
 export interface UpdateAgentSessionDto {
@@ -138,4 +142,8 @@ export interface CreateAgentSessionDto {
   isSystem?: boolean;
   /** Dual Anthropic accounts (Task D) — resolved account id (body → profile → store default). Null = engine default. */
   anthropicAccountId?: string | null;
+  /** Owner used for owner-scoped agent memory. Null means instance-global only. */
+  ownerUserId?: number | null;
+  /** Delegation nesting depth. Root sessions default to 0. */
+  delegationDepth?: number;
 }
