@@ -2,59 +2,54 @@
 
 ## Current focus
 
-opencode session-continuity bug fixes (#912 + #913) in the vendored fork,
-plus a full audit of the agent system (profiles, delegation, skill/MCP
-scoping) that produced 10 follow-up issues (#914–#923).
+Two branches merged to `main` this session:
+
+1. opencode session-continuity fixes (#912 + #913) in the vendored fork
+   (PR #924).
+2. `issue-batch-july4` — agent profiles/sessions/scheduling UX + agent-infra
+   (#894–#911) (PR #925).
+
+Plus a full audit of the agent system (profiles, delegation, skill/MCP
+scoping) that produced 10 follow-up issues (#914–#923), not yet fixed.
 
 ## Active branch / PR
 
-- `issue-912-913-opencode-continuity` — combined fix for #912 and #913.
-  PR about to open against `main` (Fixes #912, Fixes #913). Not merged.
-- Prior session merged to `main` via PR #901 (config-doctor agent +
-  doctor OAuth fix).
+- PR #924 (`issue-912-913-opencode-continuity`) — MERGED to `main`
+  (Fixes #912, #913).
+- PR #925 (`issue-batch-july4`, 22 commits) — MERGED to `main`.
+- PR #901 (`feature/config-doctor-agent`) — merged last session.
 
 ## In progress
 
-- #912/#913 fixes implemented and verified (see run
-  `2026-07-06-issue-912-913-opencode-continuity`). PR open, awaiting CI +
-  manual smoke.
-- Agent-system audit fixes (#914–#923) NOT yet started — separate branch
-  planned (`agent-profiles-audit-fixes`); these are agent-profile/delegation
-  data + code, deliberately kept out of the engine-continuity PR.
+- Nothing mid-flight. #912/#913 and the July-4 batch are on `main`.
+- Agent-system audit fixes (#914–#923) NOT started — filed as issues only,
+  per user instruction to leave them for later.
 
 ## Risks / known issues
 
-- Both #912/#913 fixes live in the vendored `apps/opencode_fork` — keep the
-  diffs minimal/tagged so they survive upstream merges. Test against the
-  BUILT fork binary (set `RHYTHM_OPENCODE_BIN`), never the stock PATH binary
-  (false-green risk).
+- Both #912/#913 fixes live in the vendored `apps/opencode_fork` — keep diffs
+  minimal/tagged so they survive upstream merges. Test against the BUILT fork
+  binary (set `RHYTHM_OPENCODE_BIN`), never the stock PATH binary.
 - `#913 repairToolPairing` is a defensive repair at the request chokepoint —
   the true producer of the dangling `tool_use` was never located.
 - `#913 autoContinueExhausted` resets on any completed tool call (coarse by
-  design) — a session completing one trivial tool call per cycle could still
-  loop; the cap is a backstop, not a guarantee.
+  design) — the cap is a backstop, not a guarantee.
 - Audit HIGH findings still open: delegation caller-identity spoofing (#914),
   60s delegation timeout causing duplicate runs (#915), scope fail-open /
   config-doctor full surface (#916), nonexistent tool/server names in
-  allowlists (#917).
+  allowlists (#917). Medium/low: #918–#923.
 
 ## Test status
 
-- api_server: `npx tsc --noEmit` clean; `npm test` 2405 passed / 1 skipped
-  (280 files, 2 new tests).
-- fork: targeted suites (compaction, transform, error, message-v2,
-  processor-spurious) 330 pass / 0 fail; `bun run typecheck` clean except one
-  pre-existing error in `test/session/system.test.ts` (proven byte-identical
-  to `origin/main`).
-- fork binary: `bun run build --single` RC=0 (smoke passed,
-  version `0.0.0-issue-912-913-opencode-continuity-*`).
-- Live-engine smoke on the BUILT fixed binary (:4012, dev-override): real
-  secretary→librarian delegation with a tool call completed cleanly — no
-  `tool_use…without tool_result` 400, no `reasoning part…not found`, no
-  APIError; profile scoping applied live.
+- #924 (opencode continuity): api_server `tsc` clean + `npm test` 2405 passed;
+  fork targeted suites 330 pass; fork binary builds; live-engine smoke on the
+  built fixed binary passed. CI green; merged.
+- #925 (July-4 batch): api_server `tsc` clean + `npm test` 2435 passed;
+  flutter 846 tests, analyze at the 272-info baseline, `dart format` clean.
 
 ## Next step
 
-1. Open the #912/#913 PR, watch CI, hand off for manual smoke.
-2. Start the `agent-profiles-audit-fixes` branch for #914–#923 (durable
-   data-repair migration + code): begin with the HIGH findings.
+- Manual smoke on `main` for the opencode continuity fixes (long Codex/gpt
+  session; long compacting session) and the batch UX changes.
+- When ready, tackle the agent-system audit issues #914–#923 (start with the
+  HIGH ones) on a dedicated branch with a durable data-repair migration.

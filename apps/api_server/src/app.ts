@@ -50,6 +50,8 @@ import orgProposalsRouter from './routes/org_proposals_routes';
 import orgOptimizerRunRouter from './routes/org_optimizer_run_routes';
 import agentDesignsRouter from './routes/agentDesignsRoutes';
 import gmailSignalsRouter from './routes/gmail_signals_routes';
+import { agentCapabilityStatusRouter } from './routes/agent_capability_status_routes';
+import { agentApprovalsRouter } from './routes/agent_approvals_routes';
 
 export function createApp() {
   const app = express();
@@ -118,6 +120,8 @@ export function createApp() {
   if (env.agentExecutionEnabled) {
     // NOTE: /agents/capabilities is unauthenticated for now; Phase 3.1 will add the AGENT_LOCAL bypass.
     app.use('/agents/capabilities', agentsCapabilitiesRouter);
+    app.use('/agent-capability-status', agentCapabilityStatusRouter);
+    app.use('/agent-approvals', agentApprovalsRouter);
     app.use('/agents/usage-budget', usageBudgetRouter);
     app.use('/agents/run-quality', runQualityRouter);
     app.use('/agents/models', agentsModelsRouter);

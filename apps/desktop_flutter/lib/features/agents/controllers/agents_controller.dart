@@ -326,10 +326,42 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   final Set<String> _notifyOnCompletion = {};
 
   // --------------------------------------------------------------------------
+  // #910 — collapsed subagent groups in the session list tree (in-memory only)
+  // --------------------------------------------------------------------------
+
+  /// Parent session ids whose child (subagent) rows are collapsed to a single
+  /// summary line in the session list. In-memory only — resets on relaunch,
+  /// same tier as other pure view-state (e.g. `_resumableSectionExpanded`).
+  final Set<String> _collapsedParentSessions = {};
+
+  bool isParentSessionCollapsed(String parentId) =>
+      _collapsedParentSessions.contains(parentId);
+
+  void toggleParentSessionCollapsed(String parentId) {
+    if (!_collapsedParentSessions.add(parentId)) {
+      _collapsedParentSessions.remove(parentId);
+    }
+    notifyListeners();
+  }
+
+  /// Collapse (or expand) every parent id in [parentIds] at once — backs the
+  /// session list's "collapse all" / "expand all" toggle.
+  void setAllParentSessionsCollapsed(
+      Iterable<String> parentIds, bool collapsed) {
+    if (collapsed) {
+      _collapsedParentSessions.addAll(parentIds);
+    } else {
+      _collapsedParentSessions.removeAll(parentIds);
+    }
+    notifyListeners();
+  }
+
+  // --------------------------------------------------------------------------
   // Inspector panel collapse state (persisted via shared_preferences)
   // --------------------------------------------------------------------------
   static const _inspectorCollapsedKey = 'agents.inspector.collapsed';
-  bool _panelCollapsed = false;
+  // #905 — default to collapsed until a persisted preference says otherwise.
+  bool _panelCollapsed = true;
 
   static const _inspectorWidthKey = 'agents.inspector.width';
   static const double _kDefaultPanelWidth = 320;
@@ -1321,7 +1353,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> loadInspectorPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      _panelCollapsed = prefs.getBool(_inspectorCollapsedKey) ?? false;
+      // #905 — default to collapsed (true) when no preference has been
+      // stored yet; a user who has explicitly opened it before keeps that.
+      _panelCollapsed = prefs.getBool(_inspectorCollapsedKey) ?? true;
       final storedWidth = prefs.getDouble(_inspectorWidthKey);
       if (storedWidth != null) {
         _panelWidth =
@@ -1329,7 +1363,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
       notifyListeners();
     } catch (_) {
-      _panelCollapsed = false;
+      _panelCollapsed = true;
       _panelWidth = _kDefaultPanelWidth;
     }
   }

@@ -72,6 +72,51 @@ void main() {
       expect(openai.reason, contains('ChatGPT-plan'));
     });
 
+    // #907 — multiple Anthropic accounts each surface their OWN provider
+    // entry (not merged), distinguished by accountId + a per-account label.
+    test('parses multiple anthropic entries as separate providers', () {
+      final json = {
+        'providers': [
+          {
+            'provider': 'anthropic',
+            'label': 'Anthropic — Personal',
+            'kind': 'window',
+            'accountId': 'acct-personal',
+            'items': [
+              {'label': '5h limit', 'remainingFraction': 0.8},
+            ],
+          },
+          {
+            'provider': 'anthropic',
+            'label': 'Anthropic — Team',
+            'kind': 'window',
+            'accountId': 'acct-team',
+            'items': [
+              {'label': '5h limit', 'remainingFraction': 0.2},
+            ],
+          },
+        ],
+      };
+
+      final snap = UsageBudgetSnapshot.fromJson(json);
+      final anthropicEntries =
+          snap.providers.where((p) => p.provider == 'anthropic').toList();
+
+      expect(anthropicEntries, hasLength(2));
+      expect(anthropicEntries.map((p) => p.accountId).toSet(),
+          {'acct-personal', 'acct-team'});
+      expect(anthropicEntries.map((p) => p.label).toSet(),
+          {'Anthropic — Personal', 'Anthropic — Team'});
+      expect(
+        anthropicEntries
+            .firstWhere((p) => p.accountId == 'acct-team')
+            .items
+            .first
+            .remainingFraction,
+        closeTo(0.2, 1e-9),
+      );
+    });
+
     test('tolerates missing/empty fields', () {
       final snap = UsageBudgetSnapshot.fromJson({});
       expect(snap.providers, isEmpty);

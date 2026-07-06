@@ -57,3 +57,47 @@ describe('getUsageBudget', () => {
     }
   });
 });
+
+// #907 — one gauge entry PER connected Anthropic account, not just the
+// active/default one. anthropicAccountsService is mocked directly (rather
+// than seeding a real accounts-store file) so the test stays independent of
+// the host machine's real credential state, same rationale as the
+// CredentialsBridgeService mock above.
+describe('getUsageBudget — #907 multiple Anthropic accounts', () => {
+  it('returns one unavailable provider entry per stored account, each labeled distinctly', async () => {
+    vi.resetModules();
+    vi.doMock('./anthropic_accounts_service', () => ({
+      anthropicAccountsService: {
+        listRedacted: () => ({
+          accounts: [
+            { id: 'acct-personal', label: 'Personal', status: 'needs_relogin' },
+            { id: 'acct-team', label: 'Team', status: 'needs_relogin' },
+          ],
+          defaultAccountId: 'acct-personal',
+        }),
+        getAccount: () => undefined, // no access token → "needs re-login"
+      },
+    }));
+
+    const { getUsageBudget: getUsageBudgetWithMock } = await import('./usage_budget_service');
+    const snapshot = await getUsageBudgetWithMock({ force: true });
+
+    const anthropicEntries = snapshot.providers.filter((p) => p.provider === 'anthropic');
+    expect(anthropicEntries).toHaveLength(2);
+    expect(anthropicEntries.map((p) => p.accountId).sort()).toEqual([
+      'acct-personal',
+      'acct-team',
+    ]);
+    expect(anthropicEntries.map((p) => p.label).sort()).toEqual([
+      'Anthropic — Personal',
+      'Anthropic — Team',
+    ]);
+    for (const entry of anthropicEntries) {
+      expect(entry.kind).toBe('unavailable');
+      expect(entry.reason).toBe('Account needs re-login');
+    }
+
+    vi.doUnmock('./anthropic_accounts_service');
+    vi.resetModules();
+  });
+});

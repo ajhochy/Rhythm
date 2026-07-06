@@ -104,6 +104,14 @@ class SessionListBody extends StatelessWidget {
           const _CreatingSessionRow(),
           const SizedBox(height: 6),
         ],
+        // #910 — "collapse all / expand all" for subagent groups, shown only
+        // when at least one session in view actually has subagents.
+        if (_parentIdsWithChildren(filteredSessions).isNotEmpty) ...[
+          _SubagentCollapseAllToggle(
+            parentIds: _parentIdsWithChildren(filteredSessions),
+          ),
+          const SizedBox(height: 4),
+        ],
         // ── Active sessions ────────────────────────────────────────────────
         // Child sessions (parentId != null) are rendered indented under their
         // parent. Root sessions are rendered first; their children follow inline.
@@ -198,6 +206,54 @@ class SessionListBody extends StatelessWidget {
   }
 }
 
+/// #910 — every session id (within [sessions]) that has at least one child
+/// also present in [sessions]. Used to decide whether the "collapse all /
+/// expand all" toggle should render, and what it should act on.
+Set<String> _parentIdsWithChildren(List<AgentSession> sessions) {
+  final sessionIds = {for (final s in sessions) s.id};
+  final parents = <String>{};
+  for (final s in sessions) {
+    if (s.parentId != null && sessionIds.contains(s.parentId)) {
+      parents.add(s.parentId!);
+    }
+  }
+  return parents;
+}
+
+/// #910 — a single "Collapse all" / "Expand all" text toggle for every
+/// subagent group currently in view. Reads current state as "collapse all"
+/// when ANY covered parent is expanded (so one tap always fully collapses
+/// first), matching common tree-view conventions.
+class _SubagentCollapseAllToggle extends StatelessWidget {
+  const _SubagentCollapseAllToggle({required this.parentIds});
+
+  final Set<String> parentIds;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    final anyExpanded =
+        parentIds.any((id) => !controller.isParentSessionCollapsed(id));
+    return Align(
+      alignment: Alignment.centerRight,
+      child: TextButton(
+        onPressed: () => controller.setAllParentSessionsCollapsed(
+          parentIds,
+          anyExpanded,
+        ),
+        style: TextButton.styleFrom(
+          foregroundColor: context.rhythm.accent,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+        ),
+        child: Text(anyExpanded ? 'Collapse all' : 'Expand all'),
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Session tree builder (#743)
 // ---------------------------------------------------------------------------
@@ -241,21 +297,91 @@ List<Widget> _buildSessionTree(
       onTap: () => onRowTap(session.id),
     ));
     widgets.add(const SizedBox(height: 4));
-    // Render children indented.
-    for (final child in childrenOf[session.id] ?? []) {
+
+    // #910 — a parent with subagents renders a collapse/expand toggle. When
+    // collapsed, the children shrink to a single one-line summary instead of
+    // one row each, so a session that spawned many subagents doesn't dominate
+    // the list.
+    final children = childrenOf[session.id] ?? [];
+    if (children.isNotEmpty) {
+      final collapsed = controller.isParentSessionCollapsed(session.id);
       widgets.add(Padding(
         padding: const EdgeInsets.only(left: 16),
-        child: ChildSessionRow(
-          session: child,
-          isSelected: controller.selectedSessionId == child.id,
-          isWorking: controller.isWorking(child.id),
-          onTap: () => onRowTap(child.id),
+        child: _SubagentGroupSummary(
+          count: children.length,
+          workingCount:
+              children.where((c) => controller.isWorking(c.id)).length,
+          collapsed: collapsed,
+          onTap: () => controller.toggleParentSessionCollapsed(session.id),
         ),
       ));
       widgets.add(const SizedBox(height: 3));
+      if (!collapsed) {
+        for (final child in children) {
+          widgets.add(Padding(
+            padding: const EdgeInsets.only(left: 16),
+            child: ChildSessionRow(
+              session: child,
+              isSelected: controller.selectedSessionId == child.id,
+              isWorking: controller.isWorking(child.id),
+              onTap: () => onRowTap(child.id),
+            ),
+          ));
+          widgets.add(const SizedBox(height: 3));
+        }
+      }
     }
   }
   return widgets;
+}
+
+/// #910 — one-line "N subagents" summary row that toggles the child rows
+/// beneath its parent session. Always tappable (unlike [ChildSessionRow],
+/// which represents a single navigable session).
+class _SubagentGroupSummary extends StatelessWidget {
+  const _SubagentGroupSummary({
+    required this.count,
+    required this.workingCount,
+    required this.collapsed,
+    required this.onTap,
+  });
+
+  final int count;
+  final int workingCount;
+  final bool collapsed;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = workingCount > 0
+        ? '$count subagent${count == 1 ? '' : 's'} · $workingCount running'
+        : '$count subagent${count == 1 ? '' : 's'}';
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(RhythmRadius.md),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          children: [
+            Icon(
+              collapsed ? Icons.chevron_right : Icons.expand_more,
+              size: 14,
+              color: context.rhythm.textMuted,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: context.rhythm.textMuted,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -810,6 +936,20 @@ class SessionRowMenu extends StatelessWidget {
     await context.read<AgentsController>().deleteSession(session.id);
   }
 
+  /// #903 — rename a session in place. Pre-fills the current name (falling
+  /// back to an empty field for an instant-create session with no name yet).
+  Future<void> _rename(BuildContext context) async {
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _RenameSessionDialog(currentName: session.name),
+    );
+    if (newName == null || newName.isEmpty || newName == session.name) return;
+    if (!context.mounted) return;
+    await context
+        .read<AgentsController>()
+        .updateSession(session.id, name: newName);
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
@@ -823,6 +963,20 @@ class SessionRowMenu extends StatelessWidget {
       iconSize: 16,
       splashRadius: 16,
       itemBuilder: (_) => [
+        PopupMenuItem<String>(
+          value: 'rename',
+          child: Row(
+            children: [
+              Icon(
+                Icons.edit_outlined,
+                size: 16,
+                color: context.rhythm.textSecondary,
+              ),
+              const SizedBox(width: 8),
+              const Text('Rename'),
+            ],
+          ),
+        ),
         PopupMenuItem<String>(
           value: 'archive',
           child: Row(
@@ -858,12 +1012,67 @@ class SessionRowMenu extends StatelessWidget {
         ),
       ],
       onSelected: (v) {
-        if (v == 'archive') {
+        if (v == 'rename') {
+          _rename(context);
+        } else if (v == 'archive') {
           context.read<AgentsController>().archiveSession(session.id);
         } else if (v == 'delete') {
           _confirmDelete(context);
         }
       },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// #903 — Rename dialog
+// ---------------------------------------------------------------------------
+
+/// A StatefulWidget (not a bare inline builder) so its TextEditingController
+/// is disposed by State.dispose() at the correct point in the dialog route's
+/// lifecycle. Disposing it manually right after showDialog() returns races
+/// the route's exit transition, which can still be rebuilding the bound
+/// TextField — "A TextEditingController was used after being disposed."
+class _RenameSessionDialog extends StatefulWidget {
+  const _RenameSessionDialog({required this.currentName});
+
+  final String currentName;
+
+  @override
+  State<_RenameSessionDialog> createState() => _RenameSessionDialogState();
+}
+
+class _RenameSessionDialogState extends State<_RenameSessionDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.currentName);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Rename session'),
+      content: TextField(
+        key: const ValueKey('rename-session-field'),
+        controller: _controller,
+        autofocus: true,
+        decoration: const InputDecoration(hintText: 'Session name'),
+        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

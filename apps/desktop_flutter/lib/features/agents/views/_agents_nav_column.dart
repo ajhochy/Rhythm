@@ -30,6 +30,7 @@ import '../../agent_webhooks/views/agent_webhooks_view.dart';
 import '../../run_quality/views/run_quality_view.dart';
 import '../../settings/views/settings_view.dart';
 import '../controllers/agents_controller.dart';
+import '../models/agent_session.dart';
 import '_agent_profile_sheet.dart';
 import '_agent_settings_sheet.dart';
 import '_session_list_body.dart';
@@ -65,9 +66,13 @@ class AgentsNavColumn extends StatefulWidget {
   State<AgentsNavColumn> createState() => _AgentsNavColumnState();
 }
 
+/// #903 — session list sort keys.
+enum _SessionSortField { dateNewest, dateOldest, name, lastActivity }
+
 class _AgentsNavColumnState extends State<AgentsNavColumn> {
   String _searchQuery = '';
   final _searchController = TextEditingController();
+  _SessionSortField _sortField = _SessionSortField.dateNewest;
 
   /// Sessions selected via Shift-click for bulk actions (mirrored from old
   /// _SessionListPanelState so existing selection behaviour is preserved).
@@ -99,6 +104,24 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
       setState(() => _multiSelected.clear());
     }
     context.read<AgentsController>().selectSession(id);
+  }
+
+  /// #903 — comparator backing the session-list sort menu. `lastActivity`
+  /// falls back to `createdAt` for a session that has never had a turn yet,
+  /// so it doesn't get pushed to a confusing "no date" bucket.
+  int _compareSessions(AgentSession a, AgentSession b) {
+    switch (_sortField) {
+      case _SessionSortField.dateNewest:
+        return b.createdAt.compareTo(a.createdAt);
+      case _SessionSortField.dateOldest:
+        return a.createdAt.compareTo(b.createdAt);
+      case _SessionSortField.name:
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      case _SessionSortField.lastActivity:
+        final aTime = a.lastActivityAt ?? a.createdAt;
+        final bTime = b.lastActivityAt ?? b.createdAt;
+        return bTime.compareTo(aTime);
+    }
   }
 
   Future<void> _onToggleArchived() async {
@@ -197,12 +220,12 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
             )
             .toList();
 
-    // Newest sessions first: a freshly created session appears at the TOP of
-    // the list (and is the auto-selected row from _instantCreateSession),
-    // instead of being appended to the bottom where it's easy to miss.
+    // #903 — sortable session list. Default (dateNewest) preserves the prior
+    // hardcoded behavior: a freshly created session appears at the TOP of the
+    // list (the auto-selected row from _instantCreateSession) instead of
+    // being appended to the bottom where it's easy to miss.
     // A sorted copy — controller.sessions is unmodifiable.
-    final filteredSessions = [...searchFiltered]
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final filteredSessions = [...searchFiltered]..sort(_compareSessions);
 
     return Container(
       key: const ValueKey('agents-nav-column'),
@@ -305,6 +328,40 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
                   ),
                 ),
                 const Spacer(),
+                // #903 — sort menu.
+                PopupMenuButton<_SessionSortField>(
+                  key: const ValueKey('session-sort-menu'),
+                  tooltip: 'Sort sessions',
+                  initialValue: _sortField,
+                  onSelected: (v) => setState(() => _sortField = v),
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: _SessionSortField.dateNewest,
+                      child: Text('Date (newest first)'),
+                    ),
+                    PopupMenuItem(
+                      value: _SessionSortField.dateOldest,
+                      child: Text('Date (oldest first)'),
+                    ),
+                    PopupMenuItem(
+                      value: _SessionSortField.name,
+                      child: Text('Name'),
+                    ),
+                    PopupMenuItem(
+                      value: _SessionSortField.lastActivity,
+                      child: Text('Last activity'),
+                    ),
+                  ],
+                  child: SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: Icon(
+                      Icons.sort_rounded,
+                      size: 14,
+                      color: context.rhythm.textMuted,
+                    ),
+                  ),
+                ),
                 // Refresh button (mirrored from old _SessionListHeader).
                 SizedBox(
                   width: 28,

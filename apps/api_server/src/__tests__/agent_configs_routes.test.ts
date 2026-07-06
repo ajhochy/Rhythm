@@ -45,18 +45,19 @@ describe('GET /agent-configs', () => {
     await closeServer();
   });
 
-  it('returns all seeded preset rows plus the Config Doctor profile', async () => {
+  it('returns all seeded preset rows plus the Config Doctor and Rhythm Setup profiles', async () => {
     const res = await fetch(`${baseUrl}/agent-configs`, { headers: authHeaders });
     expect(res.status).toBe(200);
     const configs = (await res.json()) as Array<{ id: string }>;
     expect(Array.isArray(configs)).toBe(true);
-    expect(configs.length).toBe(5);
+    expect(configs.length).toBe(6);
     const ids = configs.map((c) => c.id);
     expect(ids).toContain('claude-code');
     expect(ids).toContain('codex');
     expect(ids).toContain('gemini-cli');
     expect(ids).toContain('opencode');
     expect(ids).toContain('config-doctor');
+    expect(ids).toContain('rhythm-setup');
   });
 });
 

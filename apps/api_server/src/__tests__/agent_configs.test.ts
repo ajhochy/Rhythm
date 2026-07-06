@@ -20,12 +20,13 @@ describe('agent_configs migration', () => {
     expect(table?.name).toBe('agent_configs');
   });
 
-  it('seeds exactly four preset rows plus the Config Doctor profile', () => {
+  it('seeds exactly four preset rows plus the Config Doctor and Rhythm Setup profiles', () => {
     const db = makeDb();
     const count = (
       db.prepare(`SELECT COUNT(*) as cnt FROM agent_configs`).get() as { cnt: number }
     ).cnt;
-    expect(count).toBe(5);
+    // 4 presets + config-doctor (#900) + rhythm-setup (#911)
+    expect(count).toBe(6);
   });
 
   it('Config Doctor system prompt passes the context scanner (never silently orphaned)', () => {
@@ -148,7 +149,7 @@ describe('agent_configs migration', () => {
     const count = (
       db.prepare(`SELECT COUNT(*) as cnt FROM agent_configs`).get() as { cnt: number }
     ).cnt;
-    expect(count).toBe(5);
+    expect(count).toBe(6);
   });
 });
 

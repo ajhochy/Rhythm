@@ -690,6 +690,41 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       }
     }
 
+    // #892 — preflight: a specialist whose required MCP servers aren't
+    // authenticated (e.g. worship-planning's all-pco-services toolset with no
+    // PCO OAuth configured) previously hung all the way to the createSession +
+    // prompt() timeout race below (up to AGENT_RUN_TIMEOUT_MS, 600s default) —
+    // the engine can't bring up the backend, so the api_server→engine call
+    // eventually dies with a generic UND_ERR_HEADERS_TIMEOUT. Check the live
+    // MCP status map for every server this run's role requires and fail fast
+    // with a clear, actionable message instead. Fail-OPEN on the status check
+    // itself (engine not ready / listMcp() throws) — a preflight-check failure
+    // must never block a run that might otherwise succeed.
+    if (mcpRoleConfig && opencodeClient.isReady) {
+      const requiredServers = Object.keys(mcpRoleConfig.mcpServers);
+      if (requiredServers.length > 0) {
+        try {
+          const statusMap = await opencodeClient.listMcp();
+          const unauthed = requiredServers.filter(
+            (name) => statusMap[name]?.status === 'needs_auth',
+          );
+          if (unauthed.length > 0) {
+            const msg = `AgentRunner: ${unauthed.join(', ')} isn't connected — connect it in Integrations before delegating to this specialist`;
+            logger.warn(`[AgentRunner] ${msg}`);
+            _markSessionError(rhythmSessionId, msg);
+            return {
+              sessionId: rhythmSessionId ?? '',
+              result: '',
+              status: 'error',
+              error: msg,
+            };
+          }
+        } catch (err) {
+          logger.warn(`[AgentRunner] #892 MCP readiness preflight failed (non-fatal, proceeding): ${String(err)}`);
+        }
+      }
+    }
+
     // ── Create session ────────────────────────────────────────────────────────
     // #884: pass the already-resolved provider so createSession can trim the
     // MCP allowlist to Gemini's function-declaration cap when this run is
@@ -761,7 +796,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     if (timedOut) {
       await opencodeClient.abortSession(sessionId, cwd).catch(() => {});
       logger.warn(`[AgentRunner] session ${sessionId} timed out after ${timeoutMs}ms`);
-      _markSessionError(rhythmSessionId);
+      _markSessionError(rhythmSessionId, `Run timed out after ${timeoutMs}ms`);
       return {
         sessionId: rhythmSessionId ?? sessionId,
         result: '',
@@ -774,7 +809,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       logger.error(
         `[AgentRunner] session ${sessionId}: prompt returned no response (model ${resolvedModel.providerID}/${resolvedModel.modelID} may be invalid or the provider unauthenticated)`,
       );
-      _markSessionError(rhythmSessionId);
+      _markSessionError(
+        rhythmSessionId,
+        `No response from ${resolvedModel.providerID}/${resolvedModel.modelID} — check the model is valid and the provider is authenticated`,
+      );
       return {
         sessionId: rhythmSessionId ?? sessionId,
         result: '',
@@ -825,7 +863,20 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         if (resultText) {
           msgRepo.append(rhythmSessionId, 'output', resultText, resultText);
         }
-        new AgentSessionsRepository().updateStatus(rhythmSessionId, 'idle');
+        const sessRepo = new AgentSessionsRepository();
+        sessRepo.updateStatus(rhythmSessionId, 'idle');
+        // #904 — background loop "what happened" activity log. Interactive
+        // chats get last_preview from the WS stream bridge; a scheduled/
+        // headless run bypasses that bridge entirely (see comment above), so
+        // without this a background run's session row never carries a
+        // preview of its own output.
+        if (resultText) {
+          sessRepo.updatePreview(
+            rhythmSessionId,
+            resultText.slice(0, 500),
+            new Date().toISOString(),
+          );
+        }
       } catch (err) {
         logger.warn(`[AgentRunner] persist result failed (non-fatal): ${String(err)}`);
       }
@@ -873,7 +924,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   } catch (err) {
     const errMsg = String(err);
     logger.error(`[AgentRunner] unexpected error: ${errMsg}`);
-    _markSessionError(rhythmSessionId);
+    _markSessionError(rhythmSessionId, errMsg);
     return {
       sessionId: rhythmSessionId ?? '',
       result: '',
@@ -885,11 +936,19 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   }
 }
 
-/** Mark a recorded run session as errored (non-fatal best-effort). */
-function _markSessionError(rhythmSessionId: string | null): void {
+/**
+ * Mark a recorded run session as errored (non-fatal best-effort). #904 — an
+ * optional message is recorded as the session's last_preview so the
+ * background-loop activity log shows WHY a run failed, not just that it did.
+ */
+function _markSessionError(rhythmSessionId: string | null, message?: string): void {
   if (!rhythmSessionId) return;
   try {
-    new AgentSessionsRepository().updateStatus(rhythmSessionId, 'error');
+    const repo = new AgentSessionsRepository();
+    repo.updateStatus(rhythmSessionId, 'error');
+    if (message) {
+      repo.updatePreview(rhythmSessionId, message.slice(0, 500), new Date().toISOString());
+    }
   } catch {
     /* non-fatal */
   }

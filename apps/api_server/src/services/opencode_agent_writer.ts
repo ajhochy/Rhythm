@@ -190,6 +190,18 @@ function agentFilePath(id: string): string {
 }
 
 /**
+ * True when a projectable profile is missing its on-disk `.md` file — the
+ * #900 orphaned-duplicate symptom (a row inserted into `agent_configs`
+ * without going through `writeAgentProfileFile`). Environment-gated the same
+ * way as `shouldWriteAgentFile` so callers get a consistent "nothing to heal"
+ * answer under postgres/test.
+ */
+export function isAgentProfileFileMissing(config: AgentConfig): boolean {
+  if (!shouldWriteAgentFile(config)) return false;
+  return !existsSync(agentFilePath(config.id));
+}
+
+/**
  * True when this profile IS (or should become) a real opencode agent,
  * independent of environment side-effect gating (test/postgres). Excludes CLI
  * model-selector presets and opencode built-ins (see module doc) — those are

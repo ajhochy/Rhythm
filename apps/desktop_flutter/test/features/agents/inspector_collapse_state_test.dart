@@ -141,18 +141,39 @@ void main() {
 
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test('panelCollapsed defaults false and setPanelCollapsed persists',
-      () async {
+  // #905 — the panel now defaults to collapsed (true) until a user
+  // explicitly opens it, so both the raw field default and the
+  // no-stored-preference load path must return true.
+  test('panelCollapsed defaults true and setPanelCollapsed persists', () async {
     final c = _buildController();
-    expect(c.panelCollapsed, false);
-    await c.setPanelCollapsed(true);
     expect(c.panelCollapsed, true);
+    await c.setPanelCollapsed(false);
+    expect(c.panelCollapsed, false);
     final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getBool('agents.inspector.collapsed'), true);
+    expect(prefs.getBool('agents.inspector.collapsed'), false);
     c.dispose();
   });
 
-  test('loadInspectorPrefs restores persisted value', () async {
+  test('loadInspectorPrefs defaults to collapsed when nothing is persisted',
+      () async {
+    final c = _buildController();
+    await c.loadInspectorPrefs();
+    expect(c.panelCollapsed, true);
+    c.dispose();
+  });
+
+  test('loadInspectorPrefs restores a persisted "expanded" preference',
+      () async {
+    SharedPreferences.setMockInitialValues(
+        {'agents.inspector.collapsed': false});
+    final c = _buildController();
+    await c.loadInspectorPrefs();
+    expect(c.panelCollapsed, false);
+    c.dispose();
+  });
+
+  test('loadInspectorPrefs restores a persisted "collapsed" preference',
+      () async {
     SharedPreferences.setMockInitialValues(
         {'agents.inspector.collapsed': true});
     final c = _buildController();

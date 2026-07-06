@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../../agents/models/agent_session.dart';
 import '../models/agent_scheduled_task.dart';
 import '../repositories/agent_schedules_repository.dart';
 
@@ -88,4 +89,10 @@ class AgentSchedulesController extends ChangeNotifier {
       rethrow;
     }
   }
+
+  /// #904 — recent runs of a scheduled task (activity log). Not cached on the
+  /// controller: callers (the detail sheet) own their own load/loading state
+  /// via a FutureBuilder, same as any on-demand detail fetch.
+  Future<List<AgentSession>> listRuns(String scheduledTaskId) =>
+      _repository.listRuns(scheduledTaskId);
 }

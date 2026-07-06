@@ -137,9 +137,17 @@ export class AgentSchedulesController {
 
       // Force next_run_at to now so the scheduler picks it up in the next tick
       const nowIso = new Date().toISOString();
-      await repo.updateAsync(task.id, { nextRunAt: nowIso } as Parameters<typeof repo.updateAsync>[1]);
+      const updated = await repo.updateAsync(
+        task.id,
+        { nextRunAt: nowIso } as Parameters<typeof repo.updateAsync>[1],
+      );
 
-      res.json({ message: 'Task queued for immediate execution' });
+      // Return the full updated task, not just a message — the Flutter client
+      // parses this response as an AgentScheduledTask to merge into its local
+      // list. A message-only body used to silently parse into a garbage task
+      // (empty id/name, 'daily'/'opencode' fallback defaults) that overwrote
+      // the real triggered task in local state.
+      res.json(updated ?? task);
     } catch (err) { next(err); }
   }
 }

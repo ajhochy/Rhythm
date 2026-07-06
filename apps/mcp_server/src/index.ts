@@ -21,6 +21,9 @@ import { registerAgentSessionTools } from './tools/agentSessions.js';
 import { registerAgentResearchTools } from './tools/agentResearch.js';
 import { registerOrgOptimizerTools } from './tools/orgOptimizer.js';
 import { registerGithubIssueTools } from './tools/githubIssues.js';
+import { registerAgentApprovalTools } from './tools/agentApprovals.js';
+import { registerFeedbackSensorTools } from './tools/feedbackSensors.js';
+import { registerAgentProfileTools } from './tools/agentProfiles.js';
 
 const RHYTHM_API_URL = process.env.RHYTHM_API_URL ?? 'https://api.vcrcapps.com';
 const RHYTHM_API_TOKEN = process.env.RHYTHM_API_TOKEN ?? '';
@@ -65,6 +68,15 @@ registerAgentMemoryTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 // distilling facts via rhythm_remember_memory. Routed at RHYTHM_AGENT_URL —
 // never serverConfig.url (dual-endpoint rule).
 registerAgentSessionTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
+// #895 — approval gate state lives on the LOCAL agent server (SQLite, same
+// convention as agent_sessions/agent_configs), routed at RHYTHM_AGENT_URL.
+registerAgentApprovalTools(server, RHYTHM_AGENT_URL);
+// #897 — feedback sensors reuse the prod-facing read endpoints (PCO, Gmail,
+// tasks), same routing as the other prod-backed tools above.
+registerFeedbackSensorTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+// #911 — profile creation is agent-execution state (agent_configs), routed
+// at RHYTHM_AGENT_URL like the other local-agent-server tools above.
+registerAgentProfileTools(server, RHYTHM_AGENT_URL);
 registerAgentResearchTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 // #850 (org-optimizer-16) — the run-loop trigger is an agent-execution
 // surface backed by local SQLite (agent_org_proposals), routed at

@@ -265,3 +265,48 @@ describe('syncOpencodeAgentProfiles — #858 oc_agent backfill', () => {
     expect(after.ocAgent).toBeNull();
   });
 });
+
+// #900 — a profile row inserted without ever calling writeAgentProfileFile has no
+// ~/.config/opencode/agents/<id>.md, so any session routed to it crashes with
+// "UnknownError: UnknownError" (agent-registry lookup failure). The sync must
+// self-heal these by re-projecting the missing file. writeAgentProfileFile/
+// isAgentProfileFileMissing are file-write gated off under vitest (isTestEnv()),
+// so this test only proves the pass runs over every enabled row without throwing —
+// the file-write itself is covered by the writer module's own gating contract.
+describe('syncOpencodeAgentProfiles — #900 orphaned agent-file self-heal', () => {
+  let repo: AgentConfigsRepository;
+
+  beforeEach(() => {
+    setDb(makeDb());
+    repo = new AgentConfigsRepository();
+  });
+
+  it('does not throw when an enabled projectable profile has no on-disk agent file', async () => {
+    repo.insert({
+      id: 'orphaned-duplicate',
+      label: 'AI Trend Researcher',
+      icon: '',
+      isAgent: true,
+      enabled: true,
+      ocAgent: 'orphaned-duplicate',
+      sessionSelectable: true,
+      sortOrder: 100,
+    });
+
+    await expect(syncOpencodeAgentProfiles([])).resolves.toEqual({ synced: 0 });
+  });
+
+  it('skips disabled rows without throwing', async () => {
+    repo.insert({
+      id: 'disabled-orphan',
+      label: 'Disabled Orphan',
+      icon: '',
+      isAgent: true,
+      enabled: false,
+      sessionSelectable: true,
+      sortOrder: 100,
+    });
+
+    await expect(syncOpencodeAgentProfiles([])).resolves.toEqual({ synced: 0 });
+  });
+});

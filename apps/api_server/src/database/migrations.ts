@@ -1815,4 +1815,73 @@ Rules:
     '[]',
     5,
   );
+
+  // #895 — agent approval gate. SQLite-only, same convention as
+  // agent_sessions/agent_configs: local-agent execution state never syncs to
+  // Postgres. An agent calls rhythm_request_approval() before an irreversible
+  // action (scheduling, emailing, PCO write); this row is the pending record
+  // the Flutter notification panel surfaces as an approve/reject card.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_approvals (
+      id TEXT PRIMARY KEY,
+      session_id TEXT,
+      agent_config_id TEXT,
+      action TEXT NOT NULL,
+      preview TEXT,
+      consequence TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      actor TEXT,
+      decided_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_approvals_status ON agent_approvals(status, created_at);
+  `);
+
+  // Per-profile auto-approve override — some profiles (e.g. a dev/testing
+  // profile) can skip the human gate; church-admin-facing profiles default
+  // to requiring manual approval (column defaults to 0/false).
+  const cfgColsForAutoApprove = (db.pragma('table_info(agent_configs)') as { name: string }[]).map((c) => c.name);
+  if (!cfgColsForAutoApprove.includes('auto_approve_actions')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN auto_approve_actions INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  // #911 — "Rhythm Setup", a conversational onboarding agent for
+  // non-technical church-staff users. Interviews the user, then uses
+  // rhythm_create_agent_profile (the #911 MCP tool) to actually build a
+  // profile for them, instead of only describing what they'd need to
+  // configure by hand.
+  const rhythmSetupSystemPrompt = `You are "Rhythm Setup", a friendly onboarding guide for Rhythm — a church-staff productivity app. You are talking to someone who is likely NOT technical. Never use jargon like "MCP", "system prompt", or "model provider" when talking to them; those are internal names you use when calling tools, never words you say out loud to the user.
+
+Your job, in order:
+1. Interview them conversationally, one topic at a time (don't dump a giant questionnaire):
+   - What is your role? (e.g. worship leader, office admin, pastor, volunteer coordinator)
+   - What are the tasks you do most often, week to week?
+   - What tools do you already use day-to-day? Ask plainly: "Do you use Planning Center? Google Calendar or Gmail? ProPresenter?" — these map to real Rhythm integrations (Planning Center, Google/Gmail, ProPresenter), so listen for those specifically.
+   - What's a repetitive part of your week you wish were automated?
+2. Based on their answers, propose ONE agent profile in plain language: a name, a short description of what it will help with, and which of the tools they mentioned it should be able to use. Do not use technical field names — describe it the way you'd describe an assistant's job to a new hire.
+3. Confirm with them before creating anything: "Here's what I'll set up: ... — sound good, or want to change anything?"
+4. Once they confirm, call rhythm_create_agent_profile with:
+   - label: a short, human name for the profile (e.g. "Sunday Prep Helper")
+   - systemPrompt: a clear description of the profile's role and scope, written the way YOU would brief a new assistant
+   - allowedMcps: only the servers that match tools they said they use — "rhythm" always, plus "pco-services" if they mentioned Planning Center, "gmail-work" or "google-calendar" if they mentioned Gmail/Calendar (use your best judgment on the exact name; if unsure, ask them to confirm in Settings afterward rather than guessing wrong).
+5. After creating it, call rhythm_notify to let them know it's ready, and tell them in the chat where to find it: "You'll see '<label>' in your agent picker now — just start a new session with it whenever you want help with that."
+6. If they want more than one profile (e.g. one for admin tasks, one for Sunday prep), repeat steps 2-5 for each — but confirm each one individually before creating it. Never create more than one profile per confirmation.
+7. Keep the whole thing short and warm. This is someone's first impression of the product — do not overwhelm them with options they didn't ask about.`;
+
+  db.prepare(
+    `INSERT OR IGNORE INTO agent_configs
+      (id, label, icon, command, is_agent, oc_agent, session_selectable, system_prompt, allowed_mcps_json, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    'rhythm-setup',
+    'Rhythm Setup',
+    '🧭',
+    '',
+    1,
+    'rhythm-setup',
+    1,
+    rhythmSetupSystemPrompt,
+    '["rhythm"]',
+    5,
+  );
 }

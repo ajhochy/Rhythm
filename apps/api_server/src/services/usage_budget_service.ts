@@ -27,6 +27,7 @@ import { join } from 'path';
 import { logger } from '../utils/logger';
 import { GEMINI_CODE_ASSIST_PROJECT_ID } from '../config/env';
 import { CredentialsBridgeService } from './credentials_bridge_service';
+import { anthropicAccountsService } from './anthropic_accounts_service';
 
 export type UsageBudgetKind = 'quota' | 'credits' | 'window' | 'unavailable';
 
@@ -48,6 +49,13 @@ export interface UsageBudgetProvider {
   items: UsageBudgetItem[];
   /** Populated when kind === 'unavailable'. */
   reason?: string;
+  /**
+   * #907 — present only for 'anthropic' entries. A user can connect multiple
+   * Anthropic accounts (dual-accounts, #898); each gets its OWN provider
+   * entry here (not merged into one) so the UI can show every connected
+   * account's usage gauges simultaneously, not just the active/default one.
+   */
+  accountId?: string;
 }
 
 export interface UsageBudgetSnapshot {
@@ -166,18 +174,11 @@ async function fetchOpenRouter(auth: Record<string, unknown>): Promise<UsageBudg
   }
 }
 
-async function fetchAnthropic(auth: Record<string, unknown>): Promise<UsageBudgetProvider> {
-  const base: UsageBudgetProvider = {
-    provider: 'anthropic',
-    label: 'Anthropic',
-    kind: 'window',
-    items: [],
-  };
-  // Prefer the Claude Code creds (auto-refreshed); fall back to auth.json.
-  const token =
-    credsBridge.readClaudeCreds()?.access ??
-    (auth.anthropic as { access?: string } | undefined)?.access;
-  if (!token) return { ...base, kind: 'unavailable', reason: 'No Anthropic credentials' };
+/** Probe ONE Anthropic account's rate-limit headers. Never throws. */
+async function probeAnthropicAccount(
+  token: string,
+  base: UsageBudgetProvider,
+): Promise<UsageBudgetProvider> {
   try {
     // Minimal 1-token probe — the only way to read the unified rate-limit
     // headers (same source Claude Code `/usage` uses). Negligible quota cost.
@@ -225,6 +226,49 @@ async function fetchAnthropic(auth: Record<string, unknown>): Promise<UsageBudge
   }
 }
 
+/**
+ * #907 — one UsageBudgetProvider entry PER connected Anthropic account,
+ * probed concurrently, so the UI can show every account's gauges at once
+ * instead of only the active/default one. Falls back to the legacy
+ * single-credential path (Claude Code creds / auth.json) when the accounts
+ * store has nothing yet — e.g. a fresh install before the store's own
+ * migrateFromClaudeCode() has run.
+ */
+async function fetchAnthropic(auth: Record<string, unknown>): Promise<UsageBudgetProvider[]> {
+  const { accounts } = anthropicAccountsService.listRedacted();
+
+  if (accounts.length > 0) {
+    return Promise.all(
+      accounts.map((account) => {
+        const base: UsageBudgetProvider = {
+          provider: 'anthropic',
+          label: `Anthropic — ${account.label}`,
+          kind: 'window',
+          items: [],
+          accountId: account.id,
+        };
+        const full = anthropicAccountsService.getAccount(account.id);
+        if (!full?.access) {
+          return { ...base, kind: 'unavailable' as const, reason: 'Account needs re-login' };
+        }
+        return probeAnthropicAccount(full.access, base);
+      }),
+    );
+  }
+
+  const base: UsageBudgetProvider = {
+    provider: 'anthropic',
+    label: 'Anthropic',
+    kind: 'window',
+    items: [],
+  };
+  const token =
+    credsBridge.readClaudeCreds()?.access ??
+    (auth.anthropic as { access?: string } | undefined)?.access;
+  if (!token) return [{ ...base, kind: 'unavailable', reason: 'No Anthropic credentials' }];
+  return [await probeAnthropicAccount(token, base)];
+}
+
 function openAiUnavailable(): UsageBudgetProvider {
   return {
     provider: 'openai',
@@ -238,13 +282,13 @@ function openAiUnavailable(): UsageBudgetProvider {
 
 async function buildSnapshot(): Promise<UsageBudgetSnapshot> {
   const auth = readAuthJson();
-  const [gemini, openrouter, anthropic] = await Promise.all([
+  const [gemini, openrouter, anthropicAccounts] = await Promise.all([
     fetchGemini(auth),
     fetchOpenRouter(auth),
     fetchAnthropic(auth),
   ]);
   return {
-    providers: [anthropic, openrouter, gemini, openAiUnavailable()],
+    providers: [...anthropicAccounts, openrouter, gemini, openAiUnavailable()],
     fetchedAt: new Date().toISOString(),
   };
 }
