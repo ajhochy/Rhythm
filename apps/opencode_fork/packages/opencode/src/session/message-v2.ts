@@ -56,6 +56,9 @@ export const ContextOverflowError = NamedError.create("ContextOverflowError", {
   message: Schema.String,
   responseBody: Schema.optional(Schema.String),
 })
+export const CompactionLoopError = NamedError.create("CompactionLoopError", {
+  message: Schema.String,
+})
 
 export class OutputFormatText extends Schema.Class<OutputFormatText>("OutputFormatText")({
   type: Schema.Literal("text"),
@@ -383,6 +386,7 @@ const AssistantErrorSchema = Schema.Union([
   StructuredOutputError.EffectSchema,
   ContextOverflowError.EffectSchema,
   APIError.EffectSchema,
+  CompactionLoopError.EffectSchema,
 ]).annotate({ discriminator: "name" })
 type AssistantError = Schema.Schema.Type<typeof AssistantErrorSchema>
 

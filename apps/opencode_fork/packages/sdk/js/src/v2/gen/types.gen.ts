@@ -187,6 +187,13 @@ export type ApiError = {
   }
 }
 
+export type CompactionLoopError = {
+  name: "CompactionLoopError"
+  data: {
+    message: string
+  }
+}
+
 export type QuestionOption = {
   /**
    * Display text (1-5 words, concise)
@@ -426,6 +433,7 @@ export type AssistantMessage = {
     | StructuredOutputError
     | ContextOverflowError
     | ApiError
+    | CompactionLoopError
   parentID: string
   modelID: string
   providerID: string
@@ -2493,6 +2501,7 @@ export type EventSessionError = {
       | StructuredOutputError
       | ContextOverflowError
       | ApiError
+      | CompactionLoopError
   }
 }
 

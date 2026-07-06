@@ -232,6 +232,7 @@ function normalizeMessages(
         { ...msg, content: parts.filter((part) => part.type === "tool-call") },
       ]
     })
+    msgs = repairToolPairing(msgs)
   }
   if (
     model.providerID === "mistral" ||
@@ -336,6 +337,61 @@ function normalizeMessages(
   }
 
   return msgs
+}
+
+const MISSING_TOOL_RESULT_TEXT = "[Tool result unavailable — history was compacted]"
+
+// Defensive repair for the chokepoint all provider requests flow through. Anthropic
+// rejects a request containing a `tool_use` block with no matching `tool_result`
+// immediately after it, e.g.: `tool_use` ids were found without `tool_result` blocks
+// immediately after. The producer of the dangling tool_use has not been located (see
+// the reorder block above), so instead of chasing it upstream we repair the pairing
+// here: synthesize a placeholder result for any orphaned tool-call, and drop any
+// tool-result that has no matching tool-call. See issue #913.
+export function repairToolPairing(msgs: ModelMessage[]): ModelMessage[] {
+  // Pass 1: for every assistant tool-call, find a matching tool-result somewhere
+  // later in the transcript. Anthropic requires it immediately after, but we
+  // scan the whole tail so we only synthesize for calls that are truly orphaned.
+  const resultIds = new Set<string>()
+  for (const msg of msgs) {
+    if (msg.role !== "tool" || !Array.isArray(msg.content)) continue
+    for (const part of msg.content) {
+      if (part.type === "tool-result") resultIds.add(part.toolCallId)
+    }
+  }
+
+  const callIds = new Set<string>()
+  const result: ModelMessage[] = []
+  for (const msg of msgs) {
+    if (msg.role === "tool" && Array.isArray(msg.content)) {
+      // Pass 2: drop any tool-result whose call was never seen (dangling result).
+      const content = msg.content.filter((part) => part.type !== "tool-result" || callIds.has(part.toolCallId))
+      if (content.length > 0) result.push({ ...msg, content })
+      continue
+    }
+
+    result.push(msg)
+    if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue
+
+    const orphaned = msg.content.filter(
+      (part): part is Extract<(typeof msg.content)[number], { type: "tool-call" }> =>
+        part.type === "tool-call" && !resultIds.has(part.toolCallId),
+    )
+    for (const part of msg.content) if (part.type === "tool-call") callIds.add(part.toolCallId)
+    if (orphaned.length === 0) continue
+
+    result.push({
+      role: "tool",
+      content: orphaned.map((call) => ({
+        type: "tool-result" as const,
+        toolCallId: call.toolCallId,
+        toolName: call.toolName,
+        output: { type: "error-text" as const, value: MISSING_TOOL_RESULT_TEXT },
+      })),
+    })
+  }
+
+  return result
 }
 
 function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage[] {

@@ -80,6 +80,14 @@ type DirectoryStream = {
 };
 
 /**
+ * Matches the Anthropic 400 raised when a `tool_use` block has no matching
+ * `tool_result` immediately after it (or vice versa) — see issue #913. This is
+ * the concrete trigger that used to be misclassified as a generic API error
+ * and fed an uncapped compact -> continue -> compact loop.
+ */
+const TOOL_PAIRING_ERROR_PATTERN = /tool_use.*ids were found without.*tool_result|unexpected tool_use_id/i;
+
+/**
  * Best-effort message extraction from the opencode session.error payload.
  * The SDK wraps API errors in {name, data: {message, ...}} or sometimes
  * delivers nested AI SDK errors. We surface the most useful string we can
@@ -1144,7 +1152,16 @@ export class OpencodeStreamBridge {
       case 'session.error': {
         const errProps = event.properties as Record<string, unknown>;
         const errorInfo = errProps?.error as Record<string, unknown> | undefined;
-        const message = extractErrorMessage(errorInfo);
+        let message = extractErrorMessage(errorInfo);
+        // #913 — orphaned tool_use/tool_result pairing surfaces as an opaque
+        // Anthropic 400. Give it a distinct errorClass + human message so the
+        // UI can tell it apart from a generic API error, instead of showing
+        // the raw "tool_use ids were found without tool_result..." string.
+        const isToolPairingError = TOOL_PAIRING_ERROR_PATTERN.test(message);
+        if (isToolPairingError) {
+          message =
+            'Conversation history became inconsistent (tool call/result pairing). Send a new message to continue.';
+        }
         if (localSessionId) {
           // OPC-M1-4: Flush any partial assistant text accumulated during the
           // turn so the user sees what arrived before the error. Then drop the
@@ -1166,6 +1183,7 @@ export class OpencodeStreamBridge {
           type: 'error',
           id: eventId,
           message,
+          ...(isToolPairingError ? { errorClass: 'tool_pairing' } : {}),
         });
         // OPC-M1-4: Persist error state on the DB row (status='error',
         // status_message=message). This replaces the old in-memory

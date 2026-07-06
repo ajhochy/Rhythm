@@ -1444,7 +1444,6 @@ describe("session.message-v2.fromError", () => {
       "Your input exceeds the context window of this model",
       "The input token count (1196265) exceeds the maximum number of tokens allowed (1048575)",
       "Please reduce the length of the messages or completion",
-      "400 status code (no body)",
       "413 status code (no body)",
     ]
 
@@ -1460,6 +1459,38 @@ describe("session.message-v2.fromError", () => {
       const result = MessageV2.fromError(error, { providerID })
       expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(true)
     })
+  })
+
+  // A bodyless "400 (no body)" is only treated as context overflow for providers
+  // known to actually return that shape for overflow (cerebras/mistral). For any
+  // other provider it is left as a generic api_error — otherwise a proxy that
+  // strips the body from an unrelated 400 (e.g. the #913 tool_use/tool_result
+  // pairing error) gets misclassified as overflow and feeds an uncapped
+  // compact -> continue -> compact loop.
+  test("does not treat a bodyless 400 as context overflow for providers outside the known allowlist", () => {
+    const error = new APICallError({
+      message: "400 status code (no body)",
+      url: "https://example.com",
+      requestBodyValues: {},
+      statusCode: 400,
+      responseHeaders: { "content-type": "application/json" },
+      isRetryable: false,
+    })
+    const result = MessageV2.fromError(error, { providerID })
+    expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(false)
+  })
+
+  test("treats a bodyless 400 as context overflow for providers known to use it for overflow", () => {
+    const error = new APICallError({
+      message: "400 status code (no body)",
+      url: "https://example.com",
+      requestBodyValues: {},
+      statusCode: 400,
+      responseHeaders: { "content-type": "application/json" },
+      isRetryable: false,
+    })
+    const result = MessageV2.fromError(error, { providerID: ProviderID.make("cerebras") })
+    expect(MessageV2.ContextOverflowError.isInstance(result)).toBe(true)
   })
 
   test("detects context overflow from context_length_exceeded code in response body", () => {

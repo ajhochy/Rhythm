@@ -1947,3 +1947,137 @@ describe("SessionNs.getUsage", () => {
     expect(result.tokens.cache.write).toBe(300)
   })
 })
+
+describe("session.compaction.autoContinueExhausted", () => {
+  let seq = 0
+  function nextID() {
+    seq++
+    return `msg_${seq}` as MessageID
+  }
+
+  function userMsg(parts: MessageV2.Part[]): MessageV2.WithParts {
+    return {
+      info: {
+        id: nextID(),
+        role: "user",
+        sessionID: SessionID.make("ses_test"),
+        model: ref,
+        agent: "build",
+        time: { created: Date.now() },
+      },
+      parts,
+    }
+  }
+
+  function assistantMsg(parts: MessageV2.Part[]): MessageV2.WithParts {
+    return {
+      info: {
+        id: nextID(),
+        role: "assistant",
+        sessionID: SessionID.make("ses_test"),
+        parentID: nextID(),
+        modelID: ref.modelID,
+        providerID: ref.providerID,
+        mode: "build",
+        agent: "build",
+        path: { cwd: "/tmp", root: "/tmp" },
+        cost: 0,
+        tokens: { output: 0, input: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        time: { created: Date.now() },
+      },
+      parts,
+    }
+  }
+
+  function autoCompactionPart(): MessageV2.CompactionPart {
+    return { id: PartID.ascending(), sessionID: SessionID.make("ses_test"), messageID: nextID(), type: "compaction", auto: true }
+  }
+
+  function completedToolPart(): MessageV2.ToolPart {
+    return {
+      id: PartID.ascending(),
+      sessionID: SessionID.make("ses_test"),
+      messageID: nextID(),
+      type: "tool",
+      callID: "call_1",
+      tool: "read",
+      state: {
+        status: "completed",
+        input: {},
+        output: "done",
+        title: "done",
+        metadata: {},
+        time: { start: Date.now(), end: Date.now() },
+      },
+    }
+  }
+
+  function textPart(text: string, opts?: { synthetic?: boolean; metadata?: Record<string, unknown> }): MessageV2.TextPart {
+    return {
+      id: PartID.ascending(),
+      sessionID: SessionID.make("ses_test"),
+      messageID: nextID(),
+      type: "text",
+      text,
+      synthetic: opts?.synthetic,
+      metadata: opts?.metadata,
+    }
+  }
+
+  test("returns false when under the cap", () => {
+    const messages = [userMsg([autoCompactionPart()]), userMsg([autoCompactionPart()])]
+    expect(SessionCompaction.autoContinueExhausted(messages, 3)).toBe(false)
+  })
+
+  test("returns true once the cap of consecutive auto-compactions is reached", () => {
+    const messages = [userMsg([autoCompactionPart()]), userMsg([autoCompactionPart()]), userMsg([autoCompactionPart()])]
+    expect(SessionCompaction.autoContinueExhausted(messages, 3)).toBe(true)
+  })
+
+  test("resets the count on a completed tool call", () => {
+    const messages = [
+      userMsg([autoCompactionPart()]),
+      userMsg([autoCompactionPart()]),
+      assistantMsg([completedToolPart()]),
+      userMsg([autoCompactionPart()]),
+    ]
+    expect(SessionCompaction.autoContinueExhausted(messages, 3)).toBe(false)
+  })
+
+  test("resets the count on real (non-synthetic) user input", () => {
+    const messages = [
+      userMsg([autoCompactionPart()]),
+      userMsg([autoCompactionPart()]),
+      userMsg([textPart("please keep going")]),
+      userMsg([autoCompactionPart()]),
+    ]
+    expect(SessionCompaction.autoContinueExhausted(messages, 3)).toBe(false)
+  })
+
+  test("does not reset the count on a synthetic compaction_continue prompt", () => {
+    const messages = [
+      userMsg([autoCompactionPart()]),
+      userMsg([textPart("Continue if you have next steps", { synthetic: true, metadata: { compaction_continue: true } })]),
+      userMsg([autoCompactionPart()]),
+      userMsg([textPart("Continue if you have next steps", { synthetic: true, metadata: { compaction_continue: true } })]),
+      userMsg([autoCompactionPart()]),
+    ]
+    expect(SessionCompaction.autoContinueExhausted(messages, 3)).toBe(true)
+  })
+
+  test("does not treat a replayed text part as real user input", () => {
+    const messages = [
+      userMsg([autoCompactionPart()]),
+      userMsg([textPart("original prompt", { metadata: { compaction_replay: true } })]),
+      userMsg([autoCompactionPart()]),
+      userMsg([autoCompactionPart()]),
+    ]
+    expect(SessionCompaction.autoContinueExhausted(messages, 3)).toBe(true)
+  })
+
+  test("defaults to AUTO_CONTINUE_CAP when no cap is passed", () => {
+    expect(SessionCompaction.AUTO_CONTINUE_CAP).toBe(3)
+    const messages = [userMsg([autoCompactionPart()]), userMsg([autoCompactionPart()]), userMsg([autoCompactionPart()])]
+    expect(SessionCompaction.autoContinueExhausted(messages)).toBe(true)
+  })
+})
