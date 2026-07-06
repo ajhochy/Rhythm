@@ -31,6 +31,21 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 const DOOM_LOOP_THRESHOLD = 3
 const log = Log.create({ service: "session.processor" })
 
+// Matches the Vercel AI SDK's internal streamText bookkeeping error, thrown
+// client-side when a reasoning-delta/reasoning-end (or text-delta/text-end)
+// chunk arrives for an id with no active -start in the same request. Our own
+// reasoning/text handlers already tolerate unknown ids (see reasoning-delta,
+// reasoning-end, text-delta, text-end below) — the SDK's own bookkeeping is
+// the only thing that treats this as fatal. Swallowing it loses only the
+// orphaned summary text; see issue #912.
+const SPURIOUS_STREAM_PART_ERROR = /^(reasoning|text) part \S+ not found$/
+
+export function isSpuriousStreamPartError(e: unknown): boolean {
+  if (typeof e === "string") return SPURIOUS_STREAM_PART_ERROR.test(e)
+  if (e instanceof Error) return SPURIOUS_STREAM_PART_ERROR.test(e.message)
+  return false
+}
+
 export type Result = "compact" | "stop" | "continue"
 
 export type Event = LLM.Event
@@ -474,6 +489,10 @@ export const layer: Layer.Layer<
           }
 
           case "error":
+            if (isSpuriousStreamPartError(value.error)) {
+              slog.warn("spurious stream part error, ignoring", { error: errorMessage(value.error) })
+              return
+            }
             throw value.error
 
           case "start-step":

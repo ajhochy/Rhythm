@@ -35,6 +35,7 @@ export const Event = {
 
 export const PRUNE_MINIMUM = 20_000
 export const PRUNE_PROTECT = 40_000
+export const AUTO_CONTINUE_CAP = 3
 const TOOL_OUTPUT_MAX_CHARS = 2_000
 const PRUNE_PROTECTED_TOOLS = ["skill"]
 const DEFAULT_TAIL_TURNS = 2
@@ -119,6 +120,32 @@ function completedCompactions(messages: MessageV2.WithParts[]) {
     if (userIndex === undefined) return []
     return [{ userIndex, assistantIndex, summary: summaryText(msg) }]
   })
+}
+
+// Counts consecutive auto-compactions (newest-first) that produced no progress:
+// no completed tool call and no real (non-synthetic, non-replay) user input since.
+// Used to break the compact -> continue -> compact loop from issue #913.
+export function autoContinueExhausted(messages: MessageV2.WithParts[], cap = AUTO_CONTINUE_CAP): boolean {
+  let count = 0
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (msg.info.role === "assistant") {
+      const hasCompletedTool = msg.parts.some((part) => part.type === "tool" && part.state.status === "completed")
+      if (hasCompletedTool) break
+      continue
+    }
+    if (msg.info.role !== "user") continue
+    const isAutoCompaction = msg.parts.some((part) => part.type === "compaction" && part.auto)
+    if (isAutoCompaction) {
+      count++
+      continue
+    }
+    const hasRealInput = msg.parts.some(
+      (part) => part.type === "text" && !part.synthetic && !part.metadata?.compaction_continue && !part.metadata?.compaction_replay,
+    )
+    if (hasRealInput) break
+  }
+  return count >= cap
 }
 
 function buildPrompt(input: { previousSummary?: string; context: string[] }) {
@@ -482,7 +509,18 @@ export const layer: Layer.Layer<
         })
       }
 
-      if (result === "continue" && input.auto) {
+      const fullHistory = yield* session.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)
+      const loopExhausted = result === "continue" && input.auto && autoContinueExhausted(fullHistory)
+      if (loopExhausted) {
+        yield* bus.publish(Session.Event.Error, {
+          sessionID: input.sessionID,
+          error: new MessageV2.CompactionLoopError({
+            message: `Auto-continue stopped: ${AUTO_CONTINUE_CAP} consecutive compactions without progress. Send a message to resume.`,
+          }).toObject(),
+        })
+      }
+
+      if (result === "continue" && input.auto && !loopExhausted) {
         if (replay) {
           const original = replay.info
           const replayMsg = yield* session.updateMessage({
@@ -502,8 +540,12 @@ export const layer: Layer.Layer<
               part.type === "file" && MessageV2.isMedia(part.mime)
                 ? { type: "text" as const, text: `[Attached ${part.mime}: ${part.filename ?? "file"}]` }
                 : part
+            const taggedPart: typeof replayPart =
+              replayPart.type === "text"
+                ? { ...replayPart, metadata: { ...("metadata" in replayPart ? replayPart.metadata : {}), compaction_replay: true } }
+                : replayPart
             yield* session.updatePart({
-              ...replayPart,
+              ...taggedPart,
               id: PartID.ascending(),
               messageID: replayMsg.id,
               sessionID: input.sessionID,
@@ -567,9 +609,7 @@ export const layer: Layer.Layer<
       if (processor.message.error) return "stop"
       if (result === "continue") {
         const summary = summaryText(
-          (yield* session.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)).find(
-            (item) => item.info.id === msg.id,
-          ) ?? {
+          fullHistory.find((item) => item.info.id === msg.id) ?? {
             info: msg,
             parts: [],
           },
@@ -584,6 +624,7 @@ export const layer: Layer.Layer<
         }
         yield* bus.publish(Event.Compacted, { sessionID: input.sessionID })
       }
+      if (loopExhausted) return "stop"
       return result
     })
 

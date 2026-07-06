@@ -2,68 +2,54 @@
 
 ## Current focus
 
-Live-testing follow-ups on `issue-batch-july4` (three commits, not yet PR'd):
+Two branches merged to `main` this session:
 
-1. #904 — Trigger Now on a scheduled task no longer corrupts local state.
-   Root cause: `trigger-now` returned a message-only body that the Flutter
-   client parsed as a garbage `AgentScheduledTask` (the "Daily" phantom
-   row). Now returns the updated task; empty `scheduledTaskId` no longer
-   leaks unrelated sessions; activity log rows are now tappable.
-2. #911 follow-up — manual refresh button on the Agent Profiles manager
-   sheet so out-of-band profiles (e.g. from the Rhythm Setup agent) appear
-   without an app relaunch.
-3. Cleanup — removed the dead capability-status file-write path; narrowed
-   `CapabilityState` to `'ok' | 'down'`.
+1. opencode session-continuity fixes (#912 + #913) in the vendored fork
+   (PR #924).
+2. `issue-batch-july4` — agent profiles/sessions/scheduling UX + agent-infra
+   (#894–#911) (PR #925).
 
-Prior session (already on `main` via PR #901): scheduled-task↔agent-profile
-binding via the MCP create tool, and the `rhythm doctor` OAuth-provider
-false-positive fix.
+Plus a full audit of the agent system (profiles, delegation, skill/MCP
+scoping) that produced 10 follow-up issues (#914–#923), not yet fixed.
 
 ## Active branch / PR
 
-- `issue-batch-july4` — 21 commits ahead of `main`; PR opened this session
-  after full verification (api_server 2435 tests + tsc clean; flutter 846
-  tests, analyze at 272-info baseline, `dart format` clean).
-- PR #901 (`feature/config-doctor-agent`) merged to `main` last session.
-- PR #924 (`issue-912-913-opencode-continuity`) open — opencode session
-  continuity fixes for #912/#913 (CI green). Separate branch off `main`.
+- PR #924 (`issue-912-913-opencode-continuity`) — MERGED to `main`
+  (Fixes #912, #913).
+- PR #925 (`issue-batch-july4`, 22 commits) — MERGED to `main`.
+- PR #901 (`feature/config-doctor-agent`) — merged last session.
 
 ## In progress
 
-- Implementation and verification are complete locally for both slices.
-- No live SQLite database was edited directly and no existing scheduled
-  task was deleted.
-- Other Config Doctor findings from the 2026-07-04 diagnosis session are
-  still open (see Risks below) — not yet turned into issues/fixes.
+- Nothing mid-flight. #912/#913 and the July-4 batch are on `main`.
+- Agent-system audit fixes (#914–#923) NOT started — filed as issues only,
+  per user instruction to leave them for later.
 
 ## Risks / known issues
 
-- Branch-vs-main GitNexus comparison is CRITICAL for future long-lived
-  branches — the pre-merge `feature/config-doctor-agent` branch had
-  accumulated 236 changed files at one point; the two shippable change
-  sets folded into #901 are each LOW risk with no affected execution
-  flows outside their own area.
-- Rhythm intentionally owns its projected agent-file normalization
-  separately from the external agent-stack repository.
-- Four other `rhythm doctor` findings from the same 2026-07-04 diagnosis
-  session are still outstanding: Python version check (system `python3`
-  on `$PATH` resolves to Apple's stale 3.9.6 stub ahead of a newer
-  Homebrew install — cosmetic, nothing in Rhythm actually depends on bare
-  `python3` off `$PATH`), Canva/Notion/Supabase MCP servers returning 401,
-  and duplicate agent profiles for "Theological Researcher" and "AI Trend
-  Researcher".
+- Both #912/#913 fixes live in the vendored `apps/opencode_fork` — keep diffs
+  minimal/tagged so they survive upstream merges. Test against the BUILT fork
+  binary (set `RHYTHM_OPENCODE_BIN`), never the stock PATH binary.
+- `#913 repairToolPairing` is a defensive repair at the request chokepoint —
+  the true producer of the dangling `tool_use` was never located.
+- `#913 autoContinueExhausted` resets on any completed tool call (coarse by
+  design) — the cap is a backstop, not a guarantee.
+- Audit HIGH findings still open: delegation caller-identity spoofing (#914),
+  60s delegation timeout causing duplicate runs (#915), scope fail-open /
+  config-doctor full surface (#916), nonexistent tool/server names in
+  allowlists (#917). Medium/low: #918–#923.
 
 ## Test status
 
-- api_server: 2435/2435 (2 new), `tsc --noEmit` clean.
-- flutter: 846/846 (3 new/updated), analyze at the 272-info baseline,
-  `dart format` clean.
-- Prior session (#901): MCP server 68/68; api_server 2403 passed;
-  `ai-workflow checks --level issue`/`--level pr` passed; doctor OAuth
-  check ✅; CI run 28722816512 passed.
+- #924 (opencode continuity): api_server `tsc` clean + `npm test` 2405 passed;
+  fork targeted suites 330 pass; fork binary builds; live-engine smoke on the
+  built fixed binary passed. CI green; merged.
+- #925 (July-4 batch): api_server `tsc` clean + `npm test` 2435 passed;
+  flutter 846 tests, analyze at the 272-info baseline, `dart format` clean.
 
 ## Next step
 
-Push `issue-batch-july4` and open a PR for the three commits above, then
-let the user re-test the Trigger Now / activity-log flow live. Still open:
-the 4 remaining `rhythm doctor` findings from the 2026-07-04 diagnosis.
+- Manual smoke on `main` for the opencode continuity fixes (long Codex/gpt
+  session; long compacting session) and the batch UX changes.
+- When ready, tackle the agent-system audit issues #914–#923 (start with the
+  HIGH ones) on a dedicated branch with a durable data-repair migration.

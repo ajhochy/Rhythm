@@ -1452,11 +1452,15 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
           { type: "tool-call", toolCallId: "123", toolName: "bash", input: { command: "ls" } },
         ],
       },
+      {
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: "123", toolName: "bash", output: { type: "text", value: "ok" } }],
+      },
     ] as any[]
 
     const result = ProviderTransform.message(msgs, anthropicModel, {})
 
-    expect(result).toHaveLength(1)
+    expect(result).toHaveLength(2)
     expect(result[0].content).toHaveLength(1)
     expect(result[0].content[0]).toEqual({
       type: "tool-call",
@@ -1598,11 +1602,18 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
           { type: "tool-call", toolCallId: "toolu_2", toolName: "glob", input: { pattern: "**/*.pdf" } },
         ],
       },
+      {
+        role: "tool",
+        content: [
+          { type: "tool-result", toolCallId: "toolu_1", toolName: "read", output: { type: "text", value: "ok" } },
+          { type: "tool-result", toolCallId: "toolu_2", toolName: "glob", output: { type: "text", value: "ok" } },
+        ],
+      },
     ] as any[]
 
     const result = ProviderTransform.message(msgs, anthropicModel, {}) as any[]
 
-    expect(result).toHaveLength(1)
+    expect(result).toHaveLength(2)
     expect(result[0].content).toMatchObject([
       { type: "text", text: "I checked your home directory and looked for PDF files." },
       { type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/root" } },
@@ -1630,11 +1641,18 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
           { type: "text", text: "I checked your home directory and looked for PDF files." },
         ],
       },
+      {
+        role: "tool",
+        content: [
+          { type: "tool-result", toolCallId: "toolu_1", toolName: "read", output: { type: "text", value: "ok" } },
+          { type: "tool-result", toolCallId: "toolu_2", toolName: "glob", output: { type: "text", value: "ok" } },
+        ],
+      },
     ] as any[]
 
     const result = ProviderTransform.message(msgs, model, {}) as any[]
 
-    expect(result).toHaveLength(2)
+    expect(result).toHaveLength(3)
     expect(result[0]).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "I checked your home directory and looked for PDF files." }],
@@ -1646,6 +1664,141 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
         { type: "tool-call", toolCallId: "toolu_2", toolName: "glob", input: { pattern: "**/*.pdf" } },
       ],
     })
+  })
+})
+
+describe("ProviderTransform.message - repairToolPairing", () => {
+  const anthropicModel = {
+    id: "anthropic/claude-3-5-sonnet",
+    providerID: "anthropic",
+    api: {
+      id: "claude-3-5-sonnet-20241022",
+      url: "https://api.anthropic.com",
+      npm: "@ai-sdk/anthropic",
+    },
+    name: "Claude 3.5 Sonnet",
+    capabilities: {
+      temperature: true,
+      reasoning: false,
+      attachment: true,
+      toolcall: true,
+      input: { text: true, audio: false, image: true, video: false, pdf: true },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: false,
+    },
+    cost: {
+      input: 0.003,
+      output: 0.015,
+      cache: { read: 0.0003, write: 0.00375 },
+    },
+    limit: {
+      context: 200000,
+      output: 8192,
+    },
+    status: "active",
+    options: {},
+    headers: {},
+  } as any
+
+  test("synthesizes a tool-result for a dangling tool-call", () => {
+    const msgs = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "read the file" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "toolu_01", toolName: "read", input: { filePath: "/a.txt" } }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "next question" }],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, anthropicModel, {}) as any[]
+
+    expect(result).toHaveLength(4)
+    expect(result[1]).toMatchObject({
+      role: "assistant",
+      content: [{ type: "tool-call", toolCallId: "toolu_01", toolName: "read" }],
+    })
+    expect(result[2]).toMatchObject({
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "toolu_01",
+          toolName: "read",
+          output: { type: "error-text", value: "[Tool result unavailable — history was compacted]" },
+        },
+      ],
+    })
+    expect(result[3]).toMatchObject({ role: "user" })
+  })
+
+  test("drops a tool-result whose tool-call has no match", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "ok" }],
+      },
+      {
+        role: "tool",
+        content: [
+          { type: "tool-result", toolCallId: "toolu_orphan", toolName: "read", output: { type: "text", value: "x" } },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, anthropicModel, {}) as any[]
+
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ role: "assistant" })
+  })
+
+  test("leaves well-paired tool call/result history untouched", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/a" } }],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: "toolu_1", toolName: "read", output: { type: "text", value: "ok" } }],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, anthropicModel, {}) as any[]
+
+    expect(result).toHaveLength(2)
+    expect(result[0].content).toEqual([{ type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/a" } }])
+    expect(result[1].content).toEqual([
+      { type: "tool-result", toolCallId: "toolu_1", toolName: "read", output: { type: "text", value: "ok" } },
+    ])
+  })
+
+  test("does not repair pairing for non-anthropic providers", () => {
+    const openaiModel = {
+      ...anthropicModel,
+      providerID: "openai",
+      api: { id: "gpt-4", url: "https://api.openai.com", npm: "@ai-sdk/openai" },
+    }
+    const msgs = [
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "toolu_01", toolName: "read", input: {} }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "next" }],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, openaiModel, {}) as any[]
+
+    expect(result).toHaveLength(2)
+    expect(result.some((m: any) => m.role === "tool")).toBe(false)
   })
 })
 
