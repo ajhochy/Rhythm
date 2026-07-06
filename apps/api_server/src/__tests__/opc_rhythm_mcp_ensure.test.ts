@@ -11,6 +11,7 @@ import {
 // pinned @version fallback); never assert the historical bare spec here.
 const DESIRED = {
   type: 'local',
+  timeout: 600_000,
   command: resolveRhythmMcpCommand(),
   environment: {
     RHYTHM_API_URL: 'https://api.vcrcapps.com',
@@ -41,6 +42,7 @@ describe('ensureRhythmMcp diff logic', () => {
     const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
     expect(parsed.mcp.rhythm.environment.RHYTHM_API_TOKEN).toBe('tok-1');
     expect(parsed.mcp.rhythm.command).toEqual(DESIRED.command);
+    expect(parsed.mcp.rhythm.timeout).toBe(600_000);
     // #804 — memory base is pinned to the local agent server regardless of the
     // prod apiUrl above. Changing the prod URL must NOT move this.
     expect(parsed.mcp.rhythm.environment.RHYTHM_AGENT_URL).toBe(
@@ -85,6 +87,20 @@ describe('ensureRhythmMcp diff logic', () => {
     expect(result.changed).toBe(true);
     const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
     expect(parsed.mcp.rhythm.environment.RHYTHM_API_TOKEN).toBe('tok-2');
+  });
+
+  it('rewrites existing rhythm config when timeout is missing', async () => {
+    const legacy = { ...DESIRED } as Record<string, unknown>;
+    delete legacy.timeout;
+    mkdirSync(dirname(configPath), { recursive: true });
+    writeFileSync(configPath, JSON.stringify({ mcp: { rhythm: legacy } }), 'utf8');
+    const result = await svc.ensureRhythmMcp('tok-1', 'https://api.vcrcapps.com', {
+      configPath,
+      register: false,
+    });
+    expect(result.changed).toBe(true);
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+    expect(parsed.mcp.rhythm.timeout).toBe(600_000);
   });
 
   it('preserves other mcp servers when updating rhythm', async () => {

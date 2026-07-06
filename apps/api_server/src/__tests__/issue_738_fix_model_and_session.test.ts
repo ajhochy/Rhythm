@@ -19,6 +19,7 @@ const {
   mockPrompt,
   mockAbortSession,
   mockInsertSession,
+  mockSetSdkSessionId,
   mockGetById,
   mockFindMostRecentlyUsedModel,
 } = vi.hoisted(() => ({
@@ -26,6 +27,7 @@ const {
   mockPrompt: vi.fn(),
   mockAbortSession: vi.fn(),
   mockInsertSession: vi.fn(),
+  mockSetSdkSessionId: vi.fn(),
   mockGetById: vi.fn(),
   mockFindMostRecentlyUsedModel: vi.fn(),
 }));
@@ -43,6 +45,7 @@ vi.mock('../services/opencode_engine', () => ({
 vi.mock('../repositories/agent_sessions_repository', () => ({
   AgentSessionsRepository: class {
     insert = mockInsertSession;
+    setSdkSessionId = mockSetSdkSessionId;
     findMostRecentlyUsedModel = mockFindMostRecentlyUsedModel;
     resetStaleRunning = vi.fn().mockReturnValue(0);
   },
@@ -75,6 +78,7 @@ describe('#738-fix — AgentRunner model resolution + session recording', () => 
     mockPrompt.mockResolvedValue(makePromptResponse('Done'));
     mockAbortSession.mockResolvedValue(true);
     mockInsertSession.mockReturnValue({ id: 'rhythm-session-abc', status: 'starting' });
+    mockSetSdkSessionId.mockReturnValue(undefined);
     mockGetById.mockReturnValue(null);
     mockFindMostRecentlyUsedModel.mockReturnValue(null);
   });
@@ -172,6 +176,51 @@ describe('#738-fix — AgentRunner model resolution + session recording', () => 
     });
   });
 
+  it('records resolved MCP scope, owner/depth, and SDK session id for runner sessions', async () => {
+    mockGetById.mockReturnValue({
+      id: 'specialist',
+      label: 'Specialist',
+      icon: '🤖',
+      enabled: true,
+      isAgent: true,
+      isManager: false,
+      systemPrompt: null,
+      allowedMcpsJson: JSON.stringify(['rhythm']),
+      allowedSkillsJson: null,
+      allowedDelegatesJson: null,
+      presetId: null,
+      sortOrder: 0,
+      createdAt: '',
+      updatedAt: '',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet-4-5',
+      ocAgent: null,
+      sessionSelectable: true,
+      modelTierHint: null,
+      defaultAnthropicAccountId: null,
+      autoApproveActions: false,
+    });
+    mockPrompt.mockResolvedValue(makePromptResponse('Done'));
+
+    await run({
+      prompt: 'Hello',
+      agentConfigId: 'specialist',
+      agentKind: 'specialist',
+      ownerUserId: 7,
+      delegationDepth: 2,
+    });
+
+    expect(mockInsertSession).toHaveBeenCalledOnce();
+    expect(mockInsertSession.mock.calls[0][0]).toMatchObject({
+      agentKind: 'specialist',
+      mcpRole: 'specialist',
+      mcpAllowedToolsJson: JSON.stringify(['rhythm']),
+      ownerUserId: 7,
+      delegationDepth: 2,
+    });
+    expect(mockSetSdkSessionId).toHaveBeenCalledWith('rhythm-session-abc', 'sdk-session-1');
+  });
+
   it('result.sessionId is the Rhythm session id from the repository', async () => {
     mockInsertSession.mockReturnValue({ id: 'rhythm-session-xyz', status: 'starting' });
     mockPrompt.mockResolvedValue(makePromptResponse('Done'));
@@ -240,6 +289,8 @@ describe('#738-fix — schema: new columns in SQLite migrations', () => {
 
     const cols = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
     expect(cols).toContain('scheduled_task_id');
+    expect(cols).toContain('owner_user_id');
+    expect(cols).toContain('delegation_depth');
     db.close();
   });
 });

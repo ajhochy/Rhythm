@@ -74,6 +74,35 @@ describe('agent_configs migration', () => {
     }
   });
 
+  it('clears misleading non-manager delegation rosters for worship-planning and theologian', () => {
+    const db = makeDb();
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, is_agent, is_manager, allowed_delegates_json)
+       VALUES (?, ?, '', '', 1, ?, ?)`,
+    ).run('worship-planning', 'Worship Planning', 0, JSON.stringify(['someone']));
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, is_agent, is_manager, allowed_delegates_json)
+       VALUES (?, ?, '', '', 1, ?, ?)`,
+    ).run('theologian', 'Theologian', 0, JSON.stringify(['someone']));
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, is_agent, is_manager, allowed_delegates_json)
+       VALUES (?, ?, '', '', 1, ?, ?)`,
+    ).run('secretary', 'Secretary', 1, JSON.stringify(['worship-planning']));
+
+    runMigrations(db);
+
+    const rows = db
+      .prepare(`SELECT id, allowed_delegates_json FROM agent_configs WHERE id IN ('worship-planning', 'theologian', 'secretary')`)
+      .all() as Array<{ id: string; allowed_delegates_json: string | null }>;
+    const byId = new Map(rows.map((row) => [row.id, row.allowed_delegates_json]));
+    expect(byId.get('worship-planning')).toBeNull();
+    expect(byId.get('theologian')).toBeNull();
+    expect(byId.get('secretary')).toBe(JSON.stringify(['worship-planning']));
+  });
+
   it('seeds correct values for claude-code row', () => {
     const db = makeDb();
     const row = db

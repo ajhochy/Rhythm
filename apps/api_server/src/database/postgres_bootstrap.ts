@@ -757,6 +757,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS model_id TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS oc_agent TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS session_selectable BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS is_manager INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS allowed_delegates_json TEXT;
   `);
 
@@ -785,8 +786,17 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   // #747 — agent_sessions.is_system: background/system sessions excluded from normal session list.
   await pool.query(`
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS is_system INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS delegation_depth INTEGER NOT NULL DEFAULT 0;
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_is_system ON agent_sessions(is_system);
+  `);
+  await pool.query(`
+    UPDATE agent_configs
+       SET allowed_delegates_json = NULL
+     WHERE id IN ('worship-planning', 'theologian')
+       AND COALESCE(is_manager, 0) = 0
+       AND allowed_delegates_json IS NOT NULL;
   `);
 }

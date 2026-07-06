@@ -1999,6 +1999,7 @@ export class OpencodeClientService {
       'http://localhost:4001';
     const desired = {
       type: 'local' as const,
+      timeout: 600_000,
       // #814 — never a bare unversioned spec; see resolveRhythmMcpCommand.
       command: resolveRhythmMcpCommand(),
       environment: {

@@ -1754,10 +1754,23 @@ export function runMigrations(db: Database.Database): void {
   if (!sessColsForAcct.includes('anthropic_account_id')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN anthropic_account_id TEXT`);
   }
+  if (!sessColsForAcct.includes('owner_user_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  }
+  if (!sessColsForAcct.includes('delegation_depth')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN delegation_depth INTEGER NOT NULL DEFAULT 0`);
+  }
   const cfgColsForAcct = (db.pragma('table_info(agent_configs)') as { name: string }[]).map((c) => c.name);
   if (!cfgColsForAcct.includes('default_anthropic_account_id')) {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN default_anthropic_account_id TEXT`);
   }
+  db.exec(`
+    UPDATE agent_configs
+       SET allowed_delegates_json = NULL
+     WHERE id IN ('worship-planning', 'theologian')
+       AND COALESCE(is_manager, 0) = 0
+       AND allowed_delegates_json IS NOT NULL
+  `);
 
   // Config Doctor — a chattable diagnostic/repair agent profile. Runs the
   // existing `rhythm doctor` CLI plus a duplicate-agent-profile check (the

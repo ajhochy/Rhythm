@@ -101,6 +101,8 @@ export interface AgentRunOptions {
    * is injected (fail-safe; never cross-user). Skills are unaffected (shared).
    */
   ownerUserId?: number | null;
+  /** Delegation nesting depth stored on agent_sessions for server-side delegation caps. */
+  delegationDepth?: number;
   /**
    * P4-1 (internal) — marks this run as the escalated (teacher) re-run so its
    * OWN error path does NOT escalate again. This is the recursion guard: the
@@ -283,6 +285,8 @@ function _recordSession(opts: {
   scheduledTaskId?: string | null;
   mcpRole?: string | null;
   mcpAllowedToolsJson?: string | null;
+  ownerUserId?: number | null;
+  delegationDepth?: number;
   /** #747: mark as a background/system session excluded from the normal session list. */
   isSystem?: boolean;
 }): string | null {
@@ -298,6 +302,8 @@ function _recordSession(opts: {
       mcpRole: opts.mcpRole ?? null,
       mcpAllowedToolsJson: opts.mcpAllowedToolsJson ?? null,
       scheduledTaskId: opts.scheduledTaskId ?? null,
+      ownerUserId: opts.ownerUserId ?? null,
+      delegationDepth: opts.delegationDepth ?? 0,
       // #747: scheduler-spawned and memory runs are background system sessions.
       // isSystem defaults to true when scheduledTaskId is set (all scheduler runs
       // are background; user-facing chat sessions go through the WS gateway).
@@ -490,6 +496,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     sessionName,
     scheduledTaskId,
     ownerUserId,
+    delegationDepth,
     modelOverride,
     taskKind,
   } = opts;
@@ -631,8 +638,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     agentKind: effectiveAgentKind,
     cwd: effectiveCwd,
     scheduledTaskId: scheduledTaskId ?? null,
-    mcpRole: mcpRole ?? null,
-    mcpAllowedToolsJson: allowedMcpsJson ?? null,
+    mcpRole: mcpRole ?? profileScope.mcpRoleConfig?.role ?? null,
+    mcpAllowedToolsJson: allowedMcpsJson ?? profileScope.mcpRoleConfig?.allowedToolsJson ?? null,
+    ownerUserId: ownerUserId ?? null,
+    delegationDepth: delegationDepth ?? 0,
   });
 
   // #862 — record "Memories used in this reply" now that the local session
@@ -748,6 +757,13 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     }
 
     const sessionId = sessionResult.id;
+    if (rhythmSessionId) {
+      try {
+        new AgentSessionsRepository().setSdkSessionId(rhythmSessionId, sessionId);
+      } catch (err) {
+        logger.warn(`[AgentRunner] setSdkSessionId failed (non-fatal): ${String(err)}`);
+      }
+    }
 
     // ── Send the prompt SYNCHRONOUSLY and get the full response ───────────────
     // #738-fix (root cause): the runner used promptAsync() — fire-and-forget,

@@ -36,7 +36,6 @@ describe('rhythm_delegate MCP tool', () => {
     expect(handler).toBeDefined();
 
     const response = await handler!({
-      callerAgentConfigId: 'workflow-orchestrator',
       targetAgentConfigId: 'coding-agent',
       prompt: 'Handle this issue.',
       callerSessionId: 'manager-session',
@@ -51,11 +50,9 @@ describe('rhythm_delegate MCP tool', () => {
           'content-type': 'application/json',
         }),
         body: JSON.stringify({
-          callerAgentConfigId: 'workflow-orchestrator',
           targetAgentConfigId: 'coding-agent',
           prompt: 'Handle this issue.',
           callerSessionId: 'manager-session',
-          depth: 0,
           context: undefined,
         }),
       }),

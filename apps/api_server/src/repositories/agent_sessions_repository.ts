@@ -42,6 +42,8 @@ interface AgentSessionRow {
   is_system: number;
   /** Task D — Anthropic account id this session is routed to. Null = engine default. */
   anthropic_account_id: string | null;
+  owner_user_id: number | null;
+  delegation_depth: number | null;
 }
 
 function rowToModel(row: AgentSessionRow): AgentSession {
@@ -74,6 +76,8 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     parentSessionId: row.parent_session_id ?? null,
     isSystem: row.is_system === 1,
     anthropicAccountId: row.anthropic_account_id ?? null,
+    ownerUserId: row.owner_user_id ?? null,
+    delegationDepth: row.delegation_depth ?? 0,
   };
 }
 
@@ -86,8 +90,8 @@ export class AgentSessionsRepository {
         `INSERT INTO agent_sessions
            (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
             mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
-            anthropic_account_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            anthropic_account_id, owner_user_id, delegation_depth, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -102,6 +106,8 @@ export class AgentSessionsRepository {
         dto.scheduledTaskId ?? null,
         dto.isSystem ? 1 : 0,
         dto.anthropicAccountId ?? null,
+        dto.ownerUserId ?? null,
+        dto.delegationDepth ?? 0,
         now,
         now,
       );
