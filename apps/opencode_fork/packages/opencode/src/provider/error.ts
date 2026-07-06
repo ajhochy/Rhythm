@@ -34,15 +34,24 @@ function isOpenAiErrorRetryable(e: APICallError) {
   return status === 404 || e.isRetryable
 }
 
+// Providers known to return a bodyless "400 (no body)" specifically for context
+// overflow (rather than any other 400, e.g. a tool_use/tool_result pairing error
+// a proxy stripped the body from — see issue #913).
+const BODYLESS_400_OVERFLOW_PROVIDERS = new Set<string>(["cerebras", "mistral"])
+
 // Providers not reliably handled in this function:
 // - z.ai: can accept overflow silently (needs token-count/context-window checks)
-function isOverflow(message: string) {
+function isOverflow(message: string, providerID?: ProviderID) {
   if (OVERFLOW_PATTERNS.some((p) => p.test(message))) return true
 
   // Providers/status patterns handled outside of regex list:
   // - Cerebras: often returns "400 (no body)" / "413 (no body)"
   // - Mistral: often returns "400 (no body)" / "413 (no body)"
-  return /^4(00|13)\s*(status code)?\s*\(no body\)/i.test(message)
+  if (/^413\s*(status code)?\s*\(no body\)/i.test(message)) return true
+  if (providerID && BODYLESS_400_OVERFLOW_PROVIDERS.has(providerID)) {
+    return /^400\s*(status code)?\s*\(no body\)/i.test(message)
+  }
+  return false
 }
 
 function message(providerID: ProviderID, e: APICallError) {
@@ -181,7 +190,7 @@ export type ParsedAPICallError =
 export function parseAPICallError(input: { providerID: ProviderID; error: APICallError }): ParsedAPICallError {
   const m = message(input.providerID, input.error)
   const body = json(input.error.responseBody)
-  if (isOverflow(m) || input.error.statusCode === 413 || body?.error?.code === "context_length_exceeded") {
+  if (isOverflow(m, input.providerID) || input.error.statusCode === 413 || body?.error?.code === "context_length_exceeded") {
     return {
       type: "context_overflow",
       message: m,

@@ -2,59 +2,59 @@
 
 ## Current focus
 
-Two independent slices landed on `main` this session:
-
-1. Scheduled agent tasks can now bind to canonical Rhythm agent profiles
-   through the MCP create tool. Rhythm's projected workflow-orchestrator
-   instructions are self-safe and grant file creation.
-2. `rhythm doctor`'s "AI provider (Anthropic or OpenAI)" check no longer
-   false-positives for users authenticated via opencode OAuth instead of
-   a raw API-key env var.
+opencode session-continuity bug fixes (#912 + #913) in the vendored fork,
+plus a full audit of the agent system (profiles, delegation, skill/MCP
+scoping) that produced 10 follow-up issues (#914–#923).
 
 ## Active branch / PR
 
-- Both slices merged into `main` via PR #901 (`feature/config-doctor-agent`).
+- `issue-912-913-opencode-continuity` — combined fix for #912 and #913.
+  PR about to open against `main` (Fixes #912, Fixes #913). Not merged.
+- Prior session merged to `main` via PR #901 (config-doctor agent +
+  doctor OAuth fix).
 
 ## In progress
 
-- Implementation and verification are complete locally for both slices.
-- No live SQLite database was edited directly and no existing scheduled
-  task was deleted.
-- Other Config Doctor findings from the 2026-07-04 diagnosis session are
-  still open (see Risks below) — not yet turned into issues/fixes.
+- #912/#913 fixes implemented and verified (see run
+  `2026-07-06-issue-912-913-opencode-continuity`). PR open, awaiting CI +
+  manual smoke.
+- Agent-system audit fixes (#914–#923) NOT yet started — separate branch
+  planned (`agent-profiles-audit-fixes`); these are agent-profile/delegation
+  data + code, deliberately kept out of the engine-continuity PR.
 
 ## Risks / known issues
 
-- Branch-vs-main GitNexus comparison is CRITICAL for future long-lived
-  branches — the pre-merge `feature/config-doctor-agent` branch had
-  accumulated 236 changed files at one point; the two shippable change
-  sets folded into #901 are each LOW risk with no affected execution
-  flows outside their own area.
-- Rhythm intentionally owns its projected agent-file normalization
-  separately from the external agent-stack repository.
-- Four other `rhythm doctor` findings from the same 2026-07-04 diagnosis
-  session are still outstanding: Python version check (system `python3`
-  on `$PATH` resolves to Apple's stale 3.9.6 stub ahead of a newer
-  Homebrew install — cosmetic, nothing in Rhythm actually depends on bare
-  `python3` off `$PATH`), Canva/Notion/Supabase MCP servers returning 401,
-  and duplicate agent profiles for "Theological Researcher" and "AI Trend
-  Researcher".
+- Both #912/#913 fixes live in the vendored `apps/opencode_fork` — keep the
+  diffs minimal/tagged so they survive upstream merges. Test against the
+  BUILT fork binary (set `RHYTHM_OPENCODE_BIN`), never the stock PATH binary
+  (false-green risk).
+- `#913 repairToolPairing` is a defensive repair at the request chokepoint —
+  the true producer of the dangling `tool_use` was never located.
+- `#913 autoContinueExhausted` resets on any completed tool call (coarse by
+  design) — a session completing one trivial tool call per cycle could still
+  loop; the cap is a backstop, not a guarantee.
+- Audit HIGH findings still open: delegation caller-identity spoofing (#914),
+  60s delegation timeout causing duplicate runs (#915), scope fail-open /
+  config-doctor full surface (#916), nonexistent tool/server names in
+  allowlists (#917).
 
 ## Test status
 
-- MCP server: typecheck; 68/68 tests passed.
-- api_server: `npx vitest run` — 2403 passed, 1 skipped, 280 files.
-- api_server: `npx tsc --noEmit` — clean.
-- `ai-workflow checks --level issue` and `--level pr`: passed.
-- `npm run doctor` (local) — "AI provider (Anthropic or OpenAI)" now shows
-  ✅ (previously ❌ despite valid OAuth login).
-- Smoke: isolated create → trigger-now → list retained
-  `AI-Trend-Researcher`; live `/health`, `/opencode/health`, and
-  `/agents/capabilities` returned healthy after runtime restoration.
-- GitNexus `detect_changes --scope all`: LOW risk, 0 affected processes.
-- CI on PR #901 (run 28722816512): Type-check and build — passed.
+- api_server: `npx tsc --noEmit` clean; `npm test` 2405 passed / 1 skipped
+  (280 files, 2 new tests).
+- fork: targeted suites (compaction, transform, error, message-v2,
+  processor-spurious) 330 pass / 0 fail; `bun run typecheck` clean except one
+  pre-existing error in `test/session/system.test.ts` (proven byte-identical
+  to `origin/main`).
+- fork binary: `bun run build --single` RC=0 (smoke passed,
+  version `0.0.0-issue-912-913-opencode-continuity-*`).
+- Live-engine smoke on the BUILT fixed binary (:4012, dev-override): real
+  secretary→librarian delegation with a tool call completed cleanly — no
+  `tool_use…without tool_result` 400, no `reasoning part…not found`, no
+  APIError; profile scoping applied live.
 
 ## Next step
 
-Pick up the 4 remaining `rhythm doctor` findings as follow-up issues if
-desired. A macOS desktop release is being triggered to ship both slices.
+1. Open the #912/#913 PR, watch CI, hand off for manual smoke.
+2. Start the `agent-profiles-audit-fixes` branch for #914–#923 (durable
+   data-repair migration + code): begin with the HIGH findings.

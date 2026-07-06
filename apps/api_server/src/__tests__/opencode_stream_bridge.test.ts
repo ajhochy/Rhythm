@@ -137,6 +137,55 @@ describe('OpencodeStreamBridge — transcript.append emission', () => {
     expect(partial?.text).toBe('partial answer');
   });
 
+  it('on session.error with a tool_use/tool_result pairing message, tags errorClass and rewrites the message', () => {
+    const localId = sessionMap.keys().next().value as string;
+    sessionMap.clear();
+    sessionMap.set(localId, SDK_ID);
+
+    relay({
+      type: 'session.error',
+      properties: {
+        sessionID: SDK_ID,
+        error: {
+          data: {
+            message:
+              'messages.2: `tool_use` ids were found without `tool_result` blocks immediately after: toolu_01NmvKDstL9aMqb4G6ZYFm4x',
+          },
+        },
+      },
+    });
+
+    const errorFrame = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'error');
+    expect(errorFrame).toBeDefined();
+    expect(errorFrame?.errorClass).toBe('tool_pairing');
+    expect(errorFrame?.message).toBe(
+      'Conversation history became inconsistent (tool call/result pairing). Send a new message to continue.',
+    );
+  });
+
+  it('on session.error with an unrelated message, does NOT tag errorClass', () => {
+    const localId = sessionMap.keys().next().value as string;
+    sessionMap.clear();
+    sessionMap.set(localId, SDK_ID);
+
+    relay({
+      type: 'session.error',
+      properties: {
+        sessionID: SDK_ID,
+        error: { data: { message: 'Key limit exceeded' } },
+      },
+    });
+
+    const errorFrame = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'error');
+    expect(errorFrame).toBeDefined();
+    expect(errorFrame?.errorClass).toBeUndefined();
+    expect(errorFrame?.message).toBe('Key limit exceeded');
+  });
+
   it('on session.idle with empty buffer does NOT broadcast transcript.append', () => {
     const localId = sessionMap.keys().next().value as string;
     sessionMap.clear();
