@@ -2,18 +2,31 @@
 
 ## Current focus
 
-Two independent slices landed on `main` this session:
+Live-testing follow-ups on `issue-batch-july4` (three commits, not yet PR'd):
 
-1. Scheduled agent tasks can now bind to canonical Rhythm agent profiles
-   through the MCP create tool. Rhythm's projected workflow-orchestrator
-   instructions are self-safe and grant file creation.
-2. `rhythm doctor`'s "AI provider (Anthropic or OpenAI)" check no longer
-   false-positives for users authenticated via opencode OAuth instead of
-   a raw API-key env var.
+1. #904 — Trigger Now on a scheduled task no longer corrupts local state.
+   Root cause: `trigger-now` returned a message-only body that the Flutter
+   client parsed as a garbage `AgentScheduledTask` (the "Daily" phantom
+   row). Now returns the updated task; empty `scheduledTaskId` no longer
+   leaks unrelated sessions; activity log rows are now tappable.
+2. #911 follow-up — manual refresh button on the Agent Profiles manager
+   sheet so out-of-band profiles (e.g. from the Rhythm Setup agent) appear
+   without an app relaunch.
+3. Cleanup — removed the dead capability-status file-write path; narrowed
+   `CapabilityState` to `'ok' | 'down'`.
+
+Prior session (already on `main` via PR #901): scheduled-task↔agent-profile
+binding via the MCP create tool, and the `rhythm doctor` OAuth-provider
+false-positive fix.
 
 ## Active branch / PR
 
-- Both slices merged into `main` via PR #901 (`feature/config-doctor-agent`).
+- `issue-batch-july4` — 21 commits ahead of `main`; PR opened this session
+  after full verification (api_server 2435 tests + tsc clean; flutter 846
+  tests, analyze at 272-info baseline, `dart format` clean).
+- PR #901 (`feature/config-doctor-agent`) merged to `main` last session.
+- PR #924 (`issue-912-913-opencode-continuity`) open — opencode session
+  continuity fixes for #912/#913 (CI green). Separate branch off `main`.
 
 ## In progress
 
@@ -42,19 +55,15 @@ Two independent slices landed on `main` this session:
 
 ## Test status
 
-- MCP server: typecheck; 68/68 tests passed.
-- api_server: `npx vitest run` — 2403 passed, 1 skipped, 280 files.
-- api_server: `npx tsc --noEmit` — clean.
-- `ai-workflow checks --level issue` and `--level pr`: passed.
-- `npm run doctor` (local) — "AI provider (Anthropic or OpenAI)" now shows
-  ✅ (previously ❌ despite valid OAuth login).
-- Smoke: isolated create → trigger-now → list retained
-  `AI-Trend-Researcher`; live `/health`, `/opencode/health`, and
-  `/agents/capabilities` returned healthy after runtime restoration.
-- GitNexus `detect_changes --scope all`: LOW risk, 0 affected processes.
-- CI on PR #901 (run 28722816512): Type-check and build — passed.
+- api_server: 2435/2435 (2 new), `tsc --noEmit` clean.
+- flutter: 846/846 (3 new/updated), analyze at the 272-info baseline,
+  `dart format` clean.
+- Prior session (#901): MCP server 68/68; api_server 2403 passed;
+  `ai-workflow checks --level issue`/`--level pr` passed; doctor OAuth
+  check ✅; CI run 28722816512 passed.
 
 ## Next step
 
-Pick up the 4 remaining `rhythm doctor` findings as follow-up issues if
-desired. A macOS desktop release is being triggered to ship both slices.
+Push `issue-batch-july4` and open a PR for the three commits above, then
+let the user re-test the Trigger Now / activity-log flow live. Still open:
+the 4 remaining `rhythm doctor` findings from the 2026-07-04 diagnosis.
