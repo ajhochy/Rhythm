@@ -39,6 +39,8 @@ describe('Rhythm Setup agent profile seed (#911)', () => {
     expect(profile!.enabled).toBe(true);
     expect(profile!.isAgent).toBe(true);
     expect(profile!.sessionSelectable).toBe(true);
+    expect(profile!.modelProvider).toBe('anthropic');
+    expect(profile!.modelId).toBe('claude-sonnet-4-6');
     expect(JSON.parse(profile!.allowedMcpsJson!)).toEqual(['rhythm']);
     expect(profile!.systemPrompt).toBeTruthy();
   });

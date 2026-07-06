@@ -118,6 +118,195 @@ describe('agent_configs migration', () => {
     expect(byId.get('legacy-empty')!.allowed_skills_json).toBeNull();
   });
 
+  it('repairs profile allowlist and model hygiene for #917/#918/#919', () => {
+    const db = makeDb();
+
+    const theologianMcp = {
+      rhythm: ['rhythm_ping', 'rhythm_remember', 'rhythm_search_context'],
+    };
+    const worshipPlanningMcp = {
+      rhythm: ['rhythm_ping', 'rhythm_remember', 'rhythm_search_context'],
+      calendar: ['list_events', 'get_event', 'list_calendars'],
+    };
+    const aiTrendMcp = [
+      'memory',
+      'obsidian',
+      'pdf-tools',
+      'duckduckgo',
+      'scrapling',
+      'minutes',
+      'youtube-transcript',
+      'github-readonly',
+      'rhythm',
+    ];
+    const aiTrendSkills = [
+      'research-synthesis',
+      'obsidian-markdown',
+      'obsidian-cli',
+      'obsidian-bases',
+    ];
+    const theologicalMcp = [
+      'memory',
+      'obsidian',
+      'rhythm',
+      'pdf-tools',
+      'scrapling',
+      'minutes',
+      'youtube-transcript',
+      'github-readonly',
+    ];
+    const theologicalSkills = ['research-synthesis', 'obsidian-cli', 'obsidian-markdown'];
+
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, allowed_mcps_json)
+       VALUES (?, ?, '', '', 1, 1, 1, ?)`,
+    ).run('theologian', 'Theologian', JSON.stringify(theologianMcp));
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, allowed_mcps_json)
+       VALUES (?, ?, '', '', 1, 1, 1, ?)`,
+    ).run('worship-planning', 'Worship Planning', JSON.stringify(worshipPlanningMcp));
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, model_provider, model_id)
+       VALUES (?, ?, '', '', 1, 1, 0, 'openrouter', 'openrouter/free')`,
+    ).run('coding-agent', 'Coding Agent');
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, model_provider, model_id)
+       VALUES (?, ?, '', '', 1, 1, 1, 'anthropic', 'claude-opus-4-7')`,
+    ).run('worship-production', 'Worship Production');
+    for (const id of ['title', 'compaction', 'summary']) {
+      db.prepare(
+        `INSERT INTO agent_configs
+          (id, label, icon, command, enabled, is_agent, session_selectable, model_provider, model_id)
+         VALUES (?, ?, '', '', 1, 1, 0, 'anthropic', 'claude-sonnet-4-6')`,
+      ).run(id, id);
+    }
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, allowed_mcps_json, allowed_skills_json)
+       VALUES (?, ?, '', '', 0, 1, 0, ?, ?)`,
+    ).run(
+      '32294c7d-a26e-4e3a-b5f1-92350225e701',
+      'AI Trend Researcher',
+      JSON.stringify(aiTrendMcp),
+      JSON.stringify(aiTrendSkills),
+    );
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, allowed_mcps_json, allowed_skills_json)
+       VALUES (?, ?, '', '', 1, 1, 1, ?, NULL)`,
+    ).run('AI-Trend-Researcher', 'AI Trend Researcher', '["rhythm", "obsidian"]');
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, allowed_mcps_json, allowed_skills_json)
+       VALUES (?, ?, '', '', 0, 1, 0, ?, ?)`,
+    ).run(
+      'd74b471f-ca90-4246-8182-e769b10d80c6',
+      'Theological Researcher',
+      JSON.stringify(theologicalMcp),
+      JSON.stringify(theologicalSkills),
+    );
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, allowed_mcps_json, allowed_skills_json)
+       VALUES (?, ?, '', '', 1, 1, 1, ?, NULL)`,
+    ).run('Theological-Researcher', 'Theological Researcher', '["rhythm","obsidian"]');
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, enabled, is_agent, session_selectable, allowed_skills_json)
+       VALUES (?, ?, '', '', 0, 1, 0, ?)`,
+    ).run(
+      'research',
+      'Research',
+      JSON.stringify([
+        'research-synthesis',
+        'study-passage',
+        'searxng-search',
+        'duckduckgo-search',
+        'scrapling',
+        'domain-intel',
+        'parallel-cli',
+      ]),
+    );
+
+    runMigrations(db);
+
+    const rows = db
+      .prepare(
+        `SELECT id, model_provider, model_id, model_tier_hint, allowed_mcps_json, allowed_skills_json
+           FROM agent_configs
+          WHERE id IN (
+            'theologian',
+            'worship-planning',
+            'coding-agent',
+            'worship-production',
+            'title',
+            'compaction',
+            'summary',
+            'AI-Trend-Researcher',
+            'Theological-Researcher',
+            'research'
+          )`,
+      )
+      .all() as Array<{
+        id: string;
+        model_provider: string | null;
+        model_id: string | null;
+        model_tier_hint: string | null;
+        allowed_mcps_json: string | null;
+        allowed_skills_json: string | null;
+      }>;
+    const byId = new Map(rows.map((row) => [row.id, row]));
+
+    const theologian = JSON.parse(byId.get('theologian')!.allowed_mcps_json!) as Record<string, string[]>;
+    expect(theologian.rhythm).toEqual([
+      'rhythm_ping',
+      'rhythm_remember_memory',
+      'rhythm_search_memory',
+    ]);
+
+    const worshipPlanning = JSON.parse(
+      byId.get('worship-planning')!.allowed_mcps_json!,
+    ) as Record<string, string[]>;
+    expect(worshipPlanning.calendar).toBeUndefined();
+    expect(worshipPlanning.rhythm).toEqual([
+      'rhythm_ping',
+      'rhythm_remember_memory',
+      'rhythm_search_memory',
+      'rhythm_list_calendar_events',
+      'rhythm_create_calendar_event',
+      'rhythm_update_calendar_event',
+    ]);
+
+    expect(byId.get('coding-agent')!.model_provider).toBe('openrouter');
+    expect(byId.get('coding-agent')!.model_id).toBe('anthropic/claude-sonnet-4.6');
+    expect(byId.get('worship-production')!.model_id).toBe('claude-sonnet-4-6');
+    expect(byId.get('worship-production')!.model_tier_hint).toBe('cheap');
+    for (const id of ['title', 'compaction', 'summary']) {
+      expect(byId.get(id)!.model_id).toBe('claude-haiku-4-5');
+      expect(byId.get(id)!.model_tier_hint).toBe('cheap');
+    }
+
+    expect(JSON.parse(byId.get('AI-Trend-Researcher')!.allowed_mcps_json!)).toEqual(aiTrendMcp);
+    expect(JSON.parse(byId.get('AI-Trend-Researcher')!.allowed_skills_json!)).toEqual(aiTrendSkills);
+    expect(JSON.parse(byId.get('Theological-Researcher')!.allowed_mcps_json!)).toEqual(theologicalMcp);
+    expect(JSON.parse(byId.get('Theological-Researcher')!.allowed_skills_json!)).toEqual(theologicalSkills);
+    expect(JSON.parse(byId.get('research')!.allowed_skills_json!)).toEqual([
+      'research-synthesis',
+      'study-passage',
+      'duckduckgo-search',
+      'scrapling',
+    ]);
+
+    const allAllowedMcps = rows.map((row) => row.allowed_mcps_json ?? '').join('\n');
+    expect(allAllowedMcps).not.toContain('"rhythm_remember"');
+    expect(allAllowedMcps).not.toContain('"rhythm_search_context"');
+    expect(allAllowedMcps).not.toContain('"calendar"');
+  });
+
   it('has correct column shape', () => {
     const db = makeDb();
     const cols = (db.pragma('table_info(agent_configs)') as { name: string }[]).map(

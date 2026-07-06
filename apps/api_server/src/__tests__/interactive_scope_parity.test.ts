@@ -145,7 +145,7 @@ describe('interactive session MCP scope (P1a)', () => {
     expect(scope.mcpRoleConfig).toBeNull();
     // model is still resolved to the hardcoded default
     expect(scope.model.providerID).toBe('anthropic');
-    expect(scope.model.modelID).toBe('claude-sonnet-4-5');
+    expect(scope.model.modelID).toBe('claude-sonnet-4-6');
   });
 
   it('allowedMcpsJsonOverride takes precedence over profile allowed_mcps_json', async () => {

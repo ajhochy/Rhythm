@@ -223,7 +223,7 @@ async function _waitForAssistantReply(
  *  1. agent_configs row with matching id → use model_provider + model_id if set.
  *  2. Most-recently-used model from agent_sessions (any session with provider_id
  *     + model_id populated, ordered by created_at DESC).
- *  3. Hardcoded sensible default: anthropic / claude-sonnet-4-5.
+ *  3. Hardcoded sensible default: anthropic / claude-sonnet-4-6.
  *
  * The function never throws. Returns undefined only if the DB call itself
  * fails — in that case the caller should use the hardcoded default instead
@@ -262,7 +262,7 @@ export function resolveRunModel(
 
   // Step 3 — hardcoded default so a run never silently hangs on undefined
   const DEFAULT_PROVIDER = 'anthropic';
-  const DEFAULT_MODEL = 'claude-sonnet-4-5';
+  const DEFAULT_MODEL = 'claude-sonnet-4-6';
   logger.info(
     `[AgentRunner] resolveRunModel: no agent config or MRU model found — using default (${DEFAULT_PROVIDER}/${DEFAULT_MODEL})`,
   );

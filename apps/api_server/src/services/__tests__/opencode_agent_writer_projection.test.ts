@@ -84,4 +84,24 @@ describe('workflow-orchestrator file projection', () => {
     );
     expect(projected).toMatch(/permission:\n(?:  .+\n)*  write: allow\n/);
   });
+
+  it('does not project disabled profile rows', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    const agentsDir = join(state.home, '.config', 'opencode', 'agents');
+    mkdirSync(agentsDir, { recursive: true });
+
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+    writeAgentProfileFile({
+      ...workflowOrchestratorConfig(),
+      id: 'disabled-researcher',
+      label: 'Disabled Researcher',
+      enabled: false,
+      ocAgent: 'disabled-researcher',
+    });
+
+    expect(() =>
+      readFileSync(join(agentsDir, 'disabled-researcher.md'), 'utf8'),
+    ).toThrow();
+  });
 });

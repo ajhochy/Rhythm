@@ -99,7 +99,7 @@ describe('#738-fix — AgentRunner model resolution + session recording', () => 
 
     expect(mockPrompt).toHaveBeenCalledOnce();
     const [, , modelArg] = mockPrompt.mock.calls[0];
-    expect(modelArg).toMatchObject({ providerID: 'anthropic', modelID: 'claude-sonnet-4-5' });
+    expect(modelArg).toMatchObject({ providerID: 'anthropic', modelID: 'claude-sonnet-4-6' });
   });
 
   // ── 1b. Agent config model takes priority ─────────────────────────────────
@@ -239,7 +239,7 @@ describe('#738-fix — AgentRunner model resolution + session recording', () => 
     mockFindMostRecentlyUsedModel.mockImplementation(() => { throw new Error('DB gone'); });
 
     const model = resolveRunModel('any-agent-id');
-    expect(model).toMatchObject({ providerID: 'anthropic', modelID: 'claude-sonnet-4-5' });
+    expect(model).toMatchObject({ providerID: 'anthropic', modelID: 'claude-sonnet-4-6' });
   });
 
   // ── 4. prompt returns null → fast error, not 600s hang ───────────────────
