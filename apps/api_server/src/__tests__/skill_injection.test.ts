@@ -248,7 +248,7 @@ describe('skill allowlist filter (P1b)', () => {
     expect(preface.skillIds).toEqual(['skill-a', 'skill-b']);
   });
 
-  it('empty array allowedSkillsJson → all skills eligible', () => {
+  it('empty array allowedSkillsJson → no skills eligible', () => {
     const a: AgentSkill = {
       id: 'skill-a',
       title: 'Skill A',
@@ -281,8 +281,8 @@ describe('skill allowlist filter (P1b)', () => {
       allowedSkillsJson: '[]',
     });
 
-    expect(preface.text).toContain('Skill A');
-    expect(preface.skillIds).toEqual(['skill-a']);
+    expect(preface.text).toBe('');
+    expect(preface.skillIds).toEqual([]);
   });
 });
 

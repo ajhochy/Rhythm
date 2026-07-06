@@ -684,18 +684,22 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       }
     }
 
-    // #775 (skill-scope): parse the resolved profile/task skill allowlist (JSON
-    // string[] of skill names) so the scheduled session is scoped at create time —
-    // mirrors mcpRoleConfig. Malformed/empty/non-array → [] = unrestricted (fail-open).
-    let skillNames: string[] = [];
-    if (profileScope.allowedSkillsJson) {
+    // #775/#916 (skill-scope): parse the resolved profile/task skill allowlist
+    // so the scheduled session is scoped at create time. null/undefined means
+    // unrestricted; a present empty array means deny all skills.
+    let skillNames: string[] | undefined = undefined;
+    if (profileScope.allowedSkillsJson !== null) {
+      skillNames = [];
       try {
         const parsed = JSON.parse(profileScope.allowedSkillsJson);
         if (Array.isArray(parsed)) {
           skillNames = parsed.filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
         }
       } catch {
-        skillNames = [];
+        logger.error(
+          `[AgentRunner] profile=${effectiveConfigId ?? 'profile'}: invalid allowedSkillsJson JSON; denying all skills. offendingValue=`,
+          profileScope.allowedSkillsJson,
+        );
       }
     }
 

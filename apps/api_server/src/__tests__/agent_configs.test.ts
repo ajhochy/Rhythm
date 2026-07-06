@@ -47,6 +47,77 @@ describe('agent_configs migration', () => {
     expect(scan.blocked).toBe(false);
   });
 
+  it('repairs known fail-open scope rows for the #916/#923 contract flip', () => {
+    const db = makeDb();
+
+    const configDoctor = db
+      .prepare(`SELECT allowed_mcps_json FROM agent_configs WHERE id = 'config-doctor'`)
+      .get() as { allowed_mcps_json: string | null };
+    expect(configDoctor.allowed_mcps_json).toBe(JSON.stringify(['rhythm']));
+
+    const oldOrgOptimizerMcp = JSON.stringify({
+      rhythm: {
+        inherit: true,
+        allowedTools: ['rhythm_ping', 'rhythm_get_dashboard'],
+      },
+    });
+    const expectedOrgOptimizerMcp = {
+      rhythm: [
+        'rhythm_ping',
+        'rhythm_get_dashboard',
+        'rhythm_list_sessions',
+        'rhythm_list_scheduled_tasks',
+        'rhythm_list_automations',
+        'rhythm_list_pending_triggers',
+        'rhythm_list_memories',
+        'rhythm_search_memory',
+        'rhythm_remember_memory',
+        'rhythm_run_org_optimizer',
+      ],
+    };
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, is_agent, allowed_mcps_json, allowed_skills_json)
+       VALUES (?, ?, '', '', 1, ?, ?)`,
+    ).run('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f', 'Org Optimizer', oldOrgOptimizerMcp, '[]');
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, is_agent, allowed_mcps_json, allowed_skills_json)
+       VALUES (?, ?, '', '', 1, ?, ?)`,
+    ).run('money', 'Money', '[]', '[]');
+    db.prepare(
+      `INSERT INTO agent_configs
+        (id, label, icon, command, is_agent, allowed_mcps_json, allowed_skills_json)
+       VALUES (?, ?, '', '', 1, ?, ?)`,
+    ).run('legacy-empty', 'Legacy Empty', '[]', '[]');
+
+    runMigrations(db);
+
+    const rows = db
+      .prepare(
+        `SELECT id, allowed_mcps_json, allowed_skills_json
+           FROM agent_configs
+          WHERE id IN ('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f', 'money', 'legacy-empty')`,
+      )
+      .all() as Array<{
+        id: string;
+        allowed_mcps_json: string | null;
+        allowed_skills_json: string | null;
+      }>;
+    const byId = new Map(rows.map((row) => [row.id, row]));
+
+    expect(
+      JSON.parse(
+        byId.get('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f')!.allowed_mcps_json!,
+      ),
+    ).toEqual(expectedOrgOptimizerMcp);
+    expect(byId.get('8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f')!.allowed_skills_json).toBeNull();
+    expect(byId.get('money')!.allowed_mcps_json).toBeNull();
+    expect(byId.get('money')!.allowed_skills_json).toBeNull();
+    expect(byId.get('legacy-empty')!.allowed_mcps_json).toBeNull();
+    expect(byId.get('legacy-empty')!.allowed_skills_json).toBeNull();
+  });
+
   it('has correct column shape', () => {
     const db = makeDb();
     const cols = (db.pragma('table_info(agent_configs)') as { name: string }[]).map(

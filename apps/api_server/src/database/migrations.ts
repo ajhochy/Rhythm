@@ -1897,4 +1897,48 @@ Your job, in order:
     '["rhythm"]',
     5,
   );
+
+  // #916/#923 — scope contract repair before [] changes from fail-open to
+  // deny-all. NULL is unrestricted; [] is now explicit deny-all. Existing rows
+  // that stored [] to mean "unrestricted" must be normalized so they do not
+  // silently lose access after the parser fix.
+  const orgOptimizerAllowedMcpsJson = JSON.stringify({
+    rhythm: [
+      'rhythm_ping',
+      'rhythm_get_dashboard',
+      'rhythm_list_sessions',
+      'rhythm_list_scheduled_tasks',
+      'rhythm_list_automations',
+      'rhythm_list_pending_triggers',
+      'rhythm_list_memories',
+      'rhythm_search_memory',
+      'rhythm_remember_memory',
+      'rhythm_run_org_optimizer',
+    ],
+  });
+
+  db.prepare(
+    `UPDATE agent_configs
+        SET allowed_mcps_json = ?
+      WHERE id = 'config-doctor'
+        AND (allowed_mcps_json IS NULL OR TRIM(allowed_mcps_json) = '[]')`,
+  ).run(JSON.stringify(['rhythm']));
+
+  db.prepare(
+    `UPDATE agent_configs
+        SET allowed_mcps_json = ?
+      WHERE (id = '8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f' OR id = 'org-optimizer' OR label = 'Org Optimizer')
+        AND allowed_mcps_json IS NOT NULL`,
+  ).run(orgOptimizerAllowedMcpsJson);
+
+  db.exec(`
+    UPDATE agent_configs
+       SET allowed_mcps_json = NULL
+     WHERE TRIM(allowed_mcps_json) = '[]'
+       AND id <> 'config-doctor';
+
+    UPDATE agent_configs
+       SET allowed_skills_json = NULL
+     WHERE TRIM(allowed_skills_json) = '[]';
+  `);
 }

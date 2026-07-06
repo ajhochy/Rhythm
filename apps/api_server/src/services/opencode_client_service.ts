@@ -864,9 +864,8 @@ export class OpencodeClientService {
       mcpServers: Record<string, unknown>;
       allowedToolsJson: string;
     },
-    // #775 (skill-scope): permitted skill NAMES for this session. When provided
-    // (non-empty), the fork scopes the model's available skills to this set —
-    // the skill analogue of mcpRoleConfig. Undefined/empty = unrestricted.
+    // #775/#916 (skill-scope): permitted skill NAMES for this session.
+    // Undefined = unrestricted. An explicit empty array is deny-all.
     skillAllowlist?: string[],
     // #884 — resolved provider ID for this session's turn, when known at
     // create time (e.g. agent_runner resolves the model before calling
@@ -920,7 +919,7 @@ export class OpencodeClientService {
       }
       // #775 (skill-scope): pass the per-session skill allowlist on the create body.
       // The fork reads `skillAllowlist.skills` to scope the model's available skills.
-      if (skillAllowlist !== undefined && skillAllowlist.length > 0) {
+      if (skillAllowlist !== undefined) {
         body.skillAllowlist = { skills: skillAllowlist };
         logger.info(
           '[OpencodeClientService] createSession: skillAllowlist skills=%s',
@@ -977,18 +976,26 @@ export class OpencodeClientService {
    * to Gemini's function-declaration cap via {@link capMcpAllowlistForProvider}
    * before being PATCHed. No-op for every other provider (including when
    * `providerId` is omitted).
+   *
+   * Passing null clears the restriction (fork stores NULL and reads it back as
+   * undefined/unrestricted). An empty expanded allowlist is deny-all.
    */
   async updateSessionAllowlist(
     sessionId: string,
-    mcpRoleConfig: import('./agent_profile_scope').McpRoleConfig,
+    mcpRoleConfig: import('./agent_profile_scope').McpRoleConfig | null,
     providerId?: string | null,
   ): Promise<boolean> {
     try {
-      let mcpAllowlist = expandMcpAllowlist(mcpRoleConfig);
-      const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId);
-      mcpAllowlist = capResult.allowlist;
-      if (capResult.trimmed) {
-        logger.warn(capResult.warning ?? '[GeminiToolCap] allowlist trimmed');
+      let mcpAllowlist: { servers: string[]; tools: string[] } | null;
+      if (mcpRoleConfig === null) {
+        mcpAllowlist = null;
+      } else {
+        mcpAllowlist = expandMcpAllowlist(mcpRoleConfig);
+        const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId);
+        mcpAllowlist = capResult.allowlist;
+        if (capResult.trimmed) {
+          logger.warn(capResult.warning ?? '[GeminiToolCap] allowlist trimmed');
+        }
       }
       const base = this.serverUrl;
       const res = await fetch(`${base}/session/${sessionId}`, {
@@ -1014,20 +1021,19 @@ export class OpencodeClientService {
    * agent drives scope on an existing session — the skill analogue of
    * {@link updateSessionAllowlist}.
    *
-   * Passing an empty `skills` array clears the restriction (fork treats an
-   * undefined/absent allowlist as unrestricted; an explicit empty list would
-   * deny everything, so callers pass undefined-to-clear by not calling this).
+   * Passing null clears the restriction (fork stores NULL and reads it back as
+   * undefined/unrestricted). Passing [] is an explicit deny-all skill scope.
    */
   async updateSessionSkillAllowlist(
     sessionId: string,
-    skills: string[],
+    skills: string[] | null,
   ): Promise<boolean> {
     try {
       const base = this.serverUrl;
       const res = await fetch(`${base}/session/${sessionId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ skillAllowlist: { skills } }),
+        body: JSON.stringify({ skillAllowlist: skills === null ? null : { skills } }),
       });
       if (!res.ok) {
         logger.warn(

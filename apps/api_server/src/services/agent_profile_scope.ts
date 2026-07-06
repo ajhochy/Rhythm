@@ -37,13 +37,15 @@ export interface ProfileScope {
   /**
    * MCP role config to pass to createSession.
    * null when no MCP scoping applies (profile has no allowed_mcps_json and no
-   * override was provided — all servers are accessible).
+   * override was provided — all servers are accessible). A present empty array
+   * is an explicit deny-all scope.
    */
   mcpRoleConfig: McpRoleConfig | null;
   /**
    * Raw JSON string of allowed skill IDs from the profile.
    * P1b will use this to filter the skills injection preface.
-   * null when the profile has no skill restriction.
+   * null when the profile has no skill restriction. A present empty array is
+   * an explicit deny-all scope.
    */
   allowedSkillsJson: string | null;
   /**
@@ -103,6 +105,7 @@ export interface ResolveProfileScopeOptions {
  *        scheduled-task path supplies the task row's allowedMcpsJson here).
  *      • Otherwise → derive from the profile's `allowed_mcps_json` column.
  *      • When the effective JSON is null/absent → return null (no restriction).
+ *      • When the effective JSON is present but empty/malformed → deny all.
  *      • Server-name array format `["server1","server2"]` → builds mcpServers
  *        with each server mapped to `{ allowedTools: [] }` (server present, all
  *        tools allowed within that server).
@@ -147,17 +150,21 @@ export async function resolveProfileScope(
       : (profile?.allowedMcpsJson ?? null);
 
   // Step 4 — build mcpRoleConfig
-  const mcpRoleConfig = effectiveAllowedMcpsJson
+  const mcpRoleConfig = effectiveAllowedMcpsJson !== null
     ? _buildMcpRoleConfig(effectiveAllowedMcpsJson, agentConfigId ?? 'profile')
     : null;
 
   // Step 5 — resolve allowedSkillsJson with the same override-or-inherit rule.
   //   opts.allowedSkillsJsonOverride !== undefined → explicit override (may be null)
   //   otherwise → profile's own column (may be null)
-  const effectiveAllowedSkillsJson: string | null =
+  const rawAllowedSkillsJson: string | null =
     opts.allowedSkillsJsonOverride !== undefined
       ? opts.allowedSkillsJsonOverride
       : (profile?.allowedSkillsJson ?? null);
+  const effectiveAllowedSkillsJson = _normalizeAllowedSkillsJson(
+    rawAllowedSkillsJson,
+    agentConfigId ?? 'profile',
+  );
 
   return {
     model,
@@ -185,8 +192,10 @@ export async function resolveProfileScope(
  *     → Each server is mapped to its explicit allowedTools list.
  *     (Mirrors the existing `_parseMcpServersFromJson` logic in agent_runner.)
  *
- * Returns null on parse failure so the caller can treat a broken JSON string
- * as "no restriction" rather than crashing the run.
+ * Contract: NULL is unrestricted and handled by the caller before this helper.
+ * Any present malformed, empty, or non-list/non-map value is deny-all, never
+ * fail-open. Deny-all is represented as an empty mcpServers map, which expands
+ * to { servers: [], tools: [] } in the opencode session allowlist.
  */
 function _buildMcpRoleConfig(
   allowedMcpsJson: string,
@@ -196,8 +205,15 @@ function _buildMcpRoleConfig(
   try {
     parsed = JSON.parse(allowedMcpsJson);
   } catch {
-    logger.warn(`[resolveProfileScope] invalid allowedMcpsJson JSON — ignoring MCP scope`);
-    return null;
+    logger.error(
+      `[resolveProfileScope] profile=${roleLabel}: invalid allowedMcpsJson JSON; denying all MCP tools. offendingValue=`,
+      allowedMcpsJson,
+    );
+    return {
+      role: roleLabel,
+      mcpServers: {},
+      allowedToolsJson: '[]',
+    };
   }
 
   const mcpServers: Record<string, unknown> = {};
@@ -220,13 +236,15 @@ function _buildMcpRoleConfig(
       }
     }
   } else {
-    logger.warn(`[resolveProfileScope] allowedMcpsJson is neither an array nor an object — ignoring MCP scope`);
-    return null;
-  }
-
-  if (Object.keys(mcpServers).length === 0) {
-    // Parsed fine but empty — treat as no restriction
-    return null;
+    logger.error(
+      `[resolveProfileScope] profile=${roleLabel}: allowedMcpsJson is neither an array nor an object; denying all MCP tools. offendingValue=`,
+      allowedMcpsJson,
+    );
+    return {
+      role: roleLabel,
+      mcpServers: {},
+      allowedToolsJson: '[]',
+    };
   }
 
   return {
@@ -234,4 +252,42 @@ function _buildMcpRoleConfig(
     mcpServers,
     allowedToolsJson: allowedMcpsJson,
   };
+}
+
+/**
+ * Normalize profile/task skill scope JSON under the same contract as MCP scope:
+ * null means unrestricted; any present malformed/non-array value denies all.
+ */
+function _normalizeAllowedSkillsJson(
+  allowedSkillsJson: string | null,
+  roleLabel: string,
+): string | null {
+  if (allowedSkillsJson === null) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(allowedSkillsJson);
+  } catch {
+    logger.error(
+      `[resolveProfileScope] profile=${roleLabel}: invalid allowedSkillsJson JSON; denying all skills. offendingValue=`,
+      allowedSkillsJson,
+    );
+    return '[]';
+  }
+
+  if (!Array.isArray(parsed)) {
+    logger.error(
+      `[resolveProfileScope] profile=${roleLabel}: allowedSkillsJson is not an array; denying all skills. offendingValue=`,
+      allowedSkillsJson,
+    );
+    return '[]';
+  }
+
+  const skillNames = parsed
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    .map((entry) => entry.trim());
+  if (skillNames.length !== parsed.length) {
+    return JSON.stringify(skillNames);
+  }
+  return allowedSkillsJson;
 }

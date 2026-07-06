@@ -16,7 +16,7 @@
  * output rather than wiring a full WS frame.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
@@ -38,6 +38,7 @@ vi.mock('../services/opencode_engine', () => ({
 
 import { resolveProfileScope } from '../services/agent_profile_scope';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { logger } from '../utils/logger';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,10 @@ describe('interactive session MCP scope (P1a)', () => {
   beforeEach(() => {
     setDb(makeDb());
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('rhythm-only profile → mcpRoleConfig excludes gmail and pco', async () => {
@@ -108,6 +113,31 @@ describe('interactive session MCP scope (P1a)', () => {
     expect(scope.mcpRoleConfig).toBeNull();
   });
 
+  it('empty allowed_mcps_json array → explicit deny-all MCP scope', async () => {
+    insertProfile('deny-all-mcp', JSON.stringify([]));
+
+    const scope = await resolveProfileScope('deny-all-mcp');
+
+    expect(scope.mcpRoleConfig).not.toBeNull();
+    expect(scope.mcpRoleConfig!.mcpServers).toEqual({});
+    expect(scope.mcpRoleConfig!.allowedToolsJson).toBe('[]');
+  });
+
+  it('malformed allowed_mcps_json → explicit deny-all MCP scope and loud log', async () => {
+    const errSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    insertProfile('bad-mcp-json', '{not json');
+
+    const scope = await resolveProfileScope('bad-mcp-json');
+
+    expect(scope.mcpRoleConfig).not.toBeNull();
+    expect(scope.mcpRoleConfig!.mcpServers).toEqual({});
+    expect(scope.mcpRoleConfig!.allowedToolsJson).toBe('[]');
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining('bad-mcp-json'),
+      expect.stringContaining('{not json'),
+    );
+  });
+
   it('unknown/null agentConfigId → graceful fallback, null mcpRoleConfig', async () => {
     // No profile at all → falls through to defaults
     const scope = await resolveProfileScope(null);
@@ -150,5 +180,24 @@ describe('interactive session MCP scope (P1a)', () => {
     expect(scope.systemPrompt).toBe('You are helpful.');
     expect(scope.allowedSkillsJson).toBe('["skill-a","skill-b"]');
     expect(scope.ocAgent).toBe('build');
+  });
+
+  it('malformed allowed_skills_json → deny-all skills JSON and loud log', async () => {
+    const errSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    new AgentConfigsRepository().insert({
+      id: 'bad-skills-json',
+      label: 'Bad skills',
+      icon: '⚙️',
+      allowedSkillsJson: '{not json',
+      allowedMcpsJson: null,
+    });
+
+    const scope = await resolveProfileScope('bad-skills-json');
+
+    expect(scope.allowedSkillsJson).toBe('[]');
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining('bad-skills-json'),
+      expect.stringContaining('{not json'),
+    );
   });
 });

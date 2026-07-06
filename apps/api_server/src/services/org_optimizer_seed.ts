@@ -68,6 +68,25 @@ interface McpRoleFile {
   allowedSkills?: string[];
 }
 
+function canonicalMcpToolsMap(roleFile: McpRoleFile): Record<string, string[]> {
+  const result: Record<string, string[]> = {};
+  for (const [serverName, serverConfig] of Object.entries(roleFile.mcpServers)) {
+    result[serverName] = Array.isArray(serverConfig.allowedTools)
+      ? serverConfig.allowedTools.filter(
+          (tool): tool is string => typeof tool === 'string' && tool.trim().length > 0,
+        )
+      : [];
+  }
+  return result;
+}
+
+function allowedSkillsScopeJson(roleFile: McpRoleFile): string | null {
+  const skills = (roleFile.allowedSkills ?? []).filter(
+    (skill): skill is string => typeof skill === 'string' && skill.trim().length > 0,
+  );
+  return skills.length > 0 ? JSON.stringify(skills) : null;
+}
+
 /**
  * Read a `.mcp-roles/<role>.mcp.json` file. Returns null (never throws) when
  * the file is absent or malformed — a missing role file must not block boot;
@@ -203,8 +222,8 @@ function ensureAgentConfigForRole(
     systemPrompt: roleFile.description ?? null,
     modelProvider: DEFAULT_OPTIMIZER_MODEL.provider,
     modelId: DEFAULT_OPTIMIZER_MODEL.id,
-    allowedMcpsJson: JSON.stringify(roleFile.mcpServers),
-    allowedSkillsJson: JSON.stringify(roleFile.allowedSkills ?? []),
+    allowedMcpsJson: JSON.stringify(canonicalMcpToolsMap(roleFile)),
+    allowedSkillsJson: allowedSkillsScopeJson(roleFile),
     sessionSelectable: false, // background/system profile — not a picker entry
   });
   return created.id;
@@ -296,8 +315,8 @@ export async function seedOrgOptimizerTask(): Promise<OrgOptimizerSeedResult> {
           prompt: AUDIT_PROMPT,
           agentKind: 'opencode',
           agentConfigId,
-          allowedMcpsJson: JSON.stringify(roleFile.mcpServers),
-          allowedSkillsJson: JSON.stringify(roleFile.allowedSkills ?? []),
+          allowedMcpsJson: JSON.stringify(canonicalMcpToolsMap(roleFile)),
+          allowedSkillsJson: allowedSkillsScopeJson(roleFile) ?? undefined,
         });
         result.auditTaskSeeded = true;
         existingTasks.push({ name: AUDIT_TASK_NAME } as (typeof existingTasks)[number]);
@@ -340,8 +359,8 @@ export async function seedOrgOptimizerTask(): Promise<OrgOptimizerSeedResult> {
           prompt: EXTERNAL_DISCOVERY_PROMPT,
           agentKind: 'opencode',
           agentConfigId,
-          allowedMcpsJson: JSON.stringify(roleFile.mcpServers),
-          allowedSkillsJson: JSON.stringify(roleFile.allowedSkills ?? []),
+          allowedMcpsJson: JSON.stringify(canonicalMcpToolsMap(roleFile)),
+          allowedSkillsJson: allowedSkillsScopeJson(roleFile) ?? undefined,
         });
         result.externalTaskSeeded = true;
         logger.info(`[org-optimizer-seed] seeded "${EXTERNAL_TASK_NAME}" (weekly)`);
