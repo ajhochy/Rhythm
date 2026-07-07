@@ -17,7 +17,7 @@
  * the AgentSessionMessagesRepository.append() API.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 
 import { runMigrations } from '../database/migrations';
@@ -25,6 +25,13 @@ import { setDb, getDb } from '../database/db';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { distillFromSession, type LlmCall } from '../services/skill_extractor';
+
+// #929 — spy on materializeSkill so Unit 1 (materialize-on-harvest) can be
+// asserted without touching the real opencode engine / filesystem.
+const materializeSkillMock = vi.fn().mockResolvedValue(undefined);
+vi.mock('../services/skill_materializer', () => ({
+  materializeSkill: (...args: unknown[]) => materializeSkillMock(...args),
+}));
 
 const SESSION_ID = 'sess-extract-1';
 
@@ -76,6 +83,7 @@ describe('skill_extractor — injected llmCall logic (guard lifted)', () => {
     savedNodeEnv = process.env.NODE_ENV;
     delete process.env.VITEST;
     process.env.NODE_ENV = 'development';
+    materializeSkillMock.mockClear();
   });
 
   afterEach(() => {
@@ -105,6 +113,13 @@ describe('skill_extractor — injected llmCall logic (guard lifted)', () => {
     expect(persisted?.steps).toEqual(['cd into the package', 'run node-gyp rebuild', 'verify it loads']);
     expect(persisted?.tags).toEqual(['node', 'native', 'sqlite']);
     expect(new AgentSkillsRepository().list()).toHaveLength(1);
+
+    // #929 Unit 1 — a draft clearing DRAFT_CONFIDENCE_GATE (0.6) is
+    // materialized immediately so it is usable, not stuck invisible.
+    expect(materializeSkillMock).toHaveBeenCalledTimes(1);
+    expect(materializeSkillMock.mock.calls[0][0]).toMatchObject({
+      title: 'Rebuild better-sqlite3 ABI',
+    });
   });
 
   it('returns null and inserts nothing when only 1 round', async () => {
@@ -138,6 +153,8 @@ describe('skill_extractor — injected llmCall logic (guard lifted)', () => {
 
     expect(result).toBeNull();
     expect(new AgentSkillsRepository().list()).toHaveLength(0);
+    // #929 — nothing was created, so nothing should be materialized either.
+    expect(materializeSkillMock).not.toHaveBeenCalled();
   });
 
   it('skips (dedup) when a skill with the same title already exists', async () => {

@@ -35,6 +35,8 @@ import { env } from '../config/env';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { refineExistingSkill } from './skill_refiner';
+import { materializeSkill } from './skill_materializer';
+import { DRAFT_CONFIDENCE_GATE } from './skill_retrieval';
 import type { AgentSkill } from '../models/agent_skill';
 
 /**
@@ -415,6 +417,17 @@ export async function distillFromSession(
       source,
     });
     logger.info(`[skill-extract] drafted skill '${title}' (id=${created.id})`);
+
+    // #929 — materialize-then-measure: a harvested draft is otherwise invisible
+    // (no managed SKILL.md → not in the picker, not usable, not shown in the
+    // Skills UI). Bound the blast radius of a low-quality harvest by requiring
+    // the SAME confidence bar retrieval already gates drafts on
+    // (DRAFT_CONFIDENCE_GATE) before writing it live. Fire-and-forget: never
+    // blocks/throws on the caller (materializeSkill itself never throws).
+    if (confidence >= DRAFT_CONFIDENCE_GATE) {
+      void materializeSkill(created);
+    }
+
     _setCuratorExtractRunning(false);
     return created;
   } catch (err) {

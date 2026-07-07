@@ -30,8 +30,12 @@ import type { AgentSkill } from '../models/agent_skill';
 
 const THRESHOLD = 0.3;
 const DEFAULT_TOP_N = 5;
-/** Draft skills must clear this confidence bar to be eligible (fail-closed). */
-const DRAFT_CONFIDENCE_GATE = 0.6;
+/**
+ * Draft skills must clear this confidence bar to be eligible (fail-closed).
+ * Exported (#929) so skill_extractor can gate materialize-on-harvest on the
+ * SAME bar a draft needs to clear to be retrieval-eligible.
+ */
+export const DRAFT_CONFIDENCE_GATE = 0.6;
 
 /**
  * Tokenize text the same way Odysseus `_tokenize` does:
