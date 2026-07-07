@@ -361,6 +361,22 @@ export class AgentSessionMessagesRepository {
   }
 
   /**
+   * #934 — Batch fetch messages for a list of session IDs. Used by the org
+   * audit snapshot to feed workflow-failure signal extraction without N+1
+   * per-session queries. Returns all matching rows (caller applies its own cap).
+   */
+  listBySessionIds(sessionIds: string[], limit = 10000): AgentSessionMessage[] {
+    if (sessionIds.length === 0) return [];
+    const placeholders = sessionIds.map(() => '?').join(', ');
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM agent_session_messages WHERE session_id IN (${placeholders}) ORDER BY created_at ASC LIMIT ?`,
+      )
+      .all(...sessionIds, limit) as AgentSessionMessageRow[];
+    return rows.map(rowToModel);
+  }
+
+  /**
    * Return messages with parts/tokens deserialized.
    * Legacy rows (parts_json IS NULL) get a synthetic text part.
    */

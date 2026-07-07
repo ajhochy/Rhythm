@@ -1,6 +1,7 @@
 
+import { describe, expect, it } from 'vitest';
 import { extractWorkflowFailureSignals } from '../workflow_failure_signal_extractor';
-import { AgentSession, AgentSessionMessage } from '../../models/agent_session';
+import { AgentSession } from '../../models/agent_session';
 
 describe('workflow_failure_signal_extractor', () => {
   it('detects errored sessions', () => {

@@ -450,3 +450,40 @@ describe('issue-819-c4: every gap has a stable, non-empty gapId and non-empty ev
     expect(gapIdsB).toEqual(gapIdsA);
   });
 });
+
+describe('issue-934: workflow failure signals are extracted and included in the snapshot', () => {
+  it('is an empty array when no sessions have errored', async () => {
+    const { buildOrgAuditSnapshot } = await import('../org_audit_service');
+    const snapshot = await buildOrgAuditSnapshot();
+
+    expect(Array.isArray(snapshot.workflowFailureSignals)).toBe(true);
+    expect(snapshot.workflowFailureSignals).toHaveLength(0);
+  });
+
+  it('surfaces an errored session as a signal, leaving healthy sessions untouched', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const errored = sessionsRepo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      name: 'session-errored',
+      cwd: '/tmp',
+    });
+    sessionsRepo.setErrorStatus(errored.id, 'No tools found for: report-generator');
+
+    sessionsRepo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      name: 'session-healthy',
+      cwd: '/tmp',
+    });
+
+    const { buildOrgAuditSnapshot } = await import('../org_audit_service');
+    const snapshot = await buildOrgAuditSnapshot();
+
+    expect(snapshot.workflowFailureSignals).toHaveLength(1);
+    const signal = snapshot.workflowFailureSignals[0];
+    expect(signal.sessionId).toBe(errored.id);
+    expect(signal.kind).toBe('session-errored');
+    expect(signal.evidence).toBe('No tools found for: report-generator');
+  });
+});
