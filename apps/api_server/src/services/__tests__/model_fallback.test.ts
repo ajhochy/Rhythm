@@ -10,6 +10,7 @@ import {
   getConfiguredFallbackChain,
   resolveAuthedFallbackChain,
   nextFallbackTier,
+  resolveCrossProviderHandoff,
 } from '../model_fallback';
 
 describe('classifyProviderError', () => {
@@ -141,5 +142,33 @@ describe('nextFallbackTier', () => {
   it('never advances to an unauthed disallowed provider', () => {
     // only anthropic authed — after personal-claude there is no authed next tier
     expect(nextFallbackTier('personal-claude', ['anthropic'])).toBeUndefined();
+  });
+});
+
+describe('resolveCrossProviderHandoff (#930 Unit 3, scoped)', () => {
+  it('team Claude -> personal Claude is NOT a cross-provider handoff target: skips every anthropic tier', () => {
+    // Anthropic exhausted (both accounts) + openai authed -> lands on codex,
+    // never on team-claude/personal-claude even though they're "next" in the
+    // raw chain order.
+    const decision = resolveCrossProviderHandoff('anthropic', ['anthropic', 'openai']);
+    expect(decision?.tier.id).toBe('codex');
+    expect(decision?.providerID).toBe('openai');
+    expect(decision?.modelID).toBeTruthy();
+  });
+
+  it('skips codex too if openai is not authed, landing on gemini', () => {
+    const decision = resolveCrossProviderHandoff('anthropic', ['anthropic', 'google']);
+    expect(decision?.tier.id).toBe('gemini');
+    expect(decision?.providerID).toBe('google');
+  });
+
+  it('returns undefined when no non-anthropic provider is authed (no fallback to disallowed/unconfigured providers)', () => {
+    expect(resolveCrossProviderHandoff('anthropic', ['anthropic'])).toBeUndefined();
+  });
+
+  it('returns undefined when the only cross-provider tier authed has no known default model (glm/openrouter-free never match a real authed provider anyway)', () => {
+    // Even if a caller somehow claims 'glm' is authed, no default model
+    // mapping exists for it -> declines rather than guessing.
+    expect(resolveCrossProviderHandoff('anthropic', ['anthropic', 'glm'])).toBeUndefined();
   });
 });

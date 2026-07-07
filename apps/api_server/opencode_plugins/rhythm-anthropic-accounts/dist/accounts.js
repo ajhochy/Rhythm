@@ -83,6 +83,27 @@ export function markSpillover(sessionId, fromAccountId, toAccountId) {
     }).catch(() => { });
 }
 
+// VENDORED-PLUGIN DIFF (#930 Unit 3, minimal, tagged per AGENTS.md): report
+// "no more Anthropic accounts left" so api_server can decide a CROSS-PROVIDER
+// fallback (Codex/Gemini/...) instead of only retrying within Anthropic. This
+// plugin still only RETRIES same-provider (existing markSpillover path,
+// unchanged); it never invokes another provider itself — that decision and
+// the re-dispatch both live in api_server (see opencode_spillover_routes.ts).
+// Fire-and-forget, same as markSpillover; failure here never blocks the
+// original rate-limit response from surfacing to the caller.
+export function markAccountsExhausted(sessionId, fromAccountId) {
+    fetch(`${apiBase()}/opencode/spillover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            sdkSessionId: sessionId ?? null,
+            fromAccountId,
+            exhausted: true,
+            reason: "rate_limited",
+        }),
+    }).catch(() => { });
+}
+
 /** Test/debug knob: force this account id to be treated as rate-limited. */
 export function forcedSpilloverAccountId() {
     return process.env.RHYTHM_FORCE_SPILLOVER || undefined;

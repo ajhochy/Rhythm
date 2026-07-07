@@ -114,3 +114,50 @@ export function nextFallbackTier(
   if (idx === -1) return chain[0];
   return chain[idx + 1];
 }
+
+// ── Unit 3 (scoped) — cross-provider handoff decision ───────────────────────
+//
+// This is the PURE "what's the next chain tier to re-dispatch on" decision.
+// It intentionally does NOT touch a live opencode engine/session — the
+// caller (opencode_spillover_routes.ts) is responsible for actually
+// re-invoking agent_runner.run() with the resolved route, following the same
+// `_isEscalation` recursion-guard shape as escalateAndCapture. See AGENTS.md
+// note in opencode_spillover_routes.ts for why the vendored plugin's role
+// stops at REPORTING exhaustion rather than performing the handoff itself.
+
+/** Default one-model-per-tier per provider (a real model catalog choice lives in agent_model_resolver.ts's ROUTE_FALLBACKS_BY_AGENT; this is only the fallback used when that table has no entry for the target provider's default agent kind). */
+const DEFAULT_MODEL_BY_PROVIDER: Record<string, string> = {
+  anthropic: 'claude-sonnet-4-6',
+  openai: 'gpt-5.3-codex',
+  google: 'gemini-2.5-pro',
+};
+
+export interface CrossProviderHandoffDecision {
+  tier: FallbackTier;
+  providerID: string;
+  modelID: string;
+}
+
+/**
+ * Given a rate-limit exhaustion signal reported for `exhaustedProviderID`
+ * (the provider that has no more usable accounts/options left — e.g.
+ * 'anthropic' when both Team and Personal Claude are rate-limited), resolve
+ * the first authed tier for a DIFFERENT provider, including a default model
+ * id. This deliberately skips every tier that shares `exhaustedProviderID`
+ * (e.g. both 'team-claude' and 'personal-claude' are skipped together, since
+ * the plugin only reports exhaustion once it has tried every account on that
+ * provider). Returns undefined when no cross-provider tier is authed — the
+ * caller must then surface the original error rather than silently drop the
+ * run.
+ */
+export function resolveCrossProviderHandoff(
+  exhaustedProviderID: string,
+  authedProviders: readonly string[],
+): CrossProviderHandoffDecision | undefined {
+  const chain = resolveAuthedFallbackChain(authedProviders);
+  const tier = chain.find((t) => t.providerID !== exhaustedProviderID);
+  if (!tier) return undefined;
+  const modelID = DEFAULT_MODEL_BY_PROVIDER[tier.providerID];
+  if (!modelID) return undefined; // no known default model for this provider — decline rather than guess
+  return { tier, providerID: tier.providerID, modelID };
+}
