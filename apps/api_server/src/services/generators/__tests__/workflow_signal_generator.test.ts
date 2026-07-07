@@ -278,3 +278,40 @@ describe('issue-935: delegated-failure -> delegation proposal only on a repeated
     expect(forThisPair.length).toBe(1);
   });
 });
+
+describe('workflow-retro prompt evolution lane', () => {
+  it('turns workflow-adherence signals into queued prompt-fix proposals for the affected skill', async () => {
+    const snapshot = baseSnapshot({
+      workflowFailureSignals: [
+        {
+          sessionId: 'workflow_ses',
+          kind: 'workflow-adherence',
+          workflowCategory: 'W5',
+          affectedSkill: 'verification-gate',
+          evidence:
+            'W5: Premature completion claim - coding-agent said fixed before verification-gate evidence was captured.',
+          createdAt: '2026-07-07T12:01:00Z',
+        },
+      ],
+    });
+
+    const { generateWorkflowSignalProposals } = await import('../workflow_signal_generator');
+    const result = await generateWorkflowSignalProposals(snapshot);
+
+    expect(result.promptFixCreated.length).toBe(1);
+    const proposal = result.promptFixCreated[0];
+    expect(proposal.kind).toBe('workflow-prompt-fix');
+    expect(proposal.risk).toBe('high');
+    expect(proposal.status).toBe('proposed');
+    expect(proposal.title).toBe('Prompt evolution: fix W5 in verification-gate');
+    expect(proposal.targetRef).toBe('skill:verification-gate');
+    expect(proposal.signalRef).toBe('workflow-adherence:workflow_ses:W5');
+
+    const change = JSON.parse(proposal.changeJson ?? '{}') as Record<string, unknown>;
+    expect(change.source).toBe('org-optimizer-workflow-retro');
+    expect(change.workflowCategory).toBe('W5');
+    expect(change.affectedSkill).toBe('verification-gate');
+    expect(change.proposedPromptChange).toContain('W5');
+    expect(change.proposedPromptChange).toContain('verification-gate');
+  });
+});

@@ -46,7 +46,7 @@ The test creates one disposable local agent session through the Rhythm API, uses
 | Fork / #928 | `mcpAllowlist` null clear | Pass | Live PATCH sequence: non-null -> `null`; `null` clears the stale allowlist. |
 | API / #930 | Cross-provider spillover handoff | Pass | `POST /opencode/spillover` with `{exhausted:true}` returned `openai/gpt-5.3-codex`. |
 | API / #930 | Handoff persisted | Pass | `GET /agent-sessions/:id` showed `providerId=openai`, `modelId=gpt-5.3-codex`. |
-| API / #933-#936 | Org optimizer route with workflow-signal wiring | Pass | `POST /agent-org-optimizer/run` with `maxProposalsPerRun=0` returned a valid run summary and created `0` proposals. |
+| API / #933-#936 | Org optimizer live workflow read | Pass | Initial smoke only route-checked with `maxProposalsPerRun=0`. A later live run with cap 5 returned a valid run summary and created two scope-hygiene `tighten-scope` findings. The new prompt-fix lane added afterward is covered by unit tests and the smoke now reports both `active` and `proposed` optimizer rows. |
 | API / #929 | Skills metadata endpoint | Pass | `GET /opencode/skills?withMetadata=true` returned 126 skills with `metadata.status` and `metadata.env` shape present. |
 
 ## Notes
@@ -54,3 +54,4 @@ The test creates one disposable local agent session through the Rhythm API, uses
 - First script attempt failed because `POST /agent-sessions` returns the pre-backfill row with `sdkSessionId:null`; the controller persists `sdkSessionId` immediately afterward. The smoke now fetches the session after create before using the SDK id.
 - The smoke does not intentionally trigger provider stream failures for #939 retry caps; doing that safely would require controlled provider error injection rather than burning live model turns.
 - The smoke does not force harvested skills through three real uses for #929 evaluator transitions; it verifies the live metadata surface added for the status vocabulary.
+- The modified `workflow-prompt-fix` code path requires a rebuilt/relaunched API server before it can be live-smoked through `:4001`; the already-running desktop app server predates that code change.

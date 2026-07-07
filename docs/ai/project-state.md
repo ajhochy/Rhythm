@@ -56,6 +56,13 @@ scoping) that produced 10 follow-up issues (#914–#923), not yet fixed.
 
 ## Recent coding-agent runs
 
+### 2026-07-07 — org-optimizer-workflow-prompt-fix-lane
+- Files modified: `workflow_failure_signal_extractor.ts` (extract W/P workflow and process signals from recent sessions/messages), `workflow_signal_generator.ts` (queue high-risk `workflow-prompt-fix` proposals), focused extractor/generator tests, `tools/release/smoke_mega_open_prs_backend.mjs` (report queued optimizer proposals), run/decision docs.
+- Checks run: targeted tests were red first for the missing signal/proposal behavior; `./node_modules/.bin/tsc --noEmit` pass; focused Vitest pass (`3 files, 20 tests`); full API Vitest pass (`292 files, 2504 passed, 1 skipped`); smoke script syntax check pass.
+- Decisions made: prompt repair proposals are high-risk review-queue rows, not auto-applied skill edits; see `docs/ai/decisions/2026-07-07-org-optimizer-workflow-prompt-fix-queue.md`.
+- Deviations from spec: modified code was not live-smoked through the already-running desktop server because that server predates the code change and a separate source server would contend for the fixed opencode `:4096` engine port.
+- Concerns: after rebuilding/relaunching the desktop app, rerun `tools/release/smoke_mega_open_prs_backend.mjs` to confirm live `workflow-prompt-fix` rows appear from recent workflow errors.
+
 ### 2026-07-06 — issue-batch-917-918-919-921
 - Files modified: `apps/api_server/src/database/migrations.ts` (profile data repair), `apps/api_server/src/services/agent_runner.ts` (fallback model), `apps/api_server/src/services/opencode_agent_writer.ts` (disabled projection gate), focused API tests, `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` (trigger profile routing), docs run log.
 - Checks run: `npx tsc --noEmit` pass; targeted Vitest pass (`6 files, 50 tests`); full `npm test` failed under sandbox bind restrictions (`listen EPERM`, `1971 passed / 423 failed / 58 skipped`); Flutter `dart format .` and `flutter analyze --no-fatal-infos` blocked by SDK cache write permission.

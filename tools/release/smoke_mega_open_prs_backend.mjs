@@ -17,6 +17,14 @@ const opencodeBase = (process.env.RHYTHM_OPENCODE_URL ?? 'http://127.0.0.1:4096'
 const testCwd = process.env.RHYTHM_SMOKE_CWD ?? process.cwd();
 const expectedForkPathFragment =
   process.env.RHYTHM_EXPECT_FORK_PATH_FRAGMENT ?? 'Contents/Resources/opencode_bin/opencode';
+const orgOptimizerMaxProposals = Number.parseInt(
+  process.env.RHYTHM_ORG_OPTIMIZER_MAX_PROPOSALS ?? '5',
+  10,
+);
+const orgOptimizerMaxLlmCalls = Number.parseInt(
+  process.env.RHYTHM_ORG_OPTIMIZER_MAX_LLM_CALLS ?? '5',
+  10,
+);
 
 const checks = [];
 let localSessionId = null;
@@ -231,16 +239,42 @@ async function main() {
     );
     record('spillover persisted on local session', 'PASS', `${fetched.session.providerId}/${fetched.session.modelId}`);
 
+    const optimizerStartedAt = Date.now();
     const optimizer = await requestJson(`${apiBase}/agent-org-optimizer/run`, {
       method: 'POST',
-      body: JSON.stringify({ maxProposalsPerRun: 0, maxLlmCallsPerRun: 0 }),
+      body: JSON.stringify({
+        maxProposalsPerRun: Number.isFinite(orgOptimizerMaxProposals)
+          ? orgOptimizerMaxProposals
+          : 5,
+        maxLlmCallsPerRun: Number.isFinite(orgOptimizerMaxLlmCalls)
+          ? orgOptimizerMaxLlmCalls
+          : 5,
+      }),
     });
     assert(typeof optimizer?.auditRunId === 'string', `Optimizer missing auditRunId: ${JSON.stringify(optimizer)}`);
     assert(typeof optimizer?.byKind === 'object' && optimizer.byKind !== null, 'Optimizer missing byKind summary');
+    const recentProposalRows = [];
+    for (const status of ['active', 'proposed']) {
+      const proposals = await requestJson(`${apiBase}/agent-org-proposals?status=${status}`);
+      if (Array.isArray(proposals)) {
+        recentProposalRows.push(...proposals.filter((proposal) => {
+          const createdAt = Date.parse(proposal.createdAt ?? '');
+          return Number.isFinite(createdAt) && createdAt >= optimizerStartedAt - 5000;
+        }));
+      }
+    }
+    const byKind = Object.entries(optimizer.byKind)
+      .map(([kind, count]) => `${kind}:${count}`)
+      .join(',');
+    const findingTitles = recentProposalRows
+      .map((proposal) => `${proposal.status}:${proposal.kind}:${proposal.title}`)
+      .join(' | ');
     record(
-      'org optimizer route with workflow-signal wiring',
+      'org optimizer live workflow read',
       'PASS',
-      optimizer.skipped ? `skipped: ${optimizer.skippedReason}` : `created=${optimizer.proposalsCreated}`,
+      optimizer.skipped
+        ? `skipped: ${optimizer.skippedReason}`
+        : `created=${optimizer.proposalsCreated}; byKind=${byKind || '{}'}${findingTitles ? `; findings=${findingTitles}` : ''}`,
     );
 
     const skills = await requestJson(`${apiBase}/opencode/skills?withMetadata=true`);

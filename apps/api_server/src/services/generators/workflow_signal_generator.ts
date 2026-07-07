@@ -4,11 +4,11 @@
  * Feeds `OrgAuditSnapshot.workflowFailureSignals` (#934,
  * workflow_failure_signal_extractor.ts) into the EXISTING optimizer proposal
  * kinds — this is explicitly NOT a separate "workflow optimizer" pipeline
- * (out of scope per #935). It only ever produces `refine-recipe` (low-risk,
- * auto-apply path, reusing recipe_generator.ts's own scorer/dedup/apply/
- * measure machinery unmodified) or hands a repeated `delegated-failure`
- * pattern to the existing `delegation_generator.generateDelegationProposals`
- * (high-risk, always queued for human review).
+ * (out of scope per #935). It produces `refine-recipe` (low-risk, auto-apply
+ * path), repeated `delegated-failure` handoff to the existing delegation
+ * generator, and high-risk `workflow-prompt-fix` proposals for
+ * workflow-retrospective / prompt-evolver style prompt repairs. This module
+ * never edits skill files directly.
  *
  * Mapping (per the issue's suggested table):
  *   - `session-errored` on a session bound to a cookbook recipe (via
@@ -26,11 +26,11 @@
  *     and hand it to `generateDelegationProposals` — which itself stays
  *     high-risk/queued (grant-delegation/expand-delegation are in
  *     `HIGH_RISK_KINDS`; this module never bypasses that).
- *   - `tool-error` is not handled here: the extractor's tool-error detection
- *     loop is a documented no-op stub (see workflow_failure_signal_extractor.ts)
- *     and does not currently emit any signals of that kind — there is
- *     nothing to wire yet, and per the issue this module must not redesign
- *     the extractor.
+ *   - `workflow-adherence` / `process-health` / workflow-scoped `tool-error`
+ *     signals become `workflow-prompt-fix` proposals. This is the org
+ *     optimizer's review-queue analogue of workflow-retrospective ->
+ *     prompt-evolver: preserve evidence, identify the affected skill, and
+ *     propose a concrete prompt/process guard without auto-applying it.
  *
  * NEVER throws — mirrors every other generator (fire-and-forget optimizer
  * loop caller).
@@ -89,6 +89,91 @@ function stableHash(...parts: string[]): string {
   return (hash >>> 0).toString(16);
 }
 
+function isPromptFixSignal(signal: WorkflowFailureSignal): boolean {
+  if (!signal.affectedSkill) return false;
+  return (
+    signal.kind === 'workflow-adherence' ||
+    signal.kind === 'process-health' ||
+    signal.kind === 'tool-error'
+  );
+}
+
+function promptFixCategory(signal: WorkflowFailureSignal): string {
+  return signal.workflowCategory ?? signal.kind;
+}
+
+function proposedPromptChange(signal: WorkflowFailureSignal): string {
+  const category = promptFixCategory(signal);
+  const affectedSkill = signal.affectedSkill ?? 'workflow-orchestrator';
+  const categoryGuidance: Record<string, string> = {
+    P1: 'Require the CI gate to block on gh run watch --exit-status after push before continuing.',
+    P2: 'Require a pre-flight check for overlapping test runner globs before tests are dispatched.',
+    P3: 'Require scope-expansion checks against the original issue/request before accepting a passing implementation.',
+    P4: 'Require explicit async waits/polling around async boundaries before asserting state.',
+    W1: 'Require chain-enforcement evidence that each previous required skill ran before dispatching the next step.',
+    W2: 'Require workflow-orchestrator entry before source edits when AGENTS.md and docs/ai project memory exist.',
+    W3: 'Require the skill checklist to be expanded into tracked todos before task work starts.',
+    W4: 'Require source-of-truth checks before reading or editing skill/repo-local workflow artifacts.',
+    W5: 'Forbid completion, passing, ready, fixed, or PR-open claims unless the same response includes verification evidence.',
+    W6: 'Require repo and branch confirmation immediately before push, PR, or environment-visible smoke.',
+    W7: 'Require ai-workflow sync-globals as the immediate next command after canonical skill edits are pushed.',
+    'workflow-run-error': 'Add an explicit recovery/handoff rule for errored workflow-agent runs, including the safe retry or escalation command.',
+    'tool-error': 'Add a guard that treats repeated tool/runtime failures as workflow-retrospective evidence instead of silently moving on.',
+  };
+  const guidance = categoryGuidance[category] ?? 'Add a concrete prompt guard that prevents this workflow failure from recurring.';
+  return `${guidance} Target skill: ${affectedSkill}. Category: ${category}. Evidence to cite in the prompt-evolution PR: ${signal.evidence}`;
+}
+
+async function proposePromptFixFromSignals(
+  signals: WorkflowFailureSignal[],
+  auditRunId: string,
+  proposalsRepo: AgentOrgProposalsRepository,
+): Promise<AgentOrgProposal[]> {
+  const created: AgentOrgProposal[] = [];
+
+  for (const signal of signals) {
+    if (!isPromptFixSignal(signal)) continue;
+    const affectedSkill = signal.affectedSkill!;
+    const category = promptFixCategory(signal);
+    try {
+      const changeJson = JSON.stringify({
+        source: 'org-optimizer-workflow-retro',
+        workflowCategory: category,
+        affectedSkill,
+        sessionId: signal.sessionId,
+        messageId: signal.messageId ?? null,
+        evidence: signal.evidence,
+        proposedPromptChange: proposedPromptChange(signal),
+      });
+      const dedupKey = `workflow-prompt-fix:${affectedSkill}:${category}:${stableHash(signal.evidence)}`;
+      if (await proposalsRepo.existsByDedupKeyAsync(dedupKey)) continue;
+
+      const proposal = await proposalsRepo.createAsync({
+        auditRunId,
+        kind: 'workflow-prompt-fix',
+        risk: classifyProposalRisk({ kind: 'workflow-prompt-fix', changeJson }),
+        status: 'proposed',
+        title: `Prompt evolution: fix ${category} in ${affectedSkill}`,
+        rationale:
+          `Workflow retrospective signal from session ${signal.sessionId}: ${signal.evidence}. ` +
+          'Queue this for human-reviewed prompt evolution; do not auto-edit skills.',
+        signalRef: `${signal.kind}:${signal.sessionId}:${category}`,
+        targetRef: `skill:${affectedSkill}`,
+        changeJson,
+        dedupKey,
+      });
+      logger.info(
+        `[workflow-signal-generator] proposed workflow-prompt-fix '${proposal.id}' for ${affectedSkill} (${category})`,
+      );
+      created.push(proposal);
+    } catch (err) {
+      logger.warn(`[workflow-signal-generator] prompt-fix candidate failed (non-fatal): ${String(err)}`);
+    }
+  }
+
+  return created;
+}
+
 /** Compile a recipe's stepsJson into plain text — mirrors recipe_generator.ts's compileStepsToBody. */
 function compileStepsToBody(stepsJson: string): string {
   try {
@@ -127,6 +212,7 @@ export interface WorkflowSignalGeneratorDeps {
 export interface WorkflowSignalGeneratorResult {
   refineRecipeCreated: AgentOrgProposal[];
   delegationCreated: AgentOrgProposal[];
+  promptFixCreated: AgentOrgProposal[];
 }
 
 /**
@@ -259,8 +345,9 @@ function buildDelegationRedoSignals(
 
 /**
  * Generate proposals from `snapshot.workflowFailureSignals`, reusing the
- * existing `refine-recipe` low-risk auto-apply lane and the existing
- * high-risk `generateDelegationProposals` queue. NEVER throws.
+ * existing `refine-recipe` low-risk auto-apply lane, the existing high-risk
+ * `generateDelegationProposals` queue, and the high-risk workflow prompt-fix
+ * review queue. NEVER throws.
  */
 export async function generateWorkflowSignalProposals(
   snapshot: OrgAuditSnapshot,
@@ -273,6 +360,7 @@ export async function generateWorkflowSignalProposals(
 
   let refineRecipeCreated: AgentOrgProposal[] = [];
   const delegationCreated: AgentOrgProposal[] = [];
+  let promptFixCreated: AgentOrgProposal[] = [];
 
   try {
     refineRecipeCreated = await proposeRefineRecipeFromSignals(
@@ -328,5 +416,15 @@ export async function generateWorkflowSignalProposals(
     logger.warn(`[workflow-signal-generator] delegation pass FAILED (non-fatal): ${String(err)}`);
   }
 
-  return { refineRecipeCreated, delegationCreated };
+  try {
+    promptFixCreated = await proposePromptFixFromSignals(
+      snapshot.workflowFailureSignals,
+      snapshot.auditRunId,
+      proposalsRepo,
+    );
+  } catch (err) {
+    logger.warn(`[workflow-signal-generator] prompt-fix pass FAILED (non-fatal): ${String(err)}`);
+  }
+
+  return { refineRecipeCreated, delegationCreated, promptFixCreated };
 }
