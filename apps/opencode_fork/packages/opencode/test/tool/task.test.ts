@@ -1,5 +1,5 @@
 import { afterEach, describe, expect } from "bun:test"
-import { Effect, Exit, Fiber, Layer } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Config } from "@/config/config"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
@@ -111,6 +111,13 @@ function reply(input: SessionPrompt.PromptInput, text: string): MessageV2.WithPa
       },
     ],
   }
+}
+
+function failedReply(input: SessionPrompt.PromptInput, error: MessageV2.Assistant["error"]): MessageV2.WithParts {
+  const result = reply(input, "")
+  if (result.info.role === "assistant") result.info.error = error
+  result.parts = []
+  return result
 }
 
 describe("tool.task", () => {
@@ -359,6 +366,103 @@ describe("tool.task", () => {
       expect(result.metadata.sessionId).not.toBe("ses_missing")
       expect(result.output).toContain(`task_id: ${result.metadata.sessionId}`)
       expect(seen?.sessionID).toBe(result.metadata.sessionId)
+    }),
+  )
+
+  it.instance("execute fails when the child prompt returns an assistant error", () =>
+    Effect.gen(function* () {
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const promptOps: TaskPromptOps = {
+        cancel: () => Effect.void,
+        resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+        prompt: (input) =>
+          Effect.succeed(
+            failedReply(
+              input,
+              new MessageV2.AbortedError({ message: "Aborted" }).toObject() as MessageV2.Assistant["error"],
+            ),
+          ),
+      }
+
+      const exit = yield* def
+        .execute(
+          {
+            description: "inspect bug",
+            prompt: "look into the cache key path",
+            subagent_type: "general",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: { promptOps },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+        .pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        const failure = Cause.squash(exit.cause)
+        const message = failure instanceof Error ? failure.message : String(failure)
+        expect(message).toContain("subagent general failed with error (task_id: ")
+        expect(message).toContain("MessageAbortedError: Aborted")
+      }
+    }),
+  )
+
+  it.instance("execute retries the same child task after a retryable child provider error", () =>
+    Effect.gen(function* () {
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const seen: SessionPrompt.PromptInput[] = []
+      const promptOps: TaskPromptOps = {
+        cancel: () => Effect.void,
+        resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+        prompt: (input) =>
+          Effect.sync(() => {
+            seen.push(input)
+            if (seen.length === 1) {
+              return failedReply(
+                input,
+                new MessageV2.APIError({
+                  message: "An error occurred while processing your request.",
+                  isRetryable: true,
+                }).toObject() as MessageV2.Assistant["error"],
+              )
+            }
+            return reply(input, "finished after retry")
+          }),
+      }
+
+      const result = yield* def.execute(
+        {
+          description: "inspect bug",
+          prompt: "look into the cache key path",
+          subagent_type: "general",
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: { promptOps },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      expect(seen).toHaveLength(2)
+      expect(seen[0]?.sessionID).toBe(seen[1]?.sessionID)
+      expect(result.output).toContain(`task_id: ${seen[0]?.sessionID}`)
+      expect(result.output).toContain("finished after retry")
     }),
   )
 
