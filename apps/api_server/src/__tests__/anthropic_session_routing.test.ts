@@ -354,4 +354,82 @@ describe('POST /opencode/spillover — engine plugin failover intake', () => {
     expect(sessionUpdatedCalls).toHaveLength(0);
     expect(setRoutingSpy).not.toHaveBeenCalled();
   });
+
+  // #930 Unit 3 (scoped) — cross-provider handoff on account exhaustion.
+  it('7. exhausted:true with an authed fallback provider → cross-provider handoff persisted + broadcast', async () => {
+    seedAccount('team');
+    const session = repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'Exhausted',
+      anthropicAccountId: 'team',
+    });
+    repo.setSdkSessionId(session.id, 'sdk-exhausted-1');
+
+    // Only openai (besides anthropic) is authed — the cross-provider chain
+    // should land on 'codex' (openai), matching the fallback order
+    // team-claude -> personal-claude -> codex.
+    vi.spyOn(service.ref, 'listAuthedProviders').mockResolvedValue(['anthropic', 'openai']);
+
+    const { status, body } = await req('POST', '/opencode/spillover', {
+      sdkSessionId: 'sdk-exhausted-1',
+      fromAccountId: 'team',
+      exhausted: true,
+    });
+    expect(status).toBe(200);
+    expect(body.handoff).toBe(true);
+    expect(body.providerID).toBe('openai');
+
+    const updated = repo.findById(session.id)!;
+    expect(updated.providerId).toBe('openai');
+    expect(updated.modelId).toBeTruthy();
+
+    const spillEvent = broadcasts.find((b) => b.type === 'session.spillover');
+    expect(spillEvent).toMatchObject({
+      type: 'session.spillover',
+      sessionId: session.id,
+      toAccountId: null,
+      reason: 'rate_limit_cross_provider',
+      toProvider: 'openai',
+    });
+    expect(sessionUpdatedCalls).toHaveLength(1);
+  });
+
+  it('8. exhausted:true with NO authed fallback provider → 202 accepted, no handoff, no crash', async () => {
+    seedAccount('team');
+    const session = repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'ExhaustedNoFallback',
+      anthropicAccountId: 'team',
+    });
+    repo.setSdkSessionId(session.id, 'sdk-exhausted-2');
+
+    // Only anthropic authed — the next-tier lookup for a cross-provider
+    // handoff has nothing to land on.
+    vi.spyOn(service.ref, 'listAuthedProviders').mockResolvedValue(['anthropic']);
+
+    const { status, body } = await req('POST', '/opencode/spillover', {
+      sdkSessionId: 'sdk-exhausted-2',
+      fromAccountId: 'team',
+      exhausted: true,
+    });
+    expect(status).toBe(202);
+    expect(body.handoff).toBe(false);
+
+    const updated = repo.findById(session.id)!;
+    expect(updated.providerId).toBeNull();
+    expect(broadcasts.find((b) => b.type === 'session.spillover')).toBeUndefined();
+  });
+
+  it('9. missing sdkSessionId and no toAccountId/exhausted → 400', async () => {
+    const { status } = await req('POST', '/opencode/spillover', {
+      fromAccountId: 'team',
+    });
+    expect(status).toBe(400);
+  });
 });
