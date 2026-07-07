@@ -58,8 +58,11 @@ String _statusOf(OpencodeSkillEntry skill) =>
     (skill.metadata?.status ?? 'active').toLowerCase();
 
 /// Sort rank for lifecycle status when sorting the Status column. Groups the
-/// states that need attention first — measuring → reverted → active — so the
-/// default ascending Status sort surfaces in-flight skills at the top. Unknown
+/// states that need attention first — measuring → reverted → rewrite-needed →
+/// disabled → draft → active — so the default ascending Status sort surfaces
+/// in-flight/needs-attention skills at the top. #929 adds the harvested-skill
+/// self-regulation lifecycle (draft/rewrite-needed/disabled) alongside the
+/// existing auto-apply lifecycle (measuring/reverted/active). Unknown
 /// statuses sort last; within a rank rows fall back to a Name tiebreak.
 int _statusRank(String status) {
   switch (status) {
@@ -67,10 +70,16 @@ int _statusRank(String status) {
       return 0;
     case 'reverted':
       return 1;
-    case 'active':
+    case 'rewrite-needed':
       return 2;
-    default:
+    case 'disabled':
       return 3;
+    case 'draft':
+      return 4;
+    case 'active':
+      return 5;
+    default:
+      return 6;
   }
 }
 
@@ -147,8 +156,8 @@ class _AgentSkillsViewState extends State<AgentSkillsView> {
           result = a.name.toLowerCase().compareTo(b.name.toLowerCase());
         case _SortColumn.description:
           result = (a.description ?? '').toLowerCase().compareTo(
-                (b.description ?? '').toLowerCase(),
-              );
+            (b.description ?? '').toLowerCase(),
+          );
         case _SortColumn.status:
           final byRank = _statusRank(
             _statusOf(a),
@@ -619,8 +628,8 @@ class _HeaderCell extends StatelessWidget {
             Icon(
               active
                   ? (ascending
-                      ? Icons.arrow_upward_rounded
-                      : Icons.arrow_downward_rounded)
+                        ? Icons.arrow_upward_rounded
+                        : Icons.arrow_downward_rounded)
                   : Icons.unfold_more_rounded,
               key: active
                   ? ValueKey('$keyValue-${ascending ? 'asc' : 'desc'}')
@@ -1055,8 +1064,11 @@ class _ProvenanceBadge extends StatelessWidget {
 }
 
 /// Lifecycle status pill rendered for EVERY skill so the Status column is never
-/// empty: `measuring` amber, `reverted` red, `active` (and anything unknown) a
-/// muted neutral pill that is visible but not loud.
+/// empty: `measuring`/`rewrite-needed` amber, `reverted`/`disabled` red,
+/// `active`/`draft` (and anything unknown) a muted neutral pill that is
+/// visible but not loud. #929 adds the harvested-skill self-regulation
+/// statuses (`draft`, `rewrite-needed`, `disabled`) alongside the existing
+/// auto-apply lifecycle (`measuring`, `reverted`, `active`).
 class _StatusBadge extends StatelessWidget {
   const _StatusBadge({required this.status});
 
@@ -1066,8 +1078,8 @@ class _StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final rhythm = context.rhythm;
     final color = switch (status) {
-      'reverted' => rhythm.danger,
-      'measuring' => rhythm.warning,
+      'reverted' || 'disabled' => rhythm.danger,
+      'measuring' || 'rewrite-needed' => rhythm.warning,
       _ => rhythm.textMuted,
     };
     return Container(

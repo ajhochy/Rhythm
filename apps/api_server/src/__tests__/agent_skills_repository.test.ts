@@ -132,6 +132,17 @@ describe('AgentSkillsRepository', () => {
     expect(repo.getById(created.id)?.uses).toBe(2);
   });
 
+  it('#929 — incrementUses(id) is visible via findByName(title), the Skills UI join key', () => {
+    // retrieval/injection bumps uses by id (buildSkillsPreface returns AgentSkill.id);
+    // the Skills UI (#792/#793) reads uses via findByName(title) joined onto the
+    // live engine skill. These must be the SAME row so a harvested skill's usage
+    // count actually surfaces in the UI after it is used.
+    const created = repo.create({ title: 'Harvested Skill', status: 'draft', source: 'auto-extract' });
+    repo.incrementUses(created.id);
+    repo.incrementUses(created.id);
+    expect(repo.findByName('Harvested Skill')?.uses).toBe(2);
+  });
+
   it('findByTitle matches case-insensitively for dedup', () => {
     repo.create({ title: 'Send Weekly Report' });
     expect(repo.findByTitle('send weekly report')?.title).toBe('Send Weekly Report');

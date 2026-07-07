@@ -720,6 +720,40 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets(
+      '#929 — a harvested skill flagged rewrite-needed or disabled renders a visible pill',
+      (tester) async {
+        final ds = _FakeSkillsDataSource([
+          _skill(
+            'weak-harvest',
+            managed: true,
+            metadata: const OpencodeSkillMetadata(status: 'rewrite-needed'),
+          ),
+          _skill(
+            'bad-harvest',
+            managed: true,
+            metadata: const OpencodeSkillMetadata(status: 'disabled'),
+          ),
+        ]);
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('status-badge-rewrite-needed')),
+          findsOneWidget,
+        );
+        expect(find.text('REWRITE-NEEDED'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('status-badge-disabled')),
+          findsOneWidget,
+        );
+        expect(find.text('DISABLED'), findsOneWidget);
+      },
+    );
   });
 
   group('OpencodeSkillsDataSource — dual-endpoint targeting', () {

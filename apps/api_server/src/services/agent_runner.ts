@@ -24,6 +24,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { queueSkillExtraction } from './skill_extractor';
+import { evaluateHarvestedSkillIfDue } from './harvested_skill_evaluator';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
 import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
@@ -930,6 +931,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         const skillsRepo = new AgentSkillsRepository();
         for (const skillId of injectedSkillIds) {
           skillsRepo.incrementUses(skillId);
+          // #929 — self-regulation: once a harvested draft crosses its use
+          // threshold, evaluate it (keep/rewrite-needed/disabled). Fire-and-
+          // forget: never blocks/throws on the turn's return value.
+          void evaluateHarvestedSkillIfDue(skillId);
         }
       } catch (err) {
         logger.warn(`[AgentRunner] incrementUses failed (non-fatal): ${String(err)}`);

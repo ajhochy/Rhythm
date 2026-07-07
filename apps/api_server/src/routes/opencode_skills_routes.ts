@@ -57,7 +57,12 @@ interface SkillListEntry {
 interface SkillMetadata {
   confidence: number | null;
   version: number;
-  status: 'active' | 'measuring' | 'reverted' | null;
+  /**
+   * #929 — widened to include the harvested-skill self-regulation lifecycle:
+   * 'draft' (harvested, not yet evaluated), 'rewrite-needed' (sound idea, weak
+   * execution — flagged), 'disabled' (evaluated bad — dematerialized).
+   */
+  status: 'active' | 'measuring' | 'reverted' | 'draft' | 'rewrite-needed' | 'disabled' | null;
   source: string | null;
   uses: number | null;
   baselineScore: number | null;
@@ -106,7 +111,15 @@ const DEFAULT_METADATA: SkillMetadata = {
   env: { missing: [], satisfied: true },
 };
 
-const VALID_STATUSES = new Set(['active', 'measuring', 'reverted']);
+const VALID_STATUSES = new Set([
+  'active',
+  'measuring',
+  'reverted',
+  // #929 — harvested-skill self-regulation lifecycle.
+  'draft',
+  'rewrite-needed',
+  'disabled',
+]);
 
 // ── GET / — list the fork's live discovered skills ───────────────────────────
 
@@ -185,7 +198,7 @@ opencodeSkillsRouter.get(
           return { ...entry, metadata: { ...DEFAULT_METADATA, env } };
         }
         const status = VALID_STATUSES.has(row.status)
-          ? (row.status as 'active' | 'measuring' | 'reverted')
+          ? (row.status as SkillMetadata['status'])
           : null;
         return {
           ...entry,

@@ -288,6 +288,26 @@ describe('/opencode/skills', () => {
       });
     });
 
+    it('#929 — surfaces the harvested-skill self-regulation statuses (draft/rewrite-needed/disabled)', async () => {
+      listSkills.mockResolvedValue([
+        { name: 'harvested-fresh', description: 'just harvested', location: managedLoc },
+      ]);
+      const repo = new AgentSkillsRepository(db);
+      repo.create({
+        title: 'harvested-fresh',
+        confidence: 0.7,
+        status: 'draft',
+        source: 'auto-extract',
+      });
+
+      const res = await fetch(`${baseUrl}/opencode/skills?withMetadata=true`);
+      const body = (await res.json()) as Array<SkillListEntry & { metadata: Record<string, unknown> }>;
+      const fresh = body.find((s) => s.name === 'harvested-fresh')!;
+      // Previously this fell through VALID_STATUSES → null (indistinguishable
+      // from an unmeasured skill). Must now round-trip as 'draft'.
+      expect(fresh.metadata.status).toBe('draft');
+    });
+
     it('name set is identical with and without the flag (mirrors the fork list)', async () => {
       seedForkSkills();
       // A sidecar row whose status is measuring/reverted and which targets NO

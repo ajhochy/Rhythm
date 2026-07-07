@@ -5,6 +5,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { bridgePty, ptyEngineUrl } from './pty_proxy';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
+import { evaluateHarvestedSkillIfDue } from './harvested_skill_evaluator';
 import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
@@ -836,6 +837,9 @@ export async function handleInputFrame(
         const skillsRepo = new AgentSkillsRepository();
         for (const skillId of wsInjectedSkillIds) {
           skillsRepo.incrementUses(skillId);
+          // #929 — self-regulation: evaluate a harvested skill once it crosses
+          // its use threshold. Fire-and-forget, never blocks the turn.
+          void evaluateHarvestedSkillIfDue(skillId);
         }
       } catch (err) {
         console.error(`[ws_gateway] incrementUses failed (non-fatal):`, err);
