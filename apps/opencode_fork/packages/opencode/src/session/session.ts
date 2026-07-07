@@ -517,12 +517,12 @@ export interface Interface {
   }) => Effect.Effect<void>
   readonly clearRevert: (sessionID: SessionID) => Effect.Effect<void>
   readonly setSummary: (input: { sessionID: SessionID; summary: Info["summary"] }) => Effect.Effect<void>
-  /** Rhythm carried patch (mcp-scope): update the per-session MCP tool allowlist. */
-  readonly setMcpAllowlist: (input: { sessionID: SessionID; mcpAllowlist: Info["mcpAllowlist"] }) => Effect.Effect<void>
-  /** Rhythm carried patch (skill-scope, #775): update the per-session skill allowlist. */
+  /** Rhythm carried patch (mcp-scope): update the per-session MCP tool allowlist. null clears. */
+  readonly setMcpAllowlist: (input: { sessionID: SessionID; mcpAllowlist: Info["mcpAllowlist"] | null }) => Effect.Effect<void>
+  /** Rhythm carried patch (skill-scope, #775): update the per-session skill allowlist. null clears. */
   readonly setSkillAllowlist: (input: {
     sessionID: SessionID
-    skillAllowlist: Info["skillAllowlist"]
+    skillAllowlist: Info["skillAllowlist"] | null
   }) => Effect.Effect<void>
   readonly diff: (sessionID: SessionID) => Effect.Effect<Snapshot.FileDiff[]>
   readonly messages: (input: { sessionID: SessionID; limit?: number }) => Effect.Effect<MessageV2.WithParts[], NotFound>
@@ -823,14 +823,14 @@ export const layer: Layer.Layer<
 
     const setMcpAllowlist = Effect.fn("Session.setMcpAllowlist")(function* (input: {
       sessionID: SessionID
-      mcpAllowlist: Info["mcpAllowlist"]
+      mcpAllowlist: Info["mcpAllowlist"] | null
     }) {
       yield* patch(input.sessionID, { time: { updated: Date.now() }, mcpAllowlist: input.mcpAllowlist })
     })
 
     const setSkillAllowlist = Effect.fn("Session.setSkillAllowlist")(function* (input: {
       sessionID: SessionID
-      skillAllowlist: Info["skillAllowlist"]
+      skillAllowlist: Info["skillAllowlist"] | null
     }) {
       yield* patch(input.sessionID, { time: { updated: Date.now() }, skillAllowlist: input.skillAllowlist })
     })

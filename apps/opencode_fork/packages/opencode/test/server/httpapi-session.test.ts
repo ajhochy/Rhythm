@@ -402,6 +402,50 @@ describe("session HttpApi", () => {
   )
 
   it.instance(
+    "PATCH skillAllowlist null clears stale scope, [] stays deny-all (#928)",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const headers = { "x-opencode-directory": test.directory, "content-type": "application/json" }
+
+        const created = yield* requestJson<Session.Info>(SessionPaths.create, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ title: "#928 null-clear" }),
+        })
+
+        // Set a non-null skillAllowlist
+        const restricted = yield* requestJson<Session.Info>(
+          pathFor(SessionPaths.update, { sessionID: created.id }),
+          { method: "PATCH", headers, body: JSON.stringify({ skillAllowlist: { skills: ["task-management"] } }) },
+        )
+        expect(restricted.skillAllowlist).toEqual({ skills: ["task-management"] })
+
+        // PATCH null clears it — response omits the field (undefined)
+        const cleared = yield* requestJson<Session.Info>(
+          pathFor(SessionPaths.update, { sessionID: created.id }),
+          { method: "PATCH", headers, body: JSON.stringify({ skillAllowlist: null }) },
+        )
+        expect(cleared.skillAllowlist).toBeUndefined()
+
+        // [] (deny-all) is NOT the same as null (unrestricted)
+        const denyAll = yield* requestJson<Session.Info>(
+          pathFor(SessionPaths.update, { sessionID: created.id }),
+          { method: "PATCH", headers, body: JSON.stringify({ skillAllowlist: { skills: [] } }) },
+        )
+        expect(denyAll.skillAllowlist).toEqual({ skills: [] })
+
+        // null clears again from deny-all
+        const clearedAgain = yield* requestJson<Session.Info>(
+          pathFor(SessionPaths.update, { sessionID: created.id }),
+          { method: "PATCH", headers, body: JSON.stringify({ skillAllowlist: null }) },
+        )
+        expect(clearedAgain.skillAllowlist).toBeUndefined()
+      }),
+    { git: true, config: { formatter: false, lsp: false, share: "disabled" } },
+  )
+
+  it.instance(
     "persists selected workspace id when creating a session",
     () =>
       Effect.gen(function* () {
