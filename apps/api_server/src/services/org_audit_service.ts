@@ -36,6 +36,11 @@ import {
   DeniedToolEventsRepository,
   type DeniedToolEvent,
 } from '../repositories/denied_tool_events_repository';
+import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
+import {
+  extractWorkflowFailureSignals,
+  type WorkflowFailureSignal,
+} from './workflow_failure_signal_extractor';
 import type { AgentSkill } from '../models/agent_skill';
 import type { AgentCookbook } from '../repositories/agent_cookbook_repository';
 import type { AgentWebhookEndpoint } from '../repositories/agent_webhook_endpoints_repository';
@@ -110,6 +115,7 @@ export interface OrgAuditSnapshot {
   deniedToolAggregates: DeniedToolAggregate[];
   drift: AllowlistDrift[];
   gaps: OrgAuditGap[];
+  workflowFailureSignals: WorkflowFailureSignal[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -375,6 +381,7 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
   const webhookRepo = new AgentWebhookEndpointsRepository();
   const sessionsRepo = new AgentSessionsRepository();
   const deniedRepo = new DeniedToolEventsRepository();
+  const messagesRepo = new AgentSessionMessagesRepository();
 
   const configs = configsRepo.list();
   const profiles = configs.map(toProfileScopeSnapshot);
@@ -388,6 +395,10 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
   const delegationEdges = buildDelegationEdges(profiles);
 
   const sessions = sessionsRepo.listAll(1000, { includeArchived: true });
+  const sessionIds = sessions.map((s) => s.id);
+  const messages = messagesRepo.listBySessionIds(sessionIds);
+  const workflowFailureSignals = extractWorkflowFailureSignals(sessions, messages);
+
   const sessionCountByProfile = new Map<string, number>();
   for (const session of sessions) {
     if (!session.mcpRole) continue;
@@ -464,5 +475,6 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
     deniedToolAggregates,
     drift,
     gaps,
+    workflowFailureSignals,
   };
 }
