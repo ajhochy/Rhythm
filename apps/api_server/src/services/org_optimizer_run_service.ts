@@ -67,6 +67,7 @@ import { generateScopeHygieneProposals } from './generators/scope_hygiene_genera
 import { generateRecipeProposals } from './generators/recipe_generator';
 import { generateWebhookWiringProposals } from './generators/webhook_wiring_generator';
 import { generateDelegationProposals } from './generators/delegation_generator';
+import { generateWorkflowSignalProposals } from './generators/workflow_signal_generator';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 
@@ -253,6 +254,17 @@ export async function runOrgOptimizer(
       },
       async () => {
         await generateWebhookWiringProposals(taggedSnapshot, cappedRepo);
+      },
+      async () => {
+        // #935 — workflow failure signals (#934) feed the existing
+        // refine-recipe lane and the existing (high-risk, queued)
+        // delegation-proposal lane; see workflow_signal_generator.ts's
+        // module doc for the mapping and why this is not a separate
+        // "workflow optimizer" pipeline.
+        await generateWorkflowSignalProposals(taggedSnapshot, {
+          proposalsRepo: cappedRepo,
+          configsRepo,
+        });
       },
     ];
 
