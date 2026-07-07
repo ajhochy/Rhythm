@@ -155,6 +155,12 @@ function timeout(ms: number) {
   })
 }
 
+function resolvesFalseAfter(ms: number) {
+  return new Promise<false>((resolve) => {
+    setTimeout(() => resolve(false), ms)
+  })
+}
+
 function waitStreamingRequest(pathname: string) {
   const request = deferred<Capture>()
   const requestAborted = deferred<void>()
@@ -177,6 +183,56 @@ function waitStreamingRequest(pathname: string) {
                     id: "chatcmpl-abort",
                     object: "chat.completion.chunk",
                     choices: [{ delta: { role: "assistant" } }],
+                  })}`,
+                ].join("\n\n") + "\n\n",
+              ),
+            )
+          },
+          cancel() {
+            responseCanceled.resolve()
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        },
+      )
+    },
+  })
+
+  return {
+    request: request.promise,
+    requestAborted: requestAborted.promise,
+    responseCanceled: responseCanceled.promise,
+  }
+}
+
+function waitOpenAIResponsesStreamingRequest() {
+  const request = deferred<Capture>()
+  const requestAborted = deferred<void>()
+  const responseCanceled = deferred<void>()
+  const encoder = new TextEncoder()
+
+  state.queue.push({
+    path: "/responses",
+    resolve: request.resolve,
+    response(req: Request) {
+      req.signal.addEventListener("abort", () => requestAborted.resolve(), { once: true })
+
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                [
+                  `data: ${JSON.stringify({
+                    type: "response.created",
+                    response: {
+                      id: "resp-concurrency",
+                      created_at: Math.floor(Date.now() / 1000),
+                      model: "gpt-5.2",
+                      service_tier: null,
+                    },
                   })}`,
                 ].join("\n\n") + "\n\n",
               ),
@@ -691,6 +747,105 @@ describe("session.llm.stream", () => {
 
         const maxTokens = body.max_output_tokens as number | undefined
         expect(maxTokens).toBe(undefined) // match codex cli behavior
+      },
+    })
+  })
+
+  test("limits full-size OpenAI streams to two concurrent requests", async () => {
+    const server = state.server
+    if (!server) {
+      throw new Error("Server not initialized")
+    }
+
+    const source = await loadFixture("openai", "gpt-5.2")
+    const model = source.model
+    const first = waitOpenAIResponsesStreamingRequest()
+    const second = waitOpenAIResponsesStreamingRequest()
+    const third = waitOpenAIResponsesStreamingRequest()
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: ["openai"],
+            provider: {
+              openai: {
+                name: "OpenAI",
+                env: ["OPENAI_API_KEY"],
+                npm: "@ai-sdk/openai",
+                api: "https://api.openai.com/v1",
+                models: {
+                  [model.id]: configModel(model),
+                },
+                options: {
+                  apiKey: "test-openai-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const resolved = await getModel(ProviderID.openai, ModelID.make(model.id))
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+
+        const runStream = (index: number) => {
+          const ctrl = new AbortController()
+          const sessionID = SessionID.make(`session-openai-concurrency-${index}`)
+          const user = {
+            id: MessageID.make(`msg_user-openai-concurrency-${index}`),
+            sessionID,
+            role: "user",
+            time: { created: Date.now() },
+            agent: agent.name,
+            model: { providerID: ProviderID.openai, modelID: resolved.id, variant: "high" },
+          } satisfies MessageV2.User
+
+          return {
+            abort: ctrl,
+            promise: llm.runPromiseExit(
+              (svc) =>
+                svc
+                  .stream({
+                    user,
+                    sessionID,
+                    model: resolved,
+                    agent,
+                    system: ["You are a helpful assistant."],
+                    messages: [{ role: "user", content: `Hello ${index}` }],
+                    tools: {},
+                  })
+                  .pipe(Stream.runDrain),
+              { signal: ctrl.signal },
+            ),
+          }
+        }
+
+        const streams = [runStream(1), runStream(2), runStream(3)]
+        try {
+          await Promise.race([first.request, timeout(2_000)])
+          await Promise.race([second.request, timeout(2_000)])
+          const thirdStartedEarly = await Promise.race([third.request.then(() => true), resolvesFalseAfter(100)])
+          expect(thirdStartedEarly).toBe(false)
+
+          streams[0]?.abort.abort()
+          await Promise.race([third.request, timeout(2_000)])
+        } finally {
+          streams.forEach((stream) => stream.abort.abort())
+          await Promise.allSettled(streams.map((stream) => stream.promise))
+        }
       },
     })
   })

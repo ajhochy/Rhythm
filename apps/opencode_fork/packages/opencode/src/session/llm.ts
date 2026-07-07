@@ -1,6 +1,6 @@
 import { Provider } from "@/provider/provider"
 import * as Log from "@opencode-ai/core/util/log"
-import { Context, Effect, Layer, Record } from "effect"
+import { Context, Effect, Layer, Record, Semaphore } from "effect"
 import * as Stream from "effect/Stream"
 import { streamText, wrapLanguageModel, type ModelMessage, type Tool, tool, jsonSchema } from "ai"
 import { mergeDeep } from "remeda"
@@ -27,10 +27,25 @@ import * as OtelTracer from "@effect/opentelemetry/Tracer"
 const log = Log.create({ service: "llm" })
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 type Result = Awaited<ReturnType<typeof streamText>>
+const OPENAI_FULL_STREAM_MAX_CONCURRENCY = 2
+const streamLimiters = new Map<string, Semaphore.Semaphore>()
 
 // Avoid re-instantiating remeda's deep merge types in this hot LLM path; the runtime behavior is still mergeDeep.
 const mergeOptions = (target: Record<string, any>, source: Record<string, any> | undefined): Record<string, any> =>
   mergeDeep(target, source ?? {}) as Record<string, any>
+
+function streamLimiter(input: StreamInput) {
+  if (input.small) return
+  if (input.model.providerID !== "openai") return
+
+  const key = `${input.model.providerID}:full`
+  const hit = streamLimiters.get(key)
+  if (hit) return hit
+
+  const next = Semaphore.makeUnsafe(OPENAI_FULL_STREAM_MAX_CONCURRENCY)
+  streamLimiters.set(key, next)
+  return next
+}
 
 export type StreamInput = {
   user: MessageV2.User
@@ -424,6 +439,10 @@ const live: Layer.Layer<
               Effect.sync(() => new AbortController()),
               (ctrl) => Effect.sync(() => ctrl.abort()),
             )
+            const limiter = streamLimiter(input)
+            if (limiter) {
+              yield* Effect.acquireRelease(limiter.take(1), () => limiter.release(1))
+            }
 
             const result = yield* run({ ...input, abort: ctrl.signal })
 

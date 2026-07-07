@@ -17,6 +17,36 @@ export interface TaskPromptOps {
 }
 
 const id = "task"
+const CHILD_PROVIDER_RETRY_ATTEMPTS = 1
+
+function childErrorName(error: NonNullable<MessageV2.Assistant["error"]>) {
+  return "name" in error ? error.name : "Error"
+}
+
+function childErrorMessage(error: NonNullable<MessageV2.Assistant["error"]>) {
+  return "data" in error && error.data && typeof error.data === "object" && "message" in error.data
+    ? String(error.data.message)
+    : ""
+}
+
+function isRetryableChildProviderError(error: NonNullable<MessageV2.Assistant["error"]>) {
+  return MessageV2.APIError.isInstance(error) && error.data.isRetryable
+}
+
+function retryPrompt(original: string, error: NonNullable<MessageV2.Assistant["error"]>) {
+  const message = childErrorMessage(error)
+  return [
+    "The previous attempt for this delegated task hit a retryable provider error.",
+    message ? `Provider error: ${message}` : undefined,
+    "Continue the original delegated task now. Reuse any progress already visible in this session and return the requested final result.",
+    "",
+    "<original_task>",
+    original,
+    "</original_task>",
+  ]
+    .filter((line): line is string => line !== undefined)
+    .join("\n")
+}
 
 export const Parameters = Schema.Struct({
   description: Schema.String.annotate({ description: "A short (3-5 words) description of the task" }),
@@ -106,7 +136,6 @@ export const TaskTool = Tool.define(
       if (!ops) return yield* Effect.fail(new Error("TaskTool requires promptOps in ctx.extra"))
       const runCancel = yield* EffectBridge.make()
 
-      const messageID = MessageID.ascending()
       const cancel = ops.cancel(nextSession.id)
 
       function onAbort() {
@@ -119,22 +148,49 @@ export const TaskTool = Tool.define(
         }),
         () =>
           Effect.gen(function* () {
-            const parts = yield* ops.resolvePromptParts(params.prompt)
-            const result = yield* ops.prompt({
-              messageID,
-              sessionID: nextSession.id,
-              model: {
-                modelID: model.modelID,
-                providerID: model.providerID,
-              },
-              agent: next.name,
-              tools: {
-                ...(next.permission.some((rule) => rule.permission === "todowrite") ? {} : { todowrite: false }),
-                ...(next.permission.some((rule) => rule.permission === id) ? {} : { task: false }),
-                ...Object.fromEntries((cfg.experimental?.primary_tools ?? []).map((item) => [item, false])),
-              },
-              parts,
-            })
+            let promptText = params.prompt
+            let result: MessageV2.WithParts | undefined
+
+            for (let attempt = 0; attempt <= CHILD_PROVIDER_RETRY_ATTEMPTS; attempt++) {
+              const parts = yield* ops.resolvePromptParts(promptText)
+              result = yield* ops.prompt({
+                messageID: MessageID.ascending(),
+                sessionID: nextSession.id,
+                model: {
+                  modelID: model.modelID,
+                  providerID: model.providerID,
+                },
+                agent: next.name,
+                tools: {
+                  ...(next.permission.some((rule) => rule.permission === "todowrite") ? {} : { todowrite: false }),
+                  ...(next.permission.some((rule) => rule.permission === id) ? {} : { task: false }),
+                  ...Object.fromEntries((cfg.experimental?.primary_tools ?? []).map((item) => [item, false])),
+                },
+                parts,
+              })
+
+              const childError = result.info.role === "assistant" ? result.info.error : undefined
+              if (!childError) break
+              if (attempt < CHILD_PROVIDER_RETRY_ATTEMPTS && isRetryableChildProviderError(childError)) {
+                promptText = retryPrompt(params.prompt, childError)
+                continue
+              }
+
+              const name = childErrorName(childError)
+              const message = childErrorMessage(childError)
+              const reason = isRetryableChildProviderError(childError) ? "retryable provider error" : "error"
+              return yield* Effect.fail(
+                new Error(
+                  `subagent ${next.name} failed with ${reason} (task_id: ${nextSession.id}): ${name}${message ? `: ${message}` : ""}`,
+                ),
+              )
+            }
+
+            if (!result) {
+              return yield* Effect.fail(
+                new Error(`subagent ${next.name} failed without producing a result (task_id: ${nextSession.id})`),
+              )
+            }
 
             return {
               title: params.description,
