@@ -61,6 +61,23 @@ const RECIPE_ADEQUACY_THRESHOLD = 70;
  */
 const MIN_DELEGATED_FAILURE_OCCURRENCES = 2;
 
+/**
+ * Pull the specialist (delegate target) id out of a generated delegation
+ * proposal's `change_json` (`{agentConfigId, allowed_delegates_json: {add:
+ * [targetId]}}` — see delegation_generator.ts). Used only to build a
+ * kind-independent dedup key here; returns null on any unexpected shape
+ * rather than throwing (this module never throws).
+ */
+function parseSpecialistIdFromChange(changeJson: string): string | null {
+  try {
+    const parsed = JSON.parse(changeJson) as { allowed_delegates_json?: { add?: unknown[] } };
+    const add = parsed.allowed_delegates_json?.add;
+    return Array.isArray(add) && typeof add[0] === 'string' ? add[0] : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Deterministic FNV-1a hash — mirrors org_audit_service.stableGapId's approach. */
 function stableHash(...parts: string[]): string {
   const input = parts.join('::');
@@ -276,7 +293,17 @@ export async function generateWorkflowSignalProposals(
       const generated = generateDelegationProposals(redoSignals, configs);
       for (const g of generated) {
         try {
-          if (g.dedupKey && (await proposalsRepo.existsByDedupKeyAsync(g.dedupKey))) continue;
+          // delegation_generator.ts's own dedupKey is `${kind}:manager:target`.
+          // `kind` flips grant-delegation -> expand-delegation the instant the
+          // edge is granted, which would defeat dedup and re-propose forever
+          // off the SAME stale signals (the manager/specialist pair never
+          // expires from the 1000-session lookback window the extractor
+          // reads every run). Re-key on the manager+specialist pair alone
+          // (kind-independent) so the same underlying evidence only ever
+          // produces one proposal, regardless of kind drift across runs.
+          const specialistId = parseSpecialistIdFromChange(g.changeJson);
+          const workflowDedupKey = `workflow-signal:delegation:${g.targetRef}:${specialistId ?? 'unknown'}`;
+          if (await proposalsRepo.existsByDedupKeyAsync(workflowDedupKey)) continue;
           const proposal = await proposalsRepo.createAsync({
             auditRunId: snapshot.auditRunId,
             kind: g.kind,
@@ -286,7 +313,7 @@ export async function generateWorkflowSignalProposals(
             signalRef: g.signalRef,
             targetRef: g.targetRef,
             changeJson: g.changeJson,
-            dedupKey: g.dedupKey,
+            dedupKey: workflowDedupKey,
           });
           logger.info(
             `[workflow-signal-generator] proposed ${g.kind} '${proposal.id}' from repeated delegated-failure pattern`,

@@ -217,4 +217,64 @@ describe('issue-935: delegated-failure -> delegation proposal only on a repeated
     expect(proposal.risk).toBe('high');
     expect(proposal.status).toBe('proposed');
   });
+
+  it('issue-936: re-running over the SAME repeated pattern after the edge is granted does not duplicate', async () => {
+    // Regression for #936: delegation_generator.ts's own dedupKey is
+    // `${kind}:manager:target`, and `kind` flips grant-delegation ->
+    // expand-delegation the instant the edge exists. Since the extractor
+    // re-reads the same historical sessions every run (no expiry), a
+    // second optimizer run over identical stale evidence must NOT produce
+    // a second (expand-delegation) proposal for the same pair.
+    const configsRepo = new AgentConfigsRepository();
+    configsRepo.insert({ id: 'manager', label: 'Manager', icon: 'x', isManager: true });
+    configsRepo.insert({ id: 'specialist', label: 'Specialist', icon: 'x', isAgent: true, enabled: true });
+
+    const sessionsRepo = new AgentSessionsRepository();
+    const managerSession = sessionsRepo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      cwd: '/tmp',
+      name: 'manager-session',
+      mcpRole: 'manager',
+    } as Parameters<typeof sessionsRepo.insert>[0]);
+
+    const signals = [];
+    for (let i = 0; i < 3; i++) {
+      const childSession = sessionsRepo.insert({
+        agentKind: 'claude-code',
+        taskId: null,
+        cwd: '/tmp',
+        name: `child-session-${i}`,
+        mcpRole: 'specialist',
+      } as Parameters<typeof sessionsRepo.insert>[0]);
+      sessionsRepo.setErrorStatus(childSession.id, 'transport-empty result');
+      signals.push({
+        sessionId: managerSession.id,
+        kind: 'delegated-failure' as const,
+        evidence: `Child session ${childSession.id} failed: transport-empty result`,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    const snapshot = baseSnapshot({ workflowFailureSignals: signals });
+    const { generateWorkflowSignalProposals } = await import('../workflow_signal_generator');
+
+    // Run 1: grant-delegation proposal created, then simulate approval+apply
+    // (the manager now actually has the delegate edge).
+    const run1 = await generateWorkflowSignalProposals(snapshot);
+    expect(run1.delegationCreated.length).toBe(1);
+    expect(run1.delegationCreated[0].kind).toBe('grant-delegation');
+    configsRepo.update('manager', { allowedDelegatesJson: JSON.stringify(['specialist']) });
+
+    // Run 2: identical stale signals (nothing new happened) — with the edge
+    // now granted, delegation_generator.ts would compute kind='expand-delegation'
+    // for the same pair. Must be deduped, not created as a second proposal.
+    const run2 = await generateWorkflowSignalProposals(snapshot);
+    expect(run2.delegationCreated.length).toBe(0);
+
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const all = await proposalsRepo.listByStatusAsync('proposed');
+    const forThisPair = all.filter((p) => p.targetRef === 'agent_config:manager');
+    expect(forThisPair.length).toBe(1);
+  });
 });
