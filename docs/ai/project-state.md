@@ -2,63 +2,60 @@
 
 ## Current focus
 
-Two branches merged to `main` this session:
+Implementing **#949** — skill harvester writes draft `SKILL.md` files +
+auto-binds to the source agent, closing the self-improvement loop. This
+supersedes the Unify-2 "materialize-on-publish" section (point 4 of
+`2026-06-28-unify-skills-source-of-truth.md`), which was never built and left
+harvested drafts as invisible DB rows.
 
-1. opencode session-continuity fixes (#912 + #913) in the vendored fork
-   (PR #924).
-2. `issue-batch-july4` — agent profiles/sessions/scheduling UX + agent-infra
-   (#894–#911) (PR #925).
-
-Plus a full audit of the agent system (profiles, delegation, skill/MCP
-scoping) that produced 10 follow-up issues (#914–#923), not yet fixed.
+A separate inflight branch (`issue-929-skill-self-regulation`) carries
+uncommitted #929 agent-profile-permission work — stashed as
+`wip-929-inflight-stashed-for-949` to isolate the #949 implementation on a
+clean base off `main`.
 
 ## Active branch / PR
 
-- PR #924 (`issue-912-913-opencode-continuity`) — MERGED to `main`
-  (Fixes #912, #913).
-- PR #925 (`issue-batch-july4`, 22 commits) — MERGED to `main`.
-- PR #901 (`feature/config-doctor-agent`) — merged last session.
+- **`issue-949-harvest-to-file`** (off `main` @ #926 merge) — #949
+  implementation in progress. Draft PR pending.
+- `issue-929-skill-self-regulation` — 14 uncommitted #929 files stashed;
+  restore + finish after #949 lands.
+- PR #924 (`issue-912-913-opencode-continuity`) — MERGED.
+- PR #925 (`issue-batch-july4`) — MERGED.
 
 ## In progress
 
-- Nothing mid-flight. #912/#913 and the July-4 batch are on `main`.
-- Agent-system audit fixes (#914–#923) NOT started — filed as issues only,
-  per user instruction to leave them for later.
+- **#949** — `distillFromSession()` now writes a draft `SKILL.md` to
+  `~/.config/opencode/rhythm-managed-skills/drafts/<name>/` (not a DB row),
+  auto-binds to the extracting agent's `allowedSkillsJson` (skips when
+  unrestricted to avoid lock-down), and triggers `reloadSkills`. Decision doc
+  filed. Tests updated. Awaiting commit + draft PR.
 
 ## Risks / known issues
 
-- Both #912/#913 fixes live in the vendored `apps/opencode_fork` — keep diffs
-  minimal/tagged so they survive upstream merges. Test against the BUILT fork
-  binary (set `RHYTHM_OPENCODE_BIN`), never the stock PATH binary.
-- `#913 repairToolPairing` is a defensive repair at the request chokepoint —
-  the true producer of the dangling `tool_use` was never located.
-- `#913 autoContinueExhausted` resets on any completed tool call (coarse by
-  design) — the cap is a backstop, not a guarantee.
-- Audit HIGH findings still open: delegation caller-identity spoofing (#914),
-  60s delegation timeout causing duplicate runs (#915), scope fail-open /
-  config-doctor full surface (#916), nonexistent tool/server names in
-  allowlists (#917). Medium/low: #918–#923.
+- `AgentSkillsRepository` + the `agent_skills` table are **not deleted** in
+  this pass (32 direct callers, GitNexus CRITICAL). Only the
+  `distillFromSession` write site changed. The refiner path still uses the
+  repo for in-place refinement of legacy DB skills. Cleanup is a follow-up.
+- **Auto-bind correctness guard:** `allowedSkillsJson === null` means
+  unrestricted — the bind MUST skip in that case (writing `[name]` would lock
+  the agent down to only the draft). Implemented + tested.
+- Pre-existing test failures (22 across memory-vault + auth-middleware suites)
+  on `main` — unrelated to #949 (ENOENT temp-dir + 401 auth env issues).
+- `#929` work is stashed but not lost — restore with
+  `git stash apply wip-929-inflight-stashed-for-949` on
+  `issue-929-skill-self-regulation`.
 
 ## Test status
 
-- #924 (opencode continuity): api_server `tsc` clean + `npm test` 2405 passed;
-  fork targeted suites 330 pass; fork binary builds; live-engine smoke on the
-  built fixed binary passed. CI green; merged.
-- #925 (July-4 batch): api_server `tsc` clean + `npm test` 2435 passed;
-  flutter 846 tests, analyze at the 272-info baseline, `dart format` clean.
+- #949: `tsc --noEmit` clean; `skill_extractor.test.ts` 9/9 pass;
+  related suites (managed skills, agent configs, refiner, retrieval) 62/62
+  pass; import smoke OK; GitNexus `detect_changes` vs main = LOW risk, 0
+  affected processes.
 
 ## Next step
 
-- Manual smoke on `main` for the opencode continuity fixes (long Codex/gpt
-  session; long compacting session) and the batch UX changes.
-- When ready, tackle the agent-system audit issues #914–#923 (start with the
-  HIGH ones) on a dedicated branch with a durable data-repair migration.
-
-## Recent coding-agent runs
-
-### 2026-07-06 — issue-batch-917-918-919-921
-- Files modified: `apps/api_server/src/database/migrations.ts` (profile data repair), `apps/api_server/src/services/agent_runner.ts` (fallback model), `apps/api_server/src/services/opencode_agent_writer.ts` (disabled projection gate), focused API tests, `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` (trigger profile routing), docs run log.
-- Checks run: `npx tsc --noEmit` pass; targeted Vitest pass (`6 files, 50 tests`); full `npm test` failed under sandbox bind restrictions (`listen EPERM`, `1971 passed / 423 failed / 58 skipped`); Flutter `dart format .` and `flutter analyze --no-fatal-infos` blocked by SDK cache write permission.
-- Decisions made: #921 uses trigger-only routing to `secretary` instead of globally scoping `claude-code`/`codex`, preserving manual escape-hatch behavior.
-- Deviations from spec: full Vitest and Flutter checks could not complete cleanly in this sandbox; local stale opencode agent files could not be removed from `~/.config`.
-- Concerns: orchestrator should rerun full API/Flutter checks in an environment allowed to bind ports and write the Flutter SDK cache.
+- Commit + push `issue-949-harvest-to-file`, open draft PR.
+- Manual smoke: run a 2+ round agent session, confirm a
+  `drafts/<name>/SKILL.md` appears, the agent's `allowedSkillsJson` includes
+  it, `GET /opencode/skills` lists it, and the Flutter Skills UI shows it.
+- Restore #929 stash and finish that branch after #949 review.

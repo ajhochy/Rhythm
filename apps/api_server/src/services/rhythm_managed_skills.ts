@@ -131,6 +131,83 @@ export function renderSkillMarkdown(skill: ManagedSkillInput): string {
   return lines.join('\n');
 }
 
+// ── #949 — Drafts namespace (harvested skills) ─────────────────────────────
+// Harvested draft skills are written directly to a `drafts/` subfolder under
+// the managed dir so the engine discovers them immediately (visible in the
+// Flutter Skills UI, loadable by the model) and the extracting agent's own
+// sessions can exercise them before human promotion. See decision doc
+// 2026-07-08-harvest-to-file-autobind.md (supersedes the Unify-2
+// "materialize-on-publish" section).
+
+/** Input for a harvested draft skill written to the drafts namespace. */
+export interface DraftManagedSkillInput extends ManagedSkillInput {
+  /** Session that produced the draft. Becomes frontmatter `source_session`. */
+  sourceSessionId: string;
+  /** 0-1 confidence from the distill LLM. Becomes frontmatter `confidence`. */
+  confidence: number;
+  /** Provenance label (auto-extract | teacher-escalation). Default 'auto-extract'. */
+  provenance?: string;
+  /** ISO timestamp; defaults to now. Becomes frontmatter `extracted_at`. */
+  extractedAt?: string;
+}
+
+/** The drafts subfolder under the managed root. */
+export function draftsRoot(): string {
+  return join(resolve(managedSkillsRoot()), 'drafts');
+}
+
+/** Absolute path to a draft skill's directory, guaranteed inside drafts/. */
+function draftSkillDir(name: string): string {
+  const slug = slugForSkillName(name);
+  const root = draftsRoot();
+  const dir = resolve(root, slug);
+  // Defence in depth: resolved path must stay within the drafts dir.
+  if (dir !== join(root, slug) && !dir.startsWith(root + sep)) {
+    throw new InvalidSkillNameError(`Resolved draft skill path escapes the drafts dir: ${name}`);
+  }
+  return dir;
+}
+
+/** True when a draft SKILL.md for `name` already exists in the drafts namespace. */
+export function draftSkillExists(name: string): boolean {
+  return existsSync(join(draftSkillDir(name), 'SKILL.md'));
+}
+
+/** Render a draft skill to SKILL.md text with the harvest metadata frontmatter. */
+export function renderDraftSkillMarkdown(skill: DraftManagedSkillInput): string {
+  const lines = ['---', `name: ${skill.name}`];
+  if (skill.description && skill.description.trim() !== '') {
+    lines.push(`description: ${JSON.stringify(skill.description)}`);
+  }
+  lines.push('status: draft');
+  lines.push('source: harvested');
+  lines.push(`provenance: ${skill.provenance ?? 'auto-extract'}`);
+  lines.push(`source_session: ${skill.sourceSessionId}`);
+  lines.push(`confidence: ${skill.confidence}`);
+  lines.push(`extracted_at: ${skill.extractedAt ?? new Date().toISOString()}`);
+  lines.push('---', '', skill.body.endsWith('\n') ? skill.body.trimEnd() : skill.body, '');
+  return lines.join('\n');
+}
+
+/**
+ * Write (create or overwrite) a harvested draft skill's SKILL.md to the drafts
+ * namespace. Returns the absolute file location. Same context-injection scan
+ * and path-traversal guards as {@link writeManagedSkill}. Throws
+ * {@link ContextInjectionBlockedError} on a blocked body and
+ * {@link InvalidSkillNameError} on a bad name.
+ */
+export function writeDraftManagedSkill(skill: DraftManagedSkillInput): string {
+  const scan = scanContextContent(skill.body, `draft skill "${skill.name}"`);
+  if (scan.blocked) {
+    throw new ContextInjectionBlockedError(scan.warning!);
+  }
+  const dir = draftSkillDir(skill.name);
+  mkdirSync(dir, { recursive: true });
+  const location = join(dir, 'SKILL.md');
+  writeFileSync(location, renderDraftSkillMarkdown(skill), 'utf8');
+  return location;
+}
+
 /**
  * Idempotently register {@link RHYTHM_MANAGED_SKILLS_DIR} in opencode.json's
  * `skills.paths`, preserving every existing scan path. Returns true if the file

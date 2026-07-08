@@ -33,8 +33,15 @@
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { refineExistingSkill } from './skill_refiner';
+import {
+  draftSkillExists,
+  managedSkillsRoot,
+  writeDraftManagedSkill,
+} from './rhythm_managed_skills';
 import type { AgentSkill } from '../models/agent_skill';
 
 /**
@@ -265,12 +272,122 @@ export interface DistillOptions {
   /** Injectable LLM call for tests; defaults to the real opencode-backed impl. */
   llmCall?: LlmCall;
   /**
-   * P4-1: provenance label written to the drafted skill's `source` column.
-   * Defaults to 'auto-extract' (the self-improvement loop). The
+   * P4-1: provenance label written to the drafted skill's frontmatter
+   * `provenance`. Defaults to 'auto-extract' (the self-improvement loop). The
    * teacher-escalation path passes 'teacher-escalation' so a stronger model's
    * captured approach is distinguishable from ordinary auto-extraction.
    */
   source?: string;
+}
+
+// ── #949 helpers: harvest-to-file + auto-bind + reload ───────────────────────
+
+/**
+ * Derive a filesystem-safe, fork-matchable skill `name` from a distill title.
+ * Lowercase, non-[a-z0-9-] runs collapsed to a single dash, dashes trimmed.
+ * e.g. "Rebuild better-sqlite3 ABI" → "rebuild-better-sqlite3-abi".
+ * The fork keys skills by frontmatter `name`; this slug is also what gets
+ * appended to the extracting agent's allowedSkillsJson.
+ */
+function skillNameFromTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** Render the draft SKILL.md body (markdown procedure). */
+function renderDraftBody(title: string, description: string | null, steps: string[] | null): string {
+  const lines: string[] = [`# ${title}`, ''];
+  if (description && description.trim() !== '') {
+    lines.push(description.trim(), '');
+  }
+  if (steps && steps.length > 0) {
+    lines.push('## Steps', '');
+    steps.forEach((s, i) => lines.push(`${i + 1}. ${s}`));
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+/**
+ * #949 — Resolve the agent config id of the session that produced the draft,
+ * mirroring the #818 attribution pattern: check `mcp_role` then `agent_kind`,
+ * validating each against a real agent_configs row. Returns null when no
+ * profile can be attributed (best-effort; never throws).
+ */
+function resolveExtractingAgentConfigId(sessionId: string): string | null {
+  try {
+    const sessions = new AgentSessionsRepository();
+    const session = sessions.findById(sessionId);
+    if (!session) return null;
+    const configs = new AgentConfigsRepository();
+    for (const candidate of [session.mcpRole, session.agentKind]) {
+      if (typeof candidate !== 'string') continue;
+      const trimmed = candidate.trim();
+      if (!trimmed) continue;
+      if (configs.getById(trimmed)) return trimmed;
+    }
+  } catch (err) {
+    logger.warn(`[skill-extract] agent config resolution failed for ${sessionId} (non-fatal): ${String(err)}`);
+  }
+  return null;
+}
+
+/**
+ * #949 — Append the draft skill name to the extracting agent's
+ * allowedSkillsJson. Skips (returns false) when the agent is unrestricted
+ * (allowedSkillsJson === null) — the draft is already loadable to an
+ * unrestricted agent and writing a single-element array would WRONGLY lock it
+ * down to only the draft. Also skips when the name is already present or no
+ * profile can be attributed to the session. Returns true when a bind was
+ * written.
+ */
+async function autoBindDraftToExtractingAgent(sessionId: string, skillName: string): Promise<boolean> {
+  const agentConfigId = resolveExtractingAgentConfigId(sessionId);
+  if (!agentConfigId) return false;
+
+  const configs = new AgentConfigsRepository();
+  const config = configs.getById(agentConfigId);
+  if (!config) return false;
+
+  // null = unrestricted → draft already loadable; do NOT lock down.
+  if (config.allowedSkillsJson === null) return false;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(config.allowedSkillsJson);
+  } catch {
+    // Malformed existing value — leave it alone (normalize path will deny-all).
+    return false;
+  }
+  if (!Array.isArray(parsed)) return false;
+
+  const skills = parsed.filter((e): e is string => typeof e === 'string' && e.trim().length > 0);
+  const cleanName = skillName.trim();
+  if (!cleanName) return false;
+  if (skills.includes(cleanName)) return false; // already bound
+
+  skills.push(cleanName);
+  configs.update(agentConfigId, { allowedSkillsJson: JSON.stringify(skills) });
+  return true;
+}
+
+/**
+ * #949 — Fire-and-forget trigger of the engine's skill reload so a freshly-
+ * written draft is discoverable without a restart. Reuses the Unify-2
+ * OpencodeClientService.reloadSkills pattern. Lazy-imported to keep the
+ * extractor's hot path free of the opencode client. Never throws.
+ */
+async function triggerSkillReload(): Promise<void> {
+  try {
+    const { opencodeClient } = await import('./opencode_engine');
+    await opencodeClient.reloadSkills(managedSkillsRoot());
+  } catch (err) {
+    // Non-fatal: the draft file exists on disk and will be discovered on next
+    // engine restart even if this reload fails.
+    logger.warn(`[skill-extract] skill reload failed (non-fatal): ${String(err)}`);
+  }
 }
 
 /**
@@ -405,18 +522,84 @@ export async function distillFromSession(
     }
     // 'no-match' (or kept/skipped with no title clash) → fall through to draft.
 
-    const created = repo.create({
+    // #949 — Harvest directly to a draft SKILL.md file under the Rhythm-managed
+    // skills drafts namespace (instead of a DB row). The engine scans the
+    // managed dir, so the draft is immediately discoverable by GET /opencode/skills
+    // and visible in the Flutter Skills UI. See decision doc
+    // 2026-07-08-harvest-to-file-autobind.md.
+    const skillName = skillNameFromTitle(title);
+    if (draftSkillExists(skillName)) {
+      logger.info(`[skill-extract] draft '${skillName}' already exists on disk — dup skipped`);
+      return null;
+    }
+
+    const body = renderDraftBody(title, description, steps);
+    const extractedAt = new Date().toISOString();
+    let draftLocation: string;
+    try {
+      draftLocation = writeDraftManagedSkill({
+        name: skillName,
+        description: description ?? title,
+        body,
+        sourceSessionId: sessionId,
+        confidence,
+        provenance: source,
+        extractedAt,
+      });
+    } catch (writeErr) {
+      // ContextInjectionBlockedError, InvalidSkillNameError, or fs error.
+      logger.warn(`[skill-extract] draft write failed for '${skillName}' (non-fatal): ${String(writeErr)}`);
+      _setCuratorExtractRunning(false);
+      return null;
+    }
+    logger.info(`[skill-extract] drafted skill '${skillName}' at ${draftLocation}`);
+
+    // #949 — Auto-bind the draft to the agent whose session produced it, so it
+    // gets exercised in that agent's next real session before human review.
+    // Skip silently when the agent is unrestricted (allowedSkillsJson === null)
+    // — the draft is already loadable to an unrestricted agent, and writing a
+    // single-element array would WRONGLY lock it down to only the draft.
+    try {
+      const bound = await autoBindDraftToExtractingAgent(sessionId, skillName);
+      if (bound) {
+        logger.info(`[skill-extract] auto-bound draft '${skillName}' to extracting agent`);
+      }
+    } catch (bindErr) {
+      // Non-fatal: the draft file exists and is loadable regardless of binding.
+      logger.warn(`[skill-extract] auto-bind failed for '${skillName}' (non-fatal): ${String(bindErr)}`);
+    }
+
+    // #949 — Trigger a skill reload so the engine picks up the new draft file
+    // without a restart. Reuses the Unify-2 reloadSkills pattern. Fire-and-
+    // forget: the draft is already on disk; reload just makes it visible sooner.
+    void triggerSkillReload();
+
+    _setCuratorExtractRunning(false);
+    return {
+      id: skillName,
       title,
+      whenToUse: null,
       description,
       steps,
       tags,
+      stepsJson: steps ? JSON.stringify(steps) : null,
+      tagsJson: tags ? JSON.stringify(tags) : null,
+      body: null,
       confidence,
       status: 'draft',
-      source,
-    });
-    logger.info(`[skill-extract] drafted skill '${title}' (id=${created.id})`);
-    _setCuratorExtractRunning(false);
-    return created;
+      source: 'harvested',
+      uses: 0,
+      version: 1,
+      appliedForName: null,
+      baseVersion: null,
+      originLocation: draftLocation,
+      isExternal: 0,
+      baselineScore: null,
+      postScore: null,
+      measureReason: null,
+      createdAt: extractedAt,
+      updatedAt: extractedAt,
+    };
   } catch (err) {
     // NEVER throw — fire-and-forget caller (P2-2) depends on this.
     logger.warn(`[skill-extract] FAILED (non-fatal): ${String(err)}`);
