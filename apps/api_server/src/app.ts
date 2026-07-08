@@ -52,6 +52,7 @@ import agentDesignsRouter from './routes/agentDesignsRoutes';
 import gmailSignalsRouter from './routes/gmail_signals_routes';
 import { agentCapabilityStatusRouter } from './routes/agent_capability_status_routes';
 import { agentApprovalsRouter } from './routes/agent_approvals_routes';
+import { systemRouter } from './routes/system_routes';
 
 export function createApp() {
   const app = express();
@@ -165,6 +166,10 @@ export function createApp() {
     app.use('/opencode/spillover', opencodeSpilloverRouter);
     // Issue #609 — agent model visibility CRUD
     app.use('/agent-models/visibility', agentModelVisibilityRouter);
+    // #948 — hot-reload config caches (skills) without an agent-server restart.
+    // Mounted inside the agent-execution gate: the opencode engine it reloads
+    // only exists when the agent runtime is stood up.
+    app.use('/system', systemRouter);
 
     // M5-2: custom provider definitions placeholder. Returns 501 until the
     // SDK config writer is wired through `opencode_plugin_config.ts`.

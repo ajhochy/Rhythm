@@ -1134,8 +1134,7 @@ export class OpencodeClientService {
   async reloadSkills(
     directory?: string,
   ): Promise<Array<{ name: string; description?: string; location: string }>> {
-    const dir = directory ?? homedir();
-    // The one-time skill backfill materializes SKILL.md files during server
+    const dir = directory ?? homedir();    // The one-time skill backfill materializes SKILL.md files during server
     // boot, before the engine has spawned/started listening. Reloading against
     // a not-yet-listening engine only produces ECONNREFUSED noise — and is
     // unnecessary, because the engine performs initial skill discovery when it
@@ -1165,6 +1164,32 @@ export class OpencodeClientService {
     } catch (err) {
       logger.error('[OpencodeClientService] reloadSkills failed:', err);
       return [];
+    }
+  }
+
+  /**
+   * #948 — invalidate the fork's memoized global config cache (Duration.infinity
+   * TTL) so the next config.get() re-scans ~/.config/opencode/agent(s)/*.md and
+   * config files from disk. The cache holds agent profiles merged from disk, so
+   * without this a Config Doctor edit to an agent file is invisible to new
+   * sessions until the engine restarts. Mirrors reloadSkills: raw fetch (no SDK
+   * regen), non-throwing, no-ops when the engine isn't ready.
+   */
+  async reloadConfig(): Promise<boolean> {
+    if (!this.isReady) {
+      return false;
+    }
+    try {
+      const base = this.serverUrl;
+      const res = await fetch(`${base}/config/reload`, { method: 'POST' });
+      if (!res.ok) {
+        logger.warn('[OpencodeClientService] reloadConfig HTTP %s', res.status);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      logger.error('[OpencodeClientService] reloadConfig failed:', err);
+      return false;
     }
   }
 

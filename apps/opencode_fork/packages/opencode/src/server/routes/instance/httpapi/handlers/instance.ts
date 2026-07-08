@@ -6,6 +6,7 @@ import { Global } from "@opencode-ai/core/global"
 import { LSP } from "@/lsp/lsp"
 import { Vcs } from "@/project/vcs"
 import { Skill } from "@/skill"
+import { Config } from "@/config/config"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
@@ -16,6 +17,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
   Effect.gen(function* () {
     const agent = yield* Agent.Service
     const command = yield* Command.Service
+    const config = yield* Config.Service
     const format = yield* Format.Service
     const lsp = yield* LSP.Service
     const skill = yield* Skill.Service
@@ -85,6 +87,15 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return yield* skill.reload()
     })
 
+    const reloadConfig = Effect.fn("InstanceHttpApi.configReload")(function* () {
+      // Invalidate the memoized global config cache (Duration.infinity TTL) so
+      // the next config.get() re-scans agent/mode/config files from disk. Lets
+      // a config-repair agent's on-disk edits reach new sessions without an
+      // instance bounce.
+      yield* config.invalidate()
+      return true
+    })
+
     const getLsp = Effect.fn("InstanceHttpApi.lsp")(function* () {
       return yield* lsp.status()
     })
@@ -105,6 +116,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       .handle("agent", getAgent)
       .handle("skill", getSkill)
       .handle("skillReload", reloadSkill)
+      .handle("configReload", reloadConfig)
       .handle("lsp", getLsp)
       .handle("formatter", getFormatter)
   }),

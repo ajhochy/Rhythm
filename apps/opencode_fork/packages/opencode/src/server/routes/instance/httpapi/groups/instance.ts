@@ -4,6 +4,7 @@ import { Format } from "@/format"
 import { LSP } from "@/lsp/lsp"
 import { Vcs } from "@/project/vcs"
 import { Skill } from "@/skill"
+import { Config } from "@/config/config"
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { Authorization } from "../middleware/authorization"
@@ -51,6 +52,7 @@ export const InstancePaths = {
   agent: "/agent",
   skill: "/skill",
   skillReload: "/skill/reload",
+  configReload: "/config/reload",
   lsp: "/lsp",
   formatter: "/formatter",
 } as const
@@ -175,6 +177,17 @@ export const InstanceApi = HttpApi.make("instance")
             summary: "Reload skills",
             description:
               "Invalidate the memoized skill discovery cache and re-scan the disk, returning the freshly-discovered skills. Used after writing SKILL.md files into a configured skill path.",
+          }),
+        ),
+        HttpApiEndpoint.post("configReload", InstancePaths.configReload, {
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Config cache invalidated"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "app.config.reload",
+            summary: "Reload config",
+            description:
+              "Invalidate the memoized global config cache (agents, permission, providers) so the next read re-scans ~/.config/opencode/agent(s)/*.md and config files. Used by the Rhythm /system/refresh endpoint so a config-repair agent's on-disk edits are visible to new sessions without an instance bounce.",
           }),
         ),
         HttpApiEndpoint.get("lsp", InstancePaths.lsp, {
