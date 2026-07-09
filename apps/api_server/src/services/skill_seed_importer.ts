@@ -5,6 +5,16 @@
  * Source dir (deduped by title):
  *   • ~/.claude/skills/<name>/SKILL.md — Claude Code skill definitions
  *
+ * #947: the importer NO LONGER blanket-pulls every ~/.claude/skills entry.
+ * Rhythm's sole skill source is ~/.config/opencode/skills, which it manages
+ * itself; the global Claude Code store holds many skills Rhythm's agents never
+ * use (design/misc skills like impeccable/adapt/supabase/obsidian-*). The seed
+ * now imports ONLY skills whose name is referenced by an agent — the canonical
+ * built-in allowlists (agent_profile_sync) unioned with any stored
+ * agent_config `allowedSkillsJson` (see {@link referencedSkillNames}). Skills
+ * an agent depends on are preserved; unreferenced Claude Code skills are
+ * dropped at the source rather than materialized into the picker.
+ *
  * #957: the opencode agents dir (~/.config/opencode/agents/*.md) was ALSO
  * scanned here. That was wrong — agents are ROLES, not skills. Importing each
  * agent's role-text as a `published` skill row made it materialize into the
@@ -42,6 +52,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { canonicalAgentSkillNames } from './agent_profile_sync';
 import type { AgentSkillInput } from '../models/agent_skill';
 
 export const SEED_SOURCE = 'agent-stack-seed';
@@ -181,8 +193,16 @@ export interface SeedSourceDirs {
  *
  * ONLY ~/.claude/skills is scanned. The opencode agents dir is intentionally
  * NOT a source (#957) — see {@link SeedSourceDirs.opencodeAgentsDir}.
+ *
+ * #947: when `referencedNames` is provided, only skills whose resolved title
+ * (frontmatter `name`, fallback dir name) is in the set are returned — Rhythm
+ * imports agent-referenced skills, not the whole Claude Code store. When it is
+ * omitted/null, every discovered skill is returned (pure-discovery back-compat).
  */
-export function discoverSeedInputs(dirs: SeedSourceDirs = {}): AgentSkillInput[] {
+export function discoverSeedInputs(
+  dirs: SeedSourceDirs = {},
+  referencedNames?: Set<string> | null,
+): AgentSkillInput[] {
   const inputs: AgentSkillInput[] = [];
 
   // Claude skills — <name>/SKILL.md. The only seed source.
@@ -194,7 +214,9 @@ export function discoverSeedInputs(dirs: SeedSourceDirs = {}): AgentSkillInput[]
         if (!existsSync(skillFile) || !statSync(skillFile).isFile()) continue;
         const content = readFileSync(skillFile, 'utf8');
         const fm = parseFrontmatter(content);
-        inputs.push(frontmatterToSkillInput(fm, entry, extractBody(content)));
+        const input = frontmatterToSkillInput(fm, entry, extractBody(content));
+        if (referencedNames && !referencedNames.has(input.title.trim())) continue;
+        inputs.push(input);
       } catch {
         // Unreadable file — skip silently.
       }
@@ -202,6 +224,37 @@ export function discoverSeedInputs(dirs: SeedSourceDirs = {}): AgentSkillInput[]
   }
 
   return inputs;
+}
+
+/**
+ * #947 — names of skills Rhythm agents actually depend on: the canonical
+ * built-in allowlists ({@link canonicalAgentSkillNames}) unioned with every
+ * name referenced by a stored agent_config `allowedSkillsJson` (user-widened
+ * allowlists). The seed importer keeps ONLY ~/.claude/skills whose name is in
+ * this set. `agentConfigsRepo` is an injectable seam so the union logic is
+ * unit-testable without a DB.
+ */
+export function referencedSkillNames(
+  agentConfigsRepo?: { list(): Array<{ allowedSkillsJson: string | null }> },
+): Set<string> {
+  const names = canonicalAgentSkillNames();
+  try {
+    const repo = agentConfigsRepo ?? new AgentConfigsRepository();
+    for (const cfg of repo.list()) {
+      if (!cfg.allowedSkillsJson) continue;
+      try {
+        const arr = JSON.parse(cfg.allowedSkillsJson) as unknown;
+        if (Array.isArray(arr)) {
+          for (const n of arr) if (typeof n === 'string') names.add(n.trim());
+        }
+      } catch {
+        /* a malformed stored allowlist must not break seeding */
+      }
+    }
+  } catch {
+    /* DB unavailable — the canonical built-in set still applies */
+  }
+  return names;
 }
 
 /**
@@ -232,13 +285,17 @@ export interface SeedResult {
  *
  * Idempotent: skips any title that already exists (in-memory dedup across both
  * sources + repo.findByTitle per row). No-op under test env or Postgres.
+ *
+ * #947: only imports ~/.claude/skills that some agent references (see
+ * {@link referencedSkillNames}) — unreferenced Claude Code skills are dropped
+ * at the source instead of being blanket auto-pulled.
  */
 export function seedAgentStackSkills(repo?: AgentSkillsRepository): SeedResult {
   if (isTestEnv()) return { discovered: 0, imported: 0, skipped: 0 };
   if (env.dbClient === 'postgres') return { discovered: 0, imported: 0, skipped: 0 };
 
   const skillsRepo = repo ?? new AgentSkillsRepository();
-  const deduped = dedupByTitle(discoverSeedInputs());
+  const deduped = dedupByTitle(discoverSeedInputs({}, referencedSkillNames()));
 
   let imported = 0;
   let skipped = 0;

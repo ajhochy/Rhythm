@@ -333,6 +333,30 @@ const AGENT_SKILL_ALLOWLIST_MAP: Readonly<Record<string, string>> = {
 };
 
 /**
+ * #947 — the canonical set of skill names Rhythm's built-in agents depend on:
+ * the workflow chain plus every name any entry in {@link AGENT_SKILL_ALLOWLIST_MAP}
+ * references. The skill seed importer uses this to decide which ~/.claude/skills
+ * to import into the sole managed dir — agent-referenced skills are preserved;
+ * unreferenced Claude Code skills are no longer blanket auto-pulled. Kept here,
+ * beside the allowlists that actually gate the agents, so the two can never
+ * drift.
+ */
+export function canonicalAgentSkillNames(): Set<string> {
+  const names = new Set<string>(WORKFLOW_CHAIN_SKILLS);
+  for (const json of Object.values(AGENT_SKILL_ALLOWLIST_MAP)) {
+    try {
+      const arr = JSON.parse(json) as unknown;
+      if (Array.isArray(arr)) {
+        for (const n of arr) if (typeof n === 'string') names.add(n);
+      }
+    } catch {
+      /* map values are authored JSON — a parse failure would be a code bug */
+    }
+  }
+  return names;
+}
+
+/**
  * Derive allowed_skills_json for an imported agent profile.
  *
  * Priority:

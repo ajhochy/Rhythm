@@ -23,6 +23,7 @@ import {
   extractBody,
   dedupByTitle,
   discoverSeedInputs,
+  referencedSkillNames,
   SEED_SOURCE,
 } from '../services/skill_seed_importer';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'fs';
@@ -192,5 +193,66 @@ describe('skill_seed_importer — #957 agent role-text is never a skill source',
     expect(titles).not.toContain('ce3a2f3c-3d92-4665-9678-9812a4e9ada1');
     // No agent slipped in under any title — the agents dir contributes nothing.
     expect(titles).toEqual(['coding-agent']);
+  });
+});
+
+// ── #947 — import ONLY agent-referenced skills, not the whole Claude store ──
+describe('skill_seed_importer — #947 imports only agent-referenced skills', () => {
+  /** Build a temp ~/.claude/skills with the given <name>/SKILL.md dirs. */
+  function makeClaudeSkills(names: string[]): string {
+    const dir = mkdtempSync(join(tmpdir(), 'rhythm-947-claude-'));
+    for (const name of names) {
+      mkdirSync(join(dir, name), { recursive: true });
+      writeFileSync(
+        join(dir, name, 'SKILL.md'),
+        `---\nname: ${name}\ndescription: ${name} skill.\n---\nBody for ${name}.\n`,
+      );
+    }
+    return dir;
+  }
+
+  it('drops unreferenced Claude Code skills, keeps agent-referenced ones', () => {
+    const skillsDir = makeClaudeSkills([
+      'coding-agent', // agent-referenced (workflow chain)
+      'verification-gate', // agent-referenced
+      'defuddle', // Claude Code skill — NOT referenced
+      'supabase', // Claude Code skill — NOT referenced
+      'obsidian-cli', // Claude Code skill — NOT referenced
+    ]);
+    const referenced = new Set(['coding-agent', 'verification-gate']);
+
+    const titles = discoverSeedInputs({ claudeSkillsDir: skillsDir }, referenced)
+      .map((i) => i.title)
+      .sort();
+
+    expect(titles).toEqual(['coding-agent', 'verification-gate']);
+    expect(titles).not.toContain('defuddle');
+    expect(titles).not.toContain('supabase');
+    expect(titles).not.toContain('obsidian-cli');
+  });
+
+  it('with no referenced set, discovery returns every skill (back-compat)', () => {
+    const skillsDir = makeClaudeSkills(['coding-agent', 'defuddle']);
+    const titles = discoverSeedInputs({ claudeSkillsDir: skillsDir }).map((i) => i.title).sort();
+    expect(titles).toEqual(['coding-agent', 'defuddle']);
+  });
+
+  it('referencedSkillNames unions the canonical built-in set with agent_config allowlists', () => {
+    // Injected fake repo — a user has widened an agent onto a normally-unreferenced skill.
+    const fakeRepo = {
+      list: () => [
+        { allowedSkillsJson: JSON.stringify(['defuddle']) },
+        { allowedSkillsJson: null },
+        { allowedSkillsJson: 'not json' }, // malformed must not throw
+      ],
+    };
+
+    const names = referencedSkillNames(fakeRepo);
+
+    // Canonical workflow-chain names are always present.
+    expect(names.has('coding-agent')).toBe(true);
+    expect(names.has('verification-gate')).toBe(true);
+    // The user-widened allowlist name is preserved.
+    expect(names.has('defuddle')).toBe(true);
   });
 });

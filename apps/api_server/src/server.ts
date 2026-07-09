@@ -350,13 +350,16 @@ async function main() {
         './services/opencode_plugin_config'
       );
       ensureRequiredPlugins();
-      // Unify-2 — register the Rhythm-managed skills dir in opencode.json
-      // (additive) so the fork scans it. Done before spawn so it is live
-      // without a runtime reload; runtime writes use reloadSkills().
-      const { ensureManagedSkillsDirRegistered } = await import(
-        './services/rhythm_managed_skills'
-      );
-      ensureManagedSkillsDirRegistered();
+      // #947 — Rhythm manages ~/.config/opencode/skills as the SOLE skill
+      // source. The engine auto-scans that config dir, so no opencode.json
+      // `skills.paths` registration is needed — just make sure the dir exists
+      // before spawn (the engine warn-skips a missing dir). The one-time
+      // legacy→sole-source migration is gated behind RHYTHM_MIGRATE_MANAGED_SKILLS
+      // (default off — folds into the #961 real-config remediation pass).
+      const { ensureManagedSkillsDir, maybeMigrateLegacyManagedSkills } =
+        await import('./services/rhythm_managed_skills');
+      ensureManagedSkillsDir();
+      maybeMigrateLegacyManagedSkills();
     } catch (err) {
       console.warn(
         '[Opencode] Plugin config update failed (non-fatal):',

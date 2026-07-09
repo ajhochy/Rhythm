@@ -597,6 +597,15 @@ export class OpencodeClientService {
       // Phase 1: augment PATH so the bundled opencode binary is discoverable.
       const t1 = Date.now();
       augmentPathForOpencode();
+      // #947 — Rhythm owns ~/.config/opencode/skills as the SOLE skill source.
+      // Tell the spawned engine to stop scanning .claude/skills AND .agents/skills
+      // (both — supersedes the claude-only OPENCODE_DISABLE_CLAUDE_CODE_SKILLS
+      // Config Doctor set earlier). The config-dir scan
+      // (~/.config/opencode/{skill,skills}) is NOT gated by this flag, so the
+      // managed dir is still auto-discovered. Set on process.env so
+      // createOpencode()'s child inherits it; `??=` lets an explicit override win
+      // (e.g. a dev deliberately re-enabling external skills).
+      process.env.OPENCODE_DISABLE_EXTERNAL_SKILLS ??= '1';
       logger.info(`[Opencode][timing] augmentPath took ${Date.now() - t1}ms`);
 
       // Phase 2: dynamic import of the ESM-only SDK.

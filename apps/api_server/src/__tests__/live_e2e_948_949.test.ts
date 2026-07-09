@@ -37,7 +37,10 @@ import { homedir } from 'node:os';
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
 const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://localhost:4001';
 const AGENTS_DIR = join(homedir(), '.config', 'opencode', 'agents');
-const DRAFTS_DIR = join(homedir(), '.config', 'opencode', 'rhythm-managed-skills', 'drafts');
+const DRAFTS_DIR = join(
+  process.env.RHYTHM_MANAGED_SKILLS_DIR ?? join(homedir(), '.config', 'opencode', 'skills'),
+  'drafts',
+); // #947 — drafts live under the sole managed dir (honors the temp override)
 
 const describeLive = LIVE ? describe : describe.skip;
 

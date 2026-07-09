@@ -43,7 +43,7 @@ const AGENTS_SRC = join(homedir(), '.config', 'opencode', 'agents');
 const CLAUDE_SKILLS_SRC = join(homedir(), '.claude', 'skills');
 const MANAGED_DIR =
   process.env.RHYTHM_MANAGED_SKILLS_DIR ??
-  join(homedir(), '.config', 'opencode', 'rhythm-managed-skills');
+  join(homedir(), '.config', 'opencode', 'skills'); // #947 — sole managed dir
 
 const describeLive = LIVE ? describe : describe.skip;
 
