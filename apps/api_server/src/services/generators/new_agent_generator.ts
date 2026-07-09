@@ -48,6 +48,7 @@ import {
 } from '../../repositories/agent_org_proposals_repository';
 import { AgentConfigsRepository } from '../../repositories/agent_configs_repository';
 import { alignMcpName } from '../mcp_name_alignment';
+import { extractReferencedSkillNames } from '../agent_skill_wiring';
 import { opencodeClient } from '../opencode_engine';
 import { logger } from '../../utils/logger';
 import type {
@@ -142,6 +143,20 @@ function unresolvedNames(candidates: string[], liveNames: Set<string>): string[]
 }
 
 /**
+ * #958 canonical-wiring guard. Every workflow skill the proposed system-prompt
+ * body tells the model to load ("`name` skill") MUST be in the proposed
+ * `allowedSkills`, or the created agent silently runs without it. Returns the
+ * offending references (empty = correctly wired). Liveness is NOT re-checked
+ * here: an in-allowlist name is already validated against the live set by the
+ * caller's `unresolvedNames(skillNames, …)` check, so "in allowlist" implies
+ * "enabled" — an unwired reference is exactly one absent from the allowlist.
+ */
+function unwiredSkillReferences(systemPrompt: string, allowedSkills: string[]): string[] {
+  const allow = new Set(allowedSkills);
+  return extractReferencedSkillNames(systemPrompt).filter((name) => !allow.has(name));
+}
+
+/**
  * EMISSION — issue-824-c1/c2. Given a coverage-gap signal, validate every
  * proposed MCP/skill name against the live engine id set BEFORE creating the
  * proposal row. A name that cannot resolve means the whole proposal is
@@ -181,6 +196,19 @@ export async function generateCreateAgentProposal(
     return {
       emitted: false,
       reason: `unresolved skill name(s): ${badSkills.join(', ')}`,
+    };
+  }
+
+  // #958 — refuse a proposal whose body references a skill it is not scoped
+  // for (the dangling-reference class this issue fixes at the source).
+  const unwiredSkills = unwiredSkillReferences(signal.proposedSystemPrompt, signal.proposedAllowedSkills);
+  if (unwiredSkills.length > 0) {
+    logger.warn(
+      `[NewAgentGenerator] gap ${signal.gapId}: dropping proposal — body references skill(s) not in allowedSkills: ${unwiredSkills.join(', ')}`,
+    );
+    return {
+      emitted: false,
+      reason: `body references skill(s) not in allowedSkills: ${unwiredSkills.join(', ')}`,
     };
   }
 
@@ -328,6 +356,15 @@ async function validateCreateAgentChange(
     return {
       valid: false,
       reason: `Skill name(s) no longer live at apply time: ${badSkills.join(', ')}`,
+    };
+  }
+
+  // #958 — the body must not reference a skill outside the allowlist.
+  const unwiredSkills = unwiredSkillReferences(change.systemPrompt, skillNames);
+  if (unwiredSkills.length > 0) {
+    return {
+      valid: false,
+      reason: `body references skill(s) not in allowedSkills: ${unwiredSkills.join(', ')}`,
     };
   }
 
