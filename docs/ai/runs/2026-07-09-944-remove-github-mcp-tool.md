@@ -2,7 +2,7 @@
 date: 2026-07-09
 repo: Rhythm
 branch: issue-944-remove-github-mcp-tool
-pr: TBD
+pr: 963
 issues: [944]
 status: verified
 tags: [run, Rhythm]
