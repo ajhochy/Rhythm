@@ -7,7 +7,7 @@
  * skills, and a write/delete triggers a fork reload.
  */
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'fs';
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import Database from 'better-sqlite3';
@@ -300,17 +300,20 @@ describe('/opencode/skills', () => {
       // fell into the `!row` branch and reported the generic
       // DEFAULT_METADATA (status: 'active', uses: null) — hiding the real
       // draft/harvested lifecycle from the UI entirely.
+      // The route now reads frontmatter straight off disk via `location` (the
+      // fork's listSkillsWithContent strips frontmatter from `content` live —
+      // see opencode_skills_routes.ts) — so this draft needs a REAL backing
+      // file, not just a mocked listSkillsWithContent response.
       const draftLoc = join(MANAGED_DIR, 'drafts', 'rebuild-abi', 'SKILL.md');
-      listSkills.mockResolvedValueOnce([
-        { name: 'rebuild-abi', description: 'Rebuild the native module ABI', location: draftLoc },
-      ]);
       const draftContent =
         '---\nname: rebuild-abi\ndescription: "Rebuild the native module ABI"\n' +
         'status: draft\nsource: harvested\nprovenance: auto-extract\n' +
         'source_session: sess-1\nconfidence: 0.72\n' +
         'extracted_at: 2026-07-08T00:00:00.000Z\n---\n\n# Rebuild ABI\n';
-      listSkillsWithContent.mockResolvedValueOnce([
-        { name: 'rebuild-abi', description: 'Rebuild the native module ABI', location: draftLoc, content: draftContent },
+      mkdirSync(join(MANAGED_DIR, 'drafts', 'rebuild-abi'), { recursive: true });
+      writeFileSync(draftLoc, draftContent, 'utf8');
+      listSkills.mockResolvedValueOnce([
+        { name: 'rebuild-abi', description: 'Rebuild the native module ABI', location: draftLoc },
       ]);
 
       const res = await fetch(`${baseUrl}/opencode/skills?withMetadata=true`);

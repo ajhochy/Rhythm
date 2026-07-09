@@ -134,21 +134,25 @@ opencodeSkillsRouter.get(
         managed: isManagedLocation(s.location),
       }));
 
-      // #874/#875 — a second engine call that keeps raw `content` (frontmatter
-      // + body). Needed both to read `required_environment_variables` (#874,
-      // metadata only) and `metadata.rhythm.{requires,fallback}_toolsets`
-      // (#875, applies to EVERY response — filtering is discovery-time, not
-      // opt-in via ?withMetadata). Best-effort: an empty/failed fetch means
-      // every skill reports the "no extended frontmatter" defaults — visible,
-      // no env warning — which is the same "behaves as before" fallback as a
-      // skill that genuinely declares neither field.
-      let frontmatterByName = new Map<string, SkillFrontmatter>();
-      try {
-        const withContent = await opencodeClient.listSkillsWithContent(directory);
-        frontmatterByName = new Map(withContent.map((s) => [s.name, parseSkillFrontmatter(s.content)]));
-      } catch {
-        // Non-fatal — frontmatterByName stays empty; every entry is visible with default env.
-      }
+      // #874/#875/#929 — read each skill's OWN frontmatter straight off disk via
+      // its `location`, NOT via the engine's listSkillsWithContent (the fork
+      // strips the frontmatter block from `content` before returning it —
+      // confirmed live: every skill's `content` starts at the body, never at
+      // the leading `---`, so parseSkillFrontmatter(s.content) always saw an
+      // empty block and silently fell back to defaults for EVERY skill,
+      // including harvested drafts whose real lifecycle lives entirely in
+      // frontmatter). readSkillContentAtLocation reads the real file (or
+      // returns null for a non-file location like a fork `<built-in>` skill,
+      // which degrades to the same "no extended frontmatter" defaults as
+      // before). Needed for `required_environment_variables` (#874),
+      // `metadata.rhythm.{requires,fallback}_toolsets` (#875), and a harvested
+      // draft's OWN status/confidence/source (#929).
+      const frontmatterByName = new Map<string, SkillFrontmatter>(
+        entries.map((entry) => [
+          entry.name,
+          parseSkillFrontmatter(readSkillContentAtLocation(entry.location) ?? ''),
+        ]),
+      );
 
       // #875 — resolve which toolsets are connected for this session/request.
       // `terminalEnabled` is an optional override (?terminalEnabled=false) for

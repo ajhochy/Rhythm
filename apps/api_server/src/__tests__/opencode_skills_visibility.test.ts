@@ -8,10 +8,24 @@
  * (session creation / per-turn allowlist push) and is untouched by this route.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, dirname } from 'path';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { startTestServer } from './helpers/real_server';
+
+// The route now reads each skill's frontmatter straight off disk via its
+// `location` (see opencode_skills_routes.ts — the fork's listSkillsWithContent
+// strips frontmatter from `content`, so it can no longer be the source here).
+// A real backing file at `location` is required for these tests' frontmatter
+// to be seen; a throwaway tmp dir stands in for the fork's own skill dirs.
+const EXT_DIR = mkdtempSync(join(tmpdir(), 'skills-visibility-test-'));
+function writeSkillFile(location: string, content: string): void {
+  mkdirSync(dirname(location), { recursive: true });
+  writeFileSync(location, content, 'utf8');
+}
 
 const reloadSkills = vi.fn().mockResolvedValue([]);
 const listSkills = vi.fn().mockResolvedValue([]);
@@ -63,17 +77,9 @@ describe('/opencode/skills — #875 toolset visibility filtering', () => {
   });
 
   it('a requires_toolsets: [terminal] skill is absent when terminal is disabled for the session', async () => {
-    listSkills.mockResolvedValueOnce([
-      { name: 'terminal-automation', description: 'runs commands', location: '/skills/t/SKILL.md' },
-    ]);
-    listSkillsWithContent.mockResolvedValueOnce([
-      {
-        name: 'terminal-automation',
-        description: 'runs commands',
-        location: '/skills/t/SKILL.md',
-        content: skillMd('terminal-automation', '    requires_toolsets: [terminal]\n'),
-      },
-    ]);
+    const location = join(EXT_DIR, 't', 'SKILL.md');
+    writeSkillFile(location, skillMd('terminal-automation', '    requires_toolsets: [terminal]\n'));
+    listSkills.mockResolvedValueOnce([{ name: 'terminal-automation', description: 'runs commands', location }]);
 
     const res = await fetch(`${baseUrl}/opencode/skills?terminalEnabled=false`);
     expect(res.status).toBe(200);
@@ -82,17 +88,9 @@ describe('/opencode/skills — #875 toolset visibility filtering', () => {
   });
 
   it('a requires_toolsets: [terminal] skill is present when terminal is enabled', async () => {
-    listSkills.mockResolvedValueOnce([
-      { name: 'terminal-automation', description: 'runs commands', location: '/skills/t/SKILL.md' },
-    ]);
-    listSkillsWithContent.mockResolvedValueOnce([
-      {
-        name: 'terminal-automation',
-        description: 'runs commands',
-        location: '/skills/t/SKILL.md',
-        content: skillMd('terminal-automation', '    requires_toolsets: [terminal]\n'),
-      },
-    ]);
+    const location = join(EXT_DIR, 't2', 'SKILL.md');
+    writeSkillFile(location, skillMd('terminal-automation', '    requires_toolsets: [terminal]\n'));
+    listSkills.mockResolvedValueOnce([{ name: 'terminal-automation', description: 'runs commands', location }]);
 
     const res = await fetch(`${baseUrl}/opencode/skills`); // terminal defaults enabled
     const body = (await res.json()) as Array<{ name: string }>;
@@ -100,17 +98,9 @@ describe('/opencode/skills — #875 toolset visibility filtering', () => {
   });
 
   it('a fallback_for_toolsets: [web] skill is absent when a web MCP server is connected', async () => {
-    listSkills.mockResolvedValueOnce([
-      { name: 'duckduckgo-fallback', description: 'free search', location: '/skills/ddg/SKILL.md' },
-    ]);
-    listSkillsWithContent.mockResolvedValueOnce([
-      {
-        name: 'duckduckgo-fallback',
-        description: 'free search',
-        location: '/skills/ddg/SKILL.md',
-        content: skillMd('duckduckgo-fallback', '    fallback_for_toolsets: [web]\n'),
-      },
-    ]);
+    const location = join(EXT_DIR, 'ddg', 'SKILL.md');
+    writeSkillFile(location, skillMd('duckduckgo-fallback', '    fallback_for_toolsets: [web]\n'));
+    listSkills.mockResolvedValueOnce([{ name: 'duckduckgo-fallback', description: 'free search', location }]);
     listMcp.mockResolvedValueOnce({ web: { status: 'connected' } });
 
     const res = await fetch(`${baseUrl}/opencode/skills`);
@@ -119,17 +109,9 @@ describe('/opencode/skills — #875 toolset visibility filtering', () => {
   });
 
   it('a fallback_for_toolsets: [web] skill is present when no web MCP server is connected', async () => {
-    listSkills.mockResolvedValueOnce([
-      { name: 'duckduckgo-fallback', description: 'free search', location: '/skills/ddg/SKILL.md' },
-    ]);
-    listSkillsWithContent.mockResolvedValueOnce([
-      {
-        name: 'duckduckgo-fallback',
-        description: 'free search',
-        location: '/skills/ddg/SKILL.md',
-        content: skillMd('duckduckgo-fallback', '    fallback_for_toolsets: [web]\n'),
-      },
-    ]);
+    const location = join(EXT_DIR, 'ddg2', 'SKILL.md');
+    writeSkillFile(location, skillMd('duckduckgo-fallback', '    fallback_for_toolsets: [web]\n'));
+    listSkills.mockResolvedValueOnce([{ name: 'duckduckgo-fallback', description: 'free search', location }]);
     listMcp.mockResolvedValueOnce({});
 
     const res = await fetch(`${baseUrl}/opencode/skills`);
@@ -138,17 +120,9 @@ describe('/opencode/skills — #875 toolset visibility filtering', () => {
   });
 
   it('a skill with no toolset conditions is always present (no regression)', async () => {
-    listSkills.mockResolvedValueOnce([
-      { name: 'plain-skill', description: 'no conditions', location: '/skills/plain/SKILL.md' },
-    ]);
-    listSkillsWithContent.mockResolvedValueOnce([
-      {
-        name: 'plain-skill',
-        description: 'no conditions',
-        location: '/skills/plain/SKILL.md',
-        content: skillMd('plain-skill'),
-      },
-    ]);
+    const location = join(EXT_DIR, 'plain', 'SKILL.md');
+    writeSkillFile(location, skillMd('plain-skill'));
+    listSkills.mockResolvedValueOnce([{ name: 'plain-skill', description: 'no conditions', location }]);
 
     const res = await fetch(`${baseUrl}/opencode/skills`);
     const body = (await res.json()) as Array<{ name: string }>;
@@ -156,20 +130,12 @@ describe('/opencode/skills — #875 toolset visibility filtering', () => {
   });
 
   it('a skill with BOTH fields is shown only when both conditions are satisfied', async () => {
-    listSkills.mockResolvedValueOnce([
-      { name: 'dual-condition', description: 'both', location: '/skills/dual/SKILL.md' },
-    ]);
-    listSkillsWithContent.mockResolvedValueOnce([
-      {
-        name: 'dual-condition',
-        description: 'both',
-        location: '/skills/dual/SKILL.md',
-        content: skillMd(
-          'dual-condition',
-          '    requires_toolsets: [terminal]\n    fallback_for_toolsets: [web]\n',
-        ),
-      },
-    ]);
+    const location = join(EXT_DIR, 'dual', 'SKILL.md');
+    writeSkillFile(
+      location,
+      skillMd('dual-condition', '    requires_toolsets: [terminal]\n    fallback_for_toolsets: [web]\n'),
+    );
+    listSkills.mockResolvedValueOnce([{ name: 'dual-condition', description: 'both', location }]);
     listMcp.mockResolvedValueOnce({ web: { status: 'connected' } });
 
     // terminal enabled (default) but web IS connected → fallback fails → hidden

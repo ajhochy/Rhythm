@@ -5,7 +5,6 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { bridgePty, ptyEngineUrl } from './pty_proxy';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
-import { evaluateHarvestedDrafts } from './harvested_skill_evaluator';
 import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
@@ -830,11 +829,16 @@ export async function handleInputFrame(
 
     await promptFn(opencodeId, forwardData, model, cwd, sdkOpts, forwardParts);
 
-    // #929 — fire-and-forget evaluation of any harvested draft that just
-    // crossed its use threshold. NEVER awaited; never throws.
-    evaluateHarvestedDrafts().catch((err) =>
-      console.error(`[ws_gateway] evaluateHarvestedDrafts failed (non-fatal):`, err),
-    );
+    // #929 — evaluateHarvestedDrafts() is NOT called here. `promptFn`
+    // (promptAsync) resolves once the turn is submitted to the engine, not
+    // once its response (incl. any `skill`-tool call) is durably persisted —
+    // that happens later, asynchronously, when OpencodeStreamBridge handles
+    // the SDK's `session.idle` event. Calling the evaluator here always sees
+    // last turn's usage count, one behind the turn that just ran — with no
+    // later turn to re-check, a draft that crosses the threshold on its LAST
+    // exercising turn would never get evaluated. See the real post-turn hook
+    // (same posture as queueSkillExtraction) in opencode_stream_bridge.ts's
+    // `session.idle` handler, right after the turn's message is persisted.
 
     // P3-2: bump `uses` for each injected skill (non-fatal). Done after a
     // successful enqueue; the preface text itself is never persisted.
