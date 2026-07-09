@@ -11,7 +11,7 @@ import { extractInvokedSkillNamesFromParts, ensureLazyDepsForTurn } from './lazy
 import { isToolAllowed } from './mcp_dispatch_guard';
 import { classifyCommand, extractBashCommand } from '../security/command_approval';
 import { resolveApprovalsMode } from '../config/env';
-import { onSessionError, noteUserMessage, clearTurn, redispatchTurn } from './turn_redispatch';
+import { onSessionError, noteUserMessage, clearTurn } from './turn_redispatch';
 import type { AgentSession, PermissionMode } from '../models/agent_session';
 
 /**
@@ -1171,21 +1171,17 @@ export class OpencodeStreamBridge {
             'Conversation history became inconsistent (tool call/result pairing). Send a new message to continue.';
         }
         // #930 — mid-run cross-provider re-dispatch. When a rate-limit
-        // exhaustion handoff is in flight for this session, do NOT finalize
-        // the error:
-        //   - 'defer': the spillover route is still deciding; it re-dispatches
-        //     (or finalizes with this message if no tier resolves).
-        //   - 'redispatch': decision ready — revert the failed turn and
-        //     re-prompt on the new provider in the SAME engine session.
-        // Either way the partial output is discarded (revert removes it
-        // engine-side; the pending buffer is dropped here) — the user sees one
-        // final answer, not a duplicate partial. A session whose RETRY fails
-        // returns 'finalize' (at-most-once) and errors normally below.
+        // exhaustion handoff is being decided for this session ('defer'), do
+        // NOT finalize the error: the spillover route re-dispatches the turn
+        // (or finalizes with this message if no tier resolves). The partial
+        // output is discarded (revert removes it engine-side; the pending
+        // buffer is dropped here) — the user sees one final answer, not a
+        // duplicate partial. A session whose RETRY fails returns 'finalize'
+        // (at-most-once) and errors normally below.
         if (localSessionId) {
           const action = onSessionError(localSessionId, message);
-          if (action !== 'finalize') {
+          if (action === 'defer') {
             this.pendingText.delete(localSessionId);
-            if (action === 'redispatch') void redispatchTurn(localSessionId);
             break;
           }
         }

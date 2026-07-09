@@ -29,12 +29,14 @@ const SDK = 'sdk-session-1';
 const MSG = 'msg_user_1';
 
 function makeDeps(overrides?: Partial<RedispatchDeps>): RedispatchDeps & {
+  abort: ReturnType<typeof vi.fn>;
   revert: ReturnType<typeof vi.fn>;
   prompt: ReturnType<typeof vi.fn>;
   clearError: ReturnType<typeof vi.fn>;
   setError: ReturnType<typeof vi.fn>;
 } {
   return {
+    abort: vi.fn().mockResolvedValue(true),
     revert: vi.fn().mockResolvedValue(undefined),
     prompt: vi.fn().mockResolvedValue(true),
     clearError: vi.fn(),
@@ -58,17 +60,16 @@ beforeEach(() => {
   _resetForTests();
 });
 
-describe('race ordering A — session.error arrives while the route is deciding', () => {
-  it('defers the error, then decideHandoff → redispatch-now → revert + re-prompt on the new provider', async () => {
+describe('happy path — exhausted report on a spinning in-flight turn', () => {
+  it('decide → proceed → abort + revert + re-prompt on the new provider (same engine session)', async () => {
     seedTurn();
     beginHandoff(SID);
-    expect(onSessionError(SID, 'anthropic 429')).toBe('defer');
-
-    expect(decideHandoff(SID, 'openai', 'gpt-5.3-codex', false)).toBe('redispatch-now');
+    expect(decideHandoff(SID, 'openai', 'gpt-5.3-codex')).toBe('proceed');
 
     const deps = makeDeps();
     await expect(redispatchTurn(SID, deps)).resolves.toBe(true);
     expect(deps.clearError).toHaveBeenCalledWith(SID);
+    expect(deps.abort).toHaveBeenCalledWith(SDK, '/tmp/work');
     expect(deps.revert).toHaveBeenCalledWith(SDK, MSG);
     expect(deps.prompt).toHaveBeenCalledWith(
       SDK,
@@ -78,21 +79,24 @@ describe('race ordering A — session.error arrives while the route is deciding'
       { permissionMode: 'bypassPermissions' },
       [{ type: 'text', text: 'PREFACE\n\noriginal user prompt' }],
     );
+    // abort precedes revert precedes prompt — the retry loop must die first.
+    expect(deps.abort.mock.invocationCallOrder[0]).toBeLessThan(
+      deps.revert.mock.invocationCallOrder[0],
+    );
+    expect(deps.revert.mock.invocationCallOrder[0]).toBeLessThan(
+      deps.prompt.mock.invocationCallOrder[0],
+    );
     expect(deps.setError).not.toHaveBeenCalled();
   });
-});
 
-describe('race ordering B — route decides before session.error arrives', () => {
-  it('decideHandoff → await-error; the arriving error returns redispatch and the re-dispatch succeeds', async () => {
+  it('a fast session.error racing the decision is deferred, then consumed by the re-dispatch', async () => {
     seedTurn();
     beginHandoff(SID);
-    expect(decideHandoff(SID, 'google', 'gemini-2.5-pro', false)).toBe('await-error');
-
-    expect(onSessionError(SID, 'anthropic 529')).toBe('redispatch');
+    expect(onSessionError(SID, 'anthropic 429')).toBe('defer');
+    expect(decideHandoff(SID, 'google', 'gemini-2.5-pro')).toBe('proceed');
 
     const deps = makeDeps();
     await expect(redispatchTurn(SID, deps)).resolves.toBe(true);
-    expect(deps.revert).toHaveBeenCalledWith(SDK, MSG);
     expect(deps.prompt).toHaveBeenCalledWith(
       SDK,
       expect.any(String),
@@ -101,18 +105,24 @@ describe('race ordering B — route decides before session.error arrives', () =>
       expect.anything(),
       expect.anything(),
     );
+    expect(deps.setError).not.toHaveBeenCalled();
   });
 });
 
-describe('error-first ordering — the bridge finalized status=error before the route intake', () => {
-  it('decideHandoff(sessionAlreadyErrored=true) → redispatch-now and clearError is invoked', async () => {
+describe('single-flight — duplicate exhausted reports from the engine retry loop', () => {
+  it('only the first decideHandoff proceeds; later reports are stale no-ops', async () => {
     seedTurn();
     beginHandoff(SID);
-    expect(decideHandoff(SID, 'openai', 'gpt-5.3-codex', true)).toBe('redispatch-now');
+    expect(decideHandoff(SID, 'openai', 'gpt-5.3-codex')).toBe('proceed');
+    await redispatchTurn(SID, makeDeps());
 
-    const deps = makeDeps();
-    await expect(redispatchTurn(SID, deps)).resolves.toBe(true);
-    expect(deps.clearError).toHaveBeenCalledWith(SID);
+    // A second report for the same spinning turn: no-clobber + stale.
+    beginHandoff(SID);
+    expect(decideHandoff(SID, 'openai', 'gpt-5.3-codex')).toBe('stale');
+  });
+
+  it('decideHandoff without a prior beginHandoff is stale', () => {
+    expect(decideHandoff(SID, 'openai', 'gpt-5.3-codex')).toBe('stale');
   });
 });
 
@@ -120,8 +130,7 @@ describe('at-most-once', () => {
   it('a session.error AFTER a successful re-dispatch finalizes normally — no second retry', async () => {
     seedTurn();
     beginHandoff(SID);
-    decideHandoff(SID, 'openai', 'gpt-5.3-codex', false);
-    expect(onSessionError(SID, 'anthropic 429')).toBe('redispatch');
+    decideHandoff(SID, 'openai', 'gpt-5.3-codex');
     await redispatchTurn(SID, makeDeps());
 
     // The RETRY turn fails (e.g. #913 tool-pairing 400 on the new provider):
@@ -132,45 +141,47 @@ describe('at-most-once', () => {
 });
 
 describe('retained-turn buffer lifecycle', () => {
-  it('clearTurn on normal completion drops the buffer → later re-dispatch declines and finalizes the error', async () => {
+  it('an exhausted report with NO in-flight turn (buffer cleared on idle) is a benign no-op — never errors the session', async () => {
     seedTurn();
     clearTurn(SID); // turn completed normally (session.idle)
 
     beginHandoff(SID);
-    onSessionError(SID, 'anthropic 429');
-    decideHandoff(SID, 'openai', 'gpt-5.3-codex', false);
+    decideHandoff(SID, 'openai', 'gpt-5.3-codex');
     const deps = makeDeps();
     await expect(redispatchTurn(SID, deps)).resolves.toBe(false);
+    expect(deps.abort).not.toHaveBeenCalled();
     expect(deps.revert).not.toHaveBeenCalled();
     expect(deps.prompt).not.toHaveBeenCalled();
-    expect(deps.setError).toHaveBeenCalledWith(SID, 'anthropic 429');
+    expect(deps.setError).not.toHaveBeenCalled(); // idle session stays idle
+    // State cleared: later errors finalize normally.
+    expect(onSessionError(SID, 'later')).toBe('finalize');
   });
 
-  it('clearTurn is a no-op while a handoff decision is in flight (idle-after-error race)', async () => {
+  it('clearTurn is a no-op while the route is deciding (idle-mid-decision race)', async () => {
     seedTurn();
     beginHandoff(SID);
-    onSessionError(SID, 'anthropic 429'); // deferred; engine now emits session.idle
     clearTurn(SID); // must NOT wipe the retained turn mid-decision
 
-    decideHandoff(SID, 'openai', 'gpt-5.3-codex', false);
+    decideHandoff(SID, 'openai', 'gpt-5.3-codex');
     const deps = makeDeps();
     await expect(redispatchTurn(SID, deps)).resolves.toBe(true);
   });
 
-  it('a missing revert target (no user message seen) declines rather than guessing', async () => {
+  it('an in-flight turn with no revert target (user message never seen) is aborted + finalized, not guessed', async () => {
     retainTurn(SID, { sdkSessionId: SDK, data: 'x' }); // no noteUserMessage
     beginHandoff(SID);
     onSessionError(SID, 'anthropic 429');
-    decideHandoff(SID, 'openai', 'gpt-5.3-codex', false);
+    decideHandoff(SID, 'openai', 'gpt-5.3-codex');
     const deps = makeDeps();
     await expect(redispatchTurn(SID, deps)).resolves.toBe(false);
+    expect(deps.abort).toHaveBeenCalledWith(SDK, undefined);
     expect(deps.setError).toHaveBeenCalledWith(SID, 'anthropic 429');
   });
 
   it('retainTurn for a NEW user turn resets stale handoff state', () => {
     seedTurn();
     beginHandoff(SID);
-    decideHandoff(SID, 'openai', 'gpt-5.3-codex', false); // stale 'decided'
+    decideHandoff(SID, 'openai', 'gpt-5.3-codex'); // stale 'redispatched'
     seedTurn(); // next user turn
     expect(onSessionError(SID, 'unrelated failure')).toBe('finalize');
   });
@@ -181,14 +192,12 @@ describe('retained-turn buffer lifecycle', () => {
     }
     seedTurn('s-overflow'); // 201st insert — evicts s-0
     beginHandoff('s-0');
-    onSessionError('s-0', 'err');
-    decideHandoff('s-0', 'openai', 'gpt-5.3-codex', false);
+    decideHandoff('s-0', 'openai', 'gpt-5.3-codex');
     const deps = makeDeps();
-    await expect(redispatchTurn('s-0', deps)).resolves.toBe(false); // retained turn gone
+    await expect(redispatchTurn('s-0', deps)).resolves.toBe(false); // retained turn gone → benign no-op
 
     beginHandoff('s-overflow');
-    onSessionError('s-overflow', 'err');
-    decideHandoff('s-overflow', 'openai', 'gpt-5.3-codex', false);
+    decideHandoff('s-overflow', 'openai', 'gpt-5.3-codex');
     const deps2 = makeDeps();
     await expect(redispatchTurn('s-overflow', deps2)).resolves.toBe(true); // newest kept
   });
@@ -216,7 +225,7 @@ describe('failure/fallback paths', () => {
     seedTurn();
     beginHandoff(SID);
     onSessionError(SID, 'anthropic 429');
-    decideHandoff(SID, 'openai', 'gpt-5.3-codex', false);
+    decideHandoff(SID, 'openai', 'gpt-5.3-codex');
     const deps = makeDeps({ revert: vi.fn().mockRejectedValue(new Error('revert 502')) });
     await expect(redispatchTurn(SID, deps)).resolves.toBe(false);
     expect(deps.setError).toHaveBeenCalledWith(SID, 'anthropic 429');
@@ -227,7 +236,7 @@ describe('failure/fallback paths', () => {
     seedTurn();
     beginHandoff(SID);
     onSessionError(SID, 'anthropic 429');
-    decideHandoff(SID, 'openai', 'gpt-5.3-codex', false);
+    decideHandoff(SID, 'openai', 'gpt-5.3-codex');
     const deps = makeDeps({ prompt: vi.fn().mockResolvedValue(false) });
     await expect(redispatchTurn(SID, deps)).resolves.toBe(false);
     expect(deps.setError).toHaveBeenCalledWith(SID, 'anthropic 429');

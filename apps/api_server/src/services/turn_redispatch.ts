@@ -2,14 +2,17 @@
  * #930 — mid-run cross-provider re-dispatch on account exhaustion.
  *
  * When the vendored anthropic plugin reports total account exhaustion mid-turn
- * (POST /opencode/spillover {exhausted:true}), TWO things race:
- *   (a) the engine emits `session.error` for the failed turn → the stream
- *       bridge would finalize the session as errored (the turn dies), and
- *   (b) the spillover route resolves the next cross-provider chain tier
- *       (resolveCrossProviderHandoff) and persists it.
- * This module is the single meeting point of that race. Per AJ's decision:
- *   - Resume the SAME engine session: revert the failed partial turn
- *     (opencodeClient.revertSession) then re-prompt on the new provider/model.
+ * (POST /opencode/spillover {exhausted:true}), the in-flight turn is NOT dead —
+ * the engine's retry policy (opencode_fork session/retry.ts) retries rate
+ * limits with backoff and NO attempt cap, so a sustained 429 spins the turn in
+ * 'working' forever and `session.error` never fires. The exhausted report is
+ * therefore the TERMINAL signal (live-smoke evidence, 2026-07-08): the route
+ * decides the next chain tier, then this module ABORTS the spinning turn,
+ * reverts it, and re-prompts on the new provider — in the SAME engine session.
+ *
+ * Per AJ's decisions:
+ *   - Resume the SAME engine session: abort the retry loop, revert the failed
+ *     partial turn (opencodeClient.revertSession), re-prompt on the new tier.
  *   - Re-dispatch the FULL composed prompt (incl. the transient skill/memory
  *     prefaces) — ws_gateway retains it here per turn, cleared on normal
  *     completion.
@@ -19,19 +22,18 @@
  *     normal error — no chain-walking.
  *
  * State machine per local session id:
- *   (none) --beginHandoff(route intake)--> deciding
- *   deciding --session.error--> deciding{deferredError}   [bridge defers]
- *   deciding --decideHandoff, deferred or session already errored-->
- *       redispatched  [route calls redispatchTurn]
- *   deciding --decideHandoff, no error seen yet--> decided
- *   decided --session.error--> redispatched  [bridge calls redispatchTurn]
- *   redispatched --session.error--> (none)   [retry failed → finalize normally]
+ *   (none) --beginHandoff (route intake; no-clobber)--> deciding
+ *   deciding --session.error--> deciding{deferredError}     [bridge defers]
+ *   deciding --decideHandoff--> redispatched ('proceed', single-flight:
+ *       only the FIRST transition wins; duplicate exhausted reports from the
+ *       engine's retry loop get 'stale' and do nothing)
+ *   redispatched --session.error--> (none)  [retry failed → finalize normally]
  *   any --retainTurn(new user turn)--> (none)
  *   redispatched/(none) --clearTurn(session.idle)--> (none)
  *
  * ponytail: module-level Maps, single-process state — matches the existing
  * pendingText/opencodeSessionMap posture; a bridge restart simply loses the
- * in-flight retry (same as today's dead turn), never corrupts anything.
+ * in-flight retry (same as the pre-#930 dead turn), never corrupts anything.
  */
 import { logger } from '../utils/logger';
 import { opencodeClient } from './opencode_engine';
@@ -49,7 +51,7 @@ export interface RetainedTurn {
 }
 
 interface HandoffState {
-  phase: 'deciding' | 'decided' | 'redispatched';
+  phase: 'deciding' | 'redispatched';
   providerID?: string;
   modelID?: string;
   /** Original turn's error message, held while a handoff is in flight. */
@@ -84,29 +86,36 @@ export function noteUserMessage(localSessionId: string, sdkMessageId: string): v
 
 /**
  * Bridge (session.idle): turn completed — drop the buffer and handoff state.
- * Skipped while a handoff decision is in flight ('deciding'/'decided'): the
- * engine emits session.idle right after session.error, which would otherwise
- * wipe the retained turn between the error deferral and the route's decision.
+ * Skipped while the route is still deciding: the engine can emit an idle
+ * mid-decision, which would otherwise wipe the retained turn before the
+ * re-dispatch reads it.
  */
 export function clearTurn(localSessionId: string): void {
   const st = handoffs.get(localSessionId);
-  if (st && st.phase !== 'redispatched') return;
+  if (st && st.phase === 'deciding') return;
   retained.delete(localSessionId);
   handoffs.delete(localSessionId);
 }
 
-/** Route intake: mark the handoff in flight BEFORE any await (closes the race). */
+/**
+ * Route intake: mark the handoff in flight BEFORE any await (closes the race
+ * with a fast session.error). No-clobber: the engine's retry loop can fire
+ * DUPLICATE exhausted reports for the same spinning turn — the first one owns
+ * the state machine.
+ */
 export function beginHandoff(localSessionId: string): void {
-  handoffs.set(localSessionId, { phase: 'deciding' });
+  if (!handoffs.has(localSessionId)) {
+    handoffs.set(localSessionId, { phase: 'deciding' });
+  }
 }
 
-export type SessionErrorAction = 'defer' | 'redispatch' | 'finalize';
+export type SessionErrorAction = 'defer' | 'finalize';
 
 /**
  * Bridge (session.error): what to do with this error given the handoff state.
- *  - 'defer': route still deciding — hold the message, skip finalizing.
- *  - 'redispatch': decision ready — caller must invoke redispatchTurn().
- *  - 'finalize': no handoff in flight, or the retry itself failed
+ *  - 'defer': the spillover route is deciding — hold the message (it becomes
+ *    the finalization message if the handoff fails) and skip finalizing.
+ *  - 'finalize': no handoff in flight, or the RETRY itself failed
  *    (at-most-once) — run the normal error finalization.
  */
 export function onSessionError(localSessionId: string, message: string): SessionErrorAction {
@@ -116,42 +125,30 @@ export function onSessionError(localSessionId: string, message: string): Session
     st.deferredError = message;
     return 'defer';
   }
-  if (st.phase === 'decided') {
-    st.phase = 'redispatched';
-    st.deferredError = message;
-    return 'redispatch';
-  }
   // 'redispatched' — the retry failed too. At-most-once: finalize normally.
   handoffs.delete(localSessionId);
   return 'finalize';
 }
 
-export type DecideResult = 'redispatch-now' | 'await-error';
+export type DecideResult = 'proceed' | 'stale';
 
 /**
- * Route: record the resolved handoff decision.
- *  - 'redispatch-now': the error already arrived (deferred, or finalized
- *    before the route intake) — the route must invoke redispatchTurn().
- *  - 'await-error': the error hasn't arrived yet — the bridge's
- *    session.error handler will trigger the re-dispatch.
+ * Route: record the resolved handoff decision. Returns 'proceed' exactly once
+ * per handoff (the 'deciding' → 'redispatched' transition is the single-flight
+ * gate — duplicate exhausted reports and cleared/absent state get 'stale').
+ * On 'proceed' the caller MUST invoke redispatchTurn().
  */
 export function decideHandoff(
   localSessionId: string,
   providerID: string,
   modelID: string,
-  sessionAlreadyErrored: boolean,
 ): DecideResult {
-  const st = handoffs.get(localSessionId) ?? { phase: 'deciding' as const };
+  const st = handoffs.get(localSessionId);
+  if (!st || st.phase !== 'deciding') return 'stale';
+  st.phase = 'redispatched';
   st.providerID = providerID;
   st.modelID = modelID;
-  if (st.deferredError !== undefined || sessionAlreadyErrored) {
-    st.phase = 'redispatched';
-    handoffs.set(localSessionId, st);
-    return 'redispatch-now';
-  }
-  st.phase = 'decided';
-  handoffs.set(localSessionId, st);
-  return 'await-error';
+  return 'proceed';
 }
 
 /**
@@ -167,6 +164,8 @@ export function failHandoff(localSessionId: string): string | undefined {
 
 /** Injectable engine/DB boundary so the re-dispatch path is unit-testable. */
 export interface RedispatchDeps {
+  /** Abort the spinning turn (kills the engine's endless rate-limit retry loop). */
+  abort: (sdkSessionId: string, cwd?: string) => Promise<unknown>;
   revert: (sdkSessionId: string, messageId: string) => Promise<unknown>;
   prompt: (
     sdkSessionId: string,
@@ -205,6 +204,7 @@ export function finalizeErrorStatus(localSessionId: string, message: string): vo
 
 function defaultDeps(): RedispatchDeps {
   return {
+    abort: (sdkId, cwd) => opencodeClient.abortSession(sdkId, cwd),
     revert: (sdkId, messageId) => opencodeClient.revertSession(sdkId, messageId),
     prompt: (sdkId, data, model, cwd, opts, parts) =>
       (opencodeClient.promptAsync as unknown as (
@@ -227,11 +227,16 @@ function defaultDeps(): RedispatchDeps {
 }
 
 /**
- * Perform the mid-run re-dispatch: revert the failed turn in the SAME engine
- * session, then re-prompt the retained composed turn on the new provider.
- * On any failure (missing retained turn / revert target / engine rejection)
- * the session is finalized with the ORIGINAL deferred error — never left
- * hanging, never retried again (at-most-once). Never throws.
+ * Perform the mid-run re-dispatch: abort the spinning turn, revert it in the
+ * SAME engine session, then re-prompt the retained composed turn on the new
+ * provider. Failure handling:
+ *  - No retained turn at all → the exhaustion report has no in-flight
+ *    interactive turn behind it (idle-time report, or a non-ws_gateway turn,
+ *    e.g. AgentRunner). BENIGN no-op: clear state, never touch the session.
+ *  - Retained turn but no revert target / engine rejection → the turn is
+ *    genuinely stuck; abort it and finalize with the ORIGINAL deferred error
+ *    so the session is never left hanging. Never retried again (at-most-once).
+ * Never throws.
  */
 export async function redispatchTurn(
   localSessionId: string,
@@ -246,18 +251,27 @@ export async function redispatchTurn(
     st?.deferredError ??
     'Provider rate-limited; cross-provider fallback re-dispatch failed';
 
-  if (
-    !st ||
-    st.phase !== 'redispatched' ||
-    !st.providerID ||
-    !st.modelID ||
-    !turn ||
-    !turn.userMessageId
-  ) {
+  if (!turn) {
+    // ponytail: no retained turn = nothing in flight to resume (idle-time
+    // report, or an AgentRunner turn that never goes through ws_gateway —
+    // that path keeps the pre-#930 behavior: next-turn pickup only).
+    handoffs.delete(localSessionId);
+    logger.info(
+      `[TurnRedispatch] session ${localSessionId}: no retained in-flight turn — handoff persisted for next turn only`,
+    );
+    return false;
+  }
+
+  if (!st || st.phase !== 'redispatched' || !st.providerID || !st.modelID || !turn.userMessageId) {
     handoffs.delete(localSessionId);
     logger.warn(
-      `[TurnRedispatch] session ${localSessionId}: cannot re-dispatch (no retained turn/revert target/decision) — finalizing as error`,
+      `[TurnRedispatch] session ${localSessionId}: in-flight turn cannot be re-dispatched (missing revert target/decision) — aborting + finalizing as error`,
     );
+    try {
+      await d.abort(turn.sdkSessionId, turn.cwd);
+    } catch {
+      /* best effort — the turn may already be dead */
+    }
     d.setError(localSessionId, failMessage);
     return false;
   }
@@ -267,6 +281,10 @@ export async function redispatchTurn(
     // Error-first ordering: the bridge may have finalized status='error'
     // before the route intake ran. No-op otherwise.
     d.clearError(localSessionId);
+    // Kill the engine's endless rate-limit retry loop for the failed turn —
+    // without this the session spins in 'working' forever (session.error
+    // never fires for a sustained 429; see module docs).
+    await d.abort(turn.sdkSessionId, turn.cwd);
     // Discard the failed partial turn engine-side (user message + partial
     // assistant output), then resume the SAME session on the new provider.
     await d.revert(turn.sdkSessionId, turn.userMessageId);

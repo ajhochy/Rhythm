@@ -122,16 +122,14 @@ opencodeSpilloverRouter.post('/', async (req: Request, res: Response) => {
     const updated = repo.findById(session.id);
     if (updated) broadcastSessionUpdated(updated);
 
-    // #930 mid-run resume: if the turn's error already arrived (deferred by
-    // the bridge, or finalized before this intake even ran), re-dispatch now;
-    // otherwise the bridge's session.error handler triggers it on arrival.
-    const outcome = decideHandoff(
-      session.id,
-      handoff.providerID,
-      handoff.modelID,
-      updated?.status === 'error',
-    );
-    if (outcome === 'redispatch-now') await redispatchTurn(session.id);
+    // #930 mid-run resume: the exhausted report is the TERMINAL signal — the
+    // engine retries rate limits with NO attempt cap, so the spinning turn
+    // must be aborted + re-dispatched NOW (a session.error will never come
+    // for a sustained 429). decideHandoff is the single-flight gate: duplicate
+    // reports from the engine's retry loop return 'stale' and skip this.
+    if (decideHandoff(session.id, handoff.providerID, handoff.modelID) === 'proceed') {
+      await redispatchTurn(session.id);
+    }
 
     res.json({ ok: true, handoff: true, providerID: handoff.providerID, modelID: handoff.modelID });
     return;
