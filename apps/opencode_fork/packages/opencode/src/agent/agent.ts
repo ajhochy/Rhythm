@@ -57,6 +57,7 @@ const GeneratedAgent = Schema.Struct({
 export interface Interface {
   readonly get: (agent: string) => Effect.Effect<Info>
   readonly list: () => Effect.Effect<Info[]>
+  readonly reload: () => Effect.Effect<Info[]>
   readonly defaultInfo: () => Effect.Effect<Info>
   readonly defaultAgent: () => Effect.Effect<string>
   readonly generate: (input: {
@@ -69,7 +70,7 @@ export interface Interface {
   }>
 }
 
-type State = Omit<Interface, "generate">
+type State = Omit<Interface, "generate" | "reload">
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Agent") {}
 
@@ -367,6 +368,14 @@ export const layer = Layer.effect(
         return yield* InstanceState.useEffect(state, (s) => s.get(agent))
       }),
       list: Effect.fn("Agent.list")(function* () {
+        return yield* InstanceState.useEffect(state, (s) => s.list())
+      }),
+      reload: Effect.fn("Agent.reload")(function* () {
+        // Invalidate the per-directory InstanceState (holds a stale config.get()
+        // result) then re-list so freshly-written agent files are visible
+        // without an instance bounce. Paired with Config.invalidate() in the
+        // /config/reload HTTP handler (#948).
+        yield* InstanceState.invalidate(state)
         return yield* InstanceState.useEffect(state, (s) => s.list())
       }),
       defaultInfo: Effect.fn("Agent.defaultInfo")(function* () {

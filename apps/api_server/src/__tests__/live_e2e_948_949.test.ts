@@ -215,8 +215,10 @@ describeLive('live E2E — #948 + #949', () => {
   // edit to an agent file is visible to new sessions without a restart.
   // ───────────────────────────────────────────────────────────────────────────
   describe('#948 — POST /system/refresh invalidates the agent profile cache', () => {
-    it('a disk edit is invisible until refresh, then visible after', async () => {
-      const id = await createTempAgent('E2E Cache A');
+    it(
+      'a disk edit is invisible until refresh, then visible after',
+      async () => {
+        const id = await createTempAgent('E2E Cache A');
       // Newly-created agent file isn't in the cached config yet — refresh once
       // so it appears, giving us a baseline to mutate.
       await refresh();
@@ -252,7 +254,9 @@ describeLive('live E2E — #948 + #949', () => {
       const fresh = await listEngineAgents();
       const freshAgent = fresh.find((x) => x.name === id);
       expect(freshAgent!.description).toBe('E2E Cache A (edited by doctor)');
-    });
+      },
+      30_000,
+    );
   });
 
   // ───────────────────────────────────────────────────────────────────────────

@@ -89,10 +89,14 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
 
     const reloadConfig = Effect.fn("InstanceHttpApi.configReload")(function* () {
       // Invalidate the memoized global config cache (Duration.infinity TTL) so
-      // the next config.get() re-scans agent/mode/config files from disk. Lets
-      // a config-repair agent's on-disk edits reach new sessions without an
-      // instance bounce.
+      // the next config.get() re-scans agent/mode/config files from disk. THEN
+      // invalidate the Agent service's per-directory InstanceState, which holds
+      // a stale config.get() result — without this second invalidate, listAgents
+      // still returns the old agent set even after the global cache is cleared.
+      // Together these let a config-repair agent's on-disk edits reach new
+      // sessions without an instance bounce. (#948)
       yield* config.invalidate()
+      yield* agent.reload()
       return true
     })
 
