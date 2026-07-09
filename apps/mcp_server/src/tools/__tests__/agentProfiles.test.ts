@@ -97,4 +97,52 @@ describe('registerAgentProfileTools', () => {
 
     expect(result.isError).toBe(true);
   });
+
+  it('lists only permission fields for profile repair audits', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => [{ id: 'config-doctor', label: 'Config Doctor', systemPrompt: 'secret-ish', corePermissionsJson: '{"bash":"ask"}' }],
+      }),
+    );
+
+    const { server, tools } = makeStubServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerAgentProfileTools(server as any, AGENT_URL);
+
+    const result = await tools.get('rhythm_list_agent_profile_permissions')!.handler({});
+
+    expect(result.content[0].text).toContain('corePermissionsJson');
+    expect(result.content[0].text).not.toContain('systemPrompt');
+  });
+
+  it('patches only supplied permission fields and resyncs the profile file', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'Theological-Researcher', label: 'Theological Researcher', corePermissionsJson: '{"skill":"allow","read":"allow","bash":"ask"}' }),
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { server, tools } = makeStubServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerAgentProfileTools(server as any, AGENT_URL);
+
+    const result = await tools.get('rhythm_update_agent_profile_permissions')!.handler({
+      id: 'Theological-Researcher',
+      corePermissionsJson: '{"skill":"allow","read":"allow","bash":"ask"}',
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(`${AGENT_URL}/agent-configs/Theological-Researcher`, expect.objectContaining({ method: 'PATCH' }));
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      corePermissionsJson: '{"skill":"allow","read":"allow","bash":"ask"}',
+    });
+    expect(mockFetch).toHaveBeenCalledWith(`${AGENT_URL}/agent-configs/Theological-Researcher/resync-agent-file`, { method: 'POST' });
+    expect(result.content[0].text).toContain('corePermissionsJson');
+  });
 });

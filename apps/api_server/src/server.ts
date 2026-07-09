@@ -229,8 +229,10 @@ async function main() {
       const { writeAgentProfileFile } = await import(
         './services/opencode_agent_writer'
       );
-      const configDoctor = new AgentConfigsRepository().getById('config-doctor');
-      if (configDoctor) writeAgentProfileFile(configDoctor);
+      for (const id of ['config-doctor', 'Theological-Researcher']) {
+        const config = new AgentConfigsRepository().getById(id);
+        if (config) writeAgentProfileFile(config);
+      }
     } catch (err) {
       logger.warn(
         `[server] config-doctor agent file ensure failed (non-fatal): ${String(err)}`,

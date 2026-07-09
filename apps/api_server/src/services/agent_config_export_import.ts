@@ -47,6 +47,7 @@ export interface AgentConfigBundleProfile {
   systemPrompt: string | null;
   allowedMcpsJson: string | null;
   allowedSkillsJson: string | null;
+  corePermissionsJson: string | null;
   allowedDelegatesJson: string | null;
   presetId: string | null;
   sortOrder: number;
@@ -117,6 +118,7 @@ function toBundleProfile(config: AgentConfig): AgentConfigBundleProfile {
     systemPrompt: config.systemPrompt,
     allowedMcpsJson: config.allowedMcpsJson,
     allowedSkillsJson: config.allowedSkillsJson,
+    corePermissionsJson: config.corePermissionsJson,
     allowedDelegatesJson: config.allowedDelegatesJson,
     presetId: config.presetId,
     sortOrder: config.sortOrder,
@@ -192,6 +194,7 @@ export function parseAgentConfigBundle(input: unknown): AgentConfigBundle {
       systemPrompt: typeof p.systemPrompt === 'string' ? p.systemPrompt : null,
       allowedMcpsJson: typeof p.allowedMcpsJson === 'string' ? p.allowedMcpsJson : null,
       allowedSkillsJson: typeof p.allowedSkillsJson === 'string' ? p.allowedSkillsJson : null,
+      corePermissionsJson: typeof p.corePermissionsJson === 'string' ? p.corePermissionsJson : null,
       allowedDelegatesJson:
         typeof p.allowedDelegatesJson === 'string' ? p.allowedDelegatesJson : null,
       presetId: typeof p.presetId === 'string' ? p.presetId : null,
@@ -218,6 +221,7 @@ function isNoopImport(existing: AgentConfig, incoming: AgentConfigBundleProfile)
     existing.systemPrompt === incoming.systemPrompt &&
     existing.allowedMcpsJson === incoming.allowedMcpsJson &&
     existing.allowedSkillsJson === incoming.allowedSkillsJson &&
+    existing.corePermissionsJson === incoming.corePermissionsJson &&
     existing.allowedDelegatesJson === incoming.allowedDelegatesJson &&
     existing.sortOrder === incoming.sortOrder &&
     existing.modelProvider === incoming.modelProvider &&
@@ -239,6 +243,7 @@ function toInput(incoming: AgentConfigBundleProfile): AgentConfigInput {
     systemPrompt: incoming.systemPrompt,
     allowedMcpsJson: incoming.allowedMcpsJson,
     allowedSkillsJson: incoming.allowedSkillsJson,
+    corePermissionsJson: incoming.corePermissionsJson,
     allowedDelegatesJson: incoming.allowedDelegatesJson,
     sortOrder: incoming.sortOrder,
     modelProvider: incoming.modelProvider,

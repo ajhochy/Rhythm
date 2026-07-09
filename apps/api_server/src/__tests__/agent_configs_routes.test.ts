@@ -216,6 +216,26 @@ describe('POST /agent-configs', () => {
     expect(res.status).toBe(201);
   });
 
+  it('creates a config with validated corePermissionsJson', async () => {
+    const res = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ label: 'Reader', corePermissionsJson: '{"read":"allow","bash":"ask"}' }),
+    });
+    expect(res.status).toBe(201);
+    const config = (await res.json()) as Record<string, unknown>;
+    expect(config.corePermissionsJson).toBe('{"read":"allow","bash":"ask"}');
+  });
+
+  it('rejects invalid corePermissionsJson', async () => {
+    const res = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ label: 'Bad Reader', corePermissionsJson: '{"bash":"sure"}' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   it('forces canResume to false when isAgent is false', async () => {
     const res = await fetch(`${baseUrl}/agent-configs`, {
       method: 'POST',
@@ -341,6 +361,33 @@ describe('PATCH /agent-configs/:id', () => {
     });
     // Used to be 400; legacy fields ignored now.
     expect(res.status).toBe(200);
+  });
+
+  it('patches and clears corePermissionsJson while preserving omitted fields', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ label: 'Core Perms', allowedMcpsJson: '["rhythm"]' }),
+    });
+    const created = (await createRes.json()) as Record<string, unknown>;
+
+    const patchRes = await fetch(`${baseUrl}/agent-configs/${created.id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ corePermissionsJson: '{"skill":"allow"}' }),
+    });
+    expect(patchRes.status).toBe(200);
+    const patched = (await patchRes.json()) as Record<string, unknown>;
+    expect(patched.corePermissionsJson).toBe('{"skill":"allow"}');
+    expect(patched.allowedMcpsJson).toBe('["rhythm"]');
+
+    const clearRes = await fetch(`${baseUrl}/agent-configs/${created.id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ corePermissionsJson: null }),
+    });
+    expect(clearRes.status).toBe(200);
+    expect(((await clearRes.json()) as Record<string, unknown>).corePermissionsJson).toBeNull();
   });
 });
 

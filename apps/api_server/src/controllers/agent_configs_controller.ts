@@ -39,6 +39,40 @@ const PRESET_PROTECTED_FIELDS = ['label', 'icon', 'isAgent'];
 // #844 — valid values for the per-profile tier hint consumed by
 // agent_model_resolver.resolveModelTier() as the `explicitTierHint`.
 const VALID_MODEL_TIER_HINTS = new Set(['cheap', 'standard', 'frontier']);
+const VALID_CORE_PERMISSION_ACTIONS = new Set(['allow', 'ask', 'deny']);
+
+function validateCorePermissionsJson(value: unknown): void {
+  if (value === undefined || value === null) return;
+  if (typeof value !== 'string') {
+    throw AppError.badRequest('corePermissionsJson must be a JSON object string or null');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw AppError.badRequest('corePermissionsJson must be valid JSON');
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw AppError.badRequest('corePermissionsJson must be a JSON object');
+  }
+  for (const [tool, permission] of Object.entries(parsed)) {
+    if (!tool.trim()) throw AppError.badRequest('corePermissionsJson tool names must be non-empty');
+    if (typeof permission === 'string') {
+      if (!VALID_CORE_PERMISSION_ACTIONS.has(permission)) {
+        throw AppError.badRequest('corePermissionsJson actions must be allow, ask, or deny');
+      }
+      continue;
+    }
+    if (typeof permission !== 'object' || permission === null || Array.isArray(permission)) {
+      throw AppError.badRequest('corePermissionsJson values must be action strings or pattern objects');
+    }
+    for (const [pattern, action] of Object.entries(permission)) {
+      if (!pattern.trim() || typeof action !== 'string' || !VALID_CORE_PERMISSION_ACTIONS.has(action)) {
+        throw AppError.badRequest('corePermissionsJson pattern actions must be allow, ask, or deny');
+      }
+    }
+  }
+}
 
 function validateBody(body: Record<string, unknown>, requireLabel = true): void {
   if (requireLabel) {
@@ -69,6 +103,8 @@ function validateBody(body: Record<string, unknown>, requireLabel = true): void 
   ) {
     throw AppError.badRequest('defaultAnthropicAccountId must be a string or null');
   }
+
+  validateCorePermissionsJson(body.corePermissionsJson);
 
   // Legacy CLI fields (command, canResume, resumeCommand, sessionIdPattern,
   // outputMarker) used to be required here. The Opencode SDK migration
@@ -179,6 +215,7 @@ export class AgentConfigsController {
         systemPrompt: typeof body.systemPrompt === 'string' ? body.systemPrompt : null,
         allowedMcpsJson: typeof body.allowedMcpsJson === 'string' ? body.allowedMcpsJson : null,
         allowedSkillsJson: typeof body.allowedSkillsJson === 'string' ? body.allowedSkillsJson : null,
+        corePermissionsJson: typeof body.corePermissionsJson === 'string' ? body.corePermissionsJson : null,
         allowedDelegatesJson: typeof body.allowedDelegatesJson === 'string' ? body.allowedDelegatesJson : null,
         modelProvider: typeof body.modelProvider === 'string' ? body.modelProvider : null,
         modelId: typeof body.modelId === 'string' ? body.modelId : null,
@@ -234,6 +271,7 @@ export class AgentConfigsController {
       if (body.systemPrompt !== undefined) patch.systemPrompt = typeof body.systemPrompt === 'string' ? body.systemPrompt : null;
       if (body.allowedMcpsJson !== undefined) patch.allowedMcpsJson = typeof body.allowedMcpsJson === 'string' ? body.allowedMcpsJson : null;
       if (body.allowedSkillsJson !== undefined) patch.allowedSkillsJson = typeof body.allowedSkillsJson === 'string' ? body.allowedSkillsJson : null;
+      if (body.corePermissionsJson !== undefined) patch.corePermissionsJson = typeof body.corePermissionsJson === 'string' ? body.corePermissionsJson : null;
       if (body.allowedDelegatesJson !== undefined) patch.allowedDelegatesJson = typeof body.allowedDelegatesJson === 'string' ? body.allowedDelegatesJson : null;
       if (body.modelProvider !== undefined) patch.modelProvider = typeof body.modelProvider === 'string' ? body.modelProvider : null;
       if (body.modelId !== undefined) patch.modelId = typeof body.modelId === 'string' ? body.modelId : null;

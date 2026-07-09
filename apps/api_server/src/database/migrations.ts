@@ -1535,6 +1535,7 @@ export function runMigrations(db: Database.Database): void {
   // is_manager: exactly one manager agent; all others are specialists.
   // system_prompt: custom system prompt for this profile.
   // allowed_mcps_json / allowed_skills_json: capability scoping per profile.
+  // core_permissions_json: opencode core tool permission frontmatter per profile.
   const agentConfigCols = (db.pragma('table_info(agent_configs)') as { name: string }[]).map((c) => c.name);
   if (!agentConfigCols.includes('is_manager')) {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN is_manager INTEGER NOT NULL DEFAULT 0`);
@@ -1547,6 +1548,9 @@ export function runMigrations(db: Database.Database): void {
   }
   if (!agentConfigCols.includes('allowed_skills_json')) {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN allowed_skills_json TEXT`);
+  }
+  if (!agentConfigCols.includes('core_permissions_json')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN core_permissions_json TEXT`);
   }
   if (!agentConfigCols.includes('allowed_delegates_json')) {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN allowed_delegates_json TEXT`);
@@ -1785,23 +1789,25 @@ export function runMigrations(db: Database.Database): void {
 Rules:
 1. On the first message of any conversation, run this command first: \`cd apps/api_server && npm run doctor\`. Read its full output before saying anything else. This is Rhythm's own diagnostic script — trust its findings over your own guesses.
 2. Rhythm keeps its own list of agent profiles in a local database, exposed via a REST API on http://localhost:4001 (the same server hosting this conversation, so it is always reachable from here). To check for orphaned or duplicate agent profiles: run \`curl -s http://localhost:4001/agent-configs\` and \`ls ~/.config/opencode/agents/\`. Cross-reference: every row with "isAgent": true and "enabled": true SHOULD have a matching <ocAgent>.md file in that directory, EXCEPT these seven ids, which are opencode's own native built-in agent modes and are INTENTIONALLY file-less by design — do not report them as broken, and do not treat a resync call that returns success-but-no-file for one of them as a bug: build, plan, explore, general, compaction, summary, title. Also flag any two rows (outside that exception list) that share the same "label" — that is a duplicate-profile situation exactly like the one that caused issue #900 (a session routed to the id-only duplicate crashes with "UnknownError: UnknownError" the moment you message it). A row can also be a lone orphan with no duplicate label at all — still flag any non-exception row missing its file.
-3. NEVER query the SQLite database file directly (no sqlite3 commands against ~/Library/Application Support/Rhythm/rhythm.db). The live server holds an open connection to it; a second connection can return stale or torn reads. Always go through the REST API on localhost:4001 instead.
-4. Explain what you found in plain English, grouped into: broken right now, will break on the next restart, and cosmetic/low-priority. Do not bury the important findings in a wall of raw command output — summarize first, then offer to show the raw output if asked.
-5. For fixes you can perform directly and safely, do so:
+3. Profile tool scope has two different layers. \`allowedMcpsJson\` and \`allowedSkillsJson\` are Rhythm database fields for MCP servers/skills only; \`null\` means unrestricted, an omitted PATCH field means no change, and \`[]\` means deny-all. Shell and local file tools such as \`bash\`, \`read\`, and \`edit\` are opencode core permissions from \`corePermissionsJson\`, projected into ~/.config/opencode/agents/<id>.md frontmatter, NOT MCP server names. Never add \`bash\`, \`read\`, \`edit\`, \`filesystem\`, \`computer\`, or \`editor\` to allowedMcpsJson. MCP scope names are case-sensitive; use \`rhythm\`, never \`Rhythm\`.
+4. NEVER query the SQLite database file directly (no sqlite3 commands against ~/Library/Application Support/Rhythm/rhythm.db). The live server holds an open connection to it; a second connection can return stale or torn reads. Always go through the REST API on localhost:4001 instead.
+5. Explain what you found in plain English, grouped into: broken right now, will break on the next restart, and cosmetic/low-priority. Do not bury the important findings in a wall of raw command output — summarize first, then offer to show the raw output if asked.
+6. For fixes you can perform directly and safely, do so:
    - A missing or wrong value in Rhythm's dotenv configuration (apps/api_server's environment file) or ~/.config/opencode/opencode.json — edit the specific line, do not rewrite the whole file from scratch.
    - An orphaned agent profile (a row with no matching .md file, per rule 2) — do NOT hand-write the .md file yourself. Instead call \`curl -s -X POST http://localhost:4001/agent-configs/<id>/resync-agent-file\` for that profile's id. This regenerates the file using Rhythm's own internal logic, which you cannot safely replicate by hand.
+   - A profile whose MCP/skill/core-permission scope is wrong — PATCH only the specific field through the REST API, for example \`curl -s -X PATCH http://localhost:4001/agent-configs/<id> -H 'Content-Type: application/json' -d '{"allowedMcpsJson":"{\\"rhythm\\":[\\"rhythm_ping\\"]}"}'\`, then call the resync endpoint above. Use \`corePermissionsJson\` for opencode core tools (example: \`{"bash":"ask"}\`), not allowedMcpsJson. Use \`null\` only when the user explicitly wants unrestricted access; omit fields that should not change.
    Every actual write or command you run will show the user an approval prompt before it executes — you do not need to ask a separate "should I do this?" question first for actions you are directly performing; propose the fix, then just do it, and let the approval prompt be the confirmation gate.
-6. For anything you cannot safely fix from inside this conversation — restarting the Rhythm server or the opencode engine, a corrupted native module (e.g. better-sqlite3 ABI mismatch), or any fix that requires editing application source code — stop and say so plainly. Then ask exactly this: "Would you like me to open this in Claude Code, Codex, or would you rather handle it yourself?"
+7. For anything you cannot safely fix from inside this conversation — restarting the Rhythm server or the opencode engine, a corrupted native module (e.g. better-sqlite3 ABI mismatch), or any fix that requires editing application source code — stop and say so plainly. Then ask exactly this: "Would you like me to open this in Claude Code, Codex, or would you rather handle it yourself?"
    - If they choose Claude Code or Codex: write your full diagnosis and suggested fix to a temp file first, e.g. /tmp/rhythm-config-doctor-<unix-timestamp>.md (use the write tool for this, not shell redirection). Then run exactly one shell command to open a new Terminal window running that tool seeded with the file's contents, for example:
      osascript -e 'tell application "Terminal" to do script "cd /Users/ajhochhalter/Documents/Rhythm && claude \\"$(cat /tmp/rhythm-config-doctor-<timestamp>.md)\\""'
      (substitute codex for claude if that is what they chose). Confirm to the user that the window has opened and that you are still here if they want to keep talking or re-run diagnostics afterward.
    - If they say they will handle it themselves, just give them the plain-English diagnosis and suggested fix and stop there.
-7. Never modify rows in the agent_configs table directly — always go through the REST API (GET/PATCH/POST as documented above), never raw SQL writes.`;
+8. Never modify rows in the agent_configs table directly — always go through the REST API (GET/PATCH/POST as documented above), never raw SQL writes.`;
 
   // allowed_mcps_json='[]' (explicit empty array, not NULL) means "no MCP
   // servers" — NULL means unrestricted/all-servers in this table's
-  // convention, which is the opposite of what Config Doctor needs (bash
-  // only). Note: backfillObsidianReadScope (obsidian_scope_backfill.ts)
+  // convention, which is the opposite of what Config Doctor needs (narrow
+  // Rhythm MCP plus profile-local opencode core permissions). Note: backfillObsidianReadScope (obsidian_scope_backfill.ts)
   // treats any array-scoped selectable row as eligible and will append
   // "obsidian" to a brand-new install's still-empty array the first time it
   // runs (it's a global run-once backfill, already completed on any existing
@@ -1814,8 +1820,8 @@ Rules:
   // concrete model, which this profile intentionally does not).
   db.prepare(
     `INSERT OR IGNORE INTO agent_configs
-      (id, label, icon, command, is_agent, oc_agent, session_selectable, system_prompt, allowed_mcps_json, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, label, icon, command, is_agent, oc_agent, session_selectable, system_prompt, allowed_mcps_json, core_permissions_json, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     'config-doctor',
     'Config Doctor',
@@ -1826,8 +1832,16 @@ Rules:
     1,
     configDoctorSystemPrompt,
     '[]',
+    JSON.stringify({ bash: 'ask' }),
     5,
   );
+
+  db.prepare(
+    `UPDATE agent_configs
+        SET system_prompt = ?,
+            core_permissions_json = ?
+      WHERE id = 'config-doctor'`,
+  ).run(configDoctorSystemPrompt, JSON.stringify({ bash: 'ask' }));
 
   // #895 — agent approval gate. SQLite-only, same convention as
   // agent_sessions/agent_configs: local-agent execution state never syncs to
@@ -2052,6 +2066,12 @@ Your job, in order:
     'd74b471f-ca90-4246-8182-e769b10d80c6',
     'Theological-Researcher',
   );
+
+  db.prepare(
+    `UPDATE agent_configs
+        SET core_permissions_json = ?
+      WHERE id = 'Theological-Researcher'`,
+  ).run(JSON.stringify({ skill: 'allow', read: 'allow', bash: 'ask' }));
 
   updateAgentConfigJson('research', 'allowed_skills_json', (parsed) => {
     if (!Array.isArray(parsed)) return parsed;
