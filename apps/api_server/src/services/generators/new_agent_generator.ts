@@ -46,7 +46,10 @@ import type { AgentOrgProposal } from '../../models/agent_org_proposal';
 import {
   AgentOrgProposalsRepository,
 } from '../../repositories/agent_org_proposals_repository';
-import { AgentConfigsRepository } from '../../repositories/agent_configs_repository';
+import {
+  AgentConfigsRepository,
+  deriveAgentConfigIdFromLabel,
+} from '../../repositories/agent_configs_repository';
 import { alignMcpName } from '../mcp_name_alignment';
 import { extractReferencedSkillNames } from '../agent_skill_wiring';
 import { opencodeClient } from '../opencode_engine';
@@ -76,6 +79,7 @@ function mcpRolesDir(): string {
 }
 
 const MCP_ROLE_SLUG_RE = /^[a-z0-9-]+$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function roleFilePath(slug: string): string {
   return path.join(mcpRolesDir(), `${slug}.mcp.json`);
@@ -395,8 +399,14 @@ async function applyCreateAgentChange(proposal: AgentOrgProposal): Promise<{ mea
     : undefined;
 
   const configsRepo = new AgentConfigsRepository();
+  const agentId = UUID_RE.test(change.agentSlug)
+    ? deriveAgentConfigIdFromLabel(
+        change.label,
+        (candidate) => configsRepo.getById(candidate) !== null,
+      )
+    : change.agentSlug;
   configsRepo.insert({
-    id: change.agentSlug,
+    id: agentId,
     label: change.label,
     icon: 'sparkles',
     isAgent: true,
@@ -410,12 +420,12 @@ async function applyCreateAgentChange(proposal: AgentOrgProposal): Promise<{ mea
 
   const dir = mcpRolesDir();
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  const rolePath = roleFilePath(change.agentSlug);
-  const roleContent = buildRoleFileContent(change.agentSlug, mcpNames);
+  const rolePath = roleFilePath(agentId);
+  const roleContent = buildRoleFileContent(agentId, mcpNames);
   writeFileSync(rolePath, `${JSON.stringify(roleContent, null, 2)}\n`, 'utf8');
 
   logger.info(
-    `[NewAgentGenerator] applied create-agent proposal ${proposal.id}: created agent_configs "${change.agentSlug}" + role file`,
+    `[NewAgentGenerator] applied create-agent proposal ${proposal.id}: created agent_configs "${agentId}" + role file`,
   );
 
   return { measurable: false };

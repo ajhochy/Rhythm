@@ -109,7 +109,7 @@ AgentBadgeIdentity _identityForKind(
   final config = configById(kind);
   return AgentBadgeIdentity(
     config: config,
-    label: config?.label ?? kind,
+    label: config?.displayLabel ?? kind,
   );
 }
 

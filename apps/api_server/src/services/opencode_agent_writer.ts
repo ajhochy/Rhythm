@@ -159,7 +159,7 @@ function parseDelegateRoster(config: AgentConfig): string[] {
 }
 
 /** opencode built-in / internal agents — no source file; never write these. */
-const BUILTIN_OPENCODE = new Set([
+export const BUILTIN_OPENCODE_AGENT_IDS = [
   'build',
   'plan',
   'explore',
@@ -167,10 +167,17 @@ const BUILTIN_OPENCODE = new Set([
   'compaction',
   'summary',
   'title',
-]);
+] as const;
 
 /** Legacy CLI model-selector presets — not opencode agents. */
-const CLI_MODEL_PRESETS = new Set(['claude-code', 'codex', 'gemini-cli', 'opencode']);
+export const CLI_MODEL_PRESET_IDS = ['claude-code', 'codex', 'gemini-cli', 'opencode'] as const;
+
+const BUILTIN_OPENCODE = new Set<string>(BUILTIN_OPENCODE_AGENT_IDS);
+const CLI_MODEL_PRESETS = new Set<string>(CLI_MODEL_PRESET_IDS);
+
+export function isReservedAgentConfigId(id: string): boolean {
+  return BUILTIN_OPENCODE.has(id) || CLI_MODEL_PRESETS.has(id);
+}
 
 /**
  * Never touch the real ~/.config/opencode/agents directory from a test run.

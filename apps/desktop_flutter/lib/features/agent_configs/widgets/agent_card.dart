@@ -104,10 +104,11 @@ class _AgentCardState extends State<AgentCard> {
   // --------------------------------------------------------------------------
 
   Future<void> _confirmDelete() async {
+    final displayLabel = widget.config.displayLabel;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Delete "${widget.config.label}"?'),
+        title: Text('Delete "$displayLabel"?'),
         content: const Text(
           'This agent configuration will be permanently removed.',
         ),
@@ -142,6 +143,7 @@ class _AgentCardState extends State<AgentCard> {
   Widget build(BuildContext context) {
     final rhythm = context.rhythm;
     final isPreset = widget.config.isPreset;
+    final displayLabel = widget.config.displayLabel;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -160,13 +162,13 @@ class _AgentCardState extends State<AgentCard> {
               AgentIcon(
                 widget.config.icon,
                 size: 36,
-                fallbackLabel: widget.config.label,
+                fallbackLabel: displayLabel,
               ),
               const SizedBox(width: 14),
               Expanded(
                 child: isPreset
                     ? Text(
-                        widget.config.label,
+                        displayLabel,
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,

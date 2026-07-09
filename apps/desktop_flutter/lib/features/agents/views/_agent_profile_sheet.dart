@@ -122,13 +122,13 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
     final query = _searchQuery.trim().toLowerCase();
     final filtered = query.isEmpty
         ? profiles
-        : profiles.where((c) => c.label.toLowerCase().contains(query)).toList();
+        : profiles.where((c) => c.displayLabel.toLowerCase().contains(query)).toList();
 
     final sorted = [...filtered];
     sorted.sort((a, b) {
       switch (_sortField) {
         case _ProfileSortField.name:
-          return a.label.toLowerCase().compareTo(b.label.toLowerCase());
+          return a.displayLabel.toLowerCase().compareTo(b.displayLabel.toLowerCase());
         case _ProfileSortField.modelProvider:
           return (a.modelProvider ?? '').compareTo(b.modelProvider ?? '');
       }
@@ -338,7 +338,7 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
                                       children: [
                                         Flexible(
                                           child: Text(
-                                            c.label,
+                                            c.displayLabel,
                                             style: TextStyle(
                                               fontSize: 14,
                                               fontWeight: FontWeight.w500,
@@ -481,7 +481,7 @@ class _DefaultProfilePicker extends StatelessWidget {
                 (c) => DropdownMenuItem<String?>(
                   value: c.ocAgent,
                   child: Text(
-                    c.label,
+                    c.displayLabel,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: rhythm.textPrimary, fontSize: 13),
                   ),
@@ -1456,6 +1456,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
       runSpacing: 8,
       children: names.map((name) {
         final entry = byName[name];
+        final displayName = entry?.displayName ?? name;
         final isSelected = _selectedSkills!.contains(name);
         final managed = entry?.managed ?? false;
 
@@ -1465,11 +1466,11 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
           // or the managed-skill Row it sits in — overflow the Wrap (#780).
           // Full name stays legible via the tooltip.
           label: Tooltip(
-            message: name,
+            message: displayName,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 240),
               child: Text(
-                name,
+                displayName,
                 maxLines: 1,
                 softWrap: false,
                 overflow: TextOverflow.ellipsis,
@@ -1594,7 +1595,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
       builder: (dialogCtx) => AlertDialog(
         backgroundColor: dialogCtx.rhythm.surface,
         title: Text(
-          'Delete "${skill.name}"?',
+          'Delete "${skill.displayName}"?',
           style: TextStyle(color: dialogCtx.rhythm.textPrimary),
         ),
         content: Text(

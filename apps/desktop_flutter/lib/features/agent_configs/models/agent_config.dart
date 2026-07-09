@@ -108,6 +108,33 @@ class AgentConfig {
   /// Returns true when this config was created from a preset.
   bool get isPreset => presetId != null;
 
+  /// Human-readable title for UI surfaces. Prefer the explicit label; if it is
+  /// missing, fall back to a non-UUID slug id. UUID ids are implementation
+  /// details and should never be rendered as titles.
+  String get displayLabel {
+    final trimmedLabel = label.trim();
+    if (trimmedLabel.isNotEmpty) return trimmedLabel;
+
+    final trimmedId = id.trim();
+    if (trimmedId.isNotEmpty && !_uuidRe.hasMatch(trimmedId)) {
+      return trimmedId;
+    }
+
+    final trimmedOcAgent = ocAgent?.trim();
+    if (trimmedOcAgent != null &&
+        trimmedOcAgent.isNotEmpty &&
+        !_uuidRe.hasMatch(trimmedOcAgent)) {
+      return trimmedOcAgent;
+    }
+
+    return 'Agent';
+  }
+
+  static final RegExp _uuidRe = RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    caseSensitive: false,
+  );
+
   static List<String>? _parseStringList(dynamic value) {
     if (value == null) return null;
     if (value is List) return value.map((e) => e.toString()).toList();

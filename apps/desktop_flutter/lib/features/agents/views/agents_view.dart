@@ -3428,7 +3428,7 @@ class AgentSelectorPill extends StatelessWidget {
             for (final p in profiles)
               _AgentPickerItem(
                 value: p.ocAgent ?? p.id,
-                label: p.label,
+                label: p.displayLabel,
                 description: null,
               ),
           ]
@@ -3452,7 +3452,7 @@ class AgentSelectorPill extends StatelessWidget {
     // `selected` here is already the fully-resolved value from
     // selectedAgentFor() — this widget never re-derives the fallback chain.
     final managerLabel =
-        cfgCtrl.managerAgent?.label ?? cfgCtrl.managerAgent?.ocAgent ?? 'build';
+        cfgCtrl.managerAgent?.displayLabel ?? cfgCtrl.managerAgent?.ocAgent ?? 'build';
     String label = managerLabel;
     if (selected != null) {
       label = selected;

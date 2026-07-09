@@ -117,6 +117,20 @@ class OpencodeSkillEntry {
   /// `?withMetadata=true` (#793). Null on the plain picker read.
   final OpencodeSkillMetadata? metadata;
 
+  String get displayName {
+    if (!_uuidRe.hasMatch(name)) return name;
+    final trimmedDescription = description?.trim();
+    if (trimmedDescription != null && trimmedDescription.isNotEmpty) {
+      return trimmedDescription;
+    }
+    return 'Skill';
+  }
+
+  static final RegExp _uuidRe = RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    caseSensitive: false,
+  );
+
   factory OpencodeSkillEntry.fromJson(Map<String, dynamic> json) {
     final rawMeta = json['metadata'];
     return OpencodeSkillEntry(

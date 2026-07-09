@@ -1,4 +1,5 @@
 import { getDb } from '../database/db';
+import { isReservedAgentConfigId } from '../services/opencode_agent_writer';
 
 export interface AgentConfig {
   id: string;
@@ -123,6 +124,24 @@ interface AgentConfigRow {
   default_anthropic_account_id: string | null;
 }
 
+export function slugIdFromLabel(label: string): string {
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+export function deriveAgentConfigIdFromLabel(
+  label: string,
+  exists: (id: string) => boolean,
+): string {
+  const derivedId = slugIdFromLabel(label);
+  return derivedId && !isReservedAgentConfigId(derivedId) && !exists(derivedId)
+    ? derivedId
+    : crypto.randomUUID();
+}
+
 function rowToModel(row: AgentConfigRow): AgentConfig {
   // Legacy CLI columns (command, can_resume, resume_command, session_id_pattern,
   // output_marker) are intentionally NOT mapped onto the returned model — they
@@ -181,7 +200,10 @@ export class AgentConfigsRepository {
   }
 
   insert(config: AgentConfigInput): AgentConfig {
-    const id = config.id ?? crypto.randomUUID();
+    const id = config.id ?? deriveAgentConfigIdFromLabel(
+      config.label,
+      (candidate) => this.getById(candidate) !== null,
+    );
     const now = new Date().toISOString();
     // Legacy CLI fields on `config` (command, canResume, resumeCommand,
     // sessionIdPattern, outputMarker) are intentionally ignored. They are

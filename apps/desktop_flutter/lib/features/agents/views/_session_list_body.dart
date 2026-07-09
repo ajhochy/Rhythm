@@ -766,7 +766,7 @@ class AgentKindIcon extends StatelessWidget {
         : context.rhythm.textMuted;
 
     if (config != null) {
-      return AgentIcon(config.icon, size: size, fallbackLabel: config.label);
+      return AgentIcon(config.icon, size: size, fallbackLabel: config.displayLabel);
     }
     if (identity.materialIcon != null) {
       return Icon(identity.materialIcon, size: size, color: color);
@@ -836,7 +836,7 @@ class AgentConfigBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (config != null) ...[
-            AgentIcon(config.icon, size: 12, fallbackLabel: config.label),
+            AgentIcon(config.icon, size: 12, fallbackLabel: config.displayLabel),
             const SizedBox(width: 4),
           ] else if (identity.materialIcon != null) ...[
             Icon(identity.materialIcon, size: 12, color: badgeColor),
