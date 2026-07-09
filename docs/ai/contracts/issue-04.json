@@ -1,0 +1,65 @@
+{
+  "issue": 4,
+  "title": "Org optimizer 4 — workflow-prompt-fix applier via the existing skill-refiner measure path",
+  "labels": ["api-server", "org-optimizer"],
+  "design_authority": "docs/ai/current-plan-org-optimizer-approval-loop.md (FINALIZED ISSUE BREAKDOWN, Issue 4)",
+  "depends_on": ["none (parallel with 2/3; shares only the wiring file)"],
+  "blocks": ["06-org-optimizer-live-e2e-gate.md (its live path exercises this kind if a skill-edit proposal exists)"],
+  "criteria": [
+    {
+      "criterion_id": "issue-04-c1",
+      "text": "Registered validator + applier for `workflow-prompt-fix`: resolve the live skill by targetRef/affectedSkill (missing skill → refuse/skip, stale signal); draft `revisedBody` by applying `concreteFix` to the current body; snapshot `{ skillId, priorBody, priorStatus }`; write the revised body via `AgentSkillsRepository` + `writeManagedSkill` (same sequence the skill loop and external-adoption applier use); rewrite `change_json` to the `BodyRefinementChange` shape (`priorBody`/`revisedBody`/`skillName`); return `{ measurable: true, beforeSnapshotJson }`.",
+      "mode": "integration",
+      "status": "not_run",
+      "test_id": "prompt_fix_applier.test.ts :: issue-04-c1",
+      "reason": "Applier not yet implemented; no registration; proposals are classified high-risk and refused before applier can run"
+    },
+    {
+      "criterion_id": "issue-04-c2",
+      "text": "`measureProposal`'s body-refinement branch accepts kind `workflow-prompt-fix` (one-line kind-list addition — scorer/judge untouched).",
+      "mode": "integration",
+      "status": "not_run",
+      "test_id": "prompt_fix_applier.test.ts :: issue-04-c2",
+      "reason": "workflow-prompt-fix not in the kind list checked by measureProposal; proposals never reach measuring status due to earlier failures"
+    },
+    {
+      "criterion_id": "issue-04-c3",
+      "text": "`revertProposal` restores the skill body + managed file for this kind's snapshot shape.",
+      "mode": "integration",
+      "status": "not_run",
+      "test_id": "prompt_fix_applier.test.ts :: issue-04-c3",
+      "reason": "No revert handler for workflow-prompt-fix snapshot shape; proposals don't reach measuring status so revert is never attempted"
+    },
+    {
+      "criterion_id": "issue-04-c4",
+      "text": "Unit tests in the `skill_apply_measure_e2e.test.ts` injected-fake style: improving fix → `active` + body kept; non-improving → `reverted` + body restored byte-identical (including the managed `SKILL.md` write-back). Assertions must verify: (a) improving proposal measured by scoreSkillBody results in status=active with revised body persisted in DB and managed file; (b) non-improving proposal results in status=reverted with body restored to EXACT original string in both DB and managed file (byte-for-byte equality check, not semantic equivalence).",
+      "mode": "integration",
+      "status": "not_run",
+      "test_id": "prompt_fix_applier.test.ts :: issue-04-c4",
+      "reason": "Apply step not working; proposals never reach measuring state; measure/revert cycle cannot execute"
+    },
+    {
+      "criterion_id": "issue-04-c5",
+      "text": "If real diagnoses turn out to emit diffs/rewrites instead of paragraphs (open question Q4 in the plan), note this during implementation and confirm with the user before adding a drafter LLM call mirroring `skill_consolidation_drafter.ts` — do not add it speculatively.",
+      "mode": "manual",
+      "status": "not_run",
+      "test_id": "n/a (design review checkpoint)",
+      "reason": "This is a documentation/judgment checkpoint during implementation, not an automatable contract. Applier must inspect the shape of `concreteFix` from real workflow_signal_generator diagnoses (currently produces prose paragraphs, not structured diffs). If diagnoses ever emit machine-parseable diffs, the applier must be updated to parse them; if paragraphs continue to be sufficient, document that assumption. User must confirm the choice before merging."
+    }
+  ],
+  "not_tested": [],
+  "test_file": "apps/api_server/src/__tests__/prompt_fix_applier.test.ts",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/prompt_fix_applier.test.ts",
+  "notes": {
+    "design_pattern": "Mirrors consolidate-skill applier (skill_consolidation_drafter.ts) for apply/measure/revert: snapshot prior state, draft revised payload, reshape change_json to BodyRefinementChange, write via writeManagedSkill, advance to measuring for LLM-based scoring.",
+    "test_style": "Injected-fake pattern from skill_apply_measure_e2e.test.ts: REAL apply/measure/revert logic using in-memory DB, REAL skill body mutations, REAL managed file I/O (via temp directory), injected scorer function for deterministic measurement outcomes.",
+    "failure_modes": [
+      "No applier registered for workflow-prompt-fix → proposals stay 'proposed', never advance to 'measuring'",
+      "Applier exists but fails to reshape change_json → isBodyRefinementChange() returns false, proposal parks in 'measuring' forever",
+      "Applier reshapes change_json correctly but workflow-prompt-fix not in measureProposal's kind list → 'skipped' outcome, status stays 'measuring'",
+      "Measure step works but revert handler missing → revert returns 'skipped', body not restored on non-improving fix",
+      "Revert restores DB row but not managed file (or vice versa) → DB and managed file diverge, false 'success' on next read"
+    ],
+    "assertion_validation": "Every assertion is designed to fail if the corresponding feature is missing or broken: c1 checks result.status changes from 'proposed' to 'applied' and changeJson reshapes; c2 checks outcome is not 'skipped' (would be skipped if kind not recognized); c3 checks proposal advances to 'measuring' then back to 'reverted' with DB and file byte-identical; c4 checks improving vs non-improving measurement outcomes and body persistence/restoration via exact string equality (not partial match)."
+  }
+}

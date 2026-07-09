@@ -1,0 +1,93 @@
+{
+  "issue": 929,
+  "title": "org-optimizer-03: Behavioral measurement (re-run the failing scenario) + measuring-row sweep",
+  "generated_at": "2026-07-08T00:00:00Z",
+  "criteria": [
+    {
+      "criterion_id": "issue-03-c1",
+      "text": "New branch in org_proposal_measure.ts for refine-config/refine-scope: reproduce the failure scenario cited by the proposal's evidence[] (replay the originating prompt/task from one of the sessionIds sessions as a fresh headless session under the patched profile), injectable as deps.rerunScenario for tests.",
+      "mode": "unit",
+      "status": "pass",
+      "test_id": "accepts a refine-config proposal with a custom rerunScenario injected as a dependency",
+      "reason": "measureProposal now dispatches refine-config/refine-scope to measureBehavioralRerun, which invokes deps.rerunScenario (defaulting to defaultRerunScenario, a real headless-session replay mirroring workflow_signal_generator.ts's defaultDiagnose createSession + empty-mcpAllowlist pattern)"
+    },
+    {
+      "criterion_id": "issue-03-c1b",
+      "text": "New branch also handles refine-scope with the same injectable rerunScenario pattern",
+      "mode": "unit",
+      "status": "pass",
+      "test_id": "accepts a refine-scope proposal with injectable rerunScenario",
+      "reason": "Same measureBehavioralRerun branch handles both refine-config and refine-scope kinds identically"
+    },
+    {
+      "criterion_id": "issue-03-c2",
+      "text": "Keep iff the re-run completes without the original failure signature (reuse the signal-extraction predicate); revert otherwise.",
+      "mode": "unit",
+      "status": "pass",
+      "test_id": "transitions measuring -> active when injected rerunScenario returns failureSignatureDetected: false",
+      "reason": "measureBehavioralRerun keeps (status='active') when failureSignatureDetected is false and reverts (via doRevert) when true"
+    },
+    {
+      "criterion_id": "issue-03-c2b",
+      "text": "Re-run infrastructure error (engine down, timeout) resolves to skipped (row stays measuring) — never a guessy keep.",
+      "mode": "unit",
+      "status": "pass",
+      "test_id": "when rerunScenario throws/times out, measureProposal stays skipped and row stays measuring",
+      "reason": "Strengthened with a call-tracking spy (rerunScenario) asserting it was actually invoked and threw; measureProposal's top-level try/catch resolves this to 'skipped', row stays 'measuring'"
+    },
+    {
+      "criterion_id": "issue-03-c3",
+      "text": "measureReason records what was re-run and the observed outcome; revert goes through the existing doRevert so audit fields persist atomically.",
+      "mode": "unit",
+      "status": "pass",
+      "test_id": "keeps and records the re-run result in measureReason when pass",
+      "reason": "measureReason is populated with 'behavioral re-run (session ...)' text on both keep and revert paths"
+    },
+    {
+      "criterion_id": "issue-03-c3b",
+      "text": "measureReason persists atomically with the status transition on revert",
+      "mode": "unit",
+      "status": "pass",
+      "test_id": "reverts and persists measureReason atomically with the status transition",
+      "reason": "Revert path calls doRevert(proposal, deps, { measureReason }) which passes patch through to revertProposal's single updateStatusAsync call — same atomic pattern as the existing scope/body-refinement measure paths"
+    },
+    {
+      "criterion_id": "issue-03-c4",
+      "text": "Measure sweep: runOrgOptimizer gains a step that lists ALL rows with status='measuring' (not just this run's) and calls measureProposal on each.",
+      "mode": "unit",
+      "status": "pass",
+      "test_id": "runOrgOptimizer includes a sweep that measures all measuring rows, not just newly created ones",
+      "reason": "runOrgOptimizer now has a step 8 that calls realProposalsRepo.listByStatusAsync('measuring') and measures every row found, independent of whether it was created this run. RunOrgOptimizerOptions gained an injectable rerunScenario, threaded to every measureProposal call the run makes (both the per-newly-created loop and the sweep). The test injects a deterministic 'no failure' rerunScenario and asserts the externally-approved row lands at status==='active' (not merely '!== proposed') — a status that ONLY happens if the sweep actually ran measureProposal to completion; a broken/missing sweep leaves the row at 'measuring' and the test now fails on that."
+    },
+    {
+      "criterion_id": "issue-03-c4b",
+      "text": "The approve route additionally fire-and-forgets a measure attempt so the common case doesn't wait for the next cron run.",
+      "mode": "unit",
+      "status": "pass",
+      "test_id": "invokes measureProposal when the proposal is in measuring status",
+      "reason": "The 'trigger measure for this proposal' logic was factored into an exported triggerMeasureIfNeeded(proposal, deps) function that the approve route calls without awaiting (org_proposals_controller.ts); triggerMeasureIfNeeded itself is directly unit-tested (invokes measureProposal only when status='measuring', no-ops otherwise). The fire-and-forget void/catch wrapping around it in the route remains unverified by an in-process unit test (inherently hard to assert deterministically) but is a one-line, low-risk wrapper around the now-tested function."
+    },
+    {
+      "criterion_id": "issue-03-c5",
+      "text": "Unit tests: pass → active; fail → reverted + config restored; infra error → still measuring; sweep picks up an externally-approved row.",
+      "mode": "unit",
+      "status": "pass",
+      "test_id": "when rerunScenario returns undefined/malformed result, measureProposal resolves skipped",
+      "reason": "Strengthened with a call-tracking spy proving rerunScenario was invoked and its malformed (null) result was received; isRerunScenarioResult() rejects it and measureBehavioralRerun resolves 'skipped' without touching status"
+    }
+  ],
+  "not_tested": [
+    "Live headless session re-run against a patched agent config end-to-end (infrastructure-dependent; injection of fake rerunScenario covers the contract test; defaultRerunScenario itself is exercised only by construction, not a live engine)",
+    "Fire-and-forget void/catch wrapping around triggerMeasureIfNeeded in the approve route (the wrapped function is unit-tested directly; the wrapping itself needs a manual/live-server smoke test per Issue 6's gate)"
+  ],
+  "summary": {
+    "total_criteria": 9,
+    "unit_criteria": 9,
+    "manual_criteria": 0,
+    "passing": 9,
+    "failing": 0,
+    "not_run": 0,
+    "test_file": "apps/api_server/src/__tests__/org_proposal_measure_behavioral.test.ts"
+  },
+  "test_invocation": "cd apps/api_server && npm run test -- src/__tests__/org_proposal_measure_behavioral.test.ts"
+}

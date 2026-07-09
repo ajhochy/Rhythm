@@ -1,0 +1,71 @@
+{
+  "issue": 2,
+  "generated": "2026-07-08",
+  "criteria": [
+    {
+      "criterion_id": "issue-02-c1",
+      "text": "`registerAllProposalAppliers` registers, for both kinds: a validator (structured patch present + target `agent_configs` row exists + field is on the allowlist of mutable fields: `model`, `allowedSkillsJson`, `allowedDelegatesJson`) and an applier.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply_config_fix.test.ts",
+      "test_id": "issue-02-c1: registerAllProposalAppliers registers appliers for refine-config and refine-scope",
+      "status": "pass",
+      "reason": "Pre-implementation baseline: test passes because it verifies that NO validator is registered yet (validation fails with 'No re-validation is registered'). Post-implementation, this criterion will verify both validators ARE registered and they enforce the structured patch + target + field checks."
+    },
+    {
+      "criterion_id": "issue-02-c2",
+      "text": "Applier reads the current field value from `AgentConfigsRepository`, returns `{ measurable: true, beforeSnapshotJson }` where the snapshot is `{ agentConfigId, field, priorValue }`; mutates via the repository update path (same layer `applyAgentConfigScopeChange` uses — no raw SQL); scope fields apply add/remove set arithmetic, `model` is a scalar swap.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply_config_fix.test.ts",
+      "test_id": "issue-02-c2: refine-config applier snapshots prior model value, mutates repo, returns measurable:true; refine-scope applier snapshots prior allowedSkillsJson, applies remove set, returns measurable:true; refine-scope applier handles add set arithmetic",
+      "status": "fail",
+      "reason": "Confirmed failing pre-implementation: applyProposal throws 'No re-validation is registered for proposal kind' because refine-config/refine-scope have no validators/appliers yet. Post-impl: validator will enforce structured patch presence, applier will snapshot/mutate/return measurable:true with beforeSnapshotJson containing {agentConfigId, field, priorValue}."
+    },
+    {
+      "criterion_id": "issue-02-c3",
+      "text": "If the agent config was projected to an opencode agent file, the applier triggers the same resync the REST config update path performs (reuse `opencode_agent_writer.ts` — do not fork a second write path).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply_config_fix.test.ts",
+      "test_id": "issue-02-c3: refine-config applier triggers opencode_agent_writer resync when applicable",
+      "status": "fail",
+      "reason": "Confirmed failing pre-implementation: applyProposal throws 'No re-validation is registered' before any applier runs. Post-impl: applier will detect if config is projected to opencode (via agent_sessions.mcpRole -> agent_cookbook.boundConfigId lookup or similar) and call opencode_agent_writer resync (reuse existing write path, do not fork)."
+    },
+    {
+      "criterion_id": "issue-02-c4",
+      "text": "`revertProposal` (`org_proposal_apply.ts`) restores the snapshot for both kinds — extend its snapshot dispatch to cover the `model`/scalar case (the scope case already works via `isAgentConfigScopeChange`).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply_config_fix.test.ts",
+      "test_id": "issue-02-c4: revert restores prior model value for a refine-config proposal; revert restores prior scope value (set arithmetic) for a refine-scope proposal",
+      "status": "fail",
+      "reason": "Confirmed failing pre-implementation: revertProposal is never reached because applyProposal throws due to missing validator. Pre-implementation, the scope case (isAgentConfigScopeChange) works, but the model case (scalar) is not handled. Post-impl: revertProposal will dispatch on both cases — scope via isAgentConfigScopeChange, model via a new isConfigModelChange type guard that restores the priorValue."
+    },
+    {
+      "criterion_id": "issue-02-c5",
+      "text": "Prose-only proposals (no structured patch — Issue 1's degrade case) are refused at validation with a reason naming the missing patch, visible in the approve route's 400 body.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply_config_fix.test.ts",
+      "test_id": "issue-02-c5: refine-config proposal without a configPatch is refused with actionable reason; refine-scope proposal without a scopePatch is refused with actionable reason",
+      "status": "fail",
+      "reason": "Confirmed failing pre-implementation: validator fails with generic 'No re-validation is registered' instead of the specific actionable reason 'missing structured patch (configPatch/scopePatch)'. Post-impl: validator will parse changeJson, detect missing or malformed patch structure, and return reason like 'refine-config requires a structured configPatch (field + value) in changeJson'."
+    },
+    {
+      "criterion_id": "issue-02-c6",
+      "text": "Unit tests mirroring `org_proposal_apply.test.ts` style: apply mutates + snapshots; revert restores byte-for-byte; validator refuses missing target/patch; approve route integration (in-memory) drives `proposed -> applied -> measuring`.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/org_proposal_apply_config_fix.test.ts",
+      "test_id": "issue-02-c6: Full integration tests — approve route state machine and prose-only rejection",
+      "status": "fail",
+      "reason": "Confirmed failing pre-implementation: approve route tests fail because validateProposalChange rejects with 'No re-validation is registered' (mockNext called with error). Post-impl: all three approve route tests will pass — one will drive proposed->applied->measuring for valid refine-config, one will drive prose-only rejection with 400 error, one will drive valid refine-scope through the state machine. Apply/revert/validator unit tests will follow the org_proposal_apply.test.ts pattern and verify byte-for-byte restoration."
+    },
+    {
+      "criterion_id": "issue-02-manual-live-check",
+      "text": "Manual live validation: POST /agent-org-proposals/<id>/approve on a real proposed row in dev DB; assert via GET /agent-configs/:id that the row actually changed. Required to verify the end-to-end flow works against the live server.",
+      "mode": "manual",
+      "test_file": "N/A",
+      "test_id": "issue-02-manual: Live server curl against running local API",
+      "status": "not_run",
+      "reason": "Manual test — requires live running server (localhost:4001) with a real proposed row in agent_org_proposals table. Run after Issue 6 (org-optimizer-live-e2e-gate) sets up the full E2E gate with sample data and server availability. Verified in Issue 6's E2E gate; command: curl -s http://127.0.0.1:4001/agent-org-proposals/<id>/approve -X POST -H 'content-type: application/json' -d '{}'."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

@@ -1,0 +1,53 @@
+{
+  "issue": 1,
+  "generated": "2026-07-07",
+  "criteria": [
+    {
+      "criterion_id": "issue-01-c1",
+      "text": "`DiagnosisResult` parsing accepts an optional structured patch: For `config-change` → `configPatch: { agentConfigId, field: 'model' | 'allowedSkillsJson' | 'allowedDelegatesJson', value }`.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/workflow_signal_generator_structured_patch.test.ts",
+      "test_id": "issue-01-c1: a config-change diagnosis with a configPatch persists the patch on the created proposal changeJson",
+      "status": "fail",
+      "reason": "Confirmed failing pre-implementation: DiagnosisResult/proposeFixFromSignals drop configPatch today (change.configPatch is undefined)."
+    },
+    {
+      "criterion_id": "issue-01-c2",
+      "text": "`DiagnosisResult` parsing accepts an optional structured patch: For `scope-change` → `scopePatch: { agentConfigId, field: 'allowedMcpsJson' | 'allowedSkillsJson', add?: string[], remove?: string[] }`.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/workflow_signal_generator_structured_patch.test.ts",
+      "test_id": "issue-01-c2: a scope-change diagnosis with a scopePatch persists the patch on the created proposal changeJson",
+      "status": "fail",
+      "reason": "Confirmed failing pre-implementation: scopePatch is dropped (change.scopePatch is undefined)."
+    },
+    {
+      "criterion_id": "issue-01-c3",
+      "text": "`configPatch`/`scopePatch.agentConfigId` is resolved/validated server-side from the signal's profile — the LLM names the profile, the generator resolves the id via `AgentConfigsRepository`. An LLM-emitted row id is never trusted directly.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/workflow_signal_generator_structured_patch.test.ts",
+      "test_id": "issue-01-c3: an LLM-emitted agentConfigId is never trusted directly — it is resolved/validated server-side against the affected profile",
+      "status": "fail",
+      "reason": "Confirmed failing pre-implementation: no resolution step exists yet — configPatch (and any agentConfigId on it) is never persisted at all."
+    },
+    {
+      "criterion_id": "issue-01-c4",
+      "text": "A diagnosis that omits or malforms the structured patch still creates the proposal (prose-only) — it is not dropped here. It gets refused at approve time by Issue 2's validator with an actionable reason.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/workflow_signal_generator_structured_patch.test.ts",
+      "test_id": "issue-01-c4: a malformed configPatch (invalid field name) is dropped but the proposal is still created prose-only",
+      "status": "pass",
+      "reason": "Passes today by construction — current code has no patch handling at all, so malformed patches can't break proposal creation. Kept as a real-code-path regression guard for after implementation lands (must still hold once configPatch parsing exists)."
+    },
+    {
+      "criterion_id": "issue-01-c5",
+      "text": "Unit tests: parse round-trip of both patch shapes; malformed patch degrades to prose-only; `agentConfigId` resolution from profile name via `AgentConfigsRepository`.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/workflow_signal_generator_structured_patch.test.ts",
+      "test_id": "issue-01-c5: diagnoses omitting any patch still parse and persist prose-only (backward compatible, no regression)",
+      "status": "pass",
+      "reason": "Backward-compatibility half of c5 passes today by construction (no patch fields exist yet to break). The round-trip half is covered by c1/c2, which fail as required."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
