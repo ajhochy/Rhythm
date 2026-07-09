@@ -7,7 +7,7 @@ import { transformBody, transformResponseStream } from "./transforms.js";
 import { applyOpencodeConfig } from "./plugin-config.js";
 import { getCachedCredentials, getCredentialsForSync, syncAuthJson, initAccounts, setActiveAccountSource, loadPersistedAccountSource, saveAccountSource, refreshAccountsList, } from "./credentials.js";
 // rhythm: multi-account routing (see VENDORED.md)
-import { hasAccounts, resolveForSession, markSpillover, forcedSpilloverAccountId, } from "./accounts.js";
+import { hasAccounts, resolveForSession, markSpillover, forcedSpilloverAccountId, markAccountsExhausted, } from "./accounts.js";
 export { addExcludedBeta, getExcludedBetas, getModelBetas, getNextBetaToExclude, isLongContextError, LONG_CONTEXT_BETAS, } from "./betas.js";
 export { resetExcludedBetas } from "./betas.js";
 export { stripToolPrefix, transformBody, transformResponseStream, } from "./transforms.js";
@@ -282,6 +282,15 @@ const plugin = async () => {
                             rhythmAccount = rhythmFallback;
                             rhythmFallback = undefined;
                         }
+                        // rhythm: #930 smoke knob — RHYTHM_FORCE_EXHAUSTED=1 simulates TOTAL
+                        // account exhaustion at engine level: report to api_server and return
+                        // a synthetic 429 without burning a real Anthropic request. Hits EVERY
+                        // anthropic request while set — unset it after the smoke run.
+                        if (process.env.RHYTHM_FORCE_EXHAUSTED) {
+                            log("fetch_forced_exhausted", { accountId: rhythmAccount.id });
+                            markAccountsExhausted(rhythmSessionId, rhythmAccount.id);
+                            return new Response(JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "Simulated account exhaustion (RHYTHM_FORCE_EXHAUSTED)" } }), { status: 429, headers: { "content-type": "application/json" } });
+                        }
                         const requestInit = init ?? {};
                         const bodyStr = typeof requestInit.body === "string"
                             ? requestInit.body
@@ -343,6 +352,16 @@ const plugin = async () => {
                                 rhythmAccount = rhythmFallback;
                                 rhythmFallback = undefined;
                             }
+                        }
+                        // rhythm: #930 — same rate-limit condition as above, but with NO other
+                        // Anthropic account to spill to (rhythmFallback undefined). Report
+                        // exhaustion so api_server can decide a cross-provider handoff
+                        // (Codex/Gemini/...) — this plugin still only ever retries within
+                        // Anthropic; it never calls another provider itself.
+                        if ((response.status === 429 || response.status === 529) &&
+                            !rhythmFallback &&
+                            hasAccounts()) {
+                            markAccountsExhausted(rhythmSessionId, rhythmAccount.id);
                         }
                         // On 401, force a credential refresh and retry once.
                         // This handles the common case of token expiry mid-session.

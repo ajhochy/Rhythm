@@ -11,6 +11,7 @@ import { extractInvokedSkillNamesFromParts, ensureLazyDepsForTurn } from './lazy
 import { isToolAllowed } from './mcp_dispatch_guard';
 import { classifyCommand, extractBashCommand } from '../security/command_approval';
 import { resolveApprovalsMode } from '../config/env';
+import { onSessionError, noteUserMessage, clearTurn } from './turn_redispatch';
 import type { AgentSession, PermissionMode } from '../models/agent_session';
 
 /**
@@ -781,6 +782,10 @@ export class OpencodeStreamBridge {
                 cost,
               );
 
+              // #930 — record the turn's user-message id as the revert target
+              // for a mid-run cross-provider re-dispatch.
+              if (role === 'user') noteUserMessage(localSessionId, sdkMessageId);
+
               // Backfill the session's actual model from the assistant message
               // (opencode reports providerID/modelID even when the session was
               // created without an explicit pick). Only fills when empty, then
@@ -914,6 +919,9 @@ export class OpencodeStreamBridge {
           id: eventId,
           working: false,
         });
+        // #930 — turn boundary: drop the retained re-dispatch buffer. No-op
+        // while a handoff decision is still in flight (see clearTurn docs).
+        if (localSessionId) clearTurn(localSessionId);
         // OPC-M1-4: Check DB for error status instead of in-memory set.
         const idleSessionStatus = (() => {
           try {
@@ -1161,6 +1169,21 @@ export class OpencodeStreamBridge {
         if (isToolPairingError) {
           message =
             'Conversation history became inconsistent (tool call/result pairing). Send a new message to continue.';
+        }
+        // #930 — mid-run cross-provider re-dispatch. When a rate-limit
+        // exhaustion handoff is being decided for this session ('defer'), do
+        // NOT finalize the error: the spillover route re-dispatches the turn
+        // (or finalizes with this message if no tier resolves). The partial
+        // output is discarded (revert removes it engine-side; the pending
+        // buffer is dropped here) — the user sees one final answer, not a
+        // duplicate partial. A session whose RETRY fails returns 'finalize'
+        // (at-most-once) and errors normally below.
+        if (localSessionId) {
+          const action = onSessionError(localSessionId, message);
+          if (action === 'defer') {
+            this.pendingText.delete(localSessionId);
+            break;
+          }
         }
         if (localSessionId) {
           // OPC-M1-4: Flush any partial assistant text accumulated during the

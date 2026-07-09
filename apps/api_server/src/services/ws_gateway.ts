@@ -9,6 +9,7 @@ import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
 import { resolveProfileScope } from './agent_profile_scope';
+import { retainTurn } from './turn_redispatch';
 
 export interface WsMessage {
   v: 1;
@@ -825,6 +826,20 @@ export async function handleInputFrame(
         // Non-fatal — never block a turn on retrieval failure.
         console.error(`[ws_gateway] memory preface build failed (non-fatal):`, err);
       }
+    }
+
+    // #930 — retain the fully-composed turn (incl. the transient skill/memory
+    // prefaces above) so a mid-run rate-limit exhaustion handoff can revert and
+    // re-dispatch it verbatim on the new provider. Cleared on normal turn
+    // completion (stream bridge session.idle → clearTurn).
+    if (opencodeId) {
+      retainTurn(id, {
+        sdkSessionId: opencodeId,
+        data: forwardData,
+        parts: forwardParts,
+        cwd,
+        sdkOpts,
+      });
     }
 
     await promptFn(opencodeId, forwardData, model, cwd, sdkOpts, forwardParts);
