@@ -40,4 +40,26 @@ class OpencodeMcpDataSource {
       return [];
     }
   }
+
+  /// #922 — names of MCP servers the live engine currently reports as
+  /// `needs_auth` (expired/missing OAuth — e.g. canva, notion). Used by the
+  /// Agent Profile sheet to flag a profile as degraded when one of its
+  /// allowed servers is unauthenticated, so a scheduled run doesn't silently
+  /// depend on a dead server. Returns an empty set on any error (fail-open —
+  /// this is a visibility hint, never something that blocks the picker).
+  Future<Set<String>> listNeedsAuthNames() async {
+    try {
+      final response = await _client.get(Uri.parse('$_baseUrl/opencode/mcp'));
+      if (response.statusCode != 200) return {};
+      final list = jsonDecode(response.body) as List<dynamic>;
+      return list
+          .map((e) => e as Map<String, dynamic>)
+          .where((e) => e['status'] == 'needs_auth')
+          .map((e) => e['name'] as String?)
+          .whereType<String>()
+          .toSet();
+    } catch (_) {
+      return {};
+    }
+  }
 }
