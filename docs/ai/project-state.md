@@ -19,15 +19,14 @@ The agent/skill self-improvement architecture is now coherent:
 
 ## Branch / PR
 
-- `main` @ f54ea77db. Merged after the main wave (AJ sign-off): **#953**
-  (per-profile opencode core permissions) and **#939** (delegated-agent retry).
-- **OPEN draft PR — `workflow/run-2026-07-09-ids-quality`** (Phase B/D ids +
-  quality wave, 6 issues): **#945, #960, #951, #954, #970, #943**. Built by 5
-  parallel Codex worktree runs, orchestrator-reviewed, behaviorally gated, and
-  integrated (full suite **2626/0** + tsc + flutter analyze clean on the
-  combination). Awaiting AJ sign-off + a **visual smoke of #943** (new Session
-  History screen). See `docs/ai/runs/2026-07-09-phaseBD-ids-quality-wave.md`.
-  **Do not merge without sign-off.**
+- `main` @ d1891bed7. **No open PRs.**
+- **MERGED (PR #979, AJ sign-off, 2026-07-09):** Phase B/D ids + quality wave —
+  **#945, #960, #951, #954, #970, #943**. Built by 5 parallel Codex worktree
+  runs, orchestrator-reviewed, behaviorally gated, integrated (full suite
+  **2626/0** + tsc + flutter analyze clean), CI green. See
+  `docs/ai/runs/2026-07-09-phaseBD-ids-quality-wave.md`.
+  - #943 (Session History screen) shipped **without a visual smoke** — the UI
+    was merged on sign-off; a real click-through is still worth doing.
 
 ## Risks / known issues (act before relying on runtime)
 
@@ -57,18 +56,16 @@ The agent/skill self-improvement architecture is now coherent:
 
 ## Next step
 
-1. **AJ: review + visual-smoke the draft PR** (`workflow/run-2026-07-09-ids-quality`),
-   especially the #943 Session History screen. Then merge (manual). This closes
-   **#945, #960, #951, #954, #970, #943**.
-2. **#961** real-config remediation — **unblocked once #960 merges**; still
+1. **#961** real-config remediation — **UNBLOCKED** (#960 merged); still
    approval-gated (real `~/.config/opencode` + DB). Plan: sandboxed dry-run
    (temp HOME + `.backup` DB) → show the exact diff → AJ go → apply. Re-wire the
    5 #958-lint miswirings (config-doctor, AI-Trend-Researcher, research→domain-intel,
    secretary, Theological-Researcher), backfill UUID labels, remove stub dirs,
    run the #947 migration (`RHYTHM_MIGRATE_MANAGED_SKILLS=1`).
-3. Held epics (after this wave merges): **#977** (retire DB→file skill-content
-   shadow — conflicts with the #951/#954 skill-content paths), **#971** →
-   **#976** (org-optimizer approval loop + skill-refinement generator).
+2. Held epics (strict order): **#977** (retire DB→file skill-content shadow —
+   conflicted with the now-merged #951/#954 skill-content paths, so rebase-aware)
+   → **#971** → **#976** (org-optimizer approval loop + skill-refinement generator).
+3. Optional: visual smoke of the shipped #943 Session History screen.
 - **#952** closed (Codex "hang" was ChatGPT quota exhaustion, not a bug —
   confirmed live 2026-07-09: `gpt-5.6-terra` completes, unsupported models return
   clean error frames, no hang).
