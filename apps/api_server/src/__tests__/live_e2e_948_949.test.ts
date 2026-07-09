@@ -44,7 +44,10 @@ const describeLive = LIVE ? describe : describe.skip;
 // A real skill name that exists on the live server, used as the seed
 // allowedSkillsJson for the temp scoped agent so the session can run.
 const SEED_SKILL = 'smoke-test';
-const MODEL = { provider: 'anthropic', id: 'claude-sonnet-4-6' };
+// Use OpenRouter (free model) so the E2E doesn't depend on paid Anthropic
+// tokens. Mirrors the `opencode` preset: modelProvider=openrouter, no modelId
+// (engine resolves its default free model).
+const MODEL = { provider: 'openrouter', id: '' };
 
 // Per-test artifacts awaiting cleanup.
 let createdAgentIds: string[] = [];
@@ -74,7 +77,7 @@ async function createTempAgent(label: string): Promise<string> {
       enabled: true,
       sessionSelectable: true,
       modelProvider: MODEL.provider,
-      modelId: MODEL.id,
+      modelId: MODEL.id || undefined,
       // SCOPED (array, not null) so distill auto-bind actually fires (#949
       // step 3). null would make autoBindDraftToExtractingAgent skip.
       allowedSkillsJson: JSON.stringify([SEED_SKILL]),
@@ -135,27 +138,32 @@ async function patchAgentFileDescription(agentId: string, newDescription: string
   await writeFile(file, replaced, 'utf8');
 }
 
+/** Open a WS connection and resolve once it's open. */
+function openWs(): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const url = BASE.replace(/^http/, 'ws') + '/ws/agents';
+    const ws = new WebSocket(url);
+    ws.once('open', () => resolve(ws));
+    ws.once('error', reject);
+  });
+}
+
 /** Send a prompt via the WS gateway and wait for the session to go idle. */
 async function sendPromptAndAwait(
   ws: WebSocket,
   sessionId: string,
   text: string,
 ): Promise<void> {
-  const sent = new Promise<void>((resolve, reject) => {
-    const onOpen = () => {
-      ws.send(
-        JSON.stringify({ v: 1, type: 'session.input', id: sessionId, data: text }),
-      );
-      ws.off('open', onOpen);
-      resolve();
-    };
-    if (ws.readyState === WebSocket.OPEN) onOpen();
-    else {
-      ws.once('open', onOpen);
+  // Wait until the WS is open before sending.
+  if (ws.readyState !== WebSocket.OPEN) {
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', () => resolve());
       ws.once('error', reject);
-    }
-  });
-  await sent;
+    });
+  }
+  ws.send(
+    JSON.stringify({ v: 1, type: 'session.input', id: sessionId, data: text }),
+  );
   // Poll the session row until the turn is done (status back to 'idle').
   await poll(
     async () => {
