@@ -2,31 +2,41 @@
 
 ## Current focus
 
-**#949 verified live and landing.** Skill harvester writes draft `SKILL.md`
-files + auto-binds to the source agent, closing the self-improvement loop.
-Live E2E surfaced and fixed five root causes (stale fork binary,
-provider-only agent model resolution, openrouter default-model pick, distill
-riding global MRU, wrong skill-reload instance key) — see
-`docs/ai/runs/2026-07-09-949-live-e2e-triage.md`.
+**#930 verified live, draft PR open.** Model fallback chain + mid-run
+cross-provider re-dispatch proven end-to-end: spillover exhaustion aborts
+the spinning turn, reverts, and re-prompts on the next authed tier in the
+same engine session. Live smoke found and fixed three real bugs (plugin
+API-base port mismatch, bad openai default model, `session.error`-based
+re-dispatch design that could hang forever) — see
+`docs/ai/runs/2026-07-09-930-model-fallback-live.md`. #949 is merged to
+main (via PR #950).
 
 ## Active branch / PR
 
-- **`issue-949-harvest-to-file`** / **PR #950** — fix commit landed,
-  pushed, awaiting manual merge (no auto-merge).
-- `issue-930-model-fallback-chain` — implemented (fallback chain,
-  cross-provider handoff, 24 tests green), **awaiting gated live smoke**
-  before merge. Its `DEFAULT_MODEL_BY_PROVIDER` will supersede the
-  `openrouter/free` pin added in #949's fix.
-- `issue-929-skill-self-regulation` — next up. 14 uncommitted files stashed
-  as `wip-929-inflight-stashed-for-949`; restore with
-  `git stash apply wip-929-inflight-stashed-for-949` after #949 is merged.
+- **`issue-930-model-fallback-chain`** — verified live, **draft PR open**
+  against main (not merged, not marked ready). Caveat: live smoke used a
+  constrained chain because the `openai`/`google` fallback tiers are dead on
+  this machine — tracked as **#952**, a real gap if those tiers are dead in
+  production too (default chain still lists them before openrouter).
+- `issue-949-harvest-to-file` — **merged to main** via PR #950.
+- `issue-929-skill-self-regulation` and **#933–936** — committed locally,
+  awaiting their own live gates. 14 uncommitted files stashed as
+  `wip-929-inflight-stashed-for-949`; restore with
+  `git stash apply wip-929-inflight-stashed-for-949` when picking #929 back
+  up.
 
 ## Risks / known issues
 
-- **openrouter/free flake in the live harness** — turn 2 can hit a rate
-  limit that surfaces only as a WS error frame, which the E2E harness can't
-  see, so it reads as a hang. #930's fallback chain is the systemic fix;
-  until that merges, live #949 runs can flake on this.
+- **#952 — dead fallback tiers on this machine.** `openai` (Codex
+  ChatGPT-account) and `google` (Gemini schema) fallback tiers are
+  non-functional locally, so #930's live smoke only exercised
+  `team-claude,personal-claude,openrouter-free`. The re-dispatch mechanism
+  is provider-agnostic and proven, but a production spillover could still
+  re-dispatch onto a hanging provider if those tiers are dead there too.
+  Suggested follow-up: a fallback completion-watchdog.
+- **openrouter/free flakiness** — can hit a rate limit that surfaces only
+  as a WS error frame in the live harness, reading as a hang rather than a
+  clean error.
 - **Distill harvests injected memory prefaces, not conversation content** —
   during #949 live verification the distiller drafted a skill from the
   user's standing memory instruction (ws_gateway's injected preface lands in
@@ -42,17 +52,17 @@ riding global MRU, wrong skill-reload instance key) — see
 ## Test status
 
 - `tsc --noEmit` — clean.
-- `skill_extractor.test.ts` — 9/9 pass.
-- Resolver-adjacent suites (`issue_854_contract`, `opc_m4_4_agent_selection`,
-  `agent_sessions`) — 59/59 pass.
-- Live #948 phase — passes in-harness (twice).
-- Live #949 phase — verified manually against the running backend (see run
-  log); in-harness run can flake per the openrouter/free risk above.
+- Unit suites: `54 passed` (`turn_redispatch` 14 + `model_fallback` +
+  `anthropic_session_routing`).
+- Full `api_server` suite: `2498 passed | 5 skipped`.
+- Live Phase A (`RHYTHM_LIVE_E2E=1`): `1 passed`.
+- Live Phase A+B (`+RHYTHM_LIVE_E2E_FORCE_EXHAUSTED=1`): `2 passed`.
 
 ## Next step
 
-1. Manual merge of PR #950 (not automated).
-2. Unstash and finish `wip-929-inflight-stashed-for-949` on
-   `issue-929-skill-self-regulation`.
-3. Gated live smoke for `issue-930-model-fallback-chain`, then merge; drop
-   the `openrouter/free` pin in favor of its default map.
+1. Human review + merge of the `issue-930-model-fallback-chain` draft PR
+   (left as draft deliberately; not automated).
+2. Address #952 (dead openai/google fallback tiers) before relying on the
+   default chain in production.
+3. Unstash and finish `wip-929-inflight-stashed-for-949` on
+   `issue-929-skill-self-regulation`; land #933–936's live gates.
