@@ -43,6 +43,20 @@ export interface SkillFrontmatter {
   fallbackForToolsets: string[];
   /** #876 — PyPI packages to lazy-install on first use. */
   pythonDependencies: PythonDependency[];
+  // ── #929 — harvested-draft self-regulation scalars (see rhythm_managed_skills
+  // .renderDraftSkillMarkdown). Present only on files under the drafts
+  // namespace; undefined for ordinary managed/external skills (no regression).
+  /** 'draft' | 'active' | 'disabled' | 'rewrite-needed'. */
+  status?: string;
+  source?: string;
+  provenance?: string;
+  sourceSession?: string;
+  confidence?: number;
+  extractedAt?: string;
+  /** Set by harvested_skill_evaluator.ts the first time a draft is evaluated. */
+  evaluatedAt?: string;
+  postScore?: number;
+  measureReason?: string;
 }
 
 const EMPTY_FRONTMATTER: SkillFrontmatter = {
@@ -56,6 +70,17 @@ const EMPTY_FRONTMATTER: SkillFrontmatter = {
 function extractFrontmatterBlock(content: string): string | null {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(content);
   return match ? match[1] : null;
+}
+
+/**
+ * #929 — Strip a SKILL.md's leading frontmatter block, returning just the body.
+ * Returns `content` unchanged when there is no frontmatter block. Used by the
+ * harvested-draft evaluator to re-score/re-render a draft without re-deriving
+ * the body from scratch.
+ */
+export function stripFrontmatterBlock(content: string): string {
+  const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(content ?? '');
+  return match ? (content ?? '').slice(match[0].length) : content ?? '';
 }
 
 /** Strip a single layer of matching quotes (' or ") from a scalar value. */
@@ -278,6 +303,48 @@ export function parseSkillFrontmatter(content: string): SkillFrontmatter {
         const value = unquote(scalarMatch[2]);
         if (scalarMatch[1] === 'name') result.name = value;
         else result.description = value;
+        continue;
+      }
+
+      // #929 — harvested-draft scalars (see renderDraftSkillMarkdown). Plain
+      // `key: value` lines, same shape as name/description above.
+      const harvestMatch = /^(status|source|provenance|source_session|extracted_at|evaluated_at|measure_reason):\s*(.*)$/.exec(
+        trimmed,
+      );
+      if (harvestMatch) {
+        const value = unquote(harvestMatch[2]);
+        switch (harvestMatch[1]) {
+          case 'status':
+            result.status = value;
+            break;
+          case 'source':
+            result.source = value;
+            break;
+          case 'provenance':
+            result.provenance = value;
+            break;
+          case 'source_session':
+            result.sourceSession = value;
+            break;
+          case 'extracted_at':
+            result.extractedAt = value;
+            break;
+          case 'evaluated_at':
+            result.evaluatedAt = value;
+            break;
+          case 'measure_reason':
+            result.measureReason = value;
+            break;
+        }
+        continue;
+      }
+      const numericMatch = /^(confidence|post_score):\s*(-?[\d.]+)\s*$/.exec(trimmed);
+      if (numericMatch) {
+        const n = Number(numericMatch[2]);
+        if (!Number.isNaN(n)) {
+          if (numericMatch[1] === 'confidence') result.confidence = n;
+          else result.postScore = n;
+        }
         continue;
       }
 
