@@ -149,9 +149,16 @@ export async function resolveProfileScope(
       ? opts.allowedMcpsJsonOverride
       : (profile?.allowedMcpsJson ?? null);
 
+  // #931 — a scope-resolution failure (malformed/deny-all) must be legible in
+  // the logs by human name too, not just id. Pass the name for LOG lines only;
+  // the roleLabel (== agentConfigId) stays the identity persisted as `mcpRole`,
+  // so this stays diagnostic-only with no behavior change.
+  const roleLabel = agentConfigId ?? 'profile';
+  const profileName = profile?.label ?? null;
+
   // Step 4 — build mcpRoleConfig
   const mcpRoleConfig = effectiveAllowedMcpsJson !== null
-    ? _buildMcpRoleConfig(effectiveAllowedMcpsJson, agentConfigId ?? 'profile')
+    ? _buildMcpRoleConfig(effectiveAllowedMcpsJson, roleLabel, profileName)
     : null;
 
   // Step 5 — resolve allowedSkillsJson with the same override-or-inherit rule.
@@ -163,7 +170,8 @@ export async function resolveProfileScope(
       : (profile?.allowedSkillsJson ?? null);
   const effectiveAllowedSkillsJson = _normalizeAllowedSkillsJson(
     rawAllowedSkillsJson,
-    agentConfigId ?? 'profile',
+    roleLabel,
+    profileName,
   );
 
   return {
@@ -200,13 +208,16 @@ export async function resolveProfileScope(
 function _buildMcpRoleConfig(
   allowedMcpsJson: string,
   roleLabel: string,
+  // #931 — human name for LOG lines only; roleLabel stays the persisted `role`.
+  profileName: string | null = null,
 ): McpRoleConfig | null {
+  const logLabel = profileName ? `${roleLabel} "${profileName}"` : roleLabel;
   let parsed: unknown;
   try {
     parsed = JSON.parse(allowedMcpsJson);
   } catch {
     logger.error(
-      `[resolveProfileScope] profile=${roleLabel}: invalid allowedMcpsJson JSON; denying all MCP tools. offendingValue=`,
+      `[resolveProfileScope] profile=${logLabel}: invalid allowedMcpsJson JSON; denying all MCP tools. offendingValue=`,
       allowedMcpsJson,
     );
     return {
@@ -237,7 +248,7 @@ function _buildMcpRoleConfig(
     }
   } else {
     logger.error(
-      `[resolveProfileScope] profile=${roleLabel}: allowedMcpsJson is neither an array nor an object; denying all MCP tools. offendingValue=`,
+      `[resolveProfileScope] profile=${logLabel}: allowedMcpsJson is neither an array nor an object; denying all MCP tools. offendingValue=`,
       allowedMcpsJson,
     );
     return {
@@ -245,6 +256,16 @@ function _buildMcpRoleConfig(
       mcpServers: {},
       allowedToolsJson: '[]',
     };
+  }
+
+  // #931 — deny-all is a valid but degraded state: the profile resolves to an
+  // empty server set, so the agent gets NO MCP tools this run. It used to be
+  // silent (only malformed JSON logged); surface it with id+name+kind so the
+  // operator can tell "deliberately locked down" from "silently broken".
+  if (Object.keys(mcpServers).length === 0) {
+    logger.warn(
+      `[resolveProfileScope] profile=${logLabel}: MCP scope is deny-all ([]) — agent has NO MCP tools this run`,
+    );
   }
 
   return {
@@ -261,15 +282,18 @@ function _buildMcpRoleConfig(
 function _normalizeAllowedSkillsJson(
   allowedSkillsJson: string | null,
   roleLabel: string,
+  // #931 — human name for LOG lines only (skills scope carries no persisted id).
+  profileName: string | null = null,
 ): string | null {
   if (allowedSkillsJson === null) return null;
 
+  const logLabel = profileName ? `${roleLabel} "${profileName}"` : roleLabel;
   let parsed: unknown;
   try {
     parsed = JSON.parse(allowedSkillsJson);
   } catch {
     logger.error(
-      `[resolveProfileScope] profile=${roleLabel}: invalid allowedSkillsJson JSON; denying all skills. offendingValue=`,
+      `[resolveProfileScope] profile=${logLabel}: invalid allowedSkillsJson JSON; denying all skills. offendingValue=`,
       allowedSkillsJson,
     );
     return '[]';
@@ -277,7 +301,7 @@ function _normalizeAllowedSkillsJson(
 
   if (!Array.isArray(parsed)) {
     logger.error(
-      `[resolveProfileScope] profile=${roleLabel}: allowedSkillsJson is not an array; denying all skills. offendingValue=`,
+      `[resolveProfileScope] profile=${logLabel}: allowedSkillsJson is not an array; denying all skills. offendingValue=`,
       allowedSkillsJson,
     );
     return '[]';
@@ -286,6 +310,13 @@ function _normalizeAllowedSkillsJson(
   const skillNames = parsed
     .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
     .map((entry) => entry.trim());
+  // #931 — deny-all skills is a valid but degraded state (empty array): the
+  // agent gets NO skills this run. Was silent; surface it with id+name+kind.
+  if (skillNames.length === 0) {
+    logger.warn(
+      `[resolveProfileScope] profile=${logLabel}: skill scope is deny-all ([]) — agent has NO skills this run`,
+    );
+  }
   if (skillNames.length !== parsed.length) {
     return JSON.stringify(skillNames);
   }
