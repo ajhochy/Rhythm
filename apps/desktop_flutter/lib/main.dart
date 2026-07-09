@@ -97,6 +97,9 @@ import 'features/agent_optimizer/repositories/org_proposals_repository.dart';
 import 'features/run_quality/controllers/run_quality_controller.dart';
 import 'features/run_quality/data/run_quality_data_source.dart';
 import 'features/run_quality/repositories/run_quality_repository.dart';
+import 'features/session_history/controllers/session_history_controller.dart';
+import 'features/session_history/data/session_history_data_source.dart';
+import 'features/session_history/repositories/session_history_repository.dart';
 import 'features/agent_skills/controllers/agent_skills_controller.dart';
 import 'features/agents/data/opencode_skills_data_source.dart';
 import 'features/agent_email/controllers/agent_email_controller.dart';
@@ -510,6 +513,11 @@ class _RhythmAppContent extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => RunQualityController(
             RunQualityRepository(RunQualityDataSource()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => SessionHistoryController(
+            SessionHistoryRepository(SessionHistoryDataSource()),
           ),
         ),
         ChangeNotifierProvider(

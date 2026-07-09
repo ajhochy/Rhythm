@@ -19,6 +19,7 @@ import '../../../features/projects/views/projects_view.dart';
 import '../../../features/rhythms/views/rhythms_view.dart';
 import '../../../features/settings/controllers/settings_controller.dart';
 import '../../../features/settings/views/settings_view.dart';
+import '../../../features/session_history/views/session_history_view.dart';
 import '../../../features/agents/views/agents_view.dart';
 import '../../../features/agents/controllers/agents_controller.dart';
 import '../agents/agent_server_controller.dart';
@@ -256,7 +257,8 @@ class _ServerFailedView extends StatelessWidget {
 
 // Current order: Dashboard(0), Weekly Planner(1), Tasks(2), Rhythms(3),
 //                Projects(4), Messages(5), Facilities(6),
-//                Automations(7), Integrations(8), Agents(9)
+//                Automations(7), Integrations(8), Agents(9),
+//                Session History(10)
 class _AppContent extends StatelessWidget {
   const _AppContent({
     required this.selectedIndex,
@@ -290,6 +292,7 @@ class _AppContent extends StatelessWidget {
       const AutomationRulesView(),
       const IntegrationsView(),
       const AgentsView(),
+      const SessionHistoryView(),
     ];
     return Scaffold(
       backgroundColor: context.rhythm.canvas,
