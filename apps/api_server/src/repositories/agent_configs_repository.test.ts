@@ -157,6 +157,18 @@ describe('AgentConfigsRepository', () => {
       expect(repo.getById(config.id)?.allowedDelegatesJson).toBe(delegates);
     });
 
+    it('round-trips corePermissionsJson on insert', () => {
+      const corePermissions = JSON.stringify({ skill: 'allow', read: 'allow', bash: 'ask' });
+      const config = repo.insert({
+        label: 'Core Permission Agent',
+        icon: 'assets/agents/core.png',
+        corePermissionsJson: corePermissions,
+      });
+
+      expect(config.corePermissionsJson).toBe(corePermissions);
+      expect(repo.getById(config.id)?.corePermissionsJson).toBe(corePermissions);
+    });
+
     it('ignores legacy CLI fields if a stale client sends them (issue #581)', () => {
       const config = repo.insert({
         label: 'Stale Client',
@@ -225,6 +237,16 @@ describe('AgentConfigsRepository', () => {
 
       expect(updated?.allowedDelegatesJson).toBe(delegates);
       expect(repo.getById(created.id)?.allowedDelegatesJson).toBe(delegates);
+    });
+
+    it('round-trips and clears corePermissionsJson on update', () => {
+      const created = repo.insert({
+        label: 'Core Permission Update',
+        icon: 'assets/agents/core.png',
+      });
+
+      expect(repo.update(created.id, { corePermissionsJson: '{"bash":"ask"}' })?.corePermissionsJson).toBe('{"bash":"ask"}');
+      expect(repo.update(created.id, { corePermissionsJson: null })?.corePermissionsJson).toBeNull();
     });
 
     it('ignores legacy CLI fields on update if a stale client sends them (issue #581)', () => {

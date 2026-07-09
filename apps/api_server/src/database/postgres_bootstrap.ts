@@ -758,6 +758,10 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS oc_agent TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS session_selectable BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS is_manager INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS system_prompt TEXT;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS allowed_mcps_json TEXT;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS allowed_skills_json TEXT;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS core_permissions_json TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS allowed_delegates_json TEXT;
   `);
 

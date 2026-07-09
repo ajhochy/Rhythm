@@ -10,6 +10,7 @@ export interface AgentConfig {
   systemPrompt: string | null;
   allowedMcpsJson: string | null;
   allowedSkillsJson: string | null;
+  corePermissionsJson: string | null;
   allowedDelegatesJson: string | null;
   presetId: string | null;
   sortOrder: number;
@@ -68,6 +69,7 @@ export interface AgentConfigInput {
   systemPrompt?: string | null;
   allowedMcpsJson?: string | null;
   allowedSkillsJson?: string | null;
+  corePermissionsJson?: string | null;
   allowedDelegatesJson?: string | null;
   presetId?: string | null;
   sortOrder?: number;
@@ -103,6 +105,7 @@ interface AgentConfigRow {
   system_prompt: string | null;
   allowed_mcps_json: string | null;
   allowed_skills_json: string | null;
+  core_permissions_json: string | null;
   allowed_delegates_json: string | null;
   can_resume: number;
   resume_command: string | null;
@@ -136,6 +139,7 @@ function rowToModel(row: AgentConfigRow): AgentConfig {
     systemPrompt: row.system_prompt ?? null,
     allowedMcpsJson: row.allowed_mcps_json ?? null,
     allowedSkillsJson: row.allowed_skills_json ?? null,
+    corePermissionsJson: row.core_permissions_json ?? null,
     allowedDelegatesJson: row.allowed_delegates_json ?? null,
     presetId: row.preset_id,
     sortOrder: row.sort_order,
@@ -188,11 +192,11 @@ export class AgentConfigsRepository {
       .prepare(
         `INSERT INTO agent_configs
           (id, label, icon, command, enabled, is_agent, is_manager, system_prompt,
-           allowed_mcps_json, allowed_skills_json, allowed_delegates_json, can_resume,
+           allowed_mcps_json, allowed_skills_json, core_permissions_json, allowed_delegates_json, can_resume,
            resume_command, session_id_pattern, output_marker, preset_id, sort_order,
            model_provider, model_id, oc_agent, session_selectable, model_tier_hint,
            default_anthropic_account_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -205,6 +209,7 @@ export class AgentConfigsRepository {
         config.systemPrompt ?? null,
         config.allowedMcpsJson ?? null,
         config.allowedSkillsJson ?? null,
+        config.corePermissionsJson ?? null,
         config.allowedDelegatesJson ?? null,
         0, // can_resume — legacy
         null, // resume_command — legacy
@@ -262,6 +267,10 @@ export class AgentConfigsRepository {
     if (patch.allowedSkillsJson !== undefined) {
       fields.push('allowed_skills_json = ?');
       values.push(patch.allowedSkillsJson ?? null);
+    }
+    if (patch.corePermissionsJson !== undefined) {
+      fields.push('core_permissions_json = ?');
+      values.push(patch.corePermissionsJson ?? null);
     }
     if (patch.allowedDelegatesJson !== undefined) {
       fields.push('allowed_delegates_json = ?');

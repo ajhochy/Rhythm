@@ -277,6 +277,58 @@ function setPermissionKey(fm: string, key: string, value: string): string {
   return lines.join('\n');
 }
 
+function setPermissionValue(fm: string, key: string, value: unknown): string {
+  if (typeof value === 'string') return setPermissionKey(fm, key, value);
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return fm;
+
+  const lines = fm.split('\n');
+  const permissionIndex = lines.findIndex((line) => /^permission:\s*$/.test(line));
+  if (permissionIndex === -1) {
+    return `${fm}${fm.length > 0 ? '\n' : ''}permission:\n${permissionBlockLines(key, value).join('\n')}`;
+  }
+
+  let blockEnd = lines.length;
+  for (let i = permissionIndex + 1; i < lines.length; i += 1) {
+    if (/^\S/.test(lines[i])) {
+      blockEnd = i;
+      break;
+    }
+  }
+
+  let existingStart = -1;
+  let existingEnd = blockEnd;
+  for (let i = permissionIndex + 1; i < blockEnd; i += 1) {
+    if (new RegExp(`^  ${key}:`).test(lines[i])) {
+      existingStart = i;
+      existingEnd = i + 1;
+      while (existingEnd < blockEnd && /^    /.test(lines[existingEnd])) existingEnd += 1;
+      break;
+    }
+  }
+
+  lines.splice(
+    existingStart === -1 ? blockEnd : existingStart,
+    existingStart === -1 ? 0 : existingEnd - existingStart,
+    ...permissionBlockLines(key, value),
+  );
+  return lines.join('\n');
+}
+
+function permissionBlockLines(key: string, value: object): string[] {
+  return [`  ${key}:`, ...Object.entries(value).map(([pattern, action]) => `    ${JSON.stringify(pattern)}: ${action}`)];
+}
+
+function parseCorePermissions(config: AgentConfig): Record<string, unknown> {
+  if (!config.corePermissionsJson) return {};
+  try {
+    const parsed = JSON.parse(config.corePermissionsJson) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch (err) {
+    logger.warn(`[OpencodeAgentWriter] invalid corePermissionsJson for "${config.id}": ${String(err)}`);
+    return {};
+  }
+}
+
 /**
  * Write (or merge-update) the opencode agent file for a profile. Never throws —
  * failures degrade to a logged warning. No-op when the profile is out of scope.
@@ -332,6 +384,9 @@ export function writeAgentProfileFile(config: AgentConfig): void {
       body = config.systemPrompt ?? '';
     }
 
+    for (const [permission, action] of Object.entries(parseCorePermissions(config))) {
+      fm = setPermissionValue(fm, permission, action);
+    }
     if (config.id === 'workflow-orchestrator') {
       fm = setPermissionKey(fm, 'write', 'allow');
     }

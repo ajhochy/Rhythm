@@ -45,15 +45,19 @@ describe('agent_configs migration', () => {
     expect(row).toBeDefined();
     const scan = scanContextContent(row!.system_prompt, 'agent profile "config-doctor"');
     expect(scan.blocked).toBe(false);
+    expect(row!.system_prompt).toContain('opencode core permissions');
+    expect(row!.system_prompt).toContain('Never add `bash`, `read`, `edit`');
+    expect(row!.system_prompt).toContain('use `rhythm`, never `Rhythm`');
   });
 
   it('repairs known fail-open scope rows for the #916/#923 contract flip', () => {
     const db = makeDb();
 
     const configDoctor = db
-      .prepare(`SELECT allowed_mcps_json FROM agent_configs WHERE id = 'config-doctor'`)
-      .get() as { allowed_mcps_json: string | null };
+      .prepare(`SELECT allowed_mcps_json, core_permissions_json FROM agent_configs WHERE id = 'config-doctor'`)
+      .get() as { allowed_mcps_json: string | null; core_permissions_json: string | null };
     expect(configDoctor.allowed_mcps_json).toBe(JSON.stringify(['rhythm']));
+    expect(JSON.parse(configDoctor.core_permissions_json!)).toEqual({ bash: 'ask' });
 
     const oldOrgOptimizerMcp = JSON.stringify({
       rhythm: {
@@ -236,7 +240,7 @@ describe('agent_configs migration', () => {
 
     const rows = db
       .prepare(
-        `SELECT id, model_provider, model_id, model_tier_hint, allowed_mcps_json, allowed_skills_json
+        `SELECT id, model_provider, model_id, model_tier_hint, allowed_mcps_json, allowed_skills_json, core_permissions_json
            FROM agent_configs
           WHERE id IN (
             'theologian',
@@ -258,6 +262,7 @@ describe('agent_configs migration', () => {
         model_tier_hint: string | null;
         allowed_mcps_json: string | null;
         allowed_skills_json: string | null;
+        core_permissions_json: string | null;
       }>;
     const byId = new Map(rows.map((row) => [row.id, row]));
 
@@ -294,6 +299,11 @@ describe('agent_configs migration', () => {
     expect(JSON.parse(byId.get('AI-Trend-Researcher')!.allowed_skills_json!)).toEqual(aiTrendSkills);
     expect(JSON.parse(byId.get('Theological-Researcher')!.allowed_mcps_json!)).toEqual(theologicalMcp);
     expect(JSON.parse(byId.get('Theological-Researcher')!.allowed_skills_json!)).toEqual(theologicalSkills);
+    expect(JSON.parse(byId.get('Theological-Researcher')!.core_permissions_json!)).toEqual({
+      skill: 'allow',
+      read: 'allow',
+      bash: 'ask',
+    });
     expect(JSON.parse(byId.get('research')!.allowed_skills_json!)).toEqual([
       'research-synthesis',
       'study-passage',
@@ -328,6 +338,7 @@ describe('agent_configs migration', () => {
       'created_at',
       'updated_at',
       'allowed_delegates_json',
+      'core_permissions_json',
     ];
     for (const col of expected) {
       expect(cols).toContain(col);
