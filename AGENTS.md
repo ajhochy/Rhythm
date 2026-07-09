@@ -58,6 +58,45 @@ flutter analyze --no-fatal-infos      # must exit 0 (infos are pre-existing, not
 
 See `docs/ai/testing-guide.md` for the full command set (api_server tests, opencode fork tests, manual smoke checklist).
 
+## Behavioral verification gate (required before "done")
+
+Unit tests prove the code is there. They do **not** prove the behavior works
+end-to-end against the real engine. A feature can pass `tsc`, pass all unit
+tests, and pass GitNexus impact analysis — and still be completely broken at
+runtime because of a cache layer, a stale process, or a wiring gap the unit
+test mocked away. This happened on #948: the unit test passed, but the live
+behavior was broken until a three-cache invalidation bug was found and fixed.
+
+**Rule:** before claiming any backend feature is "done" (in a PR description,
+a project-state update, a handoff message, or a commit), you must:
+
+1. **Write a live behavioral test** that drives the desired behavior through
+   the real API surface (HTTP routes, WebSocket gateway, MCP tools — whatever
+   the feature's entry point is). The test must exercise the actual engine +
+   api_server, not a mock. Gate it behind an env flag (e.g.
+   `RHYTHM_LIVE_E2E=1`) so it skips in the normal `vitest run` suite.
+
+2. **Run it against the running backend.** Build the fork binary
+   (`cd apps/opencode_fork/packages/opencode && bun run build --single`),
+   build the api_server (`npm run build`), launch with
+   `RHYTHM_OPENCODE_BIN_DIR` pointing at the rebuilt fork, and run the test
+   with the env flag set. See `docs/ai/testing-guide.md` "Running the fork
+   engine in dev" for the launch commands.
+
+3. **The test must assert the behavior, not the code.** Don't assert "the
+   function was called" — assert the observable outcome the user/agent will
+   actually experience (e.g. "the edited agent profile appears in
+   `listAgents` after refresh", not "reloadConfig was invoked"). If the test
+   would pass against a mock, it's not a behavioral test.
+
+4. **Record the result** in the run log (`docs/ai/runs/`) — pass or fail,
+   with the exact command and the observed output. A live test that wasn't
+   run is not a live test.
+
+**Exceptions:** pure refactors with no behavior change, type-only fixes,
+doc-only changes, and dependency bumps don't need a behavioral test. If
+you're unsure whether your change qualifies, it does.
+
 ## Project logging (canonical: `docs/ai/`)
 
 Logging lives in **`docs/ai/`** — the single source of truth, surfaced in Obsidian via the `ai-*` symlinks under `Projects/rhythm/`.

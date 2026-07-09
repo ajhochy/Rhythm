@@ -6,6 +6,7 @@ import { Global } from "@opencode-ai/core/global"
 import { LSP } from "@/lsp/lsp"
 import { Vcs } from "@/project/vcs"
 import { Skill } from "@/skill"
+import { Config } from "@/config/config"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
@@ -16,6 +17,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
   Effect.gen(function* () {
     const agent = yield* Agent.Service
     const command = yield* Command.Service
+    const config = yield* Config.Service
     const format = yield* Format.Service
     const lsp = yield* LSP.Service
     const skill = yield* Skill.Service
@@ -85,6 +87,19 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return yield* skill.reload()
     })
 
+    const reloadConfig = Effect.fn("InstanceHttpApi.configReload")(function* () {
+      // Invalidate the memoized global config cache (Duration.infinity TTL) so
+      // the next config.get() re-scans agent/mode/config files from disk. THEN
+      // invalidate the Agent service's per-directory InstanceState, which holds
+      // a stale config.get() result — without this second invalidate, listAgents
+      // still returns the old agent set even after the global cache is cleared.
+      // Together these let a config-repair agent's on-disk edits reach new
+      // sessions without an instance bounce. (#948)
+      yield* config.invalidate()
+      yield* agent.reload()
+      return true
+    })
+
     const getLsp = Effect.fn("InstanceHttpApi.lsp")(function* () {
       return yield* lsp.status()
     })
@@ -105,6 +120,7 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       .handle("agent", getAgent)
       .handle("skill", getSkill)
       .handle("skillReload", reloadSkill)
+      .handle("configReload", reloadConfig)
       .handle("lsp", getLsp)
       .handle("formatter", getFormatter)
   }),
