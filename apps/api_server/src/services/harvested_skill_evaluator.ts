@@ -39,6 +39,22 @@
  * effects (mirrors skill_measurement.ts / skill_refiner.ts); a test injects
  * `deps.scorer` to exercise the real branch. No-op under Postgres (agent
  * execution + drafts are local-only, same posture as the rest of the loop).
+ *
+ * ── #959 — dependency guard on the disable path ────────────────────────────
+ * A draft scoring <= DISABLE_SCORE_BAR is normally archived to disabled/ and
+ * dropped from the live picker. But #929 shipped this without checking
+ * whether any agent actually depends on that skill — an evaluator pass could
+ * (and did, for the "AI Trend Research" workflow skill) silently disable a
+ * skill an agent's `allowed_skills_json` allowlist still references, breaking
+ * that agent with no warning. `collectDependedOnSkillNames` reads every
+ * `agent_configs` row's `allowedSkillsJson` (the SAME allowlist the opencode
+ * fork's `skill_allowlist.ts` matches against SKILL.md frontmatter `name` —
+ * see docs on `filterSkillsByAllowlist`) once per evaluation pass. A draft
+ * whose frontmatter `name` appears in that set is NEVER moved to disabled/,
+ * even at a disable-tier score — it is routed to the SAME rewrite-needed path
+ * as a mediocre score instead (still flagged, still live, still counted
+ * toward the Unit 4 harvester-quality streak/window since rewrite-needed is
+ * already a BAD_OUTCOMES member — no separate signal path needed).
  */
 
 import { logger } from '../utils/logger';
@@ -55,6 +71,7 @@ import { countSkillToolUses } from './skill_usage_tracker';
 import { scoreSkillBody, type ScoreCall, type SkillPurpose } from './skill_refiner';
 import { classifyProposalRisk } from './org_risk_classifier';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { opencodeClient } from './opencode_engine';
 
 function isTestEnv(): boolean {
@@ -91,6 +108,8 @@ export interface EvaluateDeps {
   reload?: () => Promise<unknown>;
   /** Injectable proposals repo (defaults to a fresh AgentOrgProposalsRepository). */
   proposalsRepo?: AgentOrgProposalsRepository;
+  /** Injectable agent-configs repo, for the #959 dependency guard (defaults to a fresh AgentConfigsRepository). */
+  agentConfigsRepo?: AgentConfigsRepository;
   /** Injectable clock, for deterministic tests. */
   now?: () => string;
 }
@@ -115,6 +134,40 @@ interface HarvestOutcomeRecord {
   name: string;
   outcome: HarvestStatus;
   evaluatedAt: string;
+}
+
+/** Parse an `allowed_skills_json` string into a plain string array. Mirrors the
+ *  same local parse the org-optimizer audit uses — null/malformed/non-array
+ *  input all degrade to []. */
+function parseAllowedSkillNames(json: string | null): string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * #959 — every skill name referenced by ANY agent_configs row's allowlist
+ * (enabled or not — a disabled profile can be re-enabled later, so its
+ * allowlist still counts). Built once per evaluation pass. Never throws: a
+ * repo read failure logs and degrades to "no known dependents", i.e. the
+ * pre-#959 disable behavior, since this is a rare/catastrophic DB failure
+ * mode the rest of the evaluator can't work around either.
+ */
+function collectDependedOnSkillNames(repo: AgentConfigsRepository): Set<string> {
+  try {
+    const names = new Set<string>();
+    for (const config of repo.list()) {
+      for (const name of parseAllowedSkillNames(config.allowedSkillsJson)) names.add(name);
+    }
+    return names;
+  } catch (err) {
+    logger.warn(`[harvest-eval] could not read agent_configs for the dependency guard (non-fatal): ${String(err)}`);
+    return new Set();
+  }
 }
 
 /** Newest-first history of every draft/disabled skill that has been evaluated at least once. */
@@ -196,8 +249,10 @@ export async function evaluateHarvestedDrafts(deps: EvaluateDeps = {}): Promise<
     const countUses = deps.countUses ?? countSkillToolUses;
     const now = deps.now ?? (() => new Date().toISOString());
     const reload = deps.reload ?? (() => opencodeClient.reloadSkills());
+    const agentConfigsRepo = deps.agentConfigsRepo ?? new AgentConfigsRepository();
 
     const uses = countUses();
+    const dependedOnSkillNames = collectDependedOnSkillNames(agentConfigsRepo);
     const summary: EvaluateSummary = { ...EMPTY_SUMMARY };
 
     for (const name of listDraftSkillNames()) {
@@ -232,7 +287,7 @@ export async function evaluateHarvestedDrafts(deps: EvaluateDeps = {}): Promise<
         if (result.score >= KEEP_SCORE_BAR) {
           writeDraftManagedSkill({ ...baseInput, status: 'active' });
           summary.kept++;
-        } else if (result.score <= DISABLE_SCORE_BAR) {
+        } else if (result.score <= DISABLE_SCORE_BAR && !dependedOnSkillNames.has(draft.frontmatter.name ?? name)) {
           moveDraftToDisabled(name, { evaluatedAt, postScore: result.score, measureReason: result.reason });
           try {
             await reload();
@@ -240,6 +295,16 @@ export async function evaluateHarvestedDrafts(deps: EvaluateDeps = {}): Promise<
             logger.warn(`[harvest-eval] reload after disabling '${name}' failed (non-fatal): ${String(err)}`);
           }
           summary.disabled++;
+        } else if (result.score <= DISABLE_SCORE_BAR) {
+          // #959 — a depended-on skill is NEVER auto-disabled, even at a
+          // disable-tier score. Route to rewrite-needed instead (still live,
+          // still flagged, still counted toward the Unit 4 bad-outcome streak).
+          logger.info(
+            `[harvest-eval] '${name}' scored ${result.score} (disable-tier) but is referenced by an agent's ` +
+              `allowed_skills_json — routing to rewrite-needed instead of disabling`,
+          );
+          writeDraftManagedSkill({ ...baseInput, status: 'rewrite-needed' });
+          summary.rewriteNeeded++;
         } else {
           writeDraftManagedSkill({ ...baseInput, status: 'rewrite-needed' });
           summary.rewriteNeeded++;

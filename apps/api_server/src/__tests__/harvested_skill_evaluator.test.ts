@@ -21,6 +21,7 @@ import { join } from 'path';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import {
   writeDraftManagedSkill,
   readDraftSkill,
@@ -167,6 +168,71 @@ describe('evaluateHarvestedDrafts — Unit 3 keep/disable/rewrite-needed (guard 
     // still evaluates to a disable outcome rather than crashing the pass.
     expect(summary.evaluated).toBe(1);
     expect(summary.disabled).toBe(1);
+  });
+
+  // #959 — dependency guard: a harvested skill referenced by any agent's
+  // allowed_skills_json must never be moved to disabled/, even at a
+  // disable-tier score.
+  describe('#959 dependency guard', () => {
+    it('a low-scoring draft referenced by an agent allowlist is left rewrite-needed, never disabled', async () => {
+      seedDraft('depended-on-skill');
+      const configsRepo = new AgentConfigsRepository();
+      configsRepo.insert({
+        label: 'Some Agent',
+        icon: 'robot',
+        allowedSkillsJson: JSON.stringify(['depended-on-skill', 'other-skill']),
+      });
+
+      const summary = await evaluateHarvestedDrafts({
+        scorer: scorerReturning(5, 'off-topic'),
+        countUses: usesReturning({ 'depended-on-skill': 3 }),
+        reload: noopReload,
+        proposalsRepo: new AgentOrgProposalsRepository(),
+        agentConfigsRepo: configsRepo,
+      });
+
+      expect(summary).toMatchObject({ evaluated: 1, kept: 0, disabled: 0, rewriteNeeded: 1 });
+      expect(listDraftSkillNames()).toContain('depended-on-skill'); // still live
+      expect(listDisabledSkillNames()).not.toContain('depended-on-skill');
+      expect(readDraftSkill('depended-on-skill')?.frontmatter.status).toBe('rewrite-needed');
+    });
+
+    it('a low-scoring draft with no agent dependents is still disabled as before', async () => {
+      seedDraft('undepended-skill');
+      const configsRepo = new AgentConfigsRepository();
+      configsRepo.insert({
+        label: 'Some Agent',
+        icon: 'robot',
+        allowedSkillsJson: JSON.stringify(['some-other-skill']),
+      });
+
+      const summary = await evaluateHarvestedDrafts({
+        scorer: scorerReturning(5, 'off-topic'),
+        countUses: usesReturning({ 'undepended-skill': 3 }),
+        reload: noopReload,
+        proposalsRepo: new AgentOrgProposalsRepository(),
+        agentConfigsRepo: configsRepo,
+      });
+
+      expect(summary).toMatchObject({ evaluated: 1, kept: 0, disabled: 1, rewriteNeeded: 0 });
+      expect(listDisabledSkillNames()).toContain('undepended-skill');
+    });
+
+    it('an agent allowlist with a null allowed_skills_json (unrestricted) never blocks disabling', async () => {
+      seedDraft('unrestricted-agent-skill');
+      const configsRepo = new AgentConfigsRepository();
+      configsRepo.insert({ label: 'Unrestricted Agent', icon: 'robot', allowedSkillsJson: null });
+
+      const summary = await evaluateHarvestedDrafts({
+        scorer: scorerReturning(5, 'off-topic'),
+        countUses: usesReturning({ 'unrestricted-agent-skill': 3 }),
+        reload: noopReload,
+        proposalsRepo: new AgentOrgProposalsRepository(),
+        agentConfigsRepo: configsRepo,
+      });
+
+      expect(summary).toMatchObject({ disabled: 1, rewriteNeeded: 0 });
+    });
   });
 });
 

@@ -239,20 +239,40 @@ describeLive('live E2E — #929 skill self-regulation loop', () => {
         ws.close();
       }
 
-      // ── Unit 3 — the fire-and-forget evaluator (triggered after each of the
-      // 3 turns above via agent_runner.ts) should have scored the draft and
-      // moved it off `status: draft` by now. Poll GET /opencode/skills for
-      // either: still listed with a NON-draft status (kept/rewrite-needed), or
-      // no longer listed at all (disabled/archived) — both are valid terminal
-      // outcomes; which one depends on the live judge's opinion of this run's
-      // draft body.
+      // ── #949 auto-bind precondition — the harvested draft was appended to
+      // THIS (scoped) agent's allowed_skills_json, so it is now a depended-on
+      // skill. That is exactly the dependency the #959 guard reads. Confirm it
+      // before asserting the guard below (the auto-bind PATCH races the
+      // draft-file write, so poll).
+      await poll(
+        async () => {
+          const cfg = await apiJson<{ allowedSkillsJson: string | null }>(`/agent-configs/${agentId}`);
+          const allow = cfg.allowedSkillsJson ? (JSON.parse(cfg.allowedSkillsJson) as string[]) : [];
+          if (allow.includes(draftName)) return true;
+          throw new Error(`agent ${agentId} allowlist does not yet reference '${draftName}'`);
+        },
+        30_000,
+        1_000,
+        'wait for #949 auto-bind of the draft into the agent allowlist',
+      );
+
+      // ── Unit 3 + #959 — the fire-and-forget evaluator (triggered after each
+      // of the 3 turns above via agent_runner.ts) should have scored the draft
+      // and moved it off `status: draft`. Because the draft is depended-on
+      // (auto-bound above), the #959 guard guarantees it is NEVER disabled/
+      // archived — even if the live judge scores it in the disable tier, it is
+      // routed to `rewrite-needed` instead. Terminal state must therefore be a
+      // live, non-draft status (active | rewrite-needed).
       await poll(
         async () => {
           const skills = await listSkillsWithMetadata();
           const entry = skills.find((s) => s.name === draftName);
-          if (!entry) return { outcome: 'disabled' as const };
+          // A guard regression would archive the draft → it vanishes from the
+          // live list. Treat "gone" as a terminal (asserted against below) so
+          // the poll surfaces the regression rather than timing out on it.
+          if (!entry) return { status: 'gone' as const };
           if (entry.metadata?.status && entry.metadata.status !== 'draft') {
-            return { outcome: entry.metadata.status };
+            return { status: entry.metadata.status };
           }
           throw new Error(`'${draftName}' still status:draft — evaluator has not run yet`);
         },
@@ -263,13 +283,16 @@ describeLive('live E2E — #929 skill self-regulation loop', () => {
 
       const finalSkills = await listSkillsWithMetadata();
       const finalEntry = finalSkills.find((s) => s.name === draftName);
-      if (finalEntry) {
-        expect(finalEntry.metadata?.status).not.toBe('draft');
-        expect(['active', 'rewrite-needed']).toContain(finalEntry.metadata?.status);
-      } else {
-        // Disabled — archived out of the live picker. Confirm the archive got it.
-        expect(existsSync(join(DISABLED_DIR, draftName, 'SKILL.md'))).toBe(true);
-      }
+      // #959: a depended-on skill is never auto-disabled — it must still be
+      // live (present) with a non-draft status, and must NOT be in the
+      // disabled archive.
+      expect(
+        finalEntry,
+        `#959 regression: depended-on draft '${draftName}' was removed from the live picker`,
+      ).toBeTruthy();
+      expect(finalEntry?.metadata?.status).not.toBe('draft');
+      expect(['active', 'rewrite-needed']).toContain(finalEntry?.metadata?.status);
+      expect(existsSync(join(DISABLED_DIR, draftName, 'SKILL.md'))).toBe(false);
     },
     300_000, // 5 min hard cap: 2 harvest turns + 3 skill-invocation turns + evaluator LLM judge + polling.
   );
