@@ -276,7 +276,7 @@ describeLive('live E2E — #948 + #949', () => {
         await refresh(); // make the new agent discoverable
 
         // Create a session bound to the scoped agent.
-        const sess = await apiJson<{ session: { id: string } }>('/agent-sessions', {
+        const sess = await apiJson<{ id: string }>('/agent-sessions', {
           method: 'POST',
           body: JSON.stringify({
             agentId,
@@ -284,7 +284,7 @@ describeLive('live E2E — #948 + #949', () => {
             cwd: homedir(),
           }),
         });
-        const sessionId = sess.session.id;
+        const sessionId = sess.id;
         createdSessionIds.push(sessionId);
 
         // Two procedural prompts — distill needs ≥2 assistant ('output') rounds.
