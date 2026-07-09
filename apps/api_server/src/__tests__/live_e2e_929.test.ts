@@ -362,6 +362,15 @@ describeLive('live E2E — #959 dependency guard (deterministic seed, no live di
       // arbitrary turn to fire the post-turn evaluator. Being unrestricted it
       // contributes no allowlist entry, so undependedName stays referenced by
       // no agent. It does NOT invoke any skill.
+      //
+      // The model is PINNED to the authed Anthropic tier (provider 'anthropic',
+      // claude-sonnet-4-6 — the resolver's hardcoded default + what migrations
+      // pin working agents to). NOT openrouter/free: that tier HANGS in this
+      // env (routes with no completion and no error frame, so the #952 fallback
+      // watchdog gap can't rescue it) — which is exactly what sank the trigger
+      // turn. The session persists no model, so resolveModelForSessionTurn
+      // falls through to this agent_configs model (honored because 'anthropic'
+      // is authed).
       const invoker = await apiJson<{ id: string }>('/agent-configs', {
         method: 'POST',
         body: JSON.stringify({
@@ -369,8 +378,8 @@ describeLive('live E2E — #959 dependency guard (deterministic seed, no live di
           isAgent: true,
           enabled: true,
           sessionSelectable: true,
-          modelProvider: MODEL.provider,
-          modelId: MODEL.id || undefined,
+          modelProvider: 'anthropic',
+          modelId: 'claude-sonnet-4-6',
           systemPrompt: 'You are a test agent. Reply concisely.',
         }),
       });
