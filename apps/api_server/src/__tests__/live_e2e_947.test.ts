@@ -34,11 +34,19 @@
  *      that no agent references (e.g. defuddle/supabase) is neither scanned
  *      (external scan off) nor materialized (seed drops it).
  *   4. Migration is no-loss — the count of SKILL.md before == after on temp dirs.
+ *   5. RESTART DOES NOT CLOBBER A REFINEMENT (#947 second pass) — populate
+ *      once, hand-edit the populated file (simulating the self-improvement
+ *      engine refining it in place), re-invoke population (simulating a
+ *      second boot). The file must come back byte-identical to the edit and
+ *      the marker must have short-circuited. Runs entirely against its own
+ *      temp dirs + an isolated in-memory DB — never the real ~/.config/opencode
+ *      or the real rhythm.db.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import {
   existsSync,
   readdirSync,
+  readFileSync,
   mkdtempSync,
   mkdirSync,
   writeFileSync,
@@ -46,8 +54,15 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
+import Database from 'better-sqlite3';
+import { runMigrations } from '../database/migrations';
+import { setDb } from '../database/db';
 import { canonicalAgentSkillNames } from '../services/agent_profile_sync';
-import { migrateLegacyManagedSkills } from '../services/rhythm_managed_skills';
+import {
+  migrateLegacyManagedSkills,
+  slugForSkillName,
+} from '../services/rhythm_managed_skills';
+import { populateWorkflowSkillsOnce } from '../services/skill_seed_importer';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
 const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://localhost:4001';
@@ -159,6 +174,56 @@ describeLive('live E2E — #947 sole skill source', () => {
     } finally {
       rmSync(legacy, { recursive: true, force: true });
       rmSync(sole, { recursive: true, force: true });
+    }
+  });
+
+  it('a simulated restart does NOT clobber a refined managed skill file (#947 second pass)', () => {
+    // Entirely self-contained: its own temp ~/.claude/skills-shaped source dir,
+    // its own temp managed dir, its own in-memory DB for the durable marker.
+    // Never touches the real ~/.config/opencode or the real rhythm.db.
+    const claudeSrc = mkdtempSync(join(tmpdir(), 'rhythm-947-restart-claude-'));
+    const managed = mkdtempSync(join(tmpdir(), 'rhythm-947-restart-managed-'));
+    const priorManagedEnv = process.env.RHYTHM_MANAGED_SKILLS_DIR;
+    const db = new Database(':memory:');
+    try {
+      db.pragma('foreign_keys = ON');
+      runMigrations(db);
+      setDb(db);
+      process.env.RHYTHM_MANAGED_SKILLS_DIR = managed;
+
+      mkdirSync(join(claudeSrc, 'coding-agent'), { recursive: true });
+      writeFileSync(
+        join(claudeSrc, 'coding-agent', 'SKILL.md'),
+        '---\nname: coding-agent\ndescription: Implements one focused request.\n---\nOriginal body.\n',
+      );
+
+      // "First boot" — populates the file.
+      const first = populateWorkflowSkillsOnce({ claudeSkillsDir: claudeSrc });
+      expect(first.alreadyDone).toBe(false);
+      expect(first.copied).toBe(1);
+
+      const destFile = join(managed, slugForSkillName('coding-agent'), 'SKILL.md');
+      expect(existsSync(destFile)).toBe(true);
+
+      // Simulate the self-improvement engine refining the skill in place —
+      // this is the exact state a restart must never overwrite.
+      const refined = '---\nname: coding-agent\n---\nREFINED BY SELF-IMPROVEMENT — must survive a restart.\n';
+      writeFileSync(destFile, refined);
+
+      // "Second boot" — simulated restart, same source dir, same managed dir,
+      // same DB (the marker persisted).
+      const second = populateWorkflowSkillsOnce({ claudeSkillsDir: claudeSrc });
+      expect(second.alreadyDone).toBe(true);
+      expect(second.copied).toBe(0);
+
+      // The refinement is untouched — byte-identical to what was written above.
+      expect(readFileSync(destFile, 'utf8')).toBe(refined);
+    } finally {
+      rmSync(claudeSrc, { recursive: true, force: true });
+      rmSync(managed, { recursive: true, force: true });
+      if (priorManagedEnv === undefined) delete process.env.RHYTHM_MANAGED_SKILLS_DIR;
+      else process.env.RHYTHM_MANAGED_SKILLS_DIR = priorManagedEnv;
+      db.close();
     }
   });
 });
