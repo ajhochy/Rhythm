@@ -136,7 +136,11 @@ export function nextFallbackTier(
 /** Default one-model-per-tier per provider (a real model catalog choice lives in agent_model_resolver.ts's ROUTE_FALLBACKS_BY_AGENT; this is only the fallback used when that table has no entry for the target provider's default agent kind). */
 const DEFAULT_MODEL_BY_PROVIDER: Record<string, string> = {
   anthropic: 'claude-sonnet-4-6',
-  openai: 'gpt-5.3-codex',
+  // gpt-5.4 (general), NOT gpt-5.3-codex: the `-codex` specialized models are
+  // rejected for ChatGPT-account (OAuth) Codex auth — "not supported when using
+  // Codex with a ChatGPT account" (live-smoke evidence, 2026-07-08). gpt-5.4 is
+  // served for both ChatGPT-account and API-key auth, so it's the safe default.
+  openai: 'gpt-5.4',
   google: 'gemini-2.5-pro',
   // tier 6: the OpenRouter "Free Models Router" (cost $0, tool-call capable).
   openrouter: 'openrouter/free',

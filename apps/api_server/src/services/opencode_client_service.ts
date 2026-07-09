@@ -672,6 +672,21 @@ export class OpencodeClientService {
       // `server.close()` is the only documented way to stop the spawned
       // opencode subprocess on :4096 — we MUST hold this handle for clean
       // shutdown (see dispose()).
+      //
+      // #930 — the vendored rhythm-anthropic-accounts plugin POSTs its
+      // spillover/exhaustion reports to RHYTHM_API_BASE, DEFAULTING to
+      // http://localhost:4001. On any other port (dev default is 4000) every
+      // report is silently lost (fire-and-forget .catch), so same-account
+      // spillover AND cross-provider handoff never reach api_server. Bridge
+      // the ACTUAL port onto process.env before the spawn — the engine child
+      // inherits it. An explicit RHYTHM_API_BASE always wins.
+      if (!process.env.RHYTHM_API_BASE) {
+        const { env: appEnv } = await import('../config/env');
+        process.env.RHYTHM_API_BASE = `http://localhost:${appEnv.port}`;
+        logger.info(
+          `[OpencodeClientService] RHYTHM_API_BASE bridged to ${process.env.RHYTHM_API_BASE} for engine plugins`,
+        );
+      }
       const t5 = Date.now();
       const { client, server } = await mod.createOpencode({});
       logger.info(`[Opencode][timing] createOpencode (engine spawn) took ${Date.now() - t5}ms`);
