@@ -19,18 +19,26 @@ The agent/skill self-improvement architecture is now coherent:
 
 ## Branch / PR
 
-- `main` @ 882e75bbc. **No open PRs** — the whole set is merged.
-- Merged after the main wave (AJ sign-off, "the runs tested them"): **#953**
-  (per-profile opencode core permissions + permission-audit MCP tools) and
-  **#939** (delegated-agent retry — a `opencode_fork` change: retry cap,
-  TaskTool child-failure surfacing, LLM stream-concurrency gate).
+- `main` @ f54ea77db. Merged after the main wave (AJ sign-off): **#953**
+  (per-profile opencode core permissions) and **#939** (delegated-agent retry).
+- **OPEN draft PR — `workflow/run-2026-07-09-ids-quality`** (Phase B/D ids +
+  quality wave, 6 issues): **#945, #960, #951, #954, #970, #943**. Built by 5
+  parallel Codex worktree runs, orchestrator-reviewed, behaviorally gated, and
+  integrated (full suite **2626/0** + tsc + flutter analyze clean on the
+  combination). Awaiting AJ sign-off + a **visual smoke of #943** (new Session
+  History screen). See `docs/ai/runs/2026-07-09-phaseBD-ids-quality-wave.md`.
+  **Do not merge without sign-off.**
 
 ## Risks / known issues (act before relying on runtime)
 
-1. **Fork rebuild pending** — #928 (allowlist null-clear) AND #939 (retry/task
-   handling) are fork *source* changes; `apps/opencode_bin/opencode` is still
-   the #949 build. Rebuild + re-sign the fork for either to take effect at
-   runtime (the release build does this automatically).
+1. ~~**Fork rebuild pending**~~ **DONE (2026-07-09).** Rebuilt + re-signed →
+   bundle is now `0.0.0-main-202607092109` (was the #949 `0.0.0--202607092057`).
+   Live-verified: #928 null-clear 2/2, #939 retry 56/56 unit, Codex leg completes
+   (`gpt-5.6-terra`→PONG/1s; unsupported models return clean error frames, no
+   hang → #952 was quota, not a bug). See
+   `docs/ai/runs/2026-07-09-phaseA-fork-rebuild-verify.md`. **Caveat:** ChatGPT-
+   account Codex only serves `luna`/`terra`/`sol` tier models — a fallback leg
+   pinning `openai/gpt-5.3-codex` will 400 for a ChatGPT account.
 2. **#947 real-config migration NOT run (approval-gated → #961).** Real
    `~/.config/opencode/rhythm-managed-skills` + quarantined stubs still present.
    `populateWorkflowSkillsOnce` runs once (copy-if-absent) on next real start;
@@ -42,20 +50,25 @@ The agent/skill self-improvement architecture is now coherent:
 
 ## Test status
 
-- Integrated result: `tsc` clean (api_server + mcp_server); full api_server
-  suite **2612 passed / 0 failed**. All per-issue live gates passed pre-merge;
-  #947 proven by a sandboxed full-server double-boot (restart no-clobber).
+- **Draft-PR branch `workflow/run-2026-07-09-ids-quality`**: `tsc` clean
+  (api_server + mcp_server); full api_server suite **2626 passed / 0 failed**;
+  `flutter analyze` clean. #960/#945 live-gated against a real running server.
+- Prior `main` integrated result: full suite 2612/0 (2026-07-09 non-mobile wave).
 
-## Next step (all approval-gated / queued)
+## Next step
 
-1. **#961** real-config remediation (needs AJ go — real data): re-wire the 5
-   #958-lint miswirings (config-doctor, AI-Trend-Researcher, research→domain-intel,
-   secretary, Theological-Researcher), backfill UUID labels (**#960** first),
-   remove stub dirs, run the #947 migration.
-2. Quality trio: **#951** (harvester distills memory prefaces), **#954**
-   (lazy_deps stripped frontmatter), **#952** (Codex-account fallback leg — the
-   Gemini leg landed; issue reopened for Codex).
-3. **#960 + #945** (human-readable ids/titles). **#943** (bg-sessions UI, deferred).
-4. Future-run epics: **#970** (judge hardening), **#971** (org-optimizer apply
-   loop), **#976** (org-optimizer skill-refinement generator), **#977** (retire
-   the DB→file content shadow).
+1. **AJ: review + visual-smoke the draft PR** (`workflow/run-2026-07-09-ids-quality`),
+   especially the #943 Session History screen. Then merge (manual). This closes
+   **#945, #960, #951, #954, #970, #943**.
+2. **#961** real-config remediation — **unblocked once #960 merges**; still
+   approval-gated (real `~/.config/opencode` + DB). Plan: sandboxed dry-run
+   (temp HOME + `.backup` DB) → show the exact diff → AJ go → apply. Re-wire the
+   5 #958-lint miswirings (config-doctor, AI-Trend-Researcher, research→domain-intel,
+   secretary, Theological-Researcher), backfill UUID labels, remove stub dirs,
+   run the #947 migration (`RHYTHM_MIGRATE_MANAGED_SKILLS=1`).
+3. Held epics (after this wave merges): **#977** (retire DB→file skill-content
+   shadow — conflicts with the #951/#954 skill-content paths), **#971** →
+   **#976** (org-optimizer approval loop + skill-refinement generator).
+- **#952** closed (Codex "hang" was ChatGPT quota exhaustion, not a bug —
+  confirmed live 2026-07-09: `gpt-5.6-terra` completes, unsupported models return
+  clean error frames, no hang).

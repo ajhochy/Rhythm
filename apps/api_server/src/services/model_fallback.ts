@@ -134,7 +134,7 @@ export function nextFallbackTier(
 // stops at REPORTING exhaustion rather than performing the handoff itself.
 
 /** Default one-model-per-tier per provider (a real model catalog choice lives in agent_model_resolver.ts's ROUTE_FALLBACKS_BY_AGENT; this is only the fallback used when that table has no entry for the target provider's default agent kind). */
-const DEFAULT_MODEL_BY_PROVIDER: Record<string, string> = {
+export const DEFAULT_MODEL_BY_PROVIDER: Record<string, string> = {
   anthropic: 'claude-sonnet-4-6',
   // gpt-5.4 (general), NOT gpt-5.3-codex: the `-codex` specialized models are
   // rejected for ChatGPT-account (OAuth) Codex auth — "not supported when using
@@ -150,6 +150,32 @@ export interface CrossProviderHandoffDecision {
   tier: FallbackTier;
   providerID: string;
   modelID: string;
+}
+
+export interface ReliableFallbackModelDecision {
+  tier: FallbackTier;
+  providerID: string;
+  modelID: string;
+}
+
+/**
+ * Resolve a reliable authed model for background judge/refiner calls.
+ *
+ * This reuses #930's configured fallback chain order and default-model table,
+ * but deliberately excludes the last-resort OpenRouter-free tier. That router
+ * is useful as an interactive spillover destination, but it is not a safe
+ * unattended judge tier because it can hang without an error frame.
+ */
+export function resolveReliableAuthedFallbackModel(
+  authedProviders: readonly string[],
+): ReliableFallbackModelDecision | undefined {
+  const tier = resolveAuthedFallbackChain(authedProviders).find(
+    (t) => t.id !== 'openrouter-free' && t.providerID !== 'openrouter',
+  );
+  if (!tier) return undefined;
+  const modelID = DEFAULT_MODEL_BY_PROVIDER[tier.providerID];
+  if (!modelID) return undefined;
+  return { tier, providerID: tier.providerID, modelID };
 }
 
 /**

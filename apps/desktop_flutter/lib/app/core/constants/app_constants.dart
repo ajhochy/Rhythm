@@ -13,6 +13,7 @@ class AppConstants {
   static const int navAutomations = 7;
   static const int navIntegrations = 8;
   static const int navAgents = 9;
+  static const int navSessionHistory = 10;
 
   static const String agentLocalBaseUrl = 'http://localhost:4001';
   static const String agentLocalWsBase = 'ws://localhost:4001';

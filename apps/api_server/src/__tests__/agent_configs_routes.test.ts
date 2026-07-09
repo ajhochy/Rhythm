@@ -93,6 +93,7 @@ describe('POST /agent-configs', () => {
   let baseUrl: string;
   let closeServer: () => Promise<void>;
   let authHeaders: Record<string, string>;
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   beforeEach(async () => {
     ({ baseUrl, closeServer, authHeaders } = await setup());
@@ -123,6 +124,62 @@ describe('POST /agent-configs', () => {
     expect(config.command).toBeUndefined();
     expect(config.presetId).toBeNull();
     expect(typeof config.id).toBe('string');
+  });
+
+  it('honors a custom slug id on create', async () => {
+    const res = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ id: 'care-team', label: 'Care Team' }),
+    });
+
+    expect(res.status).toBe(201);
+    const config = (await res.json()) as Record<string, unknown>;
+    expect(config.id).toBe('care-team');
+    expect(config.label).toBe('Care Team');
+  });
+
+  it('returns 400 when a custom id is not a slug', async () => {
+    const res = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ id: 'Care Team', label: 'Care Team' }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 409 when a custom id already exists', async () => {
+    const res = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ id: 'claude-code', label: 'Custom Claude' }),
+    });
+
+    expect(res.status).toBe(409);
+  });
+
+  it('returns 400 when a custom id is reserved for an opencode internal preset', async () => {
+    const res = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ id: 'build', label: 'Build' }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('derives a slug id from label when no id is supplied', async () => {
+    const res = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ label: 'Pastoral Care Agent' }),
+    });
+
+    expect(res.status).toBe(201);
+    const config = (await res.json()) as Record<string, unknown>;
+    expect(config.id).toBe('pastoral-care-agent');
+    expect(String(config.id)).not.toMatch(uuidRe);
   });
 
   it('creates a config with canResume and resumeCommand', async () => {

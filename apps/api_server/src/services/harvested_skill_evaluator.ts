@@ -136,6 +136,44 @@ function evalThreshold(): number {
   return Number.isFinite(n) && n >= 0 ? n : 3;
 }
 
+function harvestJudgeTimeoutMs(): number {
+  const raw = process.env.RHYTHM_HARVEST_JUDGE_TIMEOUT_MS;
+  if (raw === undefined) return 60_000;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 60_000;
+}
+
+class HarvestJudgeTimeoutError extends Error {
+  constructor(label: string, timeoutMs: number) {
+    super(`${label} timed out after ${timeoutMs}ms`);
+    this.name = 'HarvestJudgeTimeoutError';
+  }
+}
+
+async function withHarvestJudgeTimeout<T>(
+  label: string,
+  timeoutMs: number,
+  run: () => Promise<T>,
+): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      run(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new HarvestJudgeTimeoutError(label, timeoutMs)), timeoutMs);
+      }),
+    ]);
+  } catch (err) {
+    if (err instanceof HarvestJudgeTimeoutError) {
+      logger.warn(`[harvest-eval] ${err.message} (non-fatal; skipping this draft)`);
+      return null;
+    }
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /** Reuses skill_refiner.ts's OWN rubric bands (buildScoreSystemPrompt) verbatim
  *  as the keep/disable tier boundaries — no separately-invented bar. */
 const KEEP_SCORE_BAR = 61;
@@ -169,6 +207,8 @@ export interface EvaluateDeps {
   agentConfigsRepo?: AgentConfigsRepository;
   /** Injectable clock, for deterministic tests. */
   now?: () => string;
+  /** Per-judge-call timeout in ms. Defaults to RHYTHM_HARVEST_JUDGE_TIMEOUT_MS or 60000. */
+  judgeTimeoutMs?: number;
 }
 
 export interface EvaluateSummary {
@@ -316,6 +356,7 @@ async function rewriteFlaggedDrafts(
   const result = { rewriteAttempted: 0, rewritten: 0 };
   if (isTestEnv() && !deps.rewriter) return result;
   if (!isSkillRefinementEnabled()) return result;
+  const judgeTimeoutMs = deps.judgeTimeoutMs ?? harvestJudgeTimeoutMs();
 
   for (const name of listDraftSkillNames()) {
     try {
@@ -333,7 +374,12 @@ async function rewriteFlaggedDrafts(
       const purpose: SkillPurpose = { name, description: draft.frontmatter.description ?? null };
       const reason = draft.frontmatter.measureReason ?? 'flagged rewrite-needed';
       const candidateBody = await rewriteSkillBody(purpose, draft.body, reason, deps.rewriter);
-      const candidateScore = await scoreSkillBody(purpose, candidateBody, deps.scorer);
+      const candidateScore = await withHarvestJudgeTimeout(
+        `rewrite judge for '${name}'`,
+        judgeTimeoutMs,
+        () => scoreSkillBody(purpose, candidateBody, deps.scorer),
+      );
+      if (!candidateScore) continue;
       const baselineScore = draft.frontmatter.postScore ?? 0;
       const attemptedAtNow = now();
 
@@ -407,6 +453,7 @@ export async function evaluateHarvestedDrafts(deps: EvaluateDeps = {}): Promise<
     const now = deps.now ?? (() => new Date().toISOString());
     const reload = deps.reload ?? (() => opencodeClient.reloadSkills());
     const agentConfigsRepo = deps.agentConfigsRepo ?? new AgentConfigsRepository();
+    const judgeTimeoutMs = deps.judgeTimeoutMs ?? harvestJudgeTimeoutMs();
 
     const uses = countUses();
     const dependedOnSkillNames = collectDependedOnSkillNames(agentConfigsRepo);
@@ -424,7 +471,12 @@ export async function evaluateHarvestedDrafts(deps: EvaluateDeps = {}): Promise<
           name,
           description: draft.frontmatter.description ?? null,
         };
-        const result = await scoreSkillBody(purpose, draft.body, deps.scorer);
+        const result = await withHarvestJudgeTimeout(
+          `judge for '${name}'`,
+          judgeTimeoutMs,
+          () => scoreSkillBody(purpose, draft.body, deps.scorer),
+        );
+        if (!result) continue;
         summary.evaluated++;
         const evaluatedAt = now();
 

@@ -88,7 +88,7 @@ describe('AgentConfigsRepository', () => {
   });
 
   describe('insert()', () => {
-    it('inserts a custom config and returns it with an auto-generated UUID', () => {
+    it('inserts a config with no id and derives a human-readable slug from the label (#960)', () => {
       const config = repo.insert({
         label: 'My Custom Agent',
         icon: 'assets/agents/custom.png',
@@ -97,7 +97,8 @@ describe('AgentConfigsRepository', () => {
       });
 
       expect(config.id).toBeTypeOf('string');
-      expect(config.id).toHaveLength(36); // UUID v4
+      // #960: no-id insert derives a slug from the label — NOT a bare UUID.
+      expect(config.id).toBe('my-custom-agent');
       expect(config.label).toBe('My Custom Agent');
       expect(config.enabled).toBe(true);
       expect(config.isAgent).toBe(true);

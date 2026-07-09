@@ -6,6 +6,7 @@ import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 import {
   writeAgentProfileFile,
   deleteAgentProfileFile,
+  isReservedAgentConfigId,
 } from '../services/opencode_agent_writer';
 import {
   buildAgentConfigExportBundle,
@@ -40,6 +41,7 @@ const PRESET_PROTECTED_FIELDS = ['label', 'icon', 'isAgent'];
 // agent_model_resolver.resolveModelTier() as the `explicitTierHint`.
 const VALID_MODEL_TIER_HINTS = new Set(['cheap', 'standard', 'frontier']);
 const VALID_CORE_PERMISSION_ACTIONS = new Set(['allow', 'ask', 'deny']);
+const AGENT_CONFIG_ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 function validateCorePermissionsJson(value: unknown): void {
   if (value === undefined || value === null) return;
@@ -202,8 +204,22 @@ export class AgentConfigsController {
     try {
       const body = req.body as Record<string, unknown>;
       validateBody(body, true);
+      let id: string | undefined;
+      if (body.id !== undefined) {
+        if (typeof body.id !== 'string' || !AGENT_CONFIG_ID_RE.test(body.id)) {
+          throw AppError.badRequest('id must be a slug matching ^[a-z0-9]+(-[a-z0-9]+)*$');
+        }
+        if (repo.getById(body.id)) {
+          throw AppError.conflict(`AgentConfig id "${body.id}" already exists`);
+        }
+        if (isReservedAgentConfigId(body.id)) {
+          throw AppError.badRequest(`id "${body.id}" is reserved`);
+        }
+        id = body.id;
+      }
 
       const input: AgentConfigInput = {
+        id,
         label: (body.label as string).trim(),
         icon: typeof body.icon === 'string' ? body.icon : '',
         // Legacy CLI fields (#581) — accept-and-ignore. The repository
