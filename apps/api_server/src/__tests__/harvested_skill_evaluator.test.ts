@@ -30,7 +30,7 @@ import {
   readDisabledSkill,
 } from '../services/rhythm_managed_skills';
 import { evaluateHarvestedDrafts } from '../services/harvested_skill_evaluator';
-import type { ScoreResult, RewriteCall } from '../services/skill_refiner';
+import type { ScoreCall, ScoreResult, RewriteCall } from '../services/skill_refiner';
 
 function makeDb(): Database.Database {
   const db = new Database(':memory:');
@@ -194,6 +194,40 @@ describe('evaluateHarvestedDrafts — Unit 3 keep/disable/rewrite-needed (guard 
     // still evaluates to a disable outcome rather than crashing the pass.
     expect(summary.evaluated).toBe(1);
     expect(summary.disabled).toBe(1);
+  });
+
+  it('times out one hanging judge call and still evaluates later eligible drafts', async () => {
+    seedDraft('timeout-first');
+    seedDraft('timeout-second');
+    seedDraft('timeout-third');
+    let calls = 0;
+    const scorer: ScoreCall = async () => {
+      calls++;
+      if (calls === 1) {
+        return new Promise<ScoreResult>(() => {});
+      }
+      return { score: 85, reason: 'good after timeout' };
+    };
+
+    const summary = await evaluateHarvestedDrafts({
+      scorer,
+      countUses: usesReturning({
+        'timeout-first': 3,
+        'timeout-second': 3,
+        'timeout-third': 3,
+      }),
+      reload: noopReload,
+      proposalsRepo: new AgentOrgProposalsRepository(),
+      judgeTimeoutMs: 20,
+    });
+
+    expect(calls).toBe(3);
+    expect(summary).toMatchObject({ evaluated: 2, kept: 2, disabled: 0, rewriteNeeded: 0 });
+    const statuses = ['timeout-first', 'timeout-second', 'timeout-third'].map(
+      (name) => readDraftSkill(name)?.frontmatter.status,
+    );
+    expect(statuses.filter((status) => status === 'active')).toHaveLength(2);
+    expect(statuses.filter((status) => status === 'draft')).toHaveLength(1);
   });
 
   // #959 — dependency guard: a harvested skill referenced by any agent's
