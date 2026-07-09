@@ -64,6 +64,7 @@ function makeSnapshot(gaps: OrgAuditGap[]): OrgAuditSnapshot {
     deniedToolAggregates: [],
     drift: [],
     gaps,
+    workflowFailureSignals: [],
   };
 }
 

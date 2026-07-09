@@ -27,6 +27,7 @@ import { randomUUID } from 'node:crypto';
 
 import { opencodeClient } from './opencode_engine';
 import { alignMcpName } from './mcp_name_alignment';
+import { extractWorkflowFailureSignals, type WorkflowFailureSignal } from './workflow_failure_signal_extractor';
 import { AgentConfigsRepository, type AgentConfig } from '../repositories/agent_configs_repository';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentCookbookRepository } from '../repositories/agent_cookbook_repository';
@@ -110,6 +111,13 @@ export interface OrgAuditSnapshot {
   deniedToolAggregates: DeniedToolAggregate[];
   drift: AllowlistDrift[];
   gaps: OrgAuditGap[];
+  /**
+   * #934 — recurring agent-workflow failure signals (workflow_failure_signal_extractor.ts,
+   * #933). Always an array — `[]` when none were detected or the extractor
+   * degraded (it never throws), never omitted/null, so consumers can rely on
+   * `.length`/iteration without a null check.
+   */
+  workflowFailureSignals: WorkflowFailureSignal[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -451,6 +459,18 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
     ...detectWebhookGaps(sessions, webhookEndpoints),
   ];
 
+  // #934 — workflow_failure_signal_extractor.ts is itself read-only and never
+  // throws (see its own module doc); still wrapped defensively here so a
+  // future change to that module can never turn this READ-ONLY snapshot
+  // builder into a throwing one. A degraded/failed extraction resolves to
+  // `[]`, never omits the field or surfaces an error to callers.
+  let workflowFailureSignals: WorkflowFailureSignal[] = [];
+  try {
+    workflowFailureSignals = await extractWorkflowFailureSignals();
+  } catch {
+    workflowFailureSignals = [];
+  }
+
   return {
     auditRunId: randomUUID(),
     generatedAt: new Date().toISOString(),
@@ -464,5 +484,6 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
     deniedToolAggregates,
     drift,
     gaps,
+    workflowFailureSignals,
   };
 }
