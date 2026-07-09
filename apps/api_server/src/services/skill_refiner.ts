@@ -276,6 +276,78 @@ export async function scoreSkillBody(
   }
 }
 
+// ── #969 — rewrite-needed → refiner candidate generation ───────────────────
+//
+// scoreSkillBody (above) JUDGES a body; nothing in this file GENERATES one.
+// The rewrite-needed sweep (harvested_skill_evaluator.ts) needs an actual
+// improved candidate to score, so this is the one missing piece: same LLM-call
+// plumbing as defaultScorer, a different (generative) prompt. Never invents a
+// new judge/quality-bar — the sweep still gates the result through
+// scoreSkillBody + the SAME KEEP_SCORE_BAR the evaluator already uses.
+
+/**
+ * Injectable candidate-rewrite generator: given a skill's stated PURPOSE, its
+ * CURRENT (inadequate) body, and the reason it was flagged, produce an
+ * improved body. Defaults to the real opencode-backed impl. Tests inject a
+ * deterministic one.
+ */
+export type RewriteCall = (purpose: SkillPurpose, currentBody: string, reason: string) => Promise<string>;
+
+function buildRewriteSystemPrompt(): string {
+  return (
+    "You are rewriting an agent skill's BODY so it actually fulfills the skill's " +
+    'STATED PURPOSE. You will be given the PURPOSE, the CURRENT BODY (already ' +
+    'judged inadequate), and the REASON it was judged inadequate. Output ONLY the ' +
+    'improved markdown body — no commentary, no frontmatter. Be concise, accurate, ' +
+    'and actionable.'
+  );
+}
+
+/** Default (real) rewriter — guarded; never reached under isTestEnv. */
+const defaultRewrite: RewriteCall = async (purpose, currentBody, reason) => {
+  const { opencodeClient } = await import('./opencode_engine');
+  const { resolveRunModel } = await import('./agent_runner');
+  const model = resolveRunModel();
+  const system = buildRewriteSystemPrompt();
+  const user =
+    `PURPOSE:\n${purposeText(purpose)}\n\n` +
+    `CURRENT BODY (inadequate):\n${(currentBody ?? '').trim() || '(empty)'}\n\n` +
+    `WHY IT WAS FLAGGED: ${reason || '(no reason recorded)'}\n\n` +
+    'Improved BODY:';
+  const session = await opencodeClient.createSession('skill-refine-rewrite');
+  if (!session?.id) return currentBody; // fail-closed: nothing to improve on
+  const resp = await opencodeClient.prompt(session.id, `${system}\n\n${user}`, model, undefined, {
+    permissionMode: 'bypassPermissions',
+  });
+  const text = (resp?.parts ?? [])
+    .filter((p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text')
+    .map((p) => p.text)
+    .join('\n')
+    .trim();
+  return text || currentBody;
+};
+
+/**
+ * Generate a candidate rewrite of an inadequate skill body. NEVER throws — a
+ * thrown/empty rewriter degrades to the CURRENT body UNCHANGED, so a
+ * generation failure can never masquerade as an "improvement" downstream (the
+ * subsequent score comparison against the same body can, at best, tie — never
+ * beat the baseline — so the non-destructive gate holds even on failure).
+ */
+export async function rewriteSkillBody(
+  purpose: SkillPurpose,
+  currentBody: string,
+  reason: string,
+  rewriter: RewriteCall = defaultRewrite,
+): Promise<string> {
+  try {
+    return await rewriter(purpose, currentBody, reason);
+  } catch (err) {
+    logger.warn(`[skill-refine] rewriter threw (fail-closed → unchanged body): ${String(err)}`);
+    return currentBody;
+  }
+}
+
 export interface RefineDeps {
   /** Injectable judge (defaults to the real opencode-backed impl). */
   judge?: JudgeCall;

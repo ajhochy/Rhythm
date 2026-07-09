@@ -55,6 +55,40 @@
  * as a mediocre score instead (still flagged, still live, still counted
  * toward the Unit 4 harvester-quality streak/window since rewrite-needed is
  * already a BAD_OUTCOMES member — no separate signal path needed).
+ *
+ * ---- #969 -- Unit 5: rewrite-needed -> refiner wiring --------------------
+ * #929 could FLAG a draft rewrite-needed but nothing ever consumed the flag —
+ * it sat there forever (dead weight on the Unit 4 streak, never improved).
+ * `rewriteFlaggedDrafts` closes that loop: every pass, after Unit 3's per-
+ * draft evaluation, it sweeps every LIVE `rewrite-needed` draft and gives each
+ * ONE candidate-rewrite attempt (skill_refiner.rewriteSkillBody generates the
+ * candidate; skill_refiner.scoreSkillBody — the SAME scorer/tier boundary
+ * Unit 3 uses — judges it). Applies (status -> active, non-destructive
+ * rewrite in place, still under drafts/) only if the candidate BOTH beats the
+ * draft's own recorded baseline score AND clears KEEP_SCORE_BAR; otherwise the
+ * body is left byte-for-byte untouched.
+ *
+ * LOOP SAFETY: a rewrite attempt stamps `rewriteAttemptedAt` on the draft's
+ * frontmatter regardless of outcome. A draft with that marker already set (at
+ * or after its own evaluatedAt) is skipped on every later pass — a ONE-SHOT
+ * cap, not a cooldown timer. Since evaluateHarvestedDrafts fires after EVERY
+ * completed turn (agent_runner.ts / opencode_stream_bridge.ts), an uncapped
+ * sweep would re-run the generate+score LLM pair on the SAME stubborn skill
+ * on every single turn in the app, forever. The cap bounds the cost to AT MOST
+ * one generate+score pair per draft, ever, for as long as nothing re-opens it
+ * (nothing does today — Unit 3 only re-evaluates `status: draft` rows, never
+ * `rewrite-needed` ones — so "until it changes" has no live trigger yet; the
+ * evaluatedAt comparison exists so a future change that DOES re-evaluate a
+ * rewrite-needed draft gets a fresh attempt for free, without new plumbing).
+ *
+ * Never disables/removes a rewrite-needed draft, on success OR failure — a
+ * depended-on skill (#959) stays live and discoverable throughout, whether or
+ * not the rewrite lands. Same guards as the rest of the loop: isTestEnv()
+ * (gated on an injected `deps.rewriter`, independent of Unit 3's `deps.scorer`
+ * guard — see rewriteFlaggedDrafts), Postgres no-op (inherited from the outer
+ * evaluateHarvestedDrafts guard), never throws, and honors the EXISTING
+ * `isSkillRefinementEnabled()` toggle (skill_refiner.ts) so turning off
+ * in-place refinement also turns off this sweep.
  */
 
 import { logger } from '../utils/logger';
@@ -68,7 +102,14 @@ import {
   writeDraftManagedSkill,
 } from './rhythm_managed_skills';
 import { countSkillToolUses } from './skill_usage_tracker';
-import { scoreSkillBody, type ScoreCall, type SkillPurpose } from './skill_refiner';
+import {
+  scoreSkillBody,
+  rewriteSkillBody,
+  isSkillRefinementEnabled,
+  type ScoreCall,
+  type RewriteCall,
+  type SkillPurpose,
+} from './skill_refiner';
 import { classifyProposalRisk } from './org_risk_classifier';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
@@ -111,6 +152,13 @@ const BAD_OUTCOMES = new Set<HarvestStatus>(['disabled', 'rewrite-needed']);
 export interface EvaluateDeps {
   /** Injectable judge (defaults to the real opencode-backed impl). Tests inject a fake to lift the isTestEnv guard. */
   scorer?: ScoreCall;
+  /**
+   * #969 — injectable rewrite-candidate generator for the rewrite-needed
+   * sweep (defaults to the real opencode-backed impl). Gated INDEPENDENTLY of
+   * `scorer` under isTestEnv (see rewriteFlaggedDrafts) so existing tests that
+   * inject only `scorer` never trigger a real rewrite LLM call.
+   */
+  rewriter?: RewriteCall;
   /** Injectable usage counter (defaults to countSkillToolUses). */
   countUses?: () => Map<string, number>;
   /** Injectable engine re-scan (defaults to opencodeClient.reloadSkills). */
@@ -128,6 +176,10 @@ export interface EvaluateSummary {
   kept: number;
   disabled: number;
   rewriteNeeded: number;
+  /** #969 — rewrite-needed drafts given a candidate-rewrite attempt this pass. */
+  rewriteAttempted: number;
+  /** #969 — of those attempts, how many measurably improved and moved to active. */
+  rewritten: number;
   harvesterSignalCreated: boolean;
 }
 
@@ -136,6 +188,8 @@ const EMPTY_SUMMARY: EvaluateSummary = {
   kept: 0,
   disabled: 0,
   rewriteNeeded: 0,
+  rewriteAttempted: 0,
+  rewritten: 0,
   harvesterSignalCreated: false,
 };
 
@@ -243,10 +297,104 @@ async function maybeSignalHarvesterQuality(repoOverride?: AgentOrgProposalsRepos
 }
 
 /**
- * Unit 3 — evaluate every eligible draft and decide keep/disable/rewrite-
- * needed; Unit 4 — fires the harvester-quality check when this pass produced
- * any bad outcome. NEVER throws; each draft's evaluation is individually
+ * #969 (Unit 5) — give every LIVE `rewrite-needed` draft ONE candidate-rewrite
+ * attempt, ever, unless its own evaluatedAt moves past the last attempt (see
+ * module docstring). NEVER throws — each draft's attempt is individually
  * guarded so one bad draft can't block the rest.
+ *
+ * isTestEnv() gate is INDEPENDENT of evaluateHarvestedDrafts's own `scorer`
+ * guard: many existing tests inject `deps.scorer` (to exercise Unit 3) without
+ * ever intending to exercise this sweep, so this function must not fire a
+ * real rewriter call just because a scorer happened to be injected upstream.
+ * A test that wants this branch injects `deps.rewriter` AND clears
+ * VITEST/NODE_ENV, same discipline as `refineExistingSkill`'s judge guard.
+ */
+async function rewriteFlaggedDrafts(
+  deps: EvaluateDeps,
+  now: () => string,
+): Promise<{ rewriteAttempted: number; rewritten: number }> {
+  const result = { rewriteAttempted: 0, rewritten: 0 };
+  if (isTestEnv() && !deps.rewriter) return result;
+  if (!isSkillRefinementEnabled()) return result;
+
+  for (const name of listDraftSkillNames()) {
+    try {
+      const draft = readDraftSkill(name);
+      if (!draft || draft.frontmatter.status !== 'rewrite-needed') continue;
+
+      // Loop-safety cap: already attempted, and nothing has re-evaluated this
+      // draft since (or there's nothing to compare against) -> never retry.
+      const attemptedAt = draft.frontmatter.rewriteAttemptedAt;
+      const evaluatedAt = draft.frontmatter.evaluatedAt;
+      const alreadyAttempted = attemptedAt !== undefined && (!evaluatedAt || attemptedAt >= evaluatedAt);
+      if (alreadyAttempted) continue;
+
+      result.rewriteAttempted++;
+      const purpose: SkillPurpose = { name, description: draft.frontmatter.description ?? null };
+      const reason = draft.frontmatter.measureReason ?? 'flagged rewrite-needed';
+      const candidateBody = await rewriteSkillBody(purpose, draft.body, reason, deps.rewriter);
+      const candidateScore = await scoreSkillBody(purpose, candidateBody, deps.scorer);
+      const baselineScore = draft.frontmatter.postScore ?? 0;
+      const attemptedAtNow = now();
+
+      const baseInput = {
+        name,
+        description: draft.frontmatter.description,
+        sourceSessionId: draft.frontmatter.sourceSession ?? '',
+        confidence: draft.frontmatter.confidence ?? 0,
+        provenance: draft.frontmatter.provenance,
+        extractedAt: draft.frontmatter.extractedAt,
+        rewriteAttemptedAt: attemptedAtNow,
+      };
+
+      // Non-destructive quality bar: apply only a MEASURABLE improvement that
+      // ALSO clears the SAME absolute bar Unit 3 uses to decide 'active' — a
+      // worse/equal/still-mediocre candidate never touches the live body.
+      if (candidateScore.score > baselineScore && candidateScore.score >= KEEP_SCORE_BAR) {
+        writeDraftManagedSkill({
+          ...baseInput,
+          body: candidateBody,
+          status: 'active',
+          evaluatedAt: attemptedAtNow,
+          postScore: candidateScore.score,
+          measureReason: candidateScore.reason,
+        });
+        result.rewritten++;
+        logger.info(
+          `[harvest-eval] rewrote '${name}' in place (${baselineScore} -> ${candidateScore.score}) — status: active`,
+        );
+      } else {
+        // Not an improvement — leave the body untouched, just stamp the
+        // attempt marker so this draft is never re-tried.
+        writeDraftManagedSkill({
+          ...baseInput,
+          body: draft.body,
+          status: 'rewrite-needed',
+          evaluatedAt: draft.frontmatter.evaluatedAt,
+          postScore: draft.frontmatter.postScore,
+          measureReason: draft.frontmatter.measureReason,
+        });
+        logger.info(
+          `[harvest-eval] rewrite attempt for '${name}' did not improve it (${baselineScore} -> ${candidateScore.score}) — capped, staying rewrite-needed`,
+        );
+      }
+    } catch (err) {
+      logger.warn(`[harvest-eval] rewrite attempt for '${name}' failed (non-fatal): ${String(err)}`);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Unit 3 — evaluate every eligible draft and decide keep/disable/rewrite-
+ * needed; Unit 5 (#969) — sweep every rewrite-needed draft (including ones
+ * freshly flagged by Unit 3 in THIS pass) for a one-shot refiner attempt;
+ * Unit 4 — fires the harvester-quality check when this pass produced any bad
+ * outcome (run AFTER Unit 5, so a same-pass successful rewrite is already
+ * 'active' and correctly excluded from the bad-outcome window). NEVER
+ * throws; each draft's evaluation is individually guarded so one bad draft
+ * can't block the rest.
  */
 export async function evaluateHarvestedDrafts(deps: EvaluateDeps = {}): Promise<EvaluateSummary> {
   try {
@@ -322,6 +470,12 @@ export async function evaluateHarvestedDrafts(deps: EvaluateDeps = {}): Promise<
         logger.warn(`[harvest-eval] evaluating '${name}' failed (non-fatal): ${String(err)}`);
       }
     }
+
+    // #969 (Unit 5) — one-shot refiner attempt for every LIVE rewrite-needed
+    // draft, INCLUDING any just flagged by Unit 3 above in this same pass.
+    const rewriteResult = await rewriteFlaggedDrafts(deps, now);
+    summary.rewriteAttempted = rewriteResult.rewriteAttempted;
+    summary.rewritten = rewriteResult.rewritten;
 
     if (summary.disabled > 0 || summary.rewriteNeeded > 0) {
       summary.harvesterSignalCreated = await maybeSignalHarvesterQuality(deps.proposalsRepo);

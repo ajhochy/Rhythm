@@ -57,6 +57,14 @@ export interface SkillFrontmatter {
   evaluatedAt?: string;
   postScore?: number;
   measureReason?: string;
+  /**
+   * #969 — ISO timestamp of the most recent rewrite ATTEMPT (whether or not it
+   * improved the skill). The loop-safety cap on the rewrite-needed → refiner
+   * sweep: a draft with this set (at/after its own evaluatedAt) is never
+   * re-attempted, so a stubborn skill gets exactly one refine pass, not one
+   * per turn forever. See harvested_skill_evaluator.ts's rewrite sweep.
+   */
+  rewriteAttemptedAt?: string;
 }
 
 const EMPTY_FRONTMATTER: SkillFrontmatter = {
@@ -308,7 +316,7 @@ export function parseSkillFrontmatter(content: string): SkillFrontmatter {
 
       // #929 — harvested-draft scalars (see renderDraftSkillMarkdown). Plain
       // `key: value` lines, same shape as name/description above.
-      const harvestMatch = /^(status|source|provenance|source_session|extracted_at|evaluated_at|measure_reason):\s*(.*)$/.exec(
+      const harvestMatch = /^(status|source|provenance|source_session|extracted_at|evaluated_at|measure_reason|rewrite_attempted_at):\s*(.*)$/.exec(
         trimmed,
       );
       if (harvestMatch) {
@@ -334,6 +342,9 @@ export function parseSkillFrontmatter(content: string): SkillFrontmatter {
             break;
           case 'measure_reason':
             result.measureReason = value;
+            break;
+          case 'rewrite_attempted_at':
+            result.rewriteAttemptedAt = value;
             break;
         }
         continue;
