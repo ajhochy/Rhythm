@@ -299,11 +299,17 @@ describeLive('live E2E — #929 skill self-regulation loop', () => {
  * The evaluation trigger is MODEL-INDEPENDENT: the gate launches the server
  * with `RHYTHM_HARVEST_EVAL_THRESHOLD=0`, so evaluateHarvestedDrafts (which
  * fires unconditionally after EVERY completed turn) evaluates every
- * status:draft draft regardless of usage. The test therefore only needs ONE
- * arbitrary turn to complete — it never depends on a weak model choosing to
- * invoke specific skills. Both drafts get an identical bad body and are
- * evaluated in the same pass, so the ONLY difference between them is the
- * dependency, making the guard the sole discriminator.
+ * status:draft draft regardless of usage. The test only needs arbitrary turns
+ * to complete — it never depends on a weak model choosing to invoke specific
+ * skills. Both drafts get an identical bad body and are evaluated in the same
+ * pass, so the ONLY difference between them is the dependency, making the guard
+ * the sole discriminator.
+ *
+ * Both the trigger turns AND the evaluator's internal judge (scoreSkillBody →
+ * resolveRunModel → most-recently-used session model) are pinned to authed
+ * anthropic — the session's model is set via PATCH so it becomes the MRU — so
+ * neither the turn nor any judge call can route to openrouter/free (which hangs
+ * with no error frame, the #952 watchdog gap).
  *
  * The keep/disable DECISION stays fully real: real evaluateHarvestedDrafts,
  * real agent_configs allowlist read, real LLM judge scoring, real
@@ -404,31 +410,73 @@ describeLive('live E2E — #959 dependency guard (deterministic seed, no live di
       });
       createdSessionIds.push(sess.id);
 
+      // PIN the session's model to authed anthropic. This is load-bearing for
+      // the evaluator's JUDGE, not just the trigger turn: scoreSkillBody scores
+      // each draft via resolveRunModel() with NO agentConfigId, which resolves
+      // through findMostRecentlyUsedModel() (the newest session with a persisted
+      // model). Without this pin the judge inherits whatever prior session's
+      // model was MRU — if that is openrouter/free the judge call HANGS mid-
+      // sweep (no completion, no error frame → #952 watchdog gap), and the
+      // draft after it in the sweep is never processed. Persisting anthropic
+      // here makes this session the MRU, so every judge call runs on the authed
+      // tier and the whole sweep completes.
+      await apiJson(`/agent-sessions/${sess.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ providerId: 'anthropic', modelId: 'claude-sonnet-4-6' }),
+      });
+
+      // Terminal state for BOTH drafts: the depended one left status:draft while
+      // staying live; the undepended one is archived (gone from the live list,
+      // present in disabled/).
+      const bothTerminal = async (): Promise<boolean> => {
+        const skills = await listSkillsWithMetadata();
+        const dep = skills.find((s) => s.name === dependedName);
+        const undep = skills.find((s) => s.name === undependedName);
+        const depDone = !!(dep && dep.metadata?.status && dep.metadata.status !== 'draft');
+        const undepDone = !undep && existsSync(join(DISABLED_DIR, undependedName, 'SKILL.md'));
+        return depDone && undepDone;
+      };
+
       const ws = connectWs();
       try {
-        // ONE arbitrary completing turn. With RHYTHM_HARVEST_EVAL_THRESHOLD=0
-        // (see the gate command in this file's docstring), the post-turn
-        // evaluateHarvestedDrafts evaluates EVERY status:draft draft regardless
-        // of usage — so the gate does NOT depend on the model invoking any
-        // skill, only that a single turn completes.
-        await sendPromptAndAwait(ws, sess.id, 'Reply with exactly the word: ok');
+        // Drive up to one arbitrary completing turn PER seeded draft. Each
+        // completed turn fires a fresh evaluateHarvestedDrafts sweep; with
+        // RHYTHM_HARVEST_EVAL_THRESHOLD=0 (see gate command in the docstring)
+        // one sweep evaluates EVERY status:draft draft regardless of usage — so
+        // the gate never depends on the model invoking any skill, only that a
+        // turn completes. One sweep should finish both (judge pinned above),
+        // but re-firing re-attempts any draft still status:draft, as insurance
+        // against a transient per-draft judge stall.
+        for (let attempt = 0; attempt < 2; attempt++) {
+          await sendPromptAndAwait(ws, sess.id, 'Reply with exactly the word: ok');
+          try {
+            await poll(
+              async () => {
+                if (await bothTerminal()) return true;
+                throw new Error('not both terminal yet');
+              },
+              30_000,
+              2_000,
+              'settle after trigger turn',
+            );
+            break;
+          } catch {
+            // Not converged yet — drive another turn to re-fire the sweep.
+          }
+        }
       } finally {
         ws.close();
       }
 
-      // Wait for the evaluator to finish BOTH drafts: the depended one leaves
-      // status:draft while staying live; the undepended one is archived
-      // (removed from the live list, present in disabled/). If this stalls with
+      // Final wait for both drafts to reach terminal state. If this stalls with
       // both still status:draft, the server was NOT launched with
       // RHYTHM_HARVEST_EVAL_THRESHOLD=0 (threshold fell back to 3).
       await poll(
         async () => {
+          if (await bothTerminal()) return true;
           const skills = await listSkillsWithMetadata();
           const dep = skills.find((s) => s.name === dependedName);
           const undep = skills.find((s) => s.name === undependedName);
-          const depDone = !!(dep && dep.metadata?.status && dep.metadata.status !== 'draft');
-          const undepDone = !undep && existsSync(join(DISABLED_DIR, undependedName, 'SKILL.md'));
-          if (depDone && undepDone) return true;
           throw new Error(
             `evaluator not done (dep=${dep?.metadata?.status ?? 'gone'}, undepListed=${!!undep}); ` +
               `if both are still 'draft', launch the server with RHYTHM_HARVEST_EVAL_THRESHOLD=0`,
@@ -456,7 +504,7 @@ describeLive('live E2E — #959 dependency guard (deterministic seed, no live di
       expect(skills.find((s) => s.name === undependedName)).toBeFalsy();
       expect(existsSync(join(DISABLED_DIR, undependedName, 'SKILL.md'))).toBe(true);
     },
-    180_000, // 3 min: one completing turn + evaluator LLM judge x2 + polling.
+    240_000, // 4 min: up to 2 completing turns + evaluator LLM judge x2 + polling.
   );
 });
 
