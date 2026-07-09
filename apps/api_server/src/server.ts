@@ -135,28 +135,29 @@ async function main() {
       logger.warn(`[server] disableStandaloneMemoryMcp failed (non-fatal): ${String(err)}`);
     });
 
-    // One-time seed of vetted agent-stack skills into agent_skills (local SQLite
-    // only). Guarded by a zero-count check on source='agent-stack-seed' so it
-    // never re-imports. Non-fatal — a seed failure must never block startup.
+    // #947 — ONE-TIME population of the agent-referenced workflow skills into the
+    // sole managed dir (~/.config/opencode/skills). This REPLACES the old
+    // recurring agent-stack DB seed: a boot mechanism that re-imported/
+    // re-materialized skills from ~/.claude/skills on every start would silently
+    // clobber the self-improvement engine's in-place refinements (#929/#959/#969).
+    // It runs exactly ONCE — guarded by a DURABLE schema_meta marker that survives
+    // skill-row/file deletion (NOT the old source-row-existence check, which
+    // re-armed when rows were deleted, #957) — and copies a skill only when it is
+    // ABSENT, so an already-present (possibly refined) file is never overwritten.
+    // Non-fatal — a failure must never block startup and leaves the marker unset
+    // so a later boot retries.
     try {
-      const { AgentSkillsRepository } = await import(
-        './repositories/agent_skills_repository'
-      );
-      const { seedAgentStackSkills, SEED_SOURCE } = await import(
+      const { populateWorkflowSkillsOnce } = await import(
         './services/skill_seed_importer'
       );
-      const skillsRepo = new AgentSkillsRepository();
-      const alreadySeeded = skillsRepo
-        .list()
-        .some((s) => s.source === SEED_SOURCE);
-      if (!alreadySeeded) {
-        const result = seedAgentStackSkills(skillsRepo);
+      const r = populateWorkflowSkillsOnce();
+      if (!r.alreadyDone) {
         logger.info(
-          `[server] agent-stack skill seed: discovered=${result.discovered} imported=${result.imported} skipped=${result.skipped}`,
+          `[server] workflow-skill one-time population: copied=${r.copied} alreadyPresent=${r.alreadyPresent}`,
         );
       }
     } catch (err) {
-      logger.warn(`[server] agent-stack skill seed failed (non-fatal): ${String(err)}`);
+      logger.warn(`[server] workflow-skill population failed (non-fatal): ${String(err)}`);
     }
 
     // #797 — One-time reconciliation of HISTORICAL agent_skills rows onto the
@@ -350,13 +351,16 @@ async function main() {
         './services/opencode_plugin_config'
       );
       ensureRequiredPlugins();
-      // Unify-2 — register the Rhythm-managed skills dir in opencode.json
-      // (additive) so the fork scans it. Done before spawn so it is live
-      // without a runtime reload; runtime writes use reloadSkills().
-      const { ensureManagedSkillsDirRegistered } = await import(
-        './services/rhythm_managed_skills'
-      );
-      ensureManagedSkillsDirRegistered();
+      // #947 — Rhythm manages ~/.config/opencode/skills as the SOLE skill
+      // source. The engine auto-scans that config dir, so no opencode.json
+      // `skills.paths` registration is needed — just make sure the dir exists
+      // before spawn (the engine warn-skips a missing dir). The one-time
+      // legacy→sole-source migration is gated behind RHYTHM_MIGRATE_MANAGED_SKILLS
+      // (default off — folds into the #961 real-config remediation pass).
+      const { ensureManagedSkillsDir, maybeMigrateLegacyManagedSkills } =
+        await import('./services/rhythm_managed_skills');
+      ensureManagedSkillsDir();
+      maybeMigrateLegacyManagedSkills();
     } catch (err) {
       console.warn(
         '[Opencode] Plugin config update failed (non-fatal):',

@@ -7,6 +7,16 @@ index: "[[Rhythm]]"
 
 # Unify skills onto the opencode engine's file store; Flutter reads + writes that store
 
+> **SUPERSEDED (2026-07-09, #947)** — the "distinct namespaced sibling"
+> `~/.config/opencode/rhythm-managed-skills` and the additive `skills.paths`
+> registration described below are retired. Rhythm now manages
+> `~/.config/opencode/skills` directly as the SOLE skill source (auto-scanned by
+> the engine; external `.claude`/`.agents` scans disabled via
+> `OPENCODE_DISABLE_EXTERNAL_SKILLS=1`; no blanket auto-pull of ~/.claude/skills).
+> See `2026-07-09-single-skill-source-config-opencode-skills.md`. The read/write
+> mediation, materialize-on-publish, and reload mechanics from this doc still
+> hold — only the directory and the external-scan posture changed.
+
 ## Context
 
 After #775 (PR #776) enforced per-agent skill scoping in the fork, skills remained

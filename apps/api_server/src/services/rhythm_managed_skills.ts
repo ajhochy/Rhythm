@@ -1,33 +1,47 @@
 /**
- * Unify-2 — Rhythm-managed skills directory.
+ * #947 — Rhythm-managed skills directory (the SOLE skill source).
  *
- * Part of unifying skills onto the opencode engine's filesystem store as the
- * single source of truth (see docs/ai/decisions/2026-06-28-unify-skills-source-of-truth.md).
+ * Rhythm manages `~/.config/opencode/skills` directly and it is the only skill
+ * source the model loads (see
+ * docs/ai/decisions/2026-07-09-single-skill-source-config-opencode-skills.md,
+ * which supersedes the 2026-06-28 Unify-2 decision).
  *
- * The opencode fork is the ONLY thing that loads skills for the model. It
- * discovers SKILL.md files from `.claude`/`.agents`, its config dirs, and any
- * paths listed under `config.skills.paths`. api_server (co-located with the
- * fork) owns ONE dedicated dir registered via `skills.paths` and writes/edits/
- * deletes SKILL.md files there. Everything else the fork discovers (plugins,
- * ~/.claude/skills, superpowers, anthropic-skills) is show + scope only — Rhythm
- * never writes outside this managed dir.
+ * The opencode engine auto-scans `~/.config/opencode/{skill,skills}/**` via its
+ * hardcoded `ConfigPaths.directories()` — so this dir needs NO `skills.paths`
+ * registration. Rhythm additionally sets `OPENCODE_DISABLE_EXTERNAL_SKILLS=1`
+ * on the engine so `.claude/skills` and `.agents/skills` are no longer scanned:
+ * skills Rhythm wants are imported into this dir explicitly, never blanket
+ * auto-pulled from the global Claude Code / Codex stores.
  *
- * IMPORTANT: this dir must NOT collide with the `sync-globals` targets
- * (~/.claude/skills, ~/.codex/skills, ~/.config/opencode/skills) — those are
- * overwritten by `ai-workflow sync-globals`. We use a distinct, Rhythm-namespaced
- * dir under the opencode config root.
+ * This became the sole source once agent-stack `ai-workflow sync-globals`
+ * stopped writing `~/.config/opencode/skills` (it keeps `~/.claude/skills` +
+ * `~/.codex/skills` for Claude Code / Codex). That removed the original
+ * constraint that forced the separate `rhythm-managed-skills` sibling dir; the
+ * legacy dir migrates into this one via {@link migrateLegacyManagedSkills}.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, statSync } from 'fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  rmSync,
+  rmdirSync,
+  renameSync,
+  copyFileSync,
+  readdirSync,
+  statSync,
+} from 'fs';
 import { dirname, join, resolve, sep } from 'path';
 import { homedir } from 'os';
 import { logger } from '../utils/logger';
 import { scanContextContent } from '../security/context_scanner';
 
 /**
- * The canonical Rhythm-managed skills dir. Registered additively with the fork
- * via `config.skills.paths`. Deliberately NOT `~/.config/opencode/skills`
- * (auto-scanned + a sync target) — a distinct namespaced sibling.
+ * The canonical Rhythm-managed skills dir — `~/.config/opencode/skills`, the
+ * engine's auto-scanned config skills dir and Rhythm's SOLE managed source
+ * (#947). No longer a distinct sibling: `sync-globals` stopped writing here, so
+ * Rhythm owns it outright.
  *
  * Resolved lazily (not a captured constant) so tests can redirect it via
  * `RHYTHM_MANAGED_SKILLS_DIR` without manipulating the home directory.
@@ -35,12 +49,22 @@ import { scanContextContent } from '../security/context_scanner';
 export function managedSkillsRoot(): string {
   return (
     process.env.RHYTHM_MANAGED_SKILLS_DIR ??
-    join(homedir(), '.config', 'opencode', 'rhythm-managed-skills')
+    join(homedir(), '.config', 'opencode', 'skills')
   );
 }
 
-function opencodeConfigPath(): string {
-  return join(homedir(), '.config', 'opencode', 'opencode.json');
+/**
+ * #947 — the retired pre-collapse managed dir
+ * (`~/.config/opencode/rhythm-managed-skills`). Kept ONLY as the source of the
+ * one-time {@link migrateLegacyManagedSkills} move into {@link managedSkillsRoot}.
+ * Overridable via `RHYTHM_LEGACY_MANAGED_SKILLS_DIR` so migration tests run
+ * entirely on temp dirs.
+ */
+export function legacyManagedSkillsRoot(): string {
+  return (
+    process.env.RHYTHM_LEGACY_MANAGED_SKILLS_DIR ??
+    join(homedir(), '.config', 'opencode', 'rhythm-managed-skills')
+  );
 }
 
 /** A managed skill as written to / read from disk. */
@@ -209,54 +233,168 @@ export function writeDraftManagedSkill(skill: DraftManagedSkillInput): string {
 }
 
 /**
- * Idempotently register {@link RHYTHM_MANAGED_SKILLS_DIR} in opencode.json's
- * `skills.paths`, preserving every existing scan path. Returns true if the file
- * was modified (the caller should ensure the engine re-reads it — at boot this
- * happens before spawn; at runtime callers use {@link OpencodeClientService.reloadSkills}).
- *
- * Mirrors `ensureRequiredPlugins` in opencode_plugin_config.ts.
+ * #947 — ensure the managed dir exists so the engine can scan it. It is
+ * `~/.config/opencode/skills`, auto-scanned by the engine's hardcoded
+ * `ConfigPaths.directories()`, so NO `opencode.json` `skills.paths` entry is
+ * written any more (the old additive registration is gone — the dir is picked
+ * up by the config-dir scan). The engine warn-skips a missing dir, so we
+ * create it up front at boot before spawn.
  */
-export function ensureManagedSkillsDirRegistered(): boolean {
-  const managedDir = managedSkillsRoot();
-  const configPath = opencodeConfigPath();
-
-  // The dir must exist for the fork to scan it (it warn-skips missing paths).
+export function ensureManagedSkillsDir(): void {
   try {
-    mkdirSync(managedDir, { recursive: true });
+    mkdirSync(managedSkillsRoot(), { recursive: true });
   } catch (err) {
     logger.warn('[managed-skills] could not create managed dir:', err);
   }
+}
 
-  let parsed: Record<string, unknown> = {};
-  if (existsSync(configPath)) {
+/** Result of {@link migrateLegacyManagedSkills} — counts are of SKILL.md files. */
+export interface ManagedSkillsMigrationResult {
+  /** SKILL.md files found under the source dir before the move. */
+  skillsBefore: number;
+  /** SKILL.md files moved from source into dest. */
+  moved: number;
+  /** SKILL.md files left in source because dest already had that relative path. */
+  skippedExisting: number;
+  /** Of the source's SKILL.md files, how many are present under dest afterward. */
+  presentAfter: number;
+  /** True when every source SKILL.md ended up present under dest. */
+  lossless: boolean;
+}
+
+/** Relative paths (POSIX-agnostic, uses `sep`) of every file under `root`. */
+function listFilesRecursive(root: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string, rel: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const abs = join(dir, entry.name);
+      const r = rel ? join(rel, entry.name) : entry.name;
+      if (entry.isDirectory()) walk(abs, r);
+      else out.push(r);
+    }
+  };
+  if (existsSync(root) && statSync(root).isDirectory()) walk(root, '');
+  return out;
+}
+
+/** True when a relative path's basename is exactly SKILL.md. */
+function isSkillMdPath(rel: string): boolean {
+  return rel.split(sep).pop() === 'SKILL.md';
+}
+
+/** Remove now-empty subdirectories of `root` (never removes `root` itself). */
+function pruneEmptyDirs(root: string): void {
+  if (!existsSync(root)) return;
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const d = join(root, entry.name);
+    pruneEmptyDirs(d);
     try {
-      parsed = JSON.parse(readFileSync(configPath, 'utf8'));
-    } catch (err) {
-      logger.warn('[managed-skills] opencode.json unreadable — leaving untouched:', err);
-      return false;
+      if (readdirSync(d).length === 0) rmdirSync(d);
+    } catch {
+      /* best-effort */
     }
   }
+}
 
-  const skills = (parsed.skills && typeof parsed.skills === 'object'
-    ? (parsed.skills as Record<string, unknown>)
-    : {}) as { paths?: string[]; urls?: string[] };
-  const paths = Array.isArray(skills.paths) ? [...skills.paths] : [];
+/**
+ * #947 — one-time, idempotent, no-loss MOVE of the legacy Rhythm-managed skills
+ * dir into the sole managed dir. Operates on the given absolute dirs so tests
+ * run entirely on temp dirs (never the real config). Safe to run repeatedly:
+ *
+ *   - a source file is moved only when dest has no file at that relative path
+ *     (dest always wins — an existing dest file is NEVER clobbered);
+ *   - a source file is removed only AFTER its dest counterpart exists (rename is
+ *     atomic; a cross-device fallback copies then unlinks), so an interrupted
+ *     run can never drop a skill;
+ *   - a count guard asserts every source SKILL.md is present under dest before
+ *     any empty source dir is pruned — it THROWS rather than prune on a
+ *     shortfall.
+ *
+ * The migration is a straight relocation, not a curation pass: it preserves
+ * whatever the legacy dir held (including skills a later remediation may prune).
+ */
+export function migrateLegacyManagedSkills(
+  srcDir: string,
+  destDir: string,
+): ManagedSkillsMigrationResult {
+  const src = resolve(srcDir);
+  const dest = resolve(destDir);
 
-  if (paths.includes(managedDir)) {
-    return false; // already registered — additive no-op
+  const srcFiles = listFilesRecursive(src);
+  const srcSkillMd = srcFiles.filter(isSkillMdPath);
+  const skillsBefore = srcSkillMd.length;
+
+  // Self-move or empty source — nothing to do.
+  if (src === dest || srcFiles.length === 0) {
+    return { skillsBefore, moved: 0, skippedExisting: 0, presentAfter: skillsBefore, lossless: true };
   }
 
-  paths.push(managedDir);
-  parsed.skills = { ...skills, paths };
+  let moved = 0;
+  let skippedExisting = 0;
+  for (const rel of srcFiles) {
+    const from = join(src, rel);
+    const to = join(dest, rel);
+    if (existsSync(to)) {
+      // Dest wins — leave the source copy in place (never clobber).
+      if (isSkillMdPath(rel)) skippedExisting += 1;
+      continue;
+    }
+    mkdirSync(dirname(to), { recursive: true });
+    try {
+      renameSync(from, to);
+    } catch {
+      // Cross-device (EXDEV) fallback: copy then remove the source only after
+      // the dest copy is written.
+      copyFileSync(from, to);
+      rmSync(from, { force: true });
+    }
+    if (isSkillMdPath(rel)) moved += 1;
+  }
 
+  // No-loss guard: every source SKILL.md must now exist under dest (moved, or
+  // dest already had it). Abort BEFORE pruning anything if that isn't true.
+  const presentAfter = srcSkillMd.filter((rel) => existsSync(join(dest, rel))).length;
+  const lossless = presentAfter === skillsBefore;
+  if (!lossless) {
+    throw new Error(
+      `[managed-skills] migration would lose skills: ${presentAfter}/${skillsBefore} present under dest — aborting before pruning source`,
+    );
+  }
+
+  pruneEmptyDirs(src);
   try {
-    mkdirSync(dirname(configPath), { recursive: true });
-    writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
-    logger.info('[managed-skills] registered managed skills dir in opencode.json');
-    return true;
+    if (existsSync(src) && readdirSync(src).length === 0) rmdirSync(src);
+  } catch {
+    /* best-effort — leftover collision files may keep it non-empty */
+  }
+
+  return { skillsBefore, moved, skippedExisting, presentAfter, lossless };
+}
+
+/**
+ * #947 — boot hook for the legacy→sole-source migration. NO-OP unless
+ * `RHYTHM_MIGRATE_MANAGED_SKILLS` is `1`/`true`, so it never runs against a real
+ * config on its own: the real-config migration is deliberately gated behind
+ * this flag and folds into the #961 remediation pass. Idempotent + no-loss (see
+ * {@link migrateLegacyManagedSkills}). Never throws out of boot.
+ */
+export function maybeMigrateLegacyManagedSkills(): ManagedSkillsMigrationResult | null {
+  const flag = process.env.RHYTHM_MIGRATE_MANAGED_SKILLS;
+  if (!(flag === '1' || flag === 'true')) return null;
+  const src = legacyManagedSkillsRoot();
+  const dest = managedSkillsRoot();
+  if (resolve(src) === resolve(dest)) return null;
+  try {
+    const r = migrateLegacyManagedSkills(src, dest);
+    logger.info(
+      `[managed-skills] legacy migration: before=${r.skillsBefore} moved=${r.moved} ` +
+        `skippedExisting=${r.skippedExisting} presentAfter=${r.presentAfter} lossless=${r.lossless}`,
+    );
+    return r;
   } catch (err) {
-    logger.warn('[managed-skills] failed to write opencode.json:', err);
-    return false;
+    logger.warn('[managed-skills] legacy migration failed (non-fatal):', err);
+    return null;
   }
 }
 
