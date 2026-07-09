@@ -122,13 +122,17 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
     final query = _searchQuery.trim().toLowerCase();
     final filtered = query.isEmpty
         ? profiles
-        : profiles.where((c) => c.displayLabel.toLowerCase().contains(query)).toList();
+        : profiles
+            .where((c) => c.displayLabel.toLowerCase().contains(query))
+            .toList();
 
     final sorted = [...filtered];
     sorted.sort((a, b) {
       switch (_sortField) {
         case _ProfileSortField.name:
-          return a.displayLabel.toLowerCase().compareTo(b.displayLabel.toLowerCase());
+          return a.displayLabel
+              .toLowerCase()
+              .compareTo(b.displayLabel.toLowerCase());
         case _ProfileSortField.modelProvider:
           return (a.modelProvider ?? '').compareTo(b.modelProvider ?? '');
       }

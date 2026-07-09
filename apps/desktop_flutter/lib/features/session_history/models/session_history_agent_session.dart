@@ -63,14 +63,12 @@ class SessionHistoryAgentSession {
     String? sourceName,
   }) {
     final name = asString(json['name']) ?? '';
-    final agent =
-        asString(json['agentId']) ??
+    final agent = asString(json['agentId']) ??
         asString(json['agent_id']) ??
         asString(json['agentKind']) ??
         asString(json['agent_kind']);
     final rawStatus = asString(json['status']);
-    final started =
-        _parseDateTime(
+    final started = _parseDateTime(
           asString(json['createdAt']) ?? asString(json['created_at']),
         ) ??
         DateTime.fromMillisecondsSinceEpoch(0);

@@ -10,8 +10,8 @@ import '../models/session_transcript_message.dart';
 
 class SessionHistoryDataSource {
   SessionHistoryDataSource({http.Client? client})
-    : _client = client ?? http.Client(),
-      _baseUrl = AppConstants.agentLocalBaseUrl;
+      : _client = client ?? http.Client(),
+        _baseUrl = AppConstants.agentLocalBaseUrl;
 
   final http.Client _client;
   final String _baseUrl;
