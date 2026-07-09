@@ -24,12 +24,17 @@ process.env.RHYTHM_MANAGED_SKILLS_DIR = MANAGED_DIR;
 
 const reloadSkills = vi.fn().mockResolvedValue([]);
 const listSkills = vi.fn();
+// #929 — was a hardcoded `() => Promise.resolve([])`; promoted to a vi.fn()
+// (same default) so a test can override it per-case to inject real
+// frontmatter (e.g. a harvested draft's status/confidence/source) without
+// touching every other test in this file.
+const listSkillsWithContent = vi.fn().mockResolvedValue([]);
 
 vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
     isReady: true,
     listSkills: (...args: unknown[]) => listSkills(...args),
-    listSkillsWithContent: () => Promise.resolve([]),
+    listSkillsWithContent: (...args: unknown[]) => listSkillsWithContent(...args),
     listMcp: () => Promise.resolve({}),
     reloadSkills: (...args: unknown[]) => reloadSkills(...args),
   },
@@ -286,6 +291,37 @@ describe('/opencode/skills', () => {
         isExternalFork: false,
         env: { missing: [], satisfied: true },
       });
+    });
+
+    it('#929 — a harvested draft with NO sidecar row surfaces its OWN frontmatter status/uses instead of the default active/null', async () => {
+      // A #949 harvested draft is written straight to a SKILL.md file — no
+      // agent_skills row is ever created for it (see docs/ai/decisions/
+      // 2026-07-08-harvest-to-file-autobind.md). Before #929's fix, this
+      // fell into the `!row` branch and reported the generic
+      // DEFAULT_METADATA (status: 'active', uses: null) — hiding the real
+      // draft/harvested lifecycle from the UI entirely.
+      const draftLoc = join(MANAGED_DIR, 'drafts', 'rebuild-abi', 'SKILL.md');
+      listSkills.mockResolvedValueOnce([
+        { name: 'rebuild-abi', description: 'Rebuild the native module ABI', location: draftLoc },
+      ]);
+      const draftContent =
+        '---\nname: rebuild-abi\ndescription: "Rebuild the native module ABI"\n' +
+        'status: draft\nsource: harvested\nprovenance: auto-extract\n' +
+        'source_session: sess-1\nconfidence: 0.72\n' +
+        'extracted_at: 2026-07-08T00:00:00.000Z\n---\n\n# Rebuild ABI\n';
+      listSkillsWithContent.mockResolvedValueOnce([
+        { name: 'rebuild-abi', description: 'Rebuild the native module ABI', location: draftLoc, content: draftContent },
+      ]);
+
+      const res = await fetch(`${baseUrl}/opencode/skills?withMetadata=true`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Array<SkillListEntry & { metadata: Record<string, unknown> }>;
+
+      const draft = body.find((s) => s.name === 'rebuild-abi')!;
+      expect(draft.metadata.status).toBe('draft');
+      expect(draft.metadata.source).toBe('harvested');
+      expect(draft.metadata.confidence).toBe(0.72);
+      expect(draft.metadata.uses).toBe(0); // no telemetry seeded — real count, not null
     });
 
     it('name set is identical with and without the flag (mirrors the fork list)', async () => {

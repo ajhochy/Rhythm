@@ -37,6 +37,7 @@ import { parseSkillFrontmatter, type SkillFrontmatter } from '../services/skill_
 import { checkRequiredEnv } from '../services/skill_env_validator';
 import { isSkillVisible } from '../services/skill_visibility';
 import { resolveSessionToolsets } from '../services/session_toolset_resolver';
+import { countSkillToolUses } from '../services/skill_usage_tracker';
 
 export const opencodeSkillsRouter = Router();
 
@@ -57,7 +58,16 @@ interface SkillListEntry {
 interface SkillMetadata {
   confidence: number | null;
   version: number;
-  status: 'active' | 'measuring' | 'reverted' | null;
+  /**
+   * #929 — 'draft' / 'disabled' / 'rewrite-needed' are the harvested-skill
+   * self-regulation lifecycle (see harvested_skill_evaluator.ts), sourced from
+   * the draft's OWN frontmatter rather than a #792 sidecar row (harvested
+   * drafts have none — see docs/ai/decisions/2026-07-08-harvest-to-file
+   * -autobind.md). 'disabled' never actually surfaces here in practice — a
+   * disabled draft is moved out of the live/discoverable set entirely — but
+   * the type includes it for completeness with the archive's own frontmatter.
+   */
+  status: 'active' | 'measuring' | 'reverted' | 'draft' | 'disabled' | 'rewrite-needed' | null;
   source: string | null;
   uses: number | null;
   baselineScore: number | null;
@@ -106,7 +116,7 @@ const DEFAULT_METADATA: SkillMetadata = {
   env: { missing: [], satisfied: true },
 };
 
-const VALID_STATUSES = new Set(['active', 'measuring', 'reverted']);
+const VALID_STATUSES = new Set(['active', 'measuring', 'reverted', 'draft', 'disabled', 'rewrite-needed']);
 
 // ── GET / — list the fork's live discovered skills ───────────────────────────
 
@@ -175,6 +185,10 @@ opencodeSkillsRouter.get(
       // a sidecar row that targets no live skill simply does not appear, and a
       // sidecar row with status measuring/reverted surfaces only as metadata.
       const repo = new AgentSkillsRepository();
+      // #929 — real skill-tool-invocation counts (not the legacy DB-preface hint
+      // proxy). The ONLY usage signal available for a harvested draft, which has
+      // no #792 sidecar row to increment (see skill_usage_tracker.ts header).
+      const realUses = countSkillToolUses();
 
       const withMetadata: SkillListEntryWithMetadata[] = visibleEntries.map((entry) => {
         const fm = frontmatterByName.get(entry.name);
@@ -182,10 +196,35 @@ opencodeSkillsRouter.get(
         const env = { missing: check.missing.map((v) => v.name), satisfied: check.allSatisfied };
         const row = repo.findByName(entry.name);
         if (!row) {
+          // #929 — a harvested draft (or its disabled-archive counterpart) has
+          // no sidecar row, but DOES self-report lifecycle metadata in its own
+          // frontmatter (see rhythm_managed_skills.renderDraftSkillMarkdown).
+          // Prefer that over the generic DEFAULT_METADATA fallback so the Skills
+          // UI shows real status/uses for it instead of a false 'active'.
+          if (fm?.status !== undefined) {
+            const status = VALID_STATUSES.has(fm.status)
+              ? (fm.status as SkillMetadata['status'])
+              : null;
+            return {
+              ...entry,
+              metadata: {
+                confidence: fm.confidence ?? null,
+                version: 1,
+                status,
+                source: fm.source ?? null,
+                uses: realUses.get(entry.name) ?? 0,
+                baselineScore: null,
+                postScore: fm.postScore ?? null,
+                measureReason: fm.measureReason ?? null,
+                isExternalFork: false,
+                env,
+              },
+            };
+          }
           return { ...entry, metadata: { ...DEFAULT_METADATA, env } };
         }
         const status = VALID_STATUSES.has(row.status)
-          ? (row.status as 'active' | 'measuring' | 'reverted')
+          ? (row.status as SkillMetadata['status'])
           : null;
         return {
           ...entry,
