@@ -2,63 +2,57 @@
 
 ## Current focus
 
-Two branches merged to `main` this session:
-
-1. opencode session-continuity fixes (#912 + #913) in the vendored fork
-   (PR #924).
-2. `issue-batch-july4` — agent profiles/sessions/scheduling UX + agent-infra
-   (#894–#911) (PR #925).
-
-Plus a full audit of the agent system (profiles, delegation, skill/MCP
-scoping) that produced 10 follow-up issues (#914–#923), not yet fixed.
+**#949 verified live and landing.** Skill harvester writes draft `SKILL.md`
+files + auto-binds to the source agent, closing the self-improvement loop.
+Live E2E surfaced and fixed five root causes (stale fork binary,
+provider-only agent model resolution, openrouter default-model pick, distill
+riding global MRU, wrong skill-reload instance key) — see
+`docs/ai/runs/2026-07-09-949-live-e2e-triage.md`.
 
 ## Active branch / PR
 
-- PR #924 (`issue-912-913-opencode-continuity`) — MERGED to `main`
-  (Fixes #912, #913).
-- PR #925 (`issue-batch-july4`, 22 commits) — MERGED to `main`.
-- PR #901 (`feature/config-doctor-agent`) — merged last session.
-
-## In progress
-
-- Nothing mid-flight. #912/#913 and the July-4 batch are on `main`.
-- Agent-system audit fixes (#914–#923) NOT started — filed as issues only,
-  per user instruction to leave them for later.
+- **`issue-949-harvest-to-file`** / **PR #950** — fix commit landed,
+  pushed, awaiting manual merge (no auto-merge).
+- `issue-930-model-fallback-chain` — implemented (fallback chain,
+  cross-provider handoff, 24 tests green), **awaiting gated live smoke**
+  before merge. Its `DEFAULT_MODEL_BY_PROVIDER` will supersede the
+  `openrouter/free` pin added in #949's fix.
+- `issue-929-skill-self-regulation` — next up. 14 uncommitted files stashed
+  as `wip-929-inflight-stashed-for-949`; restore with
+  `git stash apply wip-929-inflight-stashed-for-949` after #949 is merged.
 
 ## Risks / known issues
 
-- Both #912/#913 fixes live in the vendored `apps/opencode_fork` — keep diffs
-  minimal/tagged so they survive upstream merges. Test against the BUILT fork
-  binary (set `RHYTHM_OPENCODE_BIN`), never the stock PATH binary.
-- `#913 repairToolPairing` is a defensive repair at the request chokepoint —
-  the true producer of the dangling `tool_use` was never located.
-- `#913 autoContinueExhausted` resets on any completed tool call (coarse by
-  design) — the cap is a backstop, not a guarantee.
-- Audit HIGH findings still open: delegation caller-identity spoofing (#914),
-  60s delegation timeout causing duplicate runs (#915), scope fail-open /
-  config-doctor full surface (#916), nonexistent tool/server names in
-  allowlists (#917). Medium/low: #918–#923.
+- **openrouter/free flake in the live harness** — turn 2 can hit a rate
+  limit that surfaces only as a WS error frame, which the E2E harness can't
+  see, so it reads as a hang. #930's fallback chain is the systemic fix;
+  until that merges, live #949 runs can flake on this.
+- **Distill harvests injected memory prefaces, not conversation content** —
+  during #949 live verification the distiller drafted a skill from the
+  user's standing memory instruction (ws_gateway's injected preface lands in
+  the input message rows and dominates the transcript), ignoring the actual
+  conversation. Filed as a follow-up issue; relates to #929's
+  self-regulation / bad-harvest detection.
+- `AgentSkillsRepository` + `agent_skills` table still not deleted (32
+  direct callers) — only the `distillFromSession` write site changed in
+  #949. Cleanup remains a follow-up.
+- Pre-existing unrelated test failures (22, memory-vault + auth-middleware,
+  ENOENT temp-dir + 401 auth env issues) predate this branch.
 
 ## Test status
 
-- #924 (opencode continuity): api_server `tsc` clean + `npm test` 2405 passed;
-  fork targeted suites 330 pass; fork binary builds; live-engine smoke on the
-  built fixed binary passed. CI green; merged.
-- #925 (July-4 batch): api_server `tsc` clean + `npm test` 2435 passed;
-  flutter 846 tests, analyze at the 272-info baseline, `dart format` clean.
+- `tsc --noEmit` — clean.
+- `skill_extractor.test.ts` — 9/9 pass.
+- Resolver-adjacent suites (`issue_854_contract`, `opc_m4_4_agent_selection`,
+  `agent_sessions`) — 59/59 pass.
+- Live #948 phase — passes in-harness (twice).
+- Live #949 phase — verified manually against the running backend (see run
+  log); in-harness run can flake per the openrouter/free risk above.
 
 ## Next step
 
-- Manual smoke on `main` for the opencode continuity fixes (long Codex/gpt
-  session; long compacting session) and the batch UX changes.
-- When ready, tackle the agent-system audit issues #914–#923 (start with the
-  HIGH ones) on a dedicated branch with a durable data-repair migration.
-
-## Recent coding-agent runs
-
-### 2026-07-06 — issue-batch-917-918-919-921
-- Files modified: `apps/api_server/src/database/migrations.ts` (profile data repair), `apps/api_server/src/services/agent_runner.ts` (fallback model), `apps/api_server/src/services/opencode_agent_writer.ts` (disabled projection gate), focused API tests, `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` (trigger profile routing), docs run log.
-- Checks run: `npx tsc --noEmit` pass; targeted Vitest pass (`6 files, 50 tests`); full `npm test` failed under sandbox bind restrictions (`listen EPERM`, `1971 passed / 423 failed / 58 skipped`); Flutter `dart format .` and `flutter analyze --no-fatal-infos` blocked by SDK cache write permission.
-- Decisions made: #921 uses trigger-only routing to `secretary` instead of globally scoping `claude-code`/`codex`, preserving manual escape-hatch behavior.
-- Deviations from spec: full Vitest and Flutter checks could not complete cleanly in this sandbox; local stale opencode agent files could not be removed from `~/.config`.
-- Concerns: orchestrator should rerun full API/Flutter checks in an environment allowed to bind ports and write the Flutter SDK cache.
+1. Manual merge of PR #950 (not automated).
+2. Unstash and finish `wip-929-inflight-stashed-for-949` on
+   `issue-929-skill-self-regulation`.
+3. Gated live smoke for `issue-930-model-fallback-chain`, then merge; drop
+   the `openrouter/free` pin in favor of its default map.

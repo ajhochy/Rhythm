@@ -235,17 +235,32 @@ function getAgentConfigsRepository(): Pick<AgentConfigsRepository, 'getById'> {
 async function resolveModelFromAgentConfigs(agentId: string): Promise<ModelRoute | undefined> {
   try {
     const config = getAgentConfigsRepository().getById(agentId);
-    if (!config?.modelProvider || !config?.modelId) return undefined;
+    if (!config?.modelProvider) return undefined;
 
     const authed = new Set(await opencodeClient.listAuthedProviders());
     if (!authed.has(config.modelProvider)) {
       logger.warn(
-        `[ModelResolver] agent_configs model for '${agentId}' (${config.modelProvider}/${config.modelId}) is not authed — falling through to static fallback`,
+        `[ModelResolver] agent_configs model for '${agentId}' (${config.modelProvider}/${config.modelId ?? '<default>'}) is not authed — falling through to static fallback`,
       );
       return undefined;
     }
 
-    return { providerID: config.modelProvider, modelID: config.modelId };
+    // #949-live: a provider-only config (model_id null — e.g. the 'opencode'
+    // preset) previously fell through to the static table, which doesn't know
+    // custom agent ids, so the turn stalled forever on ws_gateway's
+    // undefined-model guard. Resolve a default model for the provider instead
+    // of requiring both fields.
+    // ponytail: the engine's default map is arbitrary for openrouter (first
+    // catalog entry = an image model that errors on text turns) — pin the
+    // known-good default; #930's DEFAULT_MODEL_BY_PROVIDER supersedes on merge.
+    const PROVIDER_DEFAULT_MODEL: Record<string, string> = { openrouter: 'openrouter/free' };
+    const modelId =
+      config.modelId ??
+      PROVIDER_DEFAULT_MODEL[config.modelProvider] ??
+      (await opencodeClient.getDefaultModel(config.modelProvider));
+    if (!modelId) return undefined;
+
+    return { providerID: config.modelProvider, modelID: modelId };
   } catch (err) {
     logger.warn(
       `[ModelResolver] resolveModelFromAgentConfigs('${agentId}') failed (non-fatal, falling through): ${String(err)}`,

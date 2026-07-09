@@ -782,6 +782,11 @@ export const layer = Layer.effect(
 
     const invalidate = Effect.fn("Config.invalidate")(function* () {
       yield* invalidateGlobal
+      // Also invalidate the per-directory instance state (holds agents loaded
+      // from ~/.config/opencode/agent(s)/*.md via ConfigAgent.load). Without
+      // this, config.get() still returns the stale agent set even after the
+      // global cache is cleared. (#948)
+      yield* InstanceState.invalidate(state)
     })
 
     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {
