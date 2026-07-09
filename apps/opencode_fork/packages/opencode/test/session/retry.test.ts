@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { NamedError } from "@opencode-ai/core/util/error"
 import { APICallError } from "ai"
 import { setTimeout as sleep } from "node:timers/promises"
-import { Effect, Layer, Schedule, Schema } from "effect"
+import { Effect, Exit, Layer, Schedule, Schema } from "effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { SessionRetry } from "../../src/session/retry"
 import { MessageV2 } from "../../src/session/message-v2"
@@ -112,6 +112,33 @@ describe("session.retry.delay", () => {
           attempt: 2,
           message: "boom",
         })
+      }),
+    ),
+  )
+
+  it.live("policy stops retrying after the max retry attempts", () =>
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const error = apiError({ "retry-after-ms": "0" })
+        const attempts: number[] = []
+
+        const step = yield* Schedule.toStepWithMetadata(
+          SessionRetry.policy({
+            provider: "test",
+            parse: Schema.decodeUnknownSync(MessageV2.APIError.Schema),
+            set: (info) =>
+              Effect.sync(() => {
+                attempts.push(info.attempt)
+              }),
+          }),
+        )
+        yield* step(error)
+        yield* step(error)
+        yield* step(error)
+        const exit = yield* step(error).pipe(Effect.exit)
+
+        expect(Exit.isFailure(exit)).toBe(true)
+        expect(attempts).toStrictEqual([1, 2, 3])
       }),
     ),
   )
