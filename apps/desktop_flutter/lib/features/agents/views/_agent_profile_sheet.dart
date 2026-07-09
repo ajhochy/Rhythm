@@ -1295,6 +1295,9 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
           _allAllowedBanner('All MCPs allowed')
         else if (_availableMcps.isEmpty)
           _emptyBanner(_mcpsLoaded ? 'No MCP servers' : 'Loading MCP servers…')
+        else if (_selectedMcps!.isEmpty)
+          _denyAllBanner(
+              'No MCP access (deny-all) — agent will have no MCP tools')
         else
           _filterChipWrap(
             // The restricted set may include names no longer live (e.g. a
@@ -1371,6 +1374,9 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
           _allAllowedBanner('All Skills allowed')
         else if (_availableSkills.isEmpty)
           _emptyBanner(_skillsLoaded ? 'No skills' : 'Loading skills…')
+        else if (_selectedSkills!.isEmpty)
+          _denyAllBanner(
+              'No skill access (deny-all) — agent will have no skills')
         else
           _buildSkillChipWrap(),
       ],
@@ -1621,6 +1627,37 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
           Text(
             label,
             style: TextStyle(color: context.rhythm.textSecondary, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Banner shown when the profile explicitly denies all MCP/skill access
+  /// (selected list is `[]` but not null). Distinguishes the degraded/deny-all
+  /// state from "unrestricted" (null → "All allowed") and from "no servers
+  /// available", so a locked-down row is visible here instead of surfacing as
+  /// opaque agent runtime errors (#931).
+  Widget _denyAllBanner(String label) {
+    return Container(
+      key: const ValueKey('deny-all-banner'),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: context.rhythm.warning.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+        border:
+            Border.all(color: context.rhythm.warning.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.block, size: 16, color: context.rhythm.warning),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style:
+                  TextStyle(color: context.rhythm.textSecondary, fontSize: 13),
+            ),
           ),
         ],
       ),

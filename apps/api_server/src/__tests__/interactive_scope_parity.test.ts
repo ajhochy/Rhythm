@@ -201,3 +201,101 @@ describe('interactive session MCP scope (P1a)', () => {
     );
   });
 });
+
+// ── #931: fail-closed / deny-all scope resolution is logged with id + name ──
+//
+// Bug this catches: a broken/deny-all scope row degrades the agent silently —
+// the operator sees only opaque runtime "not permitted" errors, never a log
+// line naming the offending profile. #931 requires malformed / fail-closed /
+// deny-all scope resolutions to be logged with the profile id AND human name
+// AND scope kind (mcp vs skill), so the row can be fixed without debugging the
+// agent at runtime.
+describe('scope diagnostics (#931)', () => {
+  beforeEach(() => {
+    setDb(makeDb());
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('malformed MCP scope log names the profile (id AND human label)', async () => {
+    const errSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    new AgentConfigsRepository().insert({
+      id: 'broken-mcp',
+      label: 'Secretary Assistant',
+      icon: '🤖',
+      allowedMcpsJson: '{not json',
+    });
+
+    await resolveProfileScope('broken-mcp');
+
+    const joined = errSpy.mock.calls.map((c) => c.map(String).join(' ')).join('\n');
+    // id, human name, and scope kind must all be present in the same log path.
+    expect(joined).toContain('broken-mcp');
+    expect(joined).toContain('Secretary Assistant');
+    expect(joined).toMatch(/MCP/);
+  });
+
+  it('deny-all MCP scope ([]) is logged with id + name + kind (was silent)', async () => {
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    new AgentConfigsRepository().insert({
+      id: 'denyall-mcp',
+      label: 'Locked Down',
+      icon: '🔒',
+      allowedMcpsJson: '[]',
+    });
+
+    const scope = await resolveProfileScope('denyall-mcp');
+    // Behavior unchanged: still deny-all.
+    expect(scope.mcpRoleConfig!.mcpServers).toEqual({});
+
+    const denyWarn = warnSpy.mock.calls
+      .map((c) => c.map(String).join(' '))
+      .find((line) => /deny-all/i.test(line) && /MCP/i.test(line));
+    expect(denyWarn, 'expected a deny-all MCP warn line').toBeTruthy();
+    expect(denyWarn).toContain('denyall-mcp');
+    expect(denyWarn).toContain('Locked Down');
+  });
+
+  it('deny-all skill scope ([]) is logged with id + name + kind (was silent)', async () => {
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    new AgentConfigsRepository().insert({
+      id: 'denyall-skills',
+      label: 'No Skills Agent',
+      icon: '🔒',
+      allowedSkillsJson: '[]',
+      allowedMcpsJson: null,
+    });
+
+    const scope = await resolveProfileScope('denyall-skills');
+    // Behavior unchanged: still deny-all (empty array preserved).
+    expect(scope.allowedSkillsJson).toBe('[]');
+
+    const denyWarn = warnSpy.mock.calls
+      .map((c) => c.map(String).join(' '))
+      .find((line) => /deny-all/i.test(line) && /skill/i.test(line));
+    expect(denyWarn, 'expected a deny-all skill warn line').toBeTruthy();
+    expect(denyWarn).toContain('denyall-skills');
+    expect(denyWarn).toContain('No Skills Agent');
+  });
+
+  it('null (unrestricted) scope does NOT emit a deny-all warn (falsification guard)', async () => {
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    new AgentConfigsRepository().insert({
+      id: 'wide-open',
+      label: 'Unrestricted',
+      icon: '🌐',
+      allowedMcpsJson: null,
+      allowedSkillsJson: null,
+    });
+
+    await resolveProfileScope('wide-open');
+
+    const denyWarn = warnSpy.mock.calls
+      .map((c) => c.map(String).join(' '))
+      .find((line) => /deny-all/i.test(line));
+    expect(denyWarn).toBeUndefined();
+  });
+});

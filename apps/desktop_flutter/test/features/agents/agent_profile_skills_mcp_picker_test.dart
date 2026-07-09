@@ -421,6 +421,58 @@ void main() {
     });
   });
 
+  group('AgentProfileSheet — deny-all scope surfacing (#931)', () {
+    testWidgets(
+        'deny-all MCP ([]) shows the deny-all banner, not "All allowed"',
+        (tester) async {
+      // Profile explicitly denies all MCP access ([] — not null). With live
+      // servers available, this is a degraded state that must be visible, not
+      // silently mistaken for "unrestricted" or "no servers".
+      final config = _makeConfig().copyWith(allowedMcps: const <String>[]);
+      final configsDs = _RecordingAgentConfigsDataSource(config);
+
+      await tester.pumpWidget(
+        _buildSheet(
+          config: config,
+          configsDs: configsDs,
+          skillsDs: _FakeSkillsDataSource(const []),
+          mcpDs: _FakeMcpDataSource(['rhythm', 'obsidian']),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _scrollIntoView(tester, find.text('ALLOWED MCPS'));
+
+      expect(find.byKey(const ValueKey('deny-all-banner')), findsOneWidget);
+      expect(find.textContaining('No MCP access'), findsOneWidget);
+      // Falsification: the unrestricted banner must NOT be shown.
+      expect(find.text('All MCPs allowed'), findsNothing);
+    });
+
+    testWidgets('deny-all skills ([]) shows the deny-all banner', (
+      tester,
+    ) async {
+      final config = _makeConfig().copyWith(allowedSkills: const <String>[]);
+      final configsDs = _RecordingAgentConfigsDataSource(config);
+
+      await tester.pumpWidget(
+        _buildSheet(
+          config: config,
+          configsDs: configsDs,
+          skillsDs: _FakeSkillsDataSource([_skill('task-management')]),
+          mcpDs: _FakeMcpDataSource(const []),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _scrollIntoView(tester, find.text('ALLOWED SKILLS'));
+
+      expect(find.byKey(const ValueKey('deny-all-banner')), findsOneWidget);
+      expect(find.textContaining('No skill access'), findsOneWidget);
+      expect(find.text('All Skills allowed'), findsNothing);
+    });
+  });
+
   group('ManagedSkillEditorSheet — boundary guards', () {
     Widget editorHost({
       required OpencodeSkillsDataSource ds,
