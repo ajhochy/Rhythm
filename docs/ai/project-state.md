@@ -2,28 +2,32 @@
 
 ## Current focus
 
-Two branches merged to `main` this session:
+Recovered a mislabeled git stash (`wip-929-inflight-stashed-for-949`) that
+actually held the 2026-07-07 agent-profile **core-permissions** fix, not #929
+work. Landed it on `fix/agent-profile-core-permissions` (verified, pushed);
+stash preserved until merge. See
+`docs/ai/runs/2026-07-09-stash-triage-agent-profile-core-permissions.md`.
 
-1. opencode session-continuity fixes (#912 + #913) in the vendored fork
-   (PR #924).
-2. `issue-batch-july4` — agent profiles/sessions/scheduling UX + agent-infra
-   (#894–#911) (PR #925).
-
-Plus a full audit of the agent system (profiles, delegation, skill/MCP
-scoping) that produced 10 follow-up issues (#914–#923), not yet fixed.
+Prior context still current: #912/#913 opencode continuity and the July-4 batch
+(#894–#911) are on `main`; agent-system audit issues #914–#923 filed, HIGH ones
+partially addressed (#914–#921 landed via PR #926).
 
 ## Active branch / PR
 
-- PR #924 (`issue-912-913-opencode-continuity`) — MERGED to `main`
-  (Fixes #912, #913).
-- PR #925 (`issue-batch-july4`, 22 commits) — MERGED to `main`.
-- PR #901 (`feature/config-doctor-agent`) — merged last session.
+- `fix/agent-profile-core-permissions` (commit 27c2f54ab) — pushed, **no PR
+  yet**. Adds per-profile `core_permissions_json` + `rhythm_*_agent_profile_
+  permissions` MCP tools. Awaiting user confirmation the work is still wanted,
+  then manual smoke before PR.
+- PR #926 (`issue-batch-914-923`) — MERGED to `main`.
+- PR #924 / #925 — MERGED to `main` (prior session).
 
 ## In progress
 
-- Nothing mid-flight. #912/#913 and the July-4 batch are on `main`.
-- Agent-system audit fixes (#914–#923) NOT started — filed as issues only,
-  per user instruction to leave them for later.
+- `fix/agent-profile-core-permissions` open locally, pushed, unmerged. Needs
+  manual smoke (Config Doctor permission-repair flow; Theological-Researcher
+  gaining `defuddle` shell/read access) + user sign-off before PR.
+- Stash `wip-929-inflight-stashed-for-949` still in `git stash list` — keep
+  until the branch merges, then drop.
 
 ## Risks / known issues
 
@@ -41,18 +45,17 @@ scoping) that produced 10 follow-up issues (#914–#923), not yet fixed.
 
 ## Test status
 
-- #924 (opencode continuity): api_server `tsc` clean + `npm test` 2405 passed;
-  fork targeted suites 330 pass; fork binary builds; live-engine smoke on the
-  built fixed binary passed. CI green; merged.
-- #925 (July-4 batch): api_server `tsc` clean + `npm test` 2435 passed;
-  flutter 846 tests, analyze at the 272-info baseline, `dart format` clean.
+- `fix/agent-profile-core-permissions` (27c2f54ab): api_server `tsc` clean +
+  `vitest` 2458 passed / 1 skipped; api_server build OK; mcp_server `tsc` +
+  `vitest` 82/82; mcp_server build OK. CI (MCP Server CI 28994722949) green.
 
 ## Next step
 
-- Manual smoke on `main` for the opencode continuity fixes (long Codex/gpt
-  session; long compacting session) and the batch UX changes.
-- When ready, tackle the agent-system audit issues #914–#923 (start with the
-  HIGH ones) on a dedicated branch with a durable data-repair migration.
+- Confirm the core-permissions work is still wanted; if so, manual smoke
+  (Config Doctor repairing a profile's scope via REST PATCH+resync;
+  Theological-Researcher using the `defuddle` skill's shell/read), then open a
+  PR. After merge, drop stash `wip-929-inflight-stashed-for-949`.
+- When ready, tackle remaining agent-system audit items on a dedicated branch.
 
 ## Recent coding-agent runs
 
