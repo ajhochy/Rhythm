@@ -80,3 +80,38 @@ export function ensureGeminiProjectConfig(opts?: {
 
   return { changed: true, projectId };
 }
+
+/**
+ * #927 — make the Gemini projectId available to the engine subprocess via the
+ * `OPENCODE_GEMINI_PROJECT_ID` environment variable.
+ *
+ * Why this and not just the opencode.json write above: the `opencode-gemini-auth`
+ * plugin resolves the configured projectId in priority order —
+ *   OPENCODE_GEMINI_PROJECT_ID (env)  ›  provider.options.projectId  ›
+ *   client.config.get() (the ENGINE'S config)  ›  a module-level cache  ›
+ *   GOOGLE_CLOUD_PROJECT
+ * — and reads the env resolver LIVE on every turn (no cache). The config-file
+ * path we write above is only surfaced to the plugin through the engine's
+ * `config.get()`, which the fork memoizes for the engine's whole lifetime
+ * (Duration.infinity) and whose parsed shape does not reliably re-expose the
+ * nested `provider.google.options.projectId` to the plugin; the plugin's
+ * module-level fallback is repopulated only when the provider is re-registered
+ * (which is exactly what merely CLICKING Re-auth triggers). That fragile chain
+ * is why the projectId intermittently reads as "missing" mid-session until a
+ * manual Re-auth click, and why the earlier opencode.json-only fix (#927) did
+ * not hold. Setting the env var — the plugin's highest-priority, cache-free
+ * resolver — makes every turn resolve the projectId deterministically, with no
+ * click and no dependence on the engine's config cache.
+ *
+ * The engine is spawned by `createOpencode()` which inherits `process.env`
+ * (see `@opencode-ai/sdk` server spawn: `env: { ...process.env, ... }`), so
+ * this must run BEFORE the engine spawns. Respects an operator-provided value:
+ * an existing non-empty `OPENCODE_GEMINI_PROJECT_ID` is never overwritten.
+ */
+export function ensureGeminiProjectEnv(opts?: { projectId?: string }): string {
+  const existing = process.env.OPENCODE_GEMINI_PROJECT_ID?.trim();
+  if (existing) return existing;
+  const projectId = opts?.projectId ?? GEMINI_CODE_ASSIST_PROJECT_ID;
+  process.env.OPENCODE_GEMINI_PROJECT_ID = projectId;
+  return projectId;
+}

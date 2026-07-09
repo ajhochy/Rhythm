@@ -10,7 +10,7 @@ import {
 } from 'fs';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
-import { ensureGeminiProjectConfig } from '../services/gemini_project_config';
+import { ensureGeminiProjectConfig, ensureGeminiProjectEnv } from '../services/gemini_project_config';
 import { GEMINI_CODE_ASSIST_PROJECT_ID } from '../config/env';
 
 describe('ensureGeminiProjectConfig', () => {
@@ -153,5 +153,49 @@ describe('ensureGeminiProjectConfig', () => {
     writeFileSync(filePath, 'x', 'utf8');
     const badPath = join(filePath, 'opencode.json');
     expect(() => ensureGeminiProjectConfig({ configPath: badPath })).not.toThrow();
+  });
+});
+
+// ── #927: engine-env projectId export ───────────────────────────────────────────
+// The opencode.json write above is only surfaced to the gemini-auth plugin via
+// the engine's forever-cached config.get(); the env var is the plugin's
+// highest-priority, cache-free resolver read live on every turn. Exporting it
+// before the engine spawns is what makes the projectId resolve deterministically
+// without a manual Re-auth click.
+
+describe('#927 ensureGeminiProjectEnv', () => {
+  const KEY = 'OPENCODE_GEMINI_PROJECT_ID';
+  let original: string | undefined;
+  beforeEach(() => {
+    original = process.env[KEY];
+    delete process.env[KEY];
+  });
+  afterEach(() => {
+    if (original === undefined) delete process.env[KEY];
+    else process.env[KEY] = original;
+  });
+
+  it('sets OPENCODE_GEMINI_PROJECT_ID when unset (the cache-free resolver the turn path reads)', () => {
+    const returned = ensureGeminiProjectEnv({ projectId: 'rhythm-491406' });
+    expect(process.env[KEY]).toBe('rhythm-491406');
+    expect(returned).toBe('rhythm-491406');
+  });
+
+  it('defaults to GEMINI_CODE_ASSIST_PROJECT_ID when no explicit projectId is given', () => {
+    ensureGeminiProjectEnv();
+    expect(process.env[KEY]).toBe(GEMINI_CODE_ASSIST_PROJECT_ID);
+  });
+
+  it('never overwrites an operator-provided value', () => {
+    process.env[KEY] = 'operator-project';
+    const returned = ensureGeminiProjectEnv({ projectId: 'rhythm-491406' });
+    expect(process.env[KEY]).toBe('operator-project');
+    expect(returned).toBe('operator-project');
+  });
+
+  it('treats a whitespace-only existing value as unset', () => {
+    process.env[KEY] = '   ';
+    ensureGeminiProjectEnv({ projectId: 'rhythm-491406' });
+    expect(process.env[KEY]).toBe('rhythm-491406');
   });
 });

@@ -11,7 +11,7 @@ import {
   type CuratedMcpServer,
   type CuratedTokenProvider,
 } from '../config/curated_mcp_servers';
-import { ensureGeminiProjectConfig } from './gemini_project_config';
+import { ensureGeminiProjectConfig, ensureGeminiProjectEnv } from './gemini_project_config';
 import { expandMcpAllowlist } from './mcp_allowlist_expander';
 import { capMcpAllowlistForProvider, geminiUnscopedDeferredAllowlist } from './gemini_tool_cap';
 import {
@@ -627,8 +627,12 @@ export class OpencodeClientService {
       // register for Workspace accounts. Never throws; logs and continues.
       const t3 = Date.now();
       const geminiCfg = ensureGeminiProjectConfig();
+      // #927 — also export the projectId to the engine subprocess env (the
+      // gemini-auth plugin's highest-priority, cache-free resolver). Must run
+      // before createOpencode() spawns the engine so the child inherits it.
+      const geminiEnvProjectId = ensureGeminiProjectEnv({ projectId: geminiCfg.projectId });
       logger.info(
-        `[OpencodeClientService] ensured Gemini Code Assist projectId=${geminiCfg.projectId} (changed=${geminiCfg.changed})`,
+        `[OpencodeClientService] ensured Gemini Code Assist projectId=${geminiCfg.projectId} (changed=${geminiCfg.changed}, env=${geminiEnvProjectId})`,
       );
       logger.info(`[Opencode][timing] geminiProjectConfig took ${Date.now() - t3}ms`);
 
