@@ -2,59 +2,80 @@
 
 ## Current focus
 
-Two branches merged to `main` this session:
+Four major workstreams have each landed as a PR, all awaiting manual merge
+(no auto-merge in this repo):
 
-1. opencode session-continuity fixes (#912 + #913) in the vendored fork
-   (PR #924).
-2. `issue-batch-july4` — agent profiles/sessions/scheduling UX + agent-infra
-   (#894–#911) (PR #925).
-
-Plus a full audit of the agent system (profiles, delegation, skill/MCP
-scoping) that produced 10 follow-up issues (#914–#923), not yet fixed.
+1. **#933-#936 — workflow-failure-signals chain**, verified live on branch
+   `issues-933-936-workflow-signals`; PR open (draft). Read-only failure
+   extractor → org audit snapshot → existing optimizer lanes, with
+   dedup/cap/stale-fixed safeguards. See
+   `docs/ai/runs/2026-07-09-933-936-workflow-signals-live.md`.
+2. **#949 — skill harvester writes draft `SKILL.md` + auto-binds to source
+   agent** — MERGED to `main`.
+3. **#930 — model fallback chain / cross-provider handoff** — draft PR #940.
+4. **#929 — skill self-regulation / bad-harvest detection** — draft PR #955.
 
 ## Active branch / PR
 
-- PR #924 (`issue-912-913-opencode-continuity`) — MERGED to `main`
-  (Fixes #912, #913).
-- PR #925 (`issue-batch-july4`, 22 commits) — MERGED to `main`.
-- PR #901 (`feature/config-doctor-agent`) — merged last session.
+- `issues-933-936-workflow-signals` — PR open (draft), fixes #933-#936.
+  Cut from `origin/main` **before #949 merged**, so it does not contain
+  #949; unrelated files, merge independently.
+- PR #950 / `issue-949-harvest-to-file` — MERGED to `main` (fixes #949).
+- PR #940 / `issue-930-model-fallback-chain` — draft, awaiting manual merge
+  (fixes #930).
+- PR #955 / `issue-929-skill-self-regulation` — draft, awaiting manual
+  merge (fixes #929).
 
 ## In progress
 
-- Nothing mid-flight. #912/#913 and the July-4 batch are on `main`.
-- Agent-system audit fixes (#914–#923) NOT started — filed as issues only,
-  per user instruction to leave them for later.
+- Nothing mid-flight in this worktree; #933-#936 chain is verified and
+  ready for review.
+- Manual merges of PR #940 and PR #955 are pending (independent of each
+  other and of the #933-#936 PR).
 
 ## Risks / known issues
 
-- Both #912/#913 fixes live in the vendored `apps/opencode_fork` — keep diffs
-  minimal/tagged so they survive upstream merges. Test against the BUILT fork
-  binary (set `RHYTHM_OPENCODE_BIN`), never the stock PATH binary.
-- `#913 repairToolPairing` is a defensive repair at the request chokepoint —
-  the true producer of the dangling `tool_use` was never located.
-- `#913 autoContinueExhausted` resets on any completed tool call (coarse by
-  design) — the cap is a backstop, not a guarantee.
-- Audit HIGH findings still open: delegation caller-identity spoofing (#914),
-  60s delegation timeout causing duplicate runs (#915), scope fail-open /
-  config-doctor full surface (#916), nonexistent tool/server names in
-  allowlists (#917). Medium/low: #918–#923.
+- **#952 — dead providers.** Follow-up needed; not yet fixed.
+- **#951 / #954 — follow-ups** from the #949/#930/#929 work, not yet
+  started.
+- `AgentSkillsRepository` + `agent_skills` table still not deleted (32
+  direct callers) — only the `distillFromSession` write site changed in
+  #949. Cleanup remains a follow-up.
+- Pre-existing unrelated test failures (22, memory-vault +
+  auth-middleware, ENOENT temp-dir + 401 auth env issues) predate the
+  #933-#936 branch.
 
 ## Test status
 
-- #924 (opencode continuity): api_server `tsc` clean + `npm test` 2405 passed;
-  fork targeted suites 330 pass; fork binary builds; live-engine smoke on the
-  built fixed binary passed. CI green; merged.
-- #925 (July-4 batch): api_server `tsc` clean + `npm test` 2435 passed;
-  flutter 846 tests, analyze at the 272-info baseline, `dart format` clean.
+- **#933-#936**: live E2E gate passed twice (incl. verbose) against the
+  real fork-engine backend; full api_server unit suite 290 files / 2485
+  passed / 2 skipped (the live-gated tests); `tsc --noEmit` clean.
+- **#949**: `tsc --noEmit` clean; `skill_extractor.test.ts` 9/9; resolver
+  suites 59/59; live #948/#949 phases verified manually.
+- **#930 / #929**: see PR #940 / PR #955 for their own test status.
 
 ## Next step
 
-- Manual smoke on `main` for the opencode continuity fixes (long Codex/gpt
-  session; long compacting session) and the batch UX changes.
-- When ready, tackle the agent-system audit issues #914–#923 (start with the
-  HIGH ones) on a dedicated branch with a durable data-repair migration.
+1. Push `issues-933-936-workflow-signals` and open/refresh its draft PR for
+   review (this run).
+2. Manual merge of PR #940 (#930) and PR #955 (#929) — independent of each
+   other and of the #933-#936 PR.
+3. Pick up #952 (dead providers) and the #951/#954 follow-ups.
 
 ## Recent coding-agent runs
+
+### 2026-07-09 — 933-936-workflow-signals-live
+- Files modified: workflow-failure-signal extractor, org audit snapshot
+  wiring, optimizer lane mapping, dedup/cap/stale-fixed safeguards, gated
+  live E2E test, `docs/ai/runs/2026-07-09-933-936-workflow-signals-live.md`.
+- Checks run: live E2E gate PASS (twice, incl. verbose); full api_server
+  suite 2485 passed / 2 skipped; `tsc --noEmit` clean.
+- Bug found by the live gate: create-recipe dedup key collapsed on empty
+  agent profile for agent-less sessions, suppressing distinct proposals;
+  fixed via a stable per-category `dedupToken` (commit `e3feef0cd`).
+- Deviations from spec: none.
+- Concerns: branch predates #949 — merge #940/#955 independently of this
+  PR.
 
 ### 2026-07-06 — issue-batch-917-918-919-921
 - Files modified: `apps/api_server/src/database/migrations.ts` (profile data repair), `apps/api_server/src/services/agent_runner.ts` (fallback model), `apps/api_server/src/services/opencode_agent_writer.ts` (disabled projection gate), focused API tests, `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` (trigger profile routing), docs run log.
