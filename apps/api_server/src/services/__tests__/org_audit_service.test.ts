@@ -450,3 +450,83 @@ describe('issue-819-c4: every gap has a stable, non-empty gapId and non-empty ev
     expect(gapIdsB).toEqual(gapIdsA);
   });
 });
+
+describe('issue-934-c1: buildOrgAuditSnapshot includes workflowFailureSignals (#933 extractor wiring)', () => {
+  it('is an empty array (not omitted, not an error) when no workflow failure evidence exists', async () => {
+    const configsRepo = new AgentConfigsRepository();
+    configsRepo.insert({ id: 'secretary', label: 'Secretary', icon: 'x' });
+
+    const { buildOrgAuditSnapshot } = await import('../org_audit_service');
+    const snapshot = await buildOrgAuditSnapshot();
+
+    expect(Array.isArray(snapshot.workflowFailureSignals)).toBe(true);
+    expect(snapshot.workflowFailureSignals).toEqual([]);
+  });
+
+  it('surfaces a real workflow failure signal (missing-scope, via denied_tool_events) in the snapshot', async () => {
+    // Bug this catches: the extractor is imported but never actually called
+    // (or its result is dropped), leaving workflowFailureSignals permanently
+    // empty even when real evidence exists.
+    const configsRepo = new AgentConfigsRepository();
+    configsRepo.insert({ id: 'secretary', label: 'Secretary', icon: 'x', allowedMcpsJson: JSON.stringify(['rhythm']) });
+
+    const deniedRepo = new DeniedToolEventsRepository();
+    await deniedRepo.recordAsync({ sessionId: 'sess-1', agentConfigId: 'secretary', toolName: 'nfl_mcp' });
+
+    const { buildOrgAuditSnapshot } = await import('../org_audit_service');
+    const snapshot = await buildOrgAuditSnapshot();
+
+    const signal = snapshot.workflowFailureSignals.find((s) => s.category === 'missing-scope');
+    expect(signal).toBeDefined();
+    expect(signal?.agentConfigId).toBe('secretary');
+  });
+});
+
+describe('issue-934-c2: buildOrgAuditSnapshot stays read-only with workflow signals wired in', () => {
+  it('leaves every table row count unchanged, including agent_session_messages/denied_tool_events', async () => {
+    const configsRepo = new AgentConfigsRepository();
+    configsRepo.insert({ id: 'secretary', label: 'Secretary', icon: 'x' });
+
+    const sessionsRepo = new AgentSessionsRepository();
+    const session = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 's', mcpRole: 'secretary' });
+
+    const { AgentSessionMessagesRepository } = await import('../../repositories/agent_session_messages_repository');
+    const messagesRepo = new AgentSessionMessagesRepository();
+    messagesRepo.append(session.id, 'output', 'Retrying. Retrying. Retrying. Retrying.', 'Retrying. Retrying. Retrying. Retrying.');
+
+    const deniedRepo = new DeniedToolEventsRepository();
+    await deniedRepo.recordAsync({ sessionId: null, agentConfigId: 'secretary', toolName: 'nfl_mcp' });
+
+    const db = getDb();
+    const tables = ['agent_configs', 'agent_sessions', 'agent_session_messages', 'denied_tool_events', 'agent_org_proposals'];
+    const before: Record<string, number> = {};
+    for (const t of tables) before[t] = (db.prepare(`SELECT COUNT(*) AS c FROM ${t}`).get() as { c: number }).c;
+
+    const { buildOrgAuditSnapshot } = await import('../org_audit_service');
+    await buildOrgAuditSnapshot();
+
+    const after: Record<string, number> = {};
+    for (const t of tables) after[t] = (db.prepare(`SELECT COUNT(*) AS c FROM ${t}`).get() as { c: number }).c;
+
+    expect(after).toEqual(before);
+  });
+});
+
+describe('issue-934-c3: delegate-result outcome distinction survives the snapshot wiring', () => {
+  it('a delegated child session in error status surfaces as delegateOutcome=failed in the snapshot', async () => {
+    const sessionsRepo = new AgentSessionsRepository();
+    const parent = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'parent' });
+    const child = sessionsRepo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/tmp', name: 'child', mcpRole: 'research' });
+    getDb().prepare(`UPDATE agent_sessions SET parent_session_id = ? WHERE id = ?`).run(parent.id, child.id);
+    sessionsRepo.setErrorStatus(child.id, 'boom');
+
+    const { buildOrgAuditSnapshot } = await import('../org_audit_service');
+    const snapshot = await buildOrgAuditSnapshot();
+
+    const signal = snapshot.workflowFailureSignals.find(
+      (s) => s.category === 'delegate-result' && s.sessionIds.includes(child.id),
+    );
+    expect(signal).toBeDefined();
+    expect(signal?.delegateOutcome).toBe('failed');
+  });
+});

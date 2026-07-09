@@ -2,68 +2,84 @@
 
 ## Current focus
 
-**#929 verified live (partial) and landing; #949 merged.** The
-self-regulating harvested-skill loop (real usage tracking, evaluate-at-3-uses,
-keep/rewrite-needed/disable, harvester-quality signal, minimal UI) is
-implemented on top of #949's file-based harvest representation. Unit suite
-green; mechanism proven live via an independent probe; the official live
-gate is blocked upstream on a dead-provider harvest precondition (#952) —
-see `docs/ai/runs/2026-07-09-929-skill-self-regulation-live.md`.
+Four major workstreams have each landed as a PR, all awaiting manual merge
+(no auto-merge in this repo):
+
+1. **#933-#936 — workflow-failure-signals chain**, verified live on branch
+   `issues-933-936-workflow-signals`; PR open (draft). Read-only failure
+   extractor → org audit snapshot → existing optimizer lanes, with
+   dedup/cap/stale-fixed safeguards. See
+   `docs/ai/runs/2026-07-09-933-936-workflow-signals-live.md`.
+2. **#949 — skill harvester writes draft `SKILL.md` + auto-binds to source
+   agent** — MERGED to `main`.
+3. **#930 — model fallback chain / cross-provider handoff** — draft PR #940.
+4. **#929 — skill self-regulation / bad-harvest detection** — draft PR #955.
 
 ## Active branch / PR
 
-- **`issue-929-skill-self-regulation`** — PR open (draft) against `main`.
-  6 implementation/unit commits + 1 live-gate fix commit
-  (`79620f35e` — frontmatter-from-disk read + evaluator-timing fix) + 1 docs
-  commit. Not merged; draft pending manual review.
-- `issue-949-harvest-to-file` / PR #950 — **merged to main.**
-- `issue-930-model-fallback-chain` — draft PR #940, still awaiting gated
-  live smoke before merge. Its `DEFAULT_MODEL_BY_PROVIDER` will supersede
-  the `openrouter/free` pin added in #949's fix.
-- `issue-933`, `issue-934`, `issue-935`, `issue-936` — gate pending.
+- `issues-933-936-workflow-signals` — PR open (draft), fixes #933-#936.
+  Cut from `origin/main` **before #949 merged**, so it does not contain
+  #949; unrelated files, merge independently.
+- PR #950 / `issue-949-harvest-to-file` — MERGED to `main` (fixes #949).
+- PR #940 / `issue-930-model-fallback-chain` — draft, awaiting manual merge
+  (fixes #930).
+- PR #955 / `issue-929-skill-self-regulation` — draft, awaiting manual
+  merge (fixes #929).
+
+## In progress
+
+- Nothing mid-flight in this worktree; #933-#936 chain is verified and
+  ready for review.
+- Manual merges of PR #940 and PR #955 are pending (independent of each
+  other and of the #933-#936 PR).
 
 ## Risks / known issues
 
-- **#952 — dead providers.** openai/google model providers are dead on
-  this machine; `openrouter/free` is the only working provider, and it is
-  both weak (declines to distill on request) and flaky (rate limits surface
-  only as WS error frames, reading as a hang). This is what blocked #929's
-  official live gate from completing its harvest precondition, and is the
-  systemic risk behind any "live E2E blocked" note across #929/#930/#949.
-- **openrouter/free flake in the live harness** — turn 2 can hit a rate
-  limit invisible to the E2E harness. #930's fallback chain is the systemic
-  fix; until that merges, live runs across issues can flake on this.
-- **#951 — distill harvests injected memory prefaces, not conversation
-  content.** Filed during #949 live verification. #929's self-regulation
-  loop (Units 3/4) is the safety net that catches this class of bad
-  harvest, not a fix for it.
-- **#876 — same frontmatter-strip bug class as the #929 live-gate fix**,
-  but in `lazy_deps_turn_hook.ts` rather than `opencode_skills_routes.ts`.
-  Diagnosed during #929 verification, spun out as its own follow-up.
+- **#952 — dead providers.** Follow-up needed; not yet fixed.
+- **#951 / #954 — follow-ups** from the #949/#930/#929 work, not yet
+  started.
 - `AgentSkillsRepository` + `agent_skills` table still not deleted (32
   direct callers) — only the `distillFromSession` write site changed in
   #949. Cleanup remains a follow-up.
-- Pre-existing unrelated test failures (22, memory-vault + auth-middleware,
-  ENOENT temp-dir + 401 auth env issues) predate this branch.
+- Pre-existing unrelated test failures (22, memory-vault +
+  auth-middleware, ENOENT temp-dir + 401 auth env issues) predate the
+  #933-#936 branch.
 
 ## Test status
 
-- `tsc --noEmit` — clean.
-- Full `api_server` unit suite — 292 files / 2482 tests passing (includes
-  #929's new evaluator, usage-tracker, and frontmatter test files).
-- Live #948/#949 phases — previously verified manually against the running
-  backend (see prior run logs).
-- Live #929 phase — official gate (`live_e2e_929.test.ts`) blocked on the
-  #952 harvest precondition; mechanism independently proven live via probe
-  (draft surfaced with correct status, usage counter advanced 0→1→2→3 from
-  real telemetry, evaluator produced a real `rewrite-needed` / postScore=25
-  outcome ~17s after the third use).
+- **#933-#936**: live E2E gate passed twice (incl. verbose) against the
+  real fork-engine backend; full api_server unit suite 290 files / 2485
+  passed / 2 skipped (the live-gated tests); `tsc --noEmit` clean.
+- **#949**: `tsc --noEmit` clean; `skill_extractor.test.ts` 9/9; resolver
+  suites 59/59; live #948/#949 phases verified manually.
+- **#930 / #929**: see PR #940 / PR #955 for their own test status.
 
 ## Next step
 
-1. Manual review + merge of draft PR for `issue-929-skill-self-regulation`.
-2. Gated live smoke for `issue-930-model-fallback-chain` (PR #940), then
-   merge; drop the `openrouter/free` pin in favor of its default map.
-3. Resolve #952 (dead openai/google providers) to unblock full live
-   verification of harvest-dependent gates (#929, #949, future harvester
-   work).
+1. Push `issues-933-936-workflow-signals` and open/refresh its draft PR for
+   review (this run).
+2. Manual merge of PR #940 (#930) and PR #955 (#929) — independent of each
+   other and of the #933-#936 PR.
+3. Pick up #952 (dead providers) and the #951/#954 follow-ups.
+
+## Recent coding-agent runs
+
+### 2026-07-09 — 933-936-workflow-signals-live
+- Files modified: workflow-failure-signal extractor, org audit snapshot
+  wiring, optimizer lane mapping, dedup/cap/stale-fixed safeguards, gated
+  live E2E test, `docs/ai/runs/2026-07-09-933-936-workflow-signals-live.md`.
+- Checks run: live E2E gate PASS (twice, incl. verbose); full api_server
+  suite 2485 passed / 2 skipped; `tsc --noEmit` clean.
+- Bug found by the live gate: create-recipe dedup key collapsed on empty
+  agent profile for agent-less sessions, suppressing distinct proposals;
+  fixed via a stable per-category `dedupToken` (commit `e3feef0cd`).
+- Deviations from spec: none.
+- Concerns: branch predates #949 — merge #940/#955 independently of this
+  PR.
+
+### 2026-07-06 — issue-batch-917-918-919-921
+- Files modified: `apps/api_server/src/database/migrations.ts` (profile data repair), `apps/api_server/src/services/agent_runner.ts` (fallback model), `apps/api_server/src/services/opencode_agent_writer.ts` (disabled projection gate), focused API tests, `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` (trigger profile routing), docs run log.
+- Checks run: `npx tsc --noEmit` pass; targeted Vitest pass (`6 files, 50 tests`); full `npm test` failed under sandbox bind restrictions (`listen EPERM`, `1971 passed / 423 failed / 58 skipped`); Flutter `dart format .` and `flutter analyze --no-fatal-infos` blocked by SDK cache write permission.
+- Decisions made: #921 uses trigger-only routing to `secretary` instead of globally scoping `claude-code`/`codex`, preserving manual escape-hatch behavior.
+- Deviations from spec: full Vitest and Flutter checks could not complete cleanly in this sandbox; local stale opencode agent files could not be removed from `~/.config`.
+- Concerns: orchestrator should rerun full API/Flutter checks in an environment allowed to bind ports and write the Flutter SDK cache.

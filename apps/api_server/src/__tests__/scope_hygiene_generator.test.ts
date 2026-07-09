@@ -35,6 +35,7 @@ function baseSnapshot(overrides: Partial<OrgAuditSnapshot> = {}): OrgAuditSnapsh
     deniedToolAggregates: [],
     drift: [],
     gaps: [],
+    workflowFailureSignals: [],
     ...overrides,
   };
 }

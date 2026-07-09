@@ -15,6 +15,9 @@
  *        - scope_hygiene_generator  -> prune-scope / tighten-scope / consolidate-skill
  *        - recipe_generator         -> create-recipe / refine-recipe
  *        - webhook_wiring_generator -> webhook-wiring
+ *        - workflow_signal_generator (#935) -> broaden-scope / create-recipe,
+ *          from snapshot.workflowFailureSignals (#933/#934) — reuses these
+ *          same two existing kinds rather than inventing a new lane
  *      `new_agent_generator` and `delegation_generator` require a caller-
  *      detected SIGNAL (a coverage-gap / redo-pattern) that is intentionally
  *      NOT part of `OrgAuditSnapshot` (see those modules' own doc comments —
@@ -67,6 +70,7 @@ import { generateScopeHygieneProposals } from './generators/scope_hygiene_genera
 import { generateRecipeProposals } from './generators/recipe_generator';
 import { generateWebhookWiringProposals } from './generators/webhook_wiring_generator';
 import { generateDelegationProposals } from './generators/delegation_generator';
+import { generateWorkflowSignalProposals } from './generators/workflow_signal_generator';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 
@@ -253,6 +257,14 @@ export async function runOrgOptimizer(
       },
       async () => {
         await generateWebhookWiringProposals(taggedSnapshot, cappedRepo);
+      },
+      async () => {
+        // #935 — workflow_failure_signal_extractor.ts (#933) signals, already
+        // present on taggedSnapshot via buildOrgAuditSnapshot (#934). Runs
+        // through the SAME capped, dedup-aware repo as every other
+        // generator, so the #830 per-run cap and dedup guard cover it for
+        // free — no separate cap/dedup logic needed here (#936).
+        await generateWorkflowSignalProposals(taggedSnapshot, { proposalsRepo: cappedRepo });
       },
     ];
 
