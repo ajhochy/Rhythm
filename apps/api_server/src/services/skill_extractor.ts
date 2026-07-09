@@ -123,6 +123,28 @@ export function getCuratorExtractStatus(): { running: boolean; lastRunAt: string
 /** How many recent messages to include (Odysseus CONTEXT_WINDOW). */
 const CONTEXT_WINDOW = 12;
 
+const KNOWN_CONTEXT_PREFACE_HEADER = '## Known context (facts & preferences)';
+
+/**
+ * ws_gateway prepends the transient memory preface as:
+ *   <header>\n- <memory>\n\n<forwarded user text>
+ * Strip only that leading injected block; a later/user-authored mention of the
+ * heading is left intact.
+ */
+function stripKnownContextPreface(text: string): string {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  let headerIdx = 0;
+  while (headerIdx < lines.length && lines[headerIdx].trim() === '') {
+    headerIdx++;
+  }
+  if (lines[headerIdx] !== KNOWN_CONTEXT_PREFACE_HEADER) return text;
+  if (!lines[headerIdx + 1]?.startsWith('- ')) return text;
+
+  const separatorIdx = lines.findIndex((line, idx) => idx > headerIdx && line.trim() === '');
+  if (separatorIdx === -1) return '';
+  return lines.slice(separatorIdx + 1).join('\n');
+}
+
 /**
  * Skills the model is unsure about (or that read as one-offs) add clutter —
  * drop anything below this confidence (Odysseus MIN_CONFIDENCE).
@@ -452,9 +474,14 @@ export async function distillFromSession(
     const conversation = stripped
       .map((m) => {
         let content = (m.strippedText ?? m.rawText ?? '').trim();
+        if (m.role === 'input') {
+          content = stripKnownContextPreface(content).trim();
+        }
+        if (!content) return null;
         if (content.length > 500) content = content.slice(0, 500) + '...';
         return `[${m.role}] ${content}`;
       })
+      .filter((line): line is string => line !== null)
       .join('\n');
 
     const systemPrompt = buildSystemPrompt(rounds);
