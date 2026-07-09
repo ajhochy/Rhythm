@@ -184,6 +184,8 @@ export interface DraftManagedSkillInput extends ManagedSkillInput {
   postScore?: number;
   /** scoreSkillBody() rationale from the most recent evaluation. */
   measureReason?: string;
+  /** #969 — ISO timestamp of the most recent rewrite-needed → refiner attempt, if any. */
+  rewriteAttemptedAt?: string;
 }
 
 /** The drafts subfolder under the managed root. */
@@ -224,6 +226,8 @@ export function renderDraftSkillMarkdown(skill: DraftManagedSkillInput): string 
   if (skill.evaluatedAt) lines.push(`evaluated_at: ${skill.evaluatedAt}`);
   if (skill.postScore !== undefined) lines.push(`post_score: ${skill.postScore}`);
   if (skill.measureReason) lines.push(`measure_reason: ${JSON.stringify(skill.measureReason)}`);
+  // #969 — only present once the rewrite-needed sweep has attempted this draft.
+  if (skill.rewriteAttemptedAt) lines.push(`rewrite_attempted_at: ${skill.rewriteAttemptedAt}`);
   lines.push('---', '', skill.body.endsWith('\n') ? skill.body.trimEnd() : skill.body, '');
   return lines.join('\n');
 }

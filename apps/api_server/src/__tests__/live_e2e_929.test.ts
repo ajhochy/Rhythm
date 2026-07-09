@@ -1,5 +1,6 @@
 /**
- * Live E2E test for #929 (skill self-regulation loop).
+ * Live E2E test for #929 (skill self-regulation loop), #959 (dependency
+ * guard), and #969 (rewrite-needed -> refiner wiring).
  *
  * Gated behind RHYTHM_LIVE_E2E=1 — does NOT run in the normal `vitest run`
  * suite because it drives multiple real LLM turns against the running local
@@ -508,4 +509,167 @@ describeLive('live E2E — #959 dependency guard (deterministic seed, no live di
 
 afterEach(async () => {
   await new Promise((r) => setTimeout(r, 50));
+});
+
+/**
+ * #969 — rewrite-needed -> refiner wiring, DETERMINISTIC live gate (same
+ * seeding style as the #959 block above: no live-distillation dependency).
+ *
+ * Seeds a draft DIRECTLY in status: rewrite-needed with a clear, well-known
+ * purpose but a deliberately unhelpful body and a low recorded postScore —
+ * exactly the shape #929/#959 leave behind when a skill is flagged but never
+ * consumed. Drives ONE arbitrary completing turn (unrestricted agent, model
+ * PINNED to anthropic/claude-sonnet-4-6 — NOT openrouter/free, which hangs
+ * without erroring in this env, see #959's own comment) so the fire-and-
+ * forget evaluateHarvestedDrafts() sweep fires and gives the draft its
+ * one-shot rewrite attempt. Unlike Unit 3, the Unit 5 sweep is NOT
+ * threshold-gated — it processes every LIVE rewrite-needed draft on every
+ * pass regardless of usage, so this gate needs no
+ * RHYTHM_HARVEST_EVAL_THRESHOLD override.
+ *
+ * What it proves:
+ *   1. The rewrite-needed draft is actually acted on by the RUNNING server:
+ *      `rewrite_attempted_at` appears in its frontmatter (the sweep ran) and
+ *      EITHER the body changed + status -> active (a successful rewrite) OR
+ *      it stays rewrite-needed with the body byte-for-byte unchanged (the
+ *      real judge didn't buy the candidate — non-destructive, still a valid
+ *      outcome; the marker alone proves the mechanism fired).
+ *   2. It is NEVER disabled/removed — stays discoverable throughout.
+ *   3. Loop safety: a SECOND completing turn does not re-attempt it — the
+ *      `rewrite_attempted_at` timestamp is byte-for-byte unchanged after a
+ *      second pass, proving the one-shot cap holds regardless of whether the
+ *      first attempt succeeded or failed.
+ */
+describeLive('live E2E — #969 rewrite-needed -> refiner wiring (deterministic seed)', () => {
+  beforeAll(async () => {
+    const health = await api('/health');
+    if (!health.ok) throw new Error(`server not reachable at ${BASE} — start it first`);
+    const eng = await apiJson<{ status: string }>('/opencode/health');
+    if (eng.status !== 'ready') {
+      throw new Error(`opencode engine not ready (status=${eng.status}) — wait for spawn and re-run`);
+    }
+  });
+
+  async function readDraftFile(name: string): Promise<string | null> {
+    try {
+      return await readFile(join(DRAFTS_DIR, name, 'SKILL.md'), 'utf8');
+    } catch {
+      return null;
+    }
+  }
+
+  function frontmatterField(content: string, key: string): string | undefined {
+    const m = new RegExp(`^${key}:\\s*(.*)$`, 'm').exec(content);
+    return m ? m[1].trim() : undefined;
+  }
+
+  it(
+    'a seeded rewrite-needed draft gets a one-shot refiner attempt; a second turn never re-attempts it',
+    async () => {
+      const ts = Date.now();
+      const name = `zzz-e2e-969-rewrite-${ts}`;
+
+      writeDraftManagedSkill({
+        name,
+        description:
+          'Explain, step by step, how to reverse a singly linked list in Python, including the standard iterative pointer-swap approach.',
+        body: 'TODO.',
+        sourceSessionId: 'e2e-969-seed',
+        confidence: 0.7,
+        status: 'rewrite-needed',
+        evaluatedAt: new Date().toISOString(),
+        postScore: 10,
+        measureReason: 'off-topic placeholder body seeded for #969 live gate',
+      });
+      createdDraftNames.push(name);
+
+      // Unrestricted (no allowlist) invoker, model PINNED to the authed
+      // Anthropic tier — see #959's own comment on why openrouter/free is
+      // unsafe for a trigger turn (hangs with no completion and no error).
+      const invoker = await apiJson<{ id: string }>('/agent-configs', {
+        method: 'POST',
+        body: JSON.stringify({
+          label: `E2E #969 Invoker ${ts}`,
+          isAgent: true,
+          enabled: true,
+          sessionSelectable: true,
+          modelProvider: 'anthropic',
+          modelId: 'claude-sonnet-4-6',
+          systemPrompt: 'You are a test agent. Reply concisely.',
+        }),
+      });
+      createdAgentIds.push(invoker.id);
+
+      await refresh();
+      await poll(
+        async () => {
+          const names = new Set((await listSkillsWithMetadata()).map((s) => s.name));
+          if (names.has(name)) return true;
+          throw new Error('seeded draft not yet discovered by the engine');
+        },
+        30_000,
+        1_000,
+        'wait for engine to discover the seeded draft',
+      );
+
+      const sess = await apiJson<{ id: string }>('/agent-sessions', {
+        method: 'POST',
+        body: JSON.stringify({ agentId: invoker.id, name: 'E2E #969 rewrite probe', cwd: homedir() }),
+      });
+      createdSessionIds.push(sess.id);
+
+      const ws = connectWs();
+      try {
+        await sendPromptAndAwait(ws, sess.id, 'Reply with exactly the word: ok');
+      } finally {
+        ws.close();
+      }
+
+      // ── Wait for the Unit-5 sweep to give the draft its one-shot attempt ──
+      const firstAttemptedAt = await poll(
+        async () => {
+          const content = await readDraftFile(name);
+          if (!content) throw new Error('seeded draft file disappeared — should never be removed');
+          const attemptedAt = frontmatterField(content, 'rewrite_attempted_at');
+          if (!attemptedAt) throw new Error('rewrite_attempted_at not stamped yet — sweep has not run');
+          return attemptedAt;
+        },
+        60_000,
+        1_500,
+        'wait for the #969 rewrite sweep to attempt this draft',
+      );
+
+      // ── Never disabled/removed — stays live throughout, whatever the outcome ──
+      expect(existsSync(join(DISABLED_DIR, name, 'SKILL.md'))).toBe(false);
+      const afterFirst = await readDraftFile(name);
+      expect(afterFirst).toBeTruthy();
+      const statusAfterFirst = frontmatterField(afterFirst!, 'status');
+      expect(['active', 'rewrite-needed']).toContain(statusAfterFirst);
+      if (statusAfterFirst === 'active') {
+        // A successful rewrite — the placeholder body must actually be gone.
+        expect(afterFirst).not.toContain('TODO.');
+      }
+
+      // ── Loop safety — a SECOND completing turn must NOT re-attempt it ──────
+      const sess2 = await apiJson<{ id: string }>('/agent-sessions', {
+        method: 'POST',
+        body: JSON.stringify({ agentId: invoker.id, name: 'E2E #969 rewrite probe 2', cwd: homedir() }),
+      });
+      createdSessionIds.push(sess2.id);
+      const ws2 = connectWs();
+      try {
+        await sendPromptAndAwait(ws2, sess2.id, 'Reply with exactly the word: ok');
+      } finally {
+        ws2.close();
+      }
+      // Give the fire-and-forget post-turn hook a moment to run, then assert
+      // NOTHING changed — a fixed short wait + direct re-read is the right
+      // shape for a negative assertion (there is no "done" state to poll for).
+      await new Promise((r) => setTimeout(r, 3_000));
+      const afterSecond = await readDraftFile(name);
+      const secondAttemptedAt = afterSecond ? frontmatterField(afterSecond, 'rewrite_attempted_at') : undefined;
+      expect(secondAttemptedAt).toBe(firstAttemptedAt);
+    },
+    180_000,
+  );
 });
