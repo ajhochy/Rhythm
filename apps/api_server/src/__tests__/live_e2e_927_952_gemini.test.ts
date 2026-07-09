@@ -91,12 +91,15 @@ async function createUnscopedGeminiAgent(label: string): Promise<string> {
 }
 
 async function createSession(agentId: string, name: string): Promise<string> {
-  const r = await apiJson<{ session: { id: string } }>('/agent-sessions', {
+  // POST /agent-sessions returns the session object directly (res.json(session)),
+  // NOT wrapped in { session } — matches commit c00681c7b. (GET /agent-sessions/:id
+  // below IS a { session, messages } snapshot; that's a different endpoint shape.)
+  const r = await apiJson<{ id: string }>('/agent-sessions', {
     method: 'POST',
     body: JSON.stringify({ agentId, name, cwd: process.cwd() }),
   });
-  createdSessionIds.push(r.session.id);
-  return r.session.id;
+  createdSessionIds.push(r.id);
+  return r.id;
 }
 
 function openWs(): Promise<WebSocket> {
