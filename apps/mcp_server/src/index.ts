@@ -20,7 +20,6 @@ import { registerAgentMemoryTools } from './tools/agentMemory.js';
 import { registerAgentSessionTools } from './tools/agentSessions.js';
 import { registerAgentResearchTools } from './tools/agentResearch.js';
 import { registerOrgOptimizerTools } from './tools/orgOptimizer.js';
-import { registerGithubIssueTools } from './tools/githubIssues.js';
 import { registerAgentApprovalTools } from './tools/agentApprovals.js';
 import { registerFeedbackSensorTools } from './tools/feedbackSensors.js';
 import { registerAgentProfileTools } from './tools/agentProfiles.js';
@@ -83,11 +82,9 @@ registerAgentResearchTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 // RHYTHM_AGENT_URL like the scheduler/session/memory tools above, never
 // serverConfig.url (dual-endpoint rule).
 registerOrgOptimizerTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
-// #870 — GitHub issue creation. Talks directly to the GitHub REST API (no
-// api_server hop); scoped to dev-facing profiles via .mcp-roles/dev.mcp.json.
-// Token is read from RHYTHM_GITHUB_TOKEN/GITHUB_TOKEN inside the tool itself,
-// never passed through here or serialized into any config.
-registerGithubIssueTools(server);
+// #944 — rhythm_create_issue (GitHub) was removed: agents file issues via the
+// `gh` CLI in their bash tool, which is already authenticated; the MCP tool
+// needed its own token plumbing and duplicated that path.
 
 // Connect over stdio (Claude Desktop / Claude Code MCP transport)
 const transport = new StdioServerTransport();
