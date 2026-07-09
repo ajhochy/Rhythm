@@ -282,6 +282,15 @@ const plugin = async () => {
                             rhythmAccount = rhythmFallback;
                             rhythmFallback = undefined;
                         }
+                        // rhythm: #930 smoke knob — RHYTHM_FORCE_EXHAUSTED=1 simulates TOTAL
+                        // account exhaustion at engine level: report to api_server and return
+                        // a synthetic 429 without burning a real Anthropic request. Hits EVERY
+                        // anthropic request while set — unset it after the smoke run.
+                        if (process.env.RHYTHM_FORCE_EXHAUSTED) {
+                            log("fetch_forced_exhausted", { accountId: rhythmAccount.id });
+                            markAccountsExhausted(rhythmSessionId, rhythmAccount.id);
+                            return new Response(JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "Simulated account exhaustion (RHYTHM_FORCE_EXHAUSTED)" } }), { status: 429, headers: { "content-type": "application/json" } });
+                        }
                         const requestInit = init ?? {};
                         const bodyStr = typeof requestInit.body === "string"
                             ? requestInit.body
