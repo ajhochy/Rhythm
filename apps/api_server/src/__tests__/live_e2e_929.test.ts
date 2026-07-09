@@ -44,6 +44,7 @@ import { readdir, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { writeDraftManagedSkill } from '../services/rhythm_managed_skills';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
 // NOTE: defaults to :4000 (this environment's reservation) rather than
@@ -239,40 +240,20 @@ describeLive('live E2E — #929 skill self-regulation loop', () => {
         ws.close();
       }
 
-      // ── #949 auto-bind precondition — the harvested draft was appended to
-      // THIS (scoped) agent's allowed_skills_json, so it is now a depended-on
-      // skill. That is exactly the dependency the #959 guard reads. Confirm it
-      // before asserting the guard below (the auto-bind PATCH races the
-      // draft-file write, so poll).
-      await poll(
-        async () => {
-          const cfg = await apiJson<{ allowedSkillsJson: string | null }>(`/agent-configs/${agentId}`);
-          const allow = cfg.allowedSkillsJson ? (JSON.parse(cfg.allowedSkillsJson) as string[]) : [];
-          if (allow.includes(draftName)) return true;
-          throw new Error(`agent ${agentId} allowlist does not yet reference '${draftName}'`);
-        },
-        30_000,
-        1_000,
-        'wait for #949 auto-bind of the draft into the agent allowlist',
-      );
-
-      // ── Unit 3 + #959 — the fire-and-forget evaluator (triggered after each
-      // of the 3 turns above via agent_runner.ts) should have scored the draft
-      // and moved it off `status: draft`. Because the draft is depended-on
-      // (auto-bound above), the #959 guard guarantees it is NEVER disabled/
-      // archived — even if the live judge scores it in the disable tier, it is
-      // routed to `rewrite-needed` instead. Terminal state must therefore be a
-      // live, non-draft status (active | rewrite-needed).
+      // ── Unit 3 — the fire-and-forget evaluator (triggered after each of the
+      // 3 turns above via agent_runner.ts) should have scored the draft and
+      // moved it off `status: draft` by now. Poll GET /opencode/skills for
+      // either: still listed with a NON-draft status (kept/rewrite-needed), or
+      // no longer listed at all (disabled/archived) — both are valid terminal
+      // outcomes; which one depends on the live judge's opinion of this run's
+      // draft body.
       await poll(
         async () => {
           const skills = await listSkillsWithMetadata();
           const entry = skills.find((s) => s.name === draftName);
-          // A guard regression would archive the draft → it vanishes from the
-          // live list. Treat "gone" as a terminal (asserted against below) so
-          // the poll surfaces the regression rather than timing out on it.
-          if (!entry) return { status: 'gone' as const };
+          if (!entry) return { outcome: 'disabled' as const };
           if (entry.metadata?.status && entry.metadata.status !== 'draft') {
-            return { status: entry.metadata.status };
+            return { outcome: entry.metadata.status };
           }
           throw new Error(`'${draftName}' still status:draft — evaluator has not run yet`);
         },
@@ -283,18 +264,185 @@ describeLive('live E2E — #929 skill self-regulation loop', () => {
 
       const finalSkills = await listSkillsWithMetadata();
       const finalEntry = finalSkills.find((s) => s.name === draftName);
-      // #959: a depended-on skill is never auto-disabled — it must still be
-      // live (present) with a non-draft status, and must NOT be in the
-      // disabled archive.
-      expect(
-        finalEntry,
-        `#959 regression: depended-on draft '${draftName}' was removed from the live picker`,
-      ).toBeTruthy();
-      expect(finalEntry?.metadata?.status).not.toBe('draft');
-      expect(['active', 'rewrite-needed']).toContain(finalEntry?.metadata?.status);
-      expect(existsSync(join(DISABLED_DIR, draftName, 'SKILL.md'))).toBe(false);
+      if (finalEntry) {
+        expect(finalEntry.metadata?.status).not.toBe('draft');
+        expect(['active', 'rewrite-needed']).toContain(finalEntry.metadata?.status);
+      } else {
+        // Disabled — archived out of the live picker. Confirm the archive got it.
+        expect(existsSync(join(DISABLED_DIR, draftName, 'SKILL.md'))).toBe(true);
+      }
     },
     300_000, // 5 min hard cap: 2 harvest turns + 3 skill-invocation turns + evaluator LLM judge + polling.
+  );
+});
+
+/**
+ * #959 — dependency guard, DETERMINISTIC live gate.
+ *
+ * Deliberately does NOT depend on live LLM distillation (the #949 harvest step
+ * — known-fragile on free-tier models, #951, and already covered by #949's own
+ * gate + the block above). Instead it SEEDS the precondition:
+ *   - Two draft SKILL.md files written directly via the harvester's own
+ *     `writeDraftManagedSkill` (filesystem only — the SAME managed dir the
+ *     running server's fork scans; RHYTHM_MANAGED_SKILLS_DIR is left unset here
+ *     so it resolves to the home default, exactly as the server does — no
+ *     second better-sqlite3 connection, no torn-read risk). Both have a
+ *     concrete stated purpose but an empty/placeholder body, so the REAL judge
+ *     reliably scores each in the 0-20 disable tier (scoreSkillBody is
+ *     fail-closed to 0 regardless) — the disable branch is reached without
+ *     mocking the scorer.
+ *   - A SCOPED agent-config whose allowlist references ONLY the first draft
+ *     (via the real POST /agent-configs). This is exactly the
+ *     agent_configs.allowed_skills_json surface the guard reads, so the first
+ *     draft is "depended on" and the second is not.
+ *
+ * The only remaining live dependency is the SANCTIONED evaluation trigger:
+ * real `skill`-tool invocations crossing EVAL_THRESHOLD, which fire the
+ * post-turn evaluateHarvestedDrafts. Both drafts get an identical bad body and
+ * cross the threshold together — so the ONLY difference between them is the
+ * dependency, making the guard the sole discriminator.
+ */
+describeLive('live E2E — #959 dependency guard (deterministic seed, no live distillation)', () => {
+  beforeAll(async () => {
+    const health = await api('/health');
+    if (!health.ok) throw new Error(`server not reachable at ${BASE} — start it first`);
+    const eng = await apiJson<{ status: string }>('/opencode/health');
+    if (eng.status !== 'ready') {
+      throw new Error(`opencode engine not ready (status=${eng.status}) — wait for spawn and re-run`);
+    }
+  });
+
+  it(
+    'a low-scoring draft referenced by an agent allowlist is NOT disabled; an identical un-referenced draft still is',
+    async () => {
+      // Names use alnum + dash only, so slug === name === frontmatter.name (no
+      // slug/name ambiguity across writeDraftManagedSkill / listDraftSkillNames
+      // / GET /opencode/skills). Timestamped to avoid collisions + ease cleanup.
+      const ts = Date.now();
+      const dependedName = `zzz-e2e-guard-dep-${ts}`;
+      const undependedName = `zzz-e2e-guard-undep-${ts}`;
+
+      const seedDraft = (name: string) => {
+        writeDraftManagedSkill({
+          name,
+          description:
+            'Deploy a production Kubernetes cluster with zero-downtime blue-green rollout and automated rollback.',
+          body: 'TODO: write this later.',
+          sourceSessionId: 'e2e-959-seed',
+          confidence: 0.7,
+          provenance: 'auto-extract',
+        });
+        createdDraftNames.push(name);
+      };
+      seedDraft(dependedName);
+      seedDraft(undependedName);
+
+      // Establish the dependency: a scoped agent referencing ONLY the depended
+      // draft. It never runs — it exists solely to make dependedName depended-on.
+      const anchor = await apiJson<{ id: string }>('/agent-configs', {
+        method: 'POST',
+        body: JSON.stringify({
+          label: `E2E #959 Dependency Anchor ${ts}`,
+          isAgent: true,
+          enabled: true,
+          sessionSelectable: true,
+          allowedSkillsJson: JSON.stringify([dependedName]),
+        }),
+      });
+      createdAgentIds.push(anchor.id);
+
+      // An UNRESTRICTED agent (no allowlist → null) that can load any discovered
+      // skill — used only to drive real `skill`-tool uses for BOTH drafts.
+      // Being unrestricted it contributes no allowlist entry, so undependedName
+      // stays referenced by no agent.
+      const invoker = await apiJson<{ id: string }>('/agent-configs', {
+        method: 'POST',
+        body: JSON.stringify({
+          label: `E2E #959 Invoker ${ts}`,
+          isAgent: true,
+          enabled: true,
+          sessionSelectable: true,
+          modelProvider: MODEL.provider,
+          modelId: MODEL.id || undefined,
+          systemPrompt:
+            'You are a test agent. When asked to use a skill by name via the skill tool, always do so immediately.',
+        }),
+      });
+      createdAgentIds.push(invoker.id);
+
+      // Make the fork discover the freshly-seeded draft files.
+      await refresh();
+      await poll(
+        async () => {
+          const names = new Set((await listSkillsWithMetadata()).map((s) => s.name));
+          if (names.has(dependedName) && names.has(undependedName)) return true;
+          throw new Error('seeded drafts not yet discovered by the engine');
+        },
+        30_000,
+        1_000,
+        'wait for engine to discover the seeded drafts',
+      );
+
+      const sess = await apiJson<{ id: string }>('/agent-sessions', {
+        method: 'POST',
+        body: JSON.stringify({ agentId: invoker.id, name: 'E2E #959 guard probe', cwd: homedir() }),
+      });
+      createdSessionIds.push(sess.id);
+
+      const ws = connectWs();
+      try {
+        // Cross EVAL_THRESHOLD (3) for BOTH drafts via real skill-tool uses.
+        // Each turn-complete fires the fire-and-forget evaluateHarvestedDrafts.
+        for (let i = 0; i < 3; i++) {
+          await sendPromptAndAwait(
+            ws,
+            sess.id,
+            `Use the skill tool to load the skill named "${dependedName}", then use the skill tool again ` +
+              `to load the skill named "${undependedName}". Do both now.`,
+          );
+        }
+      } finally {
+        ws.close();
+      }
+
+      // Wait for the evaluator to finish BOTH drafts: the depended one leaves
+      // status:draft while staying live; the undepended one is archived
+      // (removed from the live list, present in disabled/).
+      await poll(
+        async () => {
+          const skills = await listSkillsWithMetadata();
+          const dep = skills.find((s) => s.name === dependedName);
+          const undep = skills.find((s) => s.name === undependedName);
+          const depDone = !!(dep && dep.metadata?.status && dep.metadata.status !== 'draft');
+          const undepDone = !undep && existsSync(join(DISABLED_DIR, undependedName, 'SKILL.md'));
+          if (depDone && undepDone) return true;
+          throw new Error(
+            `evaluator not done (dep=${dep?.metadata?.status ?? 'gone'}, undepListed=${!!undep})`,
+          );
+        },
+        120_000,
+        2_000,
+        'wait for evaluateHarvestedDrafts to process both seeded drafts',
+      );
+
+      // ── #959 — the depended-on skill is NEVER auto-disabled ──────────────
+      const skills = await listSkillsWithMetadata();
+      const depEntry = skills.find((s) => s.name === dependedName);
+      expect(
+        depEntry,
+        `#959 regression: depended-on draft '${dependedName}' was removed from the live picker`,
+      ).toBeTruthy();
+      expect(depEntry?.metadata?.status).not.toBe('draft');
+      expect(['active', 'rewrite-needed']).toContain(depEntry?.metadata?.status);
+      expect(existsSync(join(DISABLED_DIR, dependedName, 'SKILL.md'))).toBe(false);
+
+      // ── Negative control — identical bad body, NO agent depends on it → it
+      // DOES disable. Proves the dependency is the sole discriminator, not the
+      // score (both drafts scored in the same disable tier).
+      expect(skills.find((s) => s.name === undependedName)).toBeFalsy();
+      expect(existsSync(join(DISABLED_DIR, undependedName, 'SKILL.md'))).toBe(true);
+    },
+    240_000, // 4 min: 3 skill-invocation turns (both skills each) + evaluator LLM judge x2 + polling.
   );
 });
 
