@@ -13,7 +13,10 @@
  * ensureLazyDepsForTurn composes it with listSkillsWithContent + frontmatter
  * parsing + ensurePythonDependencies for every skill invoked in one turn.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { extractInvokedSkillNamesFromParts, ensureLazyDepsForTurn } from '../lazy_deps_turn_hook';
 
 describe('extractInvokedSkillNamesFromParts (#876)', () => {
@@ -72,9 +75,27 @@ describe('extractInvokedSkillNamesFromParts (#876)', () => {
 });
 
 describe('ensureLazyDepsForTurn (#876 composition)', () => {
+  const tempDirs: string[] = [];
+
   function skillMd(name: string, deps = ''): string {
     return ['---', `name: ${name}`, deps, '---', '', 'body'].filter(Boolean).join('\n');
   }
+
+  function writeTempSkillMd(name: string, deps = ''): string {
+    const root = mkdtempSync(join(tmpdir(), 'rhythm-lazy-deps-skill-'));
+    tempDirs.push(root);
+    const skillDir = join(root, name);
+    mkdirSync(skillDir, { recursive: true });
+    const location = join(skillDir, 'SKILL.md');
+    writeFileSync(location, skillMd(name, deps), 'utf8');
+    return location;
+  }
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 
   it('is a no-op when no skill was invoked this turn', async () => {
     const listSkillsWithContent = vi.fn().mockResolvedValue([]);
@@ -85,11 +106,12 @@ describe('ensureLazyDepsForTurn (#876 composition)', () => {
   });
 
   it('resolves the invoked skill by name and runs ensurePythonDependencies with its declared deps', async () => {
+    const location = writeTempSkillMd('httpx-user', 'python_dependencies:\n  - package: "httpx"\n');
     const listSkillsWithContent = vi.fn().mockResolvedValue([
       {
         name: 'httpx-user',
-        location: '/skills/httpx-user/SKILL.md',
-        content: skillMd('httpx-user', 'python_dependencies:\n  - package: "httpx"\n'),
+        location,
+        content: 'body',
       },
     ]);
     const ensureDeps = vi.fn().mockResolvedValue({ installed: ['httpx'], unavailable: [] });

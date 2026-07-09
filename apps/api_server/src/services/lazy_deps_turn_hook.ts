@@ -20,6 +20,7 @@
 import { opencodeClient } from './opencode_engine';
 import { parseSkillFrontmatter } from './skill_frontmatter';
 import { ensurePythonDependencies, type EnsurePythonDependenciesResult } from './lazy_deps';
+import { readSkillContentAtLocation } from './rhythm_managed_skills';
 import type { PythonDependency } from './skill_frontmatter';
 import { logger } from '../utils/logger';
 
@@ -96,7 +97,7 @@ export async function ensureLazyDepsForTurn(
       const skill = byName.get(name);
       if (!skill) continue; // invoked-but-not-found — nothing to install for
 
-      const fm = parseSkillFrontmatter(skill.content);
+      const fm = parseSkillFrontmatter(readSkillContentAtLocation(skill.location) ?? '');
       if (fm.pythonDependencies.length === 0) continue;
 
       try {
