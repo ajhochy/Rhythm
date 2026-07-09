@@ -147,14 +147,20 @@ async function proposeCreateRecipeForCategory(
   const title = `Recipe: ${humanTitle} (${profile})`;
   const changeJson = buildCreateRecipeChange(title, signal.evidence);
   const risk = classifyProposalRisk({ kind: 'create-recipe', changeJson });
-  const dedupKey = `create-recipe:workflow:${dedupSuffix}:${profile}`;
+  // #936 — dedup on the signal's STABLE identity (dedupToken), not the profile.
+  // profile is empty ('unattributed') for agent-less sessions, so distinct
+  // patterns (e.g. stale-redo of different issues) all collapsed into one
+  // dedup key and only the first ever surfaced. dedupToken is issue-scoped for
+  // stale-redo, session-scoped for single-session incidents, profile-scoped
+  // for the profile-grouped categories.
+  const dedupKey = `create-recipe:workflow:${dedupSuffix}:${signal.dedupToken}`;
 
   return createIfNotDuplicate(proposalsRepo, {
     kind: 'create-recipe',
     risk,
     title,
     rationale: `${signal.evidence} (workflow signal: ${signal.category}, confidence=${signal.confidence})`,
-    signalRef: `workflow:${signal.category}:${profile}`,
+    signalRef: `workflow:${signal.category}:${signal.dedupToken}`,
     targetRef: signal.agentConfigId ? `agent_config:${signal.agentConfigId}` : null,
     changeJson,
     dedupKey,

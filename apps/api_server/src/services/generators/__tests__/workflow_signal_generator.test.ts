@@ -91,6 +91,7 @@ function makeSignal(overrides: Partial<WorkflowFailureSignal> = {}): WorkflowFai
     count: 2,
     confidence: 'medium',
     evidence: 'retry-loop phrases across 2 sessions agentConfigId=secretary sessionIds=s1,s2',
+    dedupToken: 'secretary', // profile-grouped default; override per test for identity-specific dedup
     ...overrides,
   };
 }

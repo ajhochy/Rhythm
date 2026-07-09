@@ -84,6 +84,19 @@ export interface WorkflowFailureSignal {
   /** Concise, human-readable evidence string (doubles as a proposal rationale/signal_ref). */
   evidence: string;
   delegateOutcome?: DelegateOutcome;
+  /**
+   * #936 — STABLE identity of the specific pattern this signal represents:
+   * the detector's own grouping key (issue number for stale-redo, profile for
+   * the profile-grouped categories, session id for a single-session severe
+   * incident, profile:tool for missing-scope). Downstream proposal dedup keys
+   * incorporate this so re-running over the SAME pattern collapses to the
+   * existing proposal, while two DIFFERENT patterns of the same category
+   * (e.g. stale-redo of issue #12 vs #34) never wrongly collide. Distinct
+   * from `agentConfigId` precisely because stale-redo groups by issue, not
+   * profile — profile alone (empty for agent-less sessions) collided every
+   * stale-redo into one dedup key.
+   */
+  dedupToken: string;
 }
 
 export interface WorkflowFailureExtractorDeps {
@@ -213,6 +226,7 @@ function detectDelegateResultSignals(
       confidence,
       sessionIds: sessionIds.slice(0, 5),
       evidence: `delegateOutcome=${outcome} agentConfigId=${agentConfigId ?? '(unattributed)'} count=${sessionIds.length} sessionIds=${sessionIds.slice(0, 5).join(',')}`,
+      dedupToken: agentConfigId ?? '(unattributed)', // grouped by profile+outcome; outcome added in the generator suffix
     });
   }
   return signals;
@@ -244,6 +258,7 @@ function detectRetryLoopSignals(
         confidence: 'high',
         sessionIds: [session.id],
         evidence: `retryPhraseCount=${count} in a single session agentConfigId=${agentConfigId ?? '(unattributed)'} sessionId=${session.id}`,
+        dedupToken: session.id, // a single-session severe incident — keyed on the session itself
       });
     } else {
       const key = agentConfigId ?? '(unattributed)';
@@ -262,6 +277,7 @@ function detectRetryLoopSignals(
       confidence: 'medium',
       sessionIds: sessionIds.slice(0, 5),
       evidence: `retry-loop phrases across ${sessionIds.length} sessions agentConfigId=${key} sessionIds=${sessionIds.slice(0, 5).join(',')}`,
+      dedupToken: key, // grouped by profile
     });
   }
   return signals;
@@ -304,6 +320,7 @@ function detectHallucinatedClaimSignals(
       confidence: 'medium',
       sessionIds: sessionIds.slice(0, 5),
       evidence: `agent claimed a specific commit/PR the user then contradicted, in ${sessionIds.length} session(s) agentConfigId=${key} sessionIds=${sessionIds.slice(0, 5).join(',')}`,
+      dedupToken: key, // grouped by profile
     });
   }
   return signals;
@@ -342,6 +359,7 @@ function detectUnverifiedClaimSignals(
       confidence: 'medium',
       sessionIds: sessionIds.slice(0, 5),
       evidence: `agent claimed verification with no matching test/build run recorded, in ${sessionIds.length} session(s) agentConfigId=${key} sessionIds=${sessionIds.slice(0, 5).join(',')}`,
+      dedupToken: key, // grouped by profile
     });
   }
   return signals;
@@ -380,6 +398,10 @@ function detectStaleRedoSignals(sessions: AgentSession[]): WorkflowFailureSignal
       confidence: latest.status === 'error' ? 'high' : 'medium',
       sessionIds: sorted.map((s) => s.id).slice(0, 5),
       evidence: `issue #${issueNumber} worked again across ${group.length} sessions; latest status=${latest.status} sessionIds=${sorted.map((s) => s.id).slice(0, 5).join(',')}`,
+      // #936 — grouped by ISSUE NUMBER, not profile: the issue number is the
+      // stable identity that keeps distinct issues from colliding into one
+      // dedup key (profile alone is empty for agent-less sessions).
+      dedupToken: `issue-${issueNumber}`,
     });
   }
   return signals;
@@ -420,6 +442,7 @@ async function detectMissingScopeSignals(
       confidence: 'high', // explicit dispatch-guard denial — unambiguous
       sessionIds: entry.sessionIds.slice(0, 5),
       evidence: `profile=${entry.agentConfigId} deniedTool=${entry.toolName} count=${entry.sessionIds.length} sessionIds=${entry.sessionIds.slice(0, 5).join(',')}`,
+      dedupToken: `${entry.agentConfigId}:${entry.toolName}`, // grouped by profile+tool (broaden-scope keys on these directly)
     });
   }
   return signals;
@@ -463,6 +486,7 @@ function detectToolUnavailableSignals(
       confidence: 'medium',
       sessionIds: sessionIds.slice(0, 5),
       evidence: `an unavailable tool/server was still attempted after being reported unavailable, in ${sessionIds.length} session(s) agentConfigId=${key} sessionIds=${sessionIds.slice(0, 5).join(',')}`,
+      dedupToken: key, // grouped by profile
     });
   }
   return signals;
@@ -493,6 +517,7 @@ function detectRepeatedCorrectionSignals(
         confidence: 'high',
         sessionIds: [session.id],
         evidence: `${corrections.length} user corrections after the first prompt in one session agentConfigId=${agentConfigId ?? '(unattributed)'} sessionId=${session.id}`,
+        dedupToken: session.id, // a single-session severe incident — keyed on the session itself
       });
     } else {
       const key = agentConfigId ?? '(unattributed)';
@@ -511,6 +536,7 @@ function detectRepeatedCorrectionSignals(
       confidence: 'medium',
       sessionIds: sessionIds.slice(0, 5),
       evidence: `repeated user corrections after the first prompt across ${sessionIds.length} sessions agentConfigId=${key} sessionIds=${sessionIds.slice(0, 5).join(',')}`,
+      dedupToken: key, // grouped by profile
     });
   }
   return signals;
