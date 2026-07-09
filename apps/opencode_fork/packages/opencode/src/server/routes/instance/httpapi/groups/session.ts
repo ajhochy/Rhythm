@@ -52,9 +52,13 @@ export const UpdatePayload = Schema.Struct({
     }),
   ),
   // Rhythm carried patch (mcp-scope): per-session MCP tool allowlist.
-  mcpAllowlist: Schema.optional(Session.McpAllowlist),
+  // NullOr so an explicit `null` in the PATCH body survives decode and can
+  // clear the allowlist (fix #928 — was Schema.optional only, which strips
+  // null during decode so the handler's `!== undefined` guard never fires).
+  mcpAllowlist: Schema.optional(Schema.NullOr(Session.McpAllowlist)),
   // Rhythm carried patch (skill-scope, #775): per-session skill allowlist.
-  skillAllowlist: Schema.optional(Session.SkillAllowlist),
+  // NullOr for the same reason (fix #928).
+  skillAllowlist: Schema.optional(Schema.NullOr(Session.SkillAllowlist)),
 })
 export const ForkPayload = Schema.Struct(Struct.omit(Session.ForkInput.fields, ["sessionID"]))
 export const InitPayload = Schema.Struct({
