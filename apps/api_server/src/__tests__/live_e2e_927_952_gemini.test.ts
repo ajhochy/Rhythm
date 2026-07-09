@@ -140,10 +140,16 @@ function assertHealthyTurn(snap: SessionSnapshot, signature: RegExp, ctx: string
   expect(signature.test(blob), `${ctx}: transcript/status matched failure signature ${signature}`).toBe(
     false,
   );
-  // A real turn appended at least one assistant message (proves the model
-  // actually ran, not that it silently produced nothing).
-  const hasAssistant = JSON.stringify(snap.messages).includes('assistant');
-  expect(hasAssistant, `${ctx}: no assistant message — turn did not complete`).toBe(true);
+  // A real turn appended at least one assistant response (proves the model
+  // actually ran, not that it silently produced nothing). This codebase maps
+  // the SDK 'assistant' role to 'output' at write time (see
+  // agent_sessions_controller / agent_session_messages_repository), so check
+  // for an 'output' message — NOT the literal substring 'assistant', which the
+  // messages API never emits.
+  const hasOutput = snap.messages.some(
+    (m): boolean => !!m && typeof m === 'object' && (m as { role?: string }).role === 'output',
+  );
+  expect(hasOutput, `${ctx}: no output (assistant) message — turn did not complete`).toBe(true);
 }
 
 afterEach(async () => {
