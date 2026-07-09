@@ -164,3 +164,38 @@ export function capMcpAllowlistForProvider(
 function estimateCount(allowlist: McpAllowlist): number {
   return allowlist.tools.length + allowlist.servers.length * PER_SERVER_INHERIT_ALL_ESTIMATE;
 }
+
+// ── Unscoped ("inherit-all") Gemini surface — #952 ──────────────────────────────
+
+/** An McpAllowlist plus the fork's opt-in deferred-loading flag. */
+export type DeferredMcpAllowlist = McpAllowlist & { deferred: true };
+
+/**
+ * Make the Gemini function-declaration cap BINDING on the UNSCOPED path (#952).
+ *
+ * `capMcpAllowlistForProvider` can only trim an allowlist it is actually given.
+ * An unscoped ("Allow all") session hands the fork NO allowlist (null/undefined),
+ * so the engine injects every connected MCP server's FULL tool surface — which
+ * for `google` blows Gemini's hard 512-function-declaration cap and breaks the
+ * session with a raw 400/schema error. The count-based trim cannot save this
+ * path: inherit-all servers carry hundreds of real tools each (rhythm alone
+ * ~90, propresenter 150+), far above the flat per-server estimate, so no
+ * server-count trim brings the REAL declaration count under 512.
+ *
+ * The structural fix is the fork's deferred MCP mode (#843): advertise ONE
+ * dispatcher tool (`mcp_dispatch`) + a names-only catalog instead of one JSON
+ * Schema per tool. The declaration count is then bounded regardless of how many
+ * tools exist, while every tool stays reachable via the dispatcher. To keep the
+ * "unscoped = all tools" intent we list every connected server (the fork's
+ * catalog filter matches tools by server), with `deferred: true`.
+ *
+ * Returns null for any non-google provider (caller leaves the surface
+ * unrestricted, unchanged) and when there are no connected servers to defer.
+ */
+export function geminiUnscopedDeferredAllowlist(
+  providerId: string | null | undefined,
+  connectedServers: string[],
+): DeferredMcpAllowlist | null {
+  if (providerId !== 'google') return null;
+  return { servers: connectedServers, tools: [], deferred: true };
+}

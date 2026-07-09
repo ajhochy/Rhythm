@@ -14,6 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   capMcpAllowlistForProvider,
+  geminiUnscopedDeferredAllowlist,
   GEMINI_MAX_FUNCTION_DECLARATIONS,
   GEMINI_MCP_TOOL_BUDGET,
 } from '../gemini_tool_cap';
@@ -127,5 +128,41 @@ describe('C7: trimmed result never exceeds the hard Gemini cap', () => {
       const total = result.allowlist.tools.length + result.allowlist.servers.length;
       expect(total).toBeLessThan(GEMINI_MAX_FUNCTION_DECLARATIONS);
     }
+  });
+});
+
+// ── #952: unscoped-path deferred allowlist ──────────────────────────────────────
+// The count-based cap above only trims an allowlist it is given. An UNSCOPED
+// Gemini session hands the fork none, so the full surface goes through and blows
+// the 512 cap. geminiUnscopedDeferredAllowlist is the binding fix for that path.
+
+describe('#952 geminiUnscopedDeferredAllowlist', () => {
+  const connected = ['rhythm', 'propresenter', 'pco-services'];
+
+  it('google: returns an all-servers deferred allowlist (bounded declarations, all tools reachable)', () => {
+    const result = geminiUnscopedDeferredAllowlist('google', connected);
+    expect(result).not.toBeNull();
+    expect(result!.deferred).toBe(true);
+    // Every connected server is listed so the fork's deferred catalog covers
+    // the whole surface — "unscoped = all tools" is preserved.
+    expect(result!.servers).toEqual(connected);
+    expect(result!.tools).toEqual([]);
+  });
+
+  it('non-google providers: returns null (surface left unrestricted, unchanged)', () => {
+    for (const providerId of ['anthropic', 'openai', 'openrouter', 'ollama', null, undefined]) {
+      expect(geminiUnscopedDeferredAllowlist(providerId, connected)).toBeNull();
+    }
+  });
+
+  it('the returned surface is structurally bounded regardless of connected-server count', () => {
+    // 200 inherit-all servers would be tens of thousands of real tools in eager
+    // mode; deferred mode still advertises ONE dispatcher declaration, so the
+    // 512 cap can never be exceeded no matter how many servers exist.
+    const many = Array.from({ length: 200 }, (_, i) => `server_${i}`);
+    const result = geminiUnscopedDeferredAllowlist('google', many);
+    expect(result!.deferred).toBe(true);
+    // No per-tool declarations are emitted from this allowlist itself.
+    expect(result!.tools.length).toBe(0);
   });
 });
