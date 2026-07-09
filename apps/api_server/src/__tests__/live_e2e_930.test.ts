@@ -71,6 +71,7 @@ async function apiJson<T = unknown>(path: string, init: RequestInit = {}): Promi
 interface SessionRow {
   id: string;
   status: string;
+  statusMessage: string | null;
   sdkSessionId: string | null;
   providerId: string | null;
   modelId: string | null;
@@ -149,22 +150,6 @@ function sendTurn(ws: WebSocket, sessionId: string, text: string): void {
   ws.send(JSON.stringify({ v: 1, type: 'session.input', id: sessionId, data: text }));
 }
 
-/** Wait for the session row to leave working/starting (idle OR error). */
-async function awaitTurnSettled(sessionId: string, timeoutMs = 120_000): Promise<SessionRow> {
-  return poll(
-    async () => {
-      const s = await getSession(sessionId);
-      if (s.status === 'working' || s.status === 'starting') {
-        throw new Error(`session still ${s.status}`);
-      }
-      return s;
-    },
-    timeoutMs,
-    800,
-    `await turn settled for ${sessionId}`,
-  );
-}
-
 afterEach(async () => {
   for (const id of createdSessionIds) {
     await api(`/agent-sessions/${id}`, { method: 'DELETE' }).catch(() => {});
@@ -198,8 +183,28 @@ describeLive('live E2E — #930 fallback chain (route-level, no engine forcing n
       const { ws, frames } = await openCapturingWs();
       try {
         // One cheap turn so the engine session exists (persists sdk_session_id).
+        // Wait for an actual assistant answer, not just a non-working status —
+        // the DB can still read 'idle' before the engine starts the turn, and
+        // A1 below REQUIRES the turn to be finished (idle-time report).
         sendTurn(ws, sessionId, 'Reply with the single word: ready');
-        const settled = await awaitTurnSettled(sessionId);
+        const settled = await poll(
+          async () => {
+            const s = await getSession(sessionId);
+            if (s.status === 'working' || s.status === 'starting') {
+              throw new Error(`session still ${s.status}`);
+            }
+            const m = await apiJson<{ messages: Array<{ role: string }> }>(
+              `/agent-sessions/${sessionId}/messages`,
+            );
+            if (!m.messages.some((msg) => msg.role === 'output')) {
+              throw new Error(`no assistant answer yet (status=${s.status})`);
+            }
+            return s;
+          },
+          120_000,
+          800,
+          `await first answer for ${sessionId}`,
+        );
         expect(settled.status).toBe('idle');
         const sdkSessionId = settled.sdkSessionId;
         expect(sdkSessionId, 'sdk_session_id not persisted after first turn').toBeTruthy();
@@ -249,19 +254,44 @@ describeLive('live E2E — #930 fallback chain (route-level, no engine forcing n
 
         // ── A2: next-turn pickup — the following turn runs on the new provider
         frames.length = 0;
+        const assistantFramesOf = () =>
+          frames.filter((fr) => {
+            if (fr.type !== 'message.updated' || fr.id !== sessionId) return false;
+            const info = fr.info as Record<string, unknown> | undefined;
+            return info?.role === 'assistant' && typeof info?.providerID === 'string';
+          });
         sendTurn(ws, sessionId, 'Reply with the single word: switched');
-        const second = await awaitTurnSettled(sessionId);
-        expect(second.status).toBe('idle');
-        // The assistant message.updated info carries the actual providerID the
-        // engine used for the turn.
-        const assistantFrame = frames.find((fr) => {
-          if (fr.type !== 'message.updated' || fr.id !== sessionId) return false;
-          const info = fr.info as Record<string, unknown> | undefined;
-          return info?.role === 'assistant' && typeof info?.providerID === 'string';
-        });
-        expect(assistantFrame, 'no assistant message.updated frame captured').toBeTruthy();
-        const info = (assistantFrame as Record<string, unknown>).info as Record<string, unknown>;
-        expect(info.providerID).toBe(body.providerID);
+        // Live-run evidence (2026-07-08): the DB status can still read 'idle'
+        // before the engine flips the session to working, so a bare
+        // settle-poll returns before ANY turn events stream. Wait for the
+        // assistant frame itself, then for the turn to settle.
+        await poll(
+          async () => {
+            if (assistantFramesOf().length === 0) {
+              const s = await getSession(sessionId);
+              throw new Error(`no assistant frame yet (status=${s.status})`);
+            }
+            const s = await getSession(sessionId);
+            if (s.status === 'working' || s.status === 'starting') {
+              throw new Error(`assistant frame seen but session still ${s.status}`);
+            }
+            return s;
+          },
+          120_000,
+          800,
+          'await turn-2 assistant frame',
+        );
+        // NOTE: the engine RE-EMITS message.updated for PRIOR messages during
+        // a turn (rehydration/title passes), so the FIRST assistant frame can
+        // be turn-1's (old provider). Assert the handed-off provider appears
+        // among the turn's assistant frames — the new answer must have been
+        // produced on it.
+        const assistantProviders = assistantFramesOf().map(
+          (fr) => ((fr as Record<string, unknown>).info as Record<string, unknown>).providerID,
+        );
+        expect(assistantProviders, `assistant frames carried providers [${assistantProviders.join(', ')}]`).toContain(
+          body.providerID,
+        );
 
         // ── A3: an exhaustion report while the session is IDLE (no failing
         // turn in flight) must never spuriously re-dispatch or error the
@@ -273,7 +303,7 @@ describeLive('live E2E — #930 fallback chain (route-level, no engine forcing n
         });
         await new Promise((r) => setTimeout(r, 3_000));
         const still = await getSession(sessionId);
-        expect(still.status).toBe('idle');
+        expect(still.status, `status=${still.status} message=${still.statusMessage}`).toBe('idle');
       } finally {
         ws.close();
       }
@@ -306,9 +336,27 @@ describeLiveForced('live E2E — #930 mid-run resume (requires backend RHYTHM_FO
         sendTurn(ws, sessionId, 'Reply with the single word: resumed');
 
         // The turn must settle to IDLE (resumed + completed on the fallback
-        // provider) — NOT to error. Generous timeout: 429 + handoff + revert +
-        // full retry turn.
-        const settled = await awaitTurnSettled(sessionId, 180_000);
+        // provider) — NOT to error. The abort of the failed turn can produce a
+        // TRANSIENT idle before the re-prompt lands, so require an assistant
+        // answer to exist too, not just an idle status. Generous timeout:
+        // 429 + handoff + abort + revert + full retry turn.
+        const settled = await poll(
+          async () => {
+            const s = await getSession(sessionId);
+            if (s.status === 'error') return s; // fail fast — assertions below flag it
+            if (s.status !== 'idle') throw new Error(`session still ${s.status}`);
+            const m = await apiJson<{ messages: Array<{ role: string }> }>(
+              `/agent-sessions/${sessionId}/messages`,
+            );
+            if (!m.messages.some((msg) => msg.role === 'output')) {
+              throw new Error('idle but no assistant answer yet (abort-transient idle)');
+            }
+            return s;
+          },
+          180_000,
+          800,
+          `await resumed answer for ${sessionId}`,
+        );
         expect(settled.status).toBe('idle');
 
         // Same session, new provider persisted.
