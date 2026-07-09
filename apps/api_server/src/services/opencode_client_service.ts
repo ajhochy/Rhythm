@@ -817,6 +817,21 @@ export class OpencodeClientService {
     }
   }
 
+  /** Engine's default model for a provider (the `default` map of config.providers()). */
+  async getDefaultModel(providerId: string): Promise<string | undefined> {
+    if (!this.client) return undefined;
+    try {
+      const raw = await this.client.config.providers();
+      // The engine returns { providers, default: {[providerId]: modelId} };
+      // the installed SDK typings predate the `default` field.
+      const dflt = (raw.data as { default?: Record<string, string> } | undefined)?.default;
+      return dflt?.[providerId];
+    } catch (err) {
+      logger.warn(`[OpencodeClientService] getDefaultModel failed for ${providerId}: ${String(err)}`);
+      return undefined;
+    }
+  }
+
   /** Set auth credentials for a provider via API key */
   async setAuth(providerId: string, apiKey: string): Promise<boolean> {
     if (!this.client) return false;

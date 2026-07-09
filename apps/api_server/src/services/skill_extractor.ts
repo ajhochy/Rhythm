@@ -240,20 +240,28 @@ function matchingBrace(s: string, open: number): number {
   return -1;
 }
 
-/** Injectable LLM call: (systemPrompt, userContent) => raw model text. */
-export type LlmCall = (systemPrompt: string, userContent: string) => Promise<string>;
+/** Injectable LLM call: (systemPrompt, userContent, model?) => raw model text. */
+export type LlmCall = (
+  systemPrompt: string,
+  userContent: string,
+  model?: { providerID: string; modelID: string },
+) => Promise<string>;
 
 /**
  * Default (real) LLM call — thin + guarded. Creates a throwaway opencode
- * session and fires one synchronous prompt using resolveRunModel(). Lazy
- * imports keep opencode/AgentRunner out of the module's hot path (and out of
- * test bundles, since this is never reached under isTestEnv).
+ * session and fires one synchronous prompt. Rides the extracting session's
+ * own model when given (that provider just completed the turns being
+ * distilled, so it is proven authed + live); falls back to
+ * resolveRunModel()'s MRU/default only when the session carries no model —
+ * a global MRU can point at a provider that is unauthed here even though
+ * the session itself ran fine (#949 live E2E). Lazy imports keep
+ * opencode/AgentRunner out of the module's hot path (and out of test
+ * bundles, since this is never reached under isTestEnv).
  */
-const defaultLlmCall: LlmCall = async (systemPrompt, userContent) => {
+const defaultLlmCall: LlmCall = async (systemPrompt, userContent, sessionModel) => {
   const { opencodeClient } = await import('./opencode_engine');
   const { resolveRunModel } = await import('./agent_runner');
-  // No agentConfigId — cheap background distill rides MRU/default model tier.
-  const model = resolveRunModel();
+  const model = sessionModel ?? resolveRunModel();
   const session = await opencodeClient.createSession('skill-extract');
   if (!session?.id) return '';
   const combined = `${systemPrompt}\n\n${userContent}`;
@@ -382,7 +390,12 @@ async function autoBindDraftToExtractingAgent(sessionId: string, skillName: stri
 async function triggerSkillReload(): Promise<void> {
   try {
     const { opencodeClient } = await import('./opencode_engine');
-    await opencodeClient.reloadSkills(managedSkillsRoot());
+    // The fork's /skill/reload `directory` param keys the ENGINE INSTANCE
+    // (per-directory InstanceState = session cwd), NOT the skills path.
+    // Passing managedSkillsRoot() invalidated an instance no session runs in,
+    // so fresh drafts stayed invisible until an unrelated /system/refresh.
+    // Argless = homedir(), the instance sessions actually use (#949 live).
+    await opencodeClient.reloadSkills();
   } catch (err) {
     // Non-fatal: the draft file exists on disk and will be discovered on next
     // engine restart even if this reload fails.
@@ -447,9 +460,21 @@ export async function distillFromSession(
     const systemPrompt = buildSystemPrompt(rounds);
     const userContent = `Conversation:\n${conversation}`;
 
+    // Prefer the extracting session's own (bridge-backfilled) model — the
+    // provider that just produced the rounds being distilled.
+    let sessionModel: { providerID: string; modelID: string } | undefined;
+    try {
+      const sess = new AgentSessionsRepository().findById(sessionId);
+      if (sess?.providerId && sess?.modelId) {
+        sessionModel = { providerID: sess.providerId, modelID: sess.modelId };
+      }
+    } catch {
+      // non-fatal — fall back to defaultLlmCall's own resolution
+    }
+
     let response: string;
     try {
-      response = await llmCall(systemPrompt, userContent);
+      response = await llmCall(systemPrompt, userContent, sessionModel);
     } catch (err) {
       logger.warn(`[skill-extract] LLM call failed (non-fatal): ${String(err)}`);
       return null;
