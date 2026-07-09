@@ -30,6 +30,10 @@ import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { getRelevantSkills } from './skill_retrieval';
 import { applyAndMeasure, type ApplyCandidate, type ApplyOutcome } from './skill_apply';
 import type { AgentSkill } from '../models/agent_skill';
+import {
+  DEFAULT_MODEL_BY_PROVIDER,
+  resolveReliableAuthedFallbackModel,
+} from './model_fallback';
 
 /** Mirrors opencode_agent_writer.ts isTestEnv() VERBATIM. */
 function isTestEnv(): boolean {
@@ -103,11 +107,30 @@ function skillText(s: { title: string; description?: string | null; whenToUse?: 
     .join('\n');
 }
 
+type PromptModel = { providerID: string; modelID: string };
+
+async function resolveReliableSkillJudgeModel(
+  opencode: Pick<typeof import('./opencode_engine').opencodeClient, 'listAuthedProviders'>,
+): Promise<PromptModel> {
+  const decision = resolveReliableAuthedFallbackModel(await opencode.listAuthedProviders());
+  if (decision) {
+    logger.info(
+      `[skill-refine] using reliable judge model from #930 fallback chain (${decision.tier.id}: ${decision.providerID}/${decision.modelID})`,
+    );
+    return { providerID: decision.providerID, modelID: decision.modelID };
+  }
+
+  const modelID = DEFAULT_MODEL_BY_PROVIDER.anthropic;
+  logger.warn(
+    `[skill-refine] no authed reliable #930 fallback tier found; using non-OpenRouter default (anthropic/${modelID})`,
+  );
+  return { providerID: 'anthropic', modelID };
+}
+
 /** Default (real) judge — guarded; never reached under isTestEnv. */
 const defaultJudge: JudgeCall = async (existing, candidate) => {
   const { opencodeClient } = await import('./opencode_engine');
-  const { resolveRunModel } = await import('./agent_runner');
-  const model = resolveRunModel();
+  const model = await resolveReliableSkillJudgeModel(opencodeClient);
   const system =
     'You are grading whether a CANDIDATE revision of an agent skill is an ' +
     'improvement over the EXISTING skill. Reply with ONLY one of: better, ' +
@@ -217,8 +240,7 @@ function buildScoreSystemPrompt(): string {
 /** Default (real) scorer — guarded; never reached under isTestEnv. */
 const defaultScorer: ScoreCall = async (purpose, body) => {
   const { opencodeClient } = await import('./opencode_engine');
-  const { resolveRunModel } = await import('./agent_runner');
-  const model = resolveRunModel();
+  const model = await resolveReliableSkillJudgeModel(opencodeClient);
   const system = buildScoreSystemPrompt();
   const user =
     `PURPOSE:\n${purposeText(purpose)}\n\n` +
@@ -306,8 +328,7 @@ function buildRewriteSystemPrompt(): string {
 /** Default (real) rewriter — guarded; never reached under isTestEnv. */
 const defaultRewrite: RewriteCall = async (purpose, currentBody, reason) => {
   const { opencodeClient } = await import('./opencode_engine');
-  const { resolveRunModel } = await import('./agent_runner');
-  const model = resolveRunModel();
+  const model = await resolveReliableSkillJudgeModel(opencodeClient);
   const system = buildRewriteSystemPrompt();
   const user =
     `PURPOSE:\n${purposeText(purpose)}\n\n` +
