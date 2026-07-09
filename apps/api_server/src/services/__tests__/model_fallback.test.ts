@@ -50,7 +50,7 @@ describe('FALLBACK_CHAIN', () => {
       'openai',
       'google',
       'glm',
-      'openrouter-free',
+      'openrouter',
     ]);
   });
 });
@@ -106,15 +106,16 @@ describe('resolveAuthedFallbackChain', () => {
     expect(authed.map((t) => t.id)).toEqual(['team-claude', 'personal-claude', 'codex']);
   });
 
-  it('glm-5.2/openrouter-free stay inert against the real authed-provider set (no credential loader exists to ever authorize "glm"/"openrouter-free")', () => {
+  it('glm-5.2 stays inert but openrouter-free is live against the real authed-provider set', () => {
     // listAuthedProviders() in production can only ever report providers with
     // a real credential loader — anthropic/openai/google/github-copilot/
-    // openrouter/ollama/omlx. It can never report 'glm' or 'openrouter-free'
-    // literally, so those two tiers are permanently filtered out here.
+    // openrouter/ollama/omlx. It can never report 'glm' literally, so that
+    // tier is permanently filtered out. 'openrouter' IS a real authable
+    // provider, so the openrouter-free tier appears when OpenRouter is authed.
     const realisticAuthedSet = ['anthropic', 'openai', 'google', 'github-copilot', 'openrouter', 'ollama'];
     const authed = resolveAuthedFallbackChain(realisticAuthedSet);
     expect(authed.map((t) => t.id)).not.toContain('glm-5.2');
-    expect(authed.map((t) => t.id)).not.toContain('openrouter-free');
+    expect(authed.map((t) => t.id)).toContain('openrouter-free');
   });
 
   it('empty authed set yields an empty chain', () => {
@@ -160,6 +161,13 @@ describe('resolveCrossProviderHandoff (#930 Unit 3, scoped)', () => {
     const decision = resolveCrossProviderHandoff('anthropic', ['anthropic', 'google']);
     expect(decision?.tier.id).toBe('gemini');
     expect(decision?.providerID).toBe('google');
+  });
+
+  it('lands on the OpenRouter free router as the last-resort tier (openrouter authed, no openai/google)', () => {
+    const decision = resolveCrossProviderHandoff('anthropic', ['anthropic', 'openrouter']);
+    expect(decision?.tier.id).toBe('openrouter-free');
+    expect(decision?.providerID).toBe('openrouter');
+    expect(decision?.modelID).toBe('openrouter/free');
   });
 
   it('returns undefined when no non-anthropic provider is authed (no fallback to disallowed/unconfigured providers)', () => {

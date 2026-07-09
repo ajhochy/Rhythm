@@ -13,14 +13,21 @@
  *   4. Gemini             (google)
  *   5. GLM-5.2            (glm — NO credential loader exists in this repo;
  *                         inert entry, see note below)
- *   6. OpenRouter free    (openrouter-free — NO credential loader exists in
- *                         this repo; inert entry, see note below)
+ *   6. OpenRouter free    (openrouter / model 'openrouter/free', the models.dev
+ *                         "Free Models Router" — a REAL wired, authable tier)
  *
- * GLM-5.2 and OpenRouter-free have no provider/auth integration anywhere in
- * Rhythm today. Per product decision, this issue does NOT add one — those two
- * tiers exist in the chain as data only, and `listAuthedProviders()` will
- * never contain their provider ids, so `resolveAuthedFallbackChain` always
- * filters them out. Wiring real credentials for them is follow-up work.
+ * GLM-5.2 has no provider/auth integration anywhere in Rhythm today: there is
+ * no `glm` credential loader, so `listAuthedProviders()` can never contain it
+ * and `resolveAuthedFallbackChain` always filters it out. It exists in the
+ * chain as data only; wiring real credentials for it is follow-up work.
+ *
+ * OpenRouter-free IS wired: `openrouter` is a built-in SDK auth loader
+ * (see opencode_plugin_config.ts), authable via connectUrl
+ * `/opencode/auth/openrouter`, and `openrouter/free` ("Free Models Router",
+ * cost $0, tool-call capable) is a real model in the models.dev catalog. When
+ * OpenRouter is authed it becomes the always-available last-resort tier; when
+ * it is not, `resolveAuthedFallbackChain` drops it exactly like any other
+ * unauthed tier — so wiring it is inert-when-unauthed, functional-when-authed.
  */
 
 /** Canonical fallback chain, most to least preferred. */
@@ -40,8 +47,9 @@ export const FALLBACK_CHAIN: FallbackTier[] = [
   { id: 'gemini', label: 'Gemini', providerID: 'google' },
   // ponytail: inert until a GLM credential loader exists — never matches an authed provider.
   { id: 'glm-5.2', label: 'GLM-5.2', providerID: 'glm' },
-  // ponytail: inert until an OpenRouter-free credential loader exists — never matches an authed provider.
-  { id: 'openrouter-free', label: 'OpenRouter free', providerID: 'openrouter-free' },
+  // Wired: 'openrouter' is a real authable SDK provider; model resolved to
+  // 'openrouter/free' ("Free Models Router") via DEFAULT_MODEL_BY_PROVIDER.
+  { id: 'openrouter-free', label: 'OpenRouter free', providerID: 'openrouter' },
 ];
 
 export type ProviderErrorClass = 'rate_limit' | 'auth' | 'other';
@@ -130,6 +138,8 @@ const DEFAULT_MODEL_BY_PROVIDER: Record<string, string> = {
   anthropic: 'claude-sonnet-4-6',
   openai: 'gpt-5.3-codex',
   google: 'gemini-2.5-pro',
+  // tier 6: the OpenRouter "Free Models Router" (cost $0, tool-call capable).
+  openrouter: 'openrouter/free',
 };
 
 export interface CrossProviderHandoffDecision {
