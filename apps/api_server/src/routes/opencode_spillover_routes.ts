@@ -7,6 +7,13 @@ import { broadcast, broadcastSessionUpdated } from '../services/ws_gateway';
 import { logger } from '../utils/logger';
 import { opencodeClient } from '../services/opencode_engine';
 import { resolveCrossProviderHandoff } from '../services/model_fallback';
+import {
+  beginHandoff,
+  decideHandoff,
+  failHandoff,
+  finalizeErrorStatus,
+  redispatchTurn,
+} from '../services/turn_redispatch';
 
 /**
  * Task D (dual Anthropic accounts) — spillover intake.
@@ -30,11 +37,13 @@ import { resolveCrossProviderHandoff } from '../services/model_fallback';
  * agent_runner.ts's escalateAndCapture: the decision is made ONCE per report
  * and does not recurse — a session that fails again after the handoff
  * surfaces as a normal error rather than auto-walking further down the chain.
- * Actually RE-DISPATCHING the in-flight turn's prompt on the new provider is
- * live-engine/session-continuity machinery (ws_gateway / opencode_stream_bridge)
- * intentionally left untouched here — this route's job stops at
- * "decide + persist + notify", which is what's safely unit-testable without a
- * live opencode engine (see #930 report for why the rest was not attempted).
+ *
+ * #930 mid-run resume: the in-flight turn is ALSO re-dispatched onto the new
+ * provider in the SAME engine session (revert failed turn → re-prompt the
+ * retained composed prompt). The race between this route's async decision and
+ * the engine's session.error for the failed turn is coordinated in
+ * services/turn_redispatch.ts (beginHandoff/decideHandoff/onSessionError) —
+ * see that module's state machine docs.
  */
 export const opencodeSpilloverRouter = Router();
 
@@ -68,11 +77,25 @@ opencodeSpilloverRouter.post('/', async (req: Request, res: Response) => {
   }
 
   if (exhausted) {
-    const authed = await opencodeClient.listAuthedProviders();
-    // Only the Anthropic plugin reports `exhausted` today (no more Team/
-    // Personal accounts) — the exhausted provider is always 'anthropic'.
-    const handoff = resolveCrossProviderHandoff('anthropic', authed);
+    // #930 — mark the handoff in flight BEFORE any await: the engine's
+    // session.error for the failed turn races this route, and the stream
+    // bridge must defer finalizing it while we decide.
+    beginHandoff(session.id);
+    let handoff: ReturnType<typeof resolveCrossProviderHandoff>;
+    try {
+      const authed = await opencodeClient.listAuthedProviders();
+      // Only the Anthropic plugin reports `exhausted` today (no more Team/
+      // Personal accounts) — the exhausted provider is always 'anthropic'.
+      handoff = resolveCrossProviderHandoff('anthropic', authed);
+    } catch (err) {
+      logger.error(`[Spillover] handoff resolution failed for session ${session.id}:`, err);
+      handoff = undefined;
+    }
     if (!handoff) {
+      // If the bridge deferred the turn's error while we decided, finalize it
+      // now — otherwise the session would hang in 'working' forever.
+      const deferredError = failHandoff(session.id);
+      if (deferredError) finalizeErrorStatus(session.id, deferredError);
       logger.warn(
         `[Spillover] session ${session.id} (${sdkSessionId}) reported account exhaustion but no further authed fallback tier exists — leaving session as-is`,
       );
@@ -98,6 +121,17 @@ opencodeSpilloverRouter.post('/', async (req: Request, res: Response) => {
     });
     const updated = repo.findById(session.id);
     if (updated) broadcastSessionUpdated(updated);
+
+    // #930 mid-run resume: if the turn's error already arrived (deferred by
+    // the bridge, or finalized before this intake even ran), re-dispatch now;
+    // otherwise the bridge's session.error handler triggers it on arrival.
+    const outcome = decideHandoff(
+      session.id,
+      handoff.providerID,
+      handoff.modelID,
+      updated?.status === 'error',
+    );
+    if (outcome === 'redispatch-now') await redispatchTurn(session.id);
 
     res.json({ ok: true, handoff: true, providerID: handoff.providerID, modelID: handoff.modelID });
     return;
