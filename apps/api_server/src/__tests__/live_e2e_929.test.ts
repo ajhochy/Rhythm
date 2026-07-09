@@ -296,11 +296,18 @@ describeLive('live E2E — #929 skill self-regulation loop', () => {
  *     agent_configs.allowed_skills_json surface the guard reads, so the first
  *     draft is "depended on" and the second is not.
  *
- * The only remaining live dependency is the SANCTIONED evaluation trigger:
- * real `skill`-tool invocations crossing EVAL_THRESHOLD, which fire the
- * post-turn evaluateHarvestedDrafts. Both drafts get an identical bad body and
- * cross the threshold together — so the ONLY difference between them is the
+ * The evaluation trigger is MODEL-INDEPENDENT: the gate launches the server
+ * with `RHYTHM_HARVEST_EVAL_THRESHOLD=0`, so evaluateHarvestedDrafts (which
+ * fires unconditionally after EVERY completed turn) evaluates every
+ * status:draft draft regardless of usage. The test therefore only needs ONE
+ * arbitrary turn to complete — it never depends on a weak model choosing to
+ * invoke specific skills. Both drafts get an identical bad body and are
+ * evaluated in the same pass, so the ONLY difference between them is the
  * dependency, making the guard the sole discriminator.
+ *
+ * The keep/disable DECISION stays fully real: real evaluateHarvestedDrafts,
+ * real agent_configs allowlist read, real LLM judge scoring, real
+ * materialize/dematerialize against the running server.
  */
 describeLive('live E2E — #959 dependency guard (deterministic seed, no live distillation)', () => {
   beforeAll(async () => {
@@ -351,10 +358,10 @@ describeLive('live E2E — #959 dependency guard (deterministic seed, no live di
       });
       createdAgentIds.push(anchor.id);
 
-      // An UNRESTRICTED agent (no allowlist → null) that can load any discovered
-      // skill — used only to drive real `skill`-tool uses for BOTH drafts.
-      // Being unrestricted it contributes no allowlist entry, so undependedName
-      // stays referenced by no agent.
+      // An UNRESTRICTED agent (no allowlist → null) whose session drives ONE
+      // arbitrary turn to fire the post-turn evaluator. Being unrestricted it
+      // contributes no allowlist entry, so undependedName stays referenced by
+      // no agent. It does NOT invoke any skill.
       const invoker = await apiJson<{ id: string }>('/agent-configs', {
         method: 'POST',
         body: JSON.stringify({
@@ -364,8 +371,7 @@ describeLive('live E2E — #959 dependency guard (deterministic seed, no live di
           sessionSelectable: true,
           modelProvider: MODEL.provider,
           modelId: MODEL.id || undefined,
-          systemPrompt:
-            'You are a test agent. When asked to use a skill by name via the skill tool, always do so immediately.',
+          systemPrompt: 'You are a test agent. Reply concisely.',
         }),
       });
       createdAgentIds.push(invoker.id);
@@ -391,23 +397,21 @@ describeLive('live E2E — #959 dependency guard (deterministic seed, no live di
 
       const ws = connectWs();
       try {
-        // Cross EVAL_THRESHOLD (3) for BOTH drafts via real skill-tool uses.
-        // Each turn-complete fires the fire-and-forget evaluateHarvestedDrafts.
-        for (let i = 0; i < 3; i++) {
-          await sendPromptAndAwait(
-            ws,
-            sess.id,
-            `Use the skill tool to load the skill named "${dependedName}", then use the skill tool again ` +
-              `to load the skill named "${undependedName}". Do both now.`,
-          );
-        }
+        // ONE arbitrary completing turn. With RHYTHM_HARVEST_EVAL_THRESHOLD=0
+        // (see the gate command in this file's docstring), the post-turn
+        // evaluateHarvestedDrafts evaluates EVERY status:draft draft regardless
+        // of usage — so the gate does NOT depend on the model invoking any
+        // skill, only that a single turn completes.
+        await sendPromptAndAwait(ws, sess.id, 'Reply with exactly the word: ok');
       } finally {
         ws.close();
       }
 
       // Wait for the evaluator to finish BOTH drafts: the depended one leaves
       // status:draft while staying live; the undepended one is archived
-      // (removed from the live list, present in disabled/).
+      // (removed from the live list, present in disabled/). If this stalls with
+      // both still status:draft, the server was NOT launched with
+      // RHYTHM_HARVEST_EVAL_THRESHOLD=0 (threshold fell back to 3).
       await poll(
         async () => {
           const skills = await listSkillsWithMetadata();
@@ -417,7 +421,8 @@ describeLive('live E2E — #959 dependency guard (deterministic seed, no live di
           const undepDone = !undep && existsSync(join(DISABLED_DIR, undependedName, 'SKILL.md'));
           if (depDone && undepDone) return true;
           throw new Error(
-            `evaluator not done (dep=${dep?.metadata?.status ?? 'gone'}, undepListed=${!!undep})`,
+            `evaluator not done (dep=${dep?.metadata?.status ?? 'gone'}, undepListed=${!!undep}); ` +
+              `if both are still 'draft', launch the server with RHYTHM_HARVEST_EVAL_THRESHOLD=0`,
           );
         },
         120_000,
@@ -442,7 +447,7 @@ describeLive('live E2E — #959 dependency guard (deterministic seed, no live di
       expect(skills.find((s) => s.name === undependedName)).toBeFalsy();
       expect(existsSync(join(DISABLED_DIR, undependedName, 'SKILL.md'))).toBe(true);
     },
-    240_000, // 4 min: 3 skill-invocation turns (both skills each) + evaluator LLM judge x2 + polling.
+    180_000, // 3 min: one completing turn + evaluator LLM judge x2 + polling.
   );
 });
 

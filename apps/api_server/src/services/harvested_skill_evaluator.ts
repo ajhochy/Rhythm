@@ -80,11 +80,20 @@ function isTestEnv(): boolean {
 
 /**
  * ponytail: issue text says "track... for 2-3 real uses" — picked the upper
- * bound (more evidence before judging) rather than adding a config surface
- * for a number nobody asked to tune. Lower to 2 here if the loop reacts too
- * slowly in practice.
+ * bound (more evidence before judging). Default 3; production is unchanged.
+ *
+ * The `RHYTHM_HARVEST_EVAL_THRESHOLD` override exists SOLELY for the #959 live
+ * gate: set it to 0 so ONE completing turn evaluates every draft (a count of 0
+ * is never `< 0`), removing the gate's dependence on a weak model choosing to
+ * invoke specific skills. Resolved per-call so the launch env applies without a
+ * module-load race; non-numeric/negative falls back to 3.
  */
-const EVAL_THRESHOLD = 3;
+function evalThreshold(): number {
+  const raw = process.env.RHYTHM_HARVEST_EVAL_THRESHOLD;
+  if (raw === undefined) return 3;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 3;
+}
 
 /** Reuses skill_refiner.ts's OWN rubric bands (buildScoreSystemPrompt) verbatim
  *  as the keep/disable tier boundaries — no separately-invented bar. */
@@ -261,7 +270,7 @@ export async function evaluateHarvestedDrafts(deps: EvaluateDeps = {}): Promise<
         if (!draft || draft.frontmatter.status !== 'draft') continue; // already evaluated or unknown shape
 
         const count = uses.get(name) ?? 0;
-        if (count < EVAL_THRESHOLD) continue;
+        if (count < evalThreshold()) continue;
 
         const purpose: SkillPurpose = {
           name,

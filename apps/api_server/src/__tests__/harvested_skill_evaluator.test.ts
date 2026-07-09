@@ -234,6 +234,45 @@ describe('evaluateHarvestedDrafts — Unit 3 keep/disable/rewrite-needed (guard 
       expect(summary).toMatchObject({ disabled: 1, rewriteNeeded: 0 });
     });
   });
+
+  // #959 — RHYTHM_HARVEST_EVAL_THRESHOLD=0 makes the live gate deterministic:
+  // a zero-usage draft is evaluated on any pass (no skill invocation needed).
+  describe('#959 RHYTHM_HARVEST_EVAL_THRESHOLD override', () => {
+    let savedThreshold: string | undefined;
+    beforeEach(() => {
+      savedThreshold = process.env.RHYTHM_HARVEST_EVAL_THRESHOLD;
+    });
+    afterEach(() => {
+      if (savedThreshold === undefined) delete process.env.RHYTHM_HARVEST_EVAL_THRESHOLD;
+      else process.env.RHYTHM_HARVEST_EVAL_THRESHOLD = savedThreshold;
+    });
+
+    it('threshold 0 evaluates a draft with zero recorded uses; default (3) skips it', async () => {
+      seedDraft('zero-use-skill');
+
+      // Default threshold (env unset) → a 0-use draft is skipped.
+      delete process.env.RHYTHM_HARVEST_EVAL_THRESHOLD;
+      const skipped = await evaluateHarvestedDrafts({
+        scorer: scorerReturning(90),
+        countUses: usesReturning({}), // zero uses
+        reload: noopReload,
+        proposalsRepo: new AgentOrgProposalsRepository(),
+      });
+      expect(skipped.evaluated).toBe(0);
+      expect(readDraftSkill('zero-use-skill')?.frontmatter.status).toBe('draft');
+
+      // Threshold 0 → the same 0-use draft IS evaluated.
+      process.env.RHYTHM_HARVEST_EVAL_THRESHOLD = '0';
+      const evaluated = await evaluateHarvestedDrafts({
+        scorer: scorerReturning(90),
+        countUses: usesReturning({}),
+        reload: noopReload,
+        proposalsRepo: new AgentOrgProposalsRepository(),
+      });
+      expect(evaluated.evaluated).toBe(1);
+      expect(readDraftSkill('zero-use-skill')?.frontmatter.status).toBe('active');
+    });
+  });
 });
 
 describe('evaluateHarvestedDrafts — Unit 4 harvester-quality signal (guard lifted)', () => {
