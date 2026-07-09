@@ -13,7 +13,7 @@ import {
 } from '../config/curated_mcp_servers';
 import { ensureGeminiProjectConfig } from './gemini_project_config';
 import { expandMcpAllowlist } from './mcp_allowlist_expander';
-import { capMcpAllowlistForProvider } from './gemini_tool_cap';
+import { capMcpAllowlistForProvider, geminiUnscopedDeferredAllowlist } from './gemini_tool_cap';
 import {
   ensureOmlxProviderConfig,
   detectAndUnloadCompetingOllamaModel,
@@ -901,7 +901,7 @@ export class OpencodeClientService {
     // 2026-06-13). We pass it via an untyped body cast.
     // TODO: once the upstream SDK supports per-session allowlists natively, remove
     //       this cast and update the d.ts instead.
-    let mcpAllowlist: { servers: string[]; tools: string[] } | undefined;
+    let mcpAllowlist: { servers: string[]; tools: string[]; deferred?: true } | undefined;
     if (mcpRoleConfig) {
       try {
         mcpAllowlist = expandMcpAllowlist(mcpRoleConfig);
@@ -923,6 +923,24 @@ export class OpencodeClientService {
           '[OpencodeClientService] createSession: expandMcpAllowlist failed for role=%s — omitting mcpAllowlist',
           mcpRoleConfig.role,
           expandErr,
+        );
+      }
+    } else {
+      // #952 — UNSCOPED session on Gemini: the fork would otherwise inject
+      // every connected server's full tool surface and blow the 512-declaration
+      // cap. Send an all-servers DEFERRED allowlist so the surface is bounded to
+      // one dispatcher declaration while every tool stays reachable. No-op for
+      // any non-google provider (returns null → mcpAllowlist stays undefined →
+      // unchanged, unrestricted behavior).
+      const deferred = geminiUnscopedDeferredAllowlist(
+        providerId,
+        await this._connectedMcpServerNames(),
+      );
+      if (deferred) {
+        mcpAllowlist = deferred;
+        logger.info(
+          '[OpencodeClientService] createSession: unscoped Gemini → deferred allowlist over %s server(s)',
+          deferred.servers.length,
         );
       }
     }
@@ -1001,9 +1019,18 @@ export class OpencodeClientService {
     providerId?: string | null,
   ): Promise<boolean> {
     try {
-      let mcpAllowlist: { servers: string[]; tools: string[] } | null;
+      let mcpAllowlist: { servers: string[]; tools: string[]; deferred?: true } | null;
       if (mcpRoleConfig === null) {
-        mcpAllowlist = null;
+        // #952 — UNSCOPED per-turn push. For Gemini, null would clear the
+        // restriction and let the fork inject the full surface (512-cap crash);
+        // instead push an all-servers DEFERRED allowlist so the surface is
+        // bounded. Non-google providers still get null (unrestricted, unchanged)
+        // and skip the listMcp round-trip entirely.
+        mcpAllowlist =
+          providerId === 'google'
+            ? (geminiUnscopedDeferredAllowlist('google', await this._connectedMcpServerNames()) ??
+              null)
+            : null;
       } else {
         mcpAllowlist = expandMcpAllowlist(mcpRoleConfig);
         const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId);
@@ -1914,6 +1941,24 @@ export class OpencodeClientService {
       }
     }
     return reconciled;
+  }
+
+  /**
+   * #952 — names of MCP servers currently known to the engine, used to
+   * synthesize the "all servers, deferred" allowlist for an unscoped Gemini
+   * turn (see geminiUnscopedDeferredAllowlist). Non-fatal: returns [] on any
+   * failure so an engine hiccup degrades to "no MCP tools this turn" rather
+   * than re-introducing the unbounded 512-declaration crash. Includes every
+   * server key; the fork's catalog filter only matches connected servers'
+   * tools, so disconnected extras are harmless.
+   */
+  private async _connectedMcpServerNames(): Promise<string[]> {
+    try {
+      return Object.keys(await this.listMcp());
+    } catch (err) {
+      logger.warn('[OpencodeClientService] _connectedMcpServerNames failed (non-fatal):', err);
+      return [];
+    }
   }
 
   /**

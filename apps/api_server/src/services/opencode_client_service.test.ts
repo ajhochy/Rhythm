@@ -608,6 +608,101 @@ describe('updateSessionAllowlist — mcpAllowlist body shape (#855)', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// #952: UNSCOPED Gemini path — the tool cap must be BINDING even with no
+// mcpRoleConfig. Before the fix, an unscoped session sent null/undefined and
+// the fork injected the full tool surface (512-declaration crash on google).
+// Now, for providerId==='google', both createSession and updateSessionAllowlist
+// synthesize an all-servers DEFERRED allowlist (one dispatcher declaration).
+// For every other provider the behavior is unchanged (no allowlist / null).
+// ---------------------------------------------------------------------------
+describe('#952 unscoped Gemini → deferred allowlist is binding', () => {
+  // Fake client exposing the MCP status map (drives listMcp/_connectedMcpServerNames)
+  // and session.create (createSession body capture).
+  function fakeClientWithServers(names: string[]) {
+    const statusMap: Record<string, { status: string }> = {};
+    for (const n of names) statusMap[n] = { status: 'connected' };
+    return {
+      mcp: { status: vi.fn().mockResolvedValue({ data: statusMap }) },
+    };
+  }
+
+  describe('createSession', () => {
+    let svc: OpencodeClientService;
+    let capturedBody: Record<string, unknown>;
+
+    beforeEach(() => {
+      svc = new OpencodeClientService();
+      capturedBody = {};
+      const fake = fakeClientWithServers(['rhythm', 'propresenter', 'pco-services']);
+      injectReadyClient(svc, {
+        ...fake,
+        session: {
+          create: vi.fn().mockImplementation((opts: { body: Record<string, unknown> }) => {
+            capturedBody = opts.body;
+            return Promise.resolve({ data: { id: 'sdk-1' } });
+          }),
+        },
+      });
+    });
+
+    it('unscoped + google: body.mcpAllowlist is a deferred all-servers allowlist', async () => {
+      await svc.createSession('Gemini Unscoped', undefined, undefined, undefined, 'google');
+      expect(capturedBody).toHaveProperty('mcpAllowlist');
+      const al = capturedBody.mcpAllowlist as { servers: string[]; tools: string[]; deferred?: boolean };
+      expect(al.deferred).toBe(true);
+      expect(al.servers).toEqual(['rhythm', 'propresenter', 'pco-services']);
+      expect(al.tools).toEqual([]);
+    });
+
+    it('unscoped + non-google: body has NO mcpAllowlist (unchanged, full surface allowed)', async () => {
+      await svc.createSession('Claude Unscoped', undefined, undefined, undefined, 'anthropic');
+      expect(capturedBody).not.toHaveProperty('mcpAllowlist');
+    });
+
+    it('unscoped + provider omitted: body has NO mcpAllowlist (back-compat)', async () => {
+      await svc.createSession('Plain Unscoped');
+      expect(capturedBody).not.toHaveProperty('mcpAllowlist');
+    });
+  });
+
+  describe('updateSessionAllowlist', () => {
+    let svc: OpencodeClientService;
+    let capturedInit: { body?: string } | undefined;
+
+    beforeEach(() => {
+      svc = new OpencodeClientService();
+      capturedInit = undefined;
+      const fetchMock = vi.fn().mockImplementation((_url: string, init: { body?: string }) => {
+        capturedInit = init;
+        return Promise.resolve({ ok: true });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      injectReadyClient(svc, fakeClientWithServers(['rhythm', 'obsidian']));
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('null + google: PATCHes a deferred all-servers allowlist (not null)', async () => {
+      const ok = await svc.updateSessionAllowlist('sess-g', null, 'google');
+      expect(ok).toBe(true);
+      const al = JSON.parse(capturedInit!.body!).mcpAllowlist as {
+        servers: string[];
+        tools: string[];
+        deferred?: boolean;
+      };
+      expect(al.deferred).toBe(true);
+      expect(al.servers).toEqual(['rhythm', 'obsidian']);
+      expect(al.tools).toEqual([]);
+    });
+
+    it('null + non-google: still PATCHes mcpAllowlist:null (unchanged)', async () => {
+      const ok = await svc.updateSessionAllowlist('sess-a', null, 'anthropic');
+      expect(ok).toBe(true);
+      expect(JSON.parse(capturedInit!.body!)).toEqual({ mcpAllowlist: null });
+    });
+  });
+});
+
 describe('updateSessionSkillAllowlist — clear sentinel (#923)', () => {
   let svc: OpencodeClientService;
   let capturedInit: { body?: string } | undefined;
