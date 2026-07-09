@@ -22,8 +22,12 @@ import {
   frontmatterToSkillInput,
   extractBody,
   dedupByTitle,
+  discoverSeedInputs,
   SEED_SOURCE,
 } from '../services/skill_seed_importer';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -146,5 +150,47 @@ describe('skill_seed_importer — pure dedup by title', () => {
     if (!repo.findByTitle(input.title)) repo.create(input);
 
     expect(repo.list()).toHaveLength(1);
+  });
+});
+
+// ── #957 — agents are ROLES, not skills ───────────────────────────────────
+// The importer used to scan ~/.config/opencode/agents/*.md and import every
+// agent's role-text as a `published` skill row, which then materialized into
+// the managed-skills dir as a colliding SKILL.md stub. This proves the agents
+// dir is NEVER a seed source — only real ~/.claude/skills SKILL.md files are.
+describe('skill_seed_importer — #957 agent role-text is never a skill source', () => {
+  it('discovers real skills but NOT opencode agent definitions', () => {
+    const skillsDir = mkdtempSync(join(tmpdir(), 'rhythm-957-skills-'));
+    const agentsDir = mkdtempSync(join(tmpdir(), 'rhythm-957-agents-'));
+
+    // A real Claude skill — MUST be discovered (legit materialization intact).
+    mkdirSync(join(skillsDir, 'coding-agent'));
+    writeFileSync(
+      join(skillsDir, 'coding-agent', 'SKILL.md'),
+      '---\nname: coding-agent\ndescription: Implements one focused request.\n---\nDo the work.\n',
+    );
+
+    // Agent definitions (as opencode_agent_writer projects them: `description` +
+    // `mode`, no `name`; body = role text). These MUST NOT become skills — this
+    // is exactly the #957 stub bug (named agent + UUID-id agent).
+    writeFileSync(
+      join(agentsDir, 'email-assistant.md'),
+      "---\ndescription: Email Assistant\nmode: subagent\n---\nYou are AJ's email agent.\n",
+    );
+    writeFileSync(
+      join(agentsDir, 'ce3a2f3c-3d92-4665-9678-9812a4e9ada1.md'),
+      '---\ndescription: Playwright-Verification-Agent\nmode: subagent\n---\nYou are a verification agent.\n',
+    );
+
+    const titles = discoverSeedInputs({
+      claudeSkillsDir: skillsDir,
+      opencodeAgentsDir: agentsDir,
+    }).map((i) => i.title);
+
+    expect(titles).toContain('coding-agent');
+    expect(titles).not.toContain('email-assistant');
+    expect(titles).not.toContain('ce3a2f3c-3d92-4665-9678-9812a4e9ada1');
+    // No agent slipped in under any title — the agents dir contributes nothing.
+    expect(titles).toEqual(['coding-agent']);
   });
 });

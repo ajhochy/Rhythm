@@ -2,14 +2,20 @@
  * Skill Seed Importer — one-time seed of vetted agent-stack skills into the
  * shared `agent_skills` store.
  *
- * Source dirs (both scanned, deduped by title):
- *   • ~/.config/opencode/agents/*.md   — opencode agent definitions
+ * Source dir (deduped by title):
  *   • ~/.claude/skills/<name>/SKILL.md — Claude Code skill definitions
  *
- * Both use YAML frontmatter (--- … ---) with `name` + `description`; the body
- * is markdown prose. opencode agents additionally carry `mode`, `permission`,
- * `color`, etc. (not imported). Neither source carries `tags` or `when_to_use`
- * in practice — handled defensively if present.
+ * #957: the opencode agents dir (~/.config/opencode/agents/*.md) was ALSO
+ * scanned here. That was wrong — agents are ROLES, not skills. Importing each
+ * agent's role-text as a `published` skill row made it materialize into the
+ * managed-skills dir as a colliding SKILL.md stub (name=agent id,
+ * description=agent label, body=agent system prompt), polluting the engine's
+ * skill picker on every seed/backfill. The agents dir is no longer a seed
+ * source; the agent→file projection lives in opencode_agent_writer.ts.
+ *
+ * SKILL.md files use YAML frontmatter (--- … ---) with `name` + `description`;
+ * the body is markdown prose. Skills don't carry `tags`/`when_to_use` in
+ * practice — handled defensively if present.
  *
  * Field → column mapping (see AgentSkillInput):
  *   title       ← frontmatter `name` (fallback: filename without extension)
@@ -48,10 +54,6 @@ export const SEED_SOURCE = 'agent-stack-seed';
  */
 function isTestEnv(): boolean {
   return process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
-}
-
-function opencodeAgentsDir(): string {
-  return join(homedir(), '.config', 'opencode', 'agents');
 }
 
 function claudeSkillsDir(): string {
@@ -137,11 +139,6 @@ function parseTags(value: string): string[] | null {
   return parts.length > 0 ? parts : null;
 }
 
-function fileNameWithoutExt(path: string): string {
-  const base = path.split('/').pop() ?? path;
-  return base.replace(/\.md$/i, '').replace(/\/SKILL$/i, '');
-}
-
 /**
  * Map a parsed frontmatter + fallback title into an AgentSkillInput for seeding.
  * Pure (no filesystem) so it is unit-testable under VITEST.
@@ -165,31 +162,31 @@ export function frontmatterToSkillInput(
   };
 }
 
-/** Discover candidate skill inputs from both source dirs. No DB access. */
-function discoverSeedInputs(): AgentSkillInput[] {
+/** Injectable seed source dirs (test seam). */
+export interface SeedSourceDirs {
+  /** Claude Code skills dir. Defaults to ~/.claude/skills. */
+  claudeSkillsDir?: string;
+  /**
+   * #957: the opencode agents dir. Accepted ONLY so the regression test can
+   * prove it is never scanned — agents are ROLES, not skills. Deliberately
+   * unused: nothing here reads it. Scanning it (as the original importer did)
+   * projected every agent's role-text into a published skill row that then
+   * materialized as a colliding SKILL.md stub.
+   */
+  opencodeAgentsDir?: string;
+}
+
+/**
+ * Discover candidate skill inputs from the real-skill source dir. No DB access.
+ *
+ * ONLY ~/.claude/skills is scanned. The opencode agents dir is intentionally
+ * NOT a source (#957) — see {@link SeedSourceDirs.opencodeAgentsDir}.
+ */
+export function discoverSeedInputs(dirs: SeedSourceDirs = {}): AgentSkillInput[] {
   const inputs: AgentSkillInput[] = [];
 
-  // 1) opencode agents — flat <name>.md files.
-  const ocDir = opencodeAgentsDir();
-  if (existsSync(ocDir)) {
-    for (const entry of readdirSync(ocDir)) {
-      if (!entry.toLowerCase().endsWith('.md')) continue;
-      const path = join(ocDir, entry);
-      try {
-        if (!statSync(path).isFile()) continue;
-        const content = readFileSync(path, 'utf8');
-        const fm = parseFrontmatter(content);
-        inputs.push(
-          frontmatterToSkillInput(fm, fileNameWithoutExt(entry), extractBody(content)),
-        );
-      } catch {
-        // Unreadable file — skip silently.
-      }
-    }
-  }
-
-  // 2) Claude skills — <name>/SKILL.md
-  const skillsDir = claudeSkillsDir();
+  // Claude skills — <name>/SKILL.md. The only seed source.
+  const skillsDir = dirs.claudeSkillsDir ?? claudeSkillsDir();
   if (existsSync(skillsDir)) {
     for (const entry of readdirSync(skillsDir)) {
       const skillFile = join(skillsDir, entry, 'SKILL.md');
