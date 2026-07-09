@@ -36,6 +36,7 @@ import { dirname, join, resolve, sep } from 'path';
 import { homedir } from 'os';
 import { logger } from '../utils/logger';
 import { scanContextContent } from '../security/context_scanner';
+import { parseSkillFrontmatter, stripFrontmatterBlock, type SkillFrontmatter } from './skill_frontmatter';
 
 /**
  * The canonical Rhythm-managed skills dir — `~/.config/opencode/skills`, the
@@ -173,6 +174,16 @@ export interface DraftManagedSkillInput extends ManagedSkillInput {
   provenance?: string;
   /** ISO timestamp; defaults to now. Becomes frontmatter `extracted_at`. */
   extractedAt?: string;
+  // ── #929 — set by harvested_skill_evaluator.ts on re-write; absent on the
+  // original harvest write (defaults preserve the #949 file shape exactly).
+  /** 'draft' (default) | 'active' | 'rewrite-needed'. 'disabled' uses moveDraftToDisabled instead. */
+  status?: string;
+  /** ISO timestamp of the most recent evaluation pass, if any. */
+  evaluatedAt?: string;
+  /** scoreSkillBody() result (0-100) from the most recent evaluation. */
+  postScore?: number;
+  /** scoreSkillBody() rationale from the most recent evaluation. */
+  measureReason?: string;
 }
 
 /** The drafts subfolder under the managed root. */
@@ -203,12 +214,16 @@ export function renderDraftSkillMarkdown(skill: DraftManagedSkillInput): string 
   if (skill.description && skill.description.trim() !== '') {
     lines.push(`description: ${JSON.stringify(skill.description)}`);
   }
-  lines.push('status: draft');
+  lines.push(`status: ${skill.status ?? 'draft'}`);
   lines.push('source: harvested');
   lines.push(`provenance: ${skill.provenance ?? 'auto-extract'}`);
   lines.push(`source_session: ${skill.sourceSessionId}`);
   lines.push(`confidence: ${skill.confidence}`);
   lines.push(`extracted_at: ${skill.extractedAt ?? new Date().toISOString()}`);
+  // #929 — only present once harvested_skill_evaluator.ts has evaluated this draft.
+  if (skill.evaluatedAt) lines.push(`evaluated_at: ${skill.evaluatedAt}`);
+  if (skill.postScore !== undefined) lines.push(`post_score: ${skill.postScore}`);
+  if (skill.measureReason) lines.push(`measure_reason: ${JSON.stringify(skill.measureReason)}`);
   lines.push('---', '', skill.body.endsWith('\n') ? skill.body.trimEnd() : skill.body, '');
   return lines.join('\n');
 }
@@ -230,6 +245,116 @@ export function writeDraftManagedSkill(skill: DraftManagedSkillInput): string {
   const location = join(dir, 'SKILL.md');
   writeFileSync(location, renderDraftSkillMarkdown(skill), 'utf8');
   return location;
+}
+
+/** Names of every draft currently on disk under the drafts namespace. */
+export function listDraftSkillNames(): string[] {
+  if (!existsSync(draftsRoot())) return [];
+  return readdirSync(draftsRoot(), { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name);
+}
+
+/** A parsed draft (or disabled-archive) skill: its frontmatter + plain body. */
+export interface ParsedDraftSkill {
+  frontmatter: SkillFrontmatter;
+  body: string;
+}
+
+/** Read + parse a draft SKILL.md by name. Returns null if it does not exist. */
+export function readDraftSkill(name: string): ParsedDraftSkill | null {
+  const location = join(draftSkillDir(name), 'SKILL.md');
+  if (!existsSync(location)) return null;
+  const content = readFileSync(location, 'utf8');
+  return { frontmatter: parseSkillFrontmatter(content), body: stripFrontmatterBlock(content).trim() };
+}
+
+/**
+ * Delete a harvested draft by name. Returns true if it existed and was
+ * removed, false otherwise. Confined to the drafts namespace (mirrors
+ * {@link deleteManagedSkill}).
+ */
+export function deleteDraftManagedSkill(name: string): boolean {
+  const dir = draftSkillDir(name);
+  if (!existsSync(dir)) return false;
+  rmSync(dir, { recursive: true, force: true });
+  return true;
+}
+
+// ── #929 — Disabled-drafts archive (NOT scanned by the engine) ────────────
+// A draft the evaluator judges "useless" is moved here instead of deleted
+// outright, so harvested_skill_evaluator's harvester-quality signal (Unit 4)
+// has a durable record of terminal bad outcomes to count even after the live
+// draft file is gone. Never registered in `skills.paths` — invisible to the
+// fork by construction (same segregation idiom as drafts/ vs the main dir).
+
+/** The disabled-drafts archive subfolder under the managed root. */
+export function disabledRoot(): string {
+  return join(resolve(managedSkillsRoot()), 'disabled');
+}
+
+function disabledSkillDir(name: string): string {
+  const slug = slugForSkillName(name);
+  const root = disabledRoot();
+  const dir = resolve(root, slug);
+  if (dir !== join(root, slug) && !dir.startsWith(root + sep)) {
+    throw new InvalidSkillNameError(`Resolved disabled-skill path escapes the disabled dir: ${name}`);
+  }
+  return dir;
+}
+
+/** Names of every archived-disabled skill on disk. */
+export function listDisabledSkillNames(): string[] {
+  if (!existsSync(disabledRoot())) return [];
+  return readdirSync(disabledRoot(), { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name);
+}
+
+/** Read + parse an archived-disabled skill by name. Returns null if unknown. */
+export function readDisabledSkill(name: string): ParsedDraftSkill | null {
+  const location = join(disabledSkillDir(name), 'SKILL.md');
+  if (!existsSync(location)) return null;
+  const content = readFileSync(location, 'utf8');
+  return { frontmatter: parseSkillFrontmatter(content), body: stripFrontmatterBlock(content).trim() };
+}
+
+/**
+ * Move a draft from the live drafts/ namespace into the disabled/ archive,
+ * stamping `status: disabled` + the evaluation ledger fields into its
+ * frontmatter. The original draft file is removed so the engine immediately
+ * stops discovering it (same user-visible effect as delete, but the content
+ * survives for Unit 4's bad-harvest-streak accounting). No-op (returns false)
+ * if the draft does not exist.
+ */
+export function moveDraftToDisabled(
+  name: string,
+  patch: { evaluatedAt: string; postScore: number; measureReason: string },
+): boolean {
+  const draft = readDraftSkill(name);
+  if (!draft) return false;
+
+  const dir = disabledSkillDir(name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, 'SKILL.md'),
+    renderDraftSkillMarkdown({
+      name,
+      description: draft.frontmatter.description,
+      body: draft.body,
+      sourceSessionId: draft.frontmatter.sourceSession ?? '',
+      confidence: draft.frontmatter.confidence ?? 0,
+      provenance: draft.frontmatter.provenance,
+      extractedAt: draft.frontmatter.extractedAt,
+      status: 'disabled',
+      evaluatedAt: patch.evaluatedAt,
+      postScore: patch.postScore,
+      measureReason: patch.measureReason,
+    }),
+    'utf8',
+  );
+  deleteDraftManagedSkill(name);
+  return true;
 }
 
 /**

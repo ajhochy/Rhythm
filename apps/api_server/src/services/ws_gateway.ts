@@ -844,6 +844,17 @@ export async function handleInputFrame(
 
     await promptFn(opencodeId, forwardData, model, cwd, sdkOpts, forwardParts);
 
+    // #929 — evaluateHarvestedDrafts() is NOT called here. `promptFn`
+    // (promptAsync) resolves once the turn is submitted to the engine, not
+    // once its response (incl. any `skill`-tool call) is durably persisted —
+    // that happens later, asynchronously, when OpencodeStreamBridge handles
+    // the SDK's `session.idle` event. Calling the evaluator here always sees
+    // last turn's usage count, one behind the turn that just ran — with no
+    // later turn to re-check, a draft that crosses the threshold on its LAST
+    // exercising turn would never get evaluated. See the real post-turn hook
+    // (same posture as queueSkillExtraction) in opencode_stream_bridge.ts's
+    // `session.idle` handler, right after the turn's message is persisted.
+
     // P3-2: bump `uses` for each injected skill (non-fatal). Done after a
     // successful enqueue; the preface text itself is never persisted.
     if (wsInjectedSkillIds.length > 0) {

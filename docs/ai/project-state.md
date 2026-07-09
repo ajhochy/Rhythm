@@ -2,47 +2,44 @@
 
 ## Current focus
 
-**#930 verified live, draft PR open.** Model fallback chain + mid-run
-cross-provider re-dispatch proven end-to-end: spillover exhaustion aborts
-the spinning turn, reverts, and re-prompts on the next authed tier in the
-same engine session. Live smoke found and fixed three real bugs (plugin
-API-base port mismatch, bad openai default model, `session.error`-based
-re-dispatch design that could hang forever) — see
-`docs/ai/runs/2026-07-09-930-model-fallback-live.md`. #949 is merged to
-main (via PR #950).
+**#929 verified live (partial) and landing; #949 merged.** The
+self-regulating harvested-skill loop (real usage tracking, evaluate-at-3-uses,
+keep/rewrite-needed/disable, harvester-quality signal, minimal UI) is
+implemented on top of #949's file-based harvest representation. Unit suite
+green; mechanism proven live via an independent probe; the official live
+gate is blocked upstream on a dead-provider harvest precondition (#952) —
+see `docs/ai/runs/2026-07-09-929-skill-self-regulation-live.md`.
 
 ## Active branch / PR
 
-- **`issue-930-model-fallback-chain`** — verified live, **draft PR open**
-  against main (not merged, not marked ready). Caveat: live smoke used a
-  constrained chain because the `openai`/`google` fallback tiers are dead on
-  this machine — tracked as **#952**, a real gap if those tiers are dead in
-  production too (default chain still lists them before openrouter).
-- `issue-949-harvest-to-file` — **merged to main** via PR #950.
-- `issue-929-skill-self-regulation` and **#933–936** — committed locally,
-  awaiting their own live gates. 14 uncommitted files stashed as
-  `wip-929-inflight-stashed-for-949`; restore with
-  `git stash apply wip-929-inflight-stashed-for-949` when picking #929 back
-  up.
+- **`issue-929-skill-self-regulation`** — PR open (draft) against `main`.
+  6 implementation/unit commits + 1 live-gate fix commit
+  (`79620f35e` — frontmatter-from-disk read + evaluator-timing fix) + 1 docs
+  commit. Not merged; draft pending manual review.
+- `issue-949-harvest-to-file` / PR #950 — **merged to main.**
+- `issue-930-model-fallback-chain` — draft PR #940, still awaiting gated
+  live smoke before merge. Its `DEFAULT_MODEL_BY_PROVIDER` will supersede
+  the `openrouter/free` pin added in #949's fix.
+- `issue-933`, `issue-934`, `issue-935`, `issue-936` — gate pending.
 
 ## Risks / known issues
 
-- **#952 — dead fallback tiers on this machine.** `openai` (Codex
-  ChatGPT-account) and `google` (Gemini schema) fallback tiers are
-  non-functional locally, so #930's live smoke only exercised
-  `team-claude,personal-claude,openrouter-free`. The re-dispatch mechanism
-  is provider-agnostic and proven, but a production spillover could still
-  re-dispatch onto a hanging provider if those tiers are dead there too.
-  Suggested follow-up: a fallback completion-watchdog.
-- **openrouter/free flakiness** — can hit a rate limit that surfaces only
-  as a WS error frame in the live harness, reading as a hang rather than a
-  clean error.
-- **Distill harvests injected memory prefaces, not conversation content** —
-  during #949 live verification the distiller drafted a skill from the
-  user's standing memory instruction (ws_gateway's injected preface lands in
-  the input message rows and dominates the transcript), ignoring the actual
-  conversation. Filed as a follow-up issue; relates to #929's
-  self-regulation / bad-harvest detection.
+- **#952 — dead providers.** openai/google model providers are dead on
+  this machine; `openrouter/free` is the only working provider, and it is
+  both weak (declines to distill on request) and flaky (rate limits surface
+  only as WS error frames, reading as a hang). This is what blocked #929's
+  official live gate from completing its harvest precondition, and is the
+  systemic risk behind any "live E2E blocked" note across #929/#930/#949.
+- **openrouter/free flake in the live harness** — turn 2 can hit a rate
+  limit invisible to the E2E harness. #930's fallback chain is the systemic
+  fix; until that merges, live runs across issues can flake on this.
+- **#951 — distill harvests injected memory prefaces, not conversation
+  content.** Filed during #949 live verification. #929's self-regulation
+  loop (Units 3/4) is the safety net that catches this class of bad
+  harvest, not a fix for it.
+- **#876 — same frontmatter-strip bug class as the #929 live-gate fix**,
+  but in `lazy_deps_turn_hook.ts` rather than `opencode_skills_routes.ts`.
+  Diagnosed during #929 verification, spun out as its own follow-up.
 - `AgentSkillsRepository` + `agent_skills` table still not deleted (32
   direct callers) — only the `distillFromSession` write site changed in
   #949. Cleanup remains a follow-up.
@@ -52,17 +49,21 @@ main (via PR #950).
 ## Test status
 
 - `tsc --noEmit` — clean.
-- Unit suites: `54 passed` (`turn_redispatch` 14 + `model_fallback` +
-  `anthropic_session_routing`).
-- Full `api_server` suite: `2498 passed | 5 skipped`.
-- Live Phase A (`RHYTHM_LIVE_E2E=1`): `1 passed`.
-- Live Phase A+B (`+RHYTHM_LIVE_E2E_FORCE_EXHAUSTED=1`): `2 passed`.
+- Full `api_server` unit suite — 292 files / 2482 tests passing (includes
+  #929's new evaluator, usage-tracker, and frontmatter test files).
+- Live #948/#949 phases — previously verified manually against the running
+  backend (see prior run logs).
+- Live #929 phase — official gate (`live_e2e_929.test.ts`) blocked on the
+  #952 harvest precondition; mechanism independently proven live via probe
+  (draft surfaced with correct status, usage counter advanced 0→1→2→3 from
+  real telemetry, evaluator produced a real `rewrite-needed` / postScore=25
+  outcome ~17s after the third use).
 
 ## Next step
 
-1. Human review + merge of the `issue-930-model-fallback-chain` draft PR
-   (left as draft deliberately; not automated).
-2. Address #952 (dead openai/google fallback tiers) before relying on the
-   default chain in production.
-3. Unstash and finish `wip-929-inflight-stashed-for-949` on
-   `issue-929-skill-self-regulation`; land #933–936's live gates.
+1. Manual review + merge of draft PR for `issue-929-skill-self-regulation`.
+2. Gated live smoke for `issue-930-model-fallback-chain` (PR #940), then
+   merge; drop the `openrouter/free` pin in favor of its default map.
+3. Resolve #952 (dead openai/google providers) to unblock full live
+   verification of harvest-dependent gates (#929, #949, future harvester
+   work).

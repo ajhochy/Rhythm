@@ -8,10 +8,24 @@
  * frontmatter (fetched via listSkillsWithContent) — never from the DB sidecar.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, dirname } from 'path';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { startTestServer } from './helpers/real_server';
+
+// The route now reads each skill's frontmatter straight off disk via its
+// `location` (see opencode_skills_routes.ts — the fork's listSkillsWithContent
+// strips frontmatter from `content`, so it can no longer be the source here).
+// A real backing file at `location` is required for these tests' frontmatter
+// to be seen; a throwaway tmp dir stands in for the fork's own skill dirs.
+const EXT_DIR = mkdtempSync(join(tmpdir(), 'skills-env-test-'));
+function writeSkillFile(location: string, content: string): void {
+  mkdirSync(dirname(location), { recursive: true });
+  writeFileSync(location, content, 'utf8');
+}
 
 const reloadSkills = vi.fn().mockResolvedValue([]);
 const listSkills = vi.fn().mockResolvedValue([]);
@@ -62,20 +76,15 @@ describe('/opencode/skills?withMetadata=true — #874 required env surfacing', (
 
   it('flags a skill whose declared env var is missing', async () => {
     delete process.env.TENOR_API_KEY;
-    listSkills.mockResolvedValueOnce([
-      { name: 'gif-search', description: 'gifs', location: '/skills/gif-search/SKILL.md' },
-    ]);
-    listSkillsWithContent.mockResolvedValueOnce([
-      {
-        name: 'gif-search',
-        description: 'gifs',
-        location: '/skills/gif-search/SKILL.md',
-        content: skillMd(
-          'gif-search',
-          'required_environment_variables:\n  - name: TENOR_API_KEY\n    prompt: "Your Tenor API key"',
-        ),
-      },
-    ]);
+    const location = join(EXT_DIR, 'gif-search', 'SKILL.md');
+    writeSkillFile(
+      location,
+      skillMd(
+        'gif-search',
+        'required_environment_variables:\n  - name: TENOR_API_KEY\n    prompt: "Your Tenor API key"',
+      ),
+    );
+    listSkills.mockResolvedValueOnce([{ name: 'gif-search', description: 'gifs', location }]);
 
     const res = await fetch(`${baseUrl}/opencode/skills?withMetadata=true`);
     expect(res.status).toBe(200);
@@ -87,17 +96,9 @@ describe('/opencode/skills?withMetadata=true — #874 required env surfacing', (
 
   it('does not flag a skill whose declared env var is already set', async () => {
     process.env.TENOR_API_KEY = 'already-configured';
-    listSkills.mockResolvedValueOnce([
-      { name: 'gif-search', description: 'gifs', location: '/skills/gif-search/SKILL.md' },
-    ]);
-    listSkillsWithContent.mockResolvedValueOnce([
-      {
-        name: 'gif-search',
-        description: 'gifs',
-        location: '/skills/gif-search/SKILL.md',
-        content: skillMd('gif-search', 'required_environment_variables:\n  - name: TENOR_API_KEY'),
-      },
-    ]);
+    const location = join(EXT_DIR, 'gif-search-2', 'SKILL.md');
+    writeSkillFile(location, skillMd('gif-search', 'required_environment_variables:\n  - name: TENOR_API_KEY'));
+    listSkills.mockResolvedValueOnce([{ name: 'gif-search', description: 'gifs', location }]);
 
     const res = await fetch(`${baseUrl}/opencode/skills?withMetadata=true`);
     const body = (await res.json()) as Array<{ name: string; metadata: { env: { missing: string[]; satisfied: boolean } } }>;
@@ -107,17 +108,9 @@ describe('/opencode/skills?withMetadata=true — #874 required env surfacing', (
   });
 
   it('a skill with no required_environment_variables field reports satisfied=true, missing=[] (regression)', async () => {
-    listSkills.mockResolvedValueOnce([
-      { name: 'plain-skill', description: 'no env needed', location: '/skills/plain/SKILL.md' },
-    ]);
-    listSkillsWithContent.mockResolvedValueOnce([
-      {
-        name: 'plain-skill',
-        description: 'no env needed',
-        location: '/skills/plain/SKILL.md',
-        content: skillMd('plain-skill'),
-      },
-    ]);
+    const location = join(EXT_DIR, 'plain-skill', 'SKILL.md');
+    writeSkillFile(location, skillMd('plain-skill'));
+    listSkills.mockResolvedValueOnce([{ name: 'plain-skill', description: 'no env needed', location }]);
 
     const res = await fetch(`${baseUrl}/opencode/skills?withMetadata=true`);
     const body = (await res.json()) as Array<{ name: string; metadata: { env: { missing: string[]; satisfied: boolean } } }>;

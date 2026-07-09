@@ -24,6 +24,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { queueSkillExtraction } from './skill_extractor';
+import { evaluateHarvestedDrafts } from './harvested_skill_evaluator';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
 import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
@@ -921,6 +922,13 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     if (rhythmSessionId) {
       queueSkillExtraction(rhythmSessionId);
     }
+
+    // #929 — fire-and-forget evaluation of any harvested draft that just
+    // crossed its use threshold (real `skill`-tool invocations persisted this
+    // turn may have pushed one over). NEVER awaited; never throws.
+    evaluateHarvestedDrafts().catch((err) =>
+      logger.warn(`[AgentRunner] evaluateHarvestedDrafts failed (non-fatal): ${String(err)}`),
+    );
 
     // P3-2: bump `uses` for each injected skill (non-fatal, success path only).
     // This is the only persisted side-effect of injection — the preface text
