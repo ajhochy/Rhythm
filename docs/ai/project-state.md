@@ -2,84 +2,57 @@
 
 ## Current focus
 
-Four major workstreams have each landed as a PR, all awaiting manual merge
-(no auto-merge in this repo):
+**Non-mobile wave merged to `main` (@ 26f5e6e96, 2026-07-09).** 13 PRs / 18
+issues landed in one verified integration (tsc clean, full api_server suite
+2612 passed / 0 failed; each issue live-gated before merge). See
+`docs/ai/runs/2026-07-09-non-mobile-wave-merged.md`.
 
-1. **#933-#936 — workflow-failure-signals chain**, verified live on branch
-   `issues-933-936-workflow-signals`; PR open (draft). Read-only failure
-   extractor → org audit snapshot → existing optimizer lanes, with
-   dedup/cap/stale-fixed safeguards. See
-   `docs/ai/runs/2026-07-09-933-936-workflow-signals-live.md`.
-2. **#949 — skill harvester writes draft `SKILL.md` + auto-binds to source
-   agent** — MERGED to `main`.
-3. **#930 — model fallback chain / cross-provider handoff** — draft PR #940.
-4. **#929 — skill self-regulation / bad-harvest detection** — draft PR #955.
+The agent/skill self-improvement architecture is now coherent:
+- **Source of truth = files** in `~/.config/opencode/skills` (#947); external
+  scans off (`OPENCODE_DISABLE_EXTERNAL_SKILLS=1`); one-time durable-marked
+  population (no boot-seed clobber).
+- **Harvest loop = automatic, drafts only** (#929 evaluate → #959 guard →
+  #969 rewrite). Hand-off to the org-optimizer at draft→active promotion.
+- **Org-optimizer = human-gated, whole-org** (proposed→approved→applied→
+  measured→re-evaluated). The "improve every active skill over time" engine is
+  the org-optimizer's job (#976), not a new auto-loop.
 
-## Active branch / PR
+## Branch / PR
 
-- `issues-933-936-workflow-signals` — PR open (draft), fixes #933-#936.
-  Cut from `origin/main` **before #949 merged**, so it does not contain
-  #949; unrelated files, merge independently.
-- PR #950 / `issue-949-harvest-to-file` — MERGED to `main` (fixes #949).
-- PR #940 / `issue-930-model-fallback-chain` — draft, awaiting manual merge
-  (fixes #930).
-- PR #955 / `issue-929-skill-self-regulation` — draft, awaiting manual
-  merge (fixes #929).
+- `main` @ 26f5e6e96. No open wave PRs (all merged/closed).
+- Open PRs left deliberately: **#939** (fork delegated-agent-retry, never gated),
+  **#953** (agent-profile core permissions, conflicting, out of wave).
 
-## In progress
+## Risks / known issues (act before relying on runtime)
 
-- Nothing mid-flight in this worktree; #933-#936 chain is verified and
-  ready for review.
-- Manual merges of PR #940 and PR #955 are pending (independent of each
-  other and of the #933-#936 PR).
-
-## Risks / known issues
-
-- **#952 — dead providers.** Follow-up needed; not yet fixed.
-- **#951 / #954 — follow-ups** from the #949/#930/#929 work, not yet
-  started.
-- `AgentSkillsRepository` + `agent_skills` table still not deleted (32
-  direct callers) — only the `distillFromSession` write site changed in
-  #949. Cleanup remains a follow-up.
-- Pre-existing unrelated test failures (22, memory-vault +
-  auth-middleware, ENOENT temp-dir + 401 auth env issues) predate the
-  #933-#936 branch.
+1. **Fork rebuild pending** — #928's allowlist null-clear is a fork *source*
+   change; `apps/opencode_bin/opencode` is still the #949 build. Rebuild +
+   re-sign the fork for it to take effect (release build handles it).
+2. **#947 real-config migration NOT run (approval-gated → #961).** Real
+   `~/.config/opencode/rhythm-managed-skills` + quarantined stubs still present.
+   `populateWorkflowSkillsOnce` runs once (copy-if-absent) on next real start;
+   the legacy dir move is behind `RHYTHM_MIGRATE_MANAGED_SKILLS=1`.
+3. **`OPENCODE_DISABLE_EXTERNAL_SKILLS=1` ships** — next real start stops
+   scanning `~/.claude`/`~/.agents` skills (intended).
+4. Cache coherence for continuous refinement: `reloadSkills` is per-directory;
+   a refinement must fan out to all live engine instances (#976).
 
 ## Test status
 
-- **#933-#936**: live E2E gate passed twice (incl. verbose) against the
-  real fork-engine backend; full api_server unit suite 290 files / 2485
-  passed / 2 skipped (the live-gated tests); `tsc --noEmit` clean.
-- **#949**: `tsc --noEmit` clean; `skill_extractor.test.ts` 9/9; resolver
-  suites 59/59; live #948/#949 phases verified manually.
-- **#930 / #929**: see PR #940 / PR #955 for their own test status.
+- Integrated result: `tsc` clean; full api_server suite **2612 passed, 23
+  skipped, 0 failed**.
+- All per-issue live gates passed pre-merge (fork engine + api_server); #947
+  proven by a sandboxed full-server double-boot (restart no-clobber).
 
-## Next step
+## Next step (all approval-gated / queued)
 
-1. Push `issues-933-936-workflow-signals` and open/refresh its draft PR for
-   review (this run).
-2. Manual merge of PR #940 (#930) and PR #955 (#929) — independent of each
-   other and of the #933-#936 PR.
-3. Pick up #952 (dead providers) and the #951/#954 follow-ups.
-
-## Recent coding-agent runs
-
-### 2026-07-09 — 933-936-workflow-signals-live
-- Files modified: workflow-failure-signal extractor, org audit snapshot
-  wiring, optimizer lane mapping, dedup/cap/stale-fixed safeguards, gated
-  live E2E test, `docs/ai/runs/2026-07-09-933-936-workflow-signals-live.md`.
-- Checks run: live E2E gate PASS (twice, incl. verbose); full api_server
-  suite 2485 passed / 2 skipped; `tsc --noEmit` clean.
-- Bug found by the live gate: create-recipe dedup key collapsed on empty
-  agent profile for agent-less sessions, suppressing distinct proposals;
-  fixed via a stable per-category `dedupToken` (commit `e3feef0cd`).
-- Deviations from spec: none.
-- Concerns: branch predates #949 — merge #940/#955 independently of this
-  PR.
-
-### 2026-07-06 — issue-batch-917-918-919-921
-- Files modified: `apps/api_server/src/database/migrations.ts` (profile data repair), `apps/api_server/src/services/agent_runner.ts` (fallback model), `apps/api_server/src/services/opencode_agent_writer.ts` (disabled projection gate), focused API tests, `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` (trigger profile routing), docs run log.
-- Checks run: `npx tsc --noEmit` pass; targeted Vitest pass (`6 files, 50 tests`); full `npm test` failed under sandbox bind restrictions (`listen EPERM`, `1971 passed / 423 failed / 58 skipped`); Flutter `dart format .` and `flutter analyze --no-fatal-infos` blocked by SDK cache write permission.
-- Decisions made: #921 uses trigger-only routing to `secretary` instead of globally scoping `claude-code`/`codex`, preserving manual escape-hatch behavior.
-- Deviations from spec: full Vitest and Flutter checks could not complete cleanly in this sandbox; local stale opencode agent files could not be removed from `~/.config`.
-- Concerns: orchestrator should rerun full API/Flutter checks in an environment allowed to bind ports and write the Flutter SDK cache.
+1. **#961** real-config remediation (needs AJ go — real data): re-wire the 5
+   #958-lint miswirings (config-doctor, AI-Trend-Researcher, research→domain-intel,
+   secretary, Theological-Researcher), backfill UUID labels (**#960** first),
+   remove stub dirs, run the #947 migration.
+2. Quality trio: **#951** (harvester distills memory prefaces), **#954**
+   (lazy_deps stripped frontmatter), **#952** (Codex-account fallback leg).
+3. **#960 + #945** (human-readable ids/titles). **#943** (bg-sessions UI, deferred).
+4. Future-run epics: **#970** (judge hardening), **#971** (org-optimizer apply
+   loop), **#976** (org-optimizer skill-refinement generator), **#977** (retire
+   the DB→file content shadow).
