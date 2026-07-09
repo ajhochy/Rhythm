@@ -12,8 +12,24 @@ import {
   importAgentConfigBundle,
   parseAgentConfigBundle,
 } from '../services/agent_config_export_import';
+import { opencodeClient } from '../services/opencode_engine';
+import { detectAgentSkillWiringMismatches } from '../services/agent_skill_wiring';
 
 const repo = new AgentConfigsRepository();
+
+/**
+ * Parse an `allowed_skills_json` column into the null|string[] shape the #958
+ * wiring lint expects. `null`/malformed → null (unrestricted / fail-open).
+ */
+function parseAllowedSkills(json: string | null): string[] | null {
+  if (json === null) return null;
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : null;
+  } catch {
+    return null;
+  }
+}
 
 // Fields that are forbidden to patch on preset rows. Reduced to identity
 // fields now that the legacy CLI fields (canResume/resumeCommand/etc.) are
@@ -67,6 +83,52 @@ export class AgentConfigsController {
     try {
       const configs = repo.list();
       res.json(configs);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * GET /agent-configs/skill-wiring — issue #958 lint surface.
+   *
+   * Reports every agent whose system-prompt body references a workflow skill
+   * that is NOT resolvable for it: absent from its `allowed_skills_json`
+   * allowlist, or not an enabled/discovered skill of that exact name. This is
+   * the "audit across all agents" the issue's Scope asks for and the read-only
+   * verification of its Acceptance ("every skill its body references is present
+   * in allowed_skills_json and resolves to an enabled skill of that exact
+   * name"). Read-only — never mutates config; remediation is #961.
+   */
+  async skillWiringLint(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const configs = repo.list();
+      let liveSkillNames = new Set<string>();
+      const engineAvailable = opencodeClient.isReady;
+      if (engineAvailable) {
+        try {
+          const skills = await opencodeClient.listSkills();
+          liveSkillNames = new Set(skills.map((s) => s.name));
+        } catch {
+          // Engine reported ready but the call failed — treat as unavailable
+          // (liveSkillNames stays empty → the not-enabled check is skipped).
+        }
+      }
+      const mismatches = detectAgentSkillWiringMismatches(
+        configs.map((c) => ({
+          id: c.id,
+          label: c.label,
+          systemPrompt: c.systemPrompt,
+          allowedSkills: parseAllowedSkills(c.allowedSkillsJson),
+        })),
+        liveSkillNames,
+      );
+      res.json({
+        engineAvailable,
+        liveSkillCount: liveSkillNames.size,
+        checkedAgents: configs.length,
+        mismatchCount: mismatches.length,
+        mismatches,
+      });
     } catch (err) {
       next(err);
     }

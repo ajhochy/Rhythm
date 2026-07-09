@@ -14,6 +14,9 @@ agentConfigsRouter.get('/', controller.list.bind(controller));
 agentConfigsRouter.post('/sync-opencode', controller.syncOpencode.bind(controller));
 agentConfigsRouter.get('/export', controller.export.bind(controller));
 agentConfigsRouter.post('/import', controller.import.bind(controller));
+// #958 — agent→skill wiring lint. Registered before '/:id' so "skill-wiring"
+// is never treated as an id.
+agentConfigsRouter.get('/skill-wiring', controller.skillWiringLint.bind(controller));
 agentConfigsRouter.get('/:id', controller.getOne.bind(controller));
 agentConfigsRouter.post('/', controller.create.bind(controller));
 agentConfigsRouter.patch('/:id', controller.patch.bind(controller));

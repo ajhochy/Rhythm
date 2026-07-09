@@ -333,3 +333,79 @@ describe('issue-824-c6: registerNewAgentApplier wires validator+applier into the
     expect(configsRepo.getById('wiring-check-agent')).not.toBeNull();
   });
 });
+
+describe('issue-958: create-agent is refused when the body references a skill outside its allowlist', () => {
+  it('does not emit a proposal whose systemPrompt loads a skill absent from proposedAllowedSkills', async () => {
+    // Bug this catches: the org-optimizer mints an agent whose role text says
+    // "load and follow the `X` skill" while `X` is not in its allowlist — the
+    // exact #958 dangling-reference class. The agent would then silently run
+    // without the workflow it was told to use.
+    const { generateCreateAgentProposal } = await import(
+      '../services/generators/new_agent_generator'
+    );
+
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const result = await generateCreateAgentProposal(
+      {
+        gapId: 'coverage-gap:dangling-1',
+        evidence: 'some evidence',
+        proposedId: 'dangling-agent',
+        proposedLabel: 'Dangling Agent',
+        proposedSystemPrompt: 'Load and follow the `daily-scan` skill for the workflow.',
+        proposedAllowedMcps: ['rhythm'],
+        // 'daily-scan' is NOT in the allowlist → unwired body reference.
+        proposedAllowedSkills: ['coding-agent'],
+      },
+      { proposalsRepo, liveMcpNames: new Set(['rhythm']), liveSkillNames: new Set(['coding-agent', 'daily-scan']) },
+    );
+
+    expect(result.emitted).toBe(false);
+    expect(result.reason).toContain('daily-scan');
+    expect(await proposalsRepo.listByStatusAsync('proposed')).toHaveLength(0);
+  });
+
+  it('apply re-validation rejects an approved proposal with an unwired body reference', async () => {
+    const { validateCreateAgentChange } = await import(
+      '../services/generators/new_agent_generator'
+    );
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'create-agent',
+      risk: 'high',
+      status: 'approved',
+      title: 'Dangling apply',
+      changeJson: JSON.stringify({
+        agentSlug: 'dangling-apply',
+        label: 'Dangling Apply',
+        systemPrompt: 'Use the `ghost` skill.',
+        allowedMcpsJson: JSON.stringify(['rhythm']),
+        allowedSkillsJson: JSON.stringify(['coding-agent']),
+      }),
+      dedupKey: 'create-agent:dangling-apply',
+    });
+
+    const validation = await validateCreateAgentChange(proposal);
+    expect(validation.valid).toBe(false);
+    expect(validation.reason).toContain('ghost');
+  });
+
+  it('a correctly-wired body (reference ⊆ allowlist) still emits', async () => {
+    const { generateCreateAgentProposal } = await import(
+      '../services/generators/new_agent_generator'
+    );
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const result = await generateCreateAgentProposal(
+      {
+        gapId: 'coverage-gap:wired-1',
+        evidence: 'some evidence',
+        proposedId: 'wired-agent',
+        proposedLabel: 'Wired Agent',
+        proposedSystemPrompt: 'Load the `coding-agent` skill first.',
+        proposedAllowedMcps: ['rhythm'],
+        proposedAllowedSkills: ['coding-agent'],
+      },
+      { proposalsRepo, liveMcpNames: new Set(['rhythm']), liveSkillNames: new Set(['coding-agent']) },
+    );
+    expect(result.emitted).toBe(true);
+  });
+});
