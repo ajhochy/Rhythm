@@ -6,26 +6,31 @@
  * suite. Read-only: it inspects the running server's state, mutates nothing,
  * needs no cleanup.
  *
- * Run it:
- *   RHYTHM_LIVE_E2E=1 npx vitest run __tests__/live_e2e_957.test.ts
+ * Run it (the gate launches the server against a FRESH empty DB with
+ * RHYTHM_MANAGED_SKILLS_DIR pointed at a temp dir, so boot re-runs the skill
+ * seed + #797 backfill — the exact path that used to write the agent stubs):
+ *   RHYTHM_LIVE_E2E=1 RHYTHM_MANAGED_SKILLS_DIR=<temp> npx vitest run \
+ *     __tests__/live_e2e_957.test.ts
  *
  * Prerequisites:
- *   - The Rhythm api_server is running on localhost:4001 (AGENT_LOCAL=true, so
- *     /agent-configs and /opencode/skills need no bearer token).
- *   - The opencode engine is spawned and ready (GET /opencode/health → ready).
- *   - The server was started at least once against the current DB (so the skill
- *     seed + #797 backfill have run — that is exactly the boot path that used to
- *     write the agent-role stubs).
+ *   - api_server running on RHYTHM_LIVE_URL (default localhost:4001) against a
+ *     fresh DB, with RHYTHM_MANAGED_SKILLS_DIR set to a temp dir.
+ *   - opencode engine spawned + ready (GET /opencode/health → ready).
  *
- * What it proves (the acceptance criteria of #957):
- *   1. NO agent-role stub exists in the managed-skills dir — no managed skill
- *      (GET /opencode/skills, managed=true) is named after an agent
- *      (GET /agent-configs id / GET /agent-sessions/agents name), AND no
- *      on-disk subdir of the managed dir is named after an agent id.
- *   2. Real managed skills still materialize/appear — the managed skill set is
- *      non-empty after removing any (hypothetical) agent-named entries, so the
- *      fix did not break legitimate materialization (#949 harvest + published
- *      skills).
+ * Detection is by PROVENANCE, not name — Rhythm has an intentional 1:1 naming
+ * convention where several ids (coding-agent, planning-agent, verification-gate,
+ * …) are BOTH real ~/.claude/skills AND workflow agent ids. A name match would
+ * false-positive on those. So the "agent-only" set is:
+ *   basenames(~/.config/opencode/agents/*.md)  MINUS  names(~/.claude/skills)
+ * i.e. agents that are NOT also real skills (email-assistant, secretary,
+ * config-doctor, the UUID agents, …). With the fix these NEVER enter the skill
+ * store; without it every one materializes as a stub.
+ *
+ * What it proves (#957 acceptance):
+ *   1. No agent-only id appears as a materialized skill — API view
+ *      (GET /opencode/skills, managed=true) AND on-disk view (managed dir).
+ *   2. Real ~/.claude/skills still materialize (managed skill set non-empty),
+ *      so the fix did not break legitimate materialization.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { existsSync, readdirSync, statSync } from 'node:fs';
@@ -34,11 +39,34 @@ import { homedir } from 'node:os';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
 const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://localhost:4001';
+const AGENTS_SRC = join(homedir(), '.config', 'opencode', 'agents');
+const CLAUDE_SKILLS_SRC = join(homedir(), '.claude', 'skills');
 const MANAGED_DIR =
   process.env.RHYTHM_MANAGED_SKILLS_DIR ??
   join(homedir(), '.config', 'opencode', 'rhythm-managed-skills');
 
 const describeLive = LIVE ? describe : describe.skip;
+
+/** dir names under ~/.claude/skills that contain a SKILL.md (real skills). */
+function claudeSkillNames(): Set<string> {
+  if (!existsSync(CLAUDE_SKILLS_SRC)) return new Set();
+  return new Set(
+    readdirSync(CLAUDE_SKILLS_SRC).filter((e) =>
+      existsSync(join(CLAUDE_SKILLS_SRC, e, 'SKILL.md')),
+    ),
+  );
+}
+
+/** Agents that are NOT also real skills — the ids a #957 stub would be named after. */
+function agentOnlyIds(): Set<string> {
+  if (!existsSync(AGENTS_SRC)) return new Set();
+  const skills = claudeSkillNames();
+  const ids = readdirSync(AGENTS_SRC)
+    .filter((e) => e.toLowerCase().endsWith('.md'))
+    .map((e) => e.replace(/\.md$/i, ''))
+    .filter((id) => !skills.has(id));
+  return new Set(ids);
+}
 
 async function apiJson<T = unknown>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -47,21 +75,6 @@ async function apiJson<T = unknown>(path: string): Promise<T> {
   const text = await res.text();
   if (!res.ok) throw new Error(`${path} → ${res.status}: ${text}`);
   return text ? (JSON.parse(text) as T) : (undefined as unknown as T);
-}
-
-/** Every identifier an agent-role stub would be named after (agent id + engine name). */
-async function agentIdentifiers(): Promise<Set<string>> {
-  const ids = new Set<string>();
-  const configs = await apiJson<Array<{ id?: string; ocAgent?: string; label?: string }>>(
-    '/agent-configs',
-  );
-  for (const c of configs ?? []) {
-    if (c.id) ids.add(c.id);
-    if (c.ocAgent) ids.add(c.ocAgent);
-  }
-  const engineAgents = await apiJson<Array<{ name?: string }>>('/agent-sessions/agents');
-  for (const a of engineAgents ?? []) if (a.name) ids.add(a.name);
-  return ids;
 }
 
 describeLive('live E2E — #957 no agent-role skill stubs', () => {
@@ -74,29 +87,28 @@ describeLive('live E2E — #957 no agent-role skill stubs', () => {
     }
   });
 
-  it('no managed skill is named after an agent (API view)', async () => {
-    const agents = await agentIdentifiers();
+  it('no agent-only id is a materialized skill (API view)', async () => {
+    const agentOnly = agentOnlyIds();
     const skills = await apiJson<Array<{ name: string; managed?: boolean }>>('/opencode/skills');
 
     const managed = (skills ?? []).filter((s) => s.managed);
-    const agentStubs = managed.filter((s) => agents.has(s.name)).map((s) => s.name);
+    const stubs = managed.filter((s) => agentOnly.has(s.name)).map((s) => s.name);
 
-    expect(agentStubs, `agent-role stubs in managed skills: ${agentStubs.join(', ')}`).toEqual([]);
-
-    // Materialization still works: real managed skills are present.
+    expect(stubs, `agent-only ids materialized as skills: ${stubs.join(', ')}`).toEqual([]);
+    // Materialization still works: real ~/.claude/skills are present.
     expect(managed.length).toBeGreaterThan(0);
   });
 
-  it('no managed-dir subdir is named after an agent (disk view)', async () => {
-    const agents = await agentIdentifiers();
+  it('no agent-only id is a managed-dir subdir (disk view)', () => {
+    const agentOnly = agentOnlyIds();
     expect(existsSync(MANAGED_DIR), `managed dir missing at ${MANAGED_DIR}`).toBe(true);
 
     const subdirs = readdirSync(MANAGED_DIR).filter(
       (e) => e !== 'drafts' && statSync(join(MANAGED_DIR, e)).isDirectory(),
     );
-    const agentDirs = subdirs.filter((d) => agents.has(d));
+    const stubDirs = subdirs.filter((d) => agentOnly.has(d));
 
-    expect(agentDirs, `agent-named stub dirs on disk: ${agentDirs.join(', ')}`).toEqual([]);
+    expect(stubDirs, `agent-only stub dirs on disk: ${stubDirs.join(', ')}`).toEqual([]);
     // Real skills still materialize to disk.
     expect(subdirs.length).toBeGreaterThan(0);
   });
