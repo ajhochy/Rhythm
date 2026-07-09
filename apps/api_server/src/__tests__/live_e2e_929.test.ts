@@ -482,7 +482,7 @@ describeLive('live E2E — #959 dependency guard (deterministic seed, no live di
               `if both are still 'draft', launch the server with RHYTHM_HARVEST_EVAL_THRESHOLD=0`,
           );
         },
-        120_000,
+        300_000,
         2_000,
         'wait for evaluateHarvestedDrafts to process both seeded drafts',
       );
@@ -504,7 +504,7 @@ describeLive('live E2E — #959 dependency guard (deterministic seed, no live di
       expect(skills.find((s) => s.name === undependedName)).toBeFalsy();
       expect(existsSync(join(DISABLED_DIR, undependedName, 'SKILL.md'))).toBe(true);
     },
-    240_000, // 4 min: up to 2 completing turns + evaluator LLM judge x2 + polling.
+    480_000, // 8 min: 2 completing turns + evaluator LLM judge x2 at real anthropic latency + polling (control disable observed ~185s).
   );
 });
 
