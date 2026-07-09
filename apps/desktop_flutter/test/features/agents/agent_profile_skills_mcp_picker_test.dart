@@ -74,12 +74,17 @@ class _FakeSkillsDataSource extends OpencodeSkillsDataSource {
 }
 
 class _FakeMcpDataSource extends OpencodeMcpDataSource {
-  _FakeMcpDataSource(this._names);
+  _FakeMcpDataSource(this._names, {Set<String> needsAuth = const {}})
+      : _needsAuth = needsAuth;
 
   final List<String> _names;
+  final Set<String> _needsAuth;
 
   @override
   Future<List<String>> listNames() async => _names;
+
+  @override
+  Future<Set<String>> listNeedsAuthNames() async => _needsAuth;
 }
 
 class _RecordingAgentConfigsDataSource extends AgentConfigsDataSource {
@@ -419,6 +424,63 @@ void main() {
       expect(json, isNotNull);
       expect(jsonDecode(json!), equals(['rhythm']));
     });
+
+    testWidgets(
+      '#922 — allowed server reported needs_auth shows a degraded badge',
+      (tester) async {
+        final config = _makeConfig().copyWith(
+          allowedMcps: const ['rhythm', 'canva'],
+        );
+        final configsDs = _RecordingAgentConfigsDataSource(config);
+
+        await tester.pumpWidget(
+          _buildSheet(
+            config: config,
+            configsDs: configsDs,
+            skillsDs: _FakeSkillsDataSource(const []),
+            mcpDs: _FakeMcpDataSource(
+              ['rhythm', 'canva'],
+              needsAuth: {'canva'},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _scrollIntoView(tester, find.text('ALLOWED MCPS'));
+
+        expect(find.textContaining('Degraded'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('needs-auth-chip-canva')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('needs-auth-chip-rhythm')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      '#922 — no needs_auth servers means no degraded badge',
+      (tester) async {
+        final config = _makeConfig().copyWith(allowedMcps: const ['rhythm']);
+        final configsDs = _RecordingAgentConfigsDataSource(config);
+
+        await tester.pumpWidget(
+          _buildSheet(
+            config: config,
+            configsDs: configsDs,
+            skillsDs: _FakeSkillsDataSource(const []),
+            mcpDs: _FakeMcpDataSource(['rhythm']),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _scrollIntoView(tester, find.text('ALLOWED MCPS'));
+
+        expect(find.textContaining('Degraded'), findsNothing);
+      },
+    );
   });
 
   group('ManagedSkillEditorSheet — boundary guards', () {

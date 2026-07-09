@@ -641,6 +641,11 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
   bool _skillsLoaded = false;
   bool _mcpsLoaded = false;
 
+  // #922 — MCP servers the live engine currently reports as needs_auth
+  // (e.g. canva/notion/supabase with expired OAuth). Used to flag this
+  // profile as degraded when one of its allowed servers is unauthenticated.
+  Set<String> _needsAuthMcps = {};
+
   bool _loading = false;
   String? _error;
 
@@ -724,6 +729,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
       _availableMcps = mcps;
       _mcpsLoaded = true;
     });
+    // #922 — fetch separately so a failure here never blocks the picker.
+    final needsAuth = await _mcpDataSource.listNeedsAuthNames();
+    if (!mounted) return;
+    setState(() => _needsAuthMcps = needsAuth);
   }
 
   List<String> get _availableSkillNames =>
@@ -1291,6 +1300,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         ),
         const SizedBox(height: 8),
         if (_buildGeminiCapWarning() case final warning?) warning,
+        if (_buildDegradedMcpWarning() case final warning?) warning,
         if (_selectedMcps == null)
           _allAllowedBanner('All MCPs allowed')
         else if (_availableMcps.isEmpty)
@@ -1310,6 +1320,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
             // judge staleness once the live set has actually loaded.
             liveItems: _availableMcps.toSet(),
             flagStale: _mcpsLoaded,
+            // #922 — separately flag servers that ARE live but currently
+            // report needs_auth (expired/missing OAuth), so a profile scoped
+            // to e.g. canva shows it's degraded rather than silently dead.
+            needsAuthItems: _needsAuthMcps,
             onToggle: (mcp) => setState(() {
               if (_selectedMcps!.contains(mcp)) {
                 _selectedMcps!.remove(mcp);
@@ -1319,6 +1333,48 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
             }),
           ),
       ],
+    );
+  }
+
+  /// #922 — surfaces "profile is degraded" when this profile's allowed MCP
+  /// scope includes a server the live engine currently reports as
+  /// needs_auth. Covers BOTH the unrestricted ("all allowed") case and a
+  /// restricted allowlist, since either can bind a scheduled run to a dead
+  /// server. Read-only: never disables the profile or blocks saving (#892's
+  /// preflight already fails a run fast; this is visibility only).
+  Widget? _buildDegradedMcpWarning() {
+    if (_needsAuthMcps.isEmpty) return null;
+    final relevant = _selectedMcps == null
+        ? _needsAuthMcps
+        : _needsAuthMcps.intersection(_selectedMcps!.toSet());
+    if (relevant.isEmpty) return null;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: context.rhythm.warning.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+        border:
+            Border.all(color: context.rhythm.warning.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.warning_amber_rounded,
+              size: 16, color: context.rhythm.warning),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Degraded — ${relevant.join(', ')} need${relevant.length == 1 ? 's' : ''} '
+              're-authentication. Runs that depend on ${relevant.length == 1 ? 'it' : 'them'} '
+              'will fail fast until reconnected in Integrations.',
+              style:
+                  TextStyle(color: context.rhythm.textSecondary, fontSize: 12),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1662,6 +1718,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     // We surface the mismatch; we never rewrite the saved value (#781 / #789).
     Set<String> liveItems = const {},
     bool flagStale = false,
+    // #922 — servers the live engine reports as needs_auth. Rendered with the
+    // same muted/warning chip style as a stale selection (distinct tooltip),
+    // since both mean "this scope entry won't actually work right now".
+    Set<String> needsAuthItems = const {},
   }) {
     return Wrap(
       spacing: 8,
@@ -1669,13 +1729,18 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
       children: items.map((item) {
         final isSelected = selected.contains(item);
         final isStale = flagStale && isSelected && !liveItems.contains(item);
+        final needsAuth = !isStale && needsAuthItems.contains(item);
 
-        if (isStale) {
+        if (isStale || needsAuth) {
           return Tooltip(
-            message: 'Not a live MCP server — this saved selection won\'t be '
-                'enforced. Unselect it, or pick the live server.',
+            message: isStale
+                ? 'Not a live MCP server — this saved selection won\'t be '
+                    'enforced. Unselect it, or pick the live server.'
+                : '$item needs re-authentication — connect it in Integrations '
+                    'or runs that depend on it will fail fast.',
             child: FilterChip(
-              key: ValueKey('stale-chip-$item'),
+              key: ValueKey(
+                  isStale ? 'stale-chip-$item' : 'needs-auth-chip-$item'),
               avatar: Icon(
                 Icons.warning_amber_rounded,
                 size: 16,
