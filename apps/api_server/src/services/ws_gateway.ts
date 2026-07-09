@@ -5,6 +5,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { bridgePty, ptyEngineUrl } from './pty_proxy';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
+import { evaluateHarvestedDrafts } from './harvested_skill_evaluator';
 import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
@@ -828,6 +829,12 @@ export async function handleInputFrame(
     }
 
     await promptFn(opencodeId, forwardData, model, cwd, sdkOpts, forwardParts);
+
+    // #929 — fire-and-forget evaluation of any harvested draft that just
+    // crossed its use threshold. NEVER awaited; never throws.
+    evaluateHarvestedDrafts().catch((err) =>
+      console.error(`[ws_gateway] evaluateHarvestedDrafts failed (non-fatal):`, err),
+    );
 
     // P3-2: bump `uses` for each injected skill (non-fatal). Done after a
     // successful enqueue; the preface text itself is never persisted.
