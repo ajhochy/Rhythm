@@ -1,3 +1,4 @@
+import { assertLiveE2EIsolation } from './_live_e2e_guard';
 /**
  * Live E2E for #958 — agent→workflow-skill wiring lint against the real backend.
  *
@@ -30,6 +31,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
+// #1001: refuse to run against a non-isolated backend (prevents the test-agent leak).
+if (LIVE) assertLiveE2EIsolation();
 const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://localhost:4001';
 const describeLive = LIVE ? describe : describe.skip;
 

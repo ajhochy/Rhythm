@@ -1,3 +1,4 @@
+import { assertLiveE2EIsolation } from './_live_e2e_guard';
 /**
  * Live E2E test for #930 — model fallback chain on rate-limit exhaustion.
  *
@@ -39,6 +40,8 @@ import { WebSocket } from 'ws';
 import { homedir } from 'node:os';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
+// #1001: refuse to run against a non-isolated backend (prevents the test-agent leak).
+if (LIVE) assertLiveE2EIsolation();
 const FORCE_EXHAUSTED = process.env.RHYTHM_LIVE_E2E_FORCE_EXHAUSTED === '1';
 const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://localhost:4001';
 

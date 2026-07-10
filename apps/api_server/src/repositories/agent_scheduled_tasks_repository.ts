@@ -230,7 +230,10 @@ export class AgentScheduledTasksRepository {
     for (const [k, col] of Object.entries(map)) {
       if (k in patch) {
         fields.push(env.dbClient === 'postgres' ? `${col} = $${i++}` : `${col} = ?`);
-        values.push((patch as Record<string, unknown>)[k] ?? null);
+        let v = (patch as Record<string, unknown>)[k] ?? null;
+        // better-sqlite3 can't bind JS booleans; coerce to 0/1. Postgres keeps native boolean.
+        if (env.dbClient !== 'postgres' && typeof v === 'boolean') v = v ? 1 : 0;
+        values.push(v);
       }
     }
     if (fields.length === 0) return this.findByIdAsync(id);

@@ -1,3 +1,4 @@
+import { assertLiveE2EIsolation } from './_live_e2e_guard';
 /**
  * Live E2E test for #948 (POST /system/refresh) + #949 (harvest-to-file).
  *
@@ -35,6 +36,8 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
+// #1001: refuse to run against a non-isolated backend (prevents the test-agent leak).
+if (LIVE) assertLiveE2EIsolation();
 const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://localhost:4001';
 const AGENTS_DIR = join(homedir(), '.config', 'opencode', 'agents');
 const DRAFTS_DIR = join(

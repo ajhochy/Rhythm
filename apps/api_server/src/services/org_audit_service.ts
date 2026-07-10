@@ -399,6 +399,14 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
   const sessionCountByProfile = new Map<string, number>();
   for (const session of sessions) {
     if (!session.mcpRole) continue;
+    // #1004: only sessions that ACTUALLY EXECUTED count toward the tighten-scope
+    // observation floor. A run stuck at 'starting' or that 'error'ed (e.g. the
+    // #1002 empty-output failures) never invoked any tool — counting it lets
+    // "never invoked" masquerade as "unused" when the agent simply never ran,
+    // which is exactly how the optimizer over-pruned live agents' MCPs. Require
+    // positive execution evidence; under-counting only makes pruning MORE
+    // conservative, which is the safe direction.
+    if (session.status === 'starting' || session.status === 'error') continue;
     sessionCountByProfile.set(
       session.mcpRole,
       (sessionCountByProfile.get(session.mcpRole) ?? 0) + 1,

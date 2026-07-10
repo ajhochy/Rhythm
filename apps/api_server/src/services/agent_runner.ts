@@ -810,12 +810,17 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       ...(effectiveOcAgent !== null ? { agent: effectiveOcAgent } : {}),
     };
     const response = await Promise.race([
-      opencodeClient.prompt(sessionId, effectivePrompt, resolvedModel, cwd, promptOpts),
+      // #1002: opencode sessions are DIRECTORY-SCOPED. The session was created
+      // under effectiveCwd (cwd ?? process.cwd()); every post-creation call must
+      // use the SAME directory or the engine looks in its default instance and
+      // finds no session — yielding an empty response and the bogus
+      // "model produced no output" error on the headless/scheduler path.
+      opencodeClient.prompt(sessionId, effectivePrompt, resolvedModel, effectiveCwd, promptOpts),
       timeoutPromise,
     ]);
 
     if (timedOut) {
-      await opencodeClient.abortSession(sessionId, cwd).catch(() => {});
+      await opencodeClient.abortSession(sessionId, effectiveCwd).catch(() => {});
       logger.warn(`[AgentRunner] session ${sessionId} timed out after ${timeoutMs}ms`);
       _markSessionError(rhythmSessionId, `Run timed out after ${timeoutMs}ms`);
       return {
@@ -860,7 +865,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // transcript uses) and extract its text.
     if (!resultText) {
       try {
-        const msgs = await opencodeClient.listMessages(sessionId);
+        const msgs = await opencodeClient.listMessages(sessionId, effectiveCwd);
         const lastAssistant = msgs
           .filter((m) => m.role === 'assistant')
           .pop();

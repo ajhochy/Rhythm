@@ -1,3 +1,4 @@
+import { assertLiveE2EIsolation } from './_live_e2e_guard';
 /**
  * Live E2E test for #929 (skill self-regulation loop), #959 (dependency
  * guard), and #969 (rewrite-needed -> refiner wiring).
@@ -48,6 +49,8 @@ import { homedir } from 'node:os';
 import { writeDraftManagedSkill } from '../services/rhythm_managed_skills';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
+// #1001: refuse to run against a non-isolated backend (prevents the test-agent leak).
+if (LIVE) assertLiveE2EIsolation();
 // NOTE: defaults to :4000 (this environment's reservation) rather than
 // live_e2e_948_949.test.ts's :4001 — always honors RHYTHM_LIVE_URL either way.
 const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://localhost:4000';
