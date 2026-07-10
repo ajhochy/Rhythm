@@ -339,6 +339,56 @@ function resolveScopePatch(
 }
 
 /**
+ * #971 reliability fallback. In practice the diagnosis LLM reliably states the
+ * fix in `concreteFix` prose ("model: google/gemini-2.5-pro") but frequently
+ * OMITS the structured `configPatch`, so a proposal would degrade to prose-only
+ * and 400 at approve — the loop never closes. For the common, unambiguous
+ * model-swap this derives the patch deterministically from the prose. Anything
+ * that isn't a clear `provider/model` swap (e.g. an ocAgent tweak) returns
+ * undefined and correctly stays prose-only for the human gate.
+ */
+function deriveConfigPatchFromProse(
+  concreteFix: string,
+  agentConfigId: string,
+  configsRepo: AgentConfigsRepository,
+): ConfigPatch | undefined {
+  if (!/\bmodel\b/i.test(concreteFix)) return undefined;
+  const m = concreteFix.match(/\b([a-z][a-z0-9_-]*\/[a-z0-9][a-z0-9._/-]+)\b/i);
+  if (!m) return undefined;
+  if (!configsRepo.getById(agentConfigId)) return undefined;
+  return { agentConfigId, field: 'model', value: m[1] };
+}
+
+/**
+ * #971 reliability fallback for scope fixes (same rationale as
+ * {@link deriveConfigPatchFromProse}). Conservative: fires only for a clear
+ * single-intent "add '<name>' ..." or "remove/drop '<name>' ..." with quoted
+ * names. Ambiguous set-rewrites ("reduce the list to [...]") return undefined
+ * and stay prose-only — we never guess add-vs-remove-vs-replace.
+ */
+function deriveScopePatchFromProse(
+  concreteFix: string,
+  agentConfigId: string,
+  configsRepo: AgentConfigsRepository,
+): ScopePatch | undefined {
+  const lower = concreteFix.toLowerCase();
+  const isAdd = /\badd\b/.test(lower) && !/\b(remove|drop)\b/.test(lower);
+  const isRemove = /\b(remove|drop)\b/.test(lower) && !/\badd\b/.test(lower);
+  if (!isAdd && !isRemove) return undefined;
+  const names = [...concreteFix.matchAll(/['"`]([^'"`]+)['"`]/g)]
+    .map((x) => x[1])
+    .filter((n) => n.length > 0 && n.length <= 60 && !/\s/.test(n));
+  if (!names.length) return undefined;
+  if (!configsRepo.getById(agentConfigId)) return undefined;
+  const field: ScopePatch['field'] = /\bmcp\b/i.test(concreteFix)
+    ? 'allowedMcpsJson'
+    : 'allowedSkillsJson';
+  return isAdd
+    ? { agentConfigId, field, add: names }
+    : { agentConfigId, field, remove: names };
+}
+
+/**
  * Read a profile's managed SKILL.md body from disk. Returns null when no
  * managed skill file exists for this id (many profiles have none).
  */
@@ -382,9 +432,10 @@ function buildDiagnosisSystemPrompt(): string {
     'Output ONLY a JSON object with these fields:',
     '{"diagnosis":"<plain language explanation>","rootCause":"skill|config|scope|delegation|external","fixType":"skill-edit|config-change|scope-change|delegation-change|external-noop","concreteFix":"<the actual fix text>","confidence":"high|medium|low"}',
     '',
-    'For a config-change ALSO include a structured patch:',
-    '  "configPatch":{"agentConfigId":"<the AFFECTED SKILL/PROFILE id>","field":"model|allowedSkillsJson|allowedDelegatesJson","value":"<the new value; for model a model id, for the *Json fields a JSON array string>"}',
-    'For a scope-change ALSO include a structured patch:',
+    'For a config-change you MUST ALSO include a structured patch (REQUIRED — a',
+    'config-change WITHOUT this patch cannot be applied and will be rejected):',
+    '  "configPatch":{"agentConfigId":"<the AFFECTED SKILL/PROFILE id>","field":"model|allowedSkillsJson|allowedDelegatesJson","value":"<the new value; for model a model id like anthropic/claude-sonnet-5, for the *Json fields a JSON array string>"}',
+    'For a scope-change you MUST ALSO include a structured patch (REQUIRED — same rule):',
     '  "scopePatch":{"agentConfigId":"<the AFFECTED SKILL/PROFILE id>","field":"allowedMcpsJson|allowedSkillsJson","add":["<name>"],"remove":["<name>"]}',
     '',
     'The concreteFix must be specific and actionable. Not "add a guard" — paste the actual',
@@ -796,11 +847,13 @@ async function proposeFixFromSignals(
       // is re-resolved from the failing signal's own profile.
       const configPatch =
         result.fixType === 'config-change'
-          ? resolveConfigPatch(result.configPatch, agentConfigId, configsRepo)
+          ? (resolveConfigPatch(result.configPatch, agentConfigId, configsRepo) ??
+            deriveConfigPatchFromProse(result.concreteFix, agentConfigId, configsRepo))
           : undefined;
       const scopePatch =
         result.fixType === 'scope-change'
-          ? resolveScopePatch(result.scopePatch, agentConfigId, configsRepo)
+          ? (resolveScopePatch(result.scopePatch, agentConfigId, configsRepo) ??
+            deriveScopePatchFromProse(result.concreteFix, agentConfigId, configsRepo))
           : undefined;
 
       // Flattened, de-duplicated session ids backing this failure mode — the
