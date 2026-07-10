@@ -144,6 +144,8 @@ export function readAgentConfigField(config: AgentConfig, field: ConfigFieldName
       return config.allowedSkillsJson ?? null;
     case 'allowedDelegatesJson':
       return config.allowedDelegatesJson ?? null;
+    case 'system_prompt':
+      return config.systemPrompt ?? null;
   }
 }
 
@@ -173,6 +175,8 @@ export function agentConfigFieldPatch(
       return { allowedSkillsJson: value };
     case 'allowedDelegatesJson':
       return { allowedDelegatesJson: value };
+    case 'system_prompt':
+      return { systemPrompt: value };
   }
 }
 
