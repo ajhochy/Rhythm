@@ -45,12 +45,28 @@
  *   • A single malformed/unparseable signal is logged and skipped, never fatal.
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { logger } from '../../utils/logger';
 import { classifyProposalRisk } from '../org_risk_classifier';
 import { AgentOrgProposalsRepository } from '../../repositories/agent_org_proposals_repository';
+import { AgentConfigsRepository, type AgentConfig } from '../../repositories/agent_configs_repository';
+import { managedSkillsRoot } from '../rhythm_managed_skills';
+import {
+  CONFIG_PATCH_FIELDS,
+  SCOPE_PATCH_FIELDS,
+  type ConfigPatch,
+  type ScopePatch,
+  type DiagnosisResult,
+} from '../org_diagnosis_types';
 import type { AgentOrgProposal, AgentOrgProposalInput } from '../../models/agent_org_proposal';
-import type { OrgAuditSnapshot } from '../org_audit_service';
-import type { WorkflowFailureSignal } from '../workflow_failure_signal_extractor';
+import type {
+  OrgAuditSnapshot,
+  ProfileScopeSnapshot,
+  DelegationEdge,
+  DeniedToolAggregate,
+} from '../org_audit_service';
+import type { WorkflowFailureSignal, WorkflowFailureCategory } from '../workflow_failure_signal_extractor';
 
 export interface WorkflowSignalGeneratorDeps {
   /** Injectable proposals repo (defaults to a fresh AgentOrgProposalsRepository). */
@@ -201,4 +217,595 @@ export async function generateWorkflowSignalProposals(
   }
 
   return { created };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// #971 — LLM-driven diagnosis lane (ADDITIVE to the deterministic lane above).
+//
+// The deterministic `generateWorkflowSignalProposals` above maps each raw
+// failure signal onto an EXISTING kind (broaden-scope / create-recipe) with no
+// LLM. This lane is the reconstruction of the #937-era diagnosis brain that
+// #956 removed: it groups the ambiguous BEHAVIORAL failure signals by
+// (profile, error signature), asks the LLM for a root-cause + concrete fix per
+// distinct failure mode, and emits the richer kinds the approval loop measures
+// and reverts: `refine-config`, `refine-scope`, `workflow-prompt-fix`.
+//
+// Both lanes run every optimizer run and DO NOT conflict — their dedup-key
+// families are disjoint (`broaden-scope:*` / `create-recipe:*` vs
+// `workflow-fix:*`), so the same signal can legitimately surface both a
+// deterministic proposal and a diagnosed one for a human to choose between.
+//
+// `missing-scope` and `delegate-result` signals are intentionally NOT
+// diagnosed here — a denied tool IS its own precise fix (the deterministic
+// broaden-scope lane) and delegation gaps are the delegation_generator's job.
+// The LLM only earns its cost on the ambiguous behavioral categories below,
+// where the root cause (skill vs config vs scope) is genuinely unclear.
+//
+// Operational envelope is identical to the deterministic lane: NEVER throws;
+// a diagnosis failure logs and skips, never crashing the fire-and-forget run.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Cap on LLM diagnosis calls per optimizer run — prevents runaway costs. */
+const DEFAULT_MAX_DIAGNOSE_CALLS = 10;
+
+/**
+ * Behavioral failure categories worth an LLM root-cause diagnosis. Excludes
+ * `missing-scope` (deterministic broaden-scope already yields the exact fix)
+ * and `delegate-result` (owned by the delegation lane). Only signals with an
+ * attributable `agentConfigId` are diagnosable — there must be a real profile
+ * to inspect and patch.
+ */
+const DIAGNOSABLE_CATEGORIES: ReadonlySet<WorkflowFailureCategory> = new Set([
+  'retry-loop',
+  'hallucinated-claim',
+  'unverified-claim',
+  'tool-unavailable-attempted',
+  'repeated-correction',
+  'stale-redo',
+]);
+
+/**
+ * Injectable diagnosis function: given the full context for a profile and its
+ * failure signals, return a structured diagnosis + fix. Tests inject a
+ * deterministic one; production uses {@link defaultDiagnose}.
+ */
+export type DiagnoseCall = (context: DiagnosisContext) => Promise<DiagnosisResult | null>;
+
+/** Everything the LLM needs to diagnose a profile's failures. */
+export interface DiagnosisContext {
+  /** The agent_configs.id of the failing profile (mega's `affectedSkill`). */
+  affectedSkill: string;
+  signals: WorkflowFailureSignal[];
+  profile: ProfileScopeSnapshot | null;
+  agentConfig: AgentConfig | null;
+  skillBody: string | null;
+  deniedTools: DeniedToolAggregate[];
+  delegationOutbound: DelegationEdge[];
+  delegationInbound: DelegationEdge[];
+}
+
+/**
+ * Validate a (fully untrusted) `configPatch` and re-resolve its
+ * `agentConfigId` from the failing signal's own profile via
+ * `AgentConfigsRepository` — an LLM-emitted row id is NEVER trusted directly.
+ * Returns undefined (drop the patch, prose-only survives) on any malformed
+ * shape or if the profile no longer exists.
+ */
+function resolveConfigPatch(
+  raw: unknown,
+  agentConfigId: string,
+  configsRepo: AgentConfigsRepository,
+): ConfigPatch | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.field !== 'string' || !(CONFIG_PATCH_FIELDS as readonly string[]).includes(r.field)) return undefined;
+  if (typeof r.value !== 'string') return undefined;
+  if (!configsRepo.getById(agentConfigId)) return undefined;
+  return { agentConfigId, field: r.field as ConfigPatch['field'], value: r.value };
+}
+
+/** Same contract as {@link resolveConfigPatch}, for `scopePatch`. */
+function resolveScopePatch(
+  raw: unknown,
+  agentConfigId: string,
+  configsRepo: AgentConfigsRepository,
+): ScopePatch | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.field !== 'string' || !(SCOPE_PATCH_FIELDS as readonly string[]).includes(r.field)) return undefined;
+  const add = Array.isArray(r.add) && r.add.every((x) => typeof x === 'string') ? (r.add as string[]) : undefined;
+  const remove = Array.isArray(r.remove) && r.remove.every((x) => typeof x === 'string') ? (r.remove as string[]) : undefined;
+  if (!add && !remove) return undefined;
+  if (!configsRepo.getById(agentConfigId)) return undefined;
+  return {
+    agentConfigId,
+    field: r.field as ScopePatch['field'],
+    ...(add ? { add } : {}),
+    ...(remove ? { remove } : {}),
+  };
+}
+
+/**
+ * Read a profile's managed SKILL.md body from disk. Returns null when no
+ * managed skill file exists for this id (many profiles have none).
+ */
+function readSkillBodyFromDisk(skillName: string): string | null {
+  try {
+    const path = join(managedSkillsRoot(), skillName, 'SKILL.md');
+    const raw = readFileSync(path, 'utf-8');
+    const fmMatch = raw.match(/^---\n[\s\S]*?\n---\n/);
+    return fmMatch ? raw.slice(fmMatch[0].length).trim() : raw.trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the LLM system prompt for diagnosis. The LLM must determine the ROOT
+ * CAUSE and propose a CONCRETE fix — not vague advice. When the fix is a
+ * config or scope change it must ALSO emit a structured, machine-applyable
+ * patch (configPatch/scopePatch) so a deterministic applier can execute it.
+ */
+function buildDiagnosisSystemPrompt(): string {
+  return [
+    'You are a senior agent-ops engineer diagnosing why an AI agent profile keeps failing.',
+    'You will receive: the agent profile config, the skill body (if any), error evidence',
+    'from recent failed sessions, denied tool events, and delegation edges.',
+    '',
+    'Your job: determine the ROOT CAUSE and propose a CONCRETE fix.',
+    '',
+    'Root cause categories:',
+    '- skill: The skill/prompt itself is unclear, missing a guard, or causes the agent to',
+    '  take wrong actions. Fix = edit the SKILL.md (paste the specific paragraph to add).',
+    '- config: The agent profile config is wrong (model too weak/strong, system prompt',
+    '  misleading, ocAgent mode wrong). Fix = the specific config field + value to change.',
+    '- scope: The MCP or skill allowlist is too narrow (agent can\'t access needed tools)',
+    '  or too broad (causing tool-surface overload). Fix = which MCP/skill to add/remove.',
+    '- delegation: The profile can\'t delegate to the specialist it needs, or delegates',
+    '  to the wrong one. Fix = which delegate to add/remove.',
+    '- external: The failure is infrastructure (provider outage, rate limit, API error)',
+    '  not fixable by skill/config/scope changes. Fix = log only, no proposal.',
+    '',
+    'Output ONLY a JSON object with these fields:',
+    '{"diagnosis":"<plain language explanation>","rootCause":"skill|config|scope|delegation|external","fixType":"skill-edit|config-change|scope-change|delegation-change|external-noop","concreteFix":"<the actual fix text>","confidence":"high|medium|low"}',
+    '',
+    'For a config-change ALSO include a structured patch:',
+    '  "configPatch":{"agentConfigId":"<the AFFECTED SKILL/PROFILE id>","field":"model|allowedSkillsJson|allowedDelegatesJson","value":"<the new value; for model a model id, for the *Json fields a JSON array string>"}',
+    'For a scope-change ALSO include a structured patch:',
+    '  "scopePatch":{"agentConfigId":"<the AFFECTED SKILL/PROFILE id>","field":"allowedMcpsJson|allowedSkillsJson","add":["<name>"],"remove":["<name>"]}',
+    '',
+    'The concreteFix must be specific and actionable. Not "add a guard" — paste the actual',
+    'guard text. Not "fix the model" — specify the model id. Not "check scope" — name the',
+    'exact MCP server or skill to add or remove.',
+  ].join('\n');
+}
+
+/** Build the user message with full context for the LLM. */
+function buildDiagnosisUserPrompt(ctx: DiagnosisContext): string {
+  const lines: string[] = [];
+
+  lines.push(`AFFECTED SKILL/PROFILE: ${ctx.affectedSkill}`);
+  lines.push('');
+
+  if (ctx.agentConfig) {
+    lines.push('AGENT PROFILE CONFIG:');
+    lines.push(`  label: ${ctx.agentConfig.label}`);
+    lines.push(`  model: ${ctx.agentConfig.modelProvider ?? '(default)'}/${ctx.agentConfig.modelId ?? '(default)'}`);
+    lines.push(`  ocAgent: ${ctx.agentConfig.ocAgent ?? '(default)'}`);
+    lines.push(`  isManager: ${ctx.agentConfig.isManager}`);
+    lines.push(`  systemPrompt: ${(ctx.agentConfig.systemPrompt ?? '(none)').slice(0, 500)}`);
+    lines.push(`  allowedMcps: ${JSON.stringify(ctx.profile?.allowedMcps ?? [])}`);
+    lines.push(`  allowedSkills: ${JSON.stringify(ctx.profile?.allowedSkills ?? [])}`);
+    lines.push(`  allowedDelegates: ${JSON.stringify(ctx.profile?.allowedDelegates ?? [])}`);
+    lines.push('');
+  } else {
+    lines.push('AGENT PROFILE CONFIG: (not found — profile may have been deleted)');
+    lines.push('');
+  }
+
+  if (ctx.skillBody) {
+    const body = ctx.skillBody.length > 4000
+      ? ctx.skillBody.slice(0, 4000) + '\n...(truncated)'
+      : ctx.skillBody;
+    lines.push('SKILL BODY (from SKILL.md):');
+    lines.push(body);
+    lines.push('');
+  } else {
+    lines.push('SKILL BODY: (no managed SKILL.md found for this profile)');
+    lines.push('');
+  }
+
+  lines.push('ERROR EVIDENCE (recent failed sessions):');
+  for (const signal of ctx.signals.slice(0, 10)) {
+    lines.push(`  [${signal.category}] ${signal.evidence}`);
+  }
+  lines.push('');
+
+  if (ctx.deniedTools.length > 0) {
+    lines.push('DENIED TOOL EVENTS (tools the agent tried to use but was blocked):');
+    for (const d of ctx.deniedTools.slice(0, 10)) {
+      lines.push(`  ${d.toolName} (count=${d.count})`);
+    }
+    lines.push('');
+  }
+
+  if (ctx.delegationOutbound.length > 0 || ctx.delegationInbound.length > 0) {
+    lines.push('DELEGATION EDGES:');
+    if (ctx.delegationOutbound.length > 0) {
+      lines.push(`  can delegate to: ${ctx.delegationOutbound.map((e) => e.toProfileId).join(', ')}`);
+    }
+    if (ctx.delegationInbound.length > 0) {
+      lines.push(`  receives from: ${ctx.delegationInbound.map((e) => e.fromProfileId).join(', ')}`);
+    }
+    lines.push('');
+  }
+
+  lines.push('Diagnose the root cause and propose the concrete fix (JSON only):');
+  return lines.join('\n');
+}
+
+/** Parse the LLM's JSON response. Returns null on any parse failure. */
+function parseDiagnosisResponse(raw: string): DiagnosisResult | null {
+  const text = (raw ?? '').trim();
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  try {
+    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+    const rootCause = parsed.rootCause;
+    const fixType = parsed.fixType;
+    if (typeof rootCause !== 'string' || typeof fixType !== 'string') return null;
+    const validRootCauses = ['skill', 'config', 'scope', 'delegation', 'external'];
+    const validFixTypes = ['skill-edit', 'config-change', 'scope-change', 'delegation-change', 'external-noop'];
+    if (!validRootCauses.includes(rootCause) || !validFixTypes.includes(fixType)) return null;
+    // Pass the raw configPatch/scopePatch through untouched (untrusted,
+    // unvalidated shape) — resolveConfigPatch/resolveScopePatch in
+    // proposeFixFromSignals are the single point of validation + agentConfigId
+    // re-resolution, whether the diagnosis came from this parser or an
+    // injected test double.
+    const configPatch =
+      parsed.configPatch && typeof parsed.configPatch === 'object'
+        ? (parsed.configPatch as ConfigPatch)
+        : undefined;
+    const scopePatch =
+      parsed.scopePatch && typeof parsed.scopePatch === 'object'
+        ? (parsed.scopePatch as ScopePatch)
+        : undefined;
+    return {
+      diagnosis: typeof parsed.diagnosis === 'string' ? parsed.diagnosis : '(no diagnosis)',
+      rootCause: rootCause as DiagnosisResult['rootCause'],
+      fixType: fixType as DiagnosisResult['fixType'],
+      concreteFix: typeof parsed.concreteFix === 'string' ? parsed.concreteFix : '(no fix proposed)',
+      confidence: (typeof parsed.confidence === 'string' && ['high', 'medium', 'low'].includes(parsed.confidence)
+        ? parsed.confidence
+        : 'medium') as DiagnosisResult['confidence'],
+      ...(configPatch ? { configPatch } : {}),
+      ...(scopePatch ? { scopePatch } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Default (real) diagnosis function — calls the opencode engine with the full
+ * context and parses the JSON response. Calls `ensureReady()` first because
+ * the background optimizer path may run before the engine's first interactive
+ * session. Returns null on any failure (no session, no response, parse error).
+ */
+const defaultDiagnose: DiagnoseCall = async (ctx) => {
+  try {
+    const { opencodeClient } = await import('../opencode_engine');
+    const { resolveRunModel } = await import('../agent_runner');
+    const model = resolveRunModel();
+    const system = buildDiagnosisSystemPrompt();
+    const user = buildDiagnosisUserPrompt(ctx);
+    const promptText = `${system}\n\n${user}`;
+
+    await opencodeClient.ensureReady();
+
+    // This call only needs text reasoning back (a JSON diagnosis), never tool
+    // use — pass an explicit empty mcpAllowlist so the session carries zero
+    // MCP function declarations. Without this, the session inherits every
+    // connected MCP server's full toolset, which blows past Gemini's 512
+    // function-declaration cap and 400s whenever the most-recently-used model
+    // is a `google` provider.
+    const session = await opencodeClient.createSession(
+      'org-optimizer-diagnose',
+      undefined,
+      { role: 'org-optimizer-diagnose', mcpServers: {}, allowedToolsJson: '{}' },
+      undefined,
+      model.providerID,
+    );
+    if (!session?.id) {
+      logger.warn('[workflow-signal-generator] diagnose: no session created (engine may not be running)');
+      return null;
+    }
+
+    const resp = await opencodeClient.prompt(session.id, promptText, model, undefined, {
+      permissionMode: 'bypassPermissions',
+    });
+    const text = (resp?.parts ?? [])
+      .filter((p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text')
+      .map((p) => p.text)
+      .join('\n')
+      .trim();
+
+    const result = parseDiagnosisResponse(text);
+    if (!result) {
+      logger.warn(`[workflow-signal-generator] diagnose: failed to parse LLM response: ${text.slice(0, 200)}`);
+    }
+    return result;
+  } catch (err) {
+    logger.warn(`[workflow-signal-generator] diagnose FAILED (non-fatal): ${String(err)}`);
+    return null;
+  }
+};
+
+/** Deterministic FNV-1a hash — mirrors org_audit_service.stableGapId's approach. */
+function stableHash(...parts: string[]): string {
+  const input = parts.join('::');
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+function isDiagnosableSignal(signal: WorkflowFailureSignal): boolean {
+  return !!signal.agentConfigId && DIAGNOSABLE_CATEGORIES.has(signal.category);
+}
+
+/**
+ * Collapse an evidence string to a stable "shape" — strip UUIDs and numbers
+ * (session ids, ports, retry counts) that make otherwise-identical errors look
+ * unique, so two occurrences of the same failure mode group together while two
+ * genuinely different failure modes for one profile do NOT.
+ */
+function errorSignature(evidence: string): string {
+  return evidence
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<id>')
+    .replace(/\d+/g, '<n>')
+    .slice(0, 160);
+}
+
+interface SignalGroup {
+  agentConfigId: string;
+  signature: string;
+  signals: WorkflowFailureSignal[];
+}
+
+/**
+ * Group diagnosable signals by `(agentConfigId, error signature)` so each LLM
+ * diagnosis call sees ONE coherent failure mode, not every unrelated error a
+ * profile has ever hit lumped together (which forced one overconfident root
+ * cause across unrelated evidence).
+ */
+function groupSignalsBySkillAndSignature(signals: WorkflowFailureSignal[]): SignalGroup[] {
+  const groups = new Map<string, SignalGroup>();
+  for (const signal of signals) {
+    if (!isDiagnosableSignal(signal) || !signal.agentConfigId) continue;
+    const signature = errorSignature(signal.evidence);
+    const key = `${signal.agentConfigId}::${signature}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.signals.push(signal);
+    } else {
+      groups.set(key, { agentConfigId: signal.agentConfigId, signature, signals: [signal] });
+    }
+  }
+  return Array.from(groups.values());
+}
+
+/**
+ * Gather the full diagnosis context for a profile from the snapshot: profile
+ * config, skill body from disk, denied tools, delegation edges.
+ */
+function buildDiagnosisContext(
+  agentConfigId: string,
+  skillSignals: WorkflowFailureSignal[],
+  snapshot: OrgAuditSnapshot,
+  configsRepo: AgentConfigsRepository,
+): DiagnosisContext {
+  const profile = snapshot.profiles.find((p) => p.id === agentConfigId) ?? null;
+  const agentConfig = configsRepo.getById(agentConfigId) ?? null;
+  const skillBody = readSkillBodyFromDisk(agentConfigId);
+  const deniedTools = snapshot.deniedToolAggregates.filter((d) => d.agentConfigId === agentConfigId);
+  const delegationOutbound = snapshot.delegationEdges.filter((e) => e.fromProfileId === agentConfigId);
+  const delegationInbound = snapshot.delegationEdges.filter((e) => e.toProfileId === agentConfigId);
+
+  return {
+    affectedSkill: agentConfigId,
+    signals: skillSignals,
+    profile,
+    agentConfig,
+    skillBody,
+    deniedTools,
+    delegationOutbound,
+    delegationInbound,
+  };
+}
+
+/**
+ * Map an LLM diagnosis to the optimizer's proposal `kind`. External problems
+ * produce no proposal (log only). `delegation-change` is routed to
+ * `grant-delegation` (the existing high-risk delegation kind), so the human
+ * review queue treats it identically to the delegation generator's output.
+ */
+function diagnosisToProposalKind(result: DiagnosisResult): string | null {
+  switch (result.fixType) {
+    case 'skill-edit': return 'workflow-prompt-fix';
+    case 'config-change': return 'refine-config';
+    case 'scope-change': return 'refine-scope';
+    case 'delegation-change': return 'grant-delegation';
+    case 'external-noop': return null;
+    default: return null;
+  }
+}
+
+/**
+ * LLM-driven fix proposal: groups signals by (profile, error signature),
+ * gathers full context, calls the LLM once per DISTINCT failure mode to
+ * diagnose root cause + propose a concrete fix, and persists proposals whose
+ * `change_json` carries BOTH the human-review prose (`concreteFix`, diagnosis,
+ * evidence) AND — for config/scope fixes — a server-resolved machine-applyable
+ * patch. Respects `maxLlmCalls`; the strongest evidence (most occurrences) is
+ * diagnosed first.
+ */
+async function proposeFixFromSignals(
+  signals: WorkflowFailureSignal[],
+  snapshot: OrgAuditSnapshot,
+  configsRepo: AgentConfigsRepository,
+  proposalsRepo: Pick<AgentOrgProposalsRepository, 'createAsync' | 'existsByDedupKeyAsync'>,
+  diagnose: DiagnoseCall,
+  maxLlmCalls: number,
+): Promise<AgentOrgProposal[]> {
+  const created: AgentOrgProposal[] = [];
+  const groups = groupSignalsBySkillAndSignature(signals).sort(
+    (a, b) => b.signals.length - a.signals.length,
+  );
+  let llmCallsUsed = 0;
+
+  for (const { agentConfigId, signals: skillSignals } of groups) {
+    if (llmCallsUsed >= maxLlmCalls) {
+      logger.info(`[workflow-signal-generator] diagnose budget exhausted (${maxLlmCalls}); skipping ${agentConfigId}`);
+      break;
+    }
+
+    // Dedup on (profile + failure-mode evidence hash). The hash differs per
+    // error signature, so distinct failure modes for one profile dedup
+    // independently. (Issue #5 later extends this key with an attempt suffix.)
+    const evidenceHash = stableHash(...skillSignals.map((s) => s.evidence));
+    const dedupKey = `workflow-fix:${agentConfigId}:${evidenceHash}`;
+    if (await proposalsRepo.existsByDedupKeyAsync(dedupKey)) continue;
+
+    const ctx = buildDiagnosisContext(agentConfigId, skillSignals, snapshot, configsRepo);
+    llmCallsUsed++;
+
+    let result: DiagnosisResult | null;
+    try {
+      result = await diagnose(ctx);
+    } catch (err) {
+      logger.warn(`[workflow-signal-generator] diagnose call failed for ${agentConfigId} (non-fatal): ${String(err)}`);
+      continue;
+    }
+
+    if (!result) {
+      logger.info(`[workflow-signal-generator] no diagnosis returned for ${agentConfigId}`);
+      continue;
+    }
+
+    if (result.fixType === 'external-noop') {
+      logger.info(
+        `[workflow-signal-generator] ${agentConfigId}: external issue diagnosed — ${result.diagnosis}. No proposal created.`,
+      );
+      continue;
+    }
+
+    const kind = diagnosisToProposalKind(result);
+    if (!kind) continue;
+
+    try {
+      // Resolve/validate the structured patch (if any) for the fixType this
+      // diagnosis actually produced — NEVER trust the LLM's agentConfigId; it
+      // is re-resolved from the failing signal's own profile.
+      const configPatch =
+        result.fixType === 'config-change'
+          ? resolveConfigPatch(result.configPatch, agentConfigId, configsRepo)
+          : undefined;
+      const scopePatch =
+        result.fixType === 'scope-change'
+          ? resolveScopePatch(result.scopePatch, agentConfigId, configsRepo)
+          : undefined;
+
+      // Flattened, de-duplicated session ids backing this failure mode — the
+      // canonical list the behavioral-measure step (#3) replays.
+      const sessionIds = [...new Set(skillSignals.flatMap((s) => s.sessionIds))];
+
+      const changeJson = JSON.stringify({
+        source: 'org-optimizer-llm-diagnosis',
+        affectedSkill: agentConfigId,
+        diagnosis: result.diagnosis,
+        rootCause: result.rootCause,
+        fixType: result.fixType,
+        concreteFix: result.concreteFix,
+        confidence: result.confidence,
+        evidence: skillSignals.map((s) => ({
+          sessionIds: s.sessionIds,
+          category: s.category,
+          evidence: s.evidence,
+        })),
+        sessionIds,
+        ...(configPatch ? { configPatch } : {}),
+        ...(scopePatch ? { scopePatch } : {}),
+      });
+
+      const proposal = await proposalsRepo.createAsync({
+        auditRunId: snapshot.auditRunId,
+        kind,
+        risk: classifyProposalRisk({ kind, changeJson }),
+        status: 'proposed',
+        title: `Fix ${result.rootCause} issue in ${agentConfigId}: ${result.diagnosis.slice(0, 80)}`,
+        rationale:
+          `${result.diagnosis} ` +
+          `Root cause: ${result.rootCause}. Confidence: ${result.confidence}. ` +
+          `Evidence: ${skillSignals.length} failure signal(s) from sessions: ${sessionIds.slice(0, 5).map((id) => id.slice(0, 8)).join(', ')}.`,
+        signalRef: `diagnosis:${agentConfigId}:${evidenceHash}`,
+        targetRef: result.fixType === 'skill-edit' ? `skill:${agentConfigId}` : `profile:${agentConfigId}`,
+        changeJson,
+        dedupKey,
+      });
+      logger.info(
+        `[workflow-signal-generator] proposed ${kind} '${proposal.id}' for ${agentConfigId} (${result.rootCause}/${result.fixType})`,
+      );
+      created.push(proposal);
+    } catch (err) {
+      logger.warn(`[workflow-signal-generator] fix proposal persist failed for ${agentConfigId} (non-fatal): ${String(err)}`);
+    }
+  }
+
+  return created;
+}
+
+export interface DiagnosisGeneratorDeps {
+  proposalsRepo?: Pick<AgentOrgProposalsRepository, 'createAsync' | 'existsByDedupKeyAsync'>;
+  configsRepo?: AgentConfigsRepository;
+  /** LLM-driven diagnosis function. Defaults to the real opencode-backed one. */
+  diagnose?: DiagnoseCall;
+  /** Max LLM diagnosis calls per run. Default 10. */
+  maxDiagnoseCalls?: number;
+}
+
+export interface DiagnosisGeneratorResult {
+  created: AgentOrgProposal[];
+}
+
+/**
+ * #971 — the LLM diagnosis lane entry point, called ADDITIVELY alongside the
+ * deterministic {@link generateWorkflowSignalProposals} from the optimizer
+ * run. Emits `refine-config` / `refine-scope` / `workflow-prompt-fix`
+ * proposals. NEVER throws — a diagnosis failure degrades to zero proposals.
+ */
+export async function generateDiagnosisProposals(
+  snapshot: OrgAuditSnapshot,
+  deps: DiagnosisGeneratorDeps = {},
+): Promise<DiagnosisGeneratorResult> {
+  const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
+  const configsRepo = deps.configsRepo ?? new AgentConfigsRepository();
+  const diagnose: DiagnoseCall = deps.diagnose ?? defaultDiagnose;
+  const maxDiagnoseCalls = deps.maxDiagnoseCalls ?? DEFAULT_MAX_DIAGNOSE_CALLS;
+
+  try {
+    const created = await proposeFixFromSignals(
+      snapshot.workflowFailureSignals ?? [],
+      snapshot,
+      configsRepo,
+      proposalsRepo,
+      diagnose,
+      maxDiagnoseCalls,
+    );
+    return { created };
+  } catch (err) {
+    logger.warn(`[workflow-signal-generator] diagnosis pass FAILED (non-fatal): ${String(err)}`);
+    return { created: [] };
+  }
 }

@@ -70,7 +70,7 @@ import { generateScopeHygieneProposals } from './generators/scope_hygiene_genera
 import { generateRecipeProposals } from './generators/recipe_generator';
 import { generateWebhookWiringProposals } from './generators/webhook_wiring_generator';
 import { generateDelegationProposals } from './generators/delegation_generator';
-import { generateWorkflowSignalProposals } from './generators/workflow_signal_generator';
+import { generateWorkflowSignalProposals, generateDiagnosisProposals } from './generators/workflow_signal_generator';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 
@@ -200,14 +200,13 @@ export async function runOrgOptimizer(
   options: RunOrgOptimizerOptions = {},
 ): Promise<RunOrgOptimizerResult> {
   const maxProposalsPerRun = options.maxProposalsPerRun ?? DEFAULT_MAX_PROPOSALS_PER_RUN;
-  // maxLlmCallsPerRun is accepted for parity with the seeded prompt's stated
-  // cap and passed through to the recipe generator's scorer budget; the
-  // generators invoked here (scope-hygiene, webhook-wiring) make no LLM
-  // calls of their own, and recipe refinement's scorer calls are naturally
-  // bounded by the (small, capped) proposal count, so no separate counter is
-  // threaded through in v1 — flagged in the run summary via erroredReason if
-  // a future generator needs one.
-  void (options.maxLlmCallsPerRun ?? DEFAULT_MAX_LLM_CALLS_PER_RUN);
+  // maxLlmCallsPerRun bounds the #971 LLM-diagnosis lane's per-run diagnosis
+  // calls (see the diagnosis generator step below). The other generators
+  // invoked here (scope-hygiene, webhook-wiring, the deterministic
+  // workflow-signal lane) make no LLM calls of their own, and recipe
+  // refinement's scorer calls are naturally bounded by the (small, capped)
+  // proposal count, so this single budget only needs threading into diagnosis.
+  const maxLlmCallsPerRun = options.maxLlmCallsPerRun ?? DEFAULT_MAX_LLM_CALLS_PER_RUN;
 
   const auditRunId = crypto.randomUUID();
 
@@ -265,6 +264,20 @@ export async function runOrgOptimizer(
         // generator, so the #830 per-run cap and dedup guard cover it for
         // free — no separate cap/dedup logic needed here (#936).
         await generateWorkflowSignalProposals(taggedSnapshot, { proposalsRepo: cappedRepo });
+      },
+      async () => {
+        // #971 — LLM diagnosis lane, ADDITIVE to the deterministic
+        // workflow-signal lane above. Groups behavioral failure signals by
+        // (profile, error signature) and emits the richer, human-gated
+        // refine-config / refine-scope / workflow-prompt-fix kinds the
+        // approval loop measures and reverts. Runs through the SAME capped,
+        // dedup-aware repo (so the #830 per-run cap + dedup cover it) and is
+        // bounded by maxLlmCallsPerRun. Never throws.
+        await generateDiagnosisProposals(taggedSnapshot, {
+          proposalsRepo: cappedRepo,
+          configsRepo,
+          maxDiagnoseCalls: maxLlmCallsPerRun,
+        });
       },
     ];
 
