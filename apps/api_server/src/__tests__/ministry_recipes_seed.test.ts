@@ -24,10 +24,16 @@
  *        no-PCO-write; the volunteer-follow-up skill never names a
  *        message-sending tool.
  *   AC3 (issue-846-c3): seeding is idempotent — three calls yield exactly 3
- *        scheduled tasks + 3 agent_skills rows, never duplicates.
+ *        scheduled tasks + 3 managed-skill SKILL.md files, never duplicates.
  *   AC4 (issue-846-c4): every skill body has Steps/Inputs/Outputs sections and
  *        every rhythm_ / pco_ / obsidian_ prefixed tool token it names is
  *        granted to its bound role in the real .mcp-roles file.
+ *
+ * #977 — the seed's content source of truth is the SKILL.md file it writes
+ * (write-if-absent), not an `agent_skills` DB row: it no longer creates a
+ * `published` row mirroring the body (the retired DB→file shadow). These
+ * tests read the materialized SKILL.md file directly rather than querying
+ * AgentSkillsRepository.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
@@ -38,8 +44,8 @@ import path from 'node:path';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
-import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { slugForSkillName } from '../services/rhythm_managed_skills';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
 const MCP_ROLES_DIR = path.join(REPO_ROOT, '.mcp-roles');
@@ -83,6 +89,11 @@ function seedRealisticAgentConfigs() {
 }
 
 let managedSkillsDir: string;
+
+/** Read the materialized SKILL.md file (frontmatter + body) for a given skill title. */
+function readSkillMd(title: string): string {
+  return readFileSync(path.join(managedSkillsDir, slugForSkillName(title), 'SKILL.md'), 'utf8');
+}
 
 beforeEach(() => {
   setDb(makeDb());
@@ -142,32 +153,24 @@ describe('ministry recipes seed (#846)', () => {
     expect(JSON.parse(weeklyReview!.allowedSkillsJson!)).toContain('ministry-weekly-review');
   });
 
-  it('issue-846-c1: each task also seeds an agent_skills row of the matching title', async () => {
+  it('issue-846-c1: each task also materializes a SKILL.md file of the matching title', async () => {
     const { seedMinistryRecipes } = await import('../services/ministry_recipes_seed');
-    await seedMinistryRecipes();
+    const result = await seedMinistryRecipes();
 
-    const skillsRepo = new AgentSkillsRepository();
-    const sunday = skillsRepo.findByTitle('ministry-sunday-service-prep');
-    const followUp = skillsRepo.findByTitle('ministry-volunteer-follow-up');
-    const review = skillsRepo.findByTitle('ministry-weekly-review');
-
-    expect(sunday).not.toBeNull();
-    expect(followUp).not.toBeNull();
-    expect(review).not.toBeNull();
-    expect(sunday!.body).toBeTruthy();
-    expect(followUp!.body).toBeTruthy();
-    expect(review!.body).toBeTruthy();
+    expect(result.skillsSeeded).toBe(3);
+    expect(readSkillMd('ministry-sunday-service-prep')).toBeTruthy();
+    expect(readSkillMd('ministry-volunteer-follow-up')).toBeTruthy();
+    expect(readSkillMd('ministry-weekly-review')).toBeTruthy();
   });
 
   it('issue-846-c2: every skill body documents the ministry/YYYY-MM-DD-<slug>.md output path and drafts-only/no-send/no-PCO-write', async () => {
     const { seedMinistryRecipes } = await import('../services/ministry_recipes_seed');
     await seedMinistryRecipes();
 
-    const skillsRepo = new AgentSkillsRepository();
     const bodies = [
-      skillsRepo.findByTitle('ministry-sunday-service-prep')!.body!,
-      skillsRepo.findByTitle('ministry-volunteer-follow-up')!.body!,
-      skillsRepo.findByTitle('ministry-weekly-review')!.body!,
+      readSkillMd('ministry-sunday-service-prep'),
+      readSkillMd('ministry-volunteer-follow-up'),
+      readSkillMd('ministry-weekly-review'),
     ];
 
     for (const body of bodies) {
@@ -176,41 +179,46 @@ describe('ministry recipes seed (#846)', () => {
 
     // The volunteer follow-up recipe drafts messages but must never send them,
     // and must never write to PCO — this is the load-bearing safety criterion.
-    const followUpBody = skillsRepo.findByTitle('ministry-volunteer-follow-up')!.body!;
+    const followUpBody = readSkillMd('ministry-volunteer-follow-up');
     expect(followUpBody.toLowerCase()).toMatch(/draft/);
     expect(followUpBody.toLowerCase()).toMatch(/never send|do not send|no.*send/);
     expect(followUpBody).not.toMatch(/rhythm_send_message|rhythm_create_message_thread/);
 
     // Sunday prep reads PCO but the skill body must not instruct a PCO write.
-    const sundayBody = skillsRepo.findByTitle('ministry-sunday-service-prep')!.body!;
+    const sundayBody = readSkillMd('ministry-sunday-service-prep');
     expect(sundayBody.toLowerCase()).toMatch(/no pco write|never writes? to pco|read-only.*pco|pco.*read-only/);
   });
 
-  it('issue-846-c3: seeding three times in a row never duplicates tasks or skills', async () => {
+  it('issue-846-c3: seeding three times in a row never duplicates tasks or skill files', async () => {
     const { seedMinistryRecipes } = await import('../services/ministry_recipes_seed');
-    await seedMinistryRecipes();
-    await seedMinistryRecipes();
-    await seedMinistryRecipes();
+    const first = await seedMinistryRecipes();
+    const second = await seedMinistryRecipes();
+    const third = await seedMinistryRecipes();
+
+    // Skill files are write-if-absent: seeded once, skipped on every repeat.
+    expect(first.skillsSeeded).toBe(3);
+    expect(second.skillsSeeded).toBe(0);
+    expect(second.skillsSkipped).toBe(3);
+    expect(third.skillsSeeded).toBe(0);
+    expect(third.skillsSkipped).toBe(3);
 
     const schedRepo = new AgentScheduledTasksRepository();
-    const skillsRepo = new AgentSkillsRepository();
-
     const tasks = await schedRepo.listAllAsync();
     const ministryTasks = tasks.filter((t) =>
       ['Sunday Service Prep', 'Volunteer Follow-up', 'Weekly Ministry Review'].includes(t.name),
     );
     expect(ministryTasks).toHaveLength(3);
 
-    const allSkills = skillsRepo.list();
-    const ministrySkills = allSkills.filter((s) => s.title.startsWith('ministry-'));
-    expect(ministrySkills).toHaveLength(3);
+    const ministrySkillDirs = readdirSync(managedSkillsDir, { withFileTypes: true }).filter((e) =>
+      e.isDirectory() && e.name.startsWith('ministry-'),
+    );
+    expect(ministrySkillDirs).toHaveLength(3);
   });
 
   it('issue-846-c4: each skill body has Steps/Inputs/Outputs and only names tools granted to its bound role', async () => {
     const { seedMinistryRecipes } = await import('../services/ministry_recipes_seed');
     await seedMinistryRecipes();
 
-    const skillsRepo = new AgentSkillsRepository();
     const worshipPlanning = readRoleFile('worship-planning');
     const secretary = readRoleFile('secretary');
 
@@ -229,8 +237,7 @@ describe('ministry recipes seed (#846)', () => {
     ];
 
     for (const { title, grants } of cases) {
-      const skill = skillsRepo.findByTitle(title)!;
-      const body = skill.body!;
+      const body = readSkillMd(title);
 
       expect(body).toMatch(/##?\s*Steps/i);
       expect(body).toMatch(/##?\s*Inputs/i);
