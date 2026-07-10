@@ -3,9 +3,9 @@
 ## Current focus
 
 **Org-optimizer approval loop + skill-content-shadow retirement — built,
-integrated, and live-verified on `codex/optimizer-shadow-epic`.** Draft PR
-opened this run (2026-07-09); NOT merged. See
-`docs/ai/runs/2026-07-09-optimizer-shadow-epic.md`.
+integrated, live-verified, and merged to `main` via PR #982 (2026-07-10).** See
+`docs/ai/runs/2026-07-09-optimizer-shadow-epic.md` and
+`docs/ai/runs/2026-07-10-ministry-seed-test-ci-fix.md`.
 
 The org-optimizer now closes end-to-end: the LLM diagnosis brain **generates**
 `refine-config` / `refine-scope` / `workflow-prompt-fix` (+ `grant-delegation`)
@@ -17,12 +17,24 @@ re-enters with attempt-aware context. `refine-skill` (#976, human-gated) and
 
 ## Branch / PR
 
-- `main` @ e043f6c59 (unchanged this run).
-- **OPEN draft PR — `codex/optimizer-shadow-epic`** (off `main`): closes
-  **#977, #971, #976** and adds gap #1 (system_prompt). Built by 6 parallel
-  worktree agents across 3 waves + an orchestrator patch fix, `tsc` clean on the
-  merge, **live-verified against the real fork engine** (see run log). Awaiting
-  AJ sign-off + a real-app relaunch smoke. **Do not merge without sign-off.**
+- **MERGED (PR #982, AJ sign-off, 2026-07-10):** org-optimizer approval loop +
+  skill-content-shadow retirement — closes **#977, #971, #976** and adds gap
+  #1 (system_prompt). Built by 6 parallel worktree agents across 3 waves + an
+  orchestrator patch fix, `tsc` clean, **live-verified against the real fork
+  engine** (see `docs/ai/runs/2026-07-09-optimizer-shadow-epic.md`), CI green
+  (server-checks) after a stale-test reconciliation (see
+  `docs/ai/runs/2026-07-10-ministry-seed-test-ci-fix.md`). Merged **without**
+  the documented real-app manual smoke — AJ elected to merge on CI-green
+  alone; a real click-through of the org-optimizer flow is still worth doing.
+- **MERGED (PR #980):** docs/project-state-post-979 (project-state snapshot
+  after PR #979).
+- **MERGED (PR #979, AJ sign-off, 2026-07-09):** Phase B/D ids + quality wave —
+  **#945, #960, #951, #954, #970, #943**. Built by 5 parallel Codex worktree
+  runs, orchestrator-reviewed, behaviorally gated, integrated (full suite
+  **2626/0** + tsc + flutter analyze clean), CI green. See
+  `docs/ai/runs/2026-07-09-phaseBD-ids-quality-wave.md`.
+  - #943 (Session History screen) shipped **without a visual smoke** — the UI
+    was merged on sign-off; a real click-through is still worth doing.
 - **#961** data remediation already **applied to the real config/DB** this run
   (approval-gated, backed up to `~/Library/Application Support/Rhythm/backups-961-*`).
 - **#981 filed** — `refine-task` kind (gap #2: scheduled-task definitions). Not started.
@@ -58,8 +70,14 @@ re-enters with attempt-aware context. `refine-skill` (#976, human-gated) and
 
 ## Next step
 
-1. **AJ: review the draft PR** (`codex/optimizer-shadow-epic`, now CI-green) +
-   relaunch the real Rhythm app for a behavior smoke, then merge (manual).
-2. Then start **#981** (`refine-task`).
+1. **Start #981** (`refine-task` kind, gap #2: scheduled-task definitions).
+2. Optional: real-app manual smoke of the just-merged org-optimizer approval
+   loop (#982) — merged on CI-green without this step; a real click-through is
+   still worth doing.
 3. Optional deeper live obs: force the `issue-5` re-attempt cycle + let a
    config/scope behavioral verdict settle on a longer run.
+4. Optional: visual smoke of the shipped #943 Session History screen (still
+   outstanding from PR #979).
+- **#952** closed (Codex "hang" was ChatGPT quota exhaustion, not a bug —
+  confirmed live 2026-07-09: `gpt-5.6-terra` completes, unsupported models return
+  clean error frames, no hang).
