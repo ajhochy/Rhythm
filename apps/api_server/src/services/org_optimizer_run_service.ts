@@ -71,6 +71,7 @@ import { generateRecipeProposals } from './generators/recipe_generator';
 import { generateWebhookWiringProposals } from './generators/webhook_wiring_generator';
 import { generateDelegationProposals } from './generators/delegation_generator';
 import { generateWorkflowSignalProposals, generateDiagnosisProposals } from './generators/workflow_signal_generator';
+import { generateRefineSkillProposals } from './generators/refine_skill_generator';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 
@@ -277,6 +278,17 @@ export async function runOrgOptimizer(
           proposalsRepo: cappedRepo,
           configsRepo,
           maxDiagnoseCalls: maxLlmCallsPerRun,
+        });
+      },
+      async () => {
+        // #976 — per-skill QUALITY lane. Surveys snapshot.skills for weak
+        // active/published skills and emits human-gated (risk:'high')
+        // refine-skill proposals with a pre-drafted body. Runs through the
+        // SAME capped, dedup-aware repo (#830 cap + dedup for free) and bounds
+        // its LLM rewrite drafts by maxLlmCallsPerRun. Never throws.
+        await generateRefineSkillProposals(taggedSnapshot, {
+          proposalsRepo: cappedRepo,
+          maxDrafts: maxLlmCallsPerRun,
         });
       },
     ];
