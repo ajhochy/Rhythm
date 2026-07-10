@@ -268,3 +268,35 @@ When the flag is set to `1`, `AgentTriggerWatcher.start()` is a no-op and logs:
 
 **Verify:** the `flutter run` log contains the line above and **no**
 `DELETE /claude-triggers/*` lines for the duration of the smoke run.
+
+---
+
+# Manual Smoke — Non-mobile issue wave (PR #1005, 2026-07-10)
+
+**Branch:** `workflow/run-2026-07-10-nonmobile-issues`
+
+All backend behavior for these is **already live-verified** against a standalone
+server running this branch's build (see
+`docs/ai/runs/2026-07-10-nonmobile-issues-wave.md`). What remains is a real
+desktop-app click-through — build & run the app from the branch first, because
+the app talks to its **embedded** `:4001` server, not the dev server:
+
+```bash
+cd apps/api_server && npm run build      # embed this branch's fixed server
+cd ../desktop_flutter && flutter run -d macos
+```
+(Fully quit any running Rhythm first — Cmd+Q — so the old embedded server is not reused.)
+
+## #999 — Session History renders tool transcripts
+1. Open **Session History** and pick a session that used tools (most real agent runs).
+2. **Expected:** the transcript shows tool calls / reasoning / step markers — NOT
+   rows of `(empty message)`. (Pre-fix: tool-using sessions were all "(empty message)".)
+
+## #1000 — scheduled-task enable/disable toggle
+1. Open **Scheduled Tasks**, toggle any task's enable/disable switch.
+2. **Expected:** it saves without error (no red 500). Toggle back; still fine.
+   (Pre-fix: saving `enabled` 500'd — the switch was dead.)
+
+## Not required to smoke here (backend-only, already probe-verified)
+#1002 (scheduled runs succeed), #1004 (no over-prune), #1003 (approve refusal),
+#1001 (E2E isolation) — verified via live backend probes; no dedicated UI surface.
