@@ -384,6 +384,28 @@ export async function runOrgOptimizer(
       }
     }
 
+    // ── 9. Measure sweep (#971-3, closes F3). The auto-apply loop above only
+    // measures rows THIS run created. Human-APPROVED proposals reach `measuring`
+    // via the approve route and would otherwise sit there forever. Sweep EVERY
+    // row still in `measuring` and measure it. Rows created+measured this run are
+    // excluded (they already had their attempt above — re-measuring immediately
+    // would repeat a possibly-expensive behavioral re-run in the same pass); a
+    // row this run left `skipped` (still `measuring`) is retried on the NEXT
+    // run's sweep, not this one. Localized, self-contained, never throws. ─────
+    try {
+      const measuredThisRun = new Set(newlyCreated.map((p) => p.id));
+      const stillMeasuring = await realProposalsRepo.listByStatusAsync('measuring');
+      for (const row of stillMeasuring) {
+        if (measuredThisRun.has(row.id)) continue;
+        const outcome = await measureProposal(row, { proposalsRepo: realProposalsRepo });
+        if (outcome === 'kept') result.byOutcome.kept += 1;
+        else if (outcome === 'reverted') result.byOutcome.reverted += 1;
+        else result.byOutcome.skipped += 1;
+      }
+    } catch (err) {
+      logger.warn(`[org-optimizer-run] measuring-row sweep failed (non-fatal): ${String(err)}`);
+    }
+
     logger.info(
       `[org-optimizer-run] run ${auditRunId} complete: created=${result.proposalsCreated} capped=${result.capped} byOutcome=${JSON.stringify(result.byOutcome)}`,
     );

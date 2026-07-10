@@ -25,8 +25,10 @@
 import type { NextFunction, Request, Response } from 'express';
 
 import { AppError } from '../errors/app_error';
+import { logger } from '../utils/logger';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
 import { revertProposal } from '../services/org_proposal_apply';
+import { measureProposal } from '../services/org_proposal_measure';
 import {
   applyProposal,
   hasSecurityNote,
@@ -111,6 +113,18 @@ export class OrgProposalsController {
       }
 
       const measuring = await repo().updateStatusAsync(id, 'measuring');
+
+      // #971-3 — fire-and-forget a measure attempt so a human-approved proposal
+      // doesn't wait for the next optimizer run's sweep to get keep/revert'd
+      // (closes F3 for the common case). Deliberately NOT awaited — the approve
+      // response returns immediately; measureProposal never throws (the .catch
+      // is belt-and-suspenders against a rejected promise).
+      if (measuring) {
+        void measureProposal(measuring).catch((err) =>
+          logger.warn(`[org-proposals] fire-and-forget measure failed for ${id} (non-fatal): ${String(err)}`),
+        );
+      }
+
       res.json(measuring);
     } catch (err) {
       next(err);
