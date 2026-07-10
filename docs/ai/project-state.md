@@ -72,3 +72,13 @@ The agent/skill self-improvement architecture is now coherent:
 - **#952** closed (Codex "hang" was ChatGPT quota exhaustion, not a bug —
   confirmed live 2026-07-09: `gpt-5.6-terra` completes, unsupported models return
   clean error frames, no hang).
+
+## Recent coding-agent runs
+
+### 2026-07-09 — issue-977-file-backed-rollback-snapshot
+
+- Files modified: `rhythm_managed_skills.ts` adds transient raw-byte snapshots; `skill_apply.ts` captures them before real managed applies; `skill_measurement.ts` restores them without DB content/history; the existing apply/measure e2e suite carries c6.
+- Checks run: c6 red captured (`skipped` vs expected `reverted`); c6 green (1 passed); focused apply/measurement suites green (29 passed); `npm run build`, `ai-workflow checks --level issue`, and `ai-workflow checks --level pr` passed.
+- Decisions made: prefer a hidden managed-root byte snapshot for the active measuring window, then clean it up at terminal keep/revert; legacy DB rollback remains best-effort compatibility only.
+- Deviations from spec: none.
+- Concerns: incomplete #977 prerequisite slice only; materializers/routes/schema and the broader DB-content retirement remain intentionally untouched.

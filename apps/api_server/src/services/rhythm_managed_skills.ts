@@ -573,6 +573,69 @@ export function restoreManagedSkillBytes(
 }
 
 /**
+ * Hidden filesystem staging area for a managed skill's pre-apply bytes.
+ *
+ * These snapshots exist only while an auto-applied revision is being measured.
+ * They are deliberately not named `SKILL.md`, so the engine cannot discover
+ * them as a second live skill. They let measurement restore the actual file
+ * without consulting the legacy DB body/version-content ledger.
+ */
+function managedSkillSnapshotsRoot(): string {
+  return join(resolve(managedSkillsRoot()), '.rhythm-rollback-snapshots');
+}
+
+/** Absolute, managed-root-confined path for one transient rollback snapshot. */
+function managedSkillSnapshotPath(name: string): string {
+  const slug = slugForSkillName(name);
+  const root = resolve(managedSkillSnapshotsRoot());
+  const location = resolve(root, `${slug}.snapshot`);
+  if (location !== join(root, `${slug}.snapshot`) && !location.startsWith(root + sep)) {
+    throw new InvalidSkillNameError(`Resolved skill snapshot path escapes the managed dir: ${name}`);
+  }
+  return location;
+}
+
+/**
+ * Persist exact pre-apply bytes for a managed skill. The caller must save this
+ * before replacing the live SKILL.md, then remove it after measurement reaches
+ * a terminal keep/revert state.
+ */
+export function snapshotManagedSkillBytes(
+  name: string,
+  contents: string | NodeJS.ArrayBufferView,
+): string {
+  const location = managedSkillSnapshotPath(name);
+  mkdirSync(dirname(location), { recursive: true });
+  writeFileSync(location, contents);
+  return location;
+}
+
+/** Read a managed skill's exact pre-apply bytes, or null when no snapshot exists. */
+export function readManagedSkillSnapshotBytes(name: string): Buffer | null {
+  try {
+    const location = managedSkillSnapshotPath(name);
+    if (!existsSync(location)) return null;
+    return readFileSync(location);
+  } catch (err) {
+    logger.warn(`[managed-skills] could not read rollback snapshot for '${name}':`, err);
+    return null;
+  }
+}
+
+/** Remove a terminal managed revision's transient rollback snapshot. */
+export function deleteManagedSkillSnapshot(name: string): boolean {
+  try {
+    const location = managedSkillSnapshotPath(name);
+    if (!existsSync(location)) return false;
+    rmSync(location, { force: true });
+    return true;
+  } catch (err) {
+    logger.warn(`[managed-skills] could not remove rollback snapshot for '${name}':`, err);
+    return false;
+  }
+}
+
+/**
  * Delete a managed skill by name. Returns true if it existed and was removed,
  * false if no such managed skill exists. Only ever removes within the managed
  * dir — attempting to delete an external (non-managed) skill name simply finds

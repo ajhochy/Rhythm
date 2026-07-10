@@ -44,6 +44,7 @@ import { env } from '../config/env';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import {
   writeManagedSkill,
+  snapshotManagedSkillBytes,
   isManagedLocation,
   InvalidSkillNameError,
   ContextInjectionBlockedError,
@@ -102,7 +103,13 @@ export interface ApplyDeps {
    * the pre-apply bytes for revert. Defaults to a guarded `fs.readFileSync` of
    * the live `location` (which is a SKILL.md path). Returns null if unreadable.
    */
-  readOriginal?: (location: string) => string | null;
+  readOriginal?: (location: string) => string | NodeJS.ArrayBufferView | null;
+  /**
+   * Injectable exact-byte snapshot writer for a managed target. Defaults to
+   * `snapshotManagedSkillBytes` only for the real managed-file writer; callers
+   * that inject a fake writer can inject a matching snapshot fake if needed.
+   */
+  snapshot?: (name: string, contents: string | NodeJS.ArrayBufferView) => string;
 }
 
 /** Stable hash of a candidate body, used by the duplicate-apply guard. */
@@ -110,13 +117,18 @@ export function hashBody(body: string): string {
   return createHash('sha256').update(body, 'utf8').digest('hex');
 }
 
+function contentsToUtf8(contents: string | NodeJS.ArrayBufferView | null): string | null {
+  if (contents == null || typeof contents === 'string') return contents;
+  return Buffer.from(contents.buffer, contents.byteOffset, contents.byteLength).toString('utf8');
+}
+
 /** Default reader: read the live skill file off disk. Guarded; never throws. */
-function defaultReadOriginal(location: string): string | null {
+function defaultReadOriginal(location: string): Buffer | null {
   try {
     // Lazy require so the fs import never lands in a test bundle's hot path.
     // (Under isTestEnv this is never reached — apply() short-circuits first.)
     const { readFileSync } = require('fs') as typeof import('fs');
-    return readFileSync(location, 'utf8');
+    return readFileSync(location);
   } catch (err) {
     logger.warn(`[skill-apply] could not read original at ${location} (non-fatal): ${String(err)}`);
     return null;
@@ -210,9 +222,31 @@ export async function applyToEngineSkill(
     const managed = isManagedLocation(target.location);
 
     // For an EXTERNAL target the revert must restore the original file by removing
-    // the shadow, so snapshot its bytes. For a MANAGED target snapshot the current
-    // managed body so revert restores the prior in-place content.
-    const priorBody = readOriginal(target.location);
+    // the shadow, so keep the legacy sidecar copy. For a MANAGED target persist an
+    // exact, file-backed snapshot before the live SKILL.md is replaced; rollback
+    // must remain possible after DB body/version content is retired.
+    const priorContents = readOriginal(target.location);
+    const priorBody = contentsToUtf8(priorContents);
+    // Injected writeSkill is a test/adapter boundary with no real managed file;
+    // do not create filesystem state unless it also explicitly injects snapshot.
+    const snapshot =
+      deps.snapshot ?? (deps.writeSkill ? undefined : snapshotManagedSkillBytes);
+    if (managed) {
+      if (priorContents == null) {
+        logger.warn(
+          `[skill-apply] managed '${candidate.name}' has no readable prior bytes — not applying without a rollback snapshot`,
+        );
+        return 'skipped';
+      }
+      try {
+        snapshot?.(target.name, priorContents);
+      } catch (err) {
+        logger.warn(
+          `[skill-apply] could not snapshot managed '${candidate.name}' before apply (non-fatal): ${String(err)}`,
+        );
+        return 'skipped';
+      }
+    }
 
     // 4. Apply — write ALWAYS goes through the managed-dir boundary (writeSkill).
     //    For managed: overwrites the same managed SKILL.md (revise in place).
