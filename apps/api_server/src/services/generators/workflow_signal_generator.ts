@@ -51,12 +51,16 @@ import { logger } from '../../utils/logger';
 import { classifyProposalRisk } from '../org_risk_classifier';
 import { AgentOrgProposalsRepository, type OrgProposalAttempt } from '../../repositories/agent_org_proposals_repository';
 import { AgentConfigsRepository, type AgentConfig } from '../../repositories/agent_configs_repository';
+import { AgentScheduledTasksRepository } from '../../repositories/agent_scheduled_tasks_repository';
+import { AgentSessionsRepository } from '../../repositories/agent_sessions_repository';
 import { managedSkillsRoot } from '../rhythm_managed_skills';
 import {
   CONFIG_PATCH_FIELDS,
   SCOPE_PATCH_FIELDS,
+  TASK_PATCH_FIELDS,
   type ConfigPatch,
   type ScopePatch,
+  type TaskPatch,
   type DiagnosisResult,
 } from '../org_diagnosis_types';
 import type { AgentOrgProposal, AgentOrgProposalInput } from '../../models/agent_org_proposal';
@@ -228,7 +232,8 @@ export async function generateWorkflowSignalProposals(
 // #956 removed: it groups the ambiguous BEHAVIORAL failure signals by
 // (profile, error signature), asks the LLM for a root-cause + concrete fix per
 // distinct failure mode, and emits the richer kinds the approval loop measures
-// and reverts: `refine-config`, `refine-scope`, `workflow-prompt-fix`.
+// and reverts: `refine-config`, `refine-scope`, `workflow-prompt-fix`,
+// `refine-task`.
 //
 // Both lanes run every optimizer run and DO NOT conflict — their dedup-key
 // families are disjoint (`broaden-scope:*` / `create-recipe:*` vs
@@ -389,6 +394,75 @@ function deriveScopePatchFromProse(
 }
 
 /**
+ * #981 — resolve the scheduled task the failing signals actually ran under.
+ * The scheduler tags every session it launches with `scheduled_task_id`, so the
+ * failing session's own row is the authoritative link — the LLM's emitted id is
+ * NEVER trusted (mirrors resolveConfigPatch's server-side re-resolution). Walks
+ * the signals' sessionIds newest-first and returns the first non-null
+ * scheduled_task_id whose task still exists. Returns undefined if none of the
+ * failing sessions were launched by a scheduled task (nothing to refine).
+ */
+async function resolveScheduledTaskIdFromSignals(
+  skillSignals: WorkflowFailureSignal[],
+  sessionsRepo: AgentSessionsRepository,
+  tasksRepo: AgentScheduledTasksRepository,
+): Promise<string | undefined> {
+  const sessionIds = [...new Set(skillSignals.flatMap((s) => s.sessionIds))];
+  for (const sid of sessionIds) {
+    const session = sessionsRepo.findById(sid);
+    const taskId = session?.scheduledTaskId;
+    if (taskId && (await tasksRepo.findByIdAsync(taskId))) return taskId;
+  }
+  return undefined;
+}
+
+/**
+ * Validate a (fully untrusted) `taskPatch` and re-resolve its `scheduledTaskId`
+ * from the failing signal's OWN task (never the LLM's emitted id — mirrors
+ * {@link resolveConfigPatch}). Returns undefined (drop the patch, prose-only
+ * survives) on any malformed shape or if no failing session ran under a
+ * scheduled task.
+ */
+async function resolveTaskPatch(
+  raw: unknown,
+  skillSignals: WorkflowFailureSignal[],
+  sessionsRepo: AgentSessionsRepository,
+  tasksRepo: AgentScheduledTasksRepository,
+): Promise<TaskPatch | undefined> {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.field !== 'string' || !(TASK_PATCH_FIELDS as readonly string[]).includes(r.field)) return undefined;
+  if (typeof r.value !== 'string') return undefined;
+  const scheduledTaskId = await resolveScheduledTaskIdFromSignals(skillSignals, sessionsRepo, tasksRepo);
+  if (!scheduledTaskId) return undefined;
+  return { scheduledTaskId, field: r.field as TaskPatch['field'], value: r.value };
+}
+
+/**
+ * #981 reliability fallback for task fixes (same rationale as
+ * {@link deriveConfigPatchFromProse}). Conservative: fires ONLY for an
+ * unambiguous cron-expression change ("cron: 0 9 * * 1" / "schedule to `0 9 * *
+ * 1`"), the one task field with a machine-recognizable literal. Instruction /
+ * prompt / binding rewrites stay prose-only for the human gate — we never guess
+ * free-text instructions or an agent id.
+ */
+async function deriveTaskPatchFromProse(
+  concreteFix: string,
+  skillSignals: WorkflowFailureSignal[],
+  sessionsRepo: AgentSessionsRepository,
+  tasksRepo: AgentScheduledTasksRepository,
+): Promise<TaskPatch | undefined> {
+  if (!/\b(cron|schedule)\b/i.test(concreteFix)) return undefined;
+  // A 5- or 6-field cron expression (optionally quoted). Requires ≥4 spaces so a
+  // bare word like "cron" never matches.
+  const m = concreteFix.match(/['"`]?((?:[\d*/,\-]+\s+){4,5}[\d*/,\-]+)['"`]?/);
+  if (!m) return undefined;
+  const scheduledTaskId = await resolveScheduledTaskIdFromSignals(skillSignals, sessionsRepo, tasksRepo);
+  if (!scheduledTaskId) return undefined;
+  return { scheduledTaskId, field: 'cronExpression', value: m[1].trim() };
+}
+
+/**
  * Read a profile's managed SKILL.md body from disk. Returns null when no
  * managed skill file exists for this id (many profiles have none).
  */
@@ -426,17 +500,23 @@ function buildDiagnosisSystemPrompt(): string {
     '  or too broad (causing tool-surface overload). Fix = which MCP/skill to add/remove.',
     '- delegation: The profile can\'t delegate to the specialist it needs, or delegates',
     '  to the wrong one. Fix = which delegate to add/remove.',
+    '- task: The SCHEDULED TASK definition itself is wrong — its run instructions/prompt',
+    '  are unclear, its schedule (cron/time) is wrong, or it is bound to the wrong agent',
+    '  profile. Fix = the specific scheduled-task field + value to change.',
     '- external: The failure is infrastructure (provider outage, rate limit, API error)',
     '  not fixable by skill/config/scope changes. Fix = log only, no proposal.',
     '',
     'Output ONLY a JSON object with these fields:',
-    '{"diagnosis":"<plain language explanation>","rootCause":"skill|config|scope|delegation|external","fixType":"skill-edit|config-change|scope-change|delegation-change|external-noop","concreteFix":"<the actual fix text>","confidence":"high|medium|low"}',
+    '{"diagnosis":"<plain language explanation>","rootCause":"skill|config|scope|delegation|task|external","fixType":"skill-edit|config-change|scope-change|delegation-change|task-change|external-noop","concreteFix":"<the actual fix text>","confidence":"high|medium|low"}',
     '',
     'For a config-change you MUST ALSO include a structured patch (REQUIRED — a',
     'config-change WITHOUT this patch cannot be applied and will be rejected):',
     '  "configPatch":{"agentConfigId":"<the AFFECTED SKILL/PROFILE id>","field":"model|allowedSkillsJson|allowedDelegatesJson|system_prompt","value":"<the new value; for model a model id like anthropic/claude-sonnet-5, for the *Json fields a JSON array string; for system_prompt the COMPLETE replacement system prompt text (the full new role text, not a description)>"}',
     'For a scope-change you MUST ALSO include a structured patch (REQUIRED — same rule):',
     '  "scopePatch":{"agentConfigId":"<the AFFECTED SKILL/PROFILE id>","field":"allowedMcpsJson|allowedSkillsJson","add":["<name>"],"remove":["<name>"]}',
+    'For a task-change you MUST ALSO include a structured patch (REQUIRED — same rule).',
+    'Do NOT emit a scheduledTaskId — the server resolves it from the failing task itself:',
+    '  "taskPatch":{"field":"prompt|description|cronExpression|scheduledTime|agentConfigId","value":"<the new value; for prompt the COMPLETE replacement run instructions, for cronExpression a cron string like 0 9 * * 1, for agentConfigId the id of the profile it should run as>"}',
     '',
     'The concreteFix must be specific and actionable. Not "add a guard" — paste the actual',
     'guard text. Not "fix the model" — specify the model id. Not "check scope" — name the',
@@ -549,8 +629,8 @@ function parseDiagnosisResponse(raw: string): DiagnosisResult | null {
     const rootCause = parsed.rootCause;
     const fixType = parsed.fixType;
     if (typeof rootCause !== 'string' || typeof fixType !== 'string') return null;
-    const validRootCauses = ['skill', 'config', 'scope', 'delegation', 'external'];
-    const validFixTypes = ['skill-edit', 'config-change', 'scope-change', 'delegation-change', 'external-noop'];
+    const validRootCauses = ['skill', 'config', 'scope', 'delegation', 'task', 'external'];
+    const validFixTypes = ['skill-edit', 'config-change', 'scope-change', 'delegation-change', 'task-change', 'external-noop'];
     if (!validRootCauses.includes(rootCause) || !validFixTypes.includes(fixType)) return null;
     // Pass the raw configPatch/scopePatch through untouched (untrusted,
     // unvalidated shape) — resolveConfigPatch/resolveScopePatch in
@@ -565,6 +645,10 @@ function parseDiagnosisResponse(raw: string): DiagnosisResult | null {
       parsed.scopePatch && typeof parsed.scopePatch === 'object'
         ? (parsed.scopePatch as ScopePatch)
         : undefined;
+    const taskPatch =
+      parsed.taskPatch && typeof parsed.taskPatch === 'object'
+        ? (parsed.taskPatch as TaskPatch)
+        : undefined;
     return {
       diagnosis: typeof parsed.diagnosis === 'string' ? parsed.diagnosis : '(no diagnosis)',
       rootCause: rootCause as DiagnosisResult['rootCause'],
@@ -575,6 +659,7 @@ function parseDiagnosisResponse(raw: string): DiagnosisResult | null {
         : 'medium') as DiagnosisResult['confidence'],
       ...(configPatch ? { configPatch } : {}),
       ...(scopePatch ? { scopePatch } : {}),
+      ...(taskPatch ? { taskPatch } : {}),
     };
   } catch {
     return null;
@@ -760,6 +845,8 @@ function diagnosisToProposalKind(result: DiagnosisResult): string | null {
     case 'skill-edit': return 'workflow-prompt-fix';
     case 'config-change': return 'refine-config';
     case 'scope-change': return 'refine-scope';
+    // #981 — a scheduled-task definition fix (instructions/schedule/binding).
+    case 'task-change': return 'refine-task';
     case 'delegation-change': return null;
     case 'external-noop': return null;
     default: return null;
@@ -787,6 +874,10 @@ async function proposeFixFromSignals(
   maxLlmCalls: number,
 ): Promise<AgentOrgProposal[]> {
   const created: AgentOrgProposal[] = [];
+  // #981 — refine-task needs to server-resolve the failing task from the
+  // session's own `scheduled_task_id`; these repos back that resolution.
+  const sessionsRepo = new AgentSessionsRepository();
+  const tasksRepo = new AgentScheduledTasksRepository();
   const groups = groupSignalsBySkillAndSignature(signals).sort(
     (a, b) => b.signals.length - a.signals.length,
   );
@@ -867,6 +958,13 @@ async function proposeFixFromSignals(
           ? (resolveScopePatch(result.scopePatch, agentConfigId, configsRepo) ??
             deriveScopePatchFromProse(result.concreteFix, agentConfigId, configsRepo))
           : undefined;
+      // #981 — task-change: scheduledTaskId is server-resolved from the failing
+      // signal's own task (never the LLM's id); prose fallback covers cron edits.
+      const taskPatch =
+        result.fixType === 'task-change'
+          ? ((await resolveTaskPatch(result.taskPatch, skillSignals, sessionsRepo, tasksRepo)) ??
+            (await deriveTaskPatchFromProse(result.concreteFix, skillSignals, sessionsRepo, tasksRepo)))
+          : undefined;
 
       // Flattened, de-duplicated session ids backing this failure mode — the
       // canonical list the behavioral-measure step (#3) replays.
@@ -888,6 +986,7 @@ async function proposeFixFromSignals(
         sessionIds,
         ...(configPatch ? { configPatch } : {}),
         ...(scopePatch ? { scopePatch } : {}),
+        ...(taskPatch ? { taskPatch } : {}),
       });
 
       const proposal = await proposalsRepo.createAsync({
@@ -901,7 +1000,12 @@ async function proposeFixFromSignals(
           `Root cause: ${result.rootCause}. Confidence: ${result.confidence}. ` +
           `Evidence: ${skillSignals.length} failure signal(s) from sessions: ${sessionIds.slice(0, 5).map((id) => id.slice(0, 8)).join(', ')}.`,
         signalRef: `diagnosis:${agentConfigId}:${evidenceHash}`,
-        targetRef: result.fixType === 'skill-edit' ? `skill:${agentConfigId}` : `profile:${agentConfigId}`,
+        targetRef:
+          result.fixType === 'skill-edit'
+            ? `skill:${agentConfigId}`
+            : result.fixType === 'task-change' && taskPatch
+              ? `task:${taskPatch.scheduledTaskId}`
+              : `profile:${agentConfigId}`,
         changeJson,
         dedupKey,
       });
@@ -936,8 +1040,9 @@ export interface DiagnosisGeneratorResult {
 /**
  * #971 — the LLM diagnosis lane entry point, called ADDITIVELY alongside the
  * deterministic {@link generateWorkflowSignalProposals} from the optimizer
- * run. Emits `refine-config` / `refine-scope` / `workflow-prompt-fix`
- * proposals. NEVER throws — a diagnosis failure degrades to zero proposals.
+ * run. Emits `refine-config` / `refine-scope` / `workflow-prompt-fix` /
+ * `refine-task` proposals. NEVER throws — a diagnosis failure degrades to zero
+ * proposals.
  */
 export async function generateDiagnosisProposals(
   snapshot: OrgAuditSnapshot,
