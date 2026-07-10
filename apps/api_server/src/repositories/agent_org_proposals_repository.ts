@@ -56,6 +56,20 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   reverted: [],
 };
 
+/**
+ * One prior attempt in the `workflow-fix:*` re-diagnosis family (#971-5):
+ * the parsed attempt number `N` plus the full proposal row it came from.
+ */
+export interface OrgProposalAttempt {
+  attempt: number;
+  proposal: AgentOrgProposal;
+}
+
+/** Escape SQLite LIKE wildcards so a literal key fragment matches literally. */
+function escapeLikePattern(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
 function rowToModel(row: AgentOrgProposalRow): AgentOrgProposal {
   return {
     id: row.id,
@@ -128,6 +142,27 @@ export class AgentOrgProposalsRepository {
       .prepare(`SELECT 1 FROM agent_org_proposals WHERE dedup_key = ? LIMIT 1`)
       .get(key);
     return row !== undefined;
+  }
+
+  /**
+   * List all prior attempts for a `workflow-fix:*` base key (rows whose
+   * `dedup_key` is `<baseKey>:a<N>`), parsed and ordered by attempt number
+   * ascending. Backs the #971-5 attempt-aware re-diagnosis decision: the
+   * caller inspects each row's `status` (all-`reverted` permits the next
+   * attempt; any other status still blocks) and `measureReason` (fed back to
+   * the LLM as "what was already tried and why it reverted"). Returns [] when
+   * no attempt has ever been recorded for this base.
+   */
+  async listAttemptsForBaseAsync(baseKey: string): Promise<OrgProposalAttempt[]> {
+    const rows = this.db
+      .prepare(`SELECT * FROM agent_org_proposals WHERE dedup_key LIKE ? ESCAPE '\\'`)
+      .all(`${escapeLikePattern(baseKey)}:a%`) as AgentOrgProposalRow[];
+    const attempts: OrgProposalAttempt[] = [];
+    for (const row of rows) {
+      const m = /:a(\d+)$/.exec(row.dedup_key ?? '');
+      if (m) attempts.push({ attempt: Number(m[1]), proposal: rowToModel(row) });
+    }
+    return attempts.sort((a, b) => a.attempt - b.attempt);
   }
 
   private findByDedupKey(key: string): AgentOrgProposal | null {

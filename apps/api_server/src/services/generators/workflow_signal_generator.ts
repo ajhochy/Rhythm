@@ -49,7 +49,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { logger } from '../../utils/logger';
 import { classifyProposalRisk } from '../org_risk_classifier';
-import { AgentOrgProposalsRepository } from '../../repositories/agent_org_proposals_repository';
+import { AgentOrgProposalsRepository, type OrgProposalAttempt } from '../../repositories/agent_org_proposals_repository';
 import { AgentConfigsRepository, type AgentConfig } from '../../repositories/agent_configs_repository';
 import { managedSkillsRoot } from '../rhythm_managed_skills';
 import {
@@ -249,6 +249,13 @@ export async function generateWorkflowSignalProposals(
 const DEFAULT_MAX_DIAGNOSE_CALLS = 10;
 
 /**
+ * #971-5 — max re-diagnosis attempts for one failure mode before it is PARKED
+ * (logged, never re-proposed). Attempts run a1..aN; once N reverts have all
+ * failed the failure mode stops looping forever. Constant, not configurable.
+ */
+const MAX_DIAGNOSIS_ATTEMPTS = 3;
+
+/**
  * Behavioral failure categories worth an LLM root-cause diagnosis. Excludes
  * `missing-scope` (deterministic broaden-scope already yields the exact fix)
  * and `delegate-result` (owned by the delegation lane). Only signals with an
@@ -282,6 +289,12 @@ export interface DiagnosisContext {
   deniedTools: DeniedToolAggregate[];
   delegationOutbound: DelegationEdge[];
   delegationInbound: DelegationEdge[];
+  /**
+   * #971-5 — prior reverted attempts for this exact failure mode, so the LLM
+   * is told what was already tried (and why it reverted) and proposes
+   * something DIFFERENT. Empty on the first attempt.
+   */
+  priorAttempts?: OrgProposalAttempt[];
 }
 
 /**
@@ -440,8 +453,40 @@ function buildDiagnosisUserPrompt(ctx: DiagnosisContext): string {
     lines.push('');
   }
 
+  const priors = ctx.priorAttempts ?? [];
+  if (priors.length > 0) {
+    lines.push(
+      'PREVIOUSLY ATTEMPTED FIXES (do NOT repeat — each was applied and then REVERTED because it did not resolve the failure):',
+    );
+    for (const { attempt, proposal } of priors) {
+      lines.push(`  attempt ${attempt} [${proposal.kind}]: ${summarizePriorFix(proposal)}`);
+      lines.push(`    reverted because: ${proposal.measureReason ?? '(no measure reason recorded)'}`);
+    }
+    lines.push(
+      'Propose a DIFFERENT root cause or fix than the ones above — repeating a reverted fix will just revert again.',
+    );
+    lines.push('');
+  }
+
   lines.push('Diagnose the root cause and propose the concrete fix (JSON only):');
   return lines.join('\n');
+}
+
+/**
+ * One-line summary of a prior attempt's fix for the re-diagnosis context —
+ * the human `concreteFix` prose plus the structured patch (if any). Never
+ * throws on a malformed `change_json`.
+ */
+function summarizePriorFix(proposal: AgentOrgProposal): string {
+  try {
+    const c = JSON.parse(proposal.changeJson ?? '{}') as Record<string, unknown>;
+    const patch = c.configPatch ?? c.scopePatch;
+    const patchStr = patch ? ` patch=${JSON.stringify(patch)}` : '';
+    const fix = typeof c.concreteFix === 'string' ? c.concreteFix : '(no concreteFix)';
+    return `${fix}${patchStr}`;
+  } catch {
+    return '(unparseable change payload)';
+  }
 }
 
 /** Parse the LLM's JSON response. Returns null on any parse failure. */
@@ -597,14 +642,38 @@ function groupSignalsBySkillAndSignature(signals: WorkflowFailureSignal[]): Sign
 }
 
 /**
+ * #971-5 — decide whether to (re-)diagnose a `workflow-fix:*` failure mode
+ * from its prior attempts (`listAttemptsForBaseAsync`):
+ *  - none               → attempt 1 (proceed).
+ *  - any non-`reverted`  → BLOCK: an attempt is still in flight
+ *    (proposed/approved/applied/measuring) or already decided (active/rejected)
+ *    — don't pile on a duplicate.
+ *  - all `reverted`      → the last fix didn't hold; PROCEED at N+1, unless the
+ *    cap is reached → PARK (caller logs, creates nothing).
+ * A `reverted` row is exactly the measure-failed / human-undo terminal state,
+ * so "reverted or measure-failed permits a retry" falls out for free.
+ */
+function decideRediagnosis(
+  priorAttempts: OrgProposalAttempt[],
+): { action: 'proceed'; attemptN: number } | { action: 'block' } | { action: 'park' } {
+  if (priorAttempts.length === 0) return { action: 'proceed', attemptN: 1 };
+  if (priorAttempts.some((a) => a.proposal.status !== 'reverted')) return { action: 'block' };
+  const maxN = Math.max(...priorAttempts.map((a) => a.attempt));
+  if (maxN >= MAX_DIAGNOSIS_ATTEMPTS) return { action: 'park' };
+  return { action: 'proceed', attemptN: maxN + 1 };
+}
+
+/**
  * Gather the full diagnosis context for a profile from the snapshot: profile
- * config, skill body from disk, denied tools, delegation edges.
+ * config, skill body from disk, denied tools, delegation edges, and any prior
+ * reverted attempts for this failure mode (#971-5).
  */
 function buildDiagnosisContext(
   agentConfigId: string,
   skillSignals: WorkflowFailureSignal[],
   snapshot: OrgAuditSnapshot,
   configsRepo: AgentConfigsRepository,
+  priorAttempts: OrgProposalAttempt[] = [],
 ): DiagnosisContext {
   const profile = snapshot.profiles.find((p) => p.id === agentConfigId) ?? null;
   const agentConfig = configsRepo.getById(agentConfigId) ?? null;
@@ -622,6 +691,7 @@ function buildDiagnosisContext(
     deniedTools,
     delegationOutbound,
     delegationInbound,
+    priorAttempts,
   };
 }
 
@@ -655,7 +725,10 @@ async function proposeFixFromSignals(
   signals: WorkflowFailureSignal[],
   snapshot: OrgAuditSnapshot,
   configsRepo: AgentConfigsRepository,
-  proposalsRepo: Pick<AgentOrgProposalsRepository, 'createAsync' | 'existsByDedupKeyAsync'>,
+  proposalsRepo: Pick<
+    AgentOrgProposalsRepository,
+    'createAsync' | 'existsByDedupKeyAsync' | 'listAttemptsForBaseAsync'
+  >,
   diagnose: DiagnoseCall,
   maxLlmCalls: number,
 ): Promise<AgentOrgProposal[]> {
@@ -673,12 +746,25 @@ async function proposeFixFromSignals(
 
     // Dedup on (profile + failure-mode evidence hash). The hash differs per
     // error signature, so distinct failure modes for one profile dedup
-    // independently. (Issue #5 later extends this key with an attempt suffix.)
+    // independently. #971-5 makes the key ATTEMPT-AWARE: the base gains an
+    // `:a<N>` suffix so a reverted fix isn't permanently deduped — a new
+    // attempt is allowed while the prior one is reverted, blocked while it is
+    // still in flight/decided, and parked after MAX_DIAGNOSIS_ATTEMPTS.
     const evidenceHash = stableHash(...skillSignals.map((s) => s.evidence));
-    const dedupKey = `workflow-fix:${agentConfigId}:${evidenceHash}`;
-    if (await proposalsRepo.existsByDedupKeyAsync(dedupKey)) continue;
+    const baseKey = `workflow-fix:${agentConfigId}:${evidenceHash}`;
+    const priorAttempts = await proposalsRepo.listAttemptsForBaseAsync(baseKey);
+    const decision = decideRediagnosis(priorAttempts);
+    if (decision.action === 'block') continue;
+    if (decision.action === 'park') {
+      logger.info(
+        `[workflow-signal-generator] re-diagnosis PARKED for ${agentConfigId} (${baseKey}): ` +
+          `${MAX_DIAGNOSIS_ATTEMPTS} attempts all reverted — not retrying`,
+      );
+      continue;
+    }
+    const dedupKey = `${baseKey}:a${decision.attemptN}`;
 
-    const ctx = buildDiagnosisContext(agentConfigId, skillSignals, snapshot, configsRepo);
+    const ctx = buildDiagnosisContext(agentConfigId, skillSignals, snapshot, configsRepo, priorAttempts);
     llmCallsUsed++;
 
     let result: DiagnosisResult | null;
@@ -767,7 +853,10 @@ async function proposeFixFromSignals(
 }
 
 export interface DiagnosisGeneratorDeps {
-  proposalsRepo?: Pick<AgentOrgProposalsRepository, 'createAsync' | 'existsByDedupKeyAsync'>;
+  proposalsRepo?: Pick<
+    AgentOrgProposalsRepository,
+    'createAsync' | 'existsByDedupKeyAsync' | 'listAttemptsForBaseAsync'
+  >;
   configsRepo?: AgentConfigsRepository;
   /** LLM-driven diagnosis function. Defaults to the real opencode-backed one. */
   diagnose?: DiagnoseCall;
