@@ -196,3 +196,20 @@
 - **Criteria affected**: Secretary delegation nesting (#891); session-picker default = Secretary (#890)
 - **Root cause**: (a) #889 hub preamble delegated domain work via the rhythm_delegate MCP tool (orphan top-level session) instead of engine-native `task`/subagent_type (nests); (b) #890 resolved the default by searching _catalog (engine kinds only), so the profile default was inert → fell to the ambiguous first manager. Both had GREEN unit tests that asserted the wrong thing (presence of 'rhythm_delegate'; a faked 'secretary' catalog entry).
 - **Suggested fix**: agent-behavior changes (prompt/preamble, runtime-shape-dependent resolution) need live/integration outcome probes, not unit assertions on prompt text or fixture-convenient catalogs.
+
+## 2026-07-10 — Issue #999 — Session History transcripts (tool-using sessions)
+- **Result**: smoke PASS (verification claimed PASS)
+- **Category**: none — stated symptom fixed (endpoint sends structured parts)
+- **Criteria affected**: transcript render for tool-using sessions
+- **Root cause**: controller call site used listBySession (text-only) not listBySessionStructured
+- **Suggested fix**: shipped; adjacent errored-session blank-transcript gap tracked as #1006 (view-side)
+
+## 2026-07-10 — Issue #1000 — Scheduled-task enable toggle
+- **Result**: smoke PASS (verification claimed PASS)
+- **Category**: none
+- **Criteria affected**: enable/disable toggle save
+- **Root cause**: JS boolean bound to better-sqlite3 (no coercion) → 500
+- **Suggested fix**: shipped; coerce boolean→0/1 on the sqlite bind path
+
+## 2026-07-10 — Smoke session process note
+- **Process**: prod task server (api.vcrcapps.com) 502 during smoke blocked the desktop shell's prod gate; worked around via RHYTHM_SERVER_URL dart-define to the local agents server. Agents-server screens (#999/#1000) hardcode :4001, so smoke was valid. Prod outage unrelated to PR #1005.
