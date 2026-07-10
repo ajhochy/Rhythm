@@ -49,11 +49,17 @@ re-enters with attempt-aware context. `refine-skill` (#976, human-gated) and
   run (acceptance = live probing, per directive). Live E2E pass recorded in the
   run log (all kinds the user asked about: config/scope/skill-body/system-prompt/
   recipe + diagnosis-generated apply + measure/revert).
+- **`server-checks` CI is now green on PR #982** (2026-07-09/10 follow-up): the
+  suite's `ministry_recipes_seed.test.ts` was stale against #977's
+  files-as-source-of-truth change (asserted DB `agent_skills` rows that #977
+  stopped creating). Test reconciled to read the materialized SKILL.md file
+  instead; no production code changed. Full vitest: 297 files / 2616 tests
+  passed, 23 skipped. See `docs/ai/runs/2026-07-10-ministry-seed-test-ci-fix.md`.
 
 ## Next step
 
-1. **AJ: review the draft PR** (`codex/optimizer-shadow-epic`) + relaunch the
-   real Rhythm app for a behavior smoke, then merge (manual).
+1. **AJ: review the draft PR** (`codex/optimizer-shadow-epic`, now CI-green) +
+   relaunch the real Rhythm app for a behavior smoke, then merge (manual).
 2. Then start **#981** (`refine-task`).
 3. Optional deeper live obs: force the `issue-5` re-attempt cycle + let a
    config/scope behavioral verdict settle on a longer run.
