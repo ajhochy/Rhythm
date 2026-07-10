@@ -20,8 +20,9 @@ backend probe (standalone server + real fork engine), not just tsc/unit:
 **Closed with evidence this run:** #971, #976, #977, #961, #962 (all LIVE-CONFIRMED
 on main via PR #982 — see run log).
 
-**In progress:** #981 `refine-task` kind (worktree subagent). **Deferred, untouched:**
-#983–#988 (Plan A), #989–#997 (Plan B).
+**#981** `refine-task` kind — built (worktree subagent), merged, live-verified
+(approve → real `agent_scheduled_tasks` row changed → measure dispatched).
+**Deferred, untouched:** #983–#988 (Plan A), #989–#997 (Plan B).
 
 Prior: org-optimizer approval loop + skill-content-shadow retirement merged via
 **PR #982** — see `docs/ai/runs/2026-07-09-optimizer-shadow-epic.md`.

@@ -63,8 +63,19 @@ real DB + a copy of the managed skills dir, real `RHYTHM_OPENCODE_BIN`.
 - `issue_738_agent_runner.test.ts` — prompt/abort now assert `process.cwd()`
   (effectiveCwd) per #1002.
 
-### #981 — org-optimizer refine-task kind
-- (in progress — worktree subagent) new proposal kind end-to-end.
+### #981 — org-optimizer refine-task kind (merged)
+- 9 files, mirrors refine-config: `org_diagnosis_types` (TaskPatch +
+  `task-change` fixType), `workflow_signal_generator` (producer, server-resolved
+  scheduledTaskId), `org_risk_classifier` (HIGH), `org_proposal_appliers_wiring`
+  (validator + snapshot/mutate applier via `updateAsync`), `org_proposal_apply`
+  (snapshot/revert), `org_proposal_measure` (text→judge, schedule/binding→
+  behavioral), + `issue_981_refine_task.test.ts` (6/6).
+- **Probe:** synthetic refine-task proposal (scheduledTime 03:00→05:30) → approve
+  → HTTP 200, status `measuring`, real `agent_scheduled_tasks` row = 05:30.
+  Revert requires `active` (409 from `measuring`) — revert logic unit-covered.
+- Note: behavioral measure (schedule/binding) slow to resolve keep/revert
+  (stayed `measuring` >96s) — HIGH-risk/human-gated backstop; flagged as follow-up.
+- Field mapping: issue's `'instructions'` → real `prompt` column.
 
 ## Checks
 
