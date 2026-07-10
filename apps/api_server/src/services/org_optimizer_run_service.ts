@@ -272,8 +272,8 @@ export async function runOrgOptimizer(
         // #971 — LLM diagnosis lane, ADDITIVE to the deterministic
         // workflow-signal lane above. Groups behavioral failure signals by
         // (profile, error signature) and emits the richer, human-gated
-        // refine-config / refine-scope / workflow-prompt-fix kinds the
-        // approval loop measures and reverts. Runs through the SAME capped,
+        // refine-config / refine-scope / workflow-prompt-fix / refine-task kinds
+        // the approval loop measures and reverts. Runs through the SAME capped,
         // dedup-aware repo (so the #830 per-run cap + dedup cover it) and is
         // bounded by maxLlmCallsPerRun. Never throws.
         await generateDiagnosisProposals(taggedSnapshot, {

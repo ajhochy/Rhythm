@@ -42,6 +42,24 @@ export interface ScopePatch {
 }
 
 /**
+ * Machine-applyable patch shape for a `refine-task` proposal (#981) — a scalar
+ * field swap on one `agent_scheduled_tasks` row (the scheduled-task definition
+ * the optimizer wants to correct: wrong instructions/prompt, wrong schedule,
+ * or wrong agent binding).
+ *
+ * `scheduledTaskId` is the AUTHORITATIVE, server-resolved id — the producer
+ * resolves it from the failing signal's OWN task (the scheduled_task_id on the
+ * failing session), never from the LLM's emitted id (mirrors {@link ConfigPatch}).
+ * The `prompt` field is the scheduled task's run instructions (issue #981's
+ * "instructions"); `description` is its human-facing note.
+ */
+export interface TaskPatch {
+  scheduledTaskId: string;
+  field: 'prompt' | 'description' | 'cronExpression' | 'scheduledTime' | 'agentConfigId';
+  value: string;
+}
+
+/**
  * The structured diagnosis returned by the LLM for a group of failure signals
  * targeting the same profile + error signature. The LLM reads the full
  * context (profile config, skill body, error evidence, denied tools,
@@ -51,9 +69,15 @@ export interface DiagnosisResult {
   /** What's actually wrong, in plain language. */
   diagnosis: string;
   /** Root cause category. */
-  rootCause: 'skill' | 'config' | 'scope' | 'delegation' | 'external';
+  rootCause: 'skill' | 'config' | 'scope' | 'delegation' | 'task' | 'external';
   /** What kind of fix to propose. 'external-noop' means no proposal — log only. */
-  fixType: 'skill-edit' | 'config-change' | 'scope-change' | 'delegation-change' | 'external-noop';
+  fixType:
+    | 'skill-edit'
+    | 'config-change'
+    | 'scope-change'
+    | 'delegation-change'
+    | 'task-change'
+    | 'external-noop';
   /** The actual fix text — concrete, actionable, not vague advice. */
   concreteFix: string;
   /** LLM confidence in the diagnosis. */
@@ -66,9 +90,19 @@ export interface DiagnosisResult {
   configPatch?: ConfigPatch;
   /** Same contract as {@link DiagnosisResult.configPatch}, for `scope-change`. */
   scopePatch?: ScopePatch;
+  /**
+   * Same contract as {@link DiagnosisResult.configPatch}, for `task-change`
+   * (#981). `scheduledTaskId` is re-resolved server-side from the failing
+   * signal's own task — the LLM-emitted id is never trusted.
+   */
+  taskPatch?: TaskPatch;
 }
 
 /** The single source of truth for legal `refine-config` (ConfigPatch) fields. */
 export const CONFIG_PATCH_FIELDS = ['model', 'allowedSkillsJson', 'allowedDelegatesJson', 'system_prompt'] as const;
 /** The single source of truth for legal `refine-scope` (ScopePatch) fields. */
 export const SCOPE_PATCH_FIELDS = ['allowedMcpsJson', 'allowedSkillsJson'] as const;
+/** The single source of truth for legal `refine-task` (TaskPatch) fields. */
+export const TASK_PATCH_FIELDS = ['prompt', 'description', 'cronExpression', 'scheduledTime', 'agentConfigId'] as const;
+/** TaskPatch fields measured by LLM-judge (text edits) vs behavioral re-run (schedule/binding). */
+export const TASK_PATCH_TEXT_FIELDS = ['prompt', 'description'] as const;

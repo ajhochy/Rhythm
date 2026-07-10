@@ -87,17 +87,23 @@ import {
 } from './rhythm_managed_skills';
 import { downloadSkillBody } from './generators/external_discovery_search';
 import { scanContextContent } from '../security/context_scanner';
+import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { writeAgentProfileFile } from './opencode_agent_writer';
 import {
   readAgentConfigField,
   agentConfigFieldPatch,
   computeScopeList,
+  readScheduledTaskField,
+  scheduledTaskFieldPatch,
 } from './org_proposal_apply';
 import {
   CONFIG_PATCH_FIELDS,
   SCOPE_PATCH_FIELDS,
+  TASK_PATCH_FIELDS,
+  TASK_PATCH_TEXT_FIELDS,
   type ConfigPatch,
   type ScopePatch,
+  type TaskPatch,
 } from './org_diagnosis_types';
 import { alignMcpName } from './mcp_name_alignment';
 import { opencodeClient } from './opencode_engine';
@@ -460,6 +466,19 @@ function extractScopePatch(change: Record<string, unknown> | null): ScopePatch |
   return { agentConfigId: o.agentConfigId, field: o.field as ScopePatch['field'], add, remove };
 }
 
+/** Extract a well-formed TaskPatch (nested under `taskPatch`), or null. */
+function extractTaskPatch(change: Record<string, unknown> | null): TaskPatch | null {
+  const p = change?.taskPatch;
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
+  const o = p as Record<string, unknown>;
+  if (typeof o.scheduledTaskId !== 'string' || !o.scheduledTaskId.trim()) return null;
+  if (typeof o.field !== 'string' || !(TASK_PATCH_FIELDS as readonly string[]).includes(o.field)) {
+    return null;
+  }
+  if (typeof o.value !== 'string') return null;
+  return { scheduledTaskId: o.scheduledTaskId, field: o.field as TaskPatch['field'], value: o.value };
+}
+
 /**
  * Resolve the live skill a workflow-prompt-fix / refine-skill proposal targets:
  * first from `targetRef` ("skill:<id>"), then from a `skillId` / `affectedSkill`
@@ -673,6 +692,61 @@ const refineSkillApplier: ProposalApplier = (proposal): ProposalApplyResult => {
   return applySkillBodyRevision(skill, revisedBody);
 };
 
+// ── refine-task (#981) ──
+// Edits a scheduled-task definition (instructions/prompt, schedule, or agent
+// binding). HIGH-risk → human-gated → applied HERE on approve. Mirrors
+// refine-config exactly: fail-closed validator, snapshot-before-mutate applier
+// that mutates via AgentScheduledTasksRepository.updateAsync (never raw SQL),
+// returning {measurable:true, beforeSnapshotJson} so the row advances to
+// measuring. `scheduledTaskId` was server-resolved by the producer.
+function validateRefineTask(proposal: AgentOrgProposal): Promise<ProposalValidationResult> | ProposalValidationResult {
+  const patch = extractTaskPatch(parseChange(proposal.changeJson));
+  if (!patch) {
+    return {
+      valid: false,
+      reason:
+        'refine-task requires a machine-applyable taskPatch {scheduledTaskId, field, value}; a prose-only diagnosis cannot be auto-applied',
+    };
+  }
+  return new AgentScheduledTasksRepository().findByIdAsync(patch.scheduledTaskId).then((task) =>
+    task
+      ? { valid: true }
+      : { valid: false, reason: `refine-task target scheduled task '${patch.scheduledTaskId}' no longer exists` },
+  );
+}
+
+const refineTaskApplier: ProposalApplier = async (proposal): Promise<ProposalApplyResult> => {
+  const patch = extractTaskPatch(parseChange(proposal.changeJson));
+  if (!patch) throw AppError.badRequest('refine-task change_json is missing its taskPatch at apply time');
+  const tasksRepo = new AgentScheduledTasksRepository();
+  const task = await tasksRepo.findByIdAsync(patch.scheduledTaskId);
+  if (!task) throw AppError.badRequest(`refine-task target '${patch.scheduledTaskId}' no longer exists`);
+
+  const priorValue = readScheduledTaskField(task, patch.field);
+  const beforeSnapshotJson = JSON.stringify({
+    scheduledTaskId: patch.scheduledTaskId,
+    field: patch.field,
+    priorValue,
+  });
+
+  await tasksRepo.updateAsync(patch.scheduledTaskId, scheduledTaskFieldPatch(patch.field, patch.value));
+
+  const result: ProposalApplyResult = { measurable: true, beforeSnapshotJson };
+
+  // Text edits (prompt/description) are LLM-judged: reshape change_json into a
+  // BodyRefinementChange the measure step reads — ADDITIVELY, keeping taskPatch
+  // so measureProposal's router still sees the field. Schedule/binding edits
+  // leave change_json intact (behavioral re-run reads affectedSkill+sessionIds).
+  if ((TASK_PATCH_TEXT_FIELDS as readonly string[]).includes(patch.field)) {
+    result.changeJson = JSON.stringify({
+      ...(parseChange(proposal.changeJson) ?? {}),
+      priorBody: priorValue ?? '',
+      revisedBody: patch.value,
+    });
+  }
+  return result;
+};
+
 /**
  * Wire all six generators' apply steps into the given registry (normally
  * `org_proposal_apply_service.ts`'s module-level `registerProposalApplier`
@@ -745,11 +819,13 @@ export function registerAllProposalAppliers(registry: AppliersRegistry = {
     registry.registerProposalApplier('workflow-prompt-fix', workflowPromptFixApplier);
     registry.registerProposalValidator('refine-skill', validateRefineSkill);
     registry.registerProposalApplier('refine-skill', refineSkillApplier);
+    registry.registerProposalValidator('refine-task', validateRefineTask);
+    registry.registerProposalApplier('refine-task', refineTaskApplier);
   } catch (err) {
     logger.warn(`[org-proposal-appliers-wiring] failed to register diagnosis-lane appliers (non-fatal): ${String(err)}`);
   }
 
   logger.info(
-    '[org-proposal-appliers-wiring] registered appliers for: create-agent, grant-delegation, expand-delegation, external-adoption, webhook-wiring, create-recipe, refine-config, refine-scope, workflow-prompt-fix, refine-skill',
+    '[org-proposal-appliers-wiring] registered appliers for: create-agent, grant-delegation, expand-delegation, external-adoption, webhook-wiring, create-recipe, refine-config, refine-scope, workflow-prompt-fix, refine-skill, refine-task',
   );
 }
