@@ -60,10 +60,8 @@ import path from 'node:path';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
-import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
-import type { AgentSkill } from '../models/agent_skill';
-import { writeManagedSkill } from './rhythm_managed_skills';
+import { writeManagedSkill, managedSkillsRoot, slugForSkillName } from './rhythm_managed_skills';
 import { opencodeClient } from './opencode_engine';
 
 // ── .mcp-roles reader (READ-ONLY — never writes; mirrors the path-resolution
@@ -371,7 +369,6 @@ export async function seedMinistryRecipes(): Promise<MinistryRecipesSeedResult> 
   }
 
   const schedRepo = new AgentScheduledTasksRepository();
-  const skillsRepo = new AgentSkillsRepository();
   const configsRepo = new AgentConfigsRepository();
 
   let existingTasks: Awaited<ReturnType<typeof schedRepo.listAllAsync>>;
@@ -383,35 +380,30 @@ export async function seedMinistryRecipes(): Promise<MinistryRecipesSeedResult> 
   }
 
   for (const recipe of RECIPES) {
-    // ── Skill row (idempotent by title) ──────────────────────────────────
+    // ── Managed skill FILE (idempotent, write-if-absent) ─────────────────
+    // #977 — the SKILL.md file is the SOLE content source. Do not create a
+    // `published` agent_skills row mirroring the body (the retired DB→file
+    // shadow). Write the file only when ABSENT so a self-improvement
+    // refinement of an already-seeded file is never clobbered on a later boot
+    // (#929/#957 regression class). Lifecycle metadata attaches to the live
+    // file by NAME via the #792 sidecar when the auto-apply loop first touches
+    // the skill — no seed row is needed.
     try {
-      const existingSkill = skillsRepo.findByTitle(recipe.skillTitle);
-      let skill: AgentSkill;
-      if (existingSkill) {
-        skill = existingSkill;
+      const location = path.join(
+        managedSkillsRoot(),
+        slugForSkillName(recipe.skillTitle),
+        'SKILL.md',
+      );
+      if (existsSync(location)) {
         result.skillsSkipped += 1;
       } else {
-        skill = skillsRepo.create({
-          title: recipe.skillTitle,
+        writeManagedSkill({
+          name: recipe.skillTitle,
           description: recipe.description,
-          whenToUse: recipe.description,
-          steps: null,
-          tags: ['ministry', recipe.role],
           body: recipe.body,
-          status: 'published',
-          source: 'ministry-recipes-seed',
         });
         result.skillsSeeded += 1;
       }
-
-      // Materialize to the managed skills dir so the fork can discover it —
-      // idempotent by name (skill_materializer.materializeSkill overwrites
-      // the same SKILL.md rather than duplicating).
-      writeManagedSkill({
-        name: skill.title,
-        description: skill.description ?? undefined,
-        body: skill.body ?? recipe.body,
-      });
     } catch (err) {
       logger.warn(
         `[ministry-recipes-seed] failed to seed skill "${recipe.skillTitle}" (non-fatal): ${String(err)}`,
