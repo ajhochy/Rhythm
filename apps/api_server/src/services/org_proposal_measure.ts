@@ -61,6 +61,31 @@ import type { ScoreCall, SkillPurpose } from './skill_refiner';
 
 export type MeasureOutcome = 'kept' | 'reverted' | 'skipped';
 
+/**
+ * #971-3 — outcome of a BEHAVIORAL re-run (refine-config / refine-scope). The
+ * applier has already patched `agent_configs` and moved the row to `measuring`;
+ * this replays a failing scenario under the patched profile and decides:
+ *   • `completed`  — re-run finished WITHOUT the original failure signature -> KEEP
+ *   • `failed`     — the original failure reproduced under the patch        -> REVERT
+ *   • `infra-error`— engine down/timeout / nothing replayable — leave the row
+ *                    `measuring` for a later sweep, never a guessy keep.
+ */
+export type RerunOutcome =
+  | { status: 'completed'; reason: string }
+  | { status: 'failed'; reason: string }
+  | { status: 'infra-error'; reason: string };
+
+export interface RerunContext {
+  /** agent_configs.id of the profile the applier already patched. */
+  patchedProfileId: string;
+  /** change_json.sessionIds — the flattened, de-duped replay list. */
+  sessionIds: string[];
+  /** Distinct failure categories from change_json.evidence[] (the "signature"). */
+  categories: string[];
+}
+
+export type RerunScenario = (proposal: AgentOrgProposal, ctx: RerunContext) => Promise<RerunOutcome>;
+
 /** Shape of the `changeJson` payload for an `agent_configs` scope mutation (mirrors org_proposal_apply.ts). */
 interface AgentConfigScopeChange {
   agentConfigId: string;
@@ -108,6 +133,13 @@ export interface MeasureDeps extends ApplyDeps {
   exercisedTools?: (agentConfigId: string) => Promise<Set<string>>;
   /** Injectable purpose-anchored scorer (defaults to skill_refiner.scoreSkillBody's real impl). */
   scoreSkillBody?: ScoreCall;
+  /**
+   * #971-3 — injectable behavioral re-run for refine-config / refine-scope.
+   * Defaults to {@link defaultRerunScenario} (real opencode headless replay +
+   * workflow-failure-signal classification). Tests inject a deterministic
+   * outcome so keep/revert/skip can be asserted without the engine.
+   */
+  rerunScenario?: RerunScenario;
 }
 
 /**
@@ -144,9 +176,21 @@ export async function measureProposal(
     if (
       proposal.kind === 'refine-skill' ||
       proposal.kind === 'consolidate-skill' ||
-      proposal.kind === 'refine-recipe'
+      proposal.kind === 'refine-recipe' ||
+      // #971-4 — workflow-prompt-fix is a skill-body edit (the applier reshapes
+      // its change_json into a BodyRefinementChange, mirroring consolidate-skill),
+      // so the existing purpose-anchored LLM judge measures it unchanged.
+      proposal.kind === 'workflow-prompt-fix'
     ) {
       return await measureBodyRefinement(proposal, { ...deps, proposalsRepo });
+    }
+
+    // #971-3 — refine-config / refine-scope: the fix is a config/scope mutation,
+    // not a text body, so there is nothing to LLM-score. Measure BEHAVIORALLY —
+    // replay the failing scenario under the patched profile and keep iff the
+    // original failure signature is gone.
+    if (proposal.kind === 'refine-config' || proposal.kind === 'refine-scope') {
+      return await measureBehavioralRerun(proposal, { ...deps, proposalsRepo });
     }
 
     logger.warn(`[org-proposal-measure] unsupported kind '${proposal.kind}' for '${proposal.id}' — skipping`);
@@ -282,4 +326,271 @@ async function doRevert(
 ): Promise<MeasureOutcome> {
   const outcome = await revertProposal(proposal, deps, patch);
   return outcome === 'reverted' ? 'reverted' : 'skipped';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// #971-3 — BEHAVIORAL measure for refine-config / refine-scope.
+//
+// By the time this runs the applier has ALREADY patched `agent_configs` and set
+// the row to `measuring` with a `beforeSnapshotJson`. There is no text body to
+// LLM-score; the question is behavioral — does the profile that was failing now
+// succeed under the patch? We replay the originating prompt from one of the
+// diagnosis's `change_json.sessionIds` as a fresh headless session under the
+// patched profile and classify the re-run with the SAME workflow-failure-signal
+// predicate the extractor uses. Keep iff the original failure signature is gone;
+// revert (through doRevert, so audit fields persist) if it reproduced; skip
+// (leave `measuring`) on any infrastructure error — never a guessy keep.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** The subset of a diagnosis `change_json` the behavioral measure consumes. */
+interface DiagnosisChange {
+  affectedSkill?: string;
+  fixType?: string;
+  sessionIds?: string[];
+  configPatch?: { agentConfigId?: string };
+  scopePatch?: { agentConfigId?: string };
+  evidence?: Array<{ category?: string }>;
+}
+
+async function measureBehavioralRerun(
+  proposal: AgentOrgProposal,
+  deps: Required<Pick<MeasureDeps, 'proposalsRepo'>> & MeasureDeps,
+): Promise<MeasureOutcome> {
+  const proposalsRepo = deps.proposalsRepo!;
+
+  let change: DiagnosisChange | null;
+  try {
+    change = proposal.changeJson ? (JSON.parse(proposal.changeJson) as DiagnosisChange) : null;
+  } catch (err) {
+    logger.warn(`[org-proposal-measure] malformed changeJson for '${proposal.id}': ${String(err)}`);
+    return 'skipped';
+  }
+  if (!change) {
+    logger.warn(`[org-proposal-measure] '${proposal.id}' has no changeJson — skipping behavioral measure`);
+    return 'skipped';
+  }
+
+  // The applier re-resolved and patched THIS profile — trust the patch's
+  // agentConfigId (server-resolved), falling back to the diagnosis's affectedSkill.
+  const patchedProfileId =
+    change.configPatch?.agentConfigId ?? change.scopePatch?.agentConfigId ?? change.affectedSkill;
+  const sessionIds = Array.isArray(change.sessionIds)
+    ? change.sessionIds.filter((s): s is string => typeof s === 'string')
+    : [];
+  const categories = [
+    ...new Set(
+      (change.evidence ?? []).map((e) => e?.category).filter((c): c is string => typeof c === 'string'),
+    ),
+  ];
+
+  if (!patchedProfileId || sessionIds.length === 0) {
+    // Nothing to reproduce -> we cannot behaviorally decide. Leave `measuring`
+    // (a later sweep may have more luck) rather than guessing keep/revert.
+    // ponytail: these proposals always carry a profile + replay list from the
+    // diagnosis brain; this only fires for a malformed/legacy payload.
+    logger.warn(
+      `[org-proposal-measure] '${proposal.id}' missing patched profile or replay sessionIds — leaving measuring`,
+    );
+    return 'skipped';
+  }
+
+  const rerun = deps.rerunScenario ?? defaultRerunScenario;
+  let outcome: RerunOutcome;
+  try {
+    outcome = await rerun(proposal, { patchedProfileId, sessionIds, categories });
+  } catch (err) {
+    // A throwing re-run is treated as infrastructure failure (skip), matching
+    // the module's fail-toward-another-pass envelope — never a guessy keep.
+    logger.warn(`[org-proposal-measure] re-run threw for '${proposal.id}' (non-fatal): ${String(err)}`);
+    return 'skipped';
+  }
+
+  if (outcome.status === 'infra-error') {
+    logger.info(`[org-proposal-measure] '${proposal.id}' behavioral re-run skipped (infra): ${outcome.reason}`);
+    return 'skipped';
+  }
+
+  if (outcome.status === 'failed') {
+    return await doRevert(proposal, deps, {
+      measureReason: `behavioral re-run reproduced the original failure: ${outcome.reason}`,
+    });
+  }
+
+  await proposalsRepo.updateStatusAsync(proposal.id, 'active', {
+    measureReason: `behavioral re-run completed without the original failure signature: ${outcome.reason}`,
+  });
+  logger.info(`[org-proposal-measure] KEPT '${proposal.id}' (behavioral re-run clean)`);
+  return 'kept';
+}
+
+/**
+ * Real behavioral re-run: replay the originating prompt from the first
+ * replayable session as a FRESH headless session under the patched profile
+ * (same createSession + empty-mcpAllowlist pattern as the diagnosis
+ * `defaultDiagnose`), then classify the re-run against the original failure
+ * categories using the workflow-failure-signal extractor's own detectors.
+ *
+ * ponytail: the empty mcpAllowlist keeps the tool surface bounded (avoids the
+ * Gemini 512-declaration cap) exactly like defaultDiagnose — the trade-off is a
+ * coarse probe (a task that genuinely needed tools can't fully run tool-less),
+ * so this reliably catches the linguistic failure signatures (retry-loop,
+ * unverified-claim, tool-unavailable, empty/errored output) and gives anything
+ * that completes cleanly the benefit of the doubt. Human revert (#857) and the
+ * re-diagnosis loop (#5) are the backstops for a false keep.
+ */
+const defaultRerunScenario: RerunScenario = async (_proposal, ctx) => {
+  try {
+    const { AgentSessionMessagesRepository } = await import(
+      '../repositories/agent_session_messages_repository'
+    );
+    const messagesRepo = new AgentSessionMessagesRepository();
+
+    // Resolve the originating prompt: the first non-empty `input` message of the
+    // first replayable session in the list.
+    let replayPrompt: string | null = null;
+    let sourceSessionId: string | null = null;
+    for (const sid of ctx.sessionIds) {
+      const firstInput = messagesRepo
+        .listBySession(sid)
+        .find((m) => m.role === 'input' && m.strippedText.trim().length > 0);
+      if (firstInput) {
+        replayPrompt = firstInput.strippedText;
+        sourceSessionId = sid;
+        break;
+      }
+    }
+    if (!replayPrompt) {
+      return {
+        status: 'infra-error',
+        reason: `no replayable prompt found in sessions ${ctx.sessionIds.slice(0, 3).join(',')}`,
+      };
+    }
+
+    const { opencodeClient } = await import('./opencode_engine');
+    const { resolveRunModel } = await import('./agent_runner');
+    // Resolve the PATCHED profile's model so a refine-config model swap is what
+    // the re-run actually exercises (falls back to MRU/default if unset).
+    const model = resolveRunModel(ctx.patchedProfileId);
+
+    await opencodeClient.ensureReady();
+
+    // Empty mcpAllowlist (mcpServers:{} + allowedToolsJson:'{}') — same bounded
+    // surface the diagnosis session uses; role tags the run to the patched
+    // profile for log attribution + detector profile-matching.
+    const session = await opencodeClient.createSession(
+      `org-optimizer-measure-rerun:${ctx.patchedProfileId}`,
+      undefined,
+      { role: ctx.patchedProfileId, mcpServers: {}, allowedToolsJson: '{}' },
+      [],
+      model.providerID,
+    );
+    if (!session?.id) {
+      return { status: 'infra-error', reason: 'engine did not create a re-run session (engine may be down)' };
+    }
+
+    const resp = await opencodeClient.prompt(session.id, replayPrompt, model, undefined, {
+      permissionMode: 'bypassPermissions',
+    });
+    if (!resp) {
+      return {
+        status: 'infra-error',
+        reason: `re-run prompt returned no response for session ${session.id} (engine error/timeout)`,
+      };
+    }
+
+    const outputText = (resp.parts ?? [])
+      .filter((p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text')
+      .map((p) => p.text)
+      .join('\n')
+      .trim();
+
+    // Extractor's own "real output" floor (MIN_OUTPUT_CHARS=20): an empty/near-
+    // empty turn is the `transport-empty` failure classification — the agent
+    // produced nothing usable under the patch.
+    if (outputText.length < 20) {
+      return {
+        status: 'failed',
+        reason: `re-run of ${sourceSessionId} produced no substantive output (session ${session.id})`,
+      };
+    }
+
+    const detected = await classifyRerunFailure(session.id, ctx.patchedProfileId, replayPrompt, outputText);
+    const reproduced = detected.filter((c) => ctx.categories.includes(c));
+    if (reproduced.length > 0) {
+      return {
+        status: 'failed',
+        reason: `re-run of ${sourceSessionId} under ${ctx.patchedProfileId} still shows [${reproduced.join(',')}] (session ${session.id})`,
+      };
+    }
+    return {
+      status: 'completed',
+      reason: `re-run of ${sourceSessionId} under ${ctx.patchedProfileId} produced ${outputText.length} chars with no [${ctx.categories.join(',') || 'diagnosed'}] signature (session ${session.id})`,
+    };
+  } catch (err) {
+    return { status: 'infra-error', reason: `re-run threw (treated as infra): ${String(err)}` };
+  }
+};
+
+/**
+ * Reuse the workflow-failure-signal extractor's OWN detectors to classify a
+ * fresh re-run session — no duplicated failure heuristics. Builds a synthetic
+ * single-session view (the replayed prompt as `input`, the model's answer as
+ * `output`) and runs the message-based detectors over it, returning the failure
+ * categories they emit. Multi-session / multi-turn patterns (hallucinated-claim
+ * needs a user correction; stale-redo needs an issue redo) structurally can't
+ * fire on one headless turn — those categories are given the benefit of the
+ * doubt, which is the intended coarseness of a single tool-less replay.
+ */
+async function classifyRerunFailure(
+  sessionId: string,
+  profileId: string,
+  promptText: string,
+  outputText: string,
+): Promise<string[]> {
+  try {
+    const extractor = await import('./workflow_failure_signal_extractor');
+
+    const now = new Date().toISOString();
+    // Minimal read-only doubles — only the fields the detectors touch matter.
+    const session = {
+      id: sessionId,
+      status: 'idle',
+      mcpRole: profileId,
+      agentKind: 'claude-code',
+      parentSessionId: null,
+      taskTitle: null,
+      lastActivityAt: now,
+      updatedAt: now,
+      createdAt: now,
+    } as unknown as import('../models/agent_session').AgentSession;
+
+    const messages = [
+      { role: 'input', strippedText: promptText, partsJson: null },
+      { role: 'output', strippedText: outputText, partsJson: null },
+    ] as unknown as import('../models/agent_session').AgentSessionMessage[];
+
+    const getMessages = () => messages;
+
+    const detectors = [
+      extractor.detectRetryLoopSignals,
+      extractor.detectHallucinatedClaimSignals,
+      extractor.detectUnverifiedClaimSignals,
+      extractor.detectToolUnavailableSignals,
+      extractor.detectRepeatedCorrectionSignals,
+      extractor.detectDelegateResultSignals,
+    ];
+
+    const categories = new Set<string>();
+    for (const detect of detectors) {
+      try {
+        for (const signal of detect([session], getMessages)) categories.add(signal.category);
+      } catch {
+        // A single detector failing must not mask the others.
+      }
+    }
+    return [...categories];
+  } catch (err) {
+    logger.warn(`[org-proposal-measure] classifyRerunFailure failed (non-fatal): ${String(err)}`);
+    return [];
+  }
 }

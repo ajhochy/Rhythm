@@ -54,6 +54,8 @@ import { opencodeClient } from './opencode_engine';
 import {
   writeManagedSkill,
   restoreManagedSkillBytes,
+  readManagedSkillSnapshotBytes,
+  deleteManagedSkillSnapshot,
   deleteManagedSkill,
 } from './rhythm_managed_skills';
 import {
@@ -89,6 +91,10 @@ export interface MeasureDeps {
   write?: (skill: { name: string; description?: string; body: string }) => string;
   /** Injectable byte-exact managed restore (defaults to restoreManagedSkillBytes). */
   restore?: (name: string, contents: string | NodeJS.ArrayBufferView) => string;
+  /** Injectable pre-apply file snapshot reader for a managed rollback. */
+  readSnapshot?: (name: string) => Buffer | null;
+  /** Injectable terminal pre-apply file snapshot cleanup. */
+  deleteSnapshot?: (name: string) => boolean;
   /** Injectable managed-dir delete (defaults to deleteManagedSkill). */
   remove?: (name: string) => boolean;
 }
@@ -129,6 +135,25 @@ function readBytesOrNull(path: string | null | undefined): Buffer | null {
   }
 }
 
+/** Preserve the apply-time candidate hash even after DB body content is absent. */
+function candidateHashForSkill(skill: AgentSkill): string {
+  const recorded = skill.measureReason?.match(/^hash:([a-f0-9]{64})$/i)?.[1];
+  return recorded ?? candidateHash(skill.body ?? null);
+}
+
+/** Best-effort removal after a measurement reaches a terminal state. */
+function cleanupSnapshot(
+  name: string,
+  deleteSnapshot: ((name: string) => boolean) | undefined,
+): void {
+  if (!deleteSnapshot) return;
+  try {
+    deleteSnapshot(name);
+  } catch (err) {
+    logger.warn(`[skill-measure] could not remove rollback snapshot for '${name}' (non-fatal): ${String(err)}`);
+  }
+}
+
 /**
  * Measure one `measuring` sidecar row and KEEP or REVERT it. Returns the
  * outcome. NEVER throws.
@@ -150,15 +175,27 @@ export async function measureAppliedSkill(
             name,
             body: restoreContentsToUtf8(contents),
           })
-      : restoreManagedSkillBytes);
+        : restoreManagedSkillBytes);
+  // A fake managed writer has no real file to snapshot. Production and the
+  // file-backed e2e path use the default raw-byte reader instead.
+  const readSnapshot =
+    deps.readSnapshot ?? (deps.write ? undefined : readManagedSkillSnapshotBytes);
+  const deleteSnapshot =
+    deps.deleteSnapshot ?? (deps.write ? undefined : deleteManagedSkillSnapshot);
   const remove = deps.remove ?? deleteManagedSkill;
 
   try {
-    // The PRIOR body is what we revert to + the baseline we score. Without it we
-    // cannot safely measure → fail-closed revert (but we still need a target).
-    const prior = priorBodyOf(repo, skill);
+    const name = skill.appliedForName ?? skill.title;
+    // Prefer the exact pre-apply file snapshot over legacy DB content/history.
+    // The sidecar can become metadata-only while the live file remains fully
+    // reversible during measurement.
+    const fileSnapshot = skill.isExternal === 1 ? null : readSnapshot?.(name) ?? null;
+    const prior =
+      fileSnapshot == null
+        ? priorBodyOf(repo, skill)
+        : { body: fileSnapshot.toString('utf8'), description: null };
     const purpose: SkillPurpose = {
-      name: skill.appliedForName ?? skill.title,
+      name,
       description: skill.description ?? null,
       whenToUse: skill.whenToUse ?? null,
     };
@@ -186,6 +223,7 @@ export async function measureAppliedSkill(
       logger.info(
         `[skill-measure] KEEP '${purpose.name}' (post ${post.score} > baseline ${baseline.score})`,
       );
+      if (fileSnapshot != null) cleanupSnapshot(name, deleteSnapshot);
       return 'kept';
     }
 
@@ -197,10 +235,11 @@ export async function measureAppliedSkill(
       postScore: post.score,
       measureReason: reason,
     });
-    return await revertAppliedSkill(skill, prior, post, repo, {
+    return await revertAppliedSkill(skill, prior, fileSnapshot, post, repo, {
       reload,
       write,
       restore,
+      deleteSnapshot,
       remove,
     });
   } catch (err) {
@@ -217,19 +256,21 @@ export async function measureAppliedSkill(
 async function revertAppliedSkill(
   skill: AgentSkill,
   prior: { body: string | null; description: string | null } | null,
+  fileSnapshot: Buffer | null,
   post: { score: number; reason: string },
   repo: AgentSkillsRepository,
   io: {
     reload: () => Promise<unknown>;
     write: (skill: { name: string; description?: string; body: string }) => string;
     restore: (name: string, contents: string | NodeJS.ArrayBufferView) => string;
+    deleteSnapshot?: (name: string) => boolean;
     remove: (name: string) => boolean;
   },
 ): Promise<MeasureOutcome> {
   const name = skill.appliedForName ?? skill.title;
   // Candidate hash of the LOSING revised body → retained on the reverted row so
   // #794's duplicate guard (applied_for_name + base_version + hash) skips it.
-  const marker = revertedMarker(candidateHash(skill.body ?? null));
+  const marker = revertedMarker(candidateHashForSkill(skill));
 
   try {
     if (skill.isExternal === 1) {
@@ -258,27 +299,47 @@ async function revertAppliedSkill(
       return 'reverted';
     }
 
-    // Managed target: rollback the sidecar row to base_version (snapshots the
-    // reverted-away revision first), then rewrite the live SKILL.md to the prior
-    // body so the file matches the restored DB state.
-    if (skill.baseVersion == null) {
-      logger.warn(`[skill-measure] managed '${name}' has no base_version — cannot rollback; leaving measuring`);
-      return 'skipped';
-    }
-    const restored = repo.rollback(skill.id, skill.baseVersion);
-    if (!restored) {
-      logger.warn(`[skill-measure] rollback to v${skill.baseVersion} returned null for '${name}' — leaving measuring`);
+    // Managed target: restore the raw pre-apply file snapshot first. This is the
+    // source-of-truth path and works when the DB row is lifecycle metadata only.
+    // Retain the legacy DB rollback as a best-effort compatibility update while
+    // its body/version history still exists; it is not required for file restore.
+    if (fileSnapshot == null && skill.baseVersion == null) {
+      logger.warn(
+        `[skill-measure] managed '${name}' has neither a file snapshot nor base_version — cannot rollback; leaving measuring`,
+      );
       return 'skipped';
     }
 
-    const priorBody = prior?.body ?? restored.body ?? '';
     let wroteFile = false;
     try {
-      io.restore(name, Buffer.from(priorBody, 'utf8'));
+      if (fileSnapshot != null) {
+        io.restore(name, fileSnapshot);
+      } else {
+        const restored = repo.rollback(skill.id, skill.baseVersion!);
+        if (!restored) {
+          logger.warn(
+            `[skill-measure] rollback to v${skill.baseVersion} returned null for '${name}' — leaving measuring`,
+          );
+          return 'skipped';
+        }
+        io.restore(name, Buffer.from(prior?.body ?? restored.body ?? '', 'utf8'));
+      }
       wroteFile = true;
     } catch (err) {
-      logger.warn(`[skill-measure] writeManagedSkill(priorBody) failed for '${name}' (non-fatal): ${String(err)}`);
+      logger.warn(`[skill-measure] managed file restore failed for '${name}' (non-fatal): ${String(err)}`);
     }
+
+    if (!wroteFile) return 'skipped';
+
+    if (fileSnapshot != null && skill.baseVersion != null) {
+      const restored = repo.rollback(skill.id, skill.baseVersion);
+      if (!restored) {
+        logger.warn(
+          `[skill-measure] legacy DB rollback to v${skill.baseVersion} unavailable for '${name}' after file restore`,
+        );
+      }
+    }
+
     // Best-effort reload; only when the file write succeeded.
     if (wroteFile) {
       try {
@@ -289,11 +350,11 @@ async function revertAppliedSkill(
     }
 
     // Commit the status transition + retain the reverted marker. The DB rollback
-    // already happened; the file write being best-effort, we still mark reverted
-    // so the loser is not re-applied (the DB is the system of record for status).
+    // is now only a compatibility update; the live file is the source of truth.
     repo.update(skill.id, { status: 'reverted', measureReason: marker });
+    if (fileSnapshot != null) cleanupSnapshot(name, io.deleteSnapshot);
     logger.info(
-      `[skill-measure] REVERTED managed '${name}' to v${skill.baseVersion} (post ${post.score} ≤ baseline; file rewritten=${wroteFile})`,
+      `[skill-measure] REVERTED managed '${name}' via ${fileSnapshot != null ? 'file snapshot' : `v${skill.baseVersion}`} (post ${post.score} ≤ baseline)`,
     );
     return 'reverted';
   } catch (err) {
@@ -323,23 +384,33 @@ export async function recoverStuckMeasurements(deps: MeasureDeps = {}): Promise<
       deps.restore ??
       (deps.write
         ? (name: string, contents: string | NodeJS.ArrayBufferView) =>
-            deps.write!({
+          deps.write!({
               name,
               body: restoreContentsToUtf8(contents),
             })
         : restoreManagedSkillBytes);
+    const readSnapshot =
+      deps.readSnapshot ?? (deps.write ? undefined : readManagedSkillSnapshotBytes);
+    const deleteSnapshot =
+      deps.deleteSnapshot ?? (deps.write ? undefined : deleteManagedSkillSnapshot);
     const remove = deps.remove ?? deleteManagedSkill;
 
     const stuck = repo.list().filter((s) => s.status === 'measuring');
     let reverted = 0;
     for (const skill of stuck) {
-      const prior = priorBodyOf(repo, skill);
+      const name = skill.appliedForName ?? skill.title;
+      const fileSnapshot = skill.isExternal === 1 ? null : readSnapshot?.(name) ?? null;
+      const prior =
+        fileSnapshot == null
+          ? priorBodyOf(repo, skill)
+          : { body: fileSnapshot.toString('utf8'), description: null };
       const outcome = await revertAppliedSkill(
         skill,
         prior,
+        fileSnapshot,
         { score: 0, reason: 'crash-recovery: measuring at startup → reverted defensively' },
         repo,
-        { reload, write, restore, remove },
+        { reload, write, restore, deleteSnapshot, remove },
       );
       if (outcome === 'reverted') reverted++;
     }

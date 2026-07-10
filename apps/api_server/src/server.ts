@@ -160,32 +160,11 @@ async function main() {
       logger.warn(`[server] workflow-skill population failed (non-fatal): ${String(err)}`);
     }
 
-    // #797 — One-time reconciliation of HISTORICAL agent_skills rows onto the
-    // unified model: legacy `published` rows materialize once (only if no file
-    // exists yet) and normalize to `active`; legacy `draft` rows carry over to
-    // `active` (file absent until materialized). Run-once guarded by a
-    // schema_meta marker (mirrors the seed gate above); re-runs are a no-op.
-    // Non-blocking (touches the engine via listSkills/reload) + non-fatal — a
-    // failure must never block startup and leaves the marker unwritten so a later
-    // boot retries. No-op under Postgres (agent skills are local-SQLite-only).
-    void (async () => {
-      try {
-        const { backfillSkillMetadata } = await import(
-          './services/skill_metadata_backfill'
-        );
-        const r = await backfillSkillMetadata();
-        if (!r.alreadyDone) {
-          logger.info(
-            `[server] agent_skills unify backfill: publishedReconciled=${r.publishedReconciled} ` +
-              `publishedMaterialized=${r.publishedMaterialized} draftCarriedOver=${r.draftCarriedOver} skipped=${r.skipped}`,
-          );
-        }
-      } catch (err) {
-        logger.warn(
-          `[server] agent_skills unify backfill failed (non-fatal): ${String(err)}`,
-        );
-      }
-    })();
+    // #977 — the boot DB→file content-materializer (#797 `backfillSkillMetadata`)
+    // was retired. Files under the managed skills dir are the SOLE content source;
+    // the DB no longer projects legacy `published`/`draft` row bodies into
+    // SKILL.md files at boot. Lifecycle metadata attaches to the live file by name
+    // via the #792 sidecar, not a content backfill.
 
     // One-time grant of obsidian READ/SEARCH advertise-scope to EXISTING
     // selectable agent profiles. The importer default now ships obsidian for

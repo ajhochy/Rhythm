@@ -31,9 +31,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { runMigrations } from '../database/migrations';
-import { setDb } from '../database/db';
+import { getDb, setDb } from '../database/db';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
-import { applyAndMeasure, type ApplyCandidate, type ApplyDeps } from '../services/skill_apply';
+import {
+  applyAndMeasure,
+  applyToEngineSkill,
+  type ApplyCandidate,
+  type ApplyDeps,
+} from '../services/skill_apply';
 import {
   measureAppliedSkill,
   recoverStuckMeasurements,
@@ -329,5 +334,64 @@ describe('#798 filesystem safety guards', () => {
     expect(repo.findByName(name)?.status).toBe('reverted');
     expect(readFileSync(externalLocation)).toEqual(before);
     expect(existsSync(join(managedRoot, name))).toBe(false);
+  });
+
+  it('issue-977-c6: a managed rollback restores a file-backed snapshot without DB body/version content', async () => {
+    // CONTRACT TEST — catches the source-of-truth regression where rollback
+    // leaves a revised managed file live after agent_skills content/version rows
+    // have been retired. The real apply/measure path must restore the bytes that
+    // were present on disk before apply, not recover them from the DB ledger.
+    const name = 'file-backed-snapshot';
+    const location = join(managedRoot, name, 'SKILL.md');
+    mkdirSync(join(managedRoot, name), { recursive: true });
+    const before = Buffer.from(
+      '---\nname: file-backed-snapshot\ndescription: "Preserve exact source bytes"\n---\n\n# Original\n\nKeep this exact file-backed revision.  \n',
+      'utf8',
+    );
+    writeFileSync(location, before);
+
+    const applied = await applyToEngineSkill(
+      {
+        name,
+        body: '# Revised\n\nThis non-improving revision must roll back.\n',
+        description: 'Revised',
+        confidence: 0.9,
+        source: 'auto-refined',
+      },
+      {
+        repo,
+        listSkills: async () => [{ name, location }],
+        reloadSkills: vi.fn().mockResolvedValue([]),
+      },
+    );
+    expect(applied).toBe('applied-managed');
+    expect(readFileSync(location)).not.toEqual(before);
+
+    // Model the post-#977 sidecar: lifecycle metadata remains, but content and
+    // version history are no longer a rollback source. This is the deliberately
+    // narrow seam that production code must satisfy before materializers/routes
+    // are retired in a later slice.
+    const measuring = repo.findByName(name)!;
+    const db = getDb();
+    db.prepare('DELETE FROM agent_skill_versions WHERE skill_id = ?').run(measuring.id);
+    db.prepare('UPDATE agent_skills SET body = NULL, base_version = NULL WHERE id = ?').run(
+      measuring.id,
+    );
+    const metadataOnly = repo.findByName(name)!;
+    expect(metadataOnly.body).toBeNull();
+    expect(metadataOnly.baseVersion).toBeNull();
+    expect(repo.listVersions(metadataOnly.id)).toEqual([]);
+
+    const outcome = await measureAppliedSkill(metadataOnly, {
+      repo,
+      // The judge is the true external boundary; a tie must fail closed to
+      // exercise the real managed revert branch.
+      scorer: scorerFor({}),
+      reload: vi.fn().mockResolvedValue([]),
+    });
+
+    expect(outcome).toBe('reverted');
+    expect(readFileSync(location)).toEqual(before);
+    expect(repo.findByName(name)?.status).toBe('reverted');
   });
 });

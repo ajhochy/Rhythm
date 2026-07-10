@@ -44,8 +44,15 @@
 import { logger } from '../utils/logger';
 import { classifyProposalRisk } from './org_risk_classifier';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
-import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import {
+  AgentConfigsRepository,
+  type AgentConfig,
+  type AgentConfigInput,
+} from '../repositories/agent_configs_repository';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
+import { writeAgentProfileFile } from './opencode_agent_writer';
+import { writeManagedSkill } from './rhythm_managed_skills';
+import { CONFIG_PATCH_FIELDS, SCOPE_PATCH_FIELDS } from './org_diagnosis_types';
 import {
   isConsolidationPairingChange,
   draftConsolidationPayload,
@@ -76,6 +83,140 @@ function isAgentConfigScopeChange(v: unknown): v is AgentConfigScopeChange {
   return (
     typeof c.agentConfigId === 'string' &&
     (c.field === 'allowedMcpsJson' || c.field === 'allowedSkillsJson')
+  );
+}
+
+// ── Shared agent_config field mechanics (#971 refine-config / refine-scope) ──
+//
+// The refine-config (ConfigPatch scalar swap) and refine-scope (ScopePatch
+// add/remove) appliers live in org_proposal_appliers_wiring.ts (the approve
+// lane), but their SNAPSHOT + RESTORE mechanics live here so revertProposal
+// and both appliers share one definition of "read a field" / "write a field"
+// and can never drift. Both kinds snapshot the same shape —
+// {agentConfigId, field, priorValue} — so a single revert branch restores
+// either one.
+
+/** Union of every agent_configs field the two patch shapes can target. */
+export type ConfigFieldName =
+  | (typeof CONFIG_PATCH_FIELDS)[number]
+  | (typeof SCOPE_PATCH_FIELDS)[number];
+
+/** The before_snapshot_json shape refine-config AND refine-scope both write. */
+export interface ConfigFieldSnapshot {
+  agentConfigId: string;
+  field: ConfigFieldName;
+  /** Prior value in the same representation {@link readAgentConfigField} yields. */
+  priorValue: string | null;
+}
+
+const CONFIG_FIELD_NAMES = new Set<string>([...CONFIG_PATCH_FIELDS, ...SCOPE_PATCH_FIELDS]);
+
+export function isConfigFieldName(v: unknown): v is ConfigFieldName {
+  return typeof v === 'string' && CONFIG_FIELD_NAMES.has(v);
+}
+
+export function isConfigFieldSnapshot(v: unknown): v is ConfigFieldSnapshot {
+  if (!v || typeof v !== 'object') return false;
+  const c = v as Record<string, unknown>;
+  return (
+    typeof c.agentConfigId === 'string' &&
+    isConfigFieldName(c.field) &&
+    'priorValue' in c &&
+    (typeof c.priorValue === 'string' || c.priorValue === null)
+  );
+}
+
+/**
+ * Read one logical field off a live agent_configs row in the representation
+ * the snapshot/restore round-trip uses. `model` has no single column — it is
+ * the `modelProvider`/`modelId` pair the REST config path renders as
+ * `provider/model`; the scope/list fields are their raw JSON strings.
+ */
+export function readAgentConfigField(config: AgentConfig, field: ConfigFieldName): string | null {
+  switch (field) {
+    case 'model':
+      return config.modelProvider && config.modelId
+        ? `${config.modelProvider}/${config.modelId}`
+        : (config.modelId ?? null);
+    case 'allowedMcpsJson':
+      return config.allowedMcpsJson ?? null;
+    case 'allowedSkillsJson':
+      return config.allowedSkillsJson ?? null;
+    case 'allowedDelegatesJson':
+      return config.allowedDelegatesJson ?? null;
+    case 'system_prompt':
+      return config.systemPrompt ?? null;
+  }
+}
+
+/**
+ * Build the AgentConfigsRepository.update() patch that sets `field` to `value`.
+ * For `model`, a `provider/model` string is split on the FIRST slash into the
+ * two columns; a slash-less value is stored as `modelId` with a null provider.
+ * ponytail: first-slash split — model ids with embedded slashes (e.g.
+ * "openrouter/anthropic/claude") keep only the first segment as provider;
+ * upgrade to a provider allowlist if such ids appear in real patches.
+ */
+export function agentConfigFieldPatch(
+  field: ConfigFieldName,
+  value: string | null,
+): Partial<AgentConfigInput> {
+  switch (field) {
+    case 'model': {
+      if (value == null || value.trim() === '') return { modelProvider: null, modelId: null };
+      const slash = value.indexOf('/');
+      return slash > 0
+        ? { modelProvider: value.slice(0, slash), modelId: value.slice(slash + 1) }
+        : { modelProvider: null, modelId: value };
+    }
+    case 'allowedMcpsJson':
+      return { allowedMcpsJson: value };
+    case 'allowedSkillsJson':
+      return { allowedSkillsJson: value };
+    case 'allowedDelegatesJson':
+      return { allowedDelegatesJson: value };
+    case 'system_prompt':
+      return { systemPrompt: value };
+  }
+}
+
+/**
+ * Set-arithmetic on a JSON string[] allowlist: start from `priorJson`, drop
+ * every name in `remove`, append every name in `add` not already present
+ * (order-stable). Returns a JSON array string. Shared by the auto-lane
+ * scope prune ({@link applyAgentConfigScopeChange}) and the human-gate
+ * refine-scope applier so the two never diverge.
+ */
+export function computeScopeList(
+  priorJson: string | null,
+  patch: { add?: string[]; remove?: string[] },
+): string {
+  const current = priorJson ? safeParseStringArray(priorJson) : [];
+  const removeSet = new Set(patch.remove ?? []);
+  const next = current.filter((name) => !removeSet.has(name));
+  for (const name of patch.add ?? []) {
+    if (!next.includes(name)) next.push(name);
+  }
+  return JSON.stringify(next);
+}
+
+// ── Shared skill-body revert snapshot (#971 workflow-prompt-fix / #976 refine-skill) ──
+
+/** The before_snapshot_json shape workflow-prompt-fix AND refine-skill write. */
+export interface SkillBodyRevertSnapshot {
+  skillId: string;
+  priorBody: string | null;
+  priorStatus: string;
+}
+
+export function isSkillBodyRevertSnapshot(v: unknown): v is SkillBodyRevertSnapshot {
+  if (!v || typeof v !== 'object') return false;
+  const c = v as Record<string, unknown>;
+  return (
+    typeof c.skillId === 'string' &&
+    ('priorBody' in c) &&
+    (typeof c.priorBody === 'string' || c.priorBody === null) &&
+    typeof c.priorStatus === 'string'
   );
 }
 
@@ -196,18 +337,17 @@ async function applyAgentConfigScopeChange(
     return { status: 'skipped', reason: 'proposal-not-found' };
   }
 
-  // 2. Mutate — remove the named entries from the current allowlist.
-  const currentList: string[] = priorValue ? safeParseStringArray(priorValue) : [];
-  const removeSet = new Set(change.remove ?? []);
-  const nextList = currentList.filter((name) => !removeSet.has(name));
+  // 2. Mutate — remove the named entries from the current allowlist (shared
+  //    set-arithmetic with the human-gate refine-scope applier).
+  const nextList = computeScopeList(priorValue, { remove: change.remove });
 
-  configsRepo.update(change.agentConfigId, { [change.field]: JSON.stringify(nextList) });
+  configsRepo.update(change.agentConfigId, { [change.field]: nextList });
 
   // 3. Advance to measuring.
   await proposalsRepo.updateStatusAsync(proposal.id, 'measuring');
 
   logger.info(
-    `[org-proposal-apply] applied scope prune for '${proposal.id}' on agent_config '${change.agentConfigId}' (${change.field}: removed ${[...removeSet].join(',')}) -> measuring`,
+    `[org-proposal-apply] applied scope prune for '${proposal.id}' on agent_config '${change.agentConfigId}' (${change.field}: removed ${(change.remove ?? []).join(',')}) -> measuring`,
   );
   return { status: 'applied-ok' };
 }
@@ -374,7 +514,16 @@ export async function revertProposal(
       change = null;
     }
 
-    if (isAgentConfigScopeChange(change)) {
+    if (isConfigFieldSnapshot(snapshot)) {
+      // #971 — refine-config (scalar swap) AND refine-scope (add/remove) both
+      // snapshot {agentConfigId, field, priorValue}; restore the field to its
+      // prior value and re-project the opencode agent file the same way the
+      // REST config-update path does after any config mutation.
+      configsRepo.update(snapshot.agentConfigId, agentConfigFieldPatch(snapshot.field, snapshot.priorValue));
+      const restored = configsRepo.getById(snapshot.agentConfigId);
+      if (restored) writeAgentProfileFile(restored);
+    } else if (isAgentConfigScopeChange(change)) {
+      // tighten-scope / prune-scope (auto lane) — snapshot is {[field]: priorValue}.
       const priorValue = snapshot[change.field];
       configsRepo.update(change.agentConfigId, {
         [change.field]: typeof priorValue === 'string' ? priorValue : null,
@@ -392,11 +541,32 @@ export async function revertProposal(
         body: snapshot.retiredPriorBody,
         status: snapshot.retiredPriorStatus,
       });
+    } else if (
+      (proposal.kind === 'workflow-prompt-fix' || proposal.kind === 'refine-skill') &&
+      isSkillBodyRevertSnapshot(snapshot)
+    ) {
+      // #971 / #976 — restore the skill body + status the applier overwrote,
+      // and re-write the managed SKILL.md so the on-disk copy matches the DB.
+      const skillsRepo = deps.skillsRepo ?? new AgentSkillsRepository();
+      skillsRepo.update(snapshot.skillId, {
+        body: snapshot.priorBody,
+        status: snapshot.priorStatus,
+      });
+      const skill = skillsRepo.getById(snapshot.skillId);
+      if (skill) {
+        try {
+          writeManagedSkill({
+            name: skill.title,
+            description: skill.description ?? undefined,
+            body: snapshot.priorBody ?? '',
+          });
+        } catch (err) {
+          logger.warn(`[org-proposal-apply] revert: managed-skill restore failed for '${skill.title}' (non-fatal): ${String(err)}`);
+        }
+      }
     }
-    // Other non-scope kinds (refine-skill/refine-recipe) carry no live-system
-    // side effect to undo here (the skill/recipe body itself is restored by
-    // the skill loop's own revert path when those kinds are actually wired
-    // to it); reverting the proposal's OWN status is still the correct
+    // Other non-scope kinds (refine-recipe) carry no live-system side effect to
+    // undo here; reverting the proposal's OWN status is still the correct
     // action for the dedup guard.
 
     await proposalsRepo.updateStatusAsync(proposal.id, 'reverted', patch);

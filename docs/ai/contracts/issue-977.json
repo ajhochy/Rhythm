@@ -1,0 +1,57 @@
+{
+  "issue": 977,
+  "generated": "2026-07-09",
+  "criteria": [
+    {
+      "criterion_id": "issue-977-c1",
+      "text": "Collapse to one skill-content source: files. Remove DB→file content materializers and boot backfills while retaining lifecycle metadata sidecar.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Deferred: this first slice is restricted to the prerequisite file-backed snapshot/apply/measure/revert seam and must not remove materializers, routes, or broad content sources."
+    },
+    {
+      "criterion_id": "issue-977-c2",
+      "text": "Audit AgentSkillsRepository callers: content retire vs lifecycle keep.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Deferred: caller audit belongs to the later content-retirement slice; this contract deliberately changes no production callers."
+    },
+    {
+      "criterion_id": "issue-977-c3",
+      "text": "Remove boot-time DB→file content materializers once files sole source.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Explicitly deferred by this slice; no boot materializer or route removal is permitted yet."
+    },
+    {
+      "criterion_id": "issue-977-c4",
+      "text": "Lifecycle metadata attaches to live file by name, not a content row.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Deferred: this slice only establishes the rollback seam that lets lifecycle metadata survive future content retirement."
+    },
+    {
+      "criterion_id": "issue-977-c5",
+      "text": "No behavior change to Skills UI status/score/usage or self-regulation loop.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Deferred to the full source-retirement implementation and its UI/self-regulation regression pass; this slice has no UI or production-loop changes."
+    },
+    {
+      "criterion_id": "issue-977-c6",
+      "text": "A managed rollback restores a file-backed snapshot when no DB body/version is available.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/skill_apply_measure_e2e.test.ts",
+      "test_id": "issue-977-c6: a managed rollback restores a file-backed snapshot without DB body/version content",
+      "status": "passing"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-977-c1",
+    "issue-977-c2",
+    "issue-977-c3",
+    "issue-977-c4",
+    "issue-977-c5"
+  ]
+}
