@@ -62,10 +62,12 @@
  */
 
 import { logger } from '../utils/logger';
+import { AppError } from '../errors/app_error';
 import {
   registerProposalApplier,
   registerProposalValidator,
   type ProposalApplier,
+  type ProposalApplyResult,
   type ProposalValidator,
 } from './org_proposal_apply_service';
 import { registerNewAgentApplier } from './generators/new_agent_generator';
@@ -79,9 +81,22 @@ import {
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { writeManagedSkill } from './rhythm_managed_skills';
+import { writeAgentProfileFile } from './opencode_agent_writer';
+import {
+  readAgentConfigField,
+  agentConfigFieldPatch,
+  computeScopeList,
+} from './org_proposal_apply';
+import {
+  CONFIG_PATCH_FIELDS,
+  SCOPE_PATCH_FIELDS,
+  type ConfigPatch,
+  type ScopePatch,
+} from './org_diagnosis_types';
 import { alignMcpName } from './mcp_name_alignment';
 import { opencodeClient } from './opencode_engine';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
+import type { AgentSkill } from '../models/agent_skill';
 import type { ProposalValidationResult } from './org_proposal_apply_service';
 
 /** Minimal registry shape every generator's `register*Applier` needs. */
@@ -314,6 +329,286 @@ function validateCreateRecipeShape(proposal: AgentOrgProposal): ProposalValidati
   return { valid: true };
 }
 
+// ── #971 / #976 — LLM-diagnosis apply lane ──────────────────────────────────
+//
+// `refine-config`, `refine-scope`, `workflow-prompt-fix` and `refine-skill`
+// are the kinds the org-optimizer's LLM diagnosis lane emits. All four are
+// HIGH-risk (never auto-applied) so they land in the human review queue and
+// are applied HERE on approve. Before this, `POST /agent-org-proposals/:id/
+// approve` 400'd for every one of them ("No re-validation is registered for
+// proposal kind '…'") because `org_proposal_apply_service.ts` fails closed on
+// any kind with no validator, and their applier no-op'd. Each now registers:
+//
+//   • a fail-closed VALIDATOR — refuses a prose-only proposal (no
+//     machine-applyable patch) or an unresolvable target with an actionable
+//     reason surfaced in the approve 400 body; and
+//   • an APPLIER that snapshots-before-mutate, writes the real
+//     agent_config / skill (via the repositories + the SAME opencode-file
+//     resync the REST config path uses — never raw SQL, never a forked writer),
+//     and returns {measurable:true, beforeSnapshotJson} so the row advances to
+//     `measuring` for the separately-owned behavioural/body measure step.
+//
+// The snapshot shapes are defined in org_proposal_apply.ts (the shared apply
+// mechanics module) so revertProposal restores them byte-for-byte:
+//   - refine-config / refine-scope → {agentConfigId, field, priorValue}
+//   - workflow-prompt-fix / refine-skill → {skillId, priorBody, priorStatus}
+
+/** Parse a proposal's change_json into a plain object, or null. */
+function parseChange(changeJson: string | null): Record<string, unknown> | null {
+  if (!changeJson) return null;
+  try {
+    const parsed: unknown = JSON.parse(changeJson);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Extract a well-formed ConfigPatch (nested under `configPatch`), or null. */
+function extractConfigPatch(change: Record<string, unknown> | null): ConfigPatch | null {
+  const p = change?.configPatch;
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
+  const o = p as Record<string, unknown>;
+  if (typeof o.agentConfigId !== 'string' || !o.agentConfigId.trim()) return null;
+  if (typeof o.field !== 'string' || !(CONFIG_PATCH_FIELDS as readonly string[]).includes(o.field)) {
+    return null;
+  }
+  if (typeof o.value !== 'string') return null;
+  return { agentConfigId: o.agentConfigId, field: o.field as ConfigPatch['field'], value: o.value };
+}
+
+/** Extract a well-formed ScopePatch (nested under `scopePatch`), or null. A patch with no add/remove is a no-op and refused. */
+function extractScopePatch(change: Record<string, unknown> | null): ScopePatch | null {
+  const p = change?.scopePatch;
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
+  const o = p as Record<string, unknown>;
+  if (typeof o.agentConfigId !== 'string' || !o.agentConfigId.trim()) return null;
+  if (typeof o.field !== 'string' || !(SCOPE_PATCH_FIELDS as readonly string[]).includes(o.field)) {
+    return null;
+  }
+  const add = Array.isArray(o.add) ? o.add.filter((v): v is string => typeof v === 'string') : undefined;
+  const remove = Array.isArray(o.remove)
+    ? o.remove.filter((v): v is string => typeof v === 'string')
+    : undefined;
+  if ((add?.length ?? 0) === 0 && (remove?.length ?? 0) === 0) return null;
+  return { agentConfigId: o.agentConfigId, field: o.field as ScopePatch['field'], add, remove };
+}
+
+/**
+ * Resolve the live skill a workflow-prompt-fix / refine-skill proposal targets:
+ * first from `targetRef` ("skill:<id>"), then from a `skillId` / `affectedSkill`
+ * / `skillName` field in change_json (by id, then by title). Missing → null
+ * (stale signal). A fresh repo is constructed per call because
+ * AgentSkillsRepository pins its DB connection at construction time.
+ */
+function resolveSkillForProposal(proposal: AgentOrgProposal): AgentSkill | null {
+  const skillsRepo = new AgentSkillsRepository();
+  const ref = proposal.targetRef;
+  if (ref && ref.startsWith('skill:')) {
+    const byId = skillsRepo.getById(ref.slice('skill:'.length));
+    if (byId) return byId;
+  }
+  const change = parseChange(proposal.changeJson);
+  const cand = change?.skillId ?? change?.affectedSkill ?? change?.skillName;
+  if (typeof cand === 'string' && cand.trim()) {
+    return skillsRepo.getById(cand) ?? skillsRepo.findByTitle(cand);
+  }
+  return null;
+}
+
+/**
+ * Deterministically fold a workflow-prompt-fix's `concreteFix` into the skill
+ * body. v1: if the fix text isn't already present verbatim, append it as a
+ * trailing block; otherwise leave the body unchanged (the measure step then
+ * scores no improvement and reverts). ponytail: append-only — swap for an LLM
+ * drafter (skill_consolidation_drafter precedent) if real diagnoses emit diffs
+ * or full rewrites rather than paste-in paragraphs.
+ */
+function draftPromptFixBody(priorBody: string, concreteFix: string): string {
+  const fix = concreteFix.trim();
+  if (!fix || priorBody.includes(fix)) return priorBody;
+  const base = priorBody.trimEnd();
+  return base ? `${base}\n\n${fix}\n` : `${fix}\n`;
+}
+
+/**
+ * Shared body-write for workflow-prompt-fix + refine-skill: snapshot
+ * {skillId, priorBody, priorStatus}, write the revised body to the DB row, and
+ * re-project the managed SKILL.md (non-fatal — the DB is the source of truth
+ * the measure step scores from). Returns {measurable:true, beforeSnapshotJson}.
+ */
+function applySkillBodyRevision(skill: AgentSkill, revisedBody: string): ProposalApplyResult {
+  const skillsRepo = new AgentSkillsRepository();
+  const beforeSnapshotJson = JSON.stringify({
+    skillId: skill.id,
+    priorBody: skill.body ?? null,
+    priorStatus: skill.status,
+  });
+  skillsRepo.update(skill.id, { body: revisedBody });
+  try {
+    writeManagedSkill({
+      name: skill.title,
+      description: skill.description ?? undefined,
+      body: revisedBody,
+    });
+  } catch (err) {
+    logger.warn(
+      `[org-proposal-appliers-wiring] managed-skill write failed for '${skill.title}' (non-fatal): ${String(err)}`,
+    );
+  }
+  return { measurable: true, beforeSnapshotJson };
+}
+
+// ── refine-config ──
+function validateRefineConfig(proposal: AgentOrgProposal): ProposalValidationResult {
+  const patch = extractConfigPatch(parseChange(proposal.changeJson));
+  if (!patch) {
+    return {
+      valid: false,
+      reason:
+        'refine-config requires a machine-applyable configPatch {agentConfigId, field, value}; a prose-only diagnosis cannot be auto-applied',
+    };
+  }
+  if (!new AgentConfigsRepository().getById(patch.agentConfigId)) {
+    return { valid: false, reason: `refine-config target agent_config '${patch.agentConfigId}' no longer exists` };
+  }
+  return { valid: true };
+}
+
+const refineConfigApplier: ProposalApplier = (proposal): ProposalApplyResult => {
+  const patch = extractConfigPatch(parseChange(proposal.changeJson));
+  if (!patch) throw AppError.badRequest('refine-config change_json is missing its configPatch at apply time');
+  const configsRepo = new AgentConfigsRepository();
+  const config = configsRepo.getById(patch.agentConfigId);
+  if (!config) throw AppError.badRequest(`refine-config target '${patch.agentConfigId}' no longer exists`);
+
+  const priorValue = readAgentConfigField(config, patch.field);
+  const beforeSnapshotJson = JSON.stringify({
+    agentConfigId: patch.agentConfigId,
+    field: patch.field,
+    priorValue,
+  });
+
+  configsRepo.update(patch.agentConfigId, agentConfigFieldPatch(patch.field, patch.value));
+  const updated = configsRepo.getById(patch.agentConfigId);
+  if (updated) writeAgentProfileFile(updated);
+
+  return { measurable: true, beforeSnapshotJson };
+};
+
+// ── refine-scope ──
+function validateRefineScope(proposal: AgentOrgProposal): ProposalValidationResult {
+  const patch = extractScopePatch(parseChange(proposal.changeJson));
+  if (!patch) {
+    return {
+      valid: false,
+      reason:
+        'refine-scope requires a machine-applyable scopePatch {agentConfigId, field, add?/remove?} with at least one change; a prose-only diagnosis cannot be auto-applied',
+    };
+  }
+  if (!new AgentConfigsRepository().getById(patch.agentConfigId)) {
+    return { valid: false, reason: `refine-scope target agent_config '${patch.agentConfigId}' no longer exists` };
+  }
+  return { valid: true };
+}
+
+const refineScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => {
+  const patch = extractScopePatch(parseChange(proposal.changeJson));
+  if (!patch) throw AppError.badRequest('refine-scope change_json is missing its scopePatch at apply time');
+  const configsRepo = new AgentConfigsRepository();
+  const config = configsRepo.getById(patch.agentConfigId);
+  if (!config) throw AppError.badRequest(`refine-scope target '${patch.agentConfigId}' no longer exists`);
+
+  const priorValue = readAgentConfigField(config, patch.field);
+  const beforeSnapshotJson = JSON.stringify({
+    agentConfigId: patch.agentConfigId,
+    field: patch.field,
+    priorValue,
+  });
+
+  const nextJson = computeScopeList(priorValue, { add: patch.add, remove: patch.remove });
+  configsRepo.update(patch.agentConfigId, agentConfigFieldPatch(patch.field, nextJson));
+  const updated = configsRepo.getById(patch.agentConfigId);
+  if (updated) writeAgentProfileFile(updated);
+
+  return { measurable: true, beforeSnapshotJson };
+};
+
+// ── workflow-prompt-fix ──
+function validateWorkflowPromptFix(proposal: AgentOrgProposal): ProposalValidationResult {
+  const change = parseChange(proposal.changeJson);
+  const concreteFix = change?.concreteFix;
+  if (typeof concreteFix !== 'string' || !concreteFix.trim()) {
+    return {
+      valid: false,
+      reason: 'workflow-prompt-fix requires a non-empty concreteFix describing the skill-body edit',
+    };
+  }
+  if (!resolveSkillForProposal(proposal)) {
+    return {
+      valid: false,
+      reason: 'workflow-prompt-fix could not resolve a live skill from targetRef/affectedSkill (stale signal)',
+    };
+  }
+  return { valid: true };
+}
+
+const workflowPromptFixApplier: ProposalApplier = (proposal): ProposalApplyResult => {
+  const change = parseChange(proposal.changeJson);
+  const concreteFix = typeof change?.concreteFix === 'string' ? change.concreteFix : '';
+  if (!concreteFix.trim()) {
+    throw AppError.badRequest('workflow-prompt-fix change_json is missing its concreteFix at apply time');
+  }
+  const skill = resolveSkillForProposal(proposal);
+  if (!skill) throw AppError.badRequest('workflow-prompt-fix could not resolve a live skill at apply time (stale signal)');
+
+  const priorBody = skill.body ?? '';
+  const revisedBody = draftPromptFixBody(priorBody, concreteFix);
+  const result = applySkillBodyRevision(skill, revisedBody);
+
+  // Reshape change_json into the BodyRefinementChange the measure step reads
+  // (persisted by the approve controller alongside the `applied` transition).
+  result.changeJson = JSON.stringify({
+    skillName: skill.title,
+    priorBody,
+    revisedBody,
+    description: skill.description ?? null,
+    whenToUse: skill.whenToUse ?? null,
+  });
+  return result;
+};
+
+// ── refine-skill (#976 approve half — change_json is already a BodyRefinementChange) ──
+function validateRefineSkill(proposal: AgentOrgProposal): ProposalValidationResult {
+  const change = parseChange(proposal.changeJson);
+  if (typeof change?.priorBody !== 'string' || typeof change?.revisedBody !== 'string') {
+    return {
+      valid: false,
+      reason: 'refine-skill requires a BodyRefinementChange {priorBody, revisedBody} in change_json',
+    };
+  }
+  if (!resolveSkillForProposal(proposal)) {
+    return {
+      valid: false,
+      reason: 'refine-skill could not resolve a live skill from targetRef/skillName (stale signal)',
+    };
+  }
+  return { valid: true };
+}
+
+const refineSkillApplier: ProposalApplier = (proposal): ProposalApplyResult => {
+  const change = parseChange(proposal.changeJson);
+  const revisedBody = typeof change?.revisedBody === 'string' ? change.revisedBody : null;
+  if (revisedBody == null) {
+    throw AppError.badRequest('refine-skill change_json is missing its revisedBody at apply time');
+  }
+  const skill = resolveSkillForProposal(proposal);
+  if (!skill) throw AppError.badRequest('refine-skill could not resolve a live skill at apply time (stale signal)');
+  return applySkillBodyRevision(skill, revisedBody);
+};
+
 /**
  * Wire all six generators' apply steps into the given registry (normally
  * `org_proposal_apply_service.ts`'s module-level `registerProposalApplier`
@@ -375,7 +670,22 @@ export function registerAllProposalAppliers(registry: AppliersRegistry = {
   // scope_hygiene_generator (#822) intentionally registers nothing here —
   // see the module doc above for why.
 
+  // #971 / #976 — LLM-diagnosis apply lane. Fail-closed validators + real
+  // appliers so approve no longer 400s and the change is actually made.
+  try {
+    registry.registerProposalValidator('refine-config', validateRefineConfig);
+    registry.registerProposalApplier('refine-config', refineConfigApplier);
+    registry.registerProposalValidator('refine-scope', validateRefineScope);
+    registry.registerProposalApplier('refine-scope', refineScopeApplier);
+    registry.registerProposalValidator('workflow-prompt-fix', validateWorkflowPromptFix);
+    registry.registerProposalApplier('workflow-prompt-fix', workflowPromptFixApplier);
+    registry.registerProposalValidator('refine-skill', validateRefineSkill);
+    registry.registerProposalApplier('refine-skill', refineSkillApplier);
+  } catch (err) {
+    logger.warn(`[org-proposal-appliers-wiring] failed to register diagnosis-lane appliers (non-fatal): ${String(err)}`);
+  }
+
   logger.info(
-    '[org-proposal-appliers-wiring] registered appliers for: create-agent, grant-delegation, expand-delegation, external-adoption, webhook-wiring, create-recipe',
+    '[org-proposal-appliers-wiring] registered appliers for: create-agent, grant-delegation, expand-delegation, external-adoption, webhook-wiring, create-recipe, refine-config, refine-scope, workflow-prompt-fix, refine-skill',
   );
 }
