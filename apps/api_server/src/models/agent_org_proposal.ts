@@ -35,7 +35,8 @@ export interface AgentOrgProposal {
   /**
    * create-agent|grant-delegation|expand-delegation|broaden-scope|
    * tighten-scope|prune-scope|create-recipe|refine-recipe|refine-skill|
-   * consolidate-skill|external-adoption|webhook-wiring
+   * consolidate-skill|external-adoption|webhook-wiring|refine-config|
+   * refine-scope|workflow-prompt-fix|refine-task
    */
   kind: string;
   /** 'low' | 'high' — from classifyProposalRisk. */

@@ -46,6 +46,10 @@ const HIGH_RISK_KINDS = new Set<string>([
   'create-recipe',
   'webhook-wiring',
   'external-adoption',
+  // #981 — refine-task edits a scheduled-task definition (instructions/schedule/
+  // agent binding). Always human-gated: a bad schedule/binding edit runs on a
+  // cron, so it never auto-applies.
+  'refine-task',
 ]);
 
 /** Kinds whose review-queue UI must block Approve until a security/provenance note is present. */

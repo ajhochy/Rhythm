@@ -56,6 +56,7 @@
 import { logger } from '../utils/logger';
 import { revertProposal, type ApplyDeps, type RevertPatch } from './org_proposal_apply';
 import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
+import { TASK_PATCH_TEXT_FIELDS } from './org_diagnosis_types';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import type { ScoreCall, SkillPurpose } from './skill_refiner';
 
@@ -193,12 +194,49 @@ export async function measureProposal(
       return await measureBehavioralRerun(proposal, { ...deps, proposalsRepo });
     }
 
+    // #981 — refine-task: a text edit (prompt/description) is LLM-judged (the
+    // applier reshaped change_json into a BodyRefinementChange); a schedule or
+    // binding edit is measured behaviorally (re-run the failing scenario).
+    if (proposal.kind === 'refine-task') {
+      return await measureRefineTask(proposal, { ...deps, proposalsRepo });
+    }
+
     logger.warn(`[org-proposal-measure] unsupported kind '${proposal.kind}' for '${proposal.id}' — skipping`);
     return 'skipped';
   } catch (err) {
     logger.warn(`[org-proposal-measure] FAILED (non-fatal): ${String(err)}`);
     return 'skipped';
   }
+}
+
+/**
+ * #981 — route a refine-task proposal to the right measure path by its patched
+ * field: prompt/description (text) → LLM-judge via {@link measureBodyRefinement}
+ * (the applier already reshaped change_json to carry priorBody/revisedBody);
+ * cronExpression/scheduledTime/agentConfigId (schedule/binding) → behavioral
+ * re-run via {@link measureBehavioralRerun}. An unreadable/legacy payload with
+ * no taskPatch.field falls back to the behavioral path.
+ */
+async function measureRefineTask(
+  proposal: AgentOrgProposal,
+  deps: Required<Pick<MeasureDeps, 'proposalsRepo'>> & MeasureDeps,
+): Promise<MeasureOutcome> {
+  let change: Record<string, unknown> | null;
+  try {
+    change = proposal.changeJson ? (JSON.parse(proposal.changeJson) as Record<string, unknown>) : null;
+  } catch (err) {
+    logger.warn(`[org-proposal-measure] malformed changeJson for '${proposal.id}': ${String(err)}`);
+    return 'skipped';
+  }
+  const taskPatch = change?.taskPatch;
+  const field =
+    taskPatch && typeof taskPatch === 'object' && !Array.isArray(taskPatch)
+      ? (taskPatch as Record<string, unknown>).field
+      : undefined;
+  if (typeof field === 'string' && (TASK_PATCH_TEXT_FIELDS as readonly string[]).includes(field)) {
+    return await measureBodyRefinement(proposal, deps);
+  }
+  return await measureBehavioralRerun(proposal, deps);
 }
 
 /**
