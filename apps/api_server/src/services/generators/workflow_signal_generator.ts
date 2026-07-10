@@ -434,7 +434,7 @@ function buildDiagnosisSystemPrompt(): string {
     '',
     'For a config-change you MUST ALSO include a structured patch (REQUIRED — a',
     'config-change WITHOUT this patch cannot be applied and will be rejected):',
-    '  "configPatch":{"agentConfigId":"<the AFFECTED SKILL/PROFILE id>","field":"model|allowedSkillsJson|allowedDelegatesJson","value":"<the new value; for model a model id like anthropic/claude-sonnet-5, for the *Json fields a JSON array string>"}',
+    '  "configPatch":{"agentConfigId":"<the AFFECTED SKILL/PROFILE id>","field":"model|allowedSkillsJson|allowedDelegatesJson|system_prompt","value":"<the new value; for model a model id like anthropic/claude-sonnet-5, for the *Json fields a JSON array string; for system_prompt the COMPLETE replacement system prompt text (the full new role text, not a description)>"}',
     'For a scope-change you MUST ALSO include a structured patch (REQUIRED — same rule):',
     '  "scopePatch":{"agentConfigId":"<the AFFECTED SKILL/PROFILE id>","field":"allowedMcpsJson|allowedSkillsJson","add":["<name>"],"remove":["<name>"]}',
     '',

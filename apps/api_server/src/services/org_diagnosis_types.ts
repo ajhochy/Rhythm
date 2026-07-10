@@ -24,7 +24,7 @@
  */
 export interface ConfigPatch {
   agentConfigId: string;
-  field: 'model' | 'allowedSkillsJson' | 'allowedDelegatesJson';
+  field: 'model' | 'allowedSkillsJson' | 'allowedDelegatesJson' | 'system_prompt';
   value: string;
 }
 
@@ -69,6 +69,6 @@ export interface DiagnosisResult {
 }
 
 /** The single source of truth for legal `refine-config` (ConfigPatch) fields. */
-export const CONFIG_PATCH_FIELDS = ['model', 'allowedSkillsJson', 'allowedDelegatesJson'] as const;
+export const CONFIG_PATCH_FIELDS = ['model', 'allowedSkillsJson', 'allowedDelegatesJson', 'system_prompt'] as const;
 /** The single source of truth for legal `refine-scope` (ScopePatch) fields. */
 export const SCOPE_PATCH_FIELDS = ['allowedMcpsJson', 'allowedSkillsJson'] as const;
