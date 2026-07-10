@@ -99,6 +99,10 @@ export class OrgProposalsController {
       const applied = await repo().updateStatusAsync(id, 'applied', {
         decidedByUserId,
         beforeSnapshotJson: applyResult.beforeSnapshotJson,
+        // An applier may reshape change_json (e.g. workflow-prompt-fix rewrites
+        // its prose diagnosis into the BodyRefinementChange the measure step
+        // reads). Undefined = leave change_json untouched.
+        changeJson: applyResult.changeJson,
       });
 
       if (!applyResult.measurable) {

@@ -48,6 +48,13 @@ export interface ProposalApplyResult {
   measurable: boolean;
   /** Snapshot of prior state for rollback — stored as before_snapshot_json. */
   beforeSnapshotJson?: string;
+  /**
+   * Optional reshaped `change_json` the applier wants persisted alongside the
+   * `applied` transition. Used by the workflow-prompt-fix applier (#971) to
+   * rewrite a prose diagnosis into the `BodyRefinementChange` shape the measure
+   * step reads. Undefined leaves `change_json` untouched (the common case).
+   */
+  changeJson?: string;
 }
 
 export type ProposalApplier = (
