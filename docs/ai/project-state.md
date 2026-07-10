@@ -2,21 +2,36 @@
 
 ## Current focus
 
-**Org-optimizer approval loop + skill-content-shadow retirement — built,
-integrated, live-verified, and merged to `main` via PR #982 (2026-07-10).** See
-`docs/ai/runs/2026-07-09-optimizer-shadow-epic.md` and
-`docs/ai/runs/2026-07-10-ministry-seed-test-ci-fix.md`.
+**Non-mobile issue wave (2026-07-10) — 6 live-backend-verified fixes on
+`workflow/run-2026-07-10-nonmobile-issues`, PR open for AJ review.** See
+`docs/ai/runs/2026-07-10-nonmobile-issues-wave.md`. Every fix verified by a real
+backend probe (standalone server + real fork engine), not just tsc/unit:
 
-The org-optimizer now closes end-to-end: the LLM diagnosis brain **generates**
-`refine-config` / `refine-scope` / `workflow-prompt-fix` (+ `grant-delegation`)
-proposals (additive to #956's deterministic `broaden-scope`/`create-recipe`
-lanes), a human **approves**, an applier makes the **real** change, a
-**behavioral re-run or LLM-judge** decides keep/revert, and a reverted diagnosis
-re-enters with attempt-aware context. `refine-skill` (#976, human-gated) and
-`system_prompt` (gap #1) ride the same machinery.
+- **#1002** (linchpin): headless/scheduled agent runs failed ("model produced no
+  output") because `agent_runner` prompted the directory-scoped engine with an
+  undefined cwd. Fixed → scheduled run reaches `idle` with real output; 46 stuck
+  `starting` sessions recovered on boot. Unblocks scheduled tasks + optimizer measure.
+- **#1000** scheduler save 500 (boolean bind), **#1004** tighten-scope over-prune
+  (count only executed sessions; 30→18 removals), **#1003** un-approvable
+  grant-delegation (log-only routing + actionable refusal), **#1001** E2E
+  test-agent leak (isolation guard + 7 leaked profiles cleaned), **#999** empty
+  tool-transcripts (structured messages endpoint).
+
+**Closed with evidence this run:** #971, #976, #977, #961, #962 (all LIVE-CONFIRMED
+on main via PR #982 — see run log).
+
+**In progress:** #981 `refine-task` kind (worktree subagent). **Deferred, untouched:**
+#983–#988 (Plan A), #989–#997 (Plan B).
+
+Prior: org-optimizer approval loop + skill-content-shadow retirement merged via
+**PR #982** — see `docs/ai/runs/2026-07-09-optimizer-shadow-epic.md`.
 
 ## Branch / PR
 
+- **OPEN (this run):** `workflow/run-2026-07-10-nonmobile-issues` — fixes
+  #1002/#1000/#1004/#1003/#1001/#999 (+#981 pending). Full api_server suite
+  **2616 passed / 0 failed**; tsc clean. Do NOT merge — awaiting AJ manual smoke
+  of #999 (Session History transcripts) + #1000 (cron toggle).
 - **MERGED (PR #982, AJ sign-off, 2026-07-10):** org-optimizer approval loop +
   skill-content-shadow retirement — closes **#977, #971, #976** and adds gap
   #1 (system_prompt). Built by 6 parallel worktree agents across 3 waves + an
