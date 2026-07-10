@@ -325,13 +325,16 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
     // nfl-mcp anywhere.
     const sessionsRepo = new AgentSessionsRepository();
     for (let i = 0; i < 10; i++) {
-      sessionsRepo.insert({
+      const s = sessionsRepo.insert({
         agentKind: 'claude-code',
         taskId: null,
         cwd: '/tmp',
         name: `session-${i}`,
         mcpRole: 'secretary',
       });
+      // #1004: only EXECUTED sessions count toward the tighten-scope floor;
+      // insert() stamps 'starting', so mark these as a real (idle) run.
+      sessionsRepo.updateStatus(s.id, 'idle');
     }
 
     const { buildOrgAuditSnapshot } = await import('../org_audit_service');
