@@ -1570,7 +1570,12 @@ export class AgentSessionsController {
       const limit =
         limitParam !== undefined ? Math.min(Number(limitParam), 500) : 200;
 
-      const messages = messagesRepo.listBySession(session.id, limit);
+      // #999: the Session History transcript endpoint must send STRUCTURED
+      // messages (parts: tool calls, reasoning, step markers). listBySession()
+      // rebuilds only text parts, so tool-using sessions arrived with empty
+      // rawText and rendered as "(empty message)". The Flutter client already
+      // has a parts-fallback parser — it was just never receiving parts data.
+      const messages = messagesRepo.listBySessionStructured(session.id, limit);
       res.json({ messages });
     } catch (err) {
       next(err);
