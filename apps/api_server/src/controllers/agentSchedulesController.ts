@@ -1,9 +1,34 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { computeNextRun } from '../services/agentSchedulerService';
 
 const repo = new AgentScheduledTasksRepository();
+const configsRepo = new AgentConfigsRepository();
+
+/**
+ * #1039 Cause A — a scheduled task runs its bound profile as a TOP-LEVEL agent
+ * (AgentRunner passes `agent: <profileId>` to opencode). A profile that is not
+ * session-selectable is projected `mode: subagent` (opencode_agent_writer) and
+ * opencode exposes subagents ONLY as delegation targets — resolving one as a
+ * top-level `agent:` throws "Agent not found", which used to surface as the
+ * silent "model produced no output" at run time. Reject that binding here, at
+ * config time, with an actionable message instead. CLI kinds ('opencode' /
+ * 'claude' / 'codex') and built-in modes have no agent_configs row → getById
+ * returns null → no guard fires (they are runnable). Never throws on lookup.
+ */
+function assertSchedulableProfile(configId: string | null | undefined): void {
+  if (!configId || typeof configId !== 'string') return;
+  const config = configsRepo.getById(configId);
+  if (!config) return; // not a profile (CLI kind / built-in) — runnable
+  if (config.sessionSelectable === false) {
+    throw AppError.badRequest(
+      `"${config.label}" is a delegation-only subagent and can't be scheduled — ` +
+        `make it session-selectable in the agent designer to run it standalone.`,
+    );
+  }
+}
 
 export class AgentSchedulesController {
   async list(_req: Request, res: Response, next: NextFunction) {
@@ -48,6 +73,17 @@ export class AgentSchedulesController {
         throw AppError.badRequest(`scheduleType must be one of: ${validTypes.join(', ')}`);
       }
 
+      // #1039: reject binding to a delegation-only (non-session-selectable)
+      // profile before the row is created. Mirror the createAsync agentConfigId
+      // fallback so the id we validate is the id that will actually be bound.
+      assertSchedulableProfile(
+        typeof agentConfigId === 'string'
+          ? agentConfigId
+          : typeof agentKind === 'string'
+            ? agentKind
+            : null,
+      );
+
       const tz = (typeof timezone === 'string' ? timezone : undefined) ?? 'America/Los_Angeles';
 
       const nextRunAt = computeNextRun({
@@ -90,6 +126,18 @@ export class AgentSchedulesController {
       if (!existing) throw AppError.notFound('AgentScheduledTask');
 
       const patch = req.body as Record<string, unknown>;
+
+      // #1039: if this update re-binds the task to a different profile, re-run
+      // the delegation-only guard against the new binding.
+      if ('agentConfigId' in patch || 'agentKind' in patch) {
+        const nextConfigId =
+          typeof patch.agentConfigId === 'string'
+            ? patch.agentConfigId
+            : typeof patch.agentKind === 'string'
+              ? patch.agentKind
+              : (existing.agentConfigId ?? existing.agentKind);
+        assertSchedulableProfile(nextConfigId);
+      }
 
       // If schedule-related fields changed, recompute next_run
       const scheduleChanged = ['scheduleType', 'scheduledTime', 'scheduledDay', 'cronExpression', 'runAt', 'timezone'].some(
