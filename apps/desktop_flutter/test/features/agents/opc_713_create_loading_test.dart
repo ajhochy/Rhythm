@@ -99,6 +99,7 @@ class _SlowStubAgentsRepository implements AgentsRepository {
   Future<List<AgentSession>> listSessions({
     bool includeArchived = false,
     bool archivedOnly = false,
+    String? scope,
   }) async =>
       const [];
 
@@ -428,9 +429,13 @@ class _ThrowingStubRepo implements AgentsRepository {
   Future<List<AgentSession>> listSessions({
     bool includeArchived = false,
     bool archivedOnly = false,
+    String? scope,
   }) =>
       inner.listSessions(
-          includeArchived: includeArchived, archivedOnly: archivedOnly);
+        includeArchived: includeArchived,
+        archivedOnly: archivedOnly,
+        scope: scope,
+      );
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>

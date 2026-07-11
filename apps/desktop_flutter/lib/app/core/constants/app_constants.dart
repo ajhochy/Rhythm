@@ -13,7 +13,7 @@ class AppConstants {
   static const int navAutomations = 7;
   static const int navIntegrations = 8;
   static const int navAgents = 9;
-  static const int navSessionHistory = 10;
+  // #1027 (USO A4): navSessionHistory (was 10) retired with the standalone page.
 
   static const String agentLocalBaseUrl = 'http://localhost:4001';
   static const String agentLocalWsBase = 'ws://localhost:4001';

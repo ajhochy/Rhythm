@@ -118,6 +118,7 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<List<AgentSession>> listSessions({
     bool includeArchived = false,
     bool archivedOnly = false,
+    String? scope,
   }) async {
     if (archivedOnly) return _store.where((s) => s.isArchived).toList();
     if (includeArchived) return List.of(_store);

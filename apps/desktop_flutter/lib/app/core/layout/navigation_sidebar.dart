@@ -29,7 +29,9 @@ class NavigationSidebar extends StatelessWidget {
     _NavItem(icon: Icons.auto_awesome, label: 'Automations'),
     _NavItem(icon: Icons.link, label: 'Integrations'),
     _NavItem(icon: Icons.smart_toy_outlined, label: 'Agents'),
-    _NavItem(icon: Icons.history, label: 'Session History'),
+    // #1027 (USO A4): the standalone Session History item was retired — its
+    // sessions are now in the unified Agents list (Scheduled / Background
+    // self-improvement scopes), and its transcript detail is reused there.
   ];
 
   @override

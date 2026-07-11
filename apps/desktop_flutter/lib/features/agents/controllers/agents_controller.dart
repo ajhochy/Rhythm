@@ -66,6 +66,26 @@ class PendingPermission {
 
 enum AgentsLoadStatus { idle, loading, error }
 
+/// #1025 (USO A2) — session-list category scope. Maps to the server
+/// `GET /agent-sessions?scope=` query param. `chats` is the default and
+/// `no-scope === scope=chats`. [menuLabel] is the full dropdown-item label;
+/// [headerLabel] is the compact uppercased label shown at the list header.
+enum AgentSessionScope {
+  chats('chats', 'Chats', 'CHATS'),
+  scheduled('scheduled', 'Scheduled Tasks', 'SCHEDULED'),
+  selfImprovement(
+    'self_improvement',
+    'Background self-improvement',
+    'SELF-IMPROVE',
+  );
+
+  const AgentSessionScope(this.wireValue, this.menuLabel, this.headerLabel);
+
+  final String wireValue;
+  final String menuLabel;
+  final String headerLabel;
+}
+
 class PendingTrigger {
   PendingTrigger({
     required this.taskId,
@@ -160,6 +180,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   List<AgentSession> _sessions = [];
   List<AgentSession> _resumable = [];
   List<AgentSession> _archived = [];
+
+  /// #1025 (USO A2) — active session-list category scope. Sent as the
+  /// `?scope=` query param on every [load]. Defaults to [AgentSessionScope.chats].
+  AgentSessionScope _scope = AgentSessionScope.chats;
   String? _selectedSessionId;
   List<AgentSessionMessage> _transcript = [];
 
@@ -420,6 +444,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   List<AgentSession> get sessions => List.unmodifiable(_sessions);
   List<AgentSession> get resumable => List.unmodifiable(_resumable);
+
+  /// #1025 (USO A2) — the active session-list category scope.
+  AgentSessionScope get scope => _scope;
   List<AgentSession> get archived => List.unmodifiable(_archived);
   String? get selectedSessionId => _selectedSessionId;
 
@@ -1536,11 +1563,18 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _catalogLoaded = true;
   }
 
+  /// #1025 (USO A2) — switch the active category scope and reload the list.
+  /// Passing the current scope again acts as a plain refresh.
+  Future<void> loadSessions(AgentSessionScope scope) async {
+    _scope = scope;
+    await load();
+  }
+
   Future<void> load() async {
     _status = AgentsLoadStatus.loading;
     notifyListeners();
     try {
-      final result = await _repository.listSessions();
+      final result = await _repository.listSessions(scope: _scope.wireValue);
       // Show closed sessions in the main list so users can read past
       // transcripts; the row UI greys them out and they can be removed via
       // the row's hard-delete action. Only `resumable` sessions move to the
