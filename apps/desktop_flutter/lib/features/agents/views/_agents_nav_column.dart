@@ -66,8 +66,8 @@ class AgentsNavColumn extends StatefulWidget {
   State<AgentsNavColumn> createState() => _AgentsNavColumnState();
 }
 
-/// #903 — session list sort keys.
-enum _SessionSortField { dateNewest, dateOldest, name, lastActivity }
+/// #903 — session list sort keys. #1026 (USO A3) adds [status].
+enum _SessionSortField { dateNewest, dateOldest, name, lastActivity, status }
 
 class _AgentsNavColumnState extends State<AgentsNavColumn> {
   String _searchQuery = '';
@@ -121,6 +121,34 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
         final aTime = a.lastActivityAt ?? a.createdAt;
         final bTime = b.lastActivityAt ?? b.createdAt;
         return bTime.compareTo(aTime);
+      case _SessionSortField.status:
+        // #1026 (USO A3) — deterministic status order
+        // (working → starting → idle → error), ties broken by recency.
+        final byStatus = _statusRank(a.status).compareTo(_statusRank(b.status));
+        if (byStatus != 0) return byStatus;
+        final aTime = a.lastActivityAt ?? a.createdAt;
+        final bTime = b.lastActivityAt ?? b.createdAt;
+        return bTime.compareTo(aTime);
+    }
+  }
+
+  /// #1026 (USO A3) — ordering weight for the Status sort. Lower sorts first:
+  /// working → starting → idle → error, then the terminal/dormant states so
+  /// the order is total (deterministic) across every possible status.
+  static int _statusRank(AgentSessionStatus status) {
+    switch (status) {
+      case AgentSessionStatus.working:
+        return 0;
+      case AgentSessionStatus.starting:
+        return 1;
+      case AgentSessionStatus.idle:
+        return 2;
+      case AgentSessionStatus.error:
+        return 3;
+      case AgentSessionStatus.closed:
+        return 4;
+      case AgentSessionStatus.resumable:
+        return 5;
     }
   }
 
@@ -381,6 +409,10 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
                     PopupMenuItem(
                       value: _SessionSortField.lastActivity,
                       child: Text('Last activity'),
+                    ),
+                    PopupMenuItem(
+                      value: _SessionSortField.status,
+                      child: Text('Status'),
                     ),
                   ],
                   child: SizedBox(
