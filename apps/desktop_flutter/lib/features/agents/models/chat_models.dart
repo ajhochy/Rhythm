@@ -200,7 +200,9 @@ class ChatPart {
       }
     } else if (raw['type'] == 'reasoning') {
       final t = raw['text'];
-      if (t is String) text = t;
+      // #1009: a delayed/empty snapshot must not clobber text already
+      // assembled from live deltas (Claude Code streams the delta first).
+      if (t is String && (t.isNotEmpty || text.isEmpty)) text = t;
       // OPC-M2-2: extract duration from time.end - time.start when available.
       final timeMap = raw['time'] as Map<String, dynamic>?;
       if (timeMap != null) {
