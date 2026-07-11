@@ -229,6 +229,48 @@ void main() {
       controller.dispose();
     });
 
+    testWidgets(
+        'issue-1013-c2: LLM-diagnosis proposal (real queue shape) renders '
+        'Root cause / Proposed fix, not empty before/after rows',
+        (tester) async {
+      // The proposals that actually reach this queue (refine-config etc. from
+      // the #982 LLM diagnosis) carry prose + null beforeSnapshot, no patch.
+      // Regression: the generic diff path rendered "Before: (none) / After: …".
+      final dataSource = _FakeOrgProposalsDataSource([
+        _makeProposal(
+          id: 'diag1',
+          kind: 'refine-config',
+          changeJson:
+              '{"source":"org-optimizer-llm-diagnosis","affectedSkill":"coding-agent",'
+              '"diagnosis":"Model-task mismatch causing repeated failures.",'
+              '"rootCause":"Configured model is too low-tier for the task.",'
+              '"fixType":"model","concreteFix":"Raise the model to a higher tier.",'
+              '"confidence":0.82}',
+          beforeSnapshotJson: null,
+        ),
+      ]);
+      final controller = OrgProposalsController(
+        OrgProposalsRepository(dataSource),
+      );
+      await controller.refresh();
+
+      await tester.pumpWidget(await _buildApp(controller));
+      await tester.pump();
+
+      expect(find.text('Proposed change'), findsOneWidget);
+      expect(find.text('Root cause'), findsOneWidget);
+      expect(find.text('Proposed fix'), findsOneWidget);
+      expect(
+        find.textContaining('Raise the model to a higher tier.'),
+        findsOneWidget,
+      );
+      // The misleading generic diff rows must NOT appear for this shape.
+      expect(find.textContaining('Before: Not set'), findsNothing);
+      expect(find.textContaining('Before: (none)'), findsNothing);
+
+      controller.dispose();
+    });
+
     testWidgets('renders empty state when there is nothing to review',
         (tester) async {
       final dataSource = _FakeOrgProposalsDataSource([]);
