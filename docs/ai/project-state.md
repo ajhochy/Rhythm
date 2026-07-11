@@ -60,6 +60,26 @@ See `docs/ai/runs/2026-07-11-nonmobile-wave-codex-terra.md`.
 
 ## Recent coding-agent runs
 
+- 2026-07-11 — `uso/b5` (#1032): routed the skill-extract background loop through
+  `AgentRunner.run({category:'self_improvement'})` and audited every remaining
+  direct `createSession`. Files: `services/skill_extractor.ts` (defaultLlmCall now
+  calls run() with mcpRole 'skill-extract' + allowedMcpsJson '{}' zero-tool scope;
+  added the full createSession audit as a comment block) + new
+  `__tests__/skill_extractor_agentrunner_routing.test.ts`. AUDIT RESULT: the only
+  background-loop createSession I own was skill_extractor; the "consolidation
+  drafters" (`skill_consolidation_drafter.ts`, `memory_consolidation_drafter.ts`)
+  are deliberately mechanical (no LLM call, nothing to migrate) and the "harvest
+  evaluator" (`harvested_skill_evaluator.ts`) delegates its LLM calls to
+  `skill_refiner.ts` (a separate B-phase file — no createSession of its own).
+  Every remaining direct createSession is a justified non-loop: agent_runner.ts:834
+  (run's own), ws_gateway.ts x2 + agent_sessions_controller.ts x2 (interactive
+  user path), skill_refiner x3 / workflow_signal_generator / org_proposal_measure
+  (other B-phase owners). Checks: `tsc --noEmit` clean; full vitest 2668 passed /
+  26 skipped / 0 failed (incl. +2 new routing tests). Live harvest+consolidation
+  probe deferred to the orchestrator (per dispatch). Risk: run()'s teacher
+  escalation is ON by default, so a failed distill turn may now retry on the
+  teacher model + attempt a capture — bounded (a distill session has 1 assistant
+  round < the rounds>=2 gate, so any re-distill returns null immediately).
 - 2026-07-11 — `codex/fix-inert-1014-1007-997`: repaired the three adversarially
   confirmed inert paths (#1014 same-session delegate-cache refresh, #1007
   scheduled content-derived naming, #997 provider-distinct external-discovery
