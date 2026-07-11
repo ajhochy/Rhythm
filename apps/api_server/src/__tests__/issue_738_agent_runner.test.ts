@@ -12,10 +12,12 @@ const {
   mockCreateSession,
   mockPrompt,
   mockAbortSession,
+  mockListMcp,
 } = vi.hoisted(() => ({
   mockCreateSession: vi.fn(),
   mockPrompt: vi.fn(),
   mockAbortSession: vi.fn(),
+  mockListMcp: vi.fn(),
 }));
 
 vi.mock('../services/opencode_engine', () => ({
@@ -24,6 +26,7 @@ vi.mock('../services/opencode_engine', () => ({
     createSession: mockCreateSession,
     prompt: mockPrompt,
     abortSession: mockAbortSession,
+    listMcp: mockListMcp,
   },
   opencodeSessionMap: new Map<string, string>(),
 }));
@@ -98,6 +101,36 @@ describe('#738 — AgentRunner', () => {
     expect(result.status).toBe('error');
     expect(result.error).toMatch(/run timed out/i);
     expect(mockAbortSession).toHaveBeenCalledWith('sdk-session-1', undefined);
+
+    delete process.env.AGENT_RUN_TIMEOUT_MS;
+  });
+
+  it('returns an error when the MCP readiness preflight exceeds the run timeout', async () => {
+    process.env.AGENT_RUN_TIMEOUT_MS = '50';
+    mockListMcp.mockReturnValue(new Promise(() => {}));
+
+    const result = await run({
+      prompt: 'Check staffing',
+      mcpRole: 'worship-planning',
+      allowedMcpsJson: '{"pco-services":["get_plans"]}',
+    });
+
+    expect(result.status).toBe('error');
+    expect(result.error).toMatch(/MCP readiness preflight/i);
+    expect(mockCreateSession).not.toHaveBeenCalled();
+
+    delete process.env.AGENT_RUN_TIMEOUT_MS;
+  });
+
+  it('returns an error when session creation exceeds the run timeout', async () => {
+    process.env.AGENT_RUN_TIMEOUT_MS = '50';
+    mockCreateSession.mockReturnValue(new Promise(() => {}));
+
+    const result = await run({ prompt: 'Start a tool-heavy task' });
+
+    expect(result.status).toBe('error');
+    expect(result.error).toMatch(/session creation/i);
+    expect(mockPrompt).not.toHaveBeenCalled();
 
     delete process.env.AGENT_RUN_TIMEOUT_MS;
   });

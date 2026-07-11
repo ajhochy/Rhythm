@@ -51,6 +51,66 @@ function getNoProgressMs(): number {
   return Number(process.env.AGENT_RUN_NOPROGRESS_MS ?? 30_000);
 }
 
+class AgentRunTimeoutError extends Error {
+  constructor(
+    readonly stage: string,
+    readonly timeoutMs: number,
+  ) {
+    super(`Run timed out during ${stage} after ${timeoutMs}ms`);
+    this.name = 'AgentRunTimeoutError';
+  }
+}
+
+/**
+ * Run one engine call within the shared AgentRunner deadline. Every stage uses
+ * the same deadline so MCP readiness and session creation cannot consume an
+ * unbounded amount of time before prompt() gets its timeout race.
+ */
+async function _withinRunDeadline<T>(
+  operation: Promise<T>,
+  deadline: number,
+  stage: string,
+): Promise<T> {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) {
+    throw new AgentRunTimeoutError(stage, getRunTimeoutMs());
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new AgentRunTimeoutError(stage, getRunTimeoutMs())),
+          remainingMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Headless runs do not consume the engine event stream, so they never receive
+ * the interactive path's session.updated auto-title. Seed their session with a
+ * cheap, stable title from the first prompt instead of leaving a placeholder.
+ */
+function _titleFromPrompt(prompt: string): string | null {
+  const normalized = prompt.replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+
+  const MAX_TITLE_LENGTH = 80;
+  return normalized.length <= MAX_TITLE_LENGTH
+    ? normalized
+    : `${normalized.slice(0, MAX_TITLE_LENGTH - 1).trimEnd()}…`;
+}
+
+function _isSessionNamePlaceholder(name: string): boolean {
+  return ['New session', 'AgentRunner run', 'Scheduled run'].includes(name.trim());
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface AgentRunOptions {
@@ -627,11 +687,10 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
 
   // #738-fix: Record a session row so this run appears in the CHATS list.
   const effectiveAgentKind = agentKind ?? 'claude-code';
-  const effectiveName = sessionName
+  const promptTitle = _titleFromPrompt(prompt);
+  const effectiveName = sessionName && !_isSessionNamePlaceholder(sessionName)
     ? sessionName
-    : scheduledTaskId
-      ? `Scheduled run`
-      : `AgentRunner run`;
+    : promptTitle ?? sessionName ?? (scheduledTaskId ? 'Scheduled run' : 'AgentRunner run');
   const effectiveCwd = cwd ?? process.cwd();
 
   const rhythmSessionId = _recordSession({
@@ -660,6 +719,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   }
 
   const deadline = Date.now() + getRunTimeoutMs();
+  let opencodeSessionId: string | null = null;
 
   try {
     // ── Build mcpRoleConfig via the shared profile scope helper ──────────────
@@ -718,7 +778,11 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       const requiredServers = Object.keys(mcpRoleConfig.mcpServers);
       if (requiredServers.length > 0) {
         try {
-          const statusMap = await opencodeClient.listMcp();
+          const statusMap = await _withinRunDeadline(
+            opencodeClient.listMcp(),
+            deadline,
+            'MCP readiness preflight',
+          );
           const unauthed = requiredServers.filter(
             (name) => statusMap[name]?.status === 'needs_auth',
           );
@@ -734,6 +798,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
             };
           }
         } catch (err) {
+          if (err instanceof AgentRunTimeoutError) throw err;
           logger.warn(`[AgentRunner] #892 MCP readiness preflight failed (non-fatal, proceeding): ${String(err)}`);
         }
       }
@@ -744,12 +809,16 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // MCP allowlist to Gemini's function-declaration cap when this run is
     // routed to `google` (direct route or a model-fallback route) — a no-op
     // for every other provider.
-    const sessionResult = await opencodeClient.createSession(
-      effectiveName,
-      effectiveCwd,
-      mcpRoleConfig,
-      skillNames,
-      resolvedModel.providerID,
+    const sessionResult = await _withinRunDeadline(
+      opencodeClient.createSession(
+        effectiveName,
+        effectiveCwd,
+        mcpRoleConfig,
+        skillNames,
+        resolvedModel.providerID,
+      ),
+      deadline,
+      'session creation',
     );
 
     if (!sessionResult?.id) {
@@ -762,6 +831,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     }
 
     const sessionId = sessionResult.id;
+    opencodeSessionId = sessionId;
     if (rhythmSessionId) {
       try {
         new AgentSessionsRepository().setSdkSessionId(rhythmSessionId, sessionId);
@@ -790,14 +860,6 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // sends `agent` for an explicit per-turn override (ws_gateway.ts ~560),
     // otherwise omitting it so opencode uses its default 'build' agent. We mirror
     // that: omit `agent` so the prompt is driven by the default agent.
-    const timeoutMs = Math.max(1, deadline - Date.now());
-    let timedOut = false;
-    const timeoutPromise = new Promise<null>((resolve) => {
-      setTimeout(() => {
-        timedOut = true;
-        resolve(null);
-      }, timeoutMs);
-    });
     // P2: Forward the profile's system_prompt and ocAgent via the per-prompt body.
     // Per docs/ai/decisions/2026-06-24-sdk-per-session-system-prompt.md:
     // SDK 1.14.49 has no per-session system param; use SessionPromptData.body fields.
@@ -809,22 +871,11 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       ...(effectiveSystemPrompt !== null ? { system: effectiveSystemPrompt } : {}),
       ...(effectiveOcAgent !== null ? { agent: effectiveOcAgent } : {}),
     };
-    const response = await Promise.race([
+    const response = await _withinRunDeadline(
       opencodeClient.prompt(sessionId, effectivePrompt, resolvedModel, cwd, promptOpts),
-      timeoutPromise,
-    ]);
-
-    if (timedOut) {
-      await opencodeClient.abortSession(sessionId, cwd).catch(() => {});
-      logger.warn(`[AgentRunner] session ${sessionId} timed out after ${timeoutMs}ms`);
-      _markSessionError(rhythmSessionId, `Run timed out after ${timeoutMs}ms`);
-      return {
-        sessionId: rhythmSessionId ?? sessionId,
-        result: '',
-        status: 'error',
-        error: 'AgentRunner: run timed out',
-      };
-    }
+      deadline,
+      'prompt',
+    );
 
     if (!response) {
       logger.error(
@@ -950,6 +1001,19 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       status: 'done',
     };
   } catch (err) {
+    if (err instanceof AgentRunTimeoutError) {
+      if (opencodeSessionId) {
+        await opencodeClient.abortSession(opencodeSessionId, cwd).catch(() => {});
+      }
+      logger.warn(`[AgentRunner] ${err.message}`);
+      _markSessionError(rhythmSessionId, err.message);
+      return {
+        sessionId: rhythmSessionId ?? opencodeSessionId ?? '',
+        result: '',
+        status: 'error',
+        error: `AgentRunner: ${err.message}`,
+      };
+    }
     const errMsg = String(err);
     logger.error(`[AgentRunner] unexpected error: ${errMsg}`);
     _markSessionError(rhythmSessionId, errMsg);
