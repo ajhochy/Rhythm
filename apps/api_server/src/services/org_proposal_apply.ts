@@ -50,9 +50,13 @@ import {
   type AgentConfigInput,
 } from '../repositories/agent_configs_repository';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
+import {
+  AgentScheduledTasksRepository,
+  type AgentScheduledTask,
+} from '../repositories/agent_scheduled_tasks_repository';
 import { writeAgentProfileFile } from './opencode_agent_writer';
 import { writeManagedSkill, deleteManagedSkill } from './rhythm_managed_skills';
-import { CONFIG_PATCH_FIELDS, SCOPE_PATCH_FIELDS } from './org_diagnosis_types';
+import { CONFIG_PATCH_FIELDS, SCOPE_PATCH_FIELDS, TASK_PATCH_FIELDS } from './org_diagnosis_types';
 import {
   isConsolidationPairingChange,
   draftConsolidationPayload,
@@ -220,6 +224,72 @@ export function isSkillBodyRevertSnapshot(v: unknown): v is SkillBodyRevertSnaps
   );
 }
 
+// ── Shared agent_scheduled_tasks field mechanics (#981 refine-task) ──────────
+//
+// The refine-task applier (a TaskPatch scalar swap on one agent_scheduled_tasks
+// row) lives in org_proposal_appliers_wiring.ts (the approve lane), but its
+// SNAPSHOT + RESTORE mechanics live here so revertProposal and the applier
+// share one definition of "read a task field" / "write a task field" and can
+// never drift — the exact mirror of refine-config's ConfigFieldSnapshot above.
+
+/** The before_snapshot_json shape refine-task writes. */
+export interface ScheduledTaskFieldSnapshot {
+  scheduledTaskId: string;
+  field: (typeof TASK_PATCH_FIELDS)[number];
+  /** Prior value in the same representation {@link readScheduledTaskField} yields. */
+  priorValue: string | null;
+}
+
+const TASK_FIELD_NAMES = new Set<string>([...TASK_PATCH_FIELDS]);
+
+export function isScheduledTaskFieldSnapshot(v: unknown): v is ScheduledTaskFieldSnapshot {
+  if (!v || typeof v !== 'object') return false;
+  const c = v as Record<string, unknown>;
+  return (
+    typeof c.scheduledTaskId === 'string' &&
+    typeof c.field === 'string' &&
+    TASK_FIELD_NAMES.has(c.field) &&
+    'priorValue' in c &&
+    (typeof c.priorValue === 'string' || c.priorValue === null)
+  );
+}
+
+/** Read one editable field off a live agent_scheduled_tasks row (string repr). */
+export function readScheduledTaskField(
+  task: AgentScheduledTask,
+  field: (typeof TASK_PATCH_FIELDS)[number],
+): string | null {
+  switch (field) {
+    case 'prompt':
+      return task.prompt ?? null;
+    case 'description':
+      return task.description ?? null;
+    case 'cronExpression':
+      return task.cronExpression ?? null;
+    case 'scheduledTime':
+      return task.scheduledTime ?? null;
+    case 'agentConfigId':
+      return task.agentConfigId ?? null;
+  }
+}
+
+/** The update-patch type AgentScheduledTasksRepository.updateAsync accepts. */
+export type ScheduledTaskUpdatePatch = Parameters<AgentScheduledTasksRepository['updateAsync']>[1];
+
+/**
+ * Build the AgentScheduledTasksRepository.updateAsync() patch that sets `field`
+ * to `value`. The TaskPatch field names are exactly the repo's update-input
+ * keys, so this is a direct 1:1 assignment (no split logic like `model`). The
+ * cast admits a `null` prior value (revert of a task whose field was null);
+ * updateAsync coerces it back to a SQL NULL bind.
+ */
+export function scheduledTaskFieldPatch(
+  field: (typeof TASK_PATCH_FIELDS)[number],
+  value: string | null,
+): ScheduledTaskUpdatePatch {
+  return { [field]: value } as ScheduledTaskUpdatePatch;
+}
+
 export interface ApplyDeps {
   /** Injectable proposals repo (defaults to a fresh AgentOrgProposalsRepository). */
   proposalsRepo?: AgentOrgProposalsRepository;
@@ -227,6 +297,8 @@ export interface ApplyDeps {
   configsRepo?: AgentConfigsRepository;
   /** Injectable skills repo — used by consolidate-skill apply/revert (#852). */
   skillsRepo?: AgentSkillsRepository;
+  /** Injectable scheduled-tasks repo — used by refine-task revert (#981). */
+  tasksRepo?: AgentScheduledTasksRepository;
 }
 
 /**
@@ -553,6 +625,14 @@ export async function revertProposal(
       configsRepo.update(snapshot.agentConfigId, agentConfigFieldPatch(snapshot.field, snapshot.priorValue));
       const restored = configsRepo.getById(snapshot.agentConfigId);
       if (restored) writeAgentProfileFile(restored);
+    } else if (isScheduledTaskFieldSnapshot(snapshot)) {
+      // #981 — refine-task: restore the scheduled-task field the applier
+      // overwrote to its exact prior value via updateAsync (no raw SQL).
+      const tasksRepo = deps.tasksRepo ?? new AgentScheduledTasksRepository();
+      await tasksRepo.updateAsync(
+        snapshot.scheduledTaskId,
+        scheduledTaskFieldPatch(snapshot.field, snapshot.priorValue),
+      );
     } else if (isAgentConfigScopeChange(change)) {
       // tighten-scope / prune-scope (auto lane) — snapshot is {[field]: priorValue}.
       const priorValue = snapshot[change.field];
