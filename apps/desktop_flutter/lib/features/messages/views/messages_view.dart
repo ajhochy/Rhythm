@@ -112,8 +112,7 @@ class _ThreadListPanel extends StatelessWidget {
           ),
           Divider(height: 1, color: context.rhythm.borderSubtle),
           Expanded(
-            child:
-                controller.status == MessagesStatus.loading &&
+            child: controller.status == MessagesStatus.loading &&
                     controller.threads.isEmpty
                 ? Center(
                     child: CircularProgressIndicator(
@@ -121,27 +120,28 @@ class _ThreadListPanel extends StatelessWidget {
                     ),
                   )
                 : filtered.isEmpty
-                ? const _EmptyThreadsState()
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
-                    itemCount: filtered.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (context, i) => _ThreadRow(
-                      thread: filtered[i],
-                      isSelected: controller.selectedThreadId == filtered[i].id,
-                      onTap: () => context
-                          .read<MessagesController>()
-                          .selectThread(filtered[i].id),
-                      onToggleUnread: () {
-                        final messages = context.read<MessagesController>();
-                        if (filtered[i].isUnread) {
-                          messages.markThreadRead(filtered[i].id);
-                        } else {
-                          messages.markThreadUnread(filtered[i].id);
-                        }
-                      },
-                    ),
-                  ),
+                    ? const _EmptyThreadsState()
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+                        itemCount: filtered.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, i) => _ThreadRow(
+                          thread: filtered[i],
+                          isSelected:
+                              controller.selectedThreadId == filtered[i].id,
+                          onTap: () => context
+                              .read<MessagesController>()
+                              .selectThread(filtered[i].id),
+                          onToggleUnread: () {
+                            final messages = context.read<MessagesController>();
+                            if (filtered[i].isUnread) {
+                              messages.markThreadRead(filtered[i].id);
+                            } else {
+                              messages.markThreadUnread(filtered[i].id);
+                            }
+                          },
+                        ),
+                      ),
           ),
         ],
       ),
@@ -1003,8 +1003,7 @@ class _NewThreadDialog extends StatefulWidget {
     List<int> participantIds,
     String? title,
     String threadType,
-  )
-  onCreated;
+  ) onCreated;
 
   @override
   State<_NewThreadDialog> createState() => _NewThreadDialogState();
@@ -1116,9 +1115,8 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
               autofocus: !_isGroup,
               style: TextStyle(fontSize: 14, color: context.rhythm.textPrimary),
               decoration: InputDecoration(
-                labelText: _isGroup
-                    ? 'Group name (required)'
-                    : 'Optional title',
+                labelText:
+                    _isGroup ? 'Group name (required)' : 'Optional title',
                 hintText: _isGroup
                     ? 'e.g. Worship Team'
                     : 'Defaults to participant name',

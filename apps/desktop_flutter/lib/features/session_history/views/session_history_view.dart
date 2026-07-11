@@ -41,8 +41,8 @@ class _SessionHistoryViewState extends State<SessionHistoryView> {
                 tooltip: 'Refresh',
                 onPressed:
                     controller.status == SessionHistoryControllerStatus.loading
-                    ? null
-                    : controller.refresh,
+                        ? null
+                        : controller.refresh,
                 icon: const Icon(Icons.refresh),
               ),
             ],
@@ -199,8 +199,8 @@ class _SessionTranscriptViewState extends State<_SessionTranscriptView> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<SessionHistoryController>().loadTranscript(
-        widget.session.id,
-      );
+            widget.session.id,
+          );
     });
   }
 
