@@ -748,16 +748,19 @@ function buildDiagnosisContext(
 
 /**
  * Map an LLM diagnosis to the optimizer's proposal `kind`. External problems
- * produce no proposal (log only). `delegation-change` is routed to
- * `grant-delegation` (the existing high-risk delegation kind), so the human
- * review queue treats it identically to the delegation generator's output.
+ * produce no proposal (log only). `delegation-change` is ALSO log-only: the
+ * diagnosis envelope carries no top-level `agentConfigId`/delegate target, so
+ * routing it to the existing `grant-delegation` kind produced proposals that
+ * failed the applier's `change_json.agentConfigId` validation at approve time
+ * (#1003). Real delegation gaps are covered by the deterministic delegation
+ * generator (#825), which writes the applier-shaped `change_json`.
  */
-function diagnosisToProposalKind(result: DiagnosisResult): string | null {
+export function diagnosisToProposalKind(result: DiagnosisResult): string | null {
   switch (result.fixType) {
     case 'skill-edit': return 'workflow-prompt-fix';
     case 'config-change': return 'refine-config';
     case 'scope-change': return 'refine-scope';
-    case 'delegation-change': return 'grant-delegation';
+    case 'delegation-change': return null;
     case 'external-noop': return null;
     default: return null;
   }
@@ -834,6 +837,15 @@ async function proposeFixFromSignals(
     if (result.fixType === 'external-noop') {
       logger.info(
         `[workflow-signal-generator] ${agentConfigId}: external issue diagnosed — ${result.diagnosis}. No proposal created.`,
+      );
+      continue;
+    }
+
+    if (result.fixType === 'delegation-change') {
+      logger.info(
+        `[workflow-signal-generator] ${agentConfigId}: delegation-change diagnosed — ${result.diagnosis}. ` +
+          `Delegation gaps are applied by the deterministic delegation generator (#825); ` +
+          `no grant-delegation proposal created from diagnosis (#1003).`,
       );
       continue;
     }

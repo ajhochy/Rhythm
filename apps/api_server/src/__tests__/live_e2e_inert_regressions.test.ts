@@ -64,13 +64,17 @@ async function poll<T>(
 interface SessionMessage {
   role: string;
   rawText: string;
-  partsJson: string | null;
+  partsJson?: string | null;
+  parts?: unknown[] | null;
 }
 
 function assistantEvidence(rows: SessionMessage[]): string {
   return rows
     .filter((row) => row.role === 'output')
-    .map((row) => `${row.rawText}\n${row.partsJson ?? ''}`)
+    // #999 aligned GET /:id/messages to the structured `parts` array (the shape the
+    // Flutter client reads); keep the legacy `partsJson` string as a fallback so
+    // this evidence check works against either server shape.
+    .map((row) => `${row.rawText}\n${row.partsJson ?? ''}\n${row.parts ? JSON.stringify(row.parts) : ''}`)
     .join('\n');
 }
 

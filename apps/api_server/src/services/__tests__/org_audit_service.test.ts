@@ -325,13 +325,16 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
     // nfl-mcp anywhere.
     const sessionsRepo = new AgentSessionsRepository();
     for (let i = 0; i < 10; i++) {
-      sessionsRepo.insert({
+      const s = sessionsRepo.insert({
         agentKind: 'claude-code',
         taskId: null,
         cwd: '/tmp',
         name: `session-${i}`,
         mcpRole: 'secretary',
       });
+      // #1004: only EXECUTED sessions count toward the tighten-scope floor;
+      // insert() stamps 'starting', so mark these as a real (idle) run.
+      sessionsRepo.updateStatus(s.id, 'idle');
     }
 
     const { buildOrgAuditSnapshot } = await import('../org_audit_service');
@@ -346,6 +349,47 @@ describe('issue-819-c4 / issue-819-c6 (tighten gap): over-broad never-invoked to
     expect(tightenGap).toBeDefined();
     expect(tightenGap?.gapId).toBeTruthy();
     expect(tightenGap?.evidence.length).toBeGreaterThan(0);
+  });
+
+  it('#1004: never-executed (starting) sessions do NOT count toward the tighten floor', async () => {
+    // The #1002 failure mode produced many never-executed sessions. Counting
+    // them let a never-run agent look "over-scoped", so the optimizer pruned
+    // live MCPs. Only sessions that actually executed may clear the floor.
+    listMcp.mockResolvedValue({
+      rhythm: { name: 'rhythm' },
+      'nfl-mcp': { name: 'nfl-mcp' },
+    });
+    const configsRepo = new AgentConfigsRepository();
+    configsRepo.insert({
+      id: 'secretary',
+      label: 'Secretary',
+      icon: 'x',
+      allowedMcpsJson: JSON.stringify(['rhythm', 'nfl-mcp']),
+    });
+    getDb()
+      .prepare(`UPDATE agent_configs SET created_at = ? WHERE id = ?`)
+      .run(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(), 'secretary');
+
+    // 12 sessions — well over the default activity floor of 10 — that never
+    // executed (insert() leaves them 'starting').
+    const sessionsRepo = new AgentSessionsRepository();
+    for (let i = 0; i < 12; i++) {
+      sessionsRepo.insert({
+        agentKind: 'claude-code',
+        taskId: null,
+        cwd: '/tmp',
+        name: `stuck-${i}`,
+        mcpRole: 'secretary',
+      });
+    }
+
+    const { buildOrgAuditSnapshot } = await import('../org_audit_service');
+    const snapshot = await buildOrgAuditSnapshot();
+
+    const tightenGaps = snapshot.gaps.filter(
+      (g) => g.kind === 'tighten-scope' && g.evidence.includes('secretary'),
+    );
+    expect(tightenGaps).toHaveLength(0);
   });
 
   it('#857: a freshly-created profile with only one recorded session produces NO tighten-scope gap (thin history)', async () => {

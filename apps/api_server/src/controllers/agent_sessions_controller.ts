@@ -1570,7 +1570,10 @@ export class AgentSessionsController {
       const limit =
         limitParam !== undefined ? Math.min(Number(limitParam), 500) : 200;
 
-      const messages = messagesRepo.listBySession(session.id, limit);
+      // #999: the Session History transcript endpoint must send STRUCTURED
+      // messages (tool calls, reasoning, step markers). listBySession() rebuilds
+      // only text parts, so tool-using sessions rendered as "(empty message)".
+      const messages = messagesRepo.listBySessionStructured(session.id, limit);
       res.json({ messages });
     } catch (err) {
       next(err);
