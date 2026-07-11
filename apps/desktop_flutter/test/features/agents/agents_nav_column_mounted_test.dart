@@ -39,6 +39,15 @@ import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
 import 'package:rhythm_desktop/features/agents/repositories/agents_repository.dart';
 import 'package:rhythm_desktop/features/agents/views/agents_view.dart';
 import 'package:rhythm_desktop/features/agents/views/_session_list_body.dart';
+import 'package:rhythm_desktop/app/core/layout/navigation_sidebar.dart';
+import 'package:rhythm_desktop/features/messages/controllers/messages_controller.dart';
+import 'package:rhythm_desktop/features/messages/data/messages_data_source.dart';
+import 'package:rhythm_desktop/features/messages/repositories/messages_repository.dart';
+import 'package:rhythm_desktop/features/session_history/controllers/session_history_controller.dart';
+import 'package:rhythm_desktop/features/session_history/data/session_history_data_source.dart';
+import 'package:rhythm_desktop/features/session_history/models/session_transcript_message.dart';
+import 'package:rhythm_desktop/features/session_history/repositories/session_history_repository.dart';
+import 'package:rhythm_desktop/features/session_history/views/session_history_view.dart';
 import 'package:rhythm_desktop/features/agent_projects/controllers/agent_projects_controller.dart';
 import 'package:rhythm_desktop/features/agent_projects/data/agent_projects_remote_data_source.dart';
 import 'package:rhythm_desktop/features/agent_projects/models/agent_project.dart';
@@ -242,6 +251,29 @@ class _EmptyGalleryDataSource extends AgentGalleryDataSource {
   Future<List<AgentDesign>> list() async => [];
 }
 
+/// #1027 (USO A4) — fake that returns a canned transcript so the reused
+/// [SessionTranscriptView] renders a message without a live backend.
+class _FakeSessionHistoryController extends SessionHistoryController {
+  _FakeSessionHistoryController()
+      : super(SessionHistoryRepository(SessionHistoryDataSource()));
+
+  final _msgs = <SessionTranscriptMessage>[
+    SessionTranscriptMessage(
+      id: 1,
+      sessionId: 'any',
+      role: 'output',
+      text: 'Scheduled run transcript line',
+      createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+    ),
+  ];
+
+  @override
+  Future<void> loadTranscript(String sessionId) async {}
+
+  @override
+  List<SessionTranscriptMessage> transcriptFor(String sessionId) => _msgs;
+}
+
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
@@ -313,6 +345,10 @@ Future<Widget> _buildTestApp(AgentsController agentsController) async {
         create: (_) => AgentGalleryController(
           AgentGalleryRepository(_EmptyGalleryDataSource()),
         ),
+      ),
+      // #1027 (USO A4) — the reused transcript detail view resolves this.
+      ChangeNotifierProvider<SessionHistoryController>(
+        create: (_) => _FakeSessionHistoryController(),
       ),
     ],
     child: const MaterialApp(home: Scaffold(body: AgentsView())),
@@ -811,6 +847,217 @@ void main() {
 
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
       controller.dispose();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // USO Phase A — #1025 (scope filter) / #1026 (status sort) / #1027 (A4)
+  // ---------------------------------------------------------------------------
+
+  group('USO Phase A — nav column', () {
+    // (A2) category dropdown renders + switching scope reloads with the correct
+    // `?scope=` param and the list still renders rows.
+    testWidgets('#1025 scope dropdown switches scope and reloads',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final repo = _StubAgentsRepository([
+        _makeSession('s1', 'Scheduled Alpha'),
+      ]);
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
+
+      // Dropdown renders; default scope is chats.
+      expect(
+        find.byKey(const ValueKey('session-scope-dropdown')),
+        findsOneWidget,
+        reason: 'Category scope dropdown should render at the CHATS header',
+      );
+      expect(controller.scope, AgentSessionScope.chats);
+
+      // Open the dropdown and pick "Scheduled Tasks".
+      await tester.tap(find.byKey(const ValueKey('session-scope-dropdown')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Scheduled Tasks'));
+      await tester.pumpAndSettle();
+
+      expect(controller.scope, AgentSessionScope.scheduled);
+      expect(
+        repo.lastScope,
+        'scheduled',
+        reason: 'Switching scope must reload with ?scope=scheduled',
+      );
+
+      // The scoped list still renders its rows.
+      final navCol = find.byKey(const ValueKey('agents-nav-column'));
+      expect(
+        find.descendant(of: navCol, matching: find.text('Scheduled Alpha')),
+        findsAtLeastNWidgets(1),
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+
+    // (A2) empty scope shows the empty-state (no error, no infinite spinner).
+    testWidgets('#1025 empty scope renders without error/spinner',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final repo = _StubAgentsRepository(<AgentSession>[]);
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      await controller.loadSessions(AgentSessionScope.selfImprovement);
+
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
+
+      expect(controller.scope, AgentSessionScope.selfImprovement);
+      expect(controller.status, AgentsLoadStatus.idle);
+      // Nav column still renders; no CircularProgressIndicator stuck in it.
+      final navCol = find.byKey(const ValueKey('agents-nav-column'));
+      expect(navCol, findsOneWidget);
+      expect(
+        find.descendant(
+          of: navCol,
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsNothing,
+        reason: 'Empty scope must not spin forever',
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+
+    // (A3) status sort reorders within the active scope.
+    testWidgets('#1026 status sort orders working before idle', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final sessions = [
+        AgentSession(
+          id: 'idle1',
+          agentId: 'claude-code',
+          name: 'Idle Session',
+          cwd: '/tmp',
+          status: AgentSessionStatus.idle,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(3000),
+          updatedAt: _kEpoch,
+        ),
+        AgentSession(
+          id: 'working1',
+          agentId: 'claude-code',
+          name: 'Working Session',
+          cwd: '/tmp',
+          status: AgentSessionStatus.working,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(1000),
+          updatedAt: _kEpoch,
+        ),
+      ];
+      final controller = _makeControllerWithSessions(sessions);
+
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
+
+      final navCol = find.byKey(const ValueKey('agents-nav-column'));
+      Finder rows() =>
+          find.descendant(of: navCol, matching: find.byType(SessionRow));
+
+      // Switch sort to Status.
+      await tester.tap(find.byKey(const ValueKey('session-sort-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Status'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widgetList<SessionRow>(rows()).first.session.id,
+        'working1',
+        reason: 'Status sort must place working before idle',
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+
+    // (A4) opening a scheduled session shows the reused transcript detail view.
+    testWidgets('#1027 scheduled row opens reused transcript detail',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final controller = _makeControllerWithSessions([
+        _makeSession('sch1', 'Nightly Digest'),
+      ]);
+      await controller.loadSessions(AgentSessionScope.scheduled);
+
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
+
+      final navCol = find.byKey(const ValueKey('agents-nav-column'));
+      await tester.tap(
+        find.descendant(of: navCol, matching: find.byType(SessionRow)).first,
+      );
+      await tester.pumpAndSettle();
+
+      // The reused transcript detail view is pushed and renders the transcript.
+      expect(find.byType(SessionTranscriptView), findsOneWidget);
+      expect(find.text('Scheduled run transcript line'), findsOneWidget);
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+
+    // (A4) the Session History nav item is gone from the sidebar.
+    testWidgets('#1027 Session History nav item is removed', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final messages = MessagesController(
+        MessagesRepository(MessagesDataSource()),
+        notifications: _FakeLocalNotificationService(),
+      );
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<MessagesController>.value(value: messages),
+          ],
+          child: MaterialApp(
+            home: Scaffold(
+              body: NavigationSidebar(
+                selectedIndex: 0,
+                collapsed: false,
+                onItemSelected: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Agents'), findsOneWidget);
+      expect(
+        find.text('Session History'),
+        findsNothing,
+        reason: 'Session History nav item must be retired (#1027)',
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      messages.dispose();
     });
   });
 }

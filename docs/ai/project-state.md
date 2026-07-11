@@ -60,6 +60,35 @@ See `docs/ai/runs/2026-07-11-nonmobile-wave-codex-terra.md`.
 
 ## Recent coding-agent runs
 
+### 2026-07-11 — `uso/a-ui`: USO Phase A UI (#1025 → #1026 → #1027)
+- Files modified:
+  - `agents_controller.dart` — `AgentSessionScope` enum + `_scope` state,
+    `loadSessions(scope)`, `load()` threads `?scope=` (#1025).
+  - `agents_repository.dart` / `agents_data_source.dart` — `scope` query param (#1025).
+  - `_agents_nav_column.dart` — CHATS-header scope dropdown (#1025), `status`
+    sort field + `_statusRank` + Status menu item (#1026), `_onRowTap` opens the
+    reused transcript detail for non-chat scopes (#1027).
+  - `navigation_sidebar.dart` / `app_shell.dart` / `app_constants.dart` — retired
+    the Session History nav item, view, and `navSessionHistory` index (was 10,
+    the last item → no index remap needed) (#1027).
+  - `session_history/` — retired the list view + chats+scheduled merge; kept the
+    transcript DETAIL view (now public `SessionTranscriptView`), the
+    `getTranscript` data-source path, and `session_transcript_message.dart`.
+    Model trimmed to `SessionHistoryStatus` (#1027).
+  - Test stubs across ~52 files — threaded the new `listSessions({scope})` param.
+- Checks run: `dart format --set-exit-if-changed` clean; `flutter analyze
+  --no-fatal-infos` exit 0; `flutter test` 858/858 pass (5 new USO tests added
+  to `agents_nav_column_mounted_test.dart`).
+- Decisions made: A4 wires only scheduled/self_improvement rows to the reused
+  read-only transcript view; chat rows keep the interactive chat surface.
+  `listByScheduledTaskId` had no client caller after removing the merge (the
+  client used the `?scheduledTaskId=` query param, now gone); server untouched.
+- Deviations from spec: none.
+- Concerns: consumed the endpoint contract `GET /agent-sessions?scope=` from the
+  backend team — Flutter side is not live-e2e'd here (orchestrator runs the
+  consolidated live probe). Scheduled/self_improvement scopes return rows only
+  once the server implements the param (Phase B for self_improvement).
+
 - 2026-07-11 — `codex/fix-inert-1014-1007-997`: repaired the three adversarially
   confirmed inert paths (#1014 same-session delegate-cache refresh, #1007
   scheduled content-derived naming, #997 provider-distinct external-discovery

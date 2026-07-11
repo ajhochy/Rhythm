@@ -28,6 +28,8 @@ import '../../agent_schedules/views/agent_schedules_view.dart';
 import '../../agent_skills/views/agent_skills_view.dart';
 import '../../agent_webhooks/views/agent_webhooks_view.dart';
 import '../../run_quality/views/run_quality_view.dart';
+import '../../session_history/models/session_history_agent_session.dart';
+import '../../session_history/views/session_history_view.dart';
 import '../../settings/views/settings_view.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
@@ -103,7 +105,34 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
     if (_hasMultiSelection) {
       setState(() => _multiSelected.clear());
     }
-    context.read<AgentsController>().selectSession(id);
+    final controller = context.read<AgentsController>();
+    // #1027 (USO A4): scheduled / self-improvement rows are read-only
+    // background runs — open the reused transcript detail view (the retained
+    // Session History detail) instead of the interactive chat surface.
+    if (controller.scope != AgentSessionScope.chats) {
+      AgentSession? session;
+      for (final s in controller.sessions) {
+        if (s.id == id) {
+          session = s;
+          break;
+        }
+      }
+      if (session != null) {
+        final name = session.name.trim();
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => SessionTranscriptView(
+              sessionId: session!.id,
+              title: name.isEmpty ? 'Session' : name,
+              status: SessionHistoryStatus.fromWire(session.status.wireValue),
+              statusMessage: session.statusMessage,
+            ),
+          ),
+        );
+        return;
+      }
+    }
+    controller.selectSession(id);
   }
 
   /// #903 — comparator backing the session-list sort menu. `lastActivity`

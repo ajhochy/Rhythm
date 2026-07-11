@@ -7,19 +7,35 @@ import '../controllers/session_history_controller.dart';
 import '../models/session_history_agent_session.dart';
 import '../models/session_transcript_message.dart';
 
-class SessionHistoryView extends StatefulWidget {
-  const SessionHistoryView({super.key});
+/// #1027 (USO A4) — the standalone Session History LIST page was retired; the
+/// unified Agents list + `?scope=` server filter replaces it. This transcript
+/// DETAIL view survives and is reused by the Agents session detail for ANY
+/// session (chat / scheduled / self_improvement). #999 (tool-parts rendering)
+/// and #1006 (errored-empty-state) behaviour are preserved unchanged.
+class SessionTranscriptView extends StatefulWidget {
+  const SessionTranscriptView({
+    super.key,
+    required this.sessionId,
+    required this.title,
+    required this.status,
+    this.statusMessage,
+  });
+
+  final String sessionId;
+  final String title;
+  final SessionHistoryStatus status;
+  final String? statusMessage;
 
   @override
-  State<SessionHistoryView> createState() => _SessionHistoryViewState();
+  State<SessionTranscriptView> createState() => _SessionTranscriptViewState();
 }
 
-class _SessionHistoryViewState extends State<SessionHistoryView> {
+class _SessionTranscriptViewState extends State<SessionTranscriptView> {
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<SessionHistoryController>().refresh();
+      context.read<SessionHistoryController>().loadTranscript(widget.sessionId);
     });
   }
 
@@ -27,194 +43,13 @@ class _SessionHistoryViewState extends State<SessionHistoryView> {
   Widget build(BuildContext context) {
     return Consumer<SessionHistoryController>(
       builder: (context, controller, _) {
-        final colorScheme = Theme.of(context).colorScheme;
+        final messages = controller.transcriptFor(widget.sessionId);
         return Scaffold(
           backgroundColor: context.rhythm.canvas,
           appBar: AppBar(
             backgroundColor: context.rhythm.surface,
             title: Text(
-              'Session History',
-              style: TextStyle(color: colorScheme.onSurface),
-            ),
-            actions: [
-              IconButton(
-                tooltip: 'Refresh',
-                onPressed:
-                    controller.status == SessionHistoryControllerStatus.loading
-                        ? null
-                        : controller.refresh,
-                icon: const Icon(Icons.refresh),
-              ),
-            ],
-          ),
-          body: _SessionHistoryBody(controller: controller),
-        );
-      },
-    );
-  }
-}
-
-class _SessionHistoryBody extends StatelessWidget {
-  const _SessionHistoryBody({required this.controller});
-
-  final SessionHistoryController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    if (controller.status == SessionHistoryControllerStatus.loading &&
-        controller.sessions.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (controller.status == SessionHistoryControllerStatus.error &&
-        controller.sessions.isEmpty) {
-      return _CenteredState(
-        icon: Icons.error_outline,
-        title: 'Could not load session history',
-        subtitle: controller.error ?? 'Unknown error',
-      );
-    }
-
-    if (controller.sessions.isEmpty) {
-      return const _CenteredState(
-        icon: Icons.history,
-        title: 'No background sessions yet',
-        subtitle: 'Cookbook recipe and scheduled task runs will appear here.',
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: controller.refresh,
-      child: ListView.separated(
-        padding: const EdgeInsets.all(RhythmSpacing.md),
-        itemCount: controller.sessions.length,
-        separatorBuilder: (_, __) => const SizedBox(height: RhythmSpacing.xs),
-        itemBuilder: (context, index) {
-          final session = controller.sessions[index];
-          return _SessionHistoryTile(
-            session: session,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => _SessionTranscriptView(session: session),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _SessionHistoryTile extends StatelessWidget {
-  const _SessionHistoryTile({required this.session, required this.onTap});
-
-  final SessionHistoryAgentSession session;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Material(
-      color: context.rhythm.surfaceRaised,
-      borderRadius: BorderRadius.circular(RhythmRadius.lg),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(RhythmRadius.lg),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(RhythmSpacing.md),
-          decoration: BoxDecoration(
-            border: Border.all(color: context.rhythm.borderSubtle),
-            borderRadius: BorderRadius.circular(RhythmRadius.lg),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: colorScheme.primary.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(RhythmRadius.md),
-                ),
-                child: Icon(
-                  session.source == SessionHistorySource.scheduledTask
-                      ? Icons.schedule
-                      : Icons.menu_book_outlined,
-                  color: colorScheme.primary,
-                ),
-              ),
-              const SizedBox(width: RhythmSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      session.agentOrRecipeName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: context.rhythm.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${_formatDateTime(session.startTime)} - ${session.id}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: context.rhythm.textMuted,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: RhythmSpacing.md),
-              _StatusChip(status: session.status),
-              const SizedBox(width: RhythmSpacing.sm),
-              Icon(Icons.chevron_right, color: context.rhythm.textMuted),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SessionTranscriptView extends StatefulWidget {
-  const _SessionTranscriptView({required this.session});
-
-  final SessionHistoryAgentSession session;
-
-  @override
-  State<_SessionTranscriptView> createState() => _SessionTranscriptViewState();
-}
-
-class _SessionTranscriptViewState extends State<_SessionTranscriptView> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<SessionHistoryController>().loadTranscript(
-            widget.session.id,
-          );
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<SessionHistoryController>(
-      builder: (context, controller, _) {
-        final messages = controller.transcriptFor(widget.session.id);
-        return Scaffold(
-          backgroundColor: context.rhythm.canvas,
-          appBar: AppBar(
-            backgroundColor: context.rhythm.surface,
-            title: Text(
-              widget.session.agentOrRecipeName,
+              widget.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: context.rhythm.textPrimary),
@@ -224,7 +59,8 @@ class _SessionTranscriptViewState extends State<_SessionTranscriptView> {
             status: controller.status,
             error: controller.error,
             messages: messages,
-            session: widget.session,
+            sessionStatus: widget.status,
+            statusMessage: widget.statusMessage,
           ),
         );
       },
@@ -237,13 +73,15 @@ class _TranscriptBody extends StatelessWidget {
     required this.status,
     required this.error,
     required this.messages,
-    required this.session,
+    required this.sessionStatus,
+    required this.statusMessage,
   });
 
   final SessionHistoryControllerStatus status;
   final String? error;
   final List<SessionTranscriptMessage> messages;
-  final SessionHistoryAgentSession session;
+  final SessionHistoryStatus sessionStatus;
+  final String? statusMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -258,12 +96,11 @@ class _TranscriptBody extends StatelessWidget {
       );
     }
     if (messages.isEmpty) {
-      if (session.status == SessionHistoryStatus.failed) {
+      if (sessionStatus == SessionHistoryStatus.failed) {
         return _CenteredState(
           icon: Icons.error_outline,
           title: 'No transcript — run was interrupted or errored',
-          subtitle:
-              session.statusMessage ?? 'No further details were recorded.',
+          subtitle: statusMessage ?? 'No further details were recorded.',
         );
       }
       return const _CenteredState(
@@ -276,11 +113,11 @@ class _TranscriptBody extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.all(RhythmSpacing.md),
       itemCount: messages.length +
-          (session.status == SessionHistoryStatus.failed ? 1 : 0),
+          (sessionStatus == SessionHistoryStatus.failed ? 1 : 0),
       separatorBuilder: (_, __) => const SizedBox(height: RhythmSpacing.sm),
       itemBuilder: (context, index) {
         if (index == messages.length) {
-          return _TranscriptErrorCard(message: session.statusMessage);
+          return _TranscriptErrorCard(message: statusMessage);
         }
         return _TranscriptMessageCard(message: messages[index]);
       },
@@ -383,37 +220,6 @@ class _TranscriptMessageCard extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({required this.status});
-
-  final SessionHistoryStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = switch (status) {
-      SessionHistoryStatus.running => Theme.of(context).colorScheme.primary,
-      SessionHistoryStatus.completed => context.rhythm.success,
-      SessionHistoryStatus.failed => context.rhythm.danger,
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.20)),
-      ),
-      child: Text(
-        status.label,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-        ),
       ),
     );
   }
