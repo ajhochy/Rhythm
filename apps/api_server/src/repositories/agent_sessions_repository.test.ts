@@ -144,6 +144,65 @@ describe('AgentSessionsRepository', () => {
     expect(repo.listAll()).toHaveLength(2);
   });
 
+  // USO A1 (#1024) / B1 (#1028) — scope-aware listAll.
+  describe('listAll scope', () => {
+    function seedScheduledTask(id: string) {
+      getDb()
+        .prepare(`INSERT INTO agent_scheduled_tasks (id, name, prompt) VALUES (?, ?, ?)`)
+        .run(id, `Task ${id}`, 'do the thing');
+    }
+
+    beforeEach(() => {
+      seedScheduledTask('sched-1');
+    });
+
+    it('no scope === scope:chats === is_system=0 interactive set', () => {
+      const chat = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Chat' });
+      repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Scheduled',
+        scheduledTaskId: 'sched-1', isSystem: true,
+      });
+      repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'SelfImprove',
+        isSystem: true,
+      });
+
+      const noScope = repo.listAll(100);
+      const chats = repo.listAll(100, { scope: 'chats' });
+      expect(noScope.map((s) => s.id)).toEqual([chat.id]);
+      expect(chats.map((s) => s.id)).toEqual([chat.id]);
+    });
+
+    it('the three scopes return disjoint row sets', () => {
+      const chat = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Chat' });
+      const scheduled = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Scheduled',
+        scheduledTaskId: 'sched-1', isSystem: true,
+      });
+      const selfImprove = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'SelfImprove',
+        isSystem: true,
+      });
+
+      expect(repo.listAll(100, { scope: 'chats' }).map((s) => s.id)).toEqual([chat.id]);
+      expect(repo.listAll(100, { scope: 'scheduled' }).map((s) => s.id)).toEqual([scheduled.id]);
+      expect(repo.listAll(100, { scope: 'self_improvement' }).map((s) => s.id)).toEqual([selfImprove.id]);
+    });
+
+    it('scope:scheduled includes scheduled rows that chats excludes; rows carry parentSessionId', () => {
+      const scheduled = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Scheduled',
+        scheduledTaskId: 'sched-1', isSystem: true,
+      });
+      const chatsIds = repo.listAll(100, { scope: 'chats' }).map((s) => s.id);
+      const scheduledRows = repo.listAll(100, { scope: 'scheduled' });
+      expect(chatsIds).not.toContain(scheduled.id);
+      expect(scheduledRows.map((s) => s.id)).toContain(scheduled.id);
+      // parent_session_id is preserved on the returned model (null here).
+      expect(scheduledRows[0]).toHaveProperty('parentSessionId', null);
+    });
+  });
+
   // #904 — background loop activity log.
   describe('listByScheduledTaskId', () => {
     function seedScheduledTask(id: string) {

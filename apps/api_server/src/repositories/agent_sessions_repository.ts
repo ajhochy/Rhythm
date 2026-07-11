@@ -4,6 +4,7 @@ import type {
   AgentSessionStatus,
   CreateAgentSessionDto,
   PermissionMode,
+  SessionScope,
 } from '../models/agent_session';
 
 interface AgentSessionRow {
@@ -176,17 +177,29 @@ export class AgentSessionsRepository {
 
   listAll(
     limit = 100,
-    opts: { includeArchived?: boolean; archivedOnly?: boolean } = {},
+    opts: { includeArchived?: boolean; archivedOnly?: boolean; scope?: SessionScope } = {},
   ): AgentSession[] {
-    // #747: exclude background/system sessions from the normal session list.
-    const baseClause = ' WHERE is_system = 0';
+    // USO A1 (#1024): the `scope` selects which slice of sessions to return.
+    //   - 'chats' (default) → is_system = 0 (interactive chats only) — UNCHANGED
+    //     from the pre-USO listAll, so no-scope requests are byte-for-byte identical.
+    //   - 'scheduled' → any run tied to a scheduled task.
+    //   - 'self_improvement' → background/system runs that are NOT scheduled
+    //     (curator/skill/memory loops). Phase-A placeholder — near-empty until
+    //     USO B1 (#1028) adds the `category` column and this switches to it.
+    const scope = opts.scope ?? 'chats';
+    const scopeClause =
+      scope === 'scheduled'
+        ? 'scheduled_task_id IS NOT NULL'
+        : scope === 'self_improvement'
+          ? 'is_system = 1 AND scheduled_task_id IS NULL'
+          : 'is_system = 0';
     const archiveClause = opts.archivedOnly
       ? ' AND archived_at IS NOT NULL'
       : opts.includeArchived
         ? ''
         : ' AND archived_at IS NULL';
     const rows = getDb()
-      .prepare(`SELECT * FROM agent_sessions${baseClause}${archiveClause} ORDER BY created_at DESC LIMIT ?`)
+      .prepare(`SELECT * FROM agent_sessions WHERE ${scopeClause}${archiveClause} ORDER BY created_at DESC LIMIT ?`)
       .all(limit) as AgentSessionRow[];
     return rows.map(rowToModel);
   }

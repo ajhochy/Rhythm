@@ -5,6 +5,14 @@ export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermiss
 
 export const PERMISSION_MODES: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
 
+/**
+ * USO A1 (#1024) — the `scope` query param on GET /agent-sessions selects which
+ * slice of the session list to return. 'chats' is the default and preserves the
+ * pre-USO behavior (interactive chats only, is_system=0).
+ */
+export type SessionScope = 'chats' | 'scheduled' | 'self_improvement';
+export const SESSION_SCOPES: SessionScope[] = ['chats', 'scheduled', 'self_improvement'];
+
 export interface AgentSession {
   id: string;
   taskId: string | null;
