@@ -236,18 +236,26 @@ function renderWouldBeDraft(gap: OrgAuditGap): string {
  * than the draft — only winners are shortlisted. Never throws (scoreSkillBody
  * fail-closes a throwing scorer to 0, so a scorer failure ties/loses → dropped).
  */
-async function candidateBeatsDraft(gap: OrgAuditGap, candidateBody: string): Promise<boolean> {
+export async function candidateBeatsDraft(
+  gap: OrgAuditGap,
+  candidateBody: string,
+  scorer: typeof scoreSkillBody = scoreSkillBody,
+): Promise<boolean> {
   const purpose: SkillPurpose = {
     name: gap.intentTitle ?? gap.gapId,
     description: gap.intentProblem ?? null,
     whenToUse: (gap.intentTags ?? []).join(', ') || null,
   };
   const draftBody = renderWouldBeDraft(gap);
-  const candScore = await scoreSkillBody(purpose, candidateBody);
-  const draftScore = await scoreSkillBody(purpose, draftBody);
-  const wins = candScore.score > draftScore.score;
+  const candScore = await scorer(purpose, candidateBody);
+  const draftScore = await scorer(purpose, draftBody);
+  // A 0/0 result means the judge could not distinguish even a provenance-clean
+  // full candidate from the skeletal draft. Preserve the high-risk human gate
+  // instead of silently making ecosystem discovery inert.
+  const unavailable = candScore.score === 0 && draftScore.score === 0;
+  const wins = unavailable || candScore.score > draftScore.score;
   logger.info(
-    `[external-discovery-search] judge gap=${gap.gapId}: candidate=${candScore.score} vs would-be-draft=${draftScore.score} -> ${wins ? 'shortlist' : 'drop'}`,
+    `[external-discovery-search] judge gap=${gap.gapId}: candidate=${candScore.score} vs would-be-draft=${draftScore.score} -> ${unavailable ? 'shortlist-unscored-for-human-review' : wins ? 'shortlist' : 'drop'}`,
   );
   return wins;
 }

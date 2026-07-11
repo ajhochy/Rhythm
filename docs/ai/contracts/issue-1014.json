@@ -1,0 +1,16 @@
+{
+  "issue": 1014,
+  "generated": "2026-07-11",
+  "criteria": [
+    {
+      "criterion_id": "issue-1014-c1",
+      "text": "Editing a manager profile's allowedDelegatesJson via API takes effect in an already-open agent session's next task call — no new session required.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_inert_regressions.test.ts",
+      "test_id": "issue-1014-c1: a roster PATCH changes the next task authorization in the same open session",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

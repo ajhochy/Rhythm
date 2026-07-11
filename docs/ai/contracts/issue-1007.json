@@ -1,0 +1,16 @@
+{
+  "issue": 1007,
+  "generated": "2026-07-11",
+  "criteria": [
+    {
+      "criterion_id": "issue-1007-c1",
+      "text": "A headless/scheduled run's session gets a meaningful name derived from its content, not a static placeholder.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_inert_regressions.test.ts",
+      "test_id": "issue-1007-c1: trigger-now creates a scheduled session named from its distinctive prompt",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

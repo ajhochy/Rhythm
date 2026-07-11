@@ -32,6 +32,7 @@ import { applyAndMeasure, type ApplyCandidate, type ApplyOutcome } from './skill
 import type { AgentSkill } from '../models/agent_skill';
 import {
   DEFAULT_MODEL_BY_PROVIDER,
+  resolveReliableAuthedFallbackModels,
   resolveReliableAuthedFallbackModel,
 } from './model_fallback';
 
@@ -240,25 +241,56 @@ function buildScoreSystemPrompt(): string {
 /** Default (real) scorer — guarded; never reached under isTestEnv. */
 const defaultScorer: ScoreCall = async (purpose, body) => {
   const { opencodeClient } = await import('./opencode_engine');
-  const model = await resolveReliableSkillJudgeModel(opencodeClient);
+  const decisions = resolveReliableAuthedFallbackModels(await opencodeClient.listAuthedProviders());
+  const models: PromptModel[] = decisions.length > 0
+    ? decisions.map((decision) => ({
+        providerID: decision.providerID,
+        modelID: decision.modelID,
+      }))
+    : [await resolveReliableSkillJudgeModel(opencodeClient)];
   const system = buildScoreSystemPrompt();
   const user =
     `PURPOSE:\n${purposeText(purpose)}\n\n` +
     `BODY:\n${(body ?? '').trim() || '(empty)'}\n\n` +
     'Score (0-100) + one-sentence reason:';
-  const session = await opencodeClient.createSession('skill-measure-score');
-  if (!session?.id) {
-    return { score: 0, reason: 'no scorer session' };
+  const failures: string[] = [];
+  for (const model of models) {
+    logger.info(`[skill-refine] scoring with ${model.providerID}/${model.modelID}`);
+    // #884: pass the provider at create time so a Google fallback session gets
+    // the Gemini-safe deferred allowlist before its first prompt. Omitting it
+    // exposes every connected tool and the scorer dies at 512 declarations.
+    const session = await opencodeClient.createSession(
+      'skill-measure-score',
+      undefined,
+      undefined,
+      undefined,
+      model.providerID,
+    );
+    if (!session?.id) {
+      failures.push(`${model.providerID}: no scorer session`);
+      continue;
+    }
+    const resp = await opencodeClient.prompt(session.id, `${system}\n\n${user}`, model, undefined, {
+      permissionMode: 'bypassPermissions',
+    });
+    const text = (resp?.parts ?? [])
+      .filter((p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text')
+      .map((p) => p.text)
+      .join('\n')
+      .trim();
+    if (!/^\s*-?\d+\b/.test(text)) {
+      failures.push(`${model.providerID}: ${text || 'empty scorer response'}`);
+      logger.warn(
+        `[skill-refine] unparseable scorer response from ${model.providerID}/${model.modelID}; trying next reliable provider`,
+      );
+      continue;
+    }
+    return parseScoreResponse(text);
   }
-  const resp = await opencodeClient.prompt(session.id, `${system}\n\n${user}`, model, undefined, {
-    permissionMode: 'bypassPermissions',
-  });
-  const text = (resp?.parts ?? [])
-    .filter((p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text')
-    .map((p) => p.text)
-    .join('\n')
-    .trim();
-  return parseScoreResponse(text);
+  return {
+    score: 0,
+    reason: `all reliable scorer routes failed: ${failures.join('; ') || 'no routes'}`,
+  };
 };
 
 /**

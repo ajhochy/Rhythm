@@ -375,7 +375,7 @@ export const layer = Layer.effect(
         // result) then re-list so freshly-written agent files are visible
         // without an instance bounce. Paired with Config.invalidate() in the
         // /config/reload HTTP handler (#948).
-        yield* InstanceState.invalidate(state)
+        yield* InstanceState.invalidateAll(state)
         return yield* InstanceState.useEffect(state, (s) => s.list())
       }),
       defaultInfo: Effect.fn("Agent.defaultInfo")(function* () {

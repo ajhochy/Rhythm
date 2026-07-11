@@ -108,7 +108,11 @@ function _titleFromPrompt(prompt: string): string | null {
 }
 
 function _isSessionNamePlaceholder(name: string): boolean {
-  return ['New session', 'AgentRunner run', 'Scheduled run'].includes(name.trim());
+  const trimmed = name.trim();
+  return (
+    ['New session', 'AgentRunner run', 'Scheduled run'].includes(trimmed) ||
+    trimmed.startsWith('Scheduled:')
+  );
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────

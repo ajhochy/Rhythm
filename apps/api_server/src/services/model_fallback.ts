@@ -159,6 +159,28 @@ export interface ReliableFallbackModelDecision {
 }
 
 /**
+ * All reliable authed background models in configured order, de-duplicated by
+ * provider. Team/personal Claude share one provider credential surface, so a
+ * failed Anthropic prompt should advance to OpenAI/Google rather than retrying
+ * the same provider under a second tier label.
+ */
+export function resolveReliableAuthedFallbackModels(
+  authedProviders: readonly string[],
+): ReliableFallbackModelDecision[] {
+  const seenProviders = new Set<string>();
+  const decisions: ReliableFallbackModelDecision[] = [];
+  for (const tier of resolveAuthedFallbackChain(authedProviders)) {
+    if (tier.id === 'openrouter-free' || tier.providerID === 'openrouter') continue;
+    if (seenProviders.has(tier.providerID)) continue;
+    const modelID = DEFAULT_MODEL_BY_PROVIDER[tier.providerID];
+    if (!modelID) continue;
+    seenProviders.add(tier.providerID);
+    decisions.push({ tier, providerID: tier.providerID, modelID });
+  }
+  return decisions;
+}
+
+/**
  * Resolve a reliable authed model for background judge/refiner calls.
  *
  * This reuses #930's configured fallback chain order and default-model table,
@@ -169,13 +191,7 @@ export interface ReliableFallbackModelDecision {
 export function resolveReliableAuthedFallbackModel(
   authedProviders: readonly string[],
 ): ReliableFallbackModelDecision | undefined {
-  const tier = resolveAuthedFallbackChain(authedProviders).find(
-    (t) => t.id !== 'openrouter-free' && t.providerID !== 'openrouter',
-  );
-  if (!tier) return undefined;
-  const modelID = DEFAULT_MODEL_BY_PROVIDER[tier.providerID];
-  if (!modelID) return undefined;
-  return { tier, providerID: tier.providerID, modelID };
+  return resolveReliableAuthedFallbackModels(authedProviders)[0];
 }
 
 /**

@@ -77,6 +77,27 @@ it.live("InstanceState invalidates on reload", () =>
   }),
 )
 
+it.live("InstanceState invalidateAll clears every cached directory", () =>
+  Effect.gen(function* () {
+    const one = yield* tmpdirScoped()
+    const two = yield* tmpdirScoped()
+    let n = 0
+    const state = yield* InstanceState.make((ctx) => Effect.sync(() => ({ dir: ctx.directory, n: ++n })))
+
+    const beforeOne = yield* access(state, one)
+    const beforeTwo = yield* access(state, two)
+    yield* InstanceState.invalidateAll(state)
+    const afterOne = yield* access(state, one)
+    const afterTwo = yield* access(state, two)
+
+    expect(afterOne.dir).toBe(one)
+    expect(afterTwo.dir).toBe(two)
+    expect(afterOne).not.toBe(beforeOne)
+    expect(afterTwo).not.toBe(beforeTwo)
+    expect(n).toBe(4)
+  }),
+)
+
 it.live("InstanceState invalidates on disposeAll", () =>
   Effect.gen(function* () {
     const one = yield* tmpdirScoped()

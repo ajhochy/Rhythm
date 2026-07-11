@@ -57,3 +57,12 @@ See `docs/ai/runs/2026-07-11-nonmobile-wave-codex-terra.md`.
 1. Watch CI on the wave PR to green; hand off manual UI smoke (checklist in the run log).
 2. Launch the **Plan A/B epic** Codex wave (#983 shared contract first, then A2–A6, then Plan B).
 3. After merge, real-app smoke of the 4 Flutter UI fixes.
+
+## Recent coding-agent runs
+
+- 2026-07-11 — `codex/fix-inert-1014-1007-997`: repaired the three adversarially
+  confirmed inert paths (#1014 same-session delegate-cache refresh, #1007
+  scheduled content-derived naming, #997 provider-distinct external-discovery
+  scoring with explicit 0/0 human-review handling). Acceptance contracts and
+  isolated live evidence are recorded in
+  `docs/ai/runs/2026-07-11-inert-fixes-live-e2e.md`.

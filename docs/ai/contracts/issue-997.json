@@ -1,0 +1,16 @@
+{
+  "issue": 997,
+  "generated": "2026-07-11",
+  "criteria": [
+    {
+      "criterion_id": "issue-997-c1",
+      "text": "An open capability-gap discovers a real skills.sh candidate, LLM-judges it against the would-be bespoke draft, and queues a gated external-adoption proposal for human review.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_inert_regressions.test.ts",
+      "test_id": "issue-997-c1: a real conventional-commit candidate receives nonzero scores and reaches proposed",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
