@@ -27,6 +27,7 @@ import type {
   ExternalCandidateProvenance,
 } from './external_discovery_generator';
 import { scoreSkillBody, type SkillPurpose } from '../skill_refiner';
+import { scanContextContent } from '../../security/context_scanner';
 
 const SKILLS_SH_SEARCH = 'https://skills.sh/api/search';
 /** skills.sh serves raw skill bodies from GitHub; overridable for a mirror/test double. */
@@ -150,6 +151,18 @@ async function searchSkillCandidates(gap: OrgAuditGap): Promise<ExternalCandidat
 
     const body = await downloadSkillBody(downloadUrl);
     if (!body) continue; // unreachable/empty body — cannot judge or adopt
+
+    // #873 PRE-VET — the candidate body must pass the injection scan BEFORE it
+    // is ever proposed. A high-confidence match drops the candidate here so a
+    // gated proposal never even references injection-bearing content. The
+    // applier re-scans at write time as a hard second gate (Task 6).
+    const preScan = scanContextContent(body, `external-adoption candidate "${hit.name}"`);
+    if (preScan.blocked) {
+      logger.warn(
+        `[external-discovery-search] dropped candidate "${hit.name}" for gap ${gap.gapId} — pre-vet injection scan blocked it`,
+      );
+      continue;
+    }
 
     // Judge: only a candidate STRICTLY better than the would-be draft is shortlisted.
     if (!(await candidateBeatsDraft(gap, body))) continue;
