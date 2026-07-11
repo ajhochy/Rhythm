@@ -257,7 +257,7 @@ export class AgentConfigsController {
     }
   }
 
-  patch(req: Request, res: Response, next: NextFunction): void {
+  async patch(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const existing = repo.getById(req.params.id);
       if (!existing) throw AppError.notFound('AgentConfig');
@@ -302,6 +302,12 @@ export class AgentConfigsController {
       if (!updated) throw AppError.notFound('AgentConfig');
       // Re-project the updated profile to its opencode agent file. Non-fatal.
       writeAgentProfileFile(updated);
+      // The engine caches agent profiles (including task permission rules) for
+      // its lifetime. Reload after a roster patch so the next task call in an
+      // existing session evaluates the newly persisted delegate allowlist.
+      if (body.allowedDelegatesJson !== undefined) {
+        await opencodeClient.reloadConfig();
+      }
       res.json(updated);
     } catch (err) {
       next(err);

@@ -152,10 +152,32 @@ function parseDelegateRoster(config: AgentConfig): string[] {
   if (!config.allowedDelegatesJson) return [];
   try {
     const parsed = JSON.parse(config.allowedDelegatesJson);
-    return Array.isArray(parsed) && parsed.every((v) => typeof v === 'string') ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return [
+      ...new Set(
+        parsed
+          .filter((v): v is string => typeof v === 'string')
+          .map((v) => v.trim())
+          .filter(Boolean),
+      ),
+    ];
   } catch {
     return [];
   }
+}
+
+/**
+ * Project a manager profile's delegate roster into opencode's task permission
+ * map. The explicit catch-all denial is required so task authorization remains
+ * fail-closed while each current delegate is allowed by its agent id.
+ */
+export function buildTaskDelegatePermissions(
+  delegateRoster: string[],
+): Record<string, 'allow' | 'deny'> {
+  return {
+    '*': 'deny',
+    ...Object.fromEntries(delegateRoster.map((delegate) => [delegate, 'allow' as const])),
+  };
 }
 
 /** opencode built-in / internal agents — no source file; never write these. */
@@ -394,13 +416,17 @@ export function writeAgentProfileFile(config: AgentConfig): void {
     for (const [permission, action] of Object.entries(parseCorePermissions(config))) {
       fm = setPermissionValue(fm, permission, action);
     }
+    const delegateRoster = parseDelegateRoster(config);
+    if (config.isManager === true) {
+      fm = setPermissionValue(fm, 'task', buildTaskDelegatePermissions(delegateRoster));
+    }
     if (config.id === 'workflow-orchestrator') {
       fm = setPermissionKey(fm, 'write', 'allow');
     }
     body = injectManagerPreamble(
       body,
       config.isManager === true,
-      parseDelegateRoster(config),
+      delegateRoster,
       config.id,
     );
 
