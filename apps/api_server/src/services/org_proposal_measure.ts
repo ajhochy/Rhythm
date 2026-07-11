@@ -499,7 +499,10 @@ async function measureBehavioralRerun(
  * that completes cleanly the benefit of the doubt. Human revert (#857) and the
  * re-diagnosis loop (#5) are the backstops for a false keep.
  */
-const defaultRerunScenario: RerunScenario = async (_proposal, ctx) => {
+// Exported for the USO B4 (#1031) routing test — the default is otherwise
+// reached only via measureProposal (rerunScenario injection is the test seam
+// for the outer keep/revert logic; this seam covers the run()-routing itself).
+export const defaultRerunScenario: RerunScenario = async (proposal, ctx) => {
   try {
     const { AgentSessionMessagesRepository } = await import(
       '../repositories/agent_session_messages_repository'
@@ -527,43 +530,39 @@ const defaultRerunScenario: RerunScenario = async (_proposal, ctx) => {
       };
     }
 
-    const { opencodeClient } = await import('./opencode_engine');
-    const { resolveRunModel } = await import('./agent_runner');
+    const { resolveRunModel, run } = await import('./agent_runner');
     // Resolve the PATCHED profile's model so a refine-config model swap is what
     // the re-run actually exercises (falls back to MRU/default if unset).
     const model = resolveRunModel(ctx.patchedProfileId);
 
-    await opencodeClient.ensureReady();
-
-    // Empty mcpAllowlist (mcpServers:{} + allowedToolsJson:'{}') — same bounded
-    // surface the diagnosis session uses; role tags the run to the patched
-    // profile for log attribution + detector profile-matching.
-    const session = await opencodeClient.createSession(
-      `org-optimizer-measure-rerun:${ctx.patchedProfileId}`,
-      undefined,
-      { role: ctx.patchedProfileId, mcpServers: {}, allowedToolsJson: '{}' },
-      [],
-      model.providerID,
-    );
-    if (!session?.id) {
-      return { status: 'infra-error', reason: 'engine did not create a re-run session (engine may be down)' };
-    }
-
-    const resp = await opencodeClient.prompt(session.id, replayPrompt, model, undefined, {
-      permissionMode: 'bypassPermissions',
+    // USO B4 (#1031): route the behavioral re-run through AgentRunner.run so it
+    // becomes an OBSERVABLE self_improvement session (category-scoped, recorded
+    // in agent_sessions) instead of a headless opencode prompt. mcpRole tags the
+    // run to the patched profile (log attribution + detector profile-matching);
+    // allowedMcpsJson '{}' reproduces the empty mcpServers:{}+allowedToolsJson:'{}'
+    // surface the old createSession used — the same bounded, tool-less probe.
+    // run() ensures the engine is ready and extracts the assistant text into
+    // .result (identical filter-text/join/trim as the old parts extraction, with
+    // a listMessages fallback), so the keep/revert measurement below is unchanged.
+    const res = await run({
+      prompt: replayPrompt,
+      sessionName: `proposal-measure-rerun:${proposal.id ?? ctx.patchedProfileId}`,
+      category: 'self_improvement',
+      modelOverride: model,
+      mcpRole: ctx.patchedProfileId,
+      allowedMcpsJson: '{}',
     });
-    if (!resp) {
+    // status:'error' folds together every old infra failure (engine down,
+    // no session created, prompt returned no response) into the infra-error path.
+    if (res.status === 'error') {
       return {
         status: 'infra-error',
-        reason: `re-run prompt returned no response for session ${session.id} (engine error/timeout)`,
+        reason: res.error ?? `re-run failed for ${ctx.patchedProfileId} (engine error/timeout)`,
       };
     }
 
-    const outputText = (resp.parts ?? [])
-      .filter((p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text')
-      .map((p) => p.text)
-      .join('\n')
-      .trim();
+    const rerunSessionId = res.sessionId;
+    const outputText = res.result;
 
     // Extractor's own "real output" floor (MIN_OUTPUT_CHARS=20): an empty/near-
     // empty turn is the `transport-empty` failure classification — the agent
@@ -571,21 +570,21 @@ const defaultRerunScenario: RerunScenario = async (_proposal, ctx) => {
     if (outputText.length < 20) {
       return {
         status: 'failed',
-        reason: `re-run of ${sourceSessionId} produced no substantive output (session ${session.id})`,
+        reason: `re-run of ${sourceSessionId} produced no substantive output (session ${rerunSessionId})`,
       };
     }
 
-    const detected = await classifyRerunFailure(session.id, ctx.patchedProfileId, replayPrompt, outputText);
+    const detected = await classifyRerunFailure(rerunSessionId, ctx.patchedProfileId, replayPrompt, outputText);
     const reproduced = detected.filter((c) => ctx.categories.includes(c));
     if (reproduced.length > 0) {
       return {
         status: 'failed',
-        reason: `re-run of ${sourceSessionId} under ${ctx.patchedProfileId} still shows [${reproduced.join(',')}] (session ${session.id})`,
+        reason: `re-run of ${sourceSessionId} under ${ctx.patchedProfileId} still shows [${reproduced.join(',')}] (session ${rerunSessionId})`,
       };
     }
     return {
       status: 'completed',
-      reason: `re-run of ${sourceSessionId} under ${ctx.patchedProfileId} produced ${outputText.length} chars with no [${ctx.categories.join(',') || 'diagnosed'}] signature (session ${session.id})`,
+      reason: `re-run of ${sourceSessionId} under ${ctx.patchedProfileId} produced ${outputText.length} chars with no [${ctx.categories.join(',') || 'diagnosed'}] signature (session ${rerunSessionId})`,
     };
   } catch (err) {
     return { status: 'infra-error', reason: `re-run threw (treated as infra): ${String(err)}` };
