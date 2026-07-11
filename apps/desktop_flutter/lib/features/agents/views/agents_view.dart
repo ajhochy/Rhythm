@@ -1821,8 +1821,27 @@ class _PendingPermissionArea extends StatelessWidget {
 /// `sdkSessionId` is a legacy / dead run that cannot be resumed; its composer
 /// is disabled with an inline reason instead of silently dropping the user
 /// into a dead input.
-bool _canSendTo(AgentSession? session) =>
-    session != null && (session.sdkSessionId?.trim().isNotEmpty ?? false);
+bool _canSendTo(AgentSession? session) {
+  if (session == null) return false;
+  // A resumable engine session id is always sendable (fresh chat, or a
+  // completed run the WS path auto-resumes via OPC-M1-5).
+  if (session.sdkSessionId?.trim().isNotEmpty ?? false) return true;
+  // No engine session id YET — do NOT show "ended". A live/initializing run
+  // (starting/working) or an active chat awaiting its first turn (idle/
+  // resumable) keeps an enabled composer; its sdkSessionId is assigned once
+  // the engine session spins up. Only a terminated run (closed/error) that
+  // never got an engine session is genuinely unresumable.
+  switch (session.status) {
+    case AgentSessionStatus.closed:
+    case AgentSessionStatus.error:
+      return false;
+    case AgentSessionStatus.starting:
+    case AgentSessionStatus.working:
+    case AgentSessionStatus.idle:
+    case AgentSessionStatus.resumable:
+      return true;
+  }
+}
 
 const String _kUnresumableReason = "This run has ended and can't be resumed.";
 

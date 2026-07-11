@@ -1140,8 +1140,12 @@ void main() {
       await tester.binding.setSurfaceSize(const Size(1600, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
+      // A genuinely TERMINATED run with no engine session — the only case the
+      // composer is disabled. A starting/working/idle no-sdk session stays
+      // enabled (it's live/initializing, not ended).
       final repo = _StubAgentsRepository([
-        _makeRunSession('old1', 'Legacy Run', hasSdk: false),
+        _makeRunSession('old1', 'Legacy Run',
+            hasSdk: false, status: AgentSessionStatus.error),
       ]);
       final controller = AgentsController(
         repo,
