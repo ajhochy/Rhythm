@@ -241,7 +241,7 @@ export function buildRealExternalAdoptionDeps(): ExternalAdoptionApplyDeps {
  * (defense-in-depth, not a duplicate source of truth for the eligibility
  * rule).
  */
-function validateDelegationChangeShape(proposal: AgentOrgProposal): ProposalValidationResult {
+export function validateDelegationChangeShape(proposal: AgentOrgProposal): ProposalValidationResult {
   if (!proposal.changeJson) {
     return { valid: false, reason: 'delegation proposal change_json is missing' };
   }
@@ -252,6 +252,20 @@ function validateDelegationChangeShape(proposal: AgentOrgProposal): ProposalVali
     }
     const obj = parsed as Record<string, unknown>;
     if (typeof obj.agentConfigId !== 'string' || !obj.agentConfigId.trim()) {
+      // #1003 — a diagnosis-envelope payload ({ fixType, diagnosis, … }) has no
+      // top-level agentConfigId or delegate target. These were produced when
+      // delegation-change diagnoses were wrongly routed to grant-delegation
+      // (now fixed at the generator). Give the reviewer an actionable reason
+      // instead of the cryptic "agentConfigId is required".
+      if ('fixType' in obj || 'diagnosis' in obj) {
+        return {
+          valid: false,
+          reason:
+            'This grant-delegation item came from an LLM diagnosis and carries no concrete ' +
+            'delegate target, so it cannot be applied. Real delegation gaps are handled by the ' +
+            'delegation generator — dismiss this item.',
+        };
+      }
       return { valid: false, reason: 'delegation proposal change_json.agentConfigId is required' };
     }
     const addBlock = obj.allowed_delegates_json;

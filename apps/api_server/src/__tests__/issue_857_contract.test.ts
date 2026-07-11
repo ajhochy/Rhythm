@@ -134,13 +134,16 @@ describe('issue-857-c2: sufficient observation window + activity still yields a 
 
     const sessionsRepo = new AgentSessionsRepository();
     for (let i = 0; i < 10; i++) {
-      sessionsRepo.insert({
+      const s = sessionsRepo.insert({
         agentKind: 'claude-code',
         taskId: null,
         cwd: '/tmp',
         name: `session-${i}`,
         mcpRole: 'secretary',
       });
+      // #1004: only EXECUTED sessions count toward the tighten-scope floor;
+      // insert() stamps 'starting', so mark these as a real (idle) run.
+      sessionsRepo.updateStatus(s.id, 'idle');
     }
 
     const { buildOrgAuditSnapshot } = await import('../services/org_audit_service');
@@ -189,13 +192,16 @@ describe('issue-857-c4: tighten-scope gap evidence surfaces the observation basi
 
     const sessionsRepo = new AgentSessionsRepository();
     for (let i = 0; i < 10; i++) {
-      sessionsRepo.insert({
+      const s = sessionsRepo.insert({
         agentKind: 'claude-code',
         taskId: null,
         cwd: '/tmp',
         name: `session-${i}`,
         mcpRole: 'secretary',
       });
+      // #1004: only EXECUTED sessions count toward the tighten-scope floor;
+      // insert() stamps 'starting', so mark these as a real (idle) run.
+      sessionsRepo.updateStatus(s.id, 'idle');
     }
 
     const { buildOrgAuditSnapshot } = await import('../services/org_audit_service');
