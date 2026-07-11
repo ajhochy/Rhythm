@@ -1384,6 +1384,30 @@ export function runMigrations(db: Database.Database): void {
       ON agent_skill_versions(skill_id);
   `);
 
+  // ── Stage A / Plan A↔Plan B shared contract — agent_capability_gaps ─────────
+  // Local-SQLite-only bridge from the harvester's "no adequate library skill for
+  // this intent" moment (skill_extractor step 3) to the next org-optimizer run
+  // (Plan B external discovery). dedup_key is a STABLE hash of the normalized
+  // intent (title + sorted tags) so re-asks collapse onto ONE 'open' row rather
+  // than multiplying. Plan A owns this table + agent_capability_gaps_repository.ts;
+  // Plan B only reads (listOpenAsync/findByDedupKeyAsync) and resolves
+  // (resolveByDedupKeyAsync) on adopt+keep.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_capability_gaps (
+      id                TEXT PRIMARY KEY,
+      dedup_key         TEXT NOT NULL UNIQUE,
+      intent_title      TEXT NOT NULL,
+      intent_problem    TEXT,
+      intent_tags_json  TEXT,
+      sample_session_id TEXT,
+      agent_config_id   TEXT,
+      status            TEXT NOT NULL DEFAULT 'open',
+      created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_capability_gaps_status ON agent_capability_gaps(status);
+  `);
+
   // agent_webhook_endpoints — inbound webhook registrations.
   // The server verifies HMAC signatures on incoming requests.
   // SSRF guard lives in agentWebhookService.ts (no outbound calls to private
