@@ -75,11 +75,13 @@ describe('#738 — AgentRunner', () => {
     // #738-fix: prompt must be called WITH a resolved model (not undefined).
     // The DB is not initialized in this test so MRU lookup falls back to the
     // hardcoded default: anthropic / claude-sonnet-4-6.
+    // #1002: post-creation calls are directory-scoped to effectiveCwd
+    // (cwd ?? process.cwd()); with no cwd passed, that resolves to process.cwd().
     expect(mockPrompt).toHaveBeenCalledWith(
       'sdk-session-1',
       'Say hello',
       { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
-      undefined,
+      process.cwd(),
       expect.objectContaining({ permissionMode: 'bypassPermissions' }),
     );
   });
@@ -100,7 +102,8 @@ describe('#738 — AgentRunner', () => {
 
     expect(result.status).toBe('error');
     expect(result.error).toMatch(/run timed out/i);
-    expect(mockAbortSession).toHaveBeenCalledWith('sdk-session-1', undefined);
+    // #1002: abort is directory-scoped to effectiveCwd (process.cwd() here).
+    expect(mockAbortSession).toHaveBeenCalledWith('sdk-session-1', process.cwd());
 
     delete process.env.AGENT_RUN_TIMEOUT_MS;
   });

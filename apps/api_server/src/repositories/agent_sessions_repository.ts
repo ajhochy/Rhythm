@@ -537,12 +537,17 @@ export class AgentSessionsRepository {
    * forever. Called by the scheduler on boot.
    */
   resetStaleRunning(message = 'Server restarted — run interrupted'): number {
+    // #738-fix / #1002 — Reset orphaned in-flight sessions to 'error' on boot.
+    // A headless run that dies BEFORE it enters 'running' stays stuck at
+    // 'starting' forever (resetStaleRunning historically only freed 'running').
+    // This runs boot-only (startAgentSchedulerJob), when nothing is genuinely
+    // in-flight, so both 'running' and 'starting' orphans are safe to recover.
     const now = new Date().toISOString();
     const result = getDb()
       .prepare(
         `UPDATE agent_sessions
          SET status = 'error', status_message = ?, updated_at = ?
-         WHERE status = 'running'`,
+         WHERE status IN ('running', 'starting')`,
       )
       .run(message, now);
     return result.changes;

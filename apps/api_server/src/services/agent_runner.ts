@@ -875,8 +875,14 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       ...(effectiveSystemPrompt !== null ? { system: effectiveSystemPrompt } : {}),
       ...(effectiveOcAgent !== null ? { agent: effectiveOcAgent } : {}),
     };
+    // #1002: opencode sessions are DIRECTORY-SCOPED. The session was created
+    // under effectiveCwd (cwd ?? process.cwd()); every post-creation call MUST
+    // use the SAME directory or the engine looks in its default instance, finds
+    // no session, and yields an empty response — surfacing the bogus
+    // "model produced no output" error on the headless/scheduler path (where
+    // the raw `cwd` is undefined). Use effectiveCwd for prompt/listMessages/abort.
     const response = await _withinRunDeadline(
-      opencodeClient.prompt(sessionId, effectivePrompt, resolvedModel, cwd, promptOpts),
+      opencodeClient.prompt(sessionId, effectivePrompt, resolvedModel, effectiveCwd, promptOpts),
       deadline,
       'prompt',
     );
@@ -915,7 +921,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // transcript uses) and extract its text.
     if (!resultText) {
       try {
-        const msgs = await opencodeClient.listMessages(sessionId);
+        const msgs = await opencodeClient.listMessages(sessionId, effectiveCwd);
         const lastAssistant = msgs
           .filter((m) => m.role === 'assistant')
           .pop();
@@ -1007,7 +1013,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   } catch (err) {
     if (err instanceof AgentRunTimeoutError) {
       if (opencodeSessionId) {
-        await opencodeClient.abortSession(opencodeSessionId, cwd).catch(() => {});
+        await opencodeClient.abortSession(opencodeSessionId, effectiveCwd).catch(() => {});
       }
       logger.warn(`[AgentRunner] ${err.message}`);
       _markSessionError(rhythmSessionId, err.message);
