@@ -169,6 +169,14 @@ export interface AgentRunOptions {
   /** Delegation nesting depth stored on agent_sessions for server-side delegation caps. */
   delegationDepth?: number;
   /**
+   * USO B1 (#1028) — session category stamped on the recorded agent_sessions row.
+   * Omit for the default derivation ('scheduled' when scheduledTaskId is set,
+   * else 'chat'). Pass 'self_improvement' for curator/skill/memory background
+   * runs — those stay is_system=1 and never surface in the default Chats view;
+   * the category is what places them in the self_improvement scope.
+   */
+  category?: import('../models/agent_session').SessionCategory;
+  /**
    * P4-1 (internal) — marks this run as the escalated (teacher) re-run so its
    * OWN error path does NOT escalate again. This is the recursion guard: the
    * escalated run carries `_isEscalation: true`, so {@link shouldEscalate}
@@ -354,6 +362,8 @@ function _recordSession(opts: {
   delegationDepth?: number;
   /** #747: mark as a background/system session excluded from the normal session list. */
   isSystem?: boolean;
+  /** USO B1 (#1028): explicit session category; omit to derive from scheduledTaskId. */
+  category?: import('../models/agent_session').SessionCategory | null;
 }): string | null {
   try {
     const repo = new AgentSessionsRepository();
@@ -372,7 +382,12 @@ function _recordSession(opts: {
       // #747: scheduler-spawned and memory runs are background system sessions.
       // isSystem defaults to true when scheduledTaskId is set (all scheduler runs
       // are background; user-facing chat sessions go through the WS gateway).
-      isSystem: opts.isSystem ?? (!!opts.scheduledTaskId),
+      // USO B1 (#1028): self_improvement runs also stay is_system=1 so they never
+      // surface in the default Chats view (category ALSO gates the scope filter).
+      isSystem: opts.isSystem ?? (!!opts.scheduledTaskId || opts.category === 'self_improvement'),
+      // USO B1 (#1028): pass explicit category through; the repo derives
+      // 'scheduled'/'chat' when this is null.
+      category: opts.category ?? undefined,
     });
     return session.id;
   } catch (err) {
@@ -564,6 +579,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     delegationDepth,
     modelOverride,
     taskKind,
+    category,
   } = opts;
 
   // Unique slot key for concurrency tracking
@@ -706,6 +722,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     mcpAllowedToolsJson: allowedMcpsJson ?? profileScope.mcpRoleConfig?.allowedToolsJson ?? null,
     ownerUserId: ownerUserId ?? null,
     delegationDepth: delegationDepth ?? 0,
+    category: category ?? null,
   });
 
   // #862 — record "Memories used in this reply" now that the local session

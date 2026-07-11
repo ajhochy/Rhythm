@@ -34,6 +34,10 @@ vi.mock('../services/opencode_engine', () => ({
 // ── Import after mock ─────────────────────────────────────────────────────────
 
 import { run, _activeRunCount } from '../services/agent_runner';
+import Database from 'better-sqlite3';
+import { runMigrations } from '../database/migrations';
+import { getDb, setDb } from '../database/db';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -198,6 +202,31 @@ describe('#738 — AgentRunner', () => {
     expect(result.error).toMatch(/no output/i);
     // abortSession should NOT be called for a null response (only for timeout)
     expect(mockAbortSession).not.toHaveBeenCalled();
+  });
+
+  // ── USO B1 (#1028): category option threaded to the recorded session ──────
+
+  it('records the run session with the caller-supplied category (self_improvement stays is_system=1)', async () => {
+    setDb(new Database(':memory:'));
+    runMigrations(getDb());
+    mockPrompt.mockResolvedValue(makePromptResponse('Done'));
+
+    const result = await run({ prompt: 'Improve a skill', category: 'self_improvement' });
+    expect(result.status).toBe('done');
+
+    const recorded = new AgentSessionsRepository().findById(result.sessionId);
+    expect(recorded?.category).toBe('self_improvement');
+    expect(recorded?.isSystem).toBe(true);
+  });
+
+  it('defaults a plain run to category chat', async () => {
+    setDb(new Database(':memory:'));
+    runMigrations(getDb());
+    mockPrompt.mockResolvedValue(makePromptResponse('Done'));
+
+    const result = await run({ prompt: 'Just chat' });
+    const recorded = new AgentSessionsRepository().findById(result.sessionId);
+    expect(recorded?.category).toBe('chat');
   });
 
   // ── F. Concurrency cap rejects (N+1)th run ────────────────────────────────

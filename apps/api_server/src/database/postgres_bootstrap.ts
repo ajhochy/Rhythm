@@ -796,6 +796,22 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_is_system ON agent_sessions(is_system);
   `);
+
+  // #1028 (USO B1) — agent_sessions.category: session classification driving the
+  // USO scope filters (chat / scheduled / self_improvement). New rows are stamped
+  // at insert; legacy rows are backfilled (scheduled_task_id NOT NULL → 'scheduled').
+  // The backfill is guarded on category = 'chat' so it converges and re-running
+  // the bootstrap is a no-op.
+  await pool.query(`
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'chat';
+  `);
+  await pool.query(`
+    UPDATE agent_sessions SET category = 'scheduled' WHERE scheduled_task_id IS NOT NULL AND category = 'chat';
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_agent_sessions_category ON agent_sessions(category);
+  `);
+
   await pool.query(`
     UPDATE agent_configs
        SET allowed_delegates_json = NULL

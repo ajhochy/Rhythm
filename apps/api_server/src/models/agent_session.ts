@@ -13,6 +13,16 @@ export const PERMISSION_MODES: PermissionMode[] = ['default', 'acceptEdits', 'pl
 export type SessionScope = 'chats' | 'scheduled' | 'self_improvement';
 export const SESSION_SCOPES: SessionScope[] = ['chats', 'scheduled', 'self_improvement'];
 
+/**
+ * USO B1 (#1028) — persisted classification stamped on every agent_sessions row
+ * (column `category`, default 'chat'). Drives the USO scope filters:
+ *   'chat'            → interactive chat sessions (the default Chats view)
+ *   'scheduled'       → runs tied to a scheduled task
+ *   'self_improvement'→ curator/skill/memory background runs
+ */
+export type SessionCategory = 'chat' | 'scheduled' | 'self_improvement';
+export const SESSION_CATEGORIES: SessionCategory[] = ['chat', 'scheduled', 'self_improvement'];
+
 export interface AgentSession {
   id: string;
   taskId: string | null;
@@ -89,6 +99,13 @@ export interface AgentSession {
   ownerUserId: number | null;
   /** Delegation nesting depth for rhythm_delegate-created runs. Root sessions default to 0. */
   delegationDepth: number;
+  /**
+   * USO B1 (#1028) — session classification driving the USO scope filters.
+   * Stamped at creation ('scheduled' when scheduledTaskId is set, 'self_improvement'
+   * when the caller requests it, else 'chat'). Legacy rows are derived at
+   * migration time (scheduled_task_id NOT NULL → 'scheduled', else 'chat').
+   */
+  category: SessionCategory;
 }
 
 export interface UpdateAgentSessionDto {
@@ -154,4 +171,10 @@ export interface CreateAgentSessionDto {
   ownerUserId?: number | null;
   /** Delegation nesting depth. Root sessions default to 0. */
   delegationDepth?: number;
+  /**
+   * USO B1 (#1028) — explicit session category. When omitted it is derived at
+   * insert time: 'scheduled' if scheduledTaskId is set, otherwise 'chat'. Pass
+   * 'self_improvement' for curator/skill/memory background runs.
+   */
+  category?: SessionCategory;
 }

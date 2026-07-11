@@ -45,6 +45,8 @@ interface AgentSessionRow {
   anthropic_account_id: string | null;
   owner_user_id: number | null;
   delegation_depth: number | null;
+  /** USO B1 (#1028) — session classification. Legacy rows coalesce to a derived value. */
+  category: string | null;
 }
 
 function rowToModel(row: AgentSessionRow): AgentSession {
@@ -79,6 +81,10 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     anthropicAccountId: row.anthropic_account_id ?? null,
     ownerUserId: row.owner_user_id ?? null,
     delegationDepth: row.delegation_depth ?? 0,
+    // USO B1 (#1028): read-time coalesce for any row the migration backfill
+    // missed (defensive — the migration sets a NOT NULL default + backfill).
+    category: (row.category as AgentSession['category']) ??
+      (row.scheduled_task_id ? 'scheduled' : 'chat'),
   };
 }
 
@@ -86,13 +92,17 @@ export class AgentSessionsRepository {
   insert(dto: CreateAgentSessionDto): AgentSession {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
+    // USO B1 (#1028): stamp category at creation. Explicit category wins
+    // (e.g. 'self_improvement' from a curator run); otherwise derive
+    // 'scheduled' when a scheduled task drives the run, else 'chat'.
+    const category = dto.category ?? (dto.scheduledTaskId ? 'scheduled' : 'chat');
     getDb()
       .prepare(
         `INSERT INTO agent_sessions
            (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
             mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
-            anthropic_account_id, owner_user_id, delegation_depth, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            anthropic_account_id, owner_user_id, delegation_depth, category, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -109,6 +119,7 @@ export class AgentSessionsRepository {
         dto.anthropicAccountId ?? null,
         dto.ownerUserId ?? null,
         dto.delegationDepth ?? 0,
+        category,
         now,
         now,
       );
@@ -179,20 +190,21 @@ export class AgentSessionsRepository {
     limit = 100,
     opts: { includeArchived?: boolean; archivedOnly?: boolean; scope?: SessionScope } = {},
   ): AgentSession[] {
-    // USO A1 (#1024): the `scope` selects which slice of sessions to return.
-    //   - 'chats' (default) → is_system = 0 (interactive chats only) — UNCHANGED
-    //     from the pre-USO listAll, so no-scope requests are byte-for-byte identical.
-    //   - 'scheduled' → any run tied to a scheduled task.
-    //   - 'self_improvement' → background/system runs that are NOT scheduled
-    //     (curator/skill/memory loops). Phase-A placeholder — near-empty until
-    //     USO B1 (#1028) adds the `category` column and this switches to it.
+    // USO B1 (#1028): the `scope` selects which slice of sessions to return,
+    // filtered on the persisted `category` column (upgraded from A1's
+    // is_system/scheduled_task_id placeholder).
+    //   - 'chats' (default) → category = 'chat' AND is_system = 0. The is_system
+    //     guard is retained so a stray is_system=1 row can never leak into the
+    //     default Chats view even if its category were 'chat'.
+    //   - 'scheduled' → category = 'scheduled'.
+    //   - 'self_improvement' → category = 'self_improvement'.
     const scope = opts.scope ?? 'chats';
     const scopeClause =
       scope === 'scheduled'
-        ? 'scheduled_task_id IS NOT NULL'
+        ? "category = 'scheduled'"
         : scope === 'self_improvement'
-          ? 'is_system = 1 AND scheduled_task_id IS NULL'
-          : 'is_system = 0';
+          ? "category = 'self_improvement'"
+          : "category = 'chat' AND is_system = 0";
     const archiveClause = opts.archivedOnly
       ? ' AND archived_at IS NOT NULL'
       : opts.includeArchived
