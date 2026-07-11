@@ -51,7 +51,7 @@ import {
 } from '../repositories/agent_configs_repository';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { writeAgentProfileFile } from './opencode_agent_writer';
-import { writeManagedSkill } from './rhythm_managed_skills';
+import { writeManagedSkill, deleteManagedSkill } from './rhythm_managed_skills';
 import { CONFIG_PATCH_FIELDS, SCOPE_PATCH_FIELDS } from './org_diagnosis_types';
 import {
   isConsolidationPairingChange,
@@ -368,6 +368,21 @@ function isConsolidateSkillRevertSnapshot(v: unknown): v is ConsolidateSkillReve
   return typeof c.survivorSkillId === 'string' && typeof c.retiredSkillId === 'string';
 }
 
+/** Shape of the before_snapshot_json the external-adoption skill applier writes (Stage B). */
+interface ExternalAdoptionRevertSnapshot {
+  externalAdoption: true;
+  adoptedSkillName: string;
+  skillWasAbsent: boolean;
+  agentConfigId: string | null;
+  priorAllowedSkillsJson: string | null;
+}
+
+function isExternalAdoptionRevertSnapshot(v: unknown): v is ExternalAdoptionRevertSnapshot {
+  if (!v || typeof v !== 'object') return false;
+  const c = v as Record<string, unknown>;
+  return c.externalAdoption === true && typeof c.adoptedSkillName === 'string';
+}
+
 function safeParseStringArray(json: string): string[] {
   try {
     const parsed = JSON.parse(json);
@@ -514,7 +529,23 @@ export async function revertProposal(
       change = null;
     }
 
-    if (isConfigFieldSnapshot(snapshot)) {
+    if (proposal.kind === 'external-adoption' && isExternalAdoptionRevertSnapshot(snapshot)) {
+      // Undo the adopt: remove the skill we wrote (only if WE created it —
+      // never delete a pre-existing engine-owned library skill), and restore
+      // the agent's prior allowlist + resync its file. The capability-gap is
+      // left `open` (measure only resolves it on a keep) so a later run can try
+      // again.
+      if (snapshot.skillWasAbsent && snapshot.adoptedSkillName) {
+        deleteManagedSkill(snapshot.adoptedSkillName);
+      }
+      if (snapshot.agentConfigId) {
+        configsRepo.update(snapshot.agentConfigId, {
+          allowedSkillsJson: snapshot.priorAllowedSkillsJson ?? null,
+        });
+        const restored = configsRepo.getById(snapshot.agentConfigId);
+        if (restored) writeAgentProfileFile(restored);
+      }
+    } else if (isConfigFieldSnapshot(snapshot)) {
       // #971 — refine-config (scalar swap) AND refine-scope (add/remove) both
       // snapshot {agentConfigId, field, priorValue}; restore the field to its
       // prior value and re-project the opencode agent file the same way the

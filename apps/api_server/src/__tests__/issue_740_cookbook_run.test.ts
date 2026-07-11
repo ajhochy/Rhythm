@@ -26,7 +26,9 @@ vi.mock('../services/agent_runner', () => ({
 
 vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
-    get isReady() { return true; },
+    get isReady() {
+      return true;
+    },
     createSession: vi.fn().mockResolvedValue({ id: 'sdk-session-1' }),
     promptAsync: vi.fn().mockResolvedValue(true),
     abortSession: vi.fn().mockResolvedValue(true),
@@ -43,6 +45,7 @@ import { setDb } from '../database/db';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { startTestServer } from './helpers/real_server';
+import { AgentCookbookRepository } from '../repositories/agent_cookbook_repository';
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
@@ -53,7 +56,7 @@ function makeDb() {
   return db;
 }
 
-describe('#740 — POST /agent-cookbook/:id/run', () => {
+describe('#740 — POST /agent-cookbook/:id/run (authenticated)', () => {
   let baseUrl: string;
   let authHeader: Record<string, string>;
   let closeServer: () => Promise<void>;
@@ -150,17 +153,46 @@ describe('#740 — POST /agent-cookbook/:id/run', () => {
     expect(callArgs.prompt).toContain('Step B');
     expect(callArgs.prompt).toContain('Step C');
   });
+});
+
+describe('#740 — POST /agent-cookbook/:id/run (unauthenticated)', () => {
+  let baseUrl: string;
+  let closeServer: () => Promise<void>;
+  let recipeId: string;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_LOCAL', 'false');
+
+    const { setDb } = await import('../database/db');
+    const { runMigrations } = await import('../database/migrations');
+    const Database = (await import('better-sqlite3')).default;
+    const db = new Database(':memory:');
+    runMigrations(db);
+    setDb(db);
+
+    const { AgentCookbookRepository } = await import('../repositories/agent_cookbook_repository');
+    const cookbookRepo = new AgentCookbookRepository();
+    const recipe = await cookbookRepo.createAsync({
+      title: 'for-auth-test',
+      description: '',
+      stepsJson: '[]',
+    });
+    recipeId = recipe.id;
+
+    const { createApp } = await import('../app');
+    const { startTestServer } = await import('./helpers/real_server');
+    ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
+  });
+
+  afterEach(async () => {
+    if (closeServer) await closeServer();
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
 
   it('returns 401 when unauthenticated', async () => {
-    // Create a recipe first
-    const createRes = await fetch(`${baseUrl}/agent-cookbook`, {
-      method: 'POST',
-      headers: { ...authHeader, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Auth test' }),
-    });
-    const recipe = (await createRes.json()) as { id: string };
-
-    const res = await fetch(`${baseUrl}/agent-cookbook/${recipe.id}/run`, {
+    const res = await fetch(`${baseUrl}/agent-cookbook/${recipeId}/run`, {
       method: 'POST',
       // no auth header
     });

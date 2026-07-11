@@ -10,8 +10,14 @@ See `docs/ai/runs/2026-07-11-nonmobile-wave-codex-terra.md`.
 
 ## Active branch / PR
 
-- **PR (wave, this run):** `workflow/run-2026-07-11` — the 9 issues above.
-  Verified pre-PR; awaiting CI + manual UI smoke. Do NOT merge without smoke.
+- **PR #1016 (wave):** `workflow/run-2026-07-11` — the 9 bug issues above.
+  CI green (Desktop + Server). Awaiting manual UI smoke. Do NOT merge without smoke.
+- **PR #1017 (epic, stacked on #1016):** `epic/skill-reuse-adopt-2026-07-11` —
+  skill reuse (Stage A #983–988) + external discovery/adoption (Stage B #989–996),
+  built by Sonnet 5 agents. tsc clean, 57 unit tests, Plan A live-probe PASS, Plan B
+  chain live-verified (+ a download-path defect found & fixed). #997 deferred (full
+  adopt/measure live arc). Merge #1016 first, then this retargets to main.
+  See `docs/ai/runs/2026-07-11-skill-reuse-adopt-epic.md`.
 - **OPEN, awaiting manual smoke (PR #1005):** `workflow/run-2026-07-10-nonmobile-issues`
   — #999/#1000/#1002/#1003/#1004/#981 (live-verified; the user's to smoke+merge).
   This wave did **not** rebuild those.
@@ -20,9 +26,9 @@ See `docs/ai/runs/2026-07-11-nonmobile-wave-codex-terra.md`.
 
 ## In progress
 
-- **Plan A/B epic (#983–#997, milestones 87/88)** — reuse-before-reinvent +
-  discover/adopt. Dependency chain (shared-contract #983 first). Queued as the
-  next Codex wave; not started.
+- **Plan A/B epic — implemented (PR #1017).** Awaiting CI + manual smoke + merge.
+  Follow-up: #997 full adopt→measure→KEPT/REVERTED live arc (judge scored 0/0 in
+  the bare standalone probe; existing #930 `scoreSkillBody` machinery).
 
 ## Risks / known issues
 

@@ -36,7 +36,9 @@ import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
-import { refineExistingSkill } from './skill_refiner';
+import { refineExistingSkill, type RefineCandidate } from './skill_refiner';
+import { tryAutoWireLibrarySkill } from './skill_reuse';
+import { AgentCapabilityGapsRepository } from '../repositories/agent_capability_gaps_repository';
 import {
   draftSkillExists,
   managedSkillsRoot,
@@ -573,6 +575,51 @@ export async function distillFromSession(
       }
     }
     // 'no-match' (or kept/skipped with no title clash) → fall through to draft.
+
+    // ── Stage A step 2: reuse an existing LIBRARY skill (auto-wire) ───────────
+    // Before drafting a fresh (usually weaker) skill, check the OWNED library
+    // (managedSkillsRoot() files) for a skill that adequately covers this intent
+    // that the extracting agent isn't wired to yet. If found, wire it and STOP —
+    // no bespoke draft. Reversible: tryAutoWireLibrarySkill snapshots the prior
+    // allowlist. Never throws.
+    const intentCandidate: RefineCandidate = {
+      title,
+      description,
+      whenToUse: null,
+      steps,
+      tags,
+      confidence,
+    };
+    try {
+      const wired = await tryAutoWireLibrarySkill(sessionId, intentCandidate);
+      if (wired) {
+        logger.info(
+          `[skill-extract] '${title}' covered by library skill '${wired.skillName}' — auto-wired, no draft`,
+        );
+        _setCuratorExtractRunning(false);
+        return null;
+      }
+    } catch (wireErr) {
+      // Non-fatal — fall through to drafting.
+      logger.warn(`[skill-extract] auto-wire attempt failed for '${title}' (non-fatal): ${String(wireErr)}`);
+    }
+
+    // ── Stage A step 3: no adequate library match → record a capability-gap ───
+    // (Plan A↔Plan B shared contract.) Eager, dedup'd insert-if-absent so the
+    // next org-optimizer run can drive external discovery. Emitting here (before
+    // the draft write) makes the gap independent of draft-write success. Never
+    // throws; a failed gap insert must not block the draft below.
+    try {
+      await new AgentCapabilityGapsRepository().insertIfAbsentAsync({
+        intentTitle: title,
+        intentProblem: problem || null,
+        intentTags: tags,
+        sampleSessionId: sessionId,
+        agentConfigId: resolveExtractingAgentConfigId(sessionId),
+      });
+    } catch (gapErr) {
+      logger.warn(`[skill-extract] capability-gap emit failed for '${title}' (non-fatal): ${String(gapErr)}`);
+    }
 
     // #949 — Harvest directly to a draft SKILL.md file under the Rhythm-managed
     // skills drafts namespace (instead of a DB row). The engine scans the

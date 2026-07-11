@@ -20,7 +20,7 @@ function makeDb() {
   return db;
 }
 
-describe('POST /notifications/agent', () => {
+describe('POST /notifications/agent (authenticated)', () => {
   let baseUrl: string;
   let closeServer: () => Promise<void>;
   let authHeaders: Record<string, string>;
@@ -43,15 +43,6 @@ describe('POST /notifications/agent', () => {
   afterEach(async () => {
     vi.clearAllMocks();
     await closeServer();
-  });
-
-  it('returns 401 without auth', async () => {
-    const res = await fetch(`${baseUrl}/notifications/agent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Done', body: 'Task complete' }),
-    });
-    expect(res.status).toBe(401);
   });
 
   it('returns 201 and id with valid payload', async () => {
@@ -107,5 +98,41 @@ describe('POST /notifications/agent', () => {
       body: JSON.stringify({ title: 'x'.repeat(201), body: 'ok' }),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /notifications/agent (unauthenticated)', () => {
+  let baseUrl: string;
+  let closeServer: () => Promise<void>;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_LOCAL', 'false');
+
+    const { setDb } = await import('../database/db');
+    const { runMigrations } = await import('../database/migrations');
+    const Database = (await import('better-sqlite3')).default;
+    const db = new Database(':memory:');
+    runMigrations(db);
+    setDb(db);
+
+    const { createApp } = await import('../app');
+    const { startTestServer } = await import('./helpers/real_server');
+    ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
+  });
+
+  afterEach(async () => {
+    await closeServer();
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('returns 401 without auth', async () => {
+    const res = await fetch(`${baseUrl}/notifications/agent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Done', body: 'Task complete' }),
+    });
+    expect(res.status).toBe(401);
   });
 });

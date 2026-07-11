@@ -10,7 +10,7 @@
  *   - graphic-designer.mcp.json parses and scopes only canva
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -76,7 +76,7 @@ describe('D1 — graphic-designer.mcp.json role file', () => {
 
 // ── /agent-designs HTTP route ─────────────────────────────────────────────
 
-describe('D1 — /agent-designs CRUD', () => {
+describe('D1 — /agent-designs CRUD (authenticated)', () => {
   let baseUrl: string;
   let authHeader: Record<string, string>;
   let closeServer: () => Promise<void>;
@@ -168,6 +168,33 @@ describe('D1 — /agent-designs CRUD', () => {
       headers: authHeader,
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('D1 — /agent-designs CRUD (unauthenticated)', () => {
+  let baseUrl: string;
+  let closeServer: () => Promise<void>;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_LOCAL', 'false');
+
+    const { setDb } = await import('../database/db');
+    const { runMigrations } = await import('../database/migrations');
+    const Database = (await import('better-sqlite3')).default;
+    const db = new Database(':memory:');
+    runMigrations(db);
+    setDb(db);
+
+    const { createApp } = await import('../app');
+    const { startTestServer } = await import('./helpers/real_server');
+    ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
+  });
+
+  afterEach(async () => {
+    await closeServer();
+    vi.unstubAllEnvs();
+    vi.resetModules();
   });
 
   it('GET /agent-designs returns 401 when unauthenticated', async () => {

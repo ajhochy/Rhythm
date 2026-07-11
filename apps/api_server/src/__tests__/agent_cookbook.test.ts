@@ -10,7 +10,7 @@
  *   - GET /agent-cookbook/:id returns 404 for unknown id
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { createApp } from '../app';
 import { startTestServer } from './helpers/real_server';
@@ -26,7 +26,7 @@ function makeDb() {
   return db;
 }
 
-describe('B1 — /agent-cookbook CRUD', () => {
+describe('B1 — /agent-cookbook CRUD (authenticated)', () => {
   let baseUrl: string;
   let authHeader: Record<string, string>;
   let closeServer: () => Promise<void>;
@@ -165,6 +165,33 @@ describe('B1 — /agent-cookbook CRUD', () => {
     const titles = body.map((r) => r.title);
     expect(titles).toContain('First');
     expect(titles).toContain('Second');
+  });
+});
+
+describe('B1 — /agent-cookbook CRUD (unauthenticated)', () => {
+  let baseUrl: string;
+  let closeServer: () => Promise<void>;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.stubEnv('AGENT_LOCAL', 'false');
+
+    const { setDb } = await import('../database/db');
+    const { runMigrations } = await import('../database/migrations');
+    const Database = (await import('better-sqlite3')).default;
+    const db = new Database(':memory:');
+    runMigrations(db);
+    setDb(db);
+
+    const { createApp } = await import('../app');
+    const { startTestServer } = await import('./helpers/real_server');
+    ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
+  });
+
+  afterEach(async () => {
+    await closeServer();
+    vi.unstubAllEnvs();
+    vi.resetModules();
   });
 
   it('GET /agent-cookbook returns 401 when unauthenticated', async () => {

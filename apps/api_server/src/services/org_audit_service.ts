@@ -25,6 +25,7 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { logger } from '../utils/logger';
 import { opencodeClient } from './opencode_engine';
 import { alignMcpName } from './mcp_name_alignment';
 import { extractWorkflowFailureSignals, type WorkflowFailureSignal } from './workflow_failure_signal_extractor';
@@ -37,6 +38,10 @@ import {
   DeniedToolEventsRepository,
   type DeniedToolEvent,
 } from '../repositories/denied_tool_events_repository';
+import {
+  AgentCapabilityGapsRepository,
+  type CapabilityGapRow,
+} from '../repositories/agent_capability_gaps_repository';
 import type { AgentSkill } from '../models/agent_skill';
 import type { AgentCookbook } from '../repositories/agent_cookbook_repository';
 import type { AgentWebhookEndpoint } from '../repositories/agent_webhook_endpoints_repository';
@@ -93,8 +98,18 @@ export interface AllowlistDrift {
  */
 export interface OrgAuditGap {
   gapId: string;
-  kind: 'prune-scope' | 'tighten-scope' | 'webhook-wiring';
+  kind: 'prune-scope' | 'tighten-scope' | 'webhook-wiring' | 'capability-gap';
   evidence: string;
+  /**
+   * capability-gap only — the agent that needs the capability plus the intent
+   * + replay context the discovery seam, the applier, and the behavioral
+   * measure all read. Absent on the three hygiene kinds.
+   */
+  agentConfigId?: string;
+  sampleSessionId?: string;
+  intentTitle?: string;
+  intentProblem?: string;
+  intentTags?: string[];
 }
 
 export interface OrgAuditSnapshot {
@@ -366,6 +381,34 @@ function detectWebhookGaps(
   return gaps;
 }
 
+/**
+ * Surface every OPEN agent_capability_gaps row (emitted by the harvester's
+ * ladder step 3 — no adequate library skill for a distilled intent) as a
+ * capability-gap OrgAuditGap the external-discovery generator can ground a
+ * proposal on. Read-only: this snapshot builder never writes. The row's stable
+ * dedup_key IS the gapId, so the generator's dedup + signal_ref chain aligns
+ * with the gap without a second hash. Never throws — a repo failure degrades to
+ * zero capability gaps for this run.
+ *
+ * Deviation from the plan: `AgentCapabilityGapsRepository` (#983, already on
+ * this branch) returns `CapabilityGapRow` with `intentTags: string[] | null`
+ * ALREADY parsed (no `intentTagsJson` string field on the model — that raw
+ * column only exists internally as `CapabilityGapDbRow`), so this reads the
+ * real exported row type directly instead of re-parsing JSON.
+ */
+function detectCapabilityGaps(rows: CapabilityGapRow[]): OrgAuditGap[] {
+  return rows.map((r) => ({
+    gapId: r.dedupKey,
+    kind: 'capability-gap' as const,
+    evidence: `capability-gap intent="${r.intentTitle}" agent=${r.agentConfigId ?? '(unassigned)'} sampleSession=${r.sampleSessionId ?? '(none)'}`,
+    agentConfigId: r.agentConfigId ?? undefined,
+    sampleSessionId: r.sampleSessionId ?? undefined,
+    intentTitle: r.intentTitle,
+    intentProblem: r.intentProblem ?? undefined,
+    intentTags: r.intentTags ?? [],
+  }));
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────
 
 /**
@@ -423,6 +466,15 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
       .map((d) => `${d.agentConfigId}::${d.toolName}`),
   );
 
+  // Open capability gaps (Plan A) — read-only surface into this snapshot.
+  let capabilityGapRows: CapabilityGapRow[] = [];
+  try {
+    capabilityGapRows = await new AgentCapabilityGapsRepository().listOpenAsync();
+  } catch (err) {
+    logger.warn(`[org-audit] listOpen capability gaps failed (non-fatal): ${String(err)}`);
+    capabilityGapRows = [];
+  }
+
   // ── Engine-gated section (#746 cold-start guard) ─────────────────────────
   const engineAvailable = opencodeClient.isReady;
   let drift: AllowlistDrift[] = [];
@@ -457,6 +509,7 @@ export async function buildOrgAuditSnapshot(): Promise<OrgAuditSnapshot> {
     ...detectPruneGaps(drift),
     ...detectTightenGaps(profiles, liveMcpNames, deniedPairs, sessionCountByProfile, observationDaysByProfile),
     ...detectWebhookGaps(sessions, webhookEndpoints),
+    ...detectCapabilityGaps(capabilityGapRows),
   ];
 
   // #934 — workflow_failure_signal_extractor.ts is itself read-only and never
