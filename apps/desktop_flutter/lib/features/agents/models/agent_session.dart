@@ -278,5 +278,5 @@ DateTime? _parseDateTime(String? value) {
   if (value == null) return null;
   final parsed = DateTime.tryParse(value);
   if (parsed == null) return null;
-  return parsed.isUtc ? parsed.toLocal() : parsed;
+  return parsed;
 }

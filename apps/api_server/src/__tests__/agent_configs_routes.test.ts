@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { createApp } from '../app';
 import { runMigrations } from '../database/migrations';
@@ -6,6 +6,7 @@ import { setDb } from '../database/db';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { startTestServer } from './helpers/real_server';
+import { opencodeClient } from '../services/opencode_engine';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -341,6 +342,30 @@ describe('PATCH /agent-configs/:id', () => {
     expect(res.status).toBe(200);
     const updated = (await res.json()) as Record<string, unknown>;
     expect(updated.label).toBe('Updated');
+  });
+
+  it('issue-1014: reloads engine profiles when a delegate roster is patched', async () => {
+    // Regression caught: the PATCH persists the new roster but the running
+    // engine keeps its cached task allowlist for subsequent calls in this session.
+    const reloadConfig = vi.spyOn(opencodeClient, 'reloadConfig').mockResolvedValue(false);
+    const createRes = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ id: 'manager', label: 'Manager', isManager: true }),
+    });
+    expect(createRes.status).toBe(201);
+    // #1015 also reloads on create(); measure only the patch's reload.
+    reloadConfig.mockClear();
+
+    const patchRes = await fetch(`${baseUrl}/agent-configs/manager`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ allowedDelegatesJson: '["config-doctor"]' }),
+    });
+
+    expect(patchRes.status).toBe(200);
+    expect(reloadConfig).toHaveBeenCalledTimes(1);
+    reloadConfig.mockRestore();
   });
 
   it('allows patching enabled on a preset row', async () => {

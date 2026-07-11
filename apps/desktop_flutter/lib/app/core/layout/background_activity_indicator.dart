@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../background_activity/background_activity_controller.dart';
 import '../background_activity/background_status_model.dart';
 import '../ui/tokens/rhythm_theme.dart';
+import '../utils/time_format.dart';
 
 /// Compact pulsing indicator in the top header bar that surfaces what
 /// background work is running. Idle = subtle dot. Active = pulsing accent dot
@@ -32,9 +33,10 @@ class _BackgroundActivityIndicatorState
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     )..repeat(reverse: true);
-    _opacity = Tween<double>(begin: 0.4, end: 1.0).animate(
-      CurvedAnimation(parent: _pulse, curve: Curves.easeInOut),
-    );
+    _opacity = Tween<double>(
+      begin: 0.4,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _pulse, curve: Curves.easeInOut));
   }
 
   @override
@@ -234,16 +236,7 @@ class _LoopRow extends StatelessWidget {
 
   String _formatTs(String? iso) {
     if (iso == null) return '—';
-    try {
-      final dt = DateTime.parse(iso).toLocal();
-      final h = dt.hour.toString().padLeft(2, '0');
-      final m = dt.minute.toString().padLeft(2, '0');
-      final mon = dt.month.toString().padLeft(2, '0');
-      final day = dt.day.toString().padLeft(2, '0');
-      return '${dt.year}-$mon-$day $h:$m';
-    } catch (_) {
-      return iso;
-    }
+    return formatLocalTimestamp(iso);
   }
 
   @override

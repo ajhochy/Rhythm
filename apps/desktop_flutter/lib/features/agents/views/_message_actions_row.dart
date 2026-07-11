@@ -5,9 +5,7 @@
 ///     brief flash animation on success.
 ///   - Bell/notify icon: toggles notify-on-completion for this specific message.
 ///     When armed, a desktop notification fires when the session finishes working.
-///   - Relative timestamp (right-anchored): "just now", "Xm ago", "Xh ago", or
-///     full date for messages older than 24 h. Refreshed via a global ticker
-///     provided by [MessageTimeTicker].
+///   - Pacific timestamp (right-anchored), refreshed by [MessageTimeTicker].
 ///
 /// Usage in _ChatBubble (after the bubble content):
 ///   MessageActionsRow(
@@ -26,6 +24,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+
+import '../../../app/core/utils/time_format.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/agents_controller.dart';
@@ -273,13 +273,10 @@ class _MessageActionsRowState extends State<MessageActionsRow>
             ),
           ],
           const Spacer(),
-          // Relative timestamp.
+          // Pacific timestamp.
           Text(
-            _relativeTime(widget.createdAt),
-            style: TextStyle(
-              fontSize: 10,
-              color: context.rhythm.textMuted,
-            ),
+            formatLocalTimestamp(widget.createdAt),
+            style: TextStyle(fontSize: 10, color: context.rhythm.textMuted),
           ),
         ],
       ),
@@ -318,21 +315,4 @@ class _ActionIconButton extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Returns a human-readable relative time string for [dt].
-String _relativeTime(DateTime dt) {
-  final now = DateTime.now();
-  final diff = now.difference(dt);
-
-  if (diff.inSeconds < 60) return 'just now';
-  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-  if (diff.inHours < 24) return '${diff.inHours}h ago';
-  // Older — show full date.
-  final y = dt.year.toString().padLeft(4, '0');
-  final mo = dt.month.toString().padLeft(2, '0');
-  final d = dt.day.toString().padLeft(2, '0');
-  final h = dt.hour.toString().padLeft(2, '0');
-  final mi = dt.minute.toString().padLeft(2, '0');
-  return '$y-$mo-$d $h:$mi';
 }

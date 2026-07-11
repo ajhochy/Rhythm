@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../../app/core/utils/time_format.dart';
 import '../controllers/messages_controller.dart';
 import '../models/message.dart';
 import '../models/message_thread.dart';
@@ -50,7 +51,7 @@ class _MessagesViewState extends State<MessagesView> {
             colors: [
               context.rhythm.canvas,
               const Color(0xFFF7F4EF),
-              context.rhythm.canvas
+              context.rhythm.canvas,
             ],
             stops: const [0.0, 0.45, 1.0],
           ),
@@ -114,8 +115,9 @@ class _ThreadListPanel extends StatelessWidget {
             child: controller.status == MessagesStatus.loading &&
                     controller.threads.isEmpty
                 ? Center(
-                    child:
-                        CircularProgressIndicator(color: context.rhythm.accent),
+                    child: CircularProgressIndicator(
+                      color: context.rhythm.accent,
+                    ),
                   )
                 : filtered.isEmpty
                     ? const _EmptyThreadsState()
@@ -184,8 +186,10 @@ class _PanelHeader extends StatelessWidget {
                 const SizedBox(height: 3),
                 Text(
                   'Unread threads and direct conversations',
-                  style:
-                      TextStyle(fontSize: 12, color: context.rhythm.textMuted),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.rhythm.textMuted,
+                  ),
                 ),
               ],
             ),
@@ -225,8 +229,11 @@ class _SearchField extends StatelessWidget {
       decoration: InputDecoration(
         hintText: 'Search conversations\u2026',
         hintStyle: TextStyle(color: context.rhythm.textMuted, fontSize: 13),
-        prefixIcon:
-            Icon(Icons.search, size: 16, color: context.rhythm.textMuted),
+        prefixIcon: Icon(
+          Icons.search,
+          size: 16,
+          color: context.rhythm.textMuted,
+        ),
         isDense: true,
         filled: true,
         fillColor: context.rhythm.surfaceMuted,
@@ -420,21 +427,7 @@ class _ThreadRow extends StatelessWidget {
   }
 
   String _formatTimestamp(DateTime dt) {
-    final now = DateTime.now();
-    final diff = now.difference(dt);
-    if (diff.inMinutes < 60) {
-      return '${diff.inMinutes}m ago';
-    }
-    if (diff.inHours < 24) {
-      return '${diff.inHours}h ago';
-    }
-    if (diff.inDays == 1) {
-      return 'Yesterday';
-    }
-    if (diff.inDays < 7) {
-      return '${diff.inDays}d ago';
-    }
-    return '${dt.month}/${dt.day}/${dt.year}';
+    return formatLocalTimestamp(dt);
   }
 }
 
@@ -449,8 +442,11 @@ class _EmptyThreadsState extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.forum_outlined,
-                size: 34, color: context.rhythm.textMuted),
+            Icon(
+              Icons.forum_outlined,
+              size: 34,
+              color: context.rhythm.textMuted,
+            ),
             const SizedBox(height: 10),
             Text(
               'No conversations',
@@ -465,7 +461,10 @@ class _EmptyThreadsState extends StatelessWidget {
               'Start a direct thread to begin the conversation.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                  fontSize: 12, color: context.rhythm.textMuted, height: 1.35),
+                fontSize: 12,
+                color: context.rhythm.textMuted,
+                height: 1.35,
+              ),
             ),
           ],
         ),
@@ -554,8 +553,10 @@ class _MessagePanelState extends State<_MessagePanel> {
                         ),
                         decoration: BoxDecoration(
                           border: Border(
-                              bottom: BorderSide(
-                                  color: context.rhythm.borderSubtle)),
+                            bottom: BorderSide(
+                              color: context.rhythm.borderSubtle,
+                            ),
+                          ),
                         ),
                         child: Row(
                           children: [
@@ -600,8 +601,9 @@ class _MessagePanelState extends State<_MessagePanel> {
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
-                                  color: context.rhythm.accent
-                                      .withValues(alpha: 0.9),
+                                  color: context.rhythm.accent.withValues(
+                                    alpha: 0.9,
+                                  ),
                                 ),
                               ),
                             ),
@@ -669,8 +671,11 @@ class _EmptyConversationState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.chat_bubble_outline,
-                size: 36, color: context.rhythm.textMuted),
+            Icon(
+              Icons.chat_bubble_outline,
+              size: 36,
+              color: context.rhythm.textMuted,
+            ),
             const SizedBox(height: 12),
             Text(
               'Select a conversation',
@@ -685,7 +690,10 @@ class _EmptyConversationState extends StatelessWidget {
               'Messages, thread previews, and reply activity appear here.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                  color: context.rhythm.textMuted, fontSize: 12, height: 1.35),
+                color: context.rhythm.textMuted,
+                fontSize: 12,
+                height: 1.35,
+              ),
             ),
           ],
         ),
@@ -712,7 +720,8 @@ class _IncomingMessageBanner extends StatelessWidget {
             color: context.rhythm.accentMuted,
             borderRadius: BorderRadius.circular(RhythmRadius.lg),
             border: Border.all(
-                color: context.rhythm.accent.withValues(alpha: 0.18)),
+              color: context.rhythm.accent.withValues(alpha: 0.18),
+            ),
           ),
           child: Row(
             children: [
@@ -826,7 +835,9 @@ class _MessageBubble extends StatelessWidget {
                     Text(
                       _formatTime(message.createdAt),
                       style: TextStyle(
-                          fontSize: 11, color: context.rhythm.textMuted),
+                        fontSize: 11,
+                        color: context.rhythm.textMuted,
+                      ),
                     ),
                   ],
                 ),
@@ -867,14 +878,7 @@ class _MessageBubble extends StatelessWidget {
   }
 
   String _formatTime(DateTime dt) {
-    final hour = dt.hour > 12
-        ? dt.hour - 12
-        : dt.hour == 0
-            ? 12
-            : dt.hour;
-    final minute = dt.minute.toString().padLeft(2, '0');
-    final period = dt.hour >= 12 ? 'PM' : 'AM';
-    return '$hour:$minute $period';
+    return formatLocalTimestamp(dt);
   }
 }
 
@@ -930,8 +934,10 @@ class _ReplyArea extends StatelessWidget {
               minLines: 2,
               decoration: InputDecoration(
                 hintText: 'Write a message\u2026',
-                hintStyle:
-                    TextStyle(color: context.rhythm.textMuted, fontSize: 13),
+                hintStyle: TextStyle(
+                  color: context.rhythm.textMuted,
+                  fontSize: 13,
+                ),
                 isDense: true,
                 filled: true,
                 fillColor: context.rhythm.canvas.withValues(alpha: 0.6),
@@ -1191,8 +1197,10 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text('Cancel',
-              style: TextStyle(color: context.rhythm.textSecondary)),
+          child: Text(
+            'Cancel',
+            style: TextStyle(color: context.rhythm.textSecondary),
+          ),
         ),
         FilledButton(
           onPressed: _canSubmit ? _submit : null,

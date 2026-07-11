@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../../app/core/utils/time_format.dart';
 import '../controllers/agent_approvals_controller.dart';
 import '../controllers/notifications_controller.dart';
 import '../models/agent_approval.dart';
@@ -78,9 +79,7 @@ class _PanelHeader extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
       decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: context.rhythm.borderSubtle),
-        ),
+        border: Border(bottom: BorderSide(color: context.rhythm.borderSubtle)),
       ),
       child: Row(
         children: [
@@ -221,16 +220,7 @@ class _NotificationTile extends StatelessWidget {
   }
 
   String _relativeTime(String iso) {
-    try {
-      final dt = DateTime.parse(iso).toLocal();
-      final diff = DateTime.now().difference(dt);
-      if (diff.inMinutes < 1) return 'just now';
-      if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-      if (diff.inHours < 24) return '${diff.inHours}h ago';
-      return '${diff.inDays}d ago';
-    } catch (_) {
-      return '';
-    }
+    return formatLocalTimestamp(iso);
   }
 }
 
@@ -292,11 +282,7 @@ class _AgentNotificationTile extends StatelessWidget {
   }
 
   String _relativeTime(DateTime dt) {
-    final diff = DateTime.now().difference(dt);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
+    return formatLocalTimestamp(dt);
   }
 }
 
@@ -376,8 +362,10 @@ class _ApprovalCard extends StatelessWidget {
                   foregroundColor: context.rhythm.danger,
                   minimumSize: Size.zero,
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                 ),
                 child: const Text('Reject'),
               ),
@@ -387,8 +375,10 @@ class _ApprovalCard extends StatelessWidget {
                 style: FilledButton.styleFrom(
                   minimumSize: Size.zero,
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                 ),
                 child: const Text('Approve'),
               ),

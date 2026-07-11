@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../../app/core/utils/time_format.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../../facilities/data/facilities_data_source.dart';
 import '../../facilities/models/facility.dart';
@@ -264,10 +265,7 @@ class _StatCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: TextStyle(color: context.rhythm.textSecondary),
-          ),
+          Text(label, style: TextStyle(color: context.rhythm.textSecondary)),
           const SizedBox(height: 6),
           Text(
             value,
@@ -515,9 +513,7 @@ class _RuleCard extends StatelessWidget {
                       const SizedBox(height: 10),
                       Text(
                         _previewLabel(rule.previewSample!),
-                        style: TextStyle(
-                          color: context.rhythm.textSecondary,
-                        ),
+                        style: TextStyle(color: context.rhythm.textSecondary),
                       ),
                     ],
                   ],
@@ -544,14 +540,8 @@ class _RuleCard extends StatelessWidget {
                 onPressed: onInspect,
                 icon: Icon(Icons.visibility_outlined),
               ),
-              IconButton(
-                onPressed: onEdit,
-                icon: Icon(Icons.edit_outlined),
-              ),
-              IconButton(
-                onPressed: onDelete,
-                icon: Icon(Icons.delete_outline),
-              ),
+              IconButton(onPressed: onEdit, icon: Icon(Icons.edit_outlined)),
+              IconButton(onPressed: onDelete, icon: Icon(Icons.delete_outline)),
             ],
           ),
         ),
@@ -672,10 +662,7 @@ class _MetaChip extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             label,
-            style: TextStyle(
-              fontSize: 12,
-              color: context.rhythm.textPrimary,
-            ),
+            style: TextStyle(fontSize: 12, color: context.rhythm.textPrimary),
           ),
         ],
       ),
@@ -891,9 +878,11 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     final isGoogleCalendar = _selectedSource == 'google_calendar';
     final availableActions = isPco
         ? widget.controller.actions
-            .where((item) =>
-                item.key == 'create_task' ||
-                item.key == 'create_project_from_template')
+            .where(
+              (item) =>
+                  item.key == 'create_task' ||
+                  item.key == 'create_project_from_template',
+            )
             .toList()
         : isGoogleCalendar
             ? widget.controller.actions.toList()
@@ -1004,8 +993,9 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                     child: ListView(
                       shrinkWrap: true,
                       children: triggers.map((item) {
-                        final selected =
-                            _selectedTriggerKeys.contains(item.key);
+                        final selected = _selectedTriggerKeys.contains(
+                          item.key,
+                        );
                         return CheckboxListTile(
                           dense: true,
                           value: selected,
@@ -1084,8 +1074,9 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
               const SizedBox(height: 18),
               _stepTitle('4. Action'),
               DropdownButtonFormField<String>(
-                value: availableActions
-                        .any((item) => item.key == _selectedActionType)
+                value: availableActions.any(
+                  (item) => item.key == _selectedActionType,
+                )
                     ? _selectedActionType
                     : availableActions.firstOrNull?.key,
                 isExpanded: true,
@@ -1393,29 +1384,29 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: _positionsForTeams(options, _selectedTeamIds).map(
-              (position) {
-                final selected = _selectedPositionNames.contains(position);
-                return FilterChip(
-                  label: Text(position),
-                  selected: selected,
-                  onSelected: (checked) {
-                    setState(() {
-                      if (checked) {
-                        _selectedPositionNames = [
-                          ..._selectedPositionNames,
-                          position,
-                        ];
-                      } else {
-                        _selectedPositionNames = _selectedPositionNames
-                            .where((p) => p != position)
-                            .toList();
-                      }
-                    });
-                  },
-                );
-              },
-            ).toList(),
+            children: _positionsForTeams(options, _selectedTeamIds).map((
+              position,
+            ) {
+              final selected = _selectedPositionNames.contains(position);
+              return FilterChip(
+                label: Text(position),
+                selected: selected,
+                onSelected: (checked) {
+                  setState(() {
+                    if (checked) {
+                      _selectedPositionNames = [
+                        ..._selectedPositionNames,
+                        position,
+                      ];
+                    } else {
+                      _selectedPositionNames = _selectedPositionNames
+                          .where((p) => p != position)
+                          .toList();
+                    }
+                  });
+                },
+              );
+            }).toList(),
           ),
           const SizedBox(height: 12),
         ],
@@ -1778,8 +1769,9 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
         final templateNames = [
           ...widget.controller.projectTemplateNames,
           if (_templateNameController.text.trim().isNotEmpty &&
-              !widget.controller.projectTemplateNames
-                  .contains(_templateNameController.text.trim()))
+              !widget.controller.projectTemplateNames.contains(
+                _templateNameController.text.trim(),
+              ))
             _templateNameController.text.trim(),
         ];
         return [
@@ -1884,14 +1876,16 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                 border: OutlineInputBorder(),
               ),
               items: _dialogFacilities
-                  .map((f) => DropdownMenuItem<int>(
-                        value: f.id,
-                        child: Text(
-                          f.building == null
-                              ? f.name
-                              : '${f.building} — ${f.name}',
-                        ),
-                      ))
+                  .map(
+                    (f) => DropdownMenuItem<int>(
+                      value: f.id,
+                      child: Text(
+                        f.building == null
+                            ? f.name
+                            : '${f.building} — ${f.name}',
+                      ),
+                    ),
+                  )
                   .toList(),
               onChanged: (value) => setState(() => _selectedFacilityId = value),
             ),
@@ -2215,7 +2209,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     }
     return teamIds
         .expand(
-            (teamId) => options.positionsByTeamId[teamId] ?? const <String>[])
+          (teamId) => options.positionsByTeamId[teamId] ?? const <String>[],
+        )
         .toSet()
         .toList()
       ..sort();
@@ -2242,10 +2237,7 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
 
   /// Builds a row of clickable [{{token}}] chips that insert the placeholder
   /// at the cursor in [controller] when tapped.
-  Widget _placeholderChips(
-    TextEditingController controller,
-    FocusNode focus,
-  ) {
+  Widget _placeholderChips(TextEditingController controller, FocusNode focus) {
     final tokens = _availableTemplateTokens();
     return Wrap(
       spacing: 6,
@@ -2337,12 +2329,5 @@ String _labelForSource(String? source) => switch (source) {
     };
 
 String _formatStamp(String value) {
-  final parsed = DateTime.tryParse(value);
-  if (parsed == null) return value;
-  final local = parsed.toLocal();
-  final month = local.month.toString().padLeft(2, '0');
-  final day = local.day.toString().padLeft(2, '0');
-  final hour = local.hour.toString().padLeft(2, '0');
-  final minute = local.minute.toString().padLeft(2, '0');
-  return '$month/$day ${local.year} $hour:$minute';
+  return formatLocalTimestamp(value);
 }

@@ -536,4 +536,57 @@ describe("tool.task", () => {
       },
     },
   )
+
+  it.instance(
+    "execute applies the target subagent's resolved MCP scope and defers an over-cap Gemini catalog",
+    () =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+
+        const result = yield* def.execute(
+          {
+            description: "inspect scoped tools",
+            prompt: "list the current tasks",
+            subagent_type: "rhythm-only",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: { promptOps: stubOps() },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+
+        const child = yield* sessions.get(result.metadata.sessionId)
+        expect(child.mcpAllowlist).toEqual({
+          servers: ["rhythm"],
+          tools: Array.from({ length: 513 }, (_, index) => `rhythm_tool_${index}`),
+          deferred: true,
+        })
+      }),
+    {
+      config: {
+        agent: {
+          "rhythm-only": {
+            mode: "subagent",
+            model: "google/gemini-2.5-flash",
+            // The agent config loader preserves unknown frontmatter fields in options.
+            // Regression: without the child scope, task.ts creates an unscoped
+            // session and Gemini receives every MCP declaration.
+            mcpAllowlist: {
+              servers: ["rhythm"],
+              tools: Array.from({ length: 513 }, (_, index) => `rhythm_tool_${index}`),
+            },
+          },
+        },
+      },
+    },
+  )
 })

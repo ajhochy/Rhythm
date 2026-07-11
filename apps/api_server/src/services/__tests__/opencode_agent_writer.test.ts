@@ -15,6 +15,7 @@ import {
   MANAGER_ROUTING_PREAMBLE,
   injectManagerPreamble,
   buildHubRoutingPreamble,
+  buildTaskDelegatePermissions,
 } from '../opencode_agent_writer';
 
 const MARKER = '## Routing (mandatory)';
@@ -187,5 +188,17 @@ describe('buildHubRoutingPreamble', () => {
 
     expect(result).toContain('subagent_type="coding-agent"');
     expect(result).not.toContain('subagent_type="workflow-orchestrator"');
+  });
+});
+
+describe('buildTaskDelegatePermissions', () => {
+  it('issue-1014: fails closed while allowing every current profile delegate', () => {
+    // Regression caught: the profile roster updates its prompt text but leaves
+    // the engine task permission map on a stale, pre-edit allowlist.
+    expect(buildTaskDelegatePermissions(['config-doctor', 'theologian'])).toEqual({
+      '*': 'deny',
+      'config-doctor': 'allow',
+      theologian: 'allow',
+    });
   });
 });

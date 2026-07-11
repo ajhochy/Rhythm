@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../../app/core/utils/time_format.dart';
 import '../../agent_projects/controllers/agent_projects_controller.dart';
 import '../../agent_projects/models/agent_project.dart';
 import '../../agent_projects/models/project_branches.dart';
@@ -12,11 +13,7 @@ import '../../agent_projects/models/project_branches.dart';
 /// Tap opens a branch-switcher popover (issue #607). The popover fetches
 /// branches lazily on first open.
 class ProjectVcsChip extends StatefulWidget {
-  const ProjectVcsChip({
-    super.key,
-    required this.project,
-    this.onRefresh,
-  });
+  const ProjectVcsChip({super.key, required this.project, this.onRefresh});
 
   final AgentProject project;
 
@@ -62,9 +59,9 @@ class _ProjectVcsChipState extends State<ProjectVcsChip> {
     if (_branches == null && !_loadingBranches) {
       setState(() => _loadingBranches = true);
       try {
-        final b = await context
-            .read<AgentProjectsController>()
-            .listBranches(widget.project.id);
+        final b = await context.read<AgentProjectsController>().listBranches(
+              widget.project.id,
+            );
         if (mounted) {
           setState(() {
             _branches = b;
@@ -103,8 +100,10 @@ class _ProjectVcsChipState extends State<ProjectVcsChip> {
         }),
         onSelectBranch: (branch) =>
             _onSelectBranch(branch, createBranch: false),
-        onCreateBranch: () => _onSelectBranch(_newBranchController.text.trim(),
-            createBranch: true),
+        onCreateBranch: () => _onSelectBranch(
+          _newBranchController.text.trim(),
+          createBranch: true,
+        ),
         onDismiss: () {
           _closePopover();
           setState(() {
@@ -120,8 +119,10 @@ class _ProjectVcsChipState extends State<ProjectVcsChip> {
     setState(() {});
   }
 
-  Future<void> _onSelectBranch(String branch,
-      {required bool createBranch}) async {
+  Future<void> _onSelectBranch(
+    String branch, {
+    required bool createBranch,
+  }) async {
     if (branch.isEmpty) return;
 
     // Warn if any session on this project is currently working.
@@ -213,7 +214,7 @@ class _ProjectVcsChipState extends State<ProjectVcsChip> {
       'Branch: ${widget.project.vcsBranch ?? '(detached)'}',
       'Root: ${widget.project.vcsRoot}',
       if (widget.project.vcsCheckedAt != null)
-        'Last checked: ${_relative(widget.project.vcsCheckedAt!)}',
+        'Last checked: ${formatLocalTimestamp(widget.project.vcsCheckedAt!)}',
     ];
 
     return Tooltip(
@@ -263,14 +264,6 @@ class _ProjectVcsChipState extends State<ProjectVcsChip> {
         ),
       ),
     );
-  }
-
-  static String _relative(DateTime at) {
-    final diff = DateTime.now().difference(at);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
-    if (diff.inDays < 1) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
   }
 }
 
@@ -451,20 +444,30 @@ class _BranchPopoverState extends State<_BranchPopover> {
                 ),
                 const SizedBox(width: 6),
                 IconButton(
-                  icon:
-                      Icon(Icons.check, size: 16, color: context.rhythm.accent),
+                  icon: Icon(
+                    Icons.check,
+                    size: 16,
+                    color: context.rhythm.accent,
+                  ),
                   onPressed: widget.onCreateBranch,
                   padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 28, minHeight: 28),
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
                 ),
                 IconButton(
-                  icon: Icon(Icons.close,
-                      size: 16, color: context.rhythm.textMuted),
+                  icon: Icon(
+                    Icons.close,
+                    size: 16,
+                    color: context.rhythm.textMuted,
+                  ),
                   onPressed: widget.onCancelNewBranch,
                   padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 28, minHeight: 28),
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
                 ),
               ],
             ),

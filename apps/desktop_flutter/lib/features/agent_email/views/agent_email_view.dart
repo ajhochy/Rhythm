@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../../app/core/utils/time_format.dart';
 import '../../agents/controllers/agents_controller.dart';
 import '../controllers/agent_email_controller.dart';
 import '../models/gmail_signal.dart';
@@ -33,9 +34,7 @@ class _AgentEmailViewState extends State<AgentEmailView> {
     if (session == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            agentsController.error ?? 'Failed to create session.',
-          ),
+          content: Text(agentsController.error ?? 'Failed to create session.'),
         ),
       );
       return;
@@ -142,10 +141,7 @@ class _AgentEmailViewState extends State<AgentEmailView> {
             const SizedBox(height: RhythmSpacing.xs),
             Text(
               'Gmail signals will appear here once synced',
-              style: TextStyle(
-                color: context.rhythm.textMuted,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: context.rhythm.textMuted, fontSize: 13),
             ),
           ],
         ),
@@ -175,15 +171,7 @@ class _SignalTile extends StatelessWidget {
 
   String _formatReceivedAt(String? raw) {
     if (raw == null || raw.isEmpty) return '';
-    try {
-      final dt = DateTime.parse(raw).toLocal();
-      return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-'
-          '${dt.day.toString().padLeft(2, '0')} '
-          '${dt.hour.toString().padLeft(2, '0')}:'
-          '${dt.minute.toString().padLeft(2, '0')}';
-    } catch (_) {
-      return raw;
-    }
+    return formatLocalTimestamp(raw);
   }
 
   @override
@@ -239,10 +227,7 @@ class _SignalTile extends StatelessWidget {
                     if (signal.receivedAt != null)
                       Text(
                         _formatReceivedAt(signal.receivedAt),
-                        style: TextStyle(
-                          color: rhythm.textMuted,
-                          fontSize: 11,
-                        ),
+                        style: TextStyle(color: rhythm.textMuted, fontSize: 11),
                       ),
                   ],
                 ),

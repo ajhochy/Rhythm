@@ -12,6 +12,8 @@
 /// bypasses it.
 library;
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -322,6 +324,8 @@ class _ProposalCardState extends State<_ProposalCard> {
                   TextStyle(fontSize: 13, color: context.rhythm.textSecondary),
             ),
           ],
+          const SizedBox(height: 12),
+          _ProposalChangeBlock(proposal: proposal),
           if (needsNote) ...[
             const SizedBox(height: 12),
             _SecurityNoteBlock(proposal: proposal),
@@ -363,9 +367,7 @@ class _ProposalCardState extends State<_ProposalCard> {
               child: Text(
                 proposal.signalRef?.trim().isNotEmpty == true
                     ? proposal.signalRef!
-                    : (proposal.changeJson?.trim().isNotEmpty == true
-                        ? proposal.changeJson!
-                        : 'No evidence recorded.'),
+                    : 'No evidence recorded.',
                 style: TextStyle(
                   fontSize: 12,
                   fontFamily: 'monospace',
@@ -427,6 +429,198 @@ class _ProposalCardState extends State<_ProposalCard> {
       ),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Proposed change diff
+// ---------------------------------------------------------------------------
+
+class _ProposalChangeBlock extends StatelessWidget {
+  const _ProposalChangeBlock({required this.proposal});
+
+  final OrgProposal proposal;
+
+  @override
+  Widget build(BuildContext context) {
+    final changes = _fieldChanges();
+    return Container(
+      key: ValueKey('proposal-change-body-${proposal.id}'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+        border: Border.all(color: context.rhythm.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Proposed change',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: context.rhythm.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (changes != null)
+            ...changes.expand(
+              (change) => [
+                Text(
+                  _fieldLabel(change.field),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: context.rhythm.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Before: ${_displayValue(change.before)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.rhythm.textSecondary,
+                  ),
+                ),
+                Text(
+                  'After: ${_displayValue(change.after)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.rhythm.accent,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            )
+          else
+            Text(
+              _prettyChangeJson(),
+              style: TextStyle(
+                fontSize: 12,
+                fontFamily: 'monospace',
+                color: context.rhythm.textSecondary,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  List<_FieldChange>? _fieldChanges() {
+    final change = proposal.change;
+    if (change == null) return null;
+    final before = proposal.beforeSnapshot;
+
+    final configPatch = _mapValue(change['configPatch']);
+    if (configPatch != null &&
+        configPatch['field'] is String &&
+        configPatch.containsKey('value')) {
+      return [
+        _FieldChange(
+          configPatch['field'] as String,
+          before?['priorValue'],
+          configPatch['value'],
+        ),
+      ];
+    }
+
+    final scopePatch = _mapValue(change['scopePatch']);
+    if (scopePatch != null && scopePatch['field'] is String) {
+      final priorValue = before?['priorValue'];
+      final priorItems = _stringList(priorValue);
+      final remove = _stringList(scopePatch['remove']);
+      final afterItems =
+          priorItems.where((item) => !remove.contains(item)).toList();
+      for (final item in _stringList(scopePatch['add'])) {
+        if (!afterItems.contains(item)) afterItems.add(item);
+      }
+      return [
+        _FieldChange(scopePatch['field'] as String, priorValue, afterItems),
+      ];
+    }
+
+    final directChanges = change.entries
+        .where((entry) => entry.key != 'agentConfigId' && entry.value is! Map)
+        .map(
+          (entry) => _FieldChange(
+            entry.key,
+            before?[entry.key],
+            entry.value,
+          ),
+        )
+        .toList();
+    return directChanges.isEmpty ? null : directChanges;
+  }
+
+  String _prettyChangeJson() {
+    final change = proposal.change;
+    if (change != null) {
+      return const JsonEncoder.withIndent('  ').convert(change);
+    }
+    final raw = proposal.changeJson?.trim();
+    return raw == null || raw.isEmpty ? 'No proposed change recorded.' : raw;
+  }
+
+  static Map<String, dynamic>? _mapValue(Object? value) =>
+      value is Map<String, dynamic> ? value : null;
+
+  static List<String> _stringList(Object? value) {
+    if (value is List) return value.whereType<String>().toList();
+    if (value is String) {
+      try {
+        final decoded = jsonDecode(value);
+        if (decoded is List) return decoded.whereType<String>().toList();
+      } catch (_) {
+        // A non-JSON prior value is still rendered directly in the diff.
+      }
+    }
+    return const [];
+  }
+
+  static String _fieldLabel(String field) {
+    const labels = {
+      'allowedMcpsJson': 'Allowed MCPs',
+      'allowedSkillsJson': 'Allowed skills',
+      'allowedDelegatesJson': 'Allowed delegates',
+      'agentSlug': 'Agent slug',
+      'system_prompt': 'System prompt',
+      'targetRecipeId': 'Target recipe',
+      'targetScheduledTaskId': 'Target scheduled task',
+    };
+    return labels[field] ??
+        field
+            .replaceAllMapped(
+                RegExp(r'([a-z])([A-Z])'), (match) => '${match[1]} ${match[2]}')
+            .replaceAll('_', ' ')
+            .replaceFirstMapped(
+                RegExp(r'^.'), (match) => match[0]!.toUpperCase());
+  }
+
+  static String _displayValue(Object? value) {
+    if (value == null) return 'Not set';
+    if (value is String) {
+      try {
+        return _displayValue(jsonDecode(value));
+      } catch (_) {
+        return value.isEmpty ? 'Empty' : value;
+      }
+    }
+    if (value is List) {
+      return value.isEmpty ? 'None' : value.map(_displayValue).join(', ');
+    }
+    if (value is Map) return const JsonEncoder.withIndent('  ').convert(value);
+    return value.toString();
+  }
+}
+
+class _FieldChange {
+  const _FieldChange(this.field, this.before, this.after);
+
+  final String field;
+  final Object? before;
+  final Object? after;
 }
 
 // ---------------------------------------------------------------------------

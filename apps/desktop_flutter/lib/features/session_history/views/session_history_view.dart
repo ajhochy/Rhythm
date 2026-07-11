@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../../app/core/utils/time_format.dart';
 import '../controllers/session_history_controller.dart';
 import '../models/session_history_agent_session.dart';
 import '../models/session_transcript_message.dart';
@@ -223,6 +224,7 @@ class _SessionTranscriptViewState extends State<_SessionTranscriptView> {
             status: controller.status,
             error: controller.error,
             messages: messages,
+            session: widget.session,
           ),
         );
       },
@@ -235,11 +237,13 @@ class _TranscriptBody extends StatelessWidget {
     required this.status,
     required this.error,
     required this.messages,
+    required this.session,
   });
 
   final SessionHistoryControllerStatus status;
   final String? error;
   final List<SessionTranscriptMessage> messages;
+  final SessionHistoryAgentSession session;
 
   @override
   Widget build(BuildContext context) {
@@ -254,6 +258,14 @@ class _TranscriptBody extends StatelessWidget {
       );
     }
     if (messages.isEmpty) {
+      if (session.status == SessionHistoryStatus.failed) {
+        return _CenteredState(
+          icon: Icons.error_outline,
+          title: 'No transcript — run was interrupted or errored',
+          subtitle:
+              session.statusMessage ?? 'No further details were recorded.',
+        );
+      }
       return const _CenteredState(
         icon: Icons.notes_outlined,
         title: 'No transcript messages',
@@ -263,10 +275,65 @@ class _TranscriptBody extends StatelessWidget {
 
     return ListView.separated(
       padding: const EdgeInsets.all(RhythmSpacing.md),
-      itemCount: messages.length,
+      itemCount: messages.length +
+          (session.status == SessionHistoryStatus.failed ? 1 : 0),
       separatorBuilder: (_, __) => const SizedBox(height: RhythmSpacing.sm),
-      itemBuilder: (context, index) =>
-          _TranscriptMessageCard(message: messages[index]),
+      itemBuilder: (context, index) {
+        if (index == messages.length) {
+          return _TranscriptErrorCard(message: session.statusMessage);
+        }
+        return _TranscriptMessageCard(message: messages[index]);
+      },
+    );
+  }
+}
+
+class _TranscriptErrorCard extends StatelessWidget {
+  const _TranscriptErrorCard({required this.message});
+
+  final String? message;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = context.rhythm.danger;
+    return Container(
+      padding: const EdgeInsets.all(RhythmSpacing.md),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.error_outline, color: color),
+          const SizedBox(width: RhythmSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Run interrupted or errored',
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: RhythmSpacing.xs),
+                Text(
+                  message ?? 'No further details were recorded.',
+                  style: TextStyle(
+                    color: context.rhythm.textSecondary,
+                    fontSize: 13,
+                    height: 1.45,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -396,10 +463,5 @@ class _CenteredState extends StatelessWidget {
 }
 
 String _formatDateTime(DateTime value) {
-  final local = value.toLocal();
-  final month = local.month.toString().padLeft(2, '0');
-  final day = local.day.toString().padLeft(2, '0');
-  final hour = local.hour.toString().padLeft(2, '0');
-  final minute = local.minute.toString().padLeft(2, '0');
-  return '${local.year}-$month-$day $hour:$minute';
+  return formatLocalTimestamp(value);
 }

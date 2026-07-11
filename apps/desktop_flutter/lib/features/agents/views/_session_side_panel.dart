@@ -5,13 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/agents/agent_server_controller.dart';
-import '../data/usage_budget_data_source.dart';
-import '../models/usage_budget.dart';
-import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../../app/core/utils/time_format.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../controllers/agents_controller.dart';
+import '../data/usage_budget_data_source.dart';
 import '../models/agent_session.dart';
+import '../models/usage_budget.dart';
 import 'agent_badge_identity.dart';
 import '_changes_tab.dart';
 import '_terminal_tab.dart';
@@ -96,10 +96,7 @@ class _SessionSidePanelState extends State<SessionSidePanel> {
     final todos = controller.sessionTodosFor(widget.session.id);
     // TodoPanel returns SizedBox.shrink() when todos is empty — no extra
     // space allocated.
-    return TodoPanel(
-      todos: todos,
-      collapseKey: widget.session.id,
-    );
+    return TodoPanel(todos: todos, collapseKey: widget.session.id);
   }
 
   Widget _buildBody(BuildContext context) {
@@ -163,12 +160,7 @@ class _Tabs extends StatelessWidget {
     );
   }
 
-  Widget _tab(
-    BuildContext context,
-    _Tab t,
-    String label, {
-    Widget? trailing,
-  }) {
+  Widget _tab(BuildContext context, _Tab t, String label, {Widget? trailing}) {
     final isSel = t == selected;
     return Expanded(
       child: InkWell(
@@ -200,10 +192,7 @@ class _Tabs extends StatelessWidget {
                   ),
                 ),
               ),
-              if (trailing != null) ...[
-                const SizedBox(width: 4),
-                trailing,
-              ],
+              if (trailing != null) ...[const SizedBox(width: 4), trailing],
             ],
           ),
         ),
@@ -231,7 +220,9 @@ class _ContextTab extends StatelessWidget {
         _row(context, 'Status', session.status.wireValue),
         const SizedBox(height: 8),
         _ContextUsageGauge(
-            tokensUsed: totalTokens, contextWindow: contextWindow),
+          tokensUsed: totalTokens,
+          contextWindow: contextWindow,
+        ),
         const SizedBox(height: 12),
         // Real per-provider usage so you can see when to switch models.
         const _UsageBudgetSection(),
@@ -290,37 +281,56 @@ class _ContextTab extends StatelessWidget {
       _rowChild(
         context,
         'Input tokens',
-        _valueText(context, b.input.toString(),
-            key: const ValueKey('context-tokens-input')),
+        _valueText(
+          context,
+          b.input.toString(),
+          key: const ValueKey('context-tokens-input'),
+        ),
       ),
       _rowChild(
         context,
         'Output tokens',
-        _valueText(context, b.output.toString(),
-            key: const ValueKey('context-tokens-output')),
+        _valueText(
+          context,
+          b.output.toString(),
+          key: const ValueKey('context-tokens-output'),
+        ),
       ),
       _rowChild(
-          context, 'Cache read', _valueText(context, b.cacheRead.toString())),
+        context,
+        'Cache read',
+        _valueText(context, b.cacheRead.toString()),
+      ),
       _rowChild(
-          context, 'Cache write', _valueText(context, b.cacheWrite.toString())),
-      _rowChild(context, 'Reasoning tokens',
-          _valueText(context, b.reasoning.toString())),
+        context,
+        'Cache write',
+        _valueText(context, b.cacheWrite.toString()),
+      ),
+      _rowChild(
+        context,
+        'Reasoning tokens',
+        _valueText(context, b.reasoning.toString()),
+      ),
       const SizedBox(height: 8),
       _rowChild(
         context,
         'Model',
-        _valueText(context, controller.modelDisplayName(session),
-            key: const ValueKey('context-model')),
+        _valueText(
+          context,
+          controller.modelDisplayName(session),
+          key: const ValueKey('context-model'),
+        ),
       ),
-      _row(context, 'Created',
-          DateFormatters.fullDateFromDateTime(session.createdAt)),
-      _row(context, 'Updated',
-          DateFormatters.fullDateFromDateTime(session.updatedAt)),
+      _row(context, 'Created', formatLocalTimestamp(session.createdAt)),
+      _row(context, 'Updated', formatLocalTimestamp(session.updatedAt)),
       _rowChild(
         context,
         'Messages',
-        _valueText(context, messageCount.toString(),
-            key: const ValueKey('context-message-count')),
+        _valueText(
+          context,
+          messageCount.toString(),
+          key: const ValueKey('context-message-count'),
+        ),
       ),
       ..._memoriesUsedSection(context, controller),
     ];
@@ -353,8 +363,11 @@ class _ContextTab extends StatelessWidget {
       _rowChild(
         context,
         'Memories used',
-        _valueText(context, memoryIds.length.toString(),
-            key: const ValueKey('context-memories-count')),
+        _valueText(
+          context,
+          memoryIds.length.toString(),
+          key: const ValueKey('context-memories-count'),
+        ),
       ),
       if (memoryIds.isEmpty)
         Padding(
@@ -371,10 +384,7 @@ class _ContextTab extends StatelessWidget {
         )
       else
         for (var i = 0; i < memoryIds.length; i++)
-          _memoryUsedRow(
-            context,
-            i < notePaths.length ? notePaths[i] : null,
-          ),
+          _memoryUsedRow(context, i < notePaths.length ? notePaths[i] : null),
     ];
   }
 
@@ -397,10 +407,7 @@ class _ContextTab extends StatelessWidget {
             if (kind != null) ...[
               Text(
                 kind,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: context.rhythm.textMuted,
-                ),
+                style: TextStyle(fontSize: 11, color: context.rhythm.textMuted),
               ),
               const SizedBox(width: 6),
             ],
@@ -493,10 +500,7 @@ class _ContextTab extends StatelessWidget {
           const SizedBox(height: 2),
           SelectableText(
             v,
-            style: TextStyle(
-              fontSize: 12,
-              color: context.rhythm.textPrimary,
-            ),
+            style: TextStyle(fontSize: 12, color: context.rhythm.textPrimary),
           ),
         ],
       ),
@@ -569,10 +573,7 @@ class _ContextUsageGauge extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             'No messages yet',
-            style: TextStyle(
-              fontSize: 12,
-              color: context.rhythm.textMuted,
-            ),
+            style: TextStyle(fontSize: 12, color: context.rhythm.textMuted),
           ),
         ],
       );
@@ -605,10 +606,7 @@ class _ContextUsageGauge extends StatelessWidget {
           children: [
             Text(
               '$usedLabel / $capacityLabel tokens',
-              style: TextStyle(
-                fontSize: 12,
-                color: context.rhythm.textPrimary,
-              ),
+              style: TextStyle(fontSize: 12, color: context.rhythm.textPrimary),
             ),
             Text(
               '${pct.round()}%',
