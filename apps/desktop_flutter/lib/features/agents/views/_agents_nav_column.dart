@@ -318,13 +318,44 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
             child: Row(
               children: [
-                Text(
-                  'CHATS',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: context.rhythm.textMuted,
-                    letterSpacing: 0.8,
+                // #1025 (USO A2) — category filter dropdown. Replaces the
+                // static "CHATS" header; switching scope reloads the list with
+                // the matching `?scope=` param. Default scope's headerLabel is
+                // 'CHATS', preserving the original section wording.
+                PopupMenuButton<AgentSessionScope>(
+                  key: const ValueKey('session-scope-dropdown'),
+                  tooltip: 'Filter sessions by category',
+                  initialValue: controller.scope,
+                  onSelected: (s) =>
+                      context.read<AgentsController>().loadSessions(s),
+                  itemBuilder: (_) => [
+                    for (final s in AgentSessionScope.values)
+                      PopupMenuItem<AgentSessionScope>(
+                        value: s,
+                        child: Text(s.menuLabel),
+                      ),
+                  ],
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          controller.scope.headerLabel,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: context.rhythm.textMuted,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        Icons.arrow_drop_down,
+                        size: 16,
+                        color: context.rhythm.textMuted,
+                      ),
+                    ],
                   ),
                 ),
                 const Spacer(),

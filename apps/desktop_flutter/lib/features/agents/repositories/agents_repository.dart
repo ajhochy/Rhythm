@@ -20,10 +20,12 @@ class AgentsRepository {
   Future<List<AgentSession>> listSessions({
     bool includeArchived = false,
     bool archivedOnly = false,
+    String? scope,
   }) =>
       _dataSource.listSessions(
         includeArchived: includeArchived,
         archivedOnly: archivedOnly,
+        scope: scope,
       );
 
   Future<({AgentSession session, List<AgentSessionMessage> messages})>

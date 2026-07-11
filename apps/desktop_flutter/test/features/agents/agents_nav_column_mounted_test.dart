@@ -132,12 +132,19 @@ class _StubAgentsRepository implements AgentsRepository {
   @override
   void send(Map<String, dynamic> msg) {}
 
+  /// Captures the last scope passed to [listSessions] so tests can assert the
+  /// `?scope=` param (#1025).
+  String? lastScope;
+
   @override
   Future<List<AgentSession>> listSessions({
     bool includeArchived = false,
     bool archivedOnly = false,
-  }) async =>
-      archivedOnly ? const [] : _sessions;
+    String? scope,
+  }) async {
+    if (!archivedOnly) lastScope = scope;
+    return archivedOnly ? const [] : _sessions;
+  }
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
