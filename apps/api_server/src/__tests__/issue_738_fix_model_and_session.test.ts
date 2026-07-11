@@ -176,6 +176,17 @@ describe('#738-fix — AgentRunner model resolution + session recording', () => 
     });
   });
 
+  it('derives a headless session name from the first prompt when given a placeholder', async () => {
+    await run({
+      prompt: 'Research the latest AI trends for ministry leaders and return a concise briefing.',
+      sessionName: 'AgentRunner run',
+    });
+
+    expect(mockInsertSession.mock.calls[0][0]).toMatchObject({
+      name: 'Research the latest AI trends for ministry leaders and return a concise briefin…',
+    });
+  });
+
   it('records resolved MCP scope, owner/depth, and SDK session id for runner sessions', async () => {
     mockGetById.mockReturnValue({
       id: 'specialist',
