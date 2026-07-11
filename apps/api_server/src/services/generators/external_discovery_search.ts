@@ -98,15 +98,29 @@ export async function downloadSkillBody(url: string): Promise<string | null> {
  * default branch. This composes the raw.githubusercontent.com URL used both to
  * pre-vet (Task 5) and to download at apply time.
  */
-function skillDownloadUrl(hit: SkillsShHit): string | null {
+function skillDownloadUrlCandidates(hit: SkillsShHit): string[] {
   const src = (hit.source ?? '').trim().replace(/^https?:\/\/github\.com\//, '');
-  if (!src || !src.includes('/')) return null;
+  if (!src || !src.includes('/')) return [];
   const parts = src.split('/');
   const owner = parts[0];
   const repo = parts[1];
-  const sub = parts.slice(2).join('/');
-  const path = sub ? `${sub}/SKILL.md` : 'SKILL.md';
-  return `${DOWNLOAD_BASE_URL}/${owner}/${repo}/HEAD/${path}`;
+  const base = `${DOWNLOAD_BASE_URL}/${owner}/${repo}/HEAD`;
+  // The skills.sh `source` is usually just owner/repo; the skill lives in a
+  // subdirectory named by the skill (`hit.name`), commonly nested under skills/
+  // (e.g. github/awesome-copilot -> skills/<name>/SKILL.md). `source` may also
+  // already carry a sub path (3+ segments). Try the common layouts for every
+  // candidate subdir; the first that actually downloads wins.
+  const subs = new Set<string>();
+  const sourceSub = parts.slice(2).join('/');
+  if (sourceSub) subs.add(sourceSub);
+  const name = (hit.name ?? '').trim();
+  if (name) subs.add(name);
+  const rel: string[] = [];
+  for (const s of subs) {
+    rel.push(`skills/${s}/SKILL.md`, `${s}/SKILL.md`, `skills/${s}.md`, `${s}.md`);
+  }
+  rel.push('SKILL.md'); // root fallback
+  return rel.map((r) => `${base}/${r}`);
 }
 
 /** Complete provenance for a skills.sh hit via the GitHub repo metadata API. Null if incomplete. */
@@ -144,13 +158,23 @@ async function searchSkillCandidates(gap: OrgAuditGap): Promise<ExternalCandidat
   const hits = res?.skills ?? [];
   const out: ExternalCandidate[] = [];
   for (const hit of hits.slice(0, MAX_PER_GAP)) {
-    const downloadUrl = skillDownloadUrl(hit);
-    if (!downloadUrl) continue;
+    const urlCandidates = skillDownloadUrlCandidates(hit);
+    if (urlCandidates.length === 0) continue;
     const provenance = await buildSkillProvenance(hit);
     if (!provenance) continue; // incomplete provenance — generator would drop it anyway
 
-    const body = await downloadSkillBody(downloadUrl);
-    if (!body) continue; // unreachable/empty body — cannot judge or adopt
+    // Resolve the real SKILL.md path by trying the common repo layouts; first hit wins.
+    let downloadUrl: string | null = null;
+    let body: string | null = null;
+    for (const candidateUrl of urlCandidates) {
+      const b = await downloadSkillBody(candidateUrl);
+      if (b) {
+        downloadUrl = candidateUrl;
+        body = b;
+        break;
+      }
+    }
+    if (!downloadUrl || !body) continue; // unreachable/empty body — cannot judge or adopt
 
     // #873 PRE-VET — the candidate body must pass the injection scan BEFORE it
     // is ever proposed. A high-confidence match drops the candidate here so a
