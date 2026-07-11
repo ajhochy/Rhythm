@@ -54,6 +54,7 @@ class SessionHistoryAgentSession {
     required this.agentOrRecipeName,
     required this.source,
     this.rawStatus,
+    this.statusMessage,
     this.agentName,
   });
 
@@ -84,6 +85,7 @@ class SessionHistoryAgentSession {
       ),
       source: source,
       rawStatus: rawStatus,
+      statusMessage: asString(json['statusMessage']),
       agentName: agent,
     );
   }
@@ -94,6 +96,7 @@ class SessionHistoryAgentSession {
   final String agentOrRecipeName;
   final SessionHistorySource source;
   final String? rawStatus;
+  final String? statusMessage;
   final String? agentName;
 
   static String _displayName({
