@@ -26,6 +26,7 @@ import type {
   ExternalCandidate,
   ExternalCandidateProvenance,
 } from './external_discovery_generator';
+import { scoreSkillBody, type SkillPurpose } from '../skill_refiner';
 
 const SKILLS_SH_SEARCH = 'https://skills.sh/api/search';
 /** skills.sh serves raw skill bodies from GitHub; overridable for a mirror/test double. */
@@ -146,12 +147,19 @@ async function searchSkillCandidates(gap: OrgAuditGap): Promise<ExternalCandidat
     if (!downloadUrl) continue;
     const provenance = await buildSkillProvenance(hit);
     if (!provenance) continue; // incomplete provenance — generator would drop it anyway
+
+    const body = await downloadSkillBody(downloadUrl);
+    if (!body) continue; // unreachable/empty body — cannot judge or adopt
+
+    // Judge: only a candidate STRICTLY better than the would-be draft is shortlisted.
+    if (!(await candidateBeatsDraft(gap, body))) continue;
+
     out.push({
       kind: 'skill',
       name: hit.name,
       gapId: gap.gapId,
       provenance,
-      rationale: `skills.sh match for capability-gap "${gap.intentTitle ?? gap.gapId}" (${hit.installs} installs)`,
+      rationale: `skills.sh match judged better than the bespoke draft for "${gap.intentTitle ?? gap.gapId}" (${hit.installs} installs)`,
       downloadUrl,
       agentConfigId: gap.agentConfigId,
       sampleSessionId: gap.sampleSessionId,
@@ -165,6 +173,46 @@ async function searchSkillCandidates(gap: OrgAuditGap): Promise<ExternalCandidat
 function buildQuery(gap: OrgAuditGap): string {
   const parts = [gap.intentTitle ?? '', ...(gap.intentTags ?? [])].map((s) => s.trim()).filter(Boolean);
   return parts.join(' ').slice(0, 120);
+}
+
+/**
+ * Render the "would-be bespoke draft" body the harvester WOULD have produced
+ * for this intent, so the judge scores the real candidate against the concrete
+ * alternative (not an abstraction). Mirrors skill_refiner.renderCandidateBody's
+ * shape (title + purpose + problem) so both bodies are scored on equal footing.
+ */
+function renderWouldBeDraft(gap: OrgAuditGap): string {
+  const parts: string[] = [`# ${gap.intentTitle ?? gap.gapId}`, ''];
+  if (gap.intentProblem && gap.intentProblem.trim()) {
+    parts.push('## Problem', '', gap.intentProblem.trim(), '');
+  }
+  if (gap.intentTags && gap.intentTags.length) {
+    parts.push('## Topics', '', gap.intentTags.map((t) => `- ${t}`).join('\n'), '');
+  }
+  return parts.join('\n');
+}
+
+/**
+ * Judge a downloaded candidate body against the would-be bespoke draft, both
+ * scored against the intent via the SAME purpose-anchored scorer the measure
+ * step uses (scoreSkillBody). Returns true iff the candidate is STRICTLY better
+ * than the draft — only winners are shortlisted. Never throws (scoreSkillBody
+ * fail-closes a throwing scorer to 0, so a scorer failure ties/loses → dropped).
+ */
+async function candidateBeatsDraft(gap: OrgAuditGap, candidateBody: string): Promise<boolean> {
+  const purpose: SkillPurpose = {
+    name: gap.intentTitle ?? gap.gapId,
+    description: gap.intentProblem ?? null,
+    whenToUse: (gap.intentTags ?? []).join(', ') || null,
+  };
+  const draftBody = renderWouldBeDraft(gap);
+  const candScore = await scoreSkillBody(purpose, candidateBody);
+  const draftScore = await scoreSkillBody(purpose, draftBody);
+  const wins = candScore.score > draftScore.score;
+  logger.info(
+    `[external-discovery-search] judge gap=${gap.gapId}: candidate=${candScore.score} vs would-be-draft=${draftScore.score} -> ${wins ? 'shortlist' : 'drop'}`,
+  );
+  return wins;
 }
 
 /**
