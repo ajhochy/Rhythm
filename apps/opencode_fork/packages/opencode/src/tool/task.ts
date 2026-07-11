@@ -19,6 +19,35 @@ export interface TaskPromptOps {
 const id = "task"
 const CHILD_PROVIDER_RETRY_ATTEMPTS = 1
 
+function isMcpAllowlist(value: unknown): value is NonNullable<Session.Info["mcpAllowlist"]> {
+  if (!value || typeof value !== "object") return false
+  const candidate = value as Record<string, unknown>
+  return (
+    Array.isArray(candidate.servers) &&
+    candidate.servers.every((item): item is string => typeof item === "string") &&
+    Array.isArray(candidate.tools) &&
+    candidate.tools.every((item): item is string => typeof item === "string") &&
+    (candidate.deferred === undefined || typeof candidate.deferred === "boolean")
+  )
+}
+
+function childMcpAllowlist(agent: Agent.Info, model: { providerID: string }): Session.Info["mcpAllowlist"] {
+  // ConfigAgent preserves custom agent-file frontmatter in `options`. The
+  // resolved target profile carries its already-expanded session shape there,
+  // so the task tool does not re-implement api-server DB resolution or
+  // allowlist expansion.
+  const value = agent.options.mcpAllowlist
+  if (!isMcpAllowlist(value)) return undefined
+
+  return {
+    servers: [...value.servers],
+    tools: [...value.tools],
+    // A scoped Gemini child must advertise its catalog through the single
+    // dispatcher declaration, rather than risk exceeding Gemini's 512-tool cap.
+    ...(model.providerID === "google" || value.deferred === true ? { deferred: true } : {}),
+  }
+}
+
 function childErrorName(error: NonNullable<MessageV2.Assistant["error"]>) {
   return "name" in error ? error.name : "Error"
 }
@@ -97,11 +126,19 @@ export const TaskTool = Tool.define(
       const parentAgent = parent.agent
         ? yield* agent.get(parent.agent).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
         : undefined
+      const msg = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(Effect.orDie)
+      if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
+
+      const model = next.model ?? {
+        modelID: msg.info.modelID,
+        providerID: msg.info.providerID,
+      }
       const nextSession =
         session ??
         (yield* sessions.create({
           parentID: ctx.sessionID,
           title: params.description + ` (@${next.name} subagent)`,
+          mcpAllowlist: childMcpAllowlist(next, model),
           permission: [
             ...deriveSubagentSessionPermission({
               parentSessionPermission: parent.permission ?? [],
@@ -115,14 +152,6 @@ export const TaskTool = Tool.define(
             })) ?? []),
           ],
         }))
-
-      const msg = yield* MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }).pipe(Effect.orDie)
-      if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
-
-      const model = next.model ?? {
-        modelID: msg.info.modelID,
-        providerID: msg.info.providerID,
-      }
 
       yield* ctx.metadata({
         title: params.description,
