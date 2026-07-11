@@ -15,8 +15,24 @@ import {
 } from '../services/agent_config_export_import';
 import { opencodeClient } from '../services/opencode_engine';
 import { detectAgentSkillWiringMismatches } from '../services/agent_skill_wiring';
+import { logger } from '../utils/logger';
 
 const repo = new AgentConfigsRepository();
+
+/**
+ * Agent-profile files are consumed through the engine's infinite-TTL global
+ * config cache. Reload it after a successful projection without making the
+ * already-persisted profile write depend on engine availability.
+ */
+async function reloadAgentProfilesBestEffort(): Promise<void> {
+  try {
+    if (!(await opencodeClient.reloadConfig())) {
+      logger.warn('[AgentConfigsController] agent-profile config reload did not complete');
+    }
+  } catch (err) {
+    logger.warn(`[AgentConfigsController] agent-profile config reload failed: ${String(err)}`);
+  }
+}
 
 /**
  * Parse an `allowed_skills_json` column into the null|string[] shape the #958
@@ -200,7 +216,7 @@ export class AgentConfigsController {
     }
   }
 
-  create(req: Request, res: Response, next: NextFunction): void {
+  async create(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const body = req.body as Record<string, unknown>;
       validateBody(body, true);
@@ -251,6 +267,7 @@ export class AgentConfigsController {
       // Project the profile out to an opencode agent file (profile = source of
       // truth). No-op for CLI presets / opencode built-ins. Non-fatal.
       writeAgentProfileFile(config);
+      await reloadAgentProfilesBestEffort();
       res.status(201).json(config);
     } catch (err) {
       next(err);
@@ -303,11 +320,10 @@ export class AgentConfigsController {
       // Re-project the updated profile to its opencode agent file. Non-fatal.
       writeAgentProfileFile(updated);
       // The engine caches agent profiles (including task permission rules) for
-      // its lifetime. Reload after a roster patch so the next task call in an
-      // existing session evaluates the newly persisted delegate allowlist.
-      if (body.allowedDelegatesJson !== undefined) {
-        await opencodeClient.reloadConfig();
-      }
+      // its lifetime (#1015, #1014). Best-effort reload covers every edit —
+      // system prompt, scope, model, AND the delegate roster — so the next
+      // task call in an existing session sees the newly persisted allowlist.
+      await reloadAgentProfilesBestEffort();
       res.json(updated);
     } catch (err) {
       next(err);
@@ -368,7 +384,7 @@ export class AgentConfigsController {
     }
   }
 
-  remove(req: Request, res: Response, next: NextFunction): void {
+  async remove(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const existing = repo.getById(req.params.id);
       if (!existing) throw AppError.notFound('AgentConfig');
@@ -381,6 +397,7 @@ export class AgentConfigsController {
       if (!deleted) throw AppError.notFound('AgentConfig');
       // Remove the projected opencode agent file. Non-fatal.
       deleteAgentProfileFile(req.params.id);
+      await reloadAgentProfilesBestEffort();
       res.status(204).end();
     } catch (err) {
       next(err);
