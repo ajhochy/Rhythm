@@ -185,11 +185,16 @@ export async function measureProposal(
       return await measureBodyRefinement(proposal, { ...deps, proposalsRepo });
     }
 
-    // #971-3 — refine-config / refine-scope: the fix is a config/scope mutation,
-    // not a text body, so there is nothing to LLM-score. Measure BEHAVIORALLY —
-    // replay the failing scenario under the patched profile and keep iff the
-    // original failure signature is gone.
-    if (proposal.kind === 'refine-config' || proposal.kind === 'refine-scope') {
+    // #971-3 + Stage B — refine-config / refine-scope / external-adoption: the
+    // fix is a config/scope/library mutation, not a text body, so there is
+    // nothing to LLM-score. Measure BEHAVIORALLY — replay the failing scenario
+    // (the capability-gap's sample session, under the wired agent) and keep iff
+    // the original failure signature is gone.
+    if (
+      proposal.kind === 'refine-config' ||
+      proposal.kind === 'refine-scope' ||
+      proposal.kind === 'external-adoption'
+    ) {
       return await measureBehavioralRerun(proposal, { ...deps, proposalsRepo });
     }
 
@@ -419,6 +424,24 @@ async function measureBehavioralRerun(
   await proposalsRepo.updateStatusAsync(proposal.id, 'active', {
     measureReason: `behavioral re-run completed without the original failure signature: ${outcome.reason}`,
   });
+
+  // Stage B — an adopted external skill that measured clean RESOLVES its
+  // originating capability-gap (signalRef carries `gapId:<dedup_key>`). On a
+  // revert (below) the gap deliberately stays `open` for a future adopt attempt.
+  if (proposal.kind === 'external-adoption') {
+    try {
+      const dedupKey = (proposal.signalRef ?? '').replace(/^gapId:/, '').trim();
+      if (dedupKey) {
+        const { AgentCapabilityGapsRepository } = await import(
+          '../repositories/agent_capability_gaps_repository'
+        );
+        await new AgentCapabilityGapsRepository().resolveByDedupKeyAsync(dedupKey);
+      }
+    } catch (err) {
+      logger.warn(`[org-proposal-measure] resolve capability-gap failed for '${proposal.id}' (non-fatal): ${String(err)}`);
+    }
+  }
+
   logger.info(`[org-proposal-measure] KEPT '${proposal.id}' (behavioral re-run clean)`);
   return 'kept';
 }

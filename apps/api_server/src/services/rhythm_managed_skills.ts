@@ -635,6 +635,11 @@ export function deleteManagedSkillSnapshot(name: string): boolean {
   }
 }
 
+/** True when a managed SKILL.md for `name` already exists in the library (write-if-absent guard). */
+export function managedSkillExists(name: string): boolean {
+  return existsSync(join(managedSkillDir(name), 'SKILL.md'));
+}
+
 /**
  * Delete a managed skill by name. Returns true if it existed and was removed,
  * false if no such managed skill exists. Only ever removes within the managed

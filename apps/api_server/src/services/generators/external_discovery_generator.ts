@@ -106,6 +106,15 @@ export interface ExternalCandidate {
   rationale?: string;
   /** Optional explicit install command override (defaults to provenance.installCommand). */
   installCommand?: string;
+  // ── Stage B (Plan B) — capability-gap adoption context ──────────────────
+  /** Skill candidates: the raw SKILL.md URL the applier downloads the real body from. */
+  downloadUrl?: string;
+  /** The agent that needs this capability (from the capability-gap) — wired on adopt. */
+  agentConfigId?: string;
+  /** A representative session to replay for the behavioral measure. */
+  sampleSessionId?: string;
+  /** Intent tags → behavioral-measure failure categories. */
+  categories?: string[];
 }
 
 /**
@@ -166,6 +175,11 @@ function buildChangeJson(candidate: ExternalCandidate): string {
     serverName: candidate.kind === 'mcp' ? candidate.name : undefined,
     skillName: candidate.kind === 'skill' ? candidate.name : undefined,
     installCommand: candidate.installCommand ?? candidate.provenance.installCommand,
+    // Stage B — the applier + behavioral measure read these.
+    downloadUrl: candidate.downloadUrl,
+    agentConfigId: candidate.agentConfigId,
+    sampleSessionId: candidate.sampleSessionId,
+    categories: candidate.categories,
   });
 }
 
@@ -283,9 +297,13 @@ export interface InstallCuratedMcpResult {
   registered: boolean;
 }
 
-/** Result of running the skill-create path for an adopted external skill. */
+/** Result of running the skill-adopt path for an adopted external skill. */
 export interface InstallSkillResult {
   created: boolean;
+  /** before_snapshot_json the external-adoption revert path replays (agent allowlist + adopted skill name). */
+  beforeSnapshotJson?: string;
+  /** Reshaped change_json (DiagnosisChange-compatible) the behavioral measure reads. */
+  changeJson?: string;
 }
 
 /** Result of re-running the alignment guard after install. */
@@ -300,6 +318,10 @@ interface ExternalAdoptionChange {
   serverName?: string;
   skillName?: string;
   installCommand?: string;
+  downloadUrl?: string;
+  agentConfigId?: string;
+  sampleSessionId?: string;
+  categories?: string[];
 }
 
 function isExternalAdoptionChange(v: unknown): v is ExternalAdoptionChange {
@@ -321,7 +343,13 @@ export interface ExternalAdoptionApplyDeps {
     serverName: string;
     installCommand?: string;
   }) => Promise<InstallCuratedMcpResult>;
-  installSkill: (input: { skillName: string }) => Promise<InstallSkillResult>;
+  installSkill: (input: {
+    skillName: string;
+    downloadUrl?: string;
+    agentConfigId?: string;
+    sampleSessionId?: string;
+    categories?: string[];
+  }) => Promise<InstallSkillResult>;
   /** Re-run the alignment guard AFTER install, before declaring success. */
   checkAlignment: (input: {
     candidateKind: ExternalCandidateKind;
@@ -417,10 +445,16 @@ export function registerExternalAdoptionApplier(
         `external-adoption apply for '${proposal.id}': changeJson.skillName is required for a skill candidate`,
       );
     }
-    const installResult = await deps.installSkill({ skillName });
+    const installResult = await deps.installSkill({
+      skillName,
+      downloadUrl: change.downloadUrl,
+      agentConfigId: change.agentConfigId,
+      sampleSessionId: change.sampleSessionId,
+      categories: change.categories,
+    });
     if (!installResult.created) {
       throw new Error(
-        `external-adoption apply for '${proposal.id}': skill-create path reported no creation for '${skillName}'`,
+        `external-adoption apply for '${proposal.id}': skill adopt path reported no creation for '${skillName}'`,
       );
     }
 
@@ -433,7 +467,15 @@ export function registerExternalAdoptionApplier(
       );
     }
 
-    return { measurable: false };
+    // Stage B — the adopted skill is measurable: the row advances to `measuring`
+    // and the behavioral loop replays the intent's session under the wired
+    // agent. The deps supply the before-snapshot (for revert) and the reshaped
+    // change_json (for the behavioral measure).
+    return {
+      measurable: true,
+      beforeSnapshotJson: installResult.beforeSnapshotJson,
+      changeJson: installResult.changeJson,
+    };
   };
 
   registerFn('external-adoption', applier);
