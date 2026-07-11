@@ -2,82 +2,52 @@
 
 ## Current focus
 
-**Org-optimizer approval loop + skill-content-shadow retirement — built,
-integrated, live-verified, and merged to `main` via PR #982 (2026-07-10).** See
-`docs/ai/runs/2026-07-09-optimizer-shadow-epic.md` and
-`docs/ai/runs/2026-07-10-ministry-seed-test-ci-fix.md`.
+**Non-mobile issue wave (2026-07-11)** — 9 standalone open bugs coded by Codex
+terra across per-issue worktrees, integrated to one wave branch, verified
+(tsc + unit + fork test + flutter analyze/tests + live-e2e), pushed as a wave
+PR. Issues: **#1006, #1007, #1008, #1009, #1010, #1012, #1013, #1014, #1015**.
+See `docs/ai/runs/2026-07-11-nonmobile-wave-codex-terra.md`.
 
-The org-optimizer now closes end-to-end: the LLM diagnosis brain **generates**
-`refine-config` / `refine-scope` / `workflow-prompt-fix` (+ `grant-delegation`)
-proposals (additive to #956's deterministic `broaden-scope`/`create-recipe`
-lanes), a human **approves**, an applier makes the **real** change, a
-**behavioral re-run or LLM-judge** decides keep/revert, and a reverted diagnosis
-re-enters with attempt-aware context. `refine-skill` (#976, human-gated) and
-`system_prompt` (gap #1) ride the same machinery.
+## Active branch / PR
 
-## Branch / PR
+- **PR (wave, this run):** `workflow/run-2026-07-11` — the 9 issues above.
+  Verified pre-PR; awaiting CI + manual UI smoke. Do NOT merge without smoke.
+- **OPEN, awaiting manual smoke (PR #1005):** `workflow/run-2026-07-10-nonmobile-issues`
+  — #999/#1000/#1002/#1003/#1004/#981 (live-verified; the user's to smoke+merge).
+  This wave did **not** rebuild those.
+- **MERGED (PR #982, 2026-07-10):** org-optimizer approval loop + skill-content
+  -shadow retirement (#977/#971/#976 + gap #1).
 
-- **MERGED (PR #982, AJ sign-off, 2026-07-10):** org-optimizer approval loop +
-  skill-content-shadow retirement — closes **#977, #971, #976** and adds gap
-  #1 (system_prompt). Built by 6 parallel worktree agents across 3 waves + an
-  orchestrator patch fix, `tsc` clean, **live-verified against the real fork
-  engine** (see `docs/ai/runs/2026-07-09-optimizer-shadow-epic.md`), CI green
-  (server-checks) after a stale-test reconciliation (see
-  `docs/ai/runs/2026-07-10-ministry-seed-test-ci-fix.md`). Merged **without**
-  the documented real-app manual smoke — AJ elected to merge on CI-green
-  alone; a real click-through of the org-optimizer flow is still worth doing.
-- **MERGED (PR #980):** docs/project-state-post-979 (project-state snapshot
-  after PR #979).
-- **MERGED (PR #979, AJ sign-off, 2026-07-09):** Phase B/D ids + quality wave —
-  **#945, #960, #951, #954, #970, #943**. Built by 5 parallel Codex worktree
-  runs, orchestrator-reviewed, behaviorally gated, integrated (full suite
-  **2626/0** + tsc + flutter analyze clean), CI green. See
-  `docs/ai/runs/2026-07-09-phaseBD-ids-quality-wave.md`.
-  - #943 (Session History screen) shipped **without a visual smoke** — the UI
-    was merged on sign-off; a real click-through is still worth doing.
-- **#961** data remediation already **applied to the real config/DB** this run
-  (approval-gated, backed up to `~/Library/Application Support/Rhythm/backups-961-*`).
-- **#981 filed** — `refine-task` kind (gap #2: scheduled-task definitions). Not started.
+## In progress
+
+- **Plan A/B epic (#983–#997, milestones 87/88)** — reuse-before-reinvent +
+  discover/adopt. Dependency chain (shared-contract #983 first). Queued as the
+  next Codex wave; not started.
 
 ## Risks / known issues
 
-1. **DB `body` column kept as vestigial** (#977 conservative): live readers
-   (`priorBodyOf`, CRUD `GET /agent-skills`, manual rollback) still fall back to
-   it; the DB→file *projection* is removed but the column isn't nulled. Fine.
-2. **`webhook-wiring` applier** registered but not exercised live (no webhook-gap
-   signal in probe data). Pre-existing (#829); low risk.
-3. **`issue-5` attempt-suffix re-diagnosis** logic-verified only; revert fired but
-   the full re-attempt cycle wasn't force-observed. Behavioral config/scope
-   re-run verdict is slow — confirmed launching, not always settling in-window.
-4. **Diagnosis LLM omits structured patches** — mitigated by the deterministic
-   `derive*PatchFromProse` fallback for model + add/remove scope; genuinely
-   ambiguous fixes (set-rewrites, `ocAgent`, full-prompt rewrites) still degrade
-   to prose-only / human-manual (correct). `system_prompt` has no derive fallback.
-5. **Org-optimizer cron stays OFF** until this + safety review land (unchanged).
+1. **#1012 subagent scoping** verified via the fork's own `task.test.ts` (10/10)
+   on the built binary + binary-live confirmation; the full parent→task→child
+   live delegation path wasn't force-run (unit covers the 513-tool Gemini case).
+2. **Flutter UI issues (#1006/#1009/#1010/#1013)** pass analyze + widget tests;
+   true visual confirmation (errored transcript, Thinking stream, Pacific
+   timestamps, proposal diff) is the manual-smoke handoff.
+3. Live-e2e used a second api_server on :4011 sharing the app's SQLite DB
+   (torn-read caveat) — session-row inspection avoided; endpoint/file/log
+   evidence used instead.
+4. Org-optimizer cron stays OFF pending safety review (unchanged).
 
 ## Test status
 
-- `tsc --noEmit` clean on the merged epic (api_server). No unit tests added this
-  run (acceptance = live probing, per directive). Live E2E pass recorded in the
-  run log (all kinds the user asked about: config/scope/skill-body/system-prompt/
-  recipe + diagnosis-generated apply + measure/revert).
-- **`server-checks` CI is now green on PR #982** (2026-07-09/10 follow-up): the
-  suite's `ministry_recipes_seed.test.ts` was stale against #977's
-  files-as-source-of-truth change (asserted DB `agent_skills` rows that #977
-  stopped creating). Test reconciled to read the materialized SKILL.md file
-  instead; no production code changed. Full vitest: 297 files / 2616 tests
-  passed, 23 skipped. See `docs/ai/runs/2026-07-10-ministry-seed-test-ci-fix.md`.
+- api_server `tsc --noEmit` clean; targeted vitest 75/75 (agent_runner,
+  agent_configs routes, opencode_agent_writer).
+- Fork `bun run build --single` → `0.0.0-workflow/run-2026-07-11`; `task.test.ts` 10/10.
+- Flutter `dart format --set-exit-if-changed` clean; `flutter analyze` 0/0;
+  touched-area tests 529 pass.
+- Full CI suites run on push (watch `gh run watch`).
 
 ## Next step
 
-1. **Start #981** (`refine-task` kind, gap #2: scheduled-task definitions).
-2. Optional: real-app manual smoke of the just-merged org-optimizer approval
-   loop (#982) — merged on CI-green without this step; a real click-through is
-   still worth doing.
-3. Optional deeper live obs: force the `issue-5` re-attempt cycle + let a
-   config/scope behavioral verdict settle on a longer run.
-4. Optional: visual smoke of the shipped #943 Session History screen (still
-   outstanding from PR #979).
-- **#952** closed (Codex "hang" was ChatGPT quota exhaustion, not a bug —
-  confirmed live 2026-07-09: `gpt-5.6-terra` completes, unsupported models return
-  clean error frames, no hang).
+1. Watch CI on the wave PR to green; hand off manual UI smoke (checklist in the run log).
+2. Launch the **Plan A/B epic** Codex wave (#983 shared contract first, then A2–A6, then Plan B).
+3. After merge, real-app smoke of the 4 Flutter UI fixes.
