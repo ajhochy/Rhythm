@@ -299,6 +299,47 @@ void main() {
           reason: 'Part type must remain reasoning after delta append.');
     });
 
+    test(
+        'c1a-regression: delayed empty reasoning snapshot preserves streamed delta',
+        () async {
+      // Claude Code emits the text delta before its reasoning part snapshot.
+      // The snapshot initially has text='', so it must promote the temporary
+      // part to reasoning without clearing text already streamed to the UI.
+      final (:ctrl, :repo) = _buildController();
+      addTearDown(ctrl.dispose);
+      await ctrl.initialize();
+
+      const sessionId = 'sess-c1a-delayed';
+      const messageId = 'msg-c1a-delayed';
+      const partId = 'part-c1a-delayed';
+      const delta = 'streamed Claude reasoning';
+
+      repo.emit(const MessagePartDeltaMessage(
+        sessionId: sessionId,
+        messageId: messageId,
+        partId: partId,
+        field: 'text',
+        delta: delta,
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      repo.emit(const MessagePartUpdatedMessage(
+        sessionId: sessionId,
+        part: {
+          'id': partId,
+          'sessionID': sessionId,
+          'messageID': messageId,
+          'type': 'reasoning',
+          'text': '',
+        },
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      final part = ctrl.chatPartsFor(messageId).single;
+      expect(part.type, equals('reasoning'));
+      expect(part.text, equals(delta));
+    });
+
     test('c1b: text delta appends to the text part (unchanged behavior)',
         () async {
       final (:ctrl, :repo) = _buildController();

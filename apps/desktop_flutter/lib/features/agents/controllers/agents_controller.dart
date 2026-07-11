@@ -2986,8 +2986,13 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     final list = _chatPartsByMessage.putIfAbsent(messageId, () => []);
     final idx = list.indexWhere((p) => p.id == partId);
     if (idx >= 0) {
-      // Re-emit replaces text (the SDK sends the canonical part on update).
-      list[idx].text = text;
+      // Claude Code can deliver a reasoning delta before its part.updated
+      // snapshot. That delayed snapshot is still empty, so preserve the text
+      // already assembled from live deltas while adopting its real part type.
+      list[idx].type = type;
+      if (text.isNotEmpty || list[idx].text.isEmpty) {
+        list[idx].text = text;
+      }
       if (raw != null) list[idx].mergePart(raw);
     } else {
       final part = ChatPart(

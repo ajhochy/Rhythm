@@ -111,7 +111,7 @@ class ChatPart {
 
   final String id;
   final String messageId;
-  final String type;
+  String type;
 
   String _text;
 
