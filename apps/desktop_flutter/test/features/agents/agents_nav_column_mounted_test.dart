@@ -33,9 +33,12 @@ import 'package:rhythm_desktop/features/agent_configs/data/agent_configs_data_so
 import 'package:rhythm_desktop/features/agent_configs/models/agent_config.dart';
 import 'package:rhythm_desktop/features/agent_configs/repositories/agent_configs_repository.dart';
 import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dart';
+import 'package:rhythm_desktop/features/agents/data/agent_models_data_source.dart';
+import 'package:rhythm_desktop/features/agents/models/agent_model_route.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
+import 'package:rhythm_desktop/features/agents/models/catalog_model_entry.dart';
 import 'package:rhythm_desktop/features/agents/repositories/agents_repository.dart';
 import 'package:rhythm_desktop/features/agents/views/agents_view.dart';
 import 'package:rhythm_desktop/features/agents/views/_session_list_body.dart';
@@ -251,6 +254,17 @@ class _EmptyGalleryDataSource extends AgentGalleryDataSource {
   Future<List<AgentDesign>> list() async => [];
 }
 
+/// selectSession() fires `_loadModelRoutes` fire-and-forget (uncaught) — a
+/// real HTTP call. Inject an empty models data source so the row-tap tests
+/// that open the interactive detail don't raise an unhandled network error.
+class _EmptyModelsDataSource extends AgentModelsDataSource {
+  @override
+  Future<List<AgentModelRoute>> fetchRoutes(String agentId) async => const [];
+
+  @override
+  Future<List<CatalogModelEntry>> fetchCatalog() async => const [];
+}
+
 /// #1027 (USO A4) — fake that returns a canned transcript so the reused
 /// [SessionTranscriptView] renders a message without a live backend.
 class _FakeSessionHistoryController extends SessionHistoryController {
@@ -286,6 +300,26 @@ AgentSession _makeSession(String id, String name) => AgentSession(
       name: name,
       cwd: '/tmp',
       status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
+
+/// A session carrying (or lacking) an `sdkSessionId` — drives the composer
+/// resumability gate. A run with an sdkSessionId can be continued (WS input
+/// auto-resumes via that id); one without is a legacy/dead row.
+AgentSession _makeRunSession(
+  String id,
+  String name, {
+  required bool hasSdk,
+  AgentSessionStatus status = AgentSessionStatus.idle,
+}) =>
+    AgentSession(
+      id: id,
+      agentId: 'claude-code',
+      name: name,
+      cwd: '/tmp',
+      status: status,
+      sdkSessionId: hasSdk ? 'sdk-$id' : null,
       createdAt: _kEpoch,
       updatedAt: _kEpoch,
     );
@@ -993,15 +1027,73 @@ void main() {
       controller.dispose();
     });
 
-    // (A4) opening a scheduled session shows the reused transcript detail view.
-    testWidgets('#1027 scheduled row opens reused transcript detail',
+    // Smoke follow-up (1): the By-Project filter is hidden outside the chats
+    // scope; the category dropdown + sort menu remain in every scope.
+    testWidgets('By-Project filter hidden outside chats scope', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final repo = _StubAgentsRepository([_makeSession('s1', 'Alpha')]);
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        modelsDataSource: _EmptyModelsDataSource(),
+      );
+
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
+
+      // Chats (default): By-Project selector visible.
+      expect(
+        find.byKey(const ValueKey('by-project-selector')),
+        findsOneWidget,
+        reason: 'By-Project filter must be visible in the CHATS scope',
+      );
+
+      // Switch to Scheduled Tasks.
+      await tester.tap(find.byKey(const ValueKey('session-scope-dropdown')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Scheduled Tasks'));
+      await tester.pumpAndSettle();
+
+      expect(controller.scope, AgentSessionScope.scheduled);
+      // By-Project selector hidden; category dropdown + sort menu still there.
+      expect(
+        find.byKey(const ValueKey('by-project-selector')),
+        findsNothing,
+        reason: 'By-Project filter must be hidden outside the CHATS scope',
+      );
+      expect(
+        find.byKey(const ValueKey('session-scope-dropdown')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('session-sort-menu')), findsOneWidget);
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+
+    // Smoke follow-up (2b): a scheduled row WITH an sdkSessionId opens the SAME
+    // interactive chat detail a normal chat row opens — not the read-only
+    // transcript view — with a usable composer input.
+    testWidgets(
+        'scheduled row with sdkSessionId opens interactive chat detail (usable input)',
         (tester) async {
       await tester.binding.setSurfaceSize(const Size(1600, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final controller = _makeControllerWithSessions([
-        _makeSession('sch1', 'Nightly Digest'),
+      final repo = _StubAgentsRepository([
+        _makeRunSession('sch1', 'Nightly Digest', hasSdk: true),
       ]);
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        modelsDataSource: _EmptyModelsDataSource(),
+      );
       await controller.loadSessions(AgentSessionScope.scheduled);
 
       await tester.pumpWidget(await _buildTestApp(controller));
@@ -1013,9 +1105,77 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // The reused transcript detail view is pushed and renders the transcript.
-      expect(find.byType(SessionTranscriptView), findsOneWidget);
-      expect(find.text('Scheduled run transcript line'), findsOneWidget);
+      // The read-only transcript route is NOT used any more.
+      expect(
+        find.byType(SessionTranscriptView),
+        findsNothing,
+        reason: 'Rows now open the interactive chat detail, not the '
+            'read-only transcript view',
+      );
+      // Same interactive surface a chat row opens: the session is selected and
+      // the composer input is present + enabled.
+      expect(controller.selectedSessionId, 'sch1');
+      final input = find.byKey(const ValueKey('agent-composer-input'));
+      expect(input, findsOneWidget, reason: 'Interactive composer must render');
+      expect(
+        tester.widget<TextField>(input).enabled,
+        isTrue,
+        reason: 'A resumable scheduled run must have a usable input',
+      );
+      expect(
+        find.byKey(const ValueKey('composer-disabled-reason')),
+        findsNothing,
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+
+    // Smoke follow-up (2c): an unresumable row (no sdkSessionId) still opens the
+    // interactive detail (full history) but disables the composer with a reason
+    // — it never crashes and never drops the user into a dead input.
+    testWidgets(
+        'unresumable row opens interactive detail with input disabled + reason',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final repo = _StubAgentsRepository([
+        _makeRunSession('old1', 'Legacy Run', hasSdk: false),
+      ]);
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        modelsDataSource: _EmptyModelsDataSource(),
+      );
+      await controller.loadSessions(AgentSessionScope.selfImprovement);
+
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
+
+      final navCol = find.byKey(const ValueKey('agents-nav-column'));
+      await tester.tap(
+        find.descendant(of: navCol, matching: find.byType(SessionRow)).first,
+      );
+      await tester.pumpAndSettle();
+
+      // Interactive detail opened (session selected), input disabled + reason.
+      expect(controller.selectedSessionId, 'old1');
+      expect(
+        find.byKey(const ValueKey('composer-disabled-reason')),
+        findsOneWidget,
+        reason: 'Unresumable run must show an inline reason',
+      );
+      final input = find.byKey(const ValueKey('agent-composer-input'));
+      expect(input, findsOneWidget);
+      expect(
+        tester.widget<TextField>(input).enabled,
+        isFalse,
+        reason: 'Unresumable run must disable the composer input',
+      );
+      // Reaching here without a thrown exception is the "no crash" assertion.
 
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
       controller.dispose();
