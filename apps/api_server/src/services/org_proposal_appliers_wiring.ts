@@ -80,7 +80,13 @@ import {
 } from './generators/external_discovery_generator';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
-import { writeManagedSkill } from './rhythm_managed_skills';
+import {
+  writeManagedSkill,
+  deleteManagedSkill,
+  managedSkillExists,
+} from './rhythm_managed_skills';
+import { downloadSkillBody } from './generators/external_discovery_search';
+import { scanContextContent } from '../security/context_scanner';
 import { writeAgentProfileFile } from './opencode_agent_writer';
 import {
   readAgentConfigField,
@@ -114,33 +120,82 @@ export interface AppliersRegistry {
 export function buildRealExternalAdoptionDeps(): ExternalAdoptionApplyDeps {
   return {
     async installCuratedMcp({ serverName }) {
+      // Stage B — register the discovered server through the sanctioned curated
+      // path (idempotent merge into opencode.json + live register). ensureCuratedMcps
+      // reports whether the server is now present + registered.
       const result = await opencodeClient.ensureCuratedMcps({ register: true });
       const installed = result.servers.some((s) => s.id === serverName);
       return { changed: result.changed, registered: installed && result.registered };
     },
-    async installSkill({ skillName }) {
-      const skillsRepo = new AgentSkillsRepository();
-      const existing = skillsRepo.findByTitle(skillName);
-      if (existing) {
-        return { created: false };
+
+    async installSkill({ skillName, downloadUrl, agentConfigId, sampleSessionId, categories }) {
+      // 1. DOWNLOAD the real body from the candidate source (no stub).
+      if (!downloadUrl) {
+        throw new Error(`external-adoption installSkill: no downloadUrl for '${skillName}'`);
       }
-      const skill = skillsRepo.create({
-        title: skillName,
-        description: `Externally adopted skill: ${skillName}`,
-        whenToUse: null,
-        steps: null,
-        tags: ['external-adoption'],
-        body: `# ${skillName}\n\nAdopted via the org self-optimizer's external-discovery review queue. See the proposal's provenance note for source/license/install details.`,
-        status: 'published',
-        source: 'external-adoption',
+      const body = await downloadSkillBody(downloadUrl);
+      if (!body) {
+        throw new Error(`external-adoption installSkill: body download failed for '${skillName}' (${downloadUrl})`);
+      }
+
+      // 2. HARD #873 gate at write time — a high-confidence injection match blocks the write.
+      const scan = scanContextContent(body, `adopted skill "${skillName}"`);
+      if (scan.blocked) {
+        throw new Error(`external-adoption installSkill: body for '${skillName}' blocked by injection scan`);
+      }
+
+      // 3. WRITE-IF-ABSENT — never clobber an engine-owned library skill (invariant 2).
+      const skillWasAbsent = !managedSkillExists(skillName);
+      if (skillWasAbsent) {
+        writeManagedSkill({ name: skillName, description: `Adopted from ${downloadUrl}`, body });
+      }
+
+      // 4. WIRE the adopted skill to the agent that needed it (reversibly).
+      const configsRepo = new AgentConfigsRepository();
+      let priorAllowedSkillsJson: string | null = null;
+      if (agentConfigId) {
+        const config = configsRepo.getById(agentConfigId);
+        if (config) {
+          priorAllowedSkillsJson = config.allowedSkillsJson ?? null;
+          let list: string[] = [];
+          try {
+            const parsed = priorAllowedSkillsJson ? JSON.parse(priorAllowedSkillsJson) : [];
+            if (Array.isArray(parsed)) list = parsed.filter((s): s is string => typeof s === 'string');
+          } catch {
+            list = [];
+          }
+          if (!list.includes(skillName)) {
+            list.push(skillName);
+            const nextJson = JSON.stringify(list);
+            configsRepo.update(agentConfigId, { allowedSkillsJson: nextJson });
+            const updated = configsRepo.getById(agentConfigId);
+            if (updated) writeAgentProfileFile(updated); // resync the opencode agent file
+          }
+        }
+      }
+
+      // 5. before_snapshot_json for the external-adoption revert path + reshaped
+      //    change_json (DiagnosisChange-compatible) for the behavioral measure.
+      const beforeSnapshotJson = JSON.stringify({
+        externalAdoption: true,
+        adoptedSkillName: skillName,
+        skillWasAbsent,
+        agentConfigId: agentConfigId ?? null,
+        priorAllowedSkillsJson,
       });
-      writeManagedSkill({
-        name: skill.title,
-        description: skill.description ?? undefined,
-        body: skill.body ?? '',
+      const changeJson = JSON.stringify({
+        candidateKind: 'skill',
+        skillName,
+        adoptedSkillName: skillName,
+        downloadUrl,
+        configPatch: { agentConfigId: agentConfigId ?? undefined },
+        sessionIds: sampleSessionId ? [sampleSessionId] : [],
+        evidence: (categories ?? []).map((c) => ({ category: c })),
       });
-      return { created: true };
+
+      return { created: true, beforeSnapshotJson, changeJson };
     },
+
     async checkAlignment({ candidateKind, name }) {
       if (candidateKind === 'mcp') {
         if (!opencodeClient.isReady) {
@@ -157,19 +212,14 @@ export function buildRealExternalAdoptionDeps(): ExternalAdoptionApplyDeps {
           return { aligned: false, reason: `listMcp failed: ${String(err)}` };
         }
       }
-      // candidateKind === 'skill'
-      if (!opencodeClient.isReady) {
-        return { aligned: false, reason: 'engine not ready — cannot verify live skill alignment' };
-      }
-      try {
-        const skills = await opencodeClient.listSkills();
-        const aligned = Array.isArray(skills) && skills.some((s) => s.name === name);
-        return aligned
-          ? { aligned: true }
-          : { aligned: false, reason: `"${name}" did not resolve to a live skill name` };
-      } catch (err) {
-        return { aligned: false, reason: `listSkills failed: ${String(err)}` };
-      }
+      // candidateKind === 'skill' — disk truth is the reliable post-write guard.
+      // The engine rescans its config skills dir on its own cadence, so a
+      // just-written managed skill may not yet appear in listSkills(); the
+      // authoritative fact that the adopt succeeded is that the SKILL.md now
+      // exists in the owned library.
+      return managedSkillExists(name)
+        ? { aligned: true }
+        : { aligned: false, reason: `managed SKILL.md for "${name}" was not found after write` };
     },
   };
 }
