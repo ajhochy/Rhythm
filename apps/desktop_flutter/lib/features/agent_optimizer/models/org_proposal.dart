@@ -108,6 +108,19 @@ class OrgProposal {
   /// used to disable the Approve button until the note exists.
   bool get hasSecurityNote => provenance != null;
 
+  /// Parses [beforeSnapshotJson] into a map, or null if absent/invalid.
+  Map<String, dynamic>? get beforeSnapshot {
+    final raw = beforeSnapshotJson;
+    if (raw == null || raw.trim().isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Parses [changeJson] into a map, or null if absent/invalid.
   Map<String, dynamic>? get change {
     final raw = changeJson;
