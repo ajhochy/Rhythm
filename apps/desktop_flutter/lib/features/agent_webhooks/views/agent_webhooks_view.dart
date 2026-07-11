@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../../app/core/utils/time_format.dart';
 import '../controllers/agent_webhooks_controller.dart';
 import '../models/agent_webhook_endpoint.dart';
 
@@ -62,10 +63,7 @@ class _AgentWebhooksViewState extends State<AgentWebhooksView> {
     );
   }
 
-  Widget _buildBody(
-    BuildContext context,
-    AgentWebhooksController controller,
-  ) {
+  Widget _buildBody(BuildContext context, AgentWebhooksController controller) {
     if (controller.status == AgentWebhooksStatus.loading &&
         controller.endpoints.isEmpty) {
       return const Center(child: CircularProgressIndicator());
@@ -116,10 +114,7 @@ class _AgentWebhooksViewState extends State<AgentWebhooksView> {
             const SizedBox(height: 8),
             Text(
               'Tap + to create your first webhook endpoint.',
-              style: TextStyle(
-                fontSize: 14,
-                color: context.rhythm.textMuted,
-              ),
+              style: TextStyle(fontSize: 14, color: context.rhythm.textMuted),
             ),
           ],
         ),
@@ -129,10 +124,8 @@ class _AgentWebhooksViewState extends State<AgentWebhooksView> {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
       itemCount: controller.endpoints.length,
-      separatorBuilder: (_, __) => Divider(
-        height: 1,
-        color: context.rhythm.borderSubtle,
-      ),
+      separatorBuilder: (_, __) =>
+          Divider(height: 1, color: context.rhythm.borderSubtle),
       itemBuilder: (context, index) {
         final endpoint = controller.endpoints[index];
         return _WebhookTile(
@@ -218,10 +211,7 @@ class _AgentWebhooksViewState extends State<AgentWebhooksView> {
 // ---------------------------------------------------------------------------
 
 class _WebhookTile extends StatelessWidget {
-  const _WebhookTile({
-    required this.endpoint,
-    required this.onDelete,
-  });
+  const _WebhookTile({required this.endpoint, required this.onDelete});
 
   final AgentWebhookEndpoint endpoint;
   final VoidCallback onDelete;
@@ -284,8 +274,9 @@ class _WebhookTile extends StatelessWidget {
                           ),
                           decoration: BoxDecoration(
                             color: context.rhythm.surfaceMuted,
-                            borderRadius:
-                                BorderRadius.circular(RhythmRadius.pill),
+                            borderRadius: BorderRadius.circular(
+                              RhythmRadius.pill,
+                            ),
                             border: Border.all(color: context.rhythm.border),
                           ),
                           child: Text(
@@ -492,8 +483,10 @@ class _NewWebhookSheetState extends State<_NewWebhookSheet> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                borderSide:
-                    BorderSide(color: context.rhythm.accent, width: 1.5),
+                borderSide: BorderSide(
+                  color: context.rhythm.accent,
+                  width: 1.5,
+                ),
               ),
             ),
           ),
@@ -515,8 +508,10 @@ class _NewWebhookSheetState extends State<_NewWebhookSheet> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                borderSide:
-                    BorderSide(color: context.rhythm.accent, width: 1.5),
+                borderSide: BorderSide(
+                  color: context.rhythm.accent,
+                  width: 1.5,
+                ),
               ),
             ),
           ),
@@ -529,10 +524,7 @@ class _NewWebhookSheetState extends State<_NewWebhookSheet> {
             ),
             subtitle: Text(
               'Webhook will accept incoming requests immediately.',
-              style: TextStyle(
-                color: context.rhythm.textMuted,
-                fontSize: 12,
-              ),
+              style: TextStyle(color: context.rhythm.textMuted, fontSize: 12),
             ),
             value: _enabled,
             activeThumbColor: context.rhythm.accent,
@@ -655,10 +647,7 @@ class _SuccessSheet extends StatelessWidget {
           Text(
             'Send POST requests to this URL to trigger the agent. '
             'Keep this URL private — it includes your webhook secret.',
-            style: TextStyle(
-              fontSize: 13,
-              color: context.rhythm.textMuted,
-            ),
+            style: TextStyle(fontSize: 13, color: context.rhythm.textMuted),
           ),
           const SizedBox(height: 20),
           FilledButton.icon(
@@ -694,12 +683,5 @@ class _SuccessSheet extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 String _formatStamp(String value) {
-  final parsed = DateTime.tryParse(value);
-  if (parsed == null) return value;
-  final local = parsed.toLocal();
-  final month = local.month.toString().padLeft(2, '0');
-  final day = local.day.toString().padLeft(2, '0');
-  final hour = local.hour.toString().padLeft(2, '0');
-  final minute = local.minute.toString().padLeft(2, '0');
-  return '$month/$day ${local.year} $hour:$minute';
+  return formatLocalTimestamp(value);
 }

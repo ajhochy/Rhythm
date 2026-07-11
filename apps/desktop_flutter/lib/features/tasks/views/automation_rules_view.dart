@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../../app/core/utils/time_format.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../../facilities/data/facilities_data_source.dart';
 import '../../facilities/models/facility.dart';
@@ -65,8 +66,9 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
                 providerCount: controller.accounts
                     .where((account) => account.connected)
                     .length,
-                enabledCount:
-                    controller.rules.where((rule) => rule.enabled).length,
+                enabledCount: controller.rules
+                    .where((rule) => rule.enabled)
+                    .length,
                 latestSync: _latestSync(controller.accounts),
                 onCreate: () => _openBuilder(context, controller),
               ),
@@ -77,25 +79,26 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
                   onRetry: controller.load,
                 ),
               Expanded(
-                child: controller.status == AutomationRulesStatus.loading &&
+                child:
+                    controller.status == AutomationRulesStatus.loading &&
                         controller.rules.isEmpty
                     ? const Center(child: CircularProgressIndicator())
                     : controller.rules.isEmpty
-                        ? _EmptyState(
-                            onCreate: () => _openBuilder(context, controller),
-                          )
-                        : ListView(
-                            padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-                            children: orderedEntries
-                                .map(
-                                  (entry) => _RuleGroup(
-                                    source: entry.key,
-                                    rules: entry.value,
-                                    controller: controller,
-                                  ),
-                                )
-                                .toList(),
-                          ),
+                    ? _EmptyState(
+                        onCreate: () => _openBuilder(context, controller),
+                      )
+                    : ListView(
+                        padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                        children: orderedEntries
+                            .map(
+                              (entry) => _RuleGroup(
+                                source: entry.key,
+                                rules: entry.value,
+                                controller: controller,
+                              ),
+                            )
+                            .toList(),
+                      ),
               ),
             ],
           ),
@@ -105,11 +108,12 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
   }
 
   String? _latestSync(List<IntegrationAccount> accounts) {
-    final values = accounts
-        .map((account) => account.lastSyncedAt)
-        .whereType<String>()
-        .toList()
-      ..sort();
+    final values =
+        accounts
+            .map((account) => account.lastSyncedAt)
+            .whereType<String>()
+            .toList()
+          ..sort();
     return values.isEmpty ? null : values.last;
   }
 
@@ -264,10 +268,7 @@ class _StatCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: TextStyle(color: context.rhythm.textSecondary),
-          ),
+          Text(label, style: TextStyle(color: context.rhythm.textSecondary)),
           const SizedBox(height: 6),
           Text(
             value,
@@ -443,7 +444,8 @@ class _RuleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accountLabel = account?.accountLabel ??
+    final accountLabel =
+        account?.accountLabel ??
         account?.providerDisplayName ??
         _labelForSource(rule.source);
     return Card(
@@ -494,8 +496,8 @@ class _RuleCard extends StatelessWidget {
                           label: account?.connected == true
                               ? 'Connected'
                               : rule.source == 'rhythm'
-                                  ? 'Internal'
-                                  : 'Disconnected',
+                              ? 'Internal'
+                              : 'Disconnected',
                         ),
                         _MetaChip(
                           icon: Icons.bolt_outlined,
@@ -515,9 +517,7 @@ class _RuleCard extends StatelessWidget {
                       const SizedBox(height: 10),
                       Text(
                         _previewLabel(rule.previewSample!),
-                        style: TextStyle(
-                          color: context.rhythm.textSecondary,
-                        ),
+                        style: TextStyle(color: context.rhythm.textSecondary),
                       ),
                     ],
                   ],
@@ -544,14 +544,8 @@ class _RuleCard extends StatelessWidget {
                 onPressed: onInspect,
                 icon: Icon(Icons.visibility_outlined),
               ),
-              IconButton(
-                onPressed: onEdit,
-                icon: Icon(Icons.edit_outlined),
-              ),
-              IconButton(
-                onPressed: onDelete,
-                icon: Icon(Icons.delete_outline),
-              ),
+              IconButton(onPressed: onEdit, icon: Icon(Icons.edit_outlined)),
+              IconButton(onPressed: onDelete, icon: Icon(Icons.delete_outline)),
             ],
           ),
         ),
@@ -577,7 +571,8 @@ class _AutomationPreviewDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final summary = preview?.summary ??
+    final summary =
+        preview?.summary ??
         'No preview summary is available yet for this automation.';
     final sample = preview?.previewSample ?? rule.previewSample;
     return AlertDialog(
@@ -672,10 +667,7 @@ class _MetaChip extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             label,
-            style: TextStyle(
-              fontSize: 12,
-              color: context.rhythm.textPrimary,
-            ),
+            style: TextStyle(fontSize: 12, color: context.rhythm.textPrimary),
           ),
         ],
       ),
@@ -807,8 +799,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
         existing?.actionType ?? widget.controller.actions.firstOrNull?.key;
     _selectedAccountId = existing?.sourceAccountId;
     _selectedTeamId = existing?.triggerConfig?['teamId']?.toString();
-    _selectedPositionName =
-        existing?.triggerConfig?['positionName']?.toString();
+    _selectedPositionName = existing?.triggerConfig?['positionName']
+        ?.toString();
     final rawTeamIds = existing?.triggerConfig?['teamIds'];
     if (rawTeamIds is List) {
       _selectedTeamIds = rawTeamIds.map((k) => k.toString()).toList();
@@ -817,23 +809,24 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     }
     final rawPositionNames = existing?.triggerConfig?['positionNames'];
     if (rawPositionNames is List) {
-      _selectedPositionNames =
-          rawPositionNames.map((k) => k.toString()).toList();
+      _selectedPositionNames = rawPositionNames
+          .map((k) => k.toString())
+          .toList();
     } else if (_selectedPositionName != null) {
       _selectedPositionNames = [_selectedPositionName!];
     }
     _selectedEventType = existing?.triggerConfig?['eventType']?.toString();
     _selectedLabel = existing?.triggerConfig?['label']?.toString();
     _leadDays = (existing?.triggerConfig?['leadDays'] as num?)?.toInt();
-    _dateWindowDays =
-        (existing?.triggerConfig?['dateWindowDays'] as num?)?.toInt();
+    _dateWindowDays = (existing?.triggerConfig?['dateWindowDays'] as num?)
+        ?.toInt();
     _hoursSinceReceived =
         (existing?.triggerConfig?['hoursSinceReceived'] as num?)?.toInt();
     _targetDay = (existing?.actionConfig?['targetDay'] as num?)?.toInt();
-    _targetDayOfWeek =
-        (existing?.actionConfig?['targetDayOfWeek'] as num?)?.toInt();
-    _daysBeforeDue =
-        (existing?.triggerConfig?['daysBeforeDue'] as num?)?.toInt();
+    _targetDayOfWeek = (existing?.actionConfig?['targetDayOfWeek'] as num?)
+        ?.toInt();
+    _daysBeforeDue = (existing?.triggerConfig?['daysBeforeDue'] as num?)
+        ?.toInt();
     _allDayOnly = existing?.triggerConfig?['allDayOnly'] == true;
     _selectedTemplateName = existing?.actionConfig?['templateName']?.toString();
     _conditions = (existing?.conditions ?? const [])
@@ -848,8 +841,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     _selectedFacilityId = widget.existing?.actionConfig?['facilityId'] is int
         ? widget.existing!.actionConfig!['facilityId'] as int
         : (widget.existing?.actionConfig?['facilityId'] is num
-            ? (widget.existing!.actionConfig!['facilityId'] as num).toInt()
-            : null);
+              ? (widget.existing!.actionConfig!['facilityId'] as num).toInt()
+              : null);
     _syncAccountSelectionWithSource();
     if (existing == null && _nameController.text.trim().isEmpty) {
       _nameController.text = _suggestedName();
@@ -885,21 +878,24 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
         .toList();
     _selectedTriggerKey ??= triggers.firstOrNull?.key;
     _selectedActionType ??= widget.controller.actions.firstOrNull?.key;
-    final trigger =
-        triggers.where((item) => item.key == _selectedTriggerKey).firstOrNull;
+    final trigger = triggers
+        .where((item) => item.key == _selectedTriggerKey)
+        .firstOrNull;
     final isPco = _selectedSource == 'planning_center';
     final isGoogleCalendar = _selectedSource == 'google_calendar';
     final availableActions = isPco
         ? widget.controller.actions
-            .where((item) =>
-                item.key == 'create_task' ||
-                item.key == 'create_project_from_template')
-            .toList()
+              .where(
+                (item) =>
+                    item.key == 'create_task' ||
+                    item.key == 'create_project_from_template',
+              )
+              .toList()
         : isGoogleCalendar
-            ? widget.controller.actions.toList()
-            : widget.controller.actions
-                .where((item) => item.key != 'create_reservation')
-                .toList();
+        ? widget.controller.actions.toList()
+        : widget.controller.actions
+              .where((item) => item.key != 'create_reservation')
+              .toList();
     if (availableActions.isNotEmpty &&
         !availableActions.any((item) => item.key == _selectedActionType)) {
       _selectedActionType = availableActions.first.key;
@@ -1004,8 +1000,9 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                     child: ListView(
                       shrinkWrap: true,
                       children: triggers.map((item) {
-                        final selected =
-                            _selectedTriggerKeys.contains(item.key);
+                        final selected = _selectedTriggerKeys.contains(
+                          item.key,
+                        );
                         return CheckboxListTile(
                           dense: true,
                           value: selected,
@@ -1032,7 +1029,7 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                               // Keep _selectedTriggerKey in sync
                               _selectedTriggerKey =
                                   _selectedTriggerKeys.firstOrNull ??
-                                      triggers.firstOrNull?.key;
+                                  triggers.firstOrNull?.key;
                               _populateSuggestedNameIfEmpty();
                             });
                           },
@@ -1084,8 +1081,10 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
               const SizedBox(height: 18),
               _stepTitle('4. Action'),
               DropdownButtonFormField<String>(
-                value: availableActions
-                        .any((item) => item.key == _selectedActionType)
+                value:
+                    availableActions.any(
+                      (item) => item.key == _selectedActionType,
+                    )
                     ? _selectedActionType
                     : availableActions.firstOrNull?.key,
                 isExpanded: true,
@@ -1138,8 +1137,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
             setState(() => _validationError = validationError);
             final effectiveTriggerKey = _selectedSource == 'planning_center'
                 ? (_selectedTriggerKeys.firstOrNull ??
-                    _selectedTriggerKey ??
-                    '')
+                      _selectedTriggerKey ??
+                      '')
                 : (_selectedTriggerKey ?? '');
             if (_selectedSource == null ||
                 effectiveTriggerKey.isEmpty ||
@@ -1168,12 +1167,12 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
   }
 
   Widget _stepTitle(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Text(
-          text,
-          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-        ),
-      );
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text(
+      text,
+      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+    ),
+  );
 
   static const List<String> _conditionOperators = [
     'equals',
@@ -1185,14 +1184,14 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
   ];
 
   static String _operatorLabel(String op) => switch (op) {
-        'equals' => 'equals',
-        'not_equals' => 'does not equal',
-        'contains' => 'contains',
-        'not_contains' => 'does not contain',
-        'greater_than' => 'greater than',
-        'less_than' => 'less than',
-        _ => op,
-      };
+    'equals' => 'equals',
+    'not_equals' => 'does not equal',
+    'contains' => 'contains',
+    'not_contains' => 'does not contain',
+    'greater_than' => 'greater than',
+    'less_than' => 'less than',
+    _ => op,
+  };
 
   List<String> _conditionFields() {
     switch (_selectedSource) {
@@ -1393,29 +1392,29 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: _positionsForTeams(options, _selectedTeamIds).map(
-              (position) {
-                final selected = _selectedPositionNames.contains(position);
-                return FilterChip(
-                  label: Text(position),
-                  selected: selected,
-                  onSelected: (checked) {
-                    setState(() {
-                      if (checked) {
-                        _selectedPositionNames = [
-                          ..._selectedPositionNames,
-                          position,
-                        ];
-                      } else {
-                        _selectedPositionNames = _selectedPositionNames
-                            .where((p) => p != position)
-                            .toList();
-                      }
-                    });
-                  },
-                );
-              },
-            ).toList(),
+            children: _positionsForTeams(options, _selectedTeamIds).map((
+              position,
+            ) {
+              final selected = _selectedPositionNames.contains(position);
+              return FilterChip(
+                label: Text(position),
+                selected: selected,
+                onSelected: (checked) {
+                  setState(() {
+                    if (checked) {
+                      _selectedPositionNames = [
+                        ..._selectedPositionNames,
+                        position,
+                      ];
+                    } else {
+                      _selectedPositionNames = _selectedPositionNames
+                          .where((p) => p != position)
+                          .toList();
+                    }
+                  });
+                },
+              );
+            }).toList(),
           ),
           const SizedBox(height: 12),
         ],
@@ -1778,18 +1777,21 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
         final templateNames = [
           ...widget.controller.projectTemplateNames,
           if (_templateNameController.text.trim().isNotEmpty &&
-              !widget.controller.projectTemplateNames
-                  .contains(_templateNameController.text.trim()))
+              !widget.controller.projectTemplateNames.contains(
+                _templateNameController.text.trim(),
+              ))
             _templateNameController.text.trim(),
         ];
         return [
           if (templateNames.isNotEmpty)
             DropdownButtonFormField<String>(
-              value: templateNames.contains(
-                _selectedTemplateName ?? _templateNameController.text.trim(),
-              )
+              value:
+                  templateNames.contains(
+                    _selectedTemplateName ??
+                        _templateNameController.text.trim(),
+                  )
                   ? (_selectedTemplateName ??
-                      _templateNameController.text.trim())
+                        _templateNameController.text.trim())
                   : null,
               isExpanded: true,
               decoration: const InputDecoration(
@@ -1884,14 +1886,16 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                 border: OutlineInputBorder(),
               ),
               items: _dialogFacilities
-                  .map((f) => DropdownMenuItem<int>(
-                        value: f.id,
-                        child: Text(
-                          f.building == null
-                              ? f.name
-                              : '${f.building} — ${f.name}',
-                        ),
-                      ))
+                  .map(
+                    (f) => DropdownMenuItem<int>(
+                      value: f.id,
+                      child: Text(
+                        f.building == null
+                            ? f.name
+                            : '${f.building} — ${f.name}',
+                      ),
+                    ),
+                  )
                   .toList(),
               onChanged: (value) => setState(() => _selectedFacilityId = value),
             ),
@@ -2097,7 +2101,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
 
   String _reviewSummary(AutomationTriggerCatalogItem? trigger) {
     final triggerLabel = trigger?.label ?? _selectedTriggerKey ?? 'Trigger';
-    final actionLabel = widget.controller.actions
+    final actionLabel =
+        widget.controller.actions
             .where((item) => item.key == _selectedActionType)
             .firstOrNull
             ?.label ??
@@ -2105,10 +2110,10 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     final accountLabel = _selectedAccountId == null
         ? (_selectedSource == 'rhythm' ? 'Rhythm' : 'default connected account')
         : widget.controller.accounts
-                .where((item) => item.id == _selectedAccountId)
-                .firstOrNull
-                ?.accountLabel ??
-            'selected account';
+                  .where((item) => item.id == _selectedAccountId)
+                  .firstOrNull
+                  ?.accountLabel ??
+              'selected account';
     final filters = _buildTriggerConfig();
     final filterSummary = filters == null || filters.isEmpty
         ? 'with no extra filters'
@@ -2215,7 +2220,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     }
     return teamIds
         .expand(
-            (teamId) => options.positionsByTeamId[teamId] ?? const <String>[])
+          (teamId) => options.positionsByTeamId[teamId] ?? const <String>[],
+        )
         .toSet()
         .toList()
       ..sort();
@@ -2242,10 +2248,7 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
 
   /// Builds a row of clickable [{{token}}] chips that insert the placeholder
   /// at the cursor in [controller] when tapped.
-  Widget _placeholderChips(
-    TextEditingController controller,
-    FocusNode focus,
-  ) {
+  Widget _placeholderChips(TextEditingController controller, FocusNode focus) {
     final tokens = _availableTemplateTokens();
     return Wrap(
       spacing: 6,
@@ -2330,19 +2333,12 @@ class _TemplateExample {
 }
 
 String _labelForSource(String? source) => switch (source) {
-      'planning_center' => 'Planning Center',
-      'google_calendar' => 'Google Calendar',
-      'gmail' => 'Gmail',
-      _ => 'Rhythm',
-    };
+  'planning_center' => 'Planning Center',
+  'google_calendar' => 'Google Calendar',
+  'gmail' => 'Gmail',
+  _ => 'Rhythm',
+};
 
 String _formatStamp(String value) {
-  final parsed = DateTime.tryParse(value);
-  if (parsed == null) return value;
-  final local = parsed.toLocal();
-  final month = local.month.toString().padLeft(2, '0');
-  final day = local.day.toString().padLeft(2, '0');
-  final hour = local.hour.toString().padLeft(2, '0');
-  final minute = local.minute.toString().padLeft(2, '0');
-  return '$month/$day ${local.year} $hour:$minute';
+  return formatLocalTimestamp(value);
 }

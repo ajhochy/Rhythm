@@ -123,10 +123,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // manager-preamble routing; this one is a pure user preference for the
     // default new-session profile.
     String? Function()? configuredDefaultAgentResolver,
-  })  : _modelsDataSource = modelsDataSource ?? AgentModelsDataSource(),
-        _commandsDataSource = CommandsDataSource(),
-        _managerAgentNameResolver = managerAgentNameResolver,
-        _configuredDefaultAgentResolver = configuredDefaultAgentResolver;
+  }) : _modelsDataSource = modelsDataSource ?? AgentModelsDataSource(),
+       _commandsDataSource = CommandsDataSource(),
+       _managerAgentNameResolver = managerAgentNameResolver,
+       _configuredDefaultAgentResolver = configuredDefaultAgentResolver;
 
   final AgentsRepository _repository;
   final AgentModelsDataSource _modelsDataSource;
@@ -347,7 +347,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// Collapse (or expand) every parent id in [parentIds] at once — backs the
   /// session list's "collapse all" / "expand all" toggle.
   void setAllParentSessionsCollapsed(
-      Iterable<String> parentIds, bool collapsed) {
+    Iterable<String> parentIds,
+    bool collapsed,
+  ) {
     if (collapsed) {
       _collapsedParentSessions.addAll(parentIds);
     } else {
@@ -516,10 +518,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       final cache = cacheRaw is num
           ? cacheRaw.toInt()
           : (cacheRaw is Map
-              ? ((cacheRaw['read'] as num? ?? 0) +
-                      (cacheRaw['write'] as num? ?? 0))
-                  .toInt()
-              : 0);
+                ? ((cacheRaw['read'] as num? ?? 0) +
+                          (cacheRaw['write'] as num? ?? 0))
+                      .toInt()
+                : 0);
       final total = asInt(t['input']) + cache;
       if (total > 0) return total;
     }
@@ -884,8 +886,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // view with its locally persisted transcript — not rebuild the child's
     // transcript through the engine child-fetch pipeline. Only when no local
     // row exists (engine-ephemeral child) fall back to the SDK fetch below.
-    final localChild =
-        _sessions.where((s) => s.sdkSessionId == childSdkId).firstOrNull;
+    final localChild = _sessions
+        .where((s) => s.sdkSessionId == childSdkId)
+        .firstOrNull;
     if (localChild != null) {
       _childStack.clear();
       await selectSession(localChild.id);
@@ -895,12 +898,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // Switch to the child view IMMEDIATELY so the click feels responsive — the
     // first fetch can be slow (cold opencode round-trip), and awaiting it before
     // switching made the chevron look frozen. Messages stream in afterward.
-    _childStack.add(_ChildFrame(
-      fetchParentId: parentSessionId,
-      childSdkId: childSdkId,
-      parentDisplayName: parentSessionName,
-      displayName: childDisplayName ?? parentSessionName,
-    ));
+    _childStack.add(
+      _ChildFrame(
+        fetchParentId: parentSessionId,
+        childSdkId: childSdkId,
+        parentDisplayName: parentSessionName,
+        displayName: childDisplayName ?? parentSessionName,
+      ),
+    );
     notifyListeners();
 
     // Cached → nothing to fetch; back-navigation stays instant.
@@ -1191,9 +1196,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// selector treats as "show built-ins only" with a hard-coded build/plan pair).
   Future<void> fetchAvailableAgents(String sessionId) async {
     try {
-      final cwd = (_sessions.firstWhereOrNull((s) => s.id == sessionId) ??
-              _resumable.firstWhereOrNull((s) => s.id == sessionId))
-          ?.cwd;
+      final cwd =
+          (_sessions.firstWhereOrNull((s) => s.id == sessionId) ??
+                  _resumable.firstWhereOrNull((s) => s.id == sessionId))
+              ?.cwd;
       final agents = await _repository.fetchAvailableAgents(cwd: cwd);
       if (_disposed) return;
       _availableAgentsBySession[sessionId] = agents;
@@ -1358,8 +1364,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _panelCollapsed = prefs.getBool(_inspectorCollapsedKey) ?? true;
       final storedWidth = prefs.getDouble(_inspectorWidthKey);
       if (storedWidth != null) {
-        _panelWidth =
-            storedWidth.clamp(_kMinPanelWidth, _kMaxPanelWidth).toDouble();
+        _panelWidth = storedWidth
+            .clamp(_kMinPanelWidth, _kMaxPanelWidth)
+            .toDouble();
       }
       notifyListeners();
     } catch (_) {
@@ -1710,13 +1717,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
     if (!_agentServerController.isReady) return;
     final failed = <String>[];
-    await Future.wait(idSet.map((id) async {
-      try {
-        await _repository.deleteSession(id);
-      } catch (_) {
-        failed.add(id);
-      }
-    }));
+    await Future.wait(
+      idSet.map((id) async {
+        try {
+          await _repository.deleteSession(id);
+        } catch (_) {
+          failed.add(id);
+        }
+      }),
+    );
     if (failed.isNotEmpty) {
       // Restore the rows that failed (best effort: re-attach from `previous`).
       final restored = previous.where((s) => failed.contains(s.id)).toList();
@@ -1774,9 +1783,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         clearModel: clearModel,
         permissionMode: permissionMode,
       );
-      _sessions = [
-        for (final s in _sessions) s.id == id ? updated : s,
-      ];
+      _sessions = [for (final s in _sessions) s.id == id ? updated : s];
       notifyListeners();
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
@@ -1803,10 +1810,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // --------------------------------------------------------------------------
 
   /// Accept a pending permission — POST to the server and remove from local state.
-  Future<void> acceptPermission(
-    String sessionId,
-    String permissionId,
-  ) async {
+  Future<void> acceptPermission(String sessionId, String permissionId) async {
     _removePendingPermission(sessionId, permissionId);
     notifyListeners();
     try {
@@ -1818,10 +1822,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Deny a pending permission — POST to the server and remove from local state.
-  Future<void> denyPermission(
-    String sessionId,
-    String permissionId,
-  ) async {
+  Future<void> denyPermission(String sessionId, String permissionId) async {
     _removePendingPermission(sessionId, permissionId);
     notifyListeners();
     try {
@@ -1891,10 +1892,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // --------------------------------------------------------------------------
 
   /// PATCH the session's permissionMode. Optimistically updates the local row.
-  Future<void> setPermissionMode(
-    String sessionId,
-    PermissionMode mode,
-  ) async {
+  Future<void> setPermissionMode(String sessionId, PermissionMode mode) async {
     // Optimistic update.
     _sessions = [
       for (final s in _sessions)
@@ -1906,9 +1904,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         sessionId,
         permissionMode: mode.wireValue,
       );
-      _sessions = [
-        for (final s in _sessions) s.id == sessionId ? updated : s,
-      ];
+      _sessions = [for (final s in _sessions) s.id == sessionId ? updated : s];
       notifyListeners();
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
@@ -1933,9 +1929,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         sessionId,
         anthropicAccountId: accountId,
       );
-      _sessions = [
-        for (final s in _sessions) s.id == sessionId ? updated : s,
-      ];
+      _sessions = [for (final s in _sessions) s.id == sessionId ? updated : s];
       notifyListeners();
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
@@ -2008,7 +2002,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// Optimistically moves the row to [_archived]; the server's WS `session.updated`
   /// broadcast will confirm the change without a reload.
   Future<void> archiveSession(String id) async {
-    final session = _sessions.firstWhereOrNull((s) => s.id == id) ??
+    final session =
+        _sessions.firstWhereOrNull((s) => s.id == id) ??
         _resumable.firstWhereOrNull((s) => s.id == id);
     if (session == null) return;
     _sessions = _sessions.where((s) => s.id != id).toList();
@@ -2099,11 +2094,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // OPC-M4-1: merge explicit attachments param with any controller-held
     // pending attachments (the latter are added via addPendingAttachment).
     final controllerPending = List<Map<String, dynamic>>.of(
-        _pendingAttachmentsBySession[sessionId] ?? []);
-    final allAttachments = [
-      ...?attachments,
-      ...controllerPending,
-    ];
+      _pendingAttachmentsBySession[sessionId] ?? [],
+    );
+    final allAttachments = [...?attachments, ...controllerPending];
     final useParts = allAttachments.isNotEmpty;
     // OPC-M4-4 / #745: include the per-session selected agent.
     // selectedAgentFor resolves: explicit selection → manager default → null.
@@ -2143,7 +2136,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       id: optimisticMsgId,
       sessionId: sessionId,
       role: 'user',
-      createdAt: DateTime.now(),
+      createdAt: DateTime.now().toUtc(),
     );
     (_chatMessagesBySession[sessionId] ??= []).add(optimisticMsg);
     // Build the parts list for the optimistic insert: text first, then any
@@ -2204,8 +2197,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
             currentName.isEmpty || currentName == 'New session';
         if (needsFallback) {
           final rawText = data.trim();
-          final fallbackTitle =
-              rawText.length > 40 ? '${rawText.substring(0, 40)}…' : rawText;
+          final fallbackTitle = rawText.length > 40
+              ? '${rawText.substring(0, 40)}…'
+              : rawText;
           if (fallbackTitle.isNotEmpty) {
             _sessions = [
               for (final s in _sessions)
@@ -2250,7 +2244,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       id: optimisticMsgId,
       sessionId: sessionId,
       role: 'command',
-      createdAt: DateTime.now(),
+      createdAt: DateTime.now().toUtc(),
     );
     (_chatMessagesBySession[sessionId] ??= []).add(optimisticMsg);
     _chatPartsByMessage[optimisticMsgId] = [
@@ -2281,10 +2275,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// sending the first message.") because the per-turn override is empty —
   /// the persisted default is read from the DB but it hasn't been written
   /// yet from the server's perspective when `session.input` arrives.
-  Future<void> setSessionModel(
-    String sessionId,
-    AgentModelRoute route,
-  ) async {
+  Future<void> setSessionModel(String sessionId, AgentModelRoute route) async {
     _pendingTurnOverride = route;
     notifyListeners();
     await updateSession(
@@ -2331,9 +2322,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         sessionId,
         budget,
       );
-      _sessions = [
-        for (final s in _sessions) s.id == sessionId ? updated : s,
-      ];
+      _sessions = [for (final s in _sessions) s.id == sessionId ? updated : s];
       notifyListeners();
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
@@ -2354,9 +2343,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         sessionId,
         fastMode: enabled,
       );
-      _sessions = [
-        for (final s in _sessions) s.id == sessionId ? updated : s,
-      ];
+      _sessions = [for (final s in _sessions) s.id == sessionId ? updated : s];
       notifyListeners();
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
@@ -2440,7 +2427,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _loadModelRoutes(String sessionId) async {
-    final session = _sessions.firstWhereOrNull((s) => s.id == sessionId) ??
+    final session =
+        _sessions.firstWhereOrNull((s) => s.id == sessionId) ??
         _resumable.firstWhereOrNull((s) => s.id == sessionId);
     if (session == null) return;
     final routes = await _modelsDataSource.fetchRoutes(session.agentId);
@@ -2494,16 +2482,19 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// If a trigger with the same `taskId` is already pending it is ignored so
   /// that a failed DELETE does not create duplicate bubbles.
   Future<void> handleIncomingTrigger(Map<String, dynamic> trigger) async {
-    final taskId = trigger['taskId'] as String? ??
+    final taskId =
+        trigger['taskId'] as String? ??
         trigger['task_id'] as String? ??
         trigger['id']?.toString();
-    final taskTitle = trigger['taskTitle'] as String? ??
+    final taskTitle =
+        trigger['taskTitle'] as String? ??
         trigger['task_title'] as String? ??
         trigger['title'] as String? ??
         '';
     // Issue #653: capture taskNotes so the bubble can prefill the composer
     // with task title + notes when the user clicks Open chat.
-    final taskNotes = trigger['taskNotes'] as String? ??
+    final taskNotes =
+        trigger['taskNotes'] as String? ??
         trigger['task_notes'] as String? ??
         trigger['notes'] as String?;
 
@@ -2586,8 +2577,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       if (existingParts == null || existingParts.isEmpty) {
         final rawParts = row.parts;
         if (rawParts != null && rawParts.isNotEmpty) {
-          _chatPartsByMessage[msgId] =
-              rawParts.map((p) => ChatPart.fromJson(msgId, p)).toList();
+          _chatPartsByMessage[msgId] = rawParts
+              .map((p) => ChatPart.fromJson(msgId, p))
+              .toList();
         } else if (row.rawText.isNotEmpty) {
           // Legacy shim: synthesise a single text part from rawText.
           _chatPartsByMessage[msgId] = [
@@ -2707,10 +2699,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         delta: msg.delta,
       );
     } else if (msg is MessageRemovedMessage) {
-      _removeChatMessage(
-        sessionId: msg.sessionId,
-        messageId: msg.messageId,
-      );
+      _removeChatMessage(sessionId: msg.sessionId, messageId: msg.messageId);
     } else if (msg is TranscriptAppendMessage) {
       // OPC-M1-3: transcript.append is a legacy bridge event. We keep it
       // for backward compat but it no longer drives the UI render path —
@@ -2727,7 +2716,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         id: errorMsgId,
         sessionId: msg.id,
         role: 'system',
-        createdAt: DateTime.now(),
+        createdAt: DateTime.now().toUtc(),
       );
       (_chatMessagesBySession[msg.id] ??= []).add(chatMsg);
       _chatPartsByMessage[errorMsgId] = [
@@ -2770,13 +2759,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       final list = _pendingPermissions.putIfAbsent(msg.sessionId, () => []);
       // Deduplicate by permissionId.
       if (!list.any((p) => p.permissionId == msg.permissionId)) {
-        list.add(PendingPermission(
-          sessionId: msg.sessionId,
-          permissionId: msg.permissionId,
-          toolName: msg.toolName,
-          args: msg.args,
-          summary: msg.summary,
-        ));
+        list.add(
+          PendingPermission(
+            sessionId: msg.sessionId,
+            permissionId: msg.permissionId,
+            toolName: msg.toolName,
+            args: msg.args,
+            summary: msg.summary,
+          ),
+        );
       }
       // #815: native notification when the user is not looking at this ask.
       final detail = msg.summary.trim().isNotEmpty
@@ -2857,9 +2848,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // Dual-account spillover: the engine failed this session over to the
       // other Anthropic account after a rate limit. Flip the badge and toast.
       _sessions = _sessions
-          .map((s) => s.id == msg.sessionId
-              ? s.copyWith(anthropicAccountId: msg.toAccountId)
-              : s)
+          .map(
+            (s) => s.id == msg.sessionId
+                ? s.copyWith(anthropicAccountId: msg.toAccountId)
+                : s,
+          )
           .toList();
       final toLabel = AnthropicAccountsLabelCache.labelFor(msg.toAccountId);
       _notificationsController.pushAgentNotification(
@@ -2871,12 +2864,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // WsErrorMessage branch uses.
       final markerId =
           'spillover-${msg.sessionId}-${DateTime.now().millisecondsSinceEpoch}';
-      (_chatMessagesBySession[msg.sessionId] ??= []).add(ChatMessage(
-        id: markerId,
-        sessionId: msg.sessionId,
-        role: 'system',
-        createdAt: DateTime.now(),
-      ));
+      (_chatMessagesBySession[msg.sessionId] ??= []).add(
+        ChatMessage(
+          id: markerId,
+          sessionId: msg.sessionId,
+          role: 'system',
+          createdAt: DateTime.now().toUtc(),
+        ),
+      );
       _chatPartsByMessage[markerId] = [
         ChatPart(
           id: '${markerId}_text',
@@ -2961,14 +2956,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       );
       return;
     }
-    list.add(ChatMessage(
-      id: messageId,
-      sessionId: sessionId,
-      role: role,
-      createdAt: DateTime.now(),
-      cost: cost,
-      tokens: tokens,
-    ));
+    list.add(
+      ChatMessage(
+        id: messageId,
+        sessionId: sessionId,
+        role: role,
+        createdAt: DateTime.now().toUtc(),
+        cost: cost,
+        tokens: tokens,
+      ),
+    );
   }
 
   void _upsertChatPart({
@@ -3037,12 +3034,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // Part announcement has not arrived yet — create on the fly.
       if (field == 'text') {
         // Default to 'text' type; the part.updated event will correct it later.
-        list.add(ChatPart(
-          id: partId,
-          messageId: messageId,
-          type: 'text',
-          text: delta,
-        ));
+        list.add(
+          ChatPart(id: partId, messageId: messageId, type: 'text', text: delta),
+        );
       } else {
         // Unknown field with no existing part — log and skip creation.
         debugPrint(
@@ -3065,8 +3059,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Issue #606 — fire desktop notifications for all armed messages in a session.
   void _fireArmedNotifications(String sessionId) {
     final prefix = '$sessionId:';
-    final armed =
-        _notifyOnCompletion.where((k) => k.startsWith(prefix)).toList();
+    final armed = _notifyOnCompletion
+        .where((k) => k.startsWith(prefix))
+        .toList();
     if (armed.isEmpty) return;
     for (final key in armed) {
       _notifyOnCompletion.remove(key);
@@ -3091,7 +3086,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// path so behavior stays consistent.
   @visibleForTesting
   bool shouldNotifyAsk(String sessionId) {
-    final viewingThisAsk = _lifecycleState == AppLifecycleState.resumed &&
+    final viewingThisAsk =
+        _lifecycleState == AppLifecycleState.resumed &&
         _selectedSessionId == sessionId;
     return !viewingThisAsk;
   }
@@ -3101,7 +3097,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   int _askNotificationId(String dedupeKey) => dedupeKey.hashCode & 0x7FFFFFFF;
 
   String _sessionDisplayName(String sessionId) {
-    final s = _sessions.firstWhereOrNull((x) => x.id == sessionId) ??
+    final s =
+        _sessions.firstWhereOrNull((x) => x.id == sessionId) ??
         _resumable.firstWhereOrNull((x) => x.id == sessionId);
     final name = s?.name.trim() ?? '';
     return name.isNotEmpty ? name : 'Agent session';
@@ -3182,7 +3179,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       final firstSeen = sessionFirstSeenAt[s.id];
       if (firstSeen == null) continue;
       // Has parts arrived?
-      final hasParts = (_chatMessagesBySession[s.id]?.isNotEmpty == true) ||
+      final hasParts =
+          (_chatMessagesBySession[s.id]?.isNotEmpty == true) ||
           (_lastPartActivityAt.containsKey(s.id));
       if (hasParts) continue;
       if (now.difference(firstSeen) > stuckThreshold) {

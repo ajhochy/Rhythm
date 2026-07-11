@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../../app/core/utils/time_format.dart';
 import '../controllers/session_history_controller.dart';
 import '../models/session_history_agent_session.dart';
 import '../models/session_transcript_message.dart';
@@ -40,8 +41,8 @@ class _SessionHistoryViewState extends State<SessionHistoryView> {
                 tooltip: 'Refresh',
                 onPressed:
                     controller.status == SessionHistoryControllerStatus.loading
-                        ? null
-                        : controller.refresh,
+                    ? null
+                    : controller.refresh,
                 icon: const Icon(Icons.refresh),
               ),
             ],
@@ -198,8 +199,8 @@ class _SessionTranscriptViewState extends State<_SessionTranscriptView> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<SessionHistoryController>().loadTranscript(
-            widget.session.id,
-          );
+        widget.session.id,
+      );
     });
   }
 
@@ -462,10 +463,5 @@ class _CenteredState extends StatelessWidget {
 }
 
 String _formatDateTime(DateTime value) {
-  final local = value.toLocal();
-  final month = local.month.toString().padLeft(2, '0');
-  final day = local.day.toString().padLeft(2, '0');
-  final hour = local.hour.toString().padLeft(2, '0');
-  final minute = local.minute.toString().padLeft(2, '0');
-  return '${local.year}-$month-$day $hour:$minute';
+  return formatLocalTimestamp(value);
 }
