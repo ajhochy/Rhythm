@@ -22,6 +22,7 @@
 import { logger } from '../utils/logger';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { resolveRunModel } from './agent_runner';
+import { expandMcpAllowlist, type McpAllowlist } from './mcp_allowlist_expander';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -182,6 +183,34 @@ export async function resolveProfileScope(
     ocAgent: profile?.ocAgent ?? null,
     modelTierHint: profile?.modelTierHint ?? null,
   };
+}
+
+/**
+ * #1012 — Expand a profile's `allowedMcpsJson` into the `{servers, tools}`
+ * session-allowlist shape, using the SAME `_buildMcpRoleConfig` + expander that
+ * top-level sessions use. Sync/pure (no engine call). Returns null for an
+ * unscoped profile (`allowedMcpsJson === null`) so callers omit the allowlist
+ * and preserve the engine's back-compat "all tools" default.
+ *
+ * Used by `writeAgentProfileFile` to bake the allowlist into the agent `.md`
+ * frontmatter under `options.mcpAllowlist`, so the engine loads it into
+ * `agent.options.mcpAllowlist` and the `task` tool can scope subagent sessions
+ * spawned via delegation (the task path never round-trips through this service).
+ */
+export function expandProfileMcpAllowlist(
+  allowedMcpsJson: string | null,
+  roleLabel: string,
+  profileName: string | null,
+): McpAllowlist | null {
+  if (allowedMcpsJson === null) return null;
+  try {
+    const roleConfig = _buildMcpRoleConfig(allowedMcpsJson, roleLabel, profileName);
+    if (!roleConfig) return null;
+    return expandMcpAllowlist(roleConfig);
+  } catch (err) {
+    logger.warn(`[expandProfileMcpAllowlist] ${roleLabel}: expansion failed (non-fatal): ${String(err)}`);
+    return null;
+  }
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────

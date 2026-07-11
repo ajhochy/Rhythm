@@ -442,7 +442,11 @@ class _ProposalChangeBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final changes = _fieldChanges();
+    // #1013: LLM-diagnosis proposals (the kinds that actually reach this queue)
+    // carry a prose diagnosis, not a structured patch — render those fields
+    // readably instead of generic "Before: (none) / After: <prose>" rows.
+    final diagnosis = _diagnosisRows();
+    final changes = diagnosis == null ? _fieldChanges() : null;
     return Container(
       key: ValueKey('proposal-change-body-${proposal.id}'),
       width: double.infinity,
@@ -464,7 +468,34 @@ class _ProposalChangeBlock extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          if (changes != null)
+          if (diagnosis != null)
+            ...diagnosis.expand(
+              (row) => [
+                Text(
+                  row.key,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: context.rhythm.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  row.value,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: row.key == 'Proposed fix'
+                        ? context.rhythm.accent
+                        : context.rhythm.textSecondary,
+                    fontWeight: row.key == 'Proposed fix'
+                        ? FontWeight.w600
+                        : FontWeight.w400,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            )
+          else if (changes != null)
             ...changes.expand(
               (change) => [
                 Text(
@@ -506,6 +537,43 @@ class _ProposalChangeBlock extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// #1013: The proposals that actually reach this human-gated queue
+  /// (refine-config / refine-scope / grant-delegation, from the #982 LLM
+  /// diagnosis) carry a prose payload — `rootCause` / `concreteFix` /
+  /// `diagnosis` — with no `configPatch`/`scopePatch` and no `beforeSnapshot`,
+  /// so a before/after diff is meaningless. Surface the reviewer-relevant
+  /// fields directly. Returns null when the proposal instead carries a
+  /// structured patch (handled by [_fieldChanges]) or isn't a diagnosis shape.
+  List<MapEntry<String, String>>? _diagnosisRows() {
+    final change = proposal.change;
+    if (change == null) return null;
+    final isDiagnosis = change['source'] == 'org-optimizer-llm-diagnosis' ||
+        change.containsKey('rootCause') ||
+        change.containsKey('concreteFix') ||
+        change.containsKey('diagnosis');
+    if (!isDiagnosis) return null;
+    // A structured patch, if present, is the concrete change — prefer it.
+    if (_mapValue(change['configPatch']) != null ||
+        _mapValue(change['scopePatch']) != null) {
+      return null;
+    }
+    final rows = <MapEntry<String, String>>[];
+    void add(String label, Object? value) {
+      if (value == null) return;
+      final s = _displayValue(value).trim();
+      if (s.isEmpty || s == 'Not set' || s == 'Empty') return;
+      rows.add(MapEntry(label, s));
+    }
+
+    add('Affected', change['affectedSkill']);
+    add('Root cause', change['rootCause']);
+    add('Proposed fix', change['concreteFix']);
+    add('Fix type', change['fixType']);
+    add('Diagnosis', change['diagnosis']);
+    add('Confidence', change['confidence']);
+    return rows.isEmpty ? null : rows;
   }
 
   List<_FieldChange>? _fieldChanges() {

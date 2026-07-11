@@ -31,6 +31,7 @@ import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { scanContextContent } from '../security/context_scanner';
 import type { AgentConfig } from '../repositories/agent_configs_repository';
+import { expandProfileMcpAllowlist } from './agent_profile_scope';
 
 /**
  * Prepended to a manager-profile body WITHOUT a delegate roster so that the
@@ -422,6 +423,25 @@ export function writeAgentProfileFile(config: AgentConfig): void {
     }
     if (config.id === 'workflow-orchestrator') {
       fm = setPermissionKey(fm, 'write', 'allow');
+    }
+    // #1012: project the profile's expanded MCP allowlist so the engine loads it
+    // into `agent.options.mcpAllowlist`. The `task` tool reads that to scope a
+    // subagent session spawned via delegation (that path never round-trips
+    // through the api_server expander). Scoped profiles only; an unscoped
+    // profile (allowedMcpsJson=null) omits it → child keeps the engine's
+    // back-compat "all tools" default. Single-line flow YAML (JSON is valid
+    // YAML) — assumes no pre-existing multi-line `options:` block (none today).
+    const childMcpAllowlist = expandProfileMcpAllowlist(
+      config.allowedMcpsJson ?? null,
+      config.id,
+      config.label,
+    );
+    if (childMcpAllowlist) {
+      fm = setFrontmatterKey(
+        fm,
+        'options',
+        JSON.stringify({ mcpAllowlist: childMcpAllowlist }),
+      );
     }
     body = injectManagerPreamble(
       body,
