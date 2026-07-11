@@ -18,6 +18,7 @@ import 'app/core/services/default_agent_profile_service.dart';
 import 'app/core/services/memory_vault_config_service.dart';
 import 'app/core/services/server_config_service.dart';
 import 'app/core/services/theme_mode_service.dart';
+import 'app/core/utils/time_format.dart';
 import 'app/core/updates/update_controller.dart';
 import 'app/core/updates/update_service.dart';
 import 'app/theme/app_theme.dart';
@@ -113,6 +114,7 @@ import 'app/core/background_activity/background_status_data_source.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  initializeTimestampTimeZone();
   await windowManager.ensureInitialized();
 
   const options = WindowOptions(
@@ -389,7 +391,8 @@ class _RhythmAppContent extends StatelessWidget {
           create: (_) {
             final controller = NotificationsController(
               NotificationsRepository(
-                  NotificationsDataSource(baseUrl: baseUrl)),
+                NotificationsDataSource(baseUrl: baseUrl),
+              ),
             );
             // #815: route a native ask-notification tap into pending navigation
             // so AppShell focuses the window and opens the asking session.

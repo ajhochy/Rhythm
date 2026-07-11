@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../../app/core/utils/time_format.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../../agents/models/agent_session.dart';
 import '../../notifications/controllers/notifications_controller.dart';
@@ -100,10 +101,7 @@ class _AgentSchedulesViewState extends State<AgentSchedulesView> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text(
-              'Delete',
-              style: TextStyle(color: ctx.rhythm.danger),
-            ),
+            child: Text('Delete', style: TextStyle(color: ctx.rhythm.danger)),
           ),
         ],
       ),
@@ -209,17 +207,12 @@ class _AgentSchedulesViewState extends State<AgentSchedulesView> {
     );
   }
 
-  Widget _buildBody(
-    BuildContext context,
-    AgentSchedulesController controller,
-  ) {
+  Widget _buildBody(BuildContext context, AgentSchedulesController controller) {
     final rhythm = context.rhythm;
 
     if (controller.status == AgentSchedulesStatus.loading &&
         controller.tasks.isEmpty) {
-      return Center(
-        child: CircularProgressIndicator(color: rhythm.accent),
-      );
+      return Center(child: CircularProgressIndicator(color: rhythm.accent));
     }
 
     if (controller.status == AgentSchedulesStatus.error &&
@@ -251,11 +244,7 @@ class _AgentSchedulesViewState extends State<AgentSchedulesView> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.schedule_rounded,
-              color: rhythm.textMuted,
-              size: 56,
-            ),
+            Icon(Icons.schedule_rounded, color: rhythm.textMuted, size: 56),
             const SizedBox(height: RhythmSpacing.md),
             Text(
               'No scheduled tasks yet',
@@ -374,13 +363,18 @@ class _SearchAndSortBar extends StatelessWidget {
             decoration: InputDecoration(
               hintText: 'Search by name…',
               hintStyle: TextStyle(color: rhythm.textMuted),
-              prefixIcon:
-                  Icon(Icons.search_rounded, color: rhythm.textMuted, size: 18),
+              prefixIcon: Icon(
+                Icons.search_rounded,
+                color: rhythm.textMuted,
+                size: 18,
+              ),
               isDense: true,
               filled: true,
               fillColor: rhythm.surfaceMuted,
-              contentPadding:
-                  const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 10,
+                horizontal: 8,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(RhythmRadius.sm),
                 borderSide: BorderSide(color: rhythm.borderSubtle),
@@ -395,12 +389,7 @@ class _SearchAndSortBar extends StatelessWidget {
           initialValue: sortField,
           onSelected: onSortFieldChanged,
           itemBuilder: (context) => _sortLabels.entries
-              .map(
-                (e) => PopupMenuItem(
-                  value: e.key,
-                  child: Text(e.value),
-                ),
-              )
+              .map((e) => PopupMenuItem(value: e.key, child: Text(e.value)))
               .toList(),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -597,7 +586,8 @@ class _EnabledBadge extends StatelessWidget {
     final color = enabled ? rhythm.success : rhythm.textMuted;
     return Container(
       key: ValueKey(
-          enabled ? 'schedule-badge-enabled' : 'schedule-badge-disabled'),
+        enabled ? 'schedule-badge-enabled' : 'schedule-badge-disabled',
+      ),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
@@ -606,8 +596,11 @@ class _EnabledBadge extends StatelessWidget {
       ),
       child: Text(
         enabled ? 'Enabled' : 'Disabled',
-        style:
-            TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w600),
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -781,8 +774,10 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child:
-                Text('Cancel', style: TextStyle(color: ctx.rhythm.textMuted)),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: ctx.rhythm.textMuted),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -865,8 +860,9 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
                 decoration: BoxDecoration(
                   color: rhythm.danger.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                  border:
-                      Border.all(color: rhythm.danger.withValues(alpha: 0.3)),
+                  border: Border.all(
+                    color: rhythm.danger.withValues(alpha: 0.3),
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -883,8 +879,10 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
                     const SizedBox(height: 4),
                     Text(
                       task.lastError!,
-                      style:
-                          TextStyle(color: rhythm.textSecondary, fontSize: 12),
+                      style: TextStyle(
+                        color: rhythm.textSecondary,
+                        fontSize: 12,
+                      ),
                     ),
                   ],
                 ),
@@ -939,15 +937,22 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: _delete,
-                    icon: Icon(Icons.delete_outline_rounded,
-                        color: rhythm.danger, size: 18),
-                    label:
-                        Text('Delete', style: TextStyle(color: rhythm.danger)),
+                    icon: Icon(
+                      Icons.delete_outline_rounded,
+                      color: rhythm.danger,
+                      size: 18,
+                    ),
+                    label: Text(
+                      'Delete',
+                      style: TextStyle(color: rhythm.danger),
+                    ),
                     style: OutlinedButton.styleFrom(
                       side: BorderSide(
-                          color: rhythm.danger.withValues(alpha: 0.5)),
+                        color: rhythm.danger.withValues(alpha: 0.5),
+                      ),
                       padding: const EdgeInsets.symmetric(
-                          vertical: RhythmSpacing.sm),
+                        vertical: RhythmSpacing.sm,
+                      ),
                     ),
                   ),
                 ),
@@ -959,14 +964,19 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
                       Navigator.pop(context);
                       widget.onEdit();
                     },
-                    icon: Icon(Icons.edit_outlined,
-                        color: rhythm.accent, size: 18),
+                    icon: Icon(
+                      Icons.edit_outlined,
+                      color: rhythm.accent,
+                      size: 18,
+                    ),
                     label: Text('Edit', style: TextStyle(color: rhythm.accent)),
                     style: OutlinedButton.styleFrom(
                       side: BorderSide(
-                          color: rhythm.accent.withValues(alpha: 0.5)),
+                        color: rhythm.accent.withValues(alpha: 0.5),
+                      ),
                       padding: const EdgeInsets.symmetric(
-                          vertical: RhythmSpacing.sm),
+                        vertical: RhythmSpacing.sm,
+                      ),
                     ),
                   ),
                 ),
@@ -988,7 +998,8 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
                     style: FilledButton.styleFrom(
                       backgroundColor: rhythm.accent,
                       padding: const EdgeInsets.symmetric(
-                          vertical: RhythmSpacing.sm),
+                        vertical: RhythmSpacing.sm,
+                      ),
                     ),
                   ),
                 ),
@@ -1002,9 +1013,9 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
   }
 
   Widget _detailDivider(RhythmColorRoles rhythm) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: RhythmSpacing.sm),
-        child: Divider(color: rhythm.borderSubtle, height: 1),
-      );
+    padding: const EdgeInsets.symmetric(vertical: RhythmSpacing.sm),
+    child: Divider(color: rhythm.borderSubtle, height: 1),
+  );
 
   Widget _detailRow(RhythmColorRoles rhythm, String label, String value) =>
       Padding(
@@ -1079,9 +1090,7 @@ class _ActivityLog extends StatelessWidget {
         }
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (final run in runs) _ActivityLogRow(run: run),
-          ],
+          children: [for (final run in runs) _ActivityLogRow(run: run)],
         );
       },
     );
@@ -1113,9 +1122,9 @@ class _ActivityLogRow extends StatelessWidget {
       borderRadius: BorderRadius.circular(RhythmRadius.sm),
       onTap: () {
         context.read<NotificationsController>().navigateTo(
-              'agentSession',
-              run.id,
-            );
+          'agentSession',
+          run.id,
+        );
         Navigator.of(context, rootNavigator: true).maybePop();
       },
       child: Container(
@@ -1264,8 +1273,13 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
       initialTime: TimeOfDay.fromDateTime(now),
     );
     if (time == null) return;
-    final combined =
-        DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    final combined = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
     setState(() {
       _runAtCtrl.text = combined.toIso8601String();
     });
@@ -1399,8 +1413,9 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
             TextFormField(
               controller: _promptCtrl,
               style: TextStyle(color: rhythm.textPrimary),
-              decoration:
-                  inputDecoration.copyWith(labelText: 'Instructions / Prompt'),
+              decoration: inputDecoration.copyWith(
+                labelText: 'Instructions / Prompt',
+              ),
               minLines: 3,
               maxLines: 6,
               validator: (v) =>
@@ -1443,14 +1458,14 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
                   helperText: 'Model is set on the profile',
                   helperStyle: TextStyle(color: rhythm.textMuted, fontSize: 11),
                 ),
-                hint:
-                    Text('Default', style: TextStyle(color: rhythm.textMuted)),
+                hint: Text(
+                  'Default',
+                  style: TextStyle(color: rhythm.textMuted),
+                ),
                 items: agents
                     .map(
-                      (a) => DropdownMenuItem(
-                        value: a.id,
-                        child: Text(a.label),
-                      ),
+                      (a) =>
+                          DropdownMenuItem(value: a.id, child: Text(a.label)),
                     )
                     .toList(),
                 onChanged: (v) => setState(() => _selectedAgentConfigId = v),
@@ -1460,7 +1475,9 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
             // Enabled toggle
             Container(
               padding: const EdgeInsets.symmetric(
-                  horizontal: RhythmSpacing.sm, vertical: RhythmSpacing.xs),
+                horizontal: RhythmSpacing.sm,
+                vertical: RhythmSpacing.xs,
+              ),
               decoration: BoxDecoration(
                 color: rhythm.surfaceMuted,
                 borderRadius: BorderRadius.circular(RhythmRadius.sm),
@@ -1499,12 +1516,16 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : Text(
                       _isEdit ? 'Save' : 'Create Schedule',
                       style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 15),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 15,
+                      ),
                     ),
             ),
             const SizedBox(height: RhythmSpacing.lg),
@@ -1537,15 +1558,19 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
         ];
 
       case 'cron':
-        final preview =
-            _cronCtrl.text.isNotEmpty ? _describeCron(_cronCtrl.text) : null;
+        final preview = _cronCtrl.text.isNotEmpty
+            ? _describeCron(_cronCtrl.text)
+            : null;
         return [
           TextFormField(
             controller: _cronCtrl,
-            style:
-                TextStyle(color: rhythm.textPrimary, fontFamily: 'monospace'),
-            decoration:
-                base.copyWith(labelText: 'Cron Expression (e.g. 0 9 * * 1)'),
+            style: TextStyle(
+              color: rhythm.textPrimary,
+              fontFamily: 'monospace',
+            ),
+            decoration: base.copyWith(
+              labelText: 'Cron Expression (e.g. 0 9 * * 1)',
+            ),
             onChanged: (_) => setState(() {}),
             validator: (v) => (v == null || v.trim().isEmpty)
                 ? 'Cron expression required'
@@ -1578,8 +1603,11 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
                 style: TextStyle(color: rhythm.textPrimary),
                 decoration: base.copyWith(
                   labelText: 'Run At (tap to pick)',
-                  suffixIcon: Icon(Icons.calendar_today_rounded,
-                      color: rhythm.textMuted, size: 18),
+                  suffixIcon: Icon(
+                    Icons.calendar_today_rounded,
+                    color: rhythm.textMuted,
+                    size: 18,
+                  ),
                 ),
                 validator: (v) => (v == null || v.trim().isEmpty)
                     ? 'Please pick a date/time'
@@ -1600,7 +1628,9 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
       borderRadius: BorderRadius.circular(RhythmRadius.sm),
       child: Container(
         padding: const EdgeInsets.symmetric(
-            horizontal: RhythmSpacing.sm, vertical: RhythmSpacing.sm),
+          horizontal: RhythmSpacing.sm,
+          vertical: RhythmSpacing.sm,
+        ),
         decoration: BoxDecoration(
           color: rhythm.surfaceMuted,
           borderRadius: BorderRadius.circular(RhythmRadius.sm),
@@ -1614,7 +1644,9 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
             Text(
               _scheduledTime,
               style: TextStyle(
-                  color: rhythm.textPrimary, fontWeight: FontWeight.w600),
+                color: rhythm.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const Spacer(),
             Text(
@@ -1664,7 +1696,9 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
   Widget _monthDayRow(RhythmColorRoles rhythm) {
     return Container(
       padding: const EdgeInsets.symmetric(
-          horizontal: RhythmSpacing.sm, vertical: RhythmSpacing.xs),
+        horizontal: RhythmSpacing.sm,
+        vertical: RhythmSpacing.xs,
+      ),
       decoration: BoxDecoration(
         color: rhythm.surfaceMuted,
         borderRadius: BorderRadius.circular(RhythmRadius.sm),
@@ -1694,8 +1728,9 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
           ),
           IconButton(
             icon: Icon(Icons.add_rounded, color: rhythm.textSecondary),
-            onPressed:
-                _monthDay < 31 ? () => setState(() => _monthDay++) : null,
+            onPressed: _monthDay < 31
+                ? () => setState(() => _monthDay++)
+                : null,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),
@@ -1710,13 +1745,7 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
 // ---------------------------------------------------------------------------
 
 String _formatDateTime(String raw) {
-  try {
-    final dt = DateTime.parse(raw).toLocal();
-    return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} '
-        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-  } catch (_) {
-    return raw;
-  }
+  return formatLocalTimestamp(raw);
 }
 
 String _describeCron(String expr) {

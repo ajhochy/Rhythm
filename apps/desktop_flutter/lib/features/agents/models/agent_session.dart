@@ -39,9 +39,9 @@ enum PermissionMode {
   const PermissionMode(this.wireValue);
 
   static PermissionMode fromWire(String? s) => PermissionMode.values.firstWhere(
-        (m) => m.wireValue == s,
-        orElse: () => PermissionMode.defaultMode,
-      );
+    (m) => m.wireValue == s,
+    orElse: () => PermissionMode.defaultMode,
+  );
 
   String get displayLabel {
     switch (this) {
@@ -144,7 +144,8 @@ class AgentSession {
   factory AgentSession.fromJson(Map<String, dynamic> json) {
     // Accept `agent_id` (new) or fall back to `agent_kind` (legacy) for one
     // release, normalising the wire value to the canonical agentId string.
-    final agentId = asString(json['agent_id']) ??
+    final agentId =
+        asString(json['agent_id']) ??
         asString(json['agentId']) ??
         asString(json['agent_kind']) ??
         asString(json['agentKind']) ??
@@ -241,21 +242,24 @@ class AgentSession {
       cwd: cwd ?? this.cwd,
       name: name ?? this.name,
       projectId: projectId,
-      providerId:
-          providerId == _sentinel ? this.providerId : providerId as String?,
+      providerId: providerId == _sentinel
+          ? this.providerId
+          : providerId as String?,
       modelId: modelId == _sentinel ? this.modelId : modelId as String?,
       permissionMode: permissionMode ?? this.permissionMode,
       thinkingBudget: thinkingBudget == _sentinel
           ? this.thinkingBudget
           : thinkingBudget as int?,
       fastMode: fastMode ?? this.fastMode,
-      lastPreview:
-          lastPreview == _sentinel ? this.lastPreview : lastPreview as String?,
+      lastPreview: lastPreview == _sentinel
+          ? this.lastPreview
+          : lastPreview as String?,
       lastActivityAt: lastActivityAt == _sentinel
           ? this.lastActivityAt
           : lastActivityAt as DateTime?,
-      archivedAt:
-          archivedAt == _sentinel ? this.archivedAt : archivedAt as DateTime?,
+      archivedAt: archivedAt == _sentinel
+          ? this.archivedAt
+          : archivedAt as DateTime?,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       parentId: parentId == _sentinel ? this.parentId : parentId as String?,
@@ -278,5 +282,5 @@ DateTime? _parseDateTime(String? value) {
   if (value == null) return null;
   final parsed = DateTime.tryParse(value);
   if (parsed == null) return null;
-  return parsed.isUtc ? parsed.toLocal() : parsed;
+  return parsed;
 }

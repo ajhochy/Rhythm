@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../../app/core/utils/time_format.dart';
 import '../controllers/agent_memory_controller.dart';
 import '../models/agent_memory_entry.dart';
 
@@ -118,10 +119,7 @@ class _AgentMemoryViewState extends State<AgentMemoryView> {
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(textController.text),
-            child: Text(
-              'Save',
-              style: TextStyle(color: ctx.rhythm.accent),
-            ),
+            child: Text('Save', style: TextStyle(color: ctx.rhythm.accent)),
           ),
         ],
       ),
@@ -136,7 +134,8 @@ class _AgentMemoryViewState extends State<AgentMemoryView> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-              'Could not save edit: ${controller.error ?? 'unknown error'}'),
+            'Could not save edit: ${controller.error ?? 'unknown error'}',
+          ),
           backgroundColor: context.rhythm.danger,
         ),
       );
@@ -144,7 +143,9 @@ class _AgentMemoryViewState extends State<AgentMemoryView> {
   }
 
   Future<void> _confirmDelete(
-      BuildContext context, AgentMemoryEntry entry) async {
+    BuildContext context,
+    AgentMemoryEntry entry,
+  ) async {
     final controller = context.read<AgentMemoryController>();
     final confirmed = await showDialog<bool>(
       context: context,
@@ -170,10 +171,7 @@ class _AgentMemoryViewState extends State<AgentMemoryView> {
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(
-              'Delete',
-              style: TextStyle(color: ctx.rhythm.danger),
-            ),
+            child: Text('Delete', style: TextStyle(color: ctx.rhythm.danger)),
           ),
         ],
       ),
@@ -197,8 +195,10 @@ class _AgentMemoryViewState extends State<AgentMemoryView> {
             ),
             actions: [
               IconButton(
-                icon: Icon(Icons.delete_sweep_outlined,
-                    color: context.rhythm.textSecondary),
+                icon: Icon(
+                  Icons.delete_sweep_outlined,
+                  color: context.rhythm.textSecondary,
+                ),
                 tooltip: 'Clear all memories',
                 onPressed: controller.entries.isEmpty
                     ? null
@@ -224,12 +224,16 @@ class _AgentMemoryViewState extends State<AgentMemoryView> {
                   decoration: InputDecoration(
                     hintText: 'Search memories…',
                     hintStyle: TextStyle(color: context.rhythm.textMuted),
-                    prefixIcon:
-                        Icon(Icons.search, color: context.rhythm.textMuted),
+                    prefixIcon: Icon(
+                      Icons.search,
+                      color: context.rhythm.textMuted,
+                    ),
                     suffixIcon: _searchController.text.isNotEmpty
                         ? IconButton(
-                            icon: Icon(Icons.clear,
-                                color: context.rhythm.textMuted),
+                            icon: Icon(
+                              Icons.clear,
+                              color: context.rhythm.textMuted,
+                            ),
                             onPressed: () {
                               _searchController.clear();
                               controller.clearSearch();
@@ -259,14 +263,13 @@ class _AgentMemoryViewState extends State<AgentMemoryView> {
   }
 
   Widget _buildBody(BuildContext context, AgentMemoryController controller) {
-    final isLoading = controller.status == AgentMemoryStatus.loading ||
+    final isLoading =
+        controller.status == AgentMemoryStatus.loading ||
         controller.status == AgentMemoryStatus.searching;
 
     if (isLoading) {
       return Center(
-        child: CircularProgressIndicator(
-          color: context.rhythm.accent,
-        ),
+        child: CircularProgressIndicator(color: context.rhythm.accent),
       );
     }
 
@@ -322,12 +325,7 @@ class _MemoryTileState extends State<_MemoryTile> {
 
   String _formatDate(String iso) {
     if (iso.isEmpty) return '';
-    try {
-      final dt = DateTime.parse(iso).toLocal();
-      return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
-    } catch (_) {
-      return iso;
-    }
+    return formatLocalTimestamp(iso);
   }
 
   @override
@@ -355,8 +353,11 @@ class _MemoryTileState extends State<_MemoryTile> {
                   _KindBadge(kind: entry.kind),
                   const Spacer(),
                   IconButton(
-                    icon: Icon(Icons.edit_outlined,
-                        size: 16, color: context.rhythm.textMuted),
+                    icon: Icon(
+                      Icons.edit_outlined,
+                      size: 16,
+                      color: context.rhythm.textMuted,
+                    ),
                     tooltip: 'Edit memory',
                     visualDensity: VisualDensity.compact,
                     padding: EdgeInsets.zero,
@@ -376,8 +377,9 @@ class _MemoryTileState extends State<_MemoryTile> {
               Text(
                 entry.content,
                 maxLines: _expanded ? null : 2,
-                overflow:
-                    _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+                overflow: _expanded
+                    ? TextOverflow.visible
+                    : TextOverflow.ellipsis,
                 style: TextStyle(
                   color: context.rhythm.textPrimary,
                   fontSize: 14,
@@ -389,8 +391,9 @@ class _MemoryTileState extends State<_MemoryTile> {
                 Wrap(
                   spacing: RhythmSpacing.xs,
                   runSpacing: RhythmSpacing.xxs,
-                  children:
-                      entry.tags.map((tag) => _TagChip(tag: tag)).toList(),
+                  children: entry.tags
+                      .map((tag) => _TagChip(tag: tag))
+                      .toList(),
                 ),
               ],
               const SizedBox(height: RhythmSpacing.xs),
@@ -409,8 +412,11 @@ class _MemoryTileState extends State<_MemoryTile> {
                     ),
                     const SizedBox(width: RhythmSpacing.sm),
                   ],
-                  Icon(Icons.schedule,
-                      size: 12, color: context.rhythm.textMuted),
+                  Icon(
+                    Icons.schedule,
+                    size: 12,
+                    color: context.rhythm.textMuted,
+                  ),
                   const SizedBox(width: 4),
                   Text(
                     _formatDate(entry.createdAt),
@@ -462,11 +468,7 @@ class _KindBadge extends StatelessWidget {
       ),
       child: Text(
         kind,
-        style: TextStyle(
-          color: fg,
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-        ),
+        style: TextStyle(color: fg, fontSize: 11, fontWeight: FontWeight.w600),
       ),
     );
   }
@@ -491,10 +493,7 @@ class _TagChip extends StatelessWidget {
       ),
       child: Text(
         tag,
-        style: TextStyle(
-          color: context.rhythm.textSecondary,
-          fontSize: 11,
-        ),
+        style: TextStyle(color: context.rhythm.textSecondary, fontSize: 11),
       ),
     );
   }

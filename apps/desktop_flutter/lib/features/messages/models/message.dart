@@ -35,5 +35,5 @@ class Message {
 DateTime _parseApiDateTime(String? value) {
   final parsed = DateTime.tryParse(value ?? '');
   if (parsed == null) return DateTime.fromMillisecondsSinceEpoch(0);
-  return parsed.isUtc ? parsed.toLocal() : parsed;
+  return parsed;
 }

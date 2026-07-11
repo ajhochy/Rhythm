@@ -49,7 +49,8 @@ class SessionTranscriptMessage {
       final chunks = <String>[];
       for (final part in parts) {
         if (part is! Map<String, dynamic>) continue;
-        final text = asString(part['text']) ??
+        final text =
+            asString(part['text']) ??
             asString(part['content']) ??
             asString(part['message']);
         if (text != null && text.trim().isNotEmpty) {
@@ -71,5 +72,5 @@ class SessionTranscriptMessage {
 DateTime _parseDateTime(String? value) {
   final parsed = DateTime.tryParse(value ?? '');
   if (parsed == null) return DateTime.fromMillisecondsSinceEpoch(0);
-  return parsed.isUtc ? parsed.toLocal() : parsed;
+  return parsed;
 }
