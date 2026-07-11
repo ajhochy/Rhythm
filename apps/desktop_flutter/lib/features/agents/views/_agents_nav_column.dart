@@ -28,8 +28,6 @@ import '../../agent_schedules/views/agent_schedules_view.dart';
 import '../../agent_skills/views/agent_skills_view.dart';
 import '../../agent_webhooks/views/agent_webhooks_view.dart';
 import '../../run_quality/views/run_quality_view.dart';
-import '../../session_history/models/session_history_agent_session.dart';
-import '../../session_history/views/session_history_view.dart';
 import '../../settings/views/settings_view.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
@@ -106,32 +104,15 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
       setState(() => _multiSelected.clear());
     }
     final controller = context.read<AgentsController>();
-    // #1027 (USO A4): scheduled / self-improvement rows are read-only
-    // background runs — open the reused transcript detail view (the retained
-    // Session History detail) instead of the interactive chat surface.
-    if (controller.scope != AgentSessionScope.chats) {
-      AgentSession? session;
-      for (final s in controller.sessions) {
-        if (s.id == id) {
-          session = s;
-          break;
-        }
-      }
-      if (session != null) {
-        final name = session.name.trim();
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => SessionTranscriptView(
-              sessionId: session!.id,
-              title: name.isEmpty ? 'Session' : name,
-              status: SessionHistoryStatus.fromWire(session.status.wireValue),
-              statusMessage: session.statusMessage,
-            ),
-          ),
-        );
-        return;
-      }
-    }
+    // USO smoke follow-up (supersedes the #1027 A4 read-only routing): EVERY
+    // row — Chats, Scheduled Tasks, and Background self-improvement — opens the
+    // SAME interactive chat detail. selectSession is the shared open path used
+    // by normal chat rows; the WS input path auto-resumes the engine session
+    // via its persisted sdkSessionId (OPC-M1-5), so the user can keep talking
+    // to any run (scheduled task, optimizer, skill loop). Sessions that cannot
+    // be resumed (no sdkSessionId — legacy/errored-at-create rows) still open
+    // with their full history, but the composer is disabled with a reason
+    // (see _InputArea in agents_view.dart).
     controller.selectSession(id);
   }
 
@@ -259,8 +240,14 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
 
     final selectedProjectId = projectsController.selectedProjectId;
 
+    // #1025 smoke follow-up — the "By Project" filter is only meaningful for
+    // CHATS; scheduled / self_improvement runs are not project-scoped (their
+    // projectId is null, so a leftover project selection would silently empty
+    // the list). Gate both the filtering AND the selector widget on the scope.
+    final isChatsScope = controller.scope == AgentSessionScope.chats;
+
     // Filter by project, then by search query.
-    final projectFiltered = selectedProjectId == null
+    final projectFiltered = (!isChatsScope || selectedProjectId == null)
         ? controller.sessions
         : controller.sessions
             .where((s) => s.projectId == selectedProjectId)
@@ -474,11 +461,15 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
             ),
           ),
 
-          // "By Project" selector.
-          _ByProjectSelector(
-            onAddProject: widget.onShowNewProjectDialog,
-          ),
-          const SizedBox(height: 4),
+          // "By Project" selector — only meaningful for CHATS. Scheduled /
+          // self_improvement runs are not project-scoped, so the filter is
+          // hidden entirely outside the chats scope (smoke follow-up to #1025).
+          if (isChatsScope) ...[
+            _ByProjectSelector(
+              onAddProject: widget.onShowNewProjectDialog,
+            ),
+            const SizedBox(height: 4),
+          ],
 
           // Multi-select bulk-action bar.
           if (_hasMultiSelection)
