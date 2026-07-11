@@ -86,3 +86,37 @@ See `docs/ai/runs/2026-07-11-nonmobile-wave-codex-terra.md`.
   scoring with explicit 0/0 human-review handling). Acceptance contracts and
   isolated live evidence are recorded in
   `docs/ai/runs/2026-07-11-inert-fixes-live-e2e.md`.
+
+### 2026-07-11 — #1023 bundle pinned Node runtime (branch `uso/rel-1023`)
+- Files modified:
+  - `.github/workflows/desktop_release.yml` — added `actions/setup-node@v4`
+    (`node-version: '24.x'`) so every api_server `npm install`/postinstall
+    rebuild compiles better-sqlite3 against one pinned ABI; new "Bundle Node
+    runtime into app (#1023)" step copies the runner's own Node binary
+    (`process.execPath`) into `Contents/Resources/node/bin/node` and proves the
+    bundled Node dlopens the bundled better-sqlite3 (fails release on mismatch);
+    hardened the CLI-server smoke to launch `server.js` under the BUNDLED node.
+  - `apps/desktop_flutter/lib/app/core/server/api_server_service.dart` —
+    `_findNodeWithAbi` now prefers `_bundledNodePath()` (Resources/node/bin/node)
+    first with a startup log line; dev (no bundle) still falls back to the
+    #615 sentinel/ABI-match/login-shell path.
+  - `tools/release/sign_and_notarize_macos.sh` — sign the bundled Node
+    (extensionless Mach-O, missed by the find pass) with the existing
+    `opencode.entitlements` (allow-jit + allow-unsigned-executable-memory +
+    disable-library-validation) before the broad nested pass.
+- Checks run: `dart format` (0 changed); `flutter analyze --no-fatal-infos`
+  lib/app/core/server (clean; 1 pre-existing info in api_server_controller.dart,
+  untouched); 27 agent/api-server widget+env tests PASS; workflow YAML parses;
+  `bash -n` on sign script OK; no new `secrets.*` referenced.
+- Decisions: reused opencode.entitlements for Node (same JIT/dylib needs) rather
+  than a new plist; copy runner Node rather than re-download (guarantees ABI ==
+  bundled better-sqlite3 by construction); left `agent_server_controller.dart`
+  untouched — all Node selection lives in ApiServerService and the startup log
+  there satisfies the "which node chosen" criterion.
+- Deviations: `agent_server_controller.dart` (listed as owned) not edited — no
+  Node-selection logic there; editing it would be inert scope.
+- Concerns: bundled Node is single-arch (runner arm64), matching the already
+  single-arch bundled better-sqlite3 — Intel Macs unaffected only if they were
+  already unsupported for the agent server. Bundle-presence, notarization,
+  ABI-equality, and real-mismatched-machine start are provable ONLY by a real
+  `workflow_dispatch` release build (see run log).

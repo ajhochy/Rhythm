@@ -112,6 +112,24 @@ codesign --force --options runtime --timestamp \
   --sign "${IDENTITY_SHA}" \
   "${OPENCODE_BIN}"
 
+# #1023 — The bundled Node runtime (Resources/node/bin/node) is also an
+# extensionless Mach-O the find pattern below does NOT match, so sign it
+# explicitly here too. Like opencode it is a JITing runtime and dlopen()s
+# native .node addons (better_sqlite3, node-pty), so it needs the SAME two
+# Hardened Runtime relaxations — allow-jit + allow-unsigned-executable-memory
+# (V8 JIT dies with SIGTRAP at launch without them once any entitlement is
+# present) and disable-library-validation. opencode.entitlements grants exactly
+# that set, so we reuse it rather than duplicate a near-identical plist.
+NODE_BIN="${APP_PATH}/Contents/Resources/node/bin/node"
+if [[ ! -f "${NODE_BIN}" ]]; then
+  echo "::error::Bundled Node runtime not found at ${NODE_BIN} — aborting sign step." >&2
+  exit 1
+fi
+codesign --force --options runtime --timestamp \
+  --entitlements "${OPENCODE_ENTITLEMENTS_PATH}" \
+  --sign "${IDENTITY_SHA}" \
+  "${NODE_BIN}"
+
 # Sign nested frameworks and binaries from the inside out with Hardened Runtime.
 # codesign --deep does NOT propagate --options runtime to nested items, so we
 # must sign each one explicitly before signing the top-level bundle.
