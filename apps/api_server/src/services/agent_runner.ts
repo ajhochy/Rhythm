@@ -855,7 +855,13 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     opencodeSessionId = sessionId;
     if (rhythmSessionId) {
       try {
-        new AgentSessionsRepository().setSdkSessionId(rhythmSessionId, sessionId);
+        const sessRepo = new AgentSessionsRepository();
+        sessRepo.setSdkSessionId(rhythmSessionId, sessionId);
+        // Headless runs bypass the WS stream bridge, so nothing ever flipped
+        // starting→working — the UI showed "Starting" for the entire (possibly
+        // many-minute) turn. Mark the run as working once the engine session
+        // exists; the completion block below writes the final idle/error.
+        sessRepo.updateStatus(rhythmSessionId, 'working');
       } catch (err) {
         logger.warn(`[AgentRunner] setSdkSessionId failed (non-fatal): ${String(err)}`);
       }
