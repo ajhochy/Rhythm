@@ -14,6 +14,25 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 
 ## Running tests
 
+### Live inert-regression contracts (#1014, #1007, #997)
+
+`src/__tests__/live_e2e_inert_regressions.test.ts` drives the real api_server,
+fork engine, scheduler, public skills.sh/GitHub discovery, and configured model
+providers. It is skipped unless `RHYTHM_LIVE_E2E=1`. Run it only with a copied
+SQLite DB and temporary HOME on a spare port; it refuses `:4001`.
+
+```bash
+RHYTHM_LIVE_E2E=1 \
+RHYTHM_LIVE_URL=http://127.0.0.1:4098 \
+RHYTHM_LIVE_DB_PATH=/tmp/<isolated-run>/rhythm.db \
+RHYTHM_LIVE_SERVER_LOG=/tmp/<isolated-run>/server.log \
+npx vitest run src/__tests__/live_e2e_inert_regressions.test.ts
+```
+
+Build the fork and api_server and launch with `RHYTHM_OPENCODE_BIN_DIR` as
+documented below. Recon evidence and response shapes are recorded in
+`docs/testing/results/recon-inert-fixes-2026-07-11.md`.
+
 ### api_server (Node.js/TypeScript)
 ```bash
 cd apps/api_server

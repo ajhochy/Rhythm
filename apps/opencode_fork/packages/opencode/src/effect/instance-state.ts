@@ -80,4 +80,13 @@ export const invalidate = <A, E, R>(self: InstanceState<A, E, R>) =>
     return yield* ScopedCache.invalidate(self.cache, yield* directory)
   })
 
+/**
+ * Invalidate every directory-backed entry held by this service.
+ *
+ * Global agent/config files apply to all open project directories. An
+ * explicit global reload therefore cannot invalidate only the directory of
+ * the reload request; otherwise already-open sessions keep their old entry.
+ */
+export const invalidateAll = <A, E, R>(self: InstanceState<A, E, R>) => ScopedCache.invalidateAll(self.cache)
+
 export * as InstanceState from "./instance-state"

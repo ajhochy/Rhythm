@@ -159,7 +159,7 @@ describe('#738-fix — AgentRunner model resolution + session recording', () => 
     });
   });
 
-  it('passes scheduledTaskId to the recorded session', async () => {
+  it('passes scheduledTaskId and derives the scheduler-generated session name from content', async () => {
     mockPrompt.mockResolvedValue(makePromptResponse('Done'));
 
     await run({
@@ -171,7 +171,7 @@ describe('#738-fix — AgentRunner model resolution + session recording', () => 
 
     const insertArg = mockInsertSession.mock.calls[0][0];
     expect(insertArg).toMatchObject({
-      name: 'Scheduled: Morning sync',
+      name: 'Hello',
       scheduledTaskId: 'task-uuid-1',
     });
   });

@@ -11,6 +11,7 @@ import {
   resolveAuthedFallbackChain,
   nextFallbackTier,
   resolveCrossProviderHandoff,
+  resolveReliableAuthedFallbackModels,
 } from '../model_fallback';
 
 describe('classifyProviderError', () => {
@@ -178,5 +179,19 @@ describe('resolveCrossProviderHandoff (#930 Unit 3, scoped)', () => {
     // Even if a caller somehow claims 'glm' is authed, no default model
     // mapping exists for it -> declines rather than guessing.
     expect(resolveCrossProviderHandoff('anthropic', ['anthropic', 'glm'])).toBeUndefined();
+  });
+});
+
+describe('resolveReliableAuthedFallbackModels', () => {
+  it('returns ordered provider-distinct judge routes and excludes OpenRouter', () => {
+    expect(
+      resolveReliableAuthedFallbackModels(['anthropic', 'openai', 'google', 'openrouter']).map(
+        (decision) => decision.providerID,
+      ),
+    ).toEqual(['anthropic', 'openai', 'google']);
+  });
+
+  it('does not duplicate Team and Personal Claude as two Anthropic retries', () => {
+    expect(resolveReliableAuthedFallbackModels(['anthropic'])).toHaveLength(1);
   });
 });
