@@ -2400,17 +2400,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _modelRoutesLoaded = false;
     _pendingTurnOverride = null;
     notifyListeners();
-    try {
-      final result = await _repository.getSession(id);
-      _rehydrateChatMessages(id, result.messages);
-      if (_selectedSessionId == id) {
-        notifyListeners();
-      }
-      _repository.send({'type': 'session.subscribe', 'id': id});
-    } catch (e) {
-      _error = e.toString();
-      notifyListeners();
-    }
+    await _refreshSessionDetail(id, subscribe: true);
     // Load model routes for the newly selected session in the background.
     _loadModelRoutes(id);
     // Load slash commands for this session (Issue #610).
@@ -2426,6 +2416,32 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // OpenRouter model) are reflected in the new session's model picker without
     // requiring the user to re-toggle the model in the curator.
     unawaited(refreshCatalog());
+  }
+
+  /// Refresh the open session row and transcript without changing selection.
+  /// Used by the mounted detail view while observing a headless run, which
+  /// persists progress without emitting the WS events used by interactive turns.
+  Future<void> refreshSelectedSessionDetail(String id) =>
+      _refreshSessionDetail(id, subscribe: false);
+
+  Future<void> _refreshSessionDetail(
+    String id, {
+    required bool subscribe,
+  }) async {
+    try {
+      final result = await _repository.getSession(id);
+      if (_disposed || _selectedSessionId != id) return;
+      _sessions = _upsertById(_sessions, result.session);
+      _rehydrateChatMessages(id, result.messages);
+      notifyListeners();
+      if (subscribe) {
+        _repository.send({'type': 'session.subscribe', 'id': id});
+      }
+    } catch (e) {
+      if (_disposed || _selectedSessionId != id) return;
+      _error = e.toString();
+      notifyListeners();
+    }
   }
 
   Future<void> _loadSlashCommands(String sessionId) async {

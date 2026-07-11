@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -431,8 +432,13 @@ class _TranscriptPanel extends StatefulWidget {
 }
 
 class _TranscriptPanelState extends State<_TranscriptPanel> {
+  static const _headlessPollInterval = Duration(seconds: 4);
+
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
+  Timer? _headlessPollTimer;
+  String? _headlessPollSessionId;
+  bool _headlessPollInFlight = false;
 
   /// Whether the transcript is currently scrolled to (or near) the bottom.
   /// Auto-scroll-on-new-content only fires while this is true, so manually
@@ -469,10 +475,52 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
 
   @override
   void dispose() {
+    _headlessPollTimer?.cancel();
     _scrollController.removeListener(_onScroll);
     _inputController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _syncHeadlessPolling(
+    AgentsController controller,
+    AgentSession? selected,
+  ) {
+    final shouldPoll = selected != null &&
+        (selected.status == AgentSessionStatus.starting ||
+            selected.status == AgentSessionStatus.working) &&
+        !controller.isWorking(selected.id);
+    final sessionId = shouldPoll ? selected.id : null;
+    if (_headlessPollSessionId == sessionId) return;
+
+    _headlessPollTimer?.cancel();
+    _headlessPollTimer = null;
+    _headlessPollSessionId = sessionId;
+    _headlessPollInFlight = false;
+    if (sessionId == null) return;
+
+    _headlessPollTimer = Timer.periodic(_headlessPollInterval, (_) {
+      unawaited(_pollHeadlessSession(controller, sessionId));
+    });
+  }
+
+  Future<void> _pollHeadlessSession(
+    AgentsController controller,
+    String sessionId,
+  ) async {
+    if (!mounted ||
+        _headlessPollInFlight ||
+        _headlessPollSessionId != sessionId ||
+        controller.selectedSessionId != sessionId ||
+        controller.isWorking(sessionId)) {
+      return;
+    }
+    _headlessPollInFlight = true;
+    try {
+      await controller.refreshSelectedSessionDetail(sessionId);
+    } finally {
+      _headlessPollInFlight = false;
+    }
   }
 
   /// Issue #653: on (re)build, if the selected session has a staged composer
@@ -555,6 +603,7 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
     final selected = controller.selectedSession;
+    _syncHeadlessPolling(controller, selected);
 
     // Returning from the subagent transcript: the parent ListView remounts at
     // the top, so jump once to the most recent message (re-pins). This is a

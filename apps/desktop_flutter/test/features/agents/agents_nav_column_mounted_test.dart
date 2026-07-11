@@ -119,6 +119,9 @@ class _StubAgentsRepository implements AgentsRepository {
 
   _StubAgentsRepository(this._sessions);
 
+  final List<({AgentSession session, List<AgentSessionMessage> messages})>
+      getSessionResults = [];
+
   final StreamController<AgentWsMessage> _msgCtrl =
       StreamController<AgentWsMessage>.broadcast();
   final StreamController<bool> _connCtrl = StreamController<bool>.broadcast();
@@ -160,10 +163,13 @@ class _StubAgentsRepository implements AgentsRepository {
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async => (
-            session: _sessions.firstWhere((s) => s.id == id),
-            messages: const <AgentSessionMessage>[],
-          );
+      getSession(String id) async {
+    if (getSessionResults.isNotEmpty) return getSessionResults.removeAt(0);
+    return (
+      session: _sessions.firstWhere((s) => s.id == id),
+      messages: const <AgentSessionMessage>[],
+    );
+  }
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -1126,6 +1132,76 @@ void main() {
         find.byKey(const ValueKey('composer-disabled-reason')),
         findsNothing,
       );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+
+    testWidgets(
+        'open headless detail refreshes transcript and idle badge after polling',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final starting = _makeRunSession(
+        'headless1',
+        'Scheduled Briefing',
+        hasSdk: true,
+        status: AgentSessionStatus.starting,
+      );
+      final idle = starting.copyWith(status: AgentSessionStatus.idle);
+      final repo = _StubAgentsRepository([starting]);
+      repo.getSessionResults.addAll([
+        (session: starting, messages: const <AgentSessionMessage>[]),
+        (
+          session: idle,
+          messages: [
+            AgentSessionMessage(
+              id: 1,
+              sessionId: starting.id,
+              role: 'input',
+              rawText: 'Prepare the scheduled briefing',
+              strippedText: 'Prepare the scheduled briefing',
+              createdAt: _kEpoch,
+            ),
+            AgentSessionMessage(
+              id: 2,
+              sessionId: starting.id,
+              role: 'output',
+              rawText: 'The scheduled briefing is ready.',
+              strippedText: 'The scheduled briefing is ready.',
+              createdAt: _kEpoch,
+            ),
+          ],
+        ),
+      ]);
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        modelsDataSource: _EmptyModelsDataSource(),
+      );
+      await controller.loadSessions(AgentSessionScope.scheduled);
+
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
+
+      final navCol = find.byKey(const ValueKey('agents-nav-column'));
+      await tester.tap(
+        find.descendant(of: navCol, matching: find.byType(SessionRow)).first,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Starting'), findsOneWidget);
+      expect(find.text('Session started. Waiting for output…'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pump();
+
+      expect(find.text('The scheduled briefing is ready.'), findsOneWidget);
+      expect(find.text('Idle'), findsOneWidget);
+      expect(controller.selectedSessionId, starting.id);
 
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
       controller.dispose();
