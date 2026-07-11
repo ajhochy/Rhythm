@@ -82,6 +82,9 @@ OrgProposal _makeProposal({
   int external = 0,
   String title = 'Sample proposal',
   String? rationale = 'Because the audit found a gap.',
+  String? signalRef,
+  String? changeJson,
+  String? beforeSnapshotJson,
   String? provenanceJson,
 }) {
   return OrgProposal(
@@ -92,6 +95,9 @@ OrgProposal _makeProposal({
     status: 'proposed',
     title: title,
     rationale: rationale,
+    signalRef: signalRef,
+    changeJson: changeJson,
+    beforeSnapshotJson: beforeSnapshotJson,
     provenanceJson: provenanceJson,
     createdAt: _kEpoch,
     updatedAt: _kEpoch,
@@ -164,6 +170,59 @@ void main() {
 
       expect(
         find.byKey(const ValueKey('proposal-evidence-body-p1')),
+        findsOneWidget,
+      );
+
+      controller.dispose();
+    });
+
+    testWidgets(
+        'issue-1013-c1: renders a field-level before/after diff before evidence',
+        (tester) async {
+      // Bug this catches: signalRef replacing changeJson in the only visible
+      // detail block, leaving a reviewer unable to see the proposed mutation.
+      final dataSource = _FakeOrgProposalsDataSource([
+        _makeProposal(
+          id: 'diff1',
+          kind: 'create-agent',
+          signalRef: 'The audit found a recurring scheduling failure.',
+          changeJson:
+              '{"configPatch":{"agentConfigId":"agent-1","field":"system_prompt","value":"Use the new scheduling flow."}}',
+          beforeSnapshotJson:
+              '{"agentConfigId":"agent-1","field":"system_prompt","priorValue":"Use the old scheduling flow."}',
+        ),
+      ]);
+      final controller = OrgProposalsController(
+        OrgProposalsRepository(dataSource),
+      );
+      await controller.refresh();
+
+      await tester.pumpWidget(await _buildApp(controller));
+      await tester.pump();
+
+      expect(find.text('Proposed change'), findsOneWidget);
+      expect(find.text('System prompt'), findsOneWidget);
+      expect(
+        find.textContaining('Use the old scheduling flow.'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Use the new scheduling flow.'),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('proposal-evidence-body-diff1')),
+        findsNothing,
+        reason:
+            'The diff must be primary card content, not hidden in evidence.',
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('proposal-evidence-toggle-diff1')),
+      );
+      await tester.pump();
+      expect(
+        find.text('The audit found a recurring scheduling failure.'),
         findsOneWidget,
       );
 
