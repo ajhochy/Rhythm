@@ -72,6 +72,8 @@ import { generateWebhookWiringProposals } from './generators/webhook_wiring_gene
 import { generateDelegationProposals } from './generators/delegation_generator';
 import { generateWorkflowSignalProposals, generateDiagnosisProposals } from './generators/workflow_signal_generator';
 import { generateRefineSkillProposals } from './generators/refine_skill_generator';
+import { runExternalDiscoveryGenerator } from './generators/external_discovery_generator';
+import { discoverCandidatesFromEcosystem } from './generators/external_discovery_search';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 
@@ -328,9 +330,25 @@ export async function runOrgOptimizer(
         logger.warn(`[org-optimizer-run] delegation no-signal pass failed (non-fatal): ${String(err)}`);
       }
     }
-    // external_discovery_generator intentionally NOT invoked here — see
-    // module doc comment (§6 of the decision doc: separate, less-frequent
-    // schedule, composed outside this module).
+    // Stage B (Plan B) — external discovery now RUNS in the optimizer loop,
+    // grounded on the open capability-gaps surfaced into the snapshot. Real
+    // ecosystem search (skills.sh + mcp-registry), judge, and #873 pre-vet all
+    // live inside discoverCandidatesFromEcosystem; the generator enforces
+    // gap-grounding / provenance / dedup / cap and emits HIGH-risk, human-gated
+    // external-adoption proposals (never auto-applied by the loop below). The
+    // per-run proposal cap still applies via the shared newlyCreated budget.
+    if (newlyCreated.length < maxProposalsPerRun) {
+      try {
+        await runExternalDiscoveryGenerator({
+          gaps: taggedSnapshot.gaps,
+          discoverCandidates: discoverCandidatesFromEcosystem,
+          maxResults: maxProposalsPerRun - newlyCreated.length,
+          proposalsRepo: cappedRepo,
+        });
+      } catch (err) {
+        logger.warn(`[org-optimizer-run] external-discovery step failed (non-fatal): ${String(err)}`);
+      }
+    }
 
     result.capped = capped || newlyCreated.length >= maxProposalsPerRun;
     result.proposalsCreated = newlyCreated.length;
