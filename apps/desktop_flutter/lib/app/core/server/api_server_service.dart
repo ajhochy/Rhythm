@@ -322,6 +322,19 @@ class ApiServerService {
   /// rich failure message (e.g. a copy-paste rebuild command).
   Future<({String? nodePath, String? failureMessage})>
       _findNodeWithAbi() async {
+    // #1023: Prefer the Node runtime bundled inside the app. When present, its
+    // ABI matches the bundled better_sqlite3.node by construction — both are
+    // built from the SAME pinned Node in the release workflow — so no ABI
+    // probing or machine-node discovery is needed. Only dev builds (no bundle)
+    // fall through to the sentinel / ABI-match / login-shell discovery below.
+    final bundledNode = _bundledNodePath();
+    if (bundledNode != null) {
+      stdout.writeln(
+        '[ApiServerService] Using bundled Node runtime: $bundledNode',
+      );
+      return (nodePath: bundledNode, failureMessage: null);
+    }
+
     // #615: Read sentinel from dev path OR bundled path.
     final sentinel = await _readRuntimeSentinelFull();
     final sentinelNodePath = sentinel?['nodePath'];
@@ -515,6 +528,18 @@ class ApiServerService {
       }
     }
 
+    return null;
+  }
+
+  /// #1023 — Returns the app-bundled Node binary path if it exists.
+  /// Layout: `Rhythm.app/Contents/Resources/node/bin/node` (sibling of the
+  /// `api_server` payload). Absent in dev builds, where discovery falls back
+  /// to the login-shell `which node`.
+  String? _bundledNodePath() {
+    final exe = Platform.resolvedExecutable;
+    final resourcesDir = '${_dirname(_dirname(exe))}/Resources';
+    final node = '$resourcesDir/node/bin/node';
+    if (File(node).existsSync()) return node;
     return null;
   }
 
