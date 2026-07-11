@@ -887,9 +887,28 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // GUARDRAIL (#738): do NOT pass `agentKind` (provider kind) as `agent`.
     // Only the profile's ocAgent (an opencode *mode* e.g. 'build'/'plan') is forwarded.
     // When ocAgent is null, omit the field to preserve the existing #738 behavior.
+    // #1039 Cause B — single-source scoping when running AS the profile's own
+    // registered agent. agent_profile_sync (#858) backfills oc_agent to the
+    // profile id, so for a scheduled/background profile run effectiveOcAgent ===
+    // effectiveConfigId — i.e. we pass `agent: <profileId>` and opencode loads
+    // that profile's `.md`. That `.md` body IS the profile systemPrompt
+    // (opencode_agent_writer writes body = systemPrompt), and opencode layers a
+    // per-message `system:` override AFTER the agent prompt (session/llm.ts) — so
+    // passing effectiveSystemPrompt here duplicates the profile prompt on top of
+    // itself. The `.md` is the single source of the agent's prompt: omit the
+    // `system:` override on this path and let the frontmatter/body drive it.
+    //   Gated by `!mcpRole` so the self_improvement / mcp-role path (skill-refine,
+    // measure, extract, proposal re-runs — all pass mcpRole + assemble scope via
+    // mcpRoleConfig, NOT via the profile's own .md) keeps its existing behavior:
+    // it still forwards the system override. A genuine built-in ocAgent
+    // ('build'/'plan', where ocAgent !== configId) also keeps the override.
+    const runningAsOwnAgent =
+      !mcpRole && effectiveOcAgent !== null && effectiveOcAgent === effectiveConfigId;
     const promptOpts: Record<string, unknown> = {
       permissionMode: 'bypassPermissions',
-      ...(effectiveSystemPrompt !== null ? { system: effectiveSystemPrompt } : {}),
+      ...(effectiveSystemPrompt !== null && !runningAsOwnAgent
+        ? { system: effectiveSystemPrompt }
+        : {}),
       ...(effectiveOcAgent !== null ? { agent: effectiveOcAgent } : {}),
     };
     // #1002: opencode sessions are DIRECTORY-SCOPED. The session was created

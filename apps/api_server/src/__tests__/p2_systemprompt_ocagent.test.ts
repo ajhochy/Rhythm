@@ -168,6 +168,60 @@ describe('P2 — runner path: system_prompt + ocAgent forwarded in prompt body',
     const opts = mockPrompt.mock.calls[0][4] as Record<string, unknown>;
     expect(Object.prototype.hasOwnProperty.call(opts, 'system')).toBe(false);
   });
+
+  // #1039 Cause B — single-source scoping when running AS the profile's own
+  // registered agent (oc_agent === the bound profile id). The `.md` body already
+  // carries the systemPrompt, so the duplicate per-message `system:` override is
+  // dropped; `agent: <profileId>` is still forwarded.
+  it('runner path: running as own agent (ocAgent === configId) OMITS the duplicate system override', async () => {
+    const scopeModule = await import('../services/agent_profile_scope');
+    vi.spyOn(scopeModule, 'resolveProfileScope').mockResolvedValue({
+      model: { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+      mcpRoleConfig: null,
+      allowedSkillsJson: null,
+      systemPrompt: 'You are a theological researcher.',
+      ocAgent: 'Theological-Researcher',
+      modelTierHint: null,
+    });
+
+    const run = await freshRun();
+    await run({ prompt: 'Hello', agentConfigId: 'Theological-Researcher' });
+
+    expect(mockPrompt).toHaveBeenCalledOnce();
+    const opts = mockPrompt.mock.calls[0][4] as Record<string, unknown>;
+    // agent forwarded, system override dropped (the .md is the single source)
+    expect(opts).toMatchObject({ agent: 'Theological-Researcher' });
+    expect(Object.prototype.hasOwnProperty.call(opts, 'system')).toBe(false);
+  });
+
+  // #1039 Cause B guardrail — the self_improvement / mcp-role path (passes
+  // mcpRole) must keep forwarding the assembled system override even when
+  // ocAgent === configId, because its scope comes from mcpRoleConfig, not the .md.
+  it('runner path: mcpRole path KEEPS the system override (self_improvement unchanged)', async () => {
+    const scopeModule = await import('../services/agent_profile_scope');
+    vi.spyOn(scopeModule, 'resolveProfileScope').mockResolvedValue({
+      model: { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+      mcpRoleConfig: null,
+      allowedSkillsJson: null,
+      systemPrompt: 'Curator system prompt.',
+      ocAgent: 'skill-refine-judge',
+      modelTierHint: null,
+    });
+
+    const run = await freshRun();
+    await run({
+      prompt: 'Hello',
+      agentConfigId: 'skill-refine-judge',
+      mcpRole: 'skill-refine-judge',
+    });
+
+    expect(mockPrompt).toHaveBeenCalledOnce();
+    const opts = mockPrompt.mock.calls[0][4] as Record<string, unknown>;
+    expect(opts).toMatchObject({
+      agent: 'skill-refine-judge',
+      system: 'Curator system prompt.',
+    });
+  });
 });
 
 // ── WS path tests ───────────────────────────────────────────────────────────────

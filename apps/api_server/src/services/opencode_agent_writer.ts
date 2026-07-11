@@ -385,7 +385,19 @@ export function writeAgentProfileFile(config: AgentConfig): void {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
     const path = agentFilePath(config.id);
-    const mode = config.sessionSelectable ? 'primary' : 'subagent';
+    // #1039: session-selectable profiles are written `all` (not `primary`).
+    // opencode's mode enum is ["subagent","primary","all"] (agent/agent.ts) and
+    // `all` makes the agent usable BOTH as a top-level primary — so AgentRunner
+    // can run it headless via `agent: <id>` (a scheduled/background run) — AND as
+    // a delegation target for the `task` tool. Writing `primary` would make a
+    // schedulable specialist top-level-runnable but is the wrong idiom for one
+    // that is ALSO a delegate; `all` covers both roles so promoting a profile to
+    // schedulable never removes it as a delegation target. `subagent` (delegation
+    // only) is kept for non-session-selectable profiles — and scheduling one of
+    // those is now blocked at config time (agentSchedulesController), because
+    // opencode won't resolve a subagent-mode agent as a top-level `agent:` target
+    // (throws "Agent not found") → the old silent "model produced no output".
+    const mode = config.sessionSelectable ? 'all' : 'subagent';
     const model =
       config.modelProvider && config.modelId
         ? `${config.modelProvider}/${config.modelId}`

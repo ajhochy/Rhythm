@@ -419,6 +419,21 @@ export function startAgentSchedulerJob(): CronTask {
 
   // 1-minute tick — same granularity as Odysseus's asyncio loop
   const task = cron.schedule('* * * * *', () => {
+    // #1039 Cause C — reap post-boot orphans each tick (SQLite/local only).
+    // Cutoff = 2× the per-run timeout (min 20 min) so an in-flight run is never
+    // killed; only rows idle past that bound (a dead mid-flight run) are freed.
+    if (env.dbClient !== 'postgres') {
+      try {
+        const runTimeoutMs = Number(process.env.AGENT_RUN_TIMEOUT_MS ?? 600_000);
+        const cutoffMs = Math.max(runTimeoutMs * 2, 20 * 60 * 1000);
+        const reaped = new AgentSessionsRepository().reapStuckSessions(cutoffMs);
+        if (reaped > 0) {
+          logger.info(`[AgentScheduler] Reaped ${reaped} stuck session(s) idle past ${cutoffMs}ms`);
+        }
+      } catch (err) {
+        logger.warn(`[AgentScheduler] Could not reap stuck sessions: ${String(err)}`);
+      }
+    }
     void checkDueTasks();
   });
 
