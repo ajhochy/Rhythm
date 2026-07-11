@@ -19,6 +19,10 @@ import { parseSkillFrontmatter } from './skill_frontmatter';
 import type { AgentSkill } from '../models/agent_skill';
 import { scoreSkill } from './skill_retrieval';
 import { isSameSkill, type RefineCandidate } from './skill_refiner';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { writeAgentProfileFile } from './opencode_agent_writer';
+import type { AgentConfig } from '../repositories/agent_configs_repository';
 
 /** Subfolders under the managed root that are NOT library skills. */
 const RESERVED_SUBFOLDERS = new Set(['drafts', 'disabled']);
@@ -154,5 +158,120 @@ export function findAdequateLibraryMatch(
   } catch (err) {
     logger.warn(`[skill-reuse] library match failed (non-fatal): ${String(err)}`);
     return null;
+  }
+}
+
+/** Snapshot returned by a successful auto-wire, sufficient to revert it. */
+export interface AutoWireResult {
+  agentConfigId: string;
+  /** Library skill `name` that was added to the agent's allowlist. */
+  skillName: string;
+  /** The agent's allowedSkillsJson BEFORE the wire (the rollback target). */
+  priorAllowlistJson: string;
+}
+
+/**
+ * Resolve the agent config id that produced a session, mirroring
+ * skill_extractor.resolveExtractingAgentConfigId: check mcpRole then agentKind,
+ * validating each against a real agent_configs row. Returns null on no match.
+ */
+function resolveExtractingAgentConfigId(sessionId: string): string | null {
+  try {
+    const session = new AgentSessionsRepository().findById(sessionId);
+    if (!session) return null;
+    const configs = new AgentConfigsRepository();
+    for (const candidate of [session.mcpRole, session.agentKind]) {
+      if (typeof candidate !== 'string') continue;
+      const trimmed = candidate.trim();
+      if (!trimmed) continue;
+      if (configs.getById(trimmed)) return trimmed;
+    }
+  } catch (err) {
+    logger.warn(`[skill-reuse] agent config resolution failed for ${sessionId} (non-fatal): ${String(err)}`);
+  }
+  return null;
+}
+
+/**
+ * Stage A ladder step 2 — if the distilled intent is adequately covered by a
+ * library skill the extracting agent is NOT wired to, add that skill to the
+ * agent's allowedSkillsJson (snapshotting the prior value for rollback) and
+ * re-project the agent file. Returns the {@link AutoWireResult} on a wire, or
+ * null when: no agent attributable, agent unrestricted (allowlist null → skill
+ * already loadable), no adequate library match, or already wired. NEVER throws.
+ *
+ * Mirrors autoBindDraftToExtractingAgent's allowlist-write precedent: an
+ * unrestricted (null) allowlist is left alone (writing a single-element array
+ * would WRONGLY lock the agent down to only this skill).
+ */
+export async function tryAutoWireLibrarySkill(
+  sessionId: string,
+  intent: RefineCandidate,
+): Promise<AutoWireResult | null> {
+  try {
+    const agentConfigId = resolveExtractingAgentConfigId(sessionId);
+    if (!agentConfigId) return null;
+
+    const configs = new AgentConfigsRepository();
+    const config = configs.getById(agentConfigId);
+    if (!config) return null;
+
+    // null = unrestricted → any library skill is already loadable; do NOT lock down.
+    if (config.allowedSkillsJson === null) return null;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(config.allowedSkillsJson);
+    } catch {
+      // Malformed value — leave it alone (the sync normalize path will deny-all).
+      return null;
+    }
+    if (!Array.isArray(parsed)) return null;
+    const current = parsed.filter((e): e is string => typeof e === 'string' && e.trim().length > 0);
+
+    const match = findAdequateLibraryMatch(intent);
+    if (!match) return null;
+
+    const skillName = match.name.trim();
+    if (!skillName) return null;
+    if (current.includes(skillName)) return null; // already wired
+
+    const priorAllowlistJson = config.allowedSkillsJson;
+    const next = [...current, skillName];
+    configs.update(agentConfigId, { allowedSkillsJson: JSON.stringify(next) });
+
+    // Best-effort file refresh (the DB allowlist is the load-bearing gate).
+    const updated = configs.getById(agentConfigId);
+    if (updated) writeAgentProfileFile(updated);
+
+    logger.info(
+      `[skill-reuse] auto-wired library skill '${skillName}' to agent '${agentConfigId}' ` +
+        `for intent '${intent.title}' (prior allowlist snapshotted for rollback)`,
+    );
+    return { agentConfigId, skillName, priorAllowlistJson };
+  } catch (err) {
+    logger.warn(`[skill-reuse] auto-wire failed (non-fatal): ${String(err)}`);
+    return null;
+  }
+}
+
+/**
+ * Reverse a previous auto-wire using its snapshot: restore the exact prior
+ * allowedSkillsJson and re-project the agent file. NEVER throws. Provided so the
+ * Stage A wire is genuinely reversible (invariant 5); no automatic trigger in
+ * Plan A calls it — a human tool or Plan B's revert path can.
+ */
+export function revertAutoWire(result: AutoWireResult): void {
+  try {
+    const configs = new AgentConfigsRepository();
+    if (!configs.getById(result.agentConfigId)) return;
+    configs.update(result.agentConfigId, { allowedSkillsJson: result.priorAllowlistJson });
+    const restored = configs.getById(result.agentConfigId);
+    if (restored) writeAgentProfileFile(restored);
+    logger.info(
+      `[skill-reuse] reverted auto-wire of '${result.skillName}' on agent '${result.agentConfigId}'`,
+    );
+  } catch (err) {
+    logger.warn(`[skill-reuse] revert auto-wire failed (non-fatal): ${String(err)}`);
   }
 }
