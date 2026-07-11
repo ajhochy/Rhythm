@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentConfig } from '../../repositories/agent_configs_repository';
 
 const state = vi.hoisted(() => ({ home: '' }));
+const { mockReloadConfig } = vi.hoisted(() => ({ mockReloadConfig: vi.fn() }));
 
 vi.mock('os', () => {
   const homedir = () => state.home;
@@ -13,6 +14,14 @@ vi.mock('os', () => {
     homedir,
   };
 });
+
+// #1039: writeAgentProfileFile fires opencodeClient.reloadConfig() after a write
+// so the running engine re-scans the agent registry. Mock the engine so the test
+// can assert the call without pulling in the real client service.
+vi.mock('../opencode_engine', () => ({
+  opencodeClient: { reloadConfig: mockReloadConfig },
+  opencodeSessionMap: new Map<string, string>(),
+}));
 
 import { writeAgentProfileFile } from '../opencode_agent_writer';
 
@@ -24,6 +33,7 @@ afterEach(() => {
   process.env.NODE_ENV = originalNodeEnv;
   if (state.home) rmSync(state.home, { recursive: true, force: true });
   state.home = '';
+  mockReloadConfig.mockClear();
 });
 
 function workflowOrchestratorConfig(): AgentConfig {
@@ -100,6 +110,18 @@ describe('workflow-orchestrator file projection', () => {
       'utf8',
     );
     expect(projected).toMatch(/permission:\n(?:  .+\n)*  write: allow\n/);
+  });
+
+  it('#1039: reloads the engine config after writing an agent file', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    writeAgentProfileFile(agentConfig('ai-trend-researcher', 'AI Trend Researcher'));
+
+    // The written .md must be made visible to the running engine's cached
+    // agent registry — otherwise `agent: <id>` throws "Agent not found" live.
+    expect(mockReloadConfig).toHaveBeenCalledTimes(1);
   });
 
   it('does not project disabled profile rows', () => {

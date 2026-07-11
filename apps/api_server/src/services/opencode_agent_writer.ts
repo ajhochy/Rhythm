@@ -32,6 +32,24 @@ import { env } from '../config/env';
 import { scanContextContent } from '../security/context_scanner';
 import type { AgentConfig } from '../repositories/agent_configs_repository';
 import { expandProfileMcpAllowlist } from './agent_profile_scope';
+import { opencodeClient } from './opencode_engine';
+
+/**
+ * #1039 — the fork memoizes its global config (agent registry) with an infinite
+ * TTL, so a freshly written/edited/deleted agent `.md` is invisible to the
+ * RUNNING engine until the next config.get() re-scan. Without this, promoting a
+ * profile to `mode: all` rewrites the file correctly but `session.prompt(agent:
+ * <id>)` still throws "Agent not found" against the stale registry. reloadConfig
+ * (#948, POST /config/reload) invalidates that cache; it's non-throwing and
+ * no-ops when the engine isn't ready. Fire-and-forget keeps writeAgentProfileFile
+ * synchronous and never-throwing (its whole call-graph is sync/void).
+ * ponytail: fire-and-forget — a sub-second write→trigger race is fine for the
+ * designer-save→schedule flow; await + async ripple across ~15 call sites if a
+ * caller ever needs the reload to have completed before it returns.
+ */
+function reloadEngineConfigAfterWrite(): void {
+  void opencodeClient.reloadConfig();
+}
 
 /**
  * Prepended to a manager-profile body WITHOUT a delegate roster so that the
@@ -465,6 +483,7 @@ export function writeAgentProfileFile(config: AgentConfig): void {
     const out = `---\n${fm}\n---\n${body.startsWith('\n') ? body.slice(1) : body}`;
     writeFileSync(path, out.endsWith('\n') ? out : `${out}\n`, 'utf8');
     logger.info(`[OpencodeAgentWriter] wrote agent file for profile "${config.id}"`);
+    reloadEngineConfigAfterWrite();
   } catch (err) {
     logger.warn(`[OpencodeAgentWriter] write failed for "${config.id}": ${String(err)}`);
   }
@@ -480,6 +499,7 @@ export function deleteAgentProfileFile(id: string): void {
     if (existsSync(path)) {
       rmSync(path);
       logger.info(`[OpencodeAgentWriter] removed agent file for profile "${id}"`);
+      reloadEngineConfigAfterWrite();
     }
   } catch (err) {
     logger.warn(`[OpencodeAgentWriter] delete failed for "${id}": ${String(err)}`);

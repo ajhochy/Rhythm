@@ -77,8 +77,21 @@ See `docs/ai/runs/2026-07-11-uso-epic-1002-live-e2e.md` and
     stuck in starting/running without a restart.
   - Tests: `__tests__/agent_schedules_delegation_guard.test.ts` (new, 4 cases),
     `__tests__/p2_systemprompt_ocagent.test.ts` (+2 cases).
-- Checks run: `tsc --noEmit` clean; `vitest run` 2689 passed / 0 failed / 26
-  skipped (baseline 2683 + 6 new).
+- Follow-ups (live-verification round):
+  - `services/opencode_agent_writer.ts` — after every `.md` write/delete, fire
+    `opencodeClient.reloadConfig()` (#948 POST /config/reload). The fork memoizes
+    the agent registry with an infinite TTL, so a promoted `mode: all` file was
+    invisible to the running engine → still "Agent not found" until restart.
+    Fire-and-forget (writer stays sync/never-throws); test in
+    `opencode_agent_writer_projection.test.ts` asserts the reload call.
+  - Cause B `tools=(none)` investigation: NOT the root cause. `expandMcpAllowlist`
+    emits inherit-all servers into `servers[]` and leaves `tools[]` empty for
+    them; the fork (`mcp_allowlist.ts:35-37`) allows a tool when EITHER
+    `tools.includes(k)` OR `servers.includes(server)`. So `servers=memory,obsidian,…
+    tools=(none)` = ALL tools on those servers allowed, NOT zero tools. The
+    allowlist is fine — no fix made there (fixing a non-bug would regress scoping).
+- Checks run: `tsc --noEmit` clean; `vitest run` 2690 passed / 0 failed / 26
+  skipped (baseline 2683 + 7 new).
 - Decisions made: run-as-own-`.md`-agent = single source of scoping (owner
   direction); `mode: all` over `primary`; mcpRole is the discriminator that
   keeps self_improvement on the assembled-scope path. See
@@ -90,11 +103,18 @@ See `docs/ai/runs/2026-07-11-uso-epic-1002-live-e2e.md` and
   Dropping the duplicate `system:` is the sanctioned direction and removes a real
   redundancy, but whether it alone restores non-empty output needs the live trace
   the orchestrator will run. See Concerns.
-- Concerns: (1) Live re-trigger of theological + AI-trend scans still required to
-  confirm real output (orchestrator owns :4096). Exact experiment: with the app
-  on this branch, `POST /agent-schedules/:id/trigger-now` for each; if AI-Trend
-  is still empty after the system-override drop, the cause is the .md permission
-  denies / provider-prompt replacement (loosen the profile `.md` or stop passing
-  `agent:` for tool-less research personas). (2) Pre-existing scheduled tasks
-  bound to a now-subagent profile still error at run time until re-bound — guard
-  is create/update-time only, by design.
+- Concerns: (1) Cause B (AI-Trend empty output) STILL unresolved after the
+  reloadConfig wiring + system-override dedup; confirmed it is NOT the MCP
+  allowlist. Remaining suspects need a live single-run trace: `session/llm.ts:122`
+  REPLACES the provider agentic prompt with `input.agent.prompt` when running as
+  the agent, and the profile `.md` denies read/glob/grep. Failure is "No response
+  from …" = `prompt()` returned null (engine-side error/empty), distinct from
+  empty text parts. Exact experiment (orchestrator, :4096): trigger AI-Trend with
+  a trivial prompt "Reply with the word READY". If it returns text → empty output
+  is task/permission-specific (persona instructed to scan but tools/reads denied;
+  fix = loosen that profile's `.md` or don't pass `agent:` for tool-less research
+  personas). If STILL empty → the failure is in the run-as-agent plumbing itself
+  (model/provider auth from `.md` frontmatter, or the provider-prompt replacement),
+  independent of the task. (2) Pre-existing scheduled tasks bound to a now-subagent
+  profile still error at run time until re-bound — guard is create/update-time
+  only, by design.
