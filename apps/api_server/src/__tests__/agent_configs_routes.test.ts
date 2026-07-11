@@ -354,6 +354,8 @@ describe('PATCH /agent-configs/:id', () => {
       body: JSON.stringify({ id: 'manager', label: 'Manager', isManager: true }),
     });
     expect(createRes.status).toBe(201);
+    // #1015 also reloads on create(); measure only the patch's reload.
+    reloadConfig.mockClear();
 
     const patchRes = await fetch(`${baseUrl}/agent-configs/manager`, {
       method: 'PATCH',
