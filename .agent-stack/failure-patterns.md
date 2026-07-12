@@ -196,3 +196,34 @@
 - **Criteria affected**: Secretary delegation nesting (#891); session-picker default = Secretary (#890)
 - **Root cause**: (a) #889 hub preamble delegated domain work via the rhythm_delegate MCP tool (orphan top-level session) instead of engine-native `task`/subagent_type (nests); (b) #890 resolved the default by searching _catalog (engine kinds only), so the profile default was inert → fell to the ambiguous first manager. Both had GREEN unit tests that asserted the wrong thing (presence of 'rhythm_delegate'; a faked 'secretary' catalog entry).
 - **Suggested fix**: agent-behavior changes (prompt/preamble, runtime-shape-dependent resolution) need live/integration outcome probes, not unit assertions on prompt text or fixture-convenient catalogs.
+## 2026-07-10 — Issue 1007 — scheduler bypasses prompt-derived naming
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C2 — wrong contract
+- **Criteria affected**: scheduled/headless session name derives from prompt
+- **Root cause**: AgentScheduler supplies an explicit `Scheduled: <task name>` sessionName, so the tested AgentRunner fallback never runs on the real scheduled path.
+- **Suggested fix**: Trigger a real schedule in the contract and assert the persisted session name.
+
+## 2026-07-10 — Issue 1014 — roster reload is inert in an open session
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C2 — wrong contract
+- **Criteria affected**: next task call in an already-open manager session uses the edited roster
+- **Root cause**: the regression test asserted only that reloadConfig was called; the running session retained the old task permission rules.
+- **Suggested fix**: Contract must make a denied task call, PATCH the roster, then make an allowed task call in the same engine session.
+
+## 2026-07-10 — Issue 997 / Plan B — real discovery judge drops every candidate at 0/0
+
+- **Result**: smoke FAIL (verification already recorded incomplete)
+- **Category**: C1 — missing contract
+- **Criteria affected**: open gap → real candidate → gated external-adoption proposal
+- **Root cause**: production `scoreSkillBody` returned zero for both downloaded candidate and would-be draft, so the strict-greater gate silently dropped all otherwise-valid candidates.
+- **Suggested fix**: Require a known live candidate to produce a nonzero comparative score and proposed row; keep the direct approve→install→measure probe as a separate downstream contract.
+
+## 2026-07-11 — Issue #1002 (USO epic PR #1036) — verification probe missed the real scheduled-task path
+- **Result**: smoke PASS 5/5 for the epic's own scope (verification claimed PASS) — BUT divergence: the #1002 user-symptom ("background runs produce no output") still reproduced on real profile-bound scheduled tasks during manual smoke.
+- **Category**: C1 — Missing contract/coverage (verification-gate live probe used the optimizer-diagnosis entry point, which passes no profile ocAgent, and thus avoided the ocAgent/mode + primary-empty-output causes the user's real tasks hit).
+- **Criteria affected**: issue-1002-headless-output (real scheduled-task path).
+- **Root cause**: A multi-cause user symptom ("scheduled runs fail") was verified via one convenience entry point; the cwd cause was genuinely fixed, but ocAgent-mode ("Agent not found") + primary empty-output were untouched and uncovered. Also: the fix itself had been silently dropped from main by the #1020 partial re-land.
+- **Suggested fix**: verification-gate must drive the REAL user entry point (profile-bound scheduled task via trigger-now) for multi-entry-point symptoms; run acceptance-contract per-issue even in large epics. Follow-up: #1039.
+- **Workflow note**: W1 — acceptance-contract folded into coding-agent dispatch prompts instead of emitting per-issue contract.json + failing tests (13-issue epic).
