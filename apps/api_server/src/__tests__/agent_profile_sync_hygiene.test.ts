@@ -464,4 +464,37 @@ describe('syncOpencodeAgentProfiles hygiene (P3)', () => {
       ).toBe(false);
     }
   });
+
+  // #1039 live regression: opencode_agent_writer.ts writes mode: 'all' (not
+  // 'primary') for any profile with sessionSelectable=true, so a promoted
+  // profile stays BOTH runnable AND still a delegation target. Before this
+  // fix, the sync reader only recognized mode==='primary' as selectable, so
+  // EVERY call to this sync (fired on every GET /agent-sessions/agents — i.e.
+  // every Agents-picker refresh) read the engine's real mode:'all', decided
+  // it wasn't selectable, and silently reverted the promotion the user/API
+  // had just made — observed live: Config Doctor kept disappearing from the
+  // picker after every reopen.
+  it('a promoted profile with engine mode "all" stays sessionSelectable=true across re-syncs', async () => {
+    const agents = [
+      ...makeWorkflowAgents(),
+      { name: 'config-doctor', mode: 'all', builtIn: false },
+    ];
+
+    await syncOpencodeAgentProfiles(agents as never);
+    let row = new AgentConfigsRepository().getById('config-doctor');
+    expect(row, 'config-doctor should exist after first sync').not.toBeNull();
+    expect(
+      row!.sessionSelectable,
+      'a mode:"all" agent must be sessionSelectable=true, not just mode:"primary"',
+    ).toBe(true);
+
+    // The exact live failure mode: a SECOND sync (e.g. from reopening the
+    // picker) must not revert it.
+    await syncOpencodeAgentProfiles(agents as never);
+    row = new AgentConfigsRepository().getById('config-doctor');
+    expect(
+      row!.sessionSelectable,
+      'sessionSelectable must survive a re-sync, not silently flip back to false',
+    ).toBe(true);
+  });
 });

@@ -10,7 +10,8 @@
  *   id                 = agent.name            (stable; agent_configs.id is the kind string)
  *   label              = Title Case of name    (only on first insert; user edits preserved)
  *   ocAgent            = agent.name            (routing target for the opencode SDK)
- *   sessionSelectable  = mode==='primary' AND not an opencode-internal primary
+ *   sessionSelectable  = mode==='primary' OR mode==='all', AND not an
+ *                        opencode-internal primary
  *                        EXCEPT: dev front-door de-dup overrides (see DEV_FRONT_DOOR_*)
  *
  * "session selectable" controls visibility in the composer AgentSelectorPill.
@@ -583,9 +584,17 @@ export async function syncOpencodeAgentProfiles(
     const name = agent.name;
     if (!name) continue;
 
-    // Base selectability: primary + non-internal → true; everything else false.
+    // Base selectability: primary/all + non-internal → true; everything else
+    // false. #1039 (opencode_agent_writer.ts) writes `mode: 'all'` — not just
+    // 'primary' — for any profile with sessionSelectable=true, so a promoted
+    // profile stays BOTH runnable as a top-level session AND a delegation
+    // target. This reader must recognize 'all' too, or every call to this sync
+    // (fired on every GET /agent-sessions/agents — i.e. every picker refresh)
+    // reads the engine's real mode, sees it isn't literally 'primary', and
+    // silently reverts the very promotion #1039 just made live.
     // Dev front-door de-dup overrides this below.
-    let selectable = agent.mode === 'primary' && !INTERNAL_PRIMARY.has(name);
+    let selectable =
+      (agent.mode === 'primary' || agent.mode === 'all') && !INTERNAL_PRIMARY.has(name);
 
     // Dev front-door de-dup: force exactly one entry-point agent into the
     // picker. Secondary front-doors are kept in the DB but hidden from the
