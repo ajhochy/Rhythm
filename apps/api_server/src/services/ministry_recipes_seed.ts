@@ -61,6 +61,7 @@ import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { recordSeedMarker, seedMarkerExists } from './seed_once';
 import { writeManagedSkill, managedSkillsRoot, slugForSkillName } from './rhythm_managed_skills';
 import { opencodeClient } from './opencode_engine';
 
@@ -411,9 +412,16 @@ export async function seedMinistryRecipes(): Promise<MinistryRecipesSeedResult> 
       continue; // don't seed a task for a recipe whose skill failed
     }
 
-    // ── Scheduled task (idempotent by name) ──────────────────────────────
+    // ── Scheduled task (idempotent by name + durable tombstone) ──────────
+    const taskMarker = `seeded_task:${recipe.taskName}`;
     const alreadySeeded = existingTasks.some((t) => t.name === recipe.taskName);
     if (alreadySeeded) {
+      recordSeedMarker(taskMarker); // adopt pre-marker installs
+      result.tasksSkipped += 1;
+      continue;
+    }
+    // Durable tombstone: the user deleted this seeded task — never resurrect it.
+    if (seedMarkerExists(taskMarker)) {
       result.tasksSkipped += 1;
       continue;
     }
@@ -460,6 +468,7 @@ export async function seedMinistryRecipes(): Promise<MinistryRecipesSeedResult> 
         allowedMcpsJson: JSON.stringify(roleFile.mcpServers),
         allowedSkillsJson: JSON.stringify([recipe.skillTitle]),
       });
+      recordSeedMarker(taskMarker);
       result.tasksSeeded += 1;
       existingTasks.push({ name: recipe.taskName } as (typeof existingTasks)[number]);
     } catch (err) {

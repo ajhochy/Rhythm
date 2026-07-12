@@ -497,4 +497,42 @@ describe('syncOpencodeAgentProfiles hygiene (P3)', () => {
       'sessionSelectable must survive a re-sync, not silently flip back to false',
     ).toBe(true);
   });
+
+  // ---------------------------------------------------------------------------
+  // Boot-stomp class fix: session_selectable is USER-OWNED after first insert.
+  // The sync seeds it from the engine's mode at INSERT time, but the update
+  // path must never recompute it — recomputing on every picker refresh is
+  // what silently reverted user promotions/demotions (#1039 family; the dev
+  // front-door force had the same revert effect on those seven agents).
+  // ---------------------------------------------------------------------------
+
+  it('a user demotion (sessionSelectable=false) survives re-sync unchanged', async () => {
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+    const repo = new AgentConfigsRepository();
+    expect(repo.getById('workflow-orchestrator')!.sessionSelectable).toBe(true);
+
+    // User hides the agent from the picker in the designer.
+    repo.update('workflow-orchestrator', { sessionSelectable: false });
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    expect(
+      repo.getById('workflow-orchestrator')!.sessionSelectable,
+      'a user demotion must not be re-promoted by the picker-refresh sync',
+    ).toBe(false);
+  });
+
+  it('a user promotion of a hidden CLI agent survives re-sync unchanged', async () => {
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+    const repo = new AgentConfigsRepository();
+    expect(repo.getById('codex')!.sessionSelectable).toBe(false);
+
+    // User deliberately surfaces the CLI agent in the picker.
+    repo.update('codex', { sessionSelectable: true });
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    expect(
+      repo.getById('codex')!.sessionSelectable,
+      'a user promotion must not be re-hidden by the insert-time front-door default',
+    ).toBe(true);
+  });
 });

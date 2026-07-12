@@ -20,6 +20,7 @@
  */
 
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
+import { recordSeedMarker, seedMarkerExists } from './seed_once';
 import { logger } from '../utils/logger';
 
 const schedRepo = new AgentScheduledTasksRepository();
@@ -116,7 +117,13 @@ export const sundayPrepService = {
     const existingNames = new Set(existing.map((t) => t.name));
 
     for (const spec of TASKS) {
-      if (existingNames.has(spec.name)) continue;
+      const marker = `seeded_task:${spec.name}`;
+      if (existingNames.has(spec.name)) {
+        recordSeedMarker(marker); // adopt pre-marker installs
+        continue;
+      }
+      // Durable tombstone: the user deleted this seeded task — never resurrect it.
+      if (seedMarkerExists(marker)) continue;
       await schedRepo.createAsync({
         name: spec.name,
         description: spec.description,
@@ -128,6 +135,7 @@ export const sundayPrepService = {
         agentKind: 'opencode',
         allowedMcpsJson: JSON.stringify(spec.allowedMcpsJson),
       });
+      recordSeedMarker(marker);
       logger.info(`[SundayPrep] seeded scheduled task "${spec.name}"`);
     }
   },

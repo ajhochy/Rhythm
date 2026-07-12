@@ -584,15 +584,15 @@ export async function syncOpencodeAgentProfiles(
     const name = agent.name;
     if (!name) continue;
 
-    // Base selectability: primary/all + non-internal → true; everything else
-    // false. #1039 (opencode_agent_writer.ts) writes `mode: 'all'` — not just
-    // 'primary' — for any profile with sessionSelectable=true, so a promoted
-    // profile stays BOTH runnable as a top-level session AND a delegation
-    // target. This reader must recognize 'all' too, or every call to this sync
-    // (fired on every GET /agent-sessions/agents — i.e. every picker refresh)
-    // reads the engine's real mode, sees it isn't literally 'primary', and
-    // silently reverts the very promotion #1039 just made live.
-    // Dev front-door de-dup overrides this below.
+    // Base selectability — used at INSERT time only (see the update-path
+    // comment below: session_selectable is user-owned once the row exists).
+    // primary/all + non-internal → true; everything else false. #1039
+    // (opencode_agent_writer.ts) writes `mode: 'all'` — not just 'primary' —
+    // for any profile with sessionSelectable=true, so a promoted profile
+    // stays BOTH runnable as a top-level session AND a delegation target.
+    // This reader must recognize 'all' too, or the seeded default for a
+    // promoted profile would be wrong on first import.
+    // Dev front-door de-dup overrides this below (insert-time default only).
     let selectable =
       (agent.mode === 'primary' || agent.mode === 'all') && !INTERNAL_PRIMARY.has(name);
 
@@ -621,19 +621,24 @@ export async function syncOpencodeAgentProfiles(
 
       const existing = repo.getById(name);
       if (existing) {
-        // Refresh routing + selectability. The sessionSelectable override for
-        // dev front-doors is always re-applied on every sync pass so it is
-        // idempotent. Backfill prompt/model ONLY when the profile has none yet
-        // — never clobber values the user edited in the designer (which is now
-        // the source of truth for model/prompt).
+        // session_selectable is USER-OWNED after first insert. The engine's
+        // mode seeds it at INSERT below, but the update path must never
+        // recompute it: the DB is the single authority for user-editable
+        // profile fields, the .md file is a projection of the DB (the writer
+        // emits mode:'all'/'subagent' FROM sessionSelectable), and reading
+        // that projection back on every picker refresh is exactly what
+        // silently reverted user promotions/demotions (#1039 family — the
+        // dev-front-door force had the same revert effect on those seven
+        // agents). The front-door de-dup therefore applies at insert only.
+        // Backfill prompt/model ONLY when the profile has none yet — never
+        // clobber values the user edited in the designer (the source of
+        // truth for model/prompt).
         //
         // is_manager is intentionally absent — see comment block above the
         // DEV_FRONT_DOOR_PRIMARY constant. That flag is user-controlled and
         // must survive re-syncs unchanged.
-        const patch: Parameters<typeof repo.update>[1] = {
-          ocAgent: name,
-          sessionSelectable: selectable,
-        };
+        const patch: Parameters<typeof repo.update>[1] = {};
+        if (existing.ocAgent !== name) patch.ocAgent = name;
         if (!existing.systemPrompt && prompt) patch.systemPrompt = prompt;
         if (!existing.modelProvider && !existing.modelId) {
           patch.modelProvider = resolvedProvider;
@@ -676,7 +681,9 @@ export async function syncOpencodeAgentProfiles(
         if (existing.allowedDelegatesJson === null && allowedDelegatesJson !== null) {
           patch.allowedDelegatesJson = allowedDelegatesJson;
         }
-        repo.update(name, patch);
+        if (Object.keys(patch).length > 0) {
+          repo.update(name, patch);
+        }
       } else {
         repo.insert({
           id: name,

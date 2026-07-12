@@ -164,6 +164,25 @@ describe('seedSecretaryDelegation — backfill against the REAL role file', () =
     expect(after.allowedDelegatesJson).toBe(JSON.stringify(reordered));
   });
 
+  it('a user-edited roster survives later syncs — the drift reconcile is ONE-TIME (boot-stomp class fix)', async () => {
+    const repo = new AgentConfigsRepository();
+    insertSecretaryRow(repo);
+
+    // First sync: backfills the roster from the role file and consumes the
+    // one-time drift-repair marker — the roster is user-owned from here on.
+    await seedSecretaryDelegation();
+
+    // User re-specs the roster in the designer.
+    repo.update('secretary', { allowedDelegatesJson: JSON.stringify(['user-choice-agent']) });
+
+    // Every later sync (this seed runs on EVERY picker refresh) must leave it
+    // alone — reconciling on every pass was the #1039-family revert bug.
+    const result = await seedSecretaryDelegation();
+    expect(result.delegatesBackfilled).toBe(false);
+    const after = repo.getById('secretary')!;
+    expect(JSON.parse(after.allowedDelegatesJson!)).toEqual(['user-choice-agent']);
+  });
+
   it('never flips is_manager from true back to false, and never touches an already-true row', async () => {
     const repo = new AgentConfigsRepository();
     insertSecretaryRow(repo, {

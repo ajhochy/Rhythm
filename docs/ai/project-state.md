@@ -2,43 +2,47 @@
 
 ## Current focus
 
-**USO epic + follow-ups shipped (2026-07-12)** — unified session observability
-(PR #1036) plus the background-agent execution fixes and live streaming
-(PR #1077, stacked). All live-verified on the running app. See
-`docs/ai/runs/2026-07-12-uso-followups-live-verified.md`.
+**Boot-stomp class fix (2026-07-11)** — one architectural fix for the whole
+"my agent/skill/task edits are gone on the next boot" bug family. Root cause:
+one-time seeds/repairs coded as eternal enforcement (unguarded content writes
+firing on every boot / every picker refresh). Full taxonomy + fix in
+`docs/ai/runs/2026-07-11-boot-stomp-class-fix.md`; the convention is recorded
+in `docs/ai/decisions/2026-07-11-content-writes-are-one-time.md`.
 
 ## Active branch / PR
 
-- **PR #1036** `workflow/uso-epic-2026-07-11` — USO epic (#1002, #1023–#1034).
-  CI green, manual smoke 5/5 PASS. Merge FIRST.
-- **PR #1077** `uso/agent-followups` (stacked on #1036) — #1039 (3 root causes,
-  live-verified) + #1040 (live streaming) + uniform-chat UX. Awaiting CI +
-  final user smoke (watch a scheduled run stream live). Merge after #1036,
-  then retarget/merge.
+- **PR #1080** `fix/1039-profile-sync-mode-all-revert` — mode:'all' sync fix
+  (open, awaiting merge).
+- **NEW (this session)** `fix/boot-stomp-config-revert-class` (stacked on
+  #1080) — runOnce marker mechanism for all migration content repairs,
+  session_selectable made user-owned (insert-only in sync), secretary roster
+  reconcile one-time, seeded-task delete tombstones, CLI-preset scheduling
+  guard fix. Draft PR to be opened; do NOT merge without owner sign-off.
 
 ## In progress
 
-- User smoke of live streaming (open a running scheduled session — parts
-  should render as they happen).
+- Draft PR + owner smoke of the fix branch. Everything else verified:
+  tsc clean, 2702/2702 tests, live 3-boot restart proof 16/16, negative
+  control (replay guard fails on pre-fix code) confirmed.
 
 ## Risks / known issues
 
-1. #1023 release-build acceptance still needs a real `workflow_dispatch` build.
-2. Profile promotions must go through the API (PATCH /agent-configs) — raw
-   SQL edits get reverted by profile sync.
-3. Open follow-ups: #1038 (Projects dark mode), #1041 (workflow-prompt-fix ref
-   resolver). Feature ask not yet filed: async delegation + completion notify.
-4. Org-optimizer cron stays OFF pending safety review (unchanged).
+1. Repairs now fire once per install — shipping a NEW default prompt/preset
+   value requires a new `runOnce` key (contract documented at top of
+   runMigrations; enforced by `migrations_replay_guard.test.ts`).
+2. Postgres bootstrap marker path is code-reviewed but not integration-tested
+   (test infra is SQLite-only) — verify on next prod deploy.
+3. Follow-ups to file: stale DB-body snapshot in org-optimizer
+   `applySkillBodyRevision` revert path; `allowed_mcps_json` NULL overload
+   (unset vs unrestricted); prod-task mirror reverts local edits to mirrored
+   non-done tasks (by design, but undocumented for users).
 
 ## Test status
 
-- api_server tsc clean; full vitest 2692 passed / 0 failed.
-- Flutter analyze clean; 861 tests passed.
-- Live e2e: 3 scopes; headless runs produce output past 5 min; mid-flight
-  promote works; streamed multi-step transcripts dedupe cleanly.
+- api_server: 2702 passed / 26 skipped; `tsc` clean.
+- Live: 3 real server boots against scratch DB — all user edits survived.
 
 ## Next step
 
-1. CI green on #1077 → user merges #1036 then #1077 → release build (#1023
-   acceptance).
-2. File the async-delegation + completion-notify feature issue if wanted.
+Open draft PR, hand to owner for manual smoke (edit Config Doctor in the real
+app, restart, confirm it sticks), merge #1080 first or fold it in.
