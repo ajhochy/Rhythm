@@ -448,6 +448,50 @@ export class TasksRepository {
     return row ? rowToTask(row) : null;
   }
 
+  async findByIdUnsafeAsync(id: string): Promise<Task> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<TaskRow>(
+        `${TASK_SELECT} WHERE tasks.id = $1`,
+        [id],
+      );
+      const row = result.rows[0];
+      if (!row) throw AppError.notFound('Task');
+      const task = rowToTask(row);
+      const cr = await getPostgresPool().query<{ task_id: string; user_id: number; name: string; photo_url: string | null }>(
+        `SELECT tc.task_id, u.id AS user_id, u.name, u.photo_url
+         FROM task_collaborators tc
+         JOIN users u ON u.id = tc.user_id
+         WHERE tc.task_id = $1`,
+        [id],
+      );
+      attachCollaboratorsToTasks([task], cr.rows);
+      return task;
+    }
+
+    return this.findByIdUnsafe(id);
+  }
+
+  findByIdUnsafe(id: string): Task {
+    const row = getDb()
+      .prepare(
+        `${TASK_SELECT}
+         WHERE tasks.id = ?`,
+      )
+      .get(id) as TaskRow | undefined;
+    if (!row) throw AppError.notFound('Task');
+    const task = rowToTask(row);
+    const collabRows = getDb()
+      .prepare(
+        `SELECT tc.task_id, u.id AS user_id, u.name, u.photo_url
+         FROM task_collaborators tc
+         JOIN users u ON u.id = tc.user_id
+         WHERE tc.task_id = ?`,
+      )
+      .all(id) as Array<{ task_id: string; user_id: number; name: string; photo_url: string | null }>;
+    attachCollaboratorsToTasks([task], collabRows);
+    return task;
+  }
+
   async findBySourceAndDueDateAsync(
     sourceType: string,
     sourceId: string,

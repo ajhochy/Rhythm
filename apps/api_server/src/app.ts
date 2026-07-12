@@ -72,6 +72,7 @@ export function createApp() {
 
         callback(new Error(`Origin ${origin} is not allowed by CORS`));
       },
+      allowedHeaders: ['Content-Type', 'Authorization', 'content-type', 'X-Signature-SHA256'],
     }),
   );
   // Allow larger bodies for OAuth token exchange and session creation.

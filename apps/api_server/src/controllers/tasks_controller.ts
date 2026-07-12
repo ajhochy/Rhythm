@@ -155,6 +155,14 @@ export class TasksController {
     }
   }
 
+  async getByIdUnsafe(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.json(await repo.findByIdUnsafeAsync(req.params.id));
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const { title, notes, dueDate, scheduledDate, status, preferredAgent } =
