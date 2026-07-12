@@ -30,6 +30,28 @@ describe('classifyProviderError', () => {
     expect(classifyProviderError(200)).toBe('other');
     expect(classifyProviderError(400)).toBe('other');
   });
+
+  it('classifies the structured APIError shape emitted by session.error', () => {
+    expect(
+      classifyProviderError({
+        name: 'APIError',
+        data: { statusCode: 429, isRetryable: true, message: 'Too Many Requests' },
+      }),
+    ).toBe('rate_limit');
+    expect(
+      classifyProviderError({
+        name: 'APIError',
+        data: {
+          statusCode: 400,
+          responseBody: '{"error":{"code":"insufficient_quota"}}',
+        },
+      }),
+    ).toBe('rate_limit');
+    expect(classifyProviderError({ data: { statusCode: 403 } })).toBe('auth');
+    expect(classifyProviderError({ data: { statusCode: 400, message: 'Bad schema' } })).toBe(
+      'other',
+    );
+  });
 });
 
 describe('FALLBACK_CHAIN', () => {
@@ -144,6 +166,17 @@ describe('nextFallbackTier', () => {
   it('never advances to an unauthed disallowed provider', () => {
     // only anthropic authed — after personal-claude there is no authed next tier
     expect(nextFallbackTier('personal-claude', ['anthropic'])).toBeUndefined();
+  });
+
+  it('skips visited tiers without backtracking when the current provider is absent from auth', () => {
+    expect(
+      nextFallbackTier('codex', ['google', 'openrouter'], [
+        'team-claude',
+        'personal-claude',
+        'codex',
+        'gemini',
+      ])?.id,
+    ).toBe('openrouter-free');
   });
 });
 

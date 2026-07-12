@@ -6,9 +6,16 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 
 const respondPermissionSpy = vi.fn().mockResolvedValue(true);
 
-const { broadcastSpy, sessionMap } = vi.hoisted(() => ({
+const { broadcastSpy, sessionMap, engineSpies } = vi.hoisted(() => ({
   broadcastSpy: vi.fn(),
   sessionMap: new Map<string, string>(),
+  engineSpies: {
+    listAuthedProviders: vi.fn().mockResolvedValue(['openai', 'google']),
+    abortSession: vi.fn().mockResolvedValue(true),
+    revertSession: vi.fn().mockResolvedValue(undefined),
+    updateSessionAllowlist: vi.fn().mockResolvedValue(true),
+    promptAsync: vi.fn().mockResolvedValue(true),
+  },
 }));
 
 vi.mock('../services/ws_gateway', () => ({
@@ -20,11 +27,17 @@ vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
     subscribeToEvents: vi.fn().mockResolvedValue(null),
     respondPermission: (...args: unknown[]) => respondPermissionSpy(...args),
+    ...engineSpies,
   },
   opencodeSessionMap: sessionMap,
 }));
 
 import { OpencodeStreamBridge } from '../services/opencode_stream_bridge';
+import {
+  _resetForTests as resetRedispatchForTests,
+  noteUserMessage,
+  retainTurn,
+} from '../services/turn_redispatch';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -43,6 +56,13 @@ describe('OpencodeStreamBridge — transcript.append emission', () => {
     sessionMap.clear();
     sessionMap.set(LOCAL_ID, SDK_ID);
     broadcastSpy.mockClear();
+    for (const spy of Object.values(engineSpies)) spy.mockClear();
+    engineSpies.listAuthedProviders.mockResolvedValue(['openai', 'google']);
+    engineSpies.abortSession.mockResolvedValue(true);
+    engineSpies.revertSession.mockResolvedValue(undefined);
+    engineSpies.updateSessionAllowlist.mockResolvedValue(true);
+    engineSpies.promptAsync.mockResolvedValue(true);
+    resetRedispatchForTests();
     bridge = new OpencodeStreamBridge();
 
     // Seed an agent session row so updateStatus/updatePreview don't throw.
@@ -184,6 +204,48 @@ describe('OpencodeStreamBridge — transcript.append emission', () => {
     expect(errorFrame).toBeDefined();
     expect(errorFrame?.errorClass).toBeUndefined();
     expect(errorFrame?.message).toBe('Key limit exceeded');
+  });
+
+  it('on structured OpenAI 429 re-dispatches the retained turn to Gemini through the real bridge/state path', async () => {
+    const localId = new AgentSessionsRepository().listActive()[0].id;
+    sessionMap.clear();
+    sessionMap.set(localId, SDK_ID);
+    retainTurn(localId, {
+      sdkSessionId: SDK_ID,
+      data: 'retained bridge prompt',
+      model: { providerID: 'openai', modelID: 'gpt-5.4' },
+      mcpRoleConfig: null,
+    });
+    noteUserMessage(localId, 'bridge-user-message');
+
+    relay({
+      type: 'session.error',
+      properties: {
+        sessionID: SDK_ID,
+        error: {
+          name: 'APIError',
+          data: { statusCode: 429, isRetryable: true, message: 'Too Many Requests' },
+        },
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(engineSpies.promptAsync).toHaveBeenCalledWith(
+        SDK_ID,
+        'retained bridge prompt',
+        { providerID: 'google', modelID: 'gemini-2.5-pro' },
+        undefined,
+        undefined,
+        undefined,
+      );
+    });
+    expect(engineSpies.updateSessionAllowlist).toHaveBeenCalledWith(SDK_ID, null, 'google');
+    expect(new AgentSessionsRepository().findById(localId)?.providerId).toBe('google');
+    expect(
+      broadcastSpy.mock.calls
+        .map((call) => call[0] as Record<string, unknown>)
+        .find((frame) => frame.type === 'error' && frame.id === localId),
+    ).toBeUndefined();
   });
 
   it('on session.idle with empty buffer does NOT broadcast transcript.append', () => {
