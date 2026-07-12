@@ -48,7 +48,11 @@ import { opencodeClient } from './opencode_engine';
  * caller ever needs the reload to have completed before it returns.
  */
 function reloadEngineConfigAfterWrite(): void {
-  void opencodeClient.reloadConfig();
+  // Pass the api_server cwd: headless/scheduled runs create their sessions
+  // under effectiveCwd = process.cwd(), and the fork's reload is per-directory
+  // instance state — a default-only reload leaves THAT instance's agent
+  // registry stale (live-observed: promoted agent still "Agent not found").
+  void opencodeClient.reloadConfig(process.cwd());
 }
 
 /**

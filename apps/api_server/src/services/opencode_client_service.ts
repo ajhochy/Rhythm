@@ -1245,18 +1245,33 @@ export class OpencodeClientService {
    * sessions until the engine restarts. Mirrors reloadSkills: raw fetch (no SDK
    * regen), non-throwing, no-ops when the engine isn't ready.
    */
-  async reloadConfig(): Promise<boolean> {
+  async reloadConfig(directory?: string): Promise<boolean> {
     if (!this.isReady) {
       return false;
     }
     try {
       const base = this.serverUrl;
-      const res = await fetch(`${base}/config/reload`, { method: 'POST' });
-      if (!res.ok) {
-        logger.warn('[OpencodeClientService] reloadConfig HTTP %s', res.status);
-        return false;
+      // #1039 — the fork's /config/reload is DIRECTORY-SCOPED (it invalidates
+      // that instance's Agent InstanceState; see the fork's configReload
+      // handler / WorkspaceRoutingQuery). Reload the default instance AND,
+      // when given, the specific directory — a headless run resolves its agent
+      // in the instance for its effectiveCwd, so a default-only reload leaves
+      // that registry stale ("Agent not found" after a live promotion).
+      const targets = [
+        `${base}/config/reload`,
+        ...(directory
+          ? [`${base}/config/reload?directory=${encodeURIComponent(directory)}`]
+          : []),
+      ];
+      let ok = true;
+      for (const url of targets) {
+        const res = await fetch(url, { method: 'POST' });
+        if (!res.ok) {
+          logger.warn('[OpencodeClientService] reloadConfig HTTP %s (%s)', res.status, url);
+          ok = false;
+        }
       }
-      return true;
+      return ok;
     } catch (err) {
       logger.error('[OpencodeClientService] reloadConfig failed:', err);
       return false;
