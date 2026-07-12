@@ -577,4 +577,29 @@ export class AgentSessionsRepository {
       .run(message, now);
     return result.changes;
   }
+
+  /**
+   * #1039 Cause C — runtime reaper for post-boot orphans. resetStaleRunning is
+   * boot-only; a run that dies mid-flight AFTER boot (crash, killed process,
+   * unhandled reject) leaves its row stuck in 'starting'/'running' until the
+   * NEXT restart. Called each scheduler tick to recover those without a restart.
+   * Only rows whose updated_at is older than `maxAgeMs` are reset, so a run that
+   * is legitimately in-flight (bounded by AGENT_RUN_TIMEOUT_MS, default 600s) is
+   * never killed — pass a cutoff comfortably beyond that bound.
+   */
+  reapStuckSessions(
+    maxAgeMs: number,
+    message = 'Run interrupted — no result before reaper cutoff',
+  ): number {
+    const now = Date.now();
+    const cutoff = new Date(now - maxAgeMs).toISOString();
+    const result = getDb()
+      .prepare(
+        `UPDATE agent_sessions
+         SET status = 'error', status_message = ?, updated_at = ?
+         WHERE status IN ('running', 'starting') AND updated_at < ?`,
+      )
+      .run(message, new Date(now).toISOString(), cutoff);
+    return result.changes;
+  }
 }

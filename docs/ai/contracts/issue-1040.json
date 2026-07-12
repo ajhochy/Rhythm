@@ -1,0 +1,33 @@
+{
+  "issue": 1040,
+  "generated": "2026-07-11",
+  "criteria": [
+    {
+      "criterion_id": "issue-1040-c1",
+      "text": "Subscribe AgentRunner-created sessions to the SAME bridge at creation (after `setSdkSessionId`), so parts/status stream into the DB + WS as they happen and the open view renders them live — one rendering path across the board. Directory-scoping: the bridge subscription must use the run's `effectiveCwd` (#1002).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1040_agent_runner_streaming.test.ts",
+      "test_id": "issue-1040-c1: subscribes a headless run to the shared stream bridge with effectiveCwd",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1040-c2",
+      "text": "Double-persistence: AgentRunner appends the final output at completion; the bridge persists parts as they stream. Dedupe (e.g. via `sdk_message_id`) or skip AgentRunner's final append when the bridge streamed the turn.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1040_agent_runner_streaming.test.ts",
+      "test_id": "issue-1040-c2: completion upsert does not duplicate an assistant message already persisted by the bridge",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1040-c3",
+      "text": "Live: trigger a scheduled research run, open its session while running → tool calls/text stream in as they happen; final state matches today's persisted transcript. No duplicate messages. Interactive chats unchanged.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires the real running Rhythm app and engine; this run is explicitly limited to tsc + vitest and must not spawn or replace the processes owning :4001/:4096."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-1040-c3"
+  ]
+}

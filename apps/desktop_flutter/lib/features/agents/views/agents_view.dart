@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -431,8 +432,13 @@ class _TranscriptPanel extends StatefulWidget {
 }
 
 class _TranscriptPanelState extends State<_TranscriptPanel> {
+  static const _headlessPollInterval = Duration(seconds: 4);
+
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
+  Timer? _headlessPollTimer;
+  String? _headlessPollSessionId;
+  bool _headlessPollInFlight = false;
 
   /// Whether the transcript is currently scrolled to (or near) the bottom.
   /// Auto-scroll-on-new-content only fires while this is true, so manually
@@ -469,10 +475,52 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
 
   @override
   void dispose() {
+    _headlessPollTimer?.cancel();
     _scrollController.removeListener(_onScroll);
     _inputController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _syncHeadlessPolling(
+    AgentsController controller,
+    AgentSession? selected,
+  ) {
+    final shouldPoll = selected != null &&
+        (selected.status == AgentSessionStatus.starting ||
+            selected.status == AgentSessionStatus.working) &&
+        !controller.isWorking(selected.id);
+    final sessionId = shouldPoll ? selected.id : null;
+    if (_headlessPollSessionId == sessionId) return;
+
+    _headlessPollTimer?.cancel();
+    _headlessPollTimer = null;
+    _headlessPollSessionId = sessionId;
+    _headlessPollInFlight = false;
+    if (sessionId == null) return;
+
+    _headlessPollTimer = Timer.periodic(_headlessPollInterval, (_) {
+      unawaited(_pollHeadlessSession(controller, sessionId));
+    });
+  }
+
+  Future<void> _pollHeadlessSession(
+    AgentsController controller,
+    String sessionId,
+  ) async {
+    if (!mounted ||
+        _headlessPollInFlight ||
+        _headlessPollSessionId != sessionId ||
+        controller.selectedSessionId != sessionId ||
+        controller.isWorking(sessionId)) {
+      return;
+    }
+    _headlessPollInFlight = true;
+    try {
+      await controller.refreshSelectedSessionDetail(sessionId);
+    } finally {
+      _headlessPollInFlight = false;
+    }
   }
 
   /// Issue #653: on (re)build, if the selected session has a staged composer
@@ -555,6 +603,7 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
     final selected = controller.selectedSession;
+    _syncHeadlessPolling(controller, selected);
 
     // Returning from the subagent transcript: the parent ListView remounts at
     // the top, so jump once to the most recent message (re-pins). This is a
@@ -1813,6 +1862,38 @@ class _PendingPermissionArea extends StatelessWidget {
   }
 }
 
+/// USO smoke follow-up — a session can accept new input only when it has an
+/// engine session to (re)attach to. A freshly-created chat always carries an
+/// `sdkSessionId` (set at create time, controller line ~698), and completed
+/// scheduled / background runs carry the `sdkSessionId` of their run — the WS
+/// input path auto-resumes them via that id (OPC-M1-5). A row with NO
+/// `sdkSessionId` is a legacy / dead run that cannot be resumed; its composer
+/// is disabled with an inline reason instead of silently dropping the user
+/// into a dead input.
+bool _canSendTo(AgentSession? session) {
+  if (session == null) return false;
+  // A resumable engine session id is always sendable (fresh chat, or a
+  // completed run the WS path auto-resumes via OPC-M1-5).
+  if (session.sdkSessionId?.trim().isNotEmpty ?? false) return true;
+  // No engine session id YET — do NOT show "ended". A live/initializing run
+  // (starting/working) or an active chat awaiting its first turn (idle/
+  // resumable) keeps an enabled composer; its sdkSessionId is assigned once
+  // the engine session spins up. Only a terminated run (closed/error) that
+  // never got an engine session is genuinely unresumable.
+  switch (session.status) {
+    case AgentSessionStatus.closed:
+    case AgentSessionStatus.error:
+      return false;
+    case AgentSessionStatus.starting:
+    case AgentSessionStatus.working:
+    case AgentSessionStatus.idle:
+    case AgentSessionStatus.resumable:
+      return true;
+  }
+}
+
+const String _kUnresumableReason = "This run has ended and can't be resumed.";
+
 /// #602 — Redesigned input area.
 ///
 /// Bottom-left cluster: model picker pill + permission mode pill + file-attach
@@ -1926,6 +2007,10 @@ class _InputAreaState extends State<_InputArea> {
     final controller = context.read<AgentsController>();
     final id = controller.selectedSessionId;
     if (id == null) return;
+    // Graceful degradation: a session with no engine session to (re)attach to
+    // cannot accept new input. Guard here so the Enter key and onSubmitted
+    // paths are blocked too, not just the (disabled) Send button.
+    if (!_canSendTo(controller.selectedSession)) return;
     final text = widget.inputController.text.trim();
     final pending = controller.pendingAttachmentsFor(id);
     if (text.isEmpty && pending.isEmpty) return;
@@ -1944,6 +2029,8 @@ class _InputAreaState extends State<_InputArea> {
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
     final session = controller.selectedSession;
+    // USO smoke follow-up: whether this session can accept new input.
+    final canSend = _canSendTo(session);
     // OPC-M4-1: pending attachments from the controller, keyed by session.
     final pendingAttachments = session != null
         ? controller.pendingAttachmentsFor(session.id)
@@ -1996,6 +2083,34 @@ class _InputAreaState extends State<_InputArea> {
                       .round()) ...[
             const SizedBox(height: 6),
           ],
+          // USO smoke follow-up: inline reason when the session can't be
+          // resumed. The full transcript above stays visible; only input is
+          // disabled so the user is never dropped into a dead input.
+          if (!canSend) ...[
+            Padding(
+              key: const ValueKey('composer-disabled-reason'),
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.lock_outline,
+                    size: 14,
+                    color: context.rhythm.textMuted,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _kUnresumableReason,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.rhythm.textMuted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           // Text field
           SlashCommandPopover(
             inputController: widget.inputController,
@@ -2017,7 +2132,9 @@ class _InputAreaState extends State<_InputArea> {
                 return KeyEventResult.ignored;
               },
               child: TextField(
+                key: const ValueKey('agent-composer-input'),
                 controller: widget.inputController,
+                enabled: canSend,
                 style: TextStyle(
                   fontSize: 13,
                   fontFamily: 'Menlo',
@@ -2027,8 +2144,9 @@ class _InputAreaState extends State<_InputArea> {
                 minLines: 1,
                 onSubmitted: (_) => _send(),
                 decoration: InputDecoration(
-                  hintText:
-                      'Type a command or reply… (Shift+Enter for newline)',
+                  hintText: canSend
+                      ? 'Type a command or reply… (Shift+Enter for newline)'
+                      : _kUnresumableReason,
                   hintStyle: TextStyle(
                     color: context.rhythm.textMuted,
                     fontSize: 13,
@@ -2124,7 +2242,7 @@ class _InputAreaState extends State<_InputArea> {
               const SizedBox(width: 10),
               // Send button
               FilledButton(
-                onPressed: _send,
+                onPressed: canSend ? _send : null,
                 style: FilledButton.styleFrom(
                   backgroundColor: context.rhythm.accent,
                   padding: const EdgeInsets.symmetric(

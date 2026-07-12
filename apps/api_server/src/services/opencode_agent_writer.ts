@@ -32,6 +32,28 @@ import { env } from '../config/env';
 import { scanContextContent } from '../security/context_scanner';
 import type { AgentConfig } from '../repositories/agent_configs_repository';
 import { expandProfileMcpAllowlist } from './agent_profile_scope';
+import { opencodeClient } from './opencode_engine';
+
+/**
+ * #1039 — the fork memoizes its global config (agent registry) with an infinite
+ * TTL, so a freshly written/edited/deleted agent `.md` is invisible to the
+ * RUNNING engine until the next config.get() re-scan. Without this, promoting a
+ * profile to `mode: all` rewrites the file correctly but `session.prompt(agent:
+ * <id>)` still throws "Agent not found" against the stale registry. reloadConfig
+ * (#948, POST /config/reload) invalidates that cache; it's non-throwing and
+ * no-ops when the engine isn't ready. Fire-and-forget keeps writeAgentProfileFile
+ * synchronous and never-throwing (its whole call-graph is sync/void).
+ * ponytail: fire-and-forget — a sub-second write→trigger race is fine for the
+ * designer-save→schedule flow; await + async ripple across ~15 call sites if a
+ * caller ever needs the reload to have completed before it returns.
+ */
+function reloadEngineConfigAfterWrite(): void {
+  // Pass the api_server cwd: headless/scheduled runs create their sessions
+  // under effectiveCwd = process.cwd(), and the fork's reload is per-directory
+  // instance state — a default-only reload leaves THAT instance's agent
+  // registry stale (live-observed: promoted agent still "Agent not found").
+  void opencodeClient.reloadConfig(process.cwd());
+}
 
 /**
  * Prepended to a manager-profile body WITHOUT a delegate roster so that the
@@ -385,7 +407,19 @@ export function writeAgentProfileFile(config: AgentConfig): void {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
     const path = agentFilePath(config.id);
-    const mode = config.sessionSelectable ? 'primary' : 'subagent';
+    // #1039: session-selectable profiles are written `all` (not `primary`).
+    // opencode's mode enum is ["subagent","primary","all"] (agent/agent.ts) and
+    // `all` makes the agent usable BOTH as a top-level primary — so AgentRunner
+    // can run it headless via `agent: <id>` (a scheduled/background run) — AND as
+    // a delegation target for the `task` tool. Writing `primary` would make a
+    // schedulable specialist top-level-runnable but is the wrong idiom for one
+    // that is ALSO a delegate; `all` covers both roles so promoting a profile to
+    // schedulable never removes it as a delegation target. `subagent` (delegation
+    // only) is kept for non-session-selectable profiles — and scheduling one of
+    // those is now blocked at config time (agentSchedulesController), because
+    // opencode won't resolve a subagent-mode agent as a top-level `agent:` target
+    // (throws "Agent not found") → the old silent "model produced no output".
+    const mode = config.sessionSelectable ? 'all' : 'subagent';
     const model =
       config.modelProvider && config.modelId
         ? `${config.modelProvider}/${config.modelId}`
@@ -453,6 +487,7 @@ export function writeAgentProfileFile(config: AgentConfig): void {
     const out = `---\n${fm}\n---\n${body.startsWith('\n') ? body.slice(1) : body}`;
     writeFileSync(path, out.endsWith('\n') ? out : `${out}\n`, 'utf8');
     logger.info(`[OpencodeAgentWriter] wrote agent file for profile "${config.id}"`);
+    reloadEngineConfigAfterWrite();
   } catch (err) {
     logger.warn(`[OpencodeAgentWriter] write failed for "${config.id}": ${String(err)}`);
   }
@@ -468,6 +503,7 @@ export function deleteAgentProfileFile(id: string): void {
     if (existsSync(path)) {
       rmSync(path);
       logger.info(`[OpencodeAgentWriter] removed agent file for profile "${id}"`);
+      reloadEngineConfigAfterWrite();
     }
   } catch (err) {
     logger.warn(`[OpencodeAgentWriter] delete failed for "${id}": ${String(err)}`);

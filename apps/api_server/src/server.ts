@@ -1,9 +1,24 @@
 import http from 'http';
 import path from 'path';
 import { config as loadDotenv } from 'dotenv';
+import { Agent as UndiciAgent, setGlobalDispatcher } from 'undici';
 import { opencodeClient } from './services/opencode_engine';
 import { managedChromeService } from './services/managed_chrome_service';
 import { runAdvisoryCheck, formatStartupWarning } from './security/security_advisories';
+
+// #1039 Cause B — Node's built-in fetch (undici) aborts any request whose
+// response HEADERS haven't arrived within ~300s (UND_ERR_HEADERS_TIMEOUT).
+// The headless AgentRunner path issues ONE synchronous session.prompt HTTP
+// call that blocks server-side for the WHOLE model turn — a real research
+// scan runs past 5 minutes, so undici killed the call underneath a healthy
+// engine turn and the run surfaced as the bogus "model produced no output"
+// (same hidden timeout #892 documents for MCP preflights). Raise the global
+// dispatcher's timeouts above AGENT_RUN_TIMEOUT_MS (default 600s) so
+// AgentRunner's _withinRunDeadline is the single source of timeout truth.
+// Finite (not 0/disabled) so a truly wedged fetch still dies eventually.
+setGlobalDispatcher(
+  new UndiciAgent({ headersTimeout: 900_000, bodyTimeout: 900_000 }),
+);
 
 // Load .env from the api_server root (one level above dist/).
 // CI writes OAuth secrets here before bundling into the .app.

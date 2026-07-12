@@ -2,53 +2,43 @@
 
 ## Current focus
 
-**Unified Session Observability epic (#1034) + #1002 AgentRunner fix
-(2026-07-11)** — every LLM call now observable in one filtered session list,
-and the P1 headless-AgentRunner bug is fixed. 13 issues delivered across 6
-parallel worktree workstreams, integrated + live-verified.
-See `docs/ai/runs/2026-07-11-uso-epic-1002-live-e2e.md` and
-`docs/ai/decisions/2026-07-11-1002-fix-lost-on-main.md`.
+**USO epic + follow-ups shipped (2026-07-12)** — unified session observability
+(PR #1036) plus the background-agent execution fixes and live streaming
+(PR #1077, stacked). All live-verified on the running app. See
+`docs/ai/runs/2026-07-12-uso-followups-live-verified.md`.
 
 ## Active branch / PR
 
-- **`workflow/uso-epic-2026-07-11`** — opening PR closing #1002, #1023-#1034.
-  Verified (tsc + 2683 vitest + Flutter 858 + live e2e). Awaiting CI + manual
-  UI smoke. Do NOT merge without smoke.
-- **Stale PR #1005** — superseded (its #1002 fix is re-landed on this branch);
-  can be closed.
+- **PR #1036** `workflow/uso-epic-2026-07-11` — USO epic (#1002, #1023–#1034).
+  CI green, manual smoke 5/5 PASS. Merge FIRST.
+- **PR #1077** `uso/agent-followups` (stacked on #1036) — #1039 (3 root causes,
+  live-verified) + #1040 (live streaming) + uniform-chat UX. Awaiting CI +
+  final user smoke (watch a scheduled run stream live). Merge after #1036,
+  then retarget/merge.
 
 ## In progress
 
-- Manual UI smoke handoff for the Flutter Phase A surface (category dropdown /
-  status sort / retired Session History / reused transcript detail) and the two
-  deferred live loops (B4 measure re-run, B5 skill-extract).
+- User smoke of live streaming (open a running scheduled session — parts
+  should render as they happen).
 
 ## Risks / known issues
 
-1. **#1023 release-build acceptance is deferred to a real workflow_dispatch**
-   - bundled-node presence, notarization, ABI-equality on the runner, and
-   real-machine start are only provable by an actual signed release build.
-2. **B4/B5 not directly live-run** - unit-verified; their run() path was
-   exercised live via B2/B3. Smoke: approve a measure-routed proposal; drive a
-   2-round skill-extract.
-3. Phase B run() adds skill/memory prefaces (input-only, parsers unaffected)
-   and can teacher-escalate on error - could make a failing measure re-run read
-   slightly cleaner (lenient KEEP); human revert (#857) backstops.
-4. Full-suite has 2 order-dependent flaky tests (AgentProfileSync engine-not-
-   ready timing) - green on clean re-run; pre-existing, not from this change.
-5. Org-optimizer cron stays OFF pending safety review (unchanged).
+1. #1023 release-build acceptance still needs a real `workflow_dispatch` build.
+2. Profile promotions must go through the API (PATCH /agent-configs) — raw
+   SQL edits get reverted by profile sync.
+3. Open follow-ups: #1038 (Projects dark mode), #1041 (workflow-prompt-fix ref
+   resolver). Feature ask not yet filed: async delegation + completion notify.
+4. Org-optimizer cron stays OFF pending safety review (unchanged).
 
 ## Test status
 
-- api_server `tsc --noEmit` clean; full `vitest run` 2683 passed / 0 failed.
-- Flutter `dart format` clean; `flutter analyze --no-fatal-infos` 0 errors/0
-  warnings; `flutter test` 858 passed.
-- Live e2e (standalone :4011, isolated DB copy): 3 scopes correct, #1002
-  headless output confirmed (0 no-output errors), self_improvement transcripts
-  present, B6 audit clean.
+- api_server tsc clean; full vitest 2692 passed / 0 failed.
+- Flutter analyze clean; 861 tests passed.
+- Live e2e: 3 scopes; headless runs produce output past 5 min; mid-flight
+  promote works; streamed multi-step transcripts dedupe cleanly.
 
 ## Next step
 
-1. Open the PR (Closes lines for #1002 + #1023-#1034) and watch CI to green.
-2. Hand off manual UI smoke (checklist in the run log).
-3. After smoke passes, merge; then trigger a release build to prove #1023.
+1. CI green on #1077 → user merges #1036 then #1077 → release build (#1023
+   acceptance).
+2. File the async-delegation + completion-notify feature issue if wanted.

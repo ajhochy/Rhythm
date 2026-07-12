@@ -17,7 +17,7 @@
  *   'notification' — TODO: POST to notifications path (best-effort; no-op for now)
  */
 
-import { opencodeClient } from './opencode_engine';
+import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
@@ -854,20 +854,49 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     const sessionId = sessionResult.id;
     opencodeSessionId = sessionId;
     if (rhythmSessionId) {
+      // #1040 — Route this headless SDK session through the same per-directory
+      // event stream as interactive chats. The bridge resolves SDK event ids
+      // through this map, so register the mapping before starting the stream.
+      opencodeSessionMap.set(rhythmSessionId, sessionId);
       try {
-        new AgentSessionsRepository().setSdkSessionId(rhythmSessionId, sessionId);
+        const sessRepo = new AgentSessionsRepository();
+        sessRepo.setSdkSessionId(rhythmSessionId, sessionId);
+        // Preserve the explicit starting→working transition as the immediate
+        // baseline; subsequent bridge events maintain live status and the
+        // completion block below remains authoritative for final idle/error.
+        sessRepo.updateStatus(rhythmSessionId, 'working');
       } catch (err) {
         logger.warn(`[AgentRunner] setSdkSessionId failed (non-fatal): ${String(err)}`);
+      }
+      // #1040 — lazy import: the bridge singleton constructs repositories at
+      // module load, which breaks every test that mocks them if imported
+      // top-level from this widely-imported module (same pattern as
+      // resolveTieredModel above). Await only the (cached) import; the
+      // subscription itself stays fire-and-forget and never blocks the run.
+      try {
+        const { streamBridge } = await import('./opencode_stream_bridge');
+        void streamBridge
+          .streamSession(rhythmSessionId, sessionId, effectiveCwd)
+          .catch((err) =>
+            logger.warn(
+              `[AgentRunner] stream bridge subscription failed (non-fatal): ${String(err)}`,
+            ),
+          );
+      } catch (err) {
+        logger.warn(
+          `[AgentRunner] stream bridge import failed (non-fatal): ${String(err)}`,
+        );
       }
     }
 
     // ── Send the prompt SYNCHRONOUSLY and get the full response ───────────────
     // #738-fix (root cause): the runner used promptAsync() — fire-and-forget,
-    // whose results only arrive via the opencode SSE /event stream. The WS
-    // gateway consumes that stream (driving generation); a headless runner has
-    // NO consumer, so the prompt enqueued but was never driven → 0 messages →
-    // timeout. session.prompt() blocks server-side until the model finishes and
-    // RETURNS { info, parts }, so it works without a live event subscriber.
+    // whose results only arrive via the opencode SSE /event stream. Before
+    // #1040, the WS gateway consumed that stream but a headless runner had NO
+    // consumer, so the prompt enqueued but was never driven → 0 messages →
+    // timeout. session.prompt() still blocks server-side until the model
+    // finishes and RETURNS { info, parts }; the new stream is observability,
+    // never completion authority.
     // Pass the resolved model + bypassPermissions (no UI to approve tool perms,
     // else claude/anthropic stalls — ws_gateway.ts #711).
     //
@@ -887,9 +916,28 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // GUARDRAIL (#738): do NOT pass `agentKind` (provider kind) as `agent`.
     // Only the profile's ocAgent (an opencode *mode* e.g. 'build'/'plan') is forwarded.
     // When ocAgent is null, omit the field to preserve the existing #738 behavior.
+    // #1039 Cause B — single-source scoping when running AS the profile's own
+    // registered agent. agent_profile_sync (#858) backfills oc_agent to the
+    // profile id, so for a scheduled/background profile run effectiveOcAgent ===
+    // effectiveConfigId — i.e. we pass `agent: <profileId>` and opencode loads
+    // that profile's `.md`. That `.md` body IS the profile systemPrompt
+    // (opencode_agent_writer writes body = systemPrompt), and opencode layers a
+    // per-message `system:` override AFTER the agent prompt (session/llm.ts) — so
+    // passing effectiveSystemPrompt here duplicates the profile prompt on top of
+    // itself. The `.md` is the single source of the agent's prompt: omit the
+    // `system:` override on this path and let the frontmatter/body drive it.
+    //   Gated by `!mcpRole` so the self_improvement / mcp-role path (skill-refine,
+    // measure, extract, proposal re-runs — all pass mcpRole + assemble scope via
+    // mcpRoleConfig, NOT via the profile's own .md) keeps its existing behavior:
+    // it still forwards the system override. A genuine built-in ocAgent
+    // ('build'/'plan', where ocAgent !== configId) also keeps the override.
+    const runningAsOwnAgent =
+      !mcpRole && effectiveOcAgent !== null && effectiveOcAgent === effectiveConfigId;
     const promptOpts: Record<string, unknown> = {
       permissionMode: 'bypassPermissions',
-      ...(effectiveSystemPrompt !== null ? { system: effectiveSystemPrompt } : {}),
+      ...(effectiveSystemPrompt !== null && !runningAsOwnAgent
+        ? { system: effectiveSystemPrompt }
+        : {}),
       ...(effectiveOcAgent !== null ? { agent: effectiveOcAgent } : {}),
     };
     // #1002: opencode sessions are DIRECTORY-SCOPED. The session was created
@@ -951,16 +999,41 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     }
 
     // ── Persist to Rhythm's message store + flip status ───────────────────────
-    // AgentRunner bypasses the WS stream bridge (which normally persists turns +
-    // flips status for interactive chats), so without this the run's session
-    // stays stuck on 'starting'/"Waiting for output…" in the UI even though it
-    // succeeded. Write the prompt + assistant result and mark the session idle.
+    // The stream bridge now persists structured parts live for headless runs,
+    // but completion remains authoritative for reliability (#738). Upsert the
+    // final assistant response by its SDK message id so this fallback and the
+    // bridge converge on one row regardless of which writer arrives first.
+    // If the SDK omits a message id, retain the legacy append behavior.
     if (rhythmSessionId) {
       try {
         const msgRepo = new AgentSessionMessagesRepository();
-        msgRepo.append(rhythmSessionId, 'input', prompt, prompt);
+        // #1040 dedupe (input side): the stream bridge also persists the user
+        // message (role 'user' → 'input') with its sdk_message_id. Only append
+        // the legacy input row when the bridge hasn't already written one for
+        // this fresh headless session — otherwise every run shows a doubled
+        // prompt. (Headless sessions are one-turn, so any existing input row
+        // means the bridge got there first.)
+        const hasBridgeInput = msgRepo
+          .listBySession(rhythmSessionId, 50)
+          .some((m) => m.role === 'input');
+        if (!hasBridgeInput) {
+          msgRepo.append(rhythmSessionId, 'input', prompt, prompt);
+        }
         if (resultText) {
-          msgRepo.append(rhythmSessionId, 'output', resultText, resultText);
+          const sdkMessageId =
+            typeof response.info?.id === 'string' ? response.info.id : null;
+          if (sdkMessageId) {
+            msgRepo.upsertStructured(
+              rhythmSessionId,
+              sdkMessageId,
+              'output',
+              JSON.stringify(response.parts ?? []),
+              null,
+              null,
+            );
+          } else {
+            msgRepo.append(rhythmSessionId, 'output', resultText, resultText);
+          }
         }
         const sessRepo = new AgentSessionsRepository();
         sessRepo.updateStatus(rhythmSessionId, 'idle');
