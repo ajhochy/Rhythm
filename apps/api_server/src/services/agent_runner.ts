@@ -17,7 +17,7 @@
  *   'notification' — TODO: POST to notifications path (best-effort; no-op for now)
  */
 
-import { opencodeClient } from './opencode_engine';
+import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
@@ -854,26 +854,49 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     const sessionId = sessionResult.id;
     opencodeSessionId = sessionId;
     if (rhythmSessionId) {
+      // #1040 — Route this headless SDK session through the same per-directory
+      // event stream as interactive chats. The bridge resolves SDK event ids
+      // through this map, so register the mapping before starting the stream.
+      opencodeSessionMap.set(rhythmSessionId, sessionId);
       try {
         const sessRepo = new AgentSessionsRepository();
         sessRepo.setSdkSessionId(rhythmSessionId, sessionId);
-        // Headless runs bypass the WS stream bridge, so nothing ever flipped
-        // starting→working — the UI showed "Starting" for the entire (possibly
-        // many-minute) turn. Mark the run as working once the engine session
-        // exists; the completion block below writes the final idle/error.
+        // Preserve the explicit starting→working transition as the immediate
+        // baseline; subsequent bridge events maintain live status and the
+        // completion block below remains authoritative for final idle/error.
         sessRepo.updateStatus(rhythmSessionId, 'working');
       } catch (err) {
         logger.warn(`[AgentRunner] setSdkSessionId failed (non-fatal): ${String(err)}`);
+      }
+      // #1040 — lazy import: the bridge singleton constructs repositories at
+      // module load, which breaks every test that mocks them if imported
+      // top-level from this widely-imported module (same pattern as
+      // resolveTieredModel above). Await only the (cached) import; the
+      // subscription itself stays fire-and-forget and never blocks the run.
+      try {
+        const { streamBridge } = await import('./opencode_stream_bridge');
+        void streamBridge
+          .streamSession(rhythmSessionId, sessionId, effectiveCwd)
+          .catch((err) =>
+            logger.warn(
+              `[AgentRunner] stream bridge subscription failed (non-fatal): ${String(err)}`,
+            ),
+          );
+      } catch (err) {
+        logger.warn(
+          `[AgentRunner] stream bridge import failed (non-fatal): ${String(err)}`,
+        );
       }
     }
 
     // ── Send the prompt SYNCHRONOUSLY and get the full response ───────────────
     // #738-fix (root cause): the runner used promptAsync() — fire-and-forget,
-    // whose results only arrive via the opencode SSE /event stream. The WS
-    // gateway consumes that stream (driving generation); a headless runner has
-    // NO consumer, so the prompt enqueued but was never driven → 0 messages →
-    // timeout. session.prompt() blocks server-side until the model finishes and
-    // RETURNS { info, parts }, so it works without a live event subscriber.
+    // whose results only arrive via the opencode SSE /event stream. Before
+    // #1040, the WS gateway consumed that stream but a headless runner had NO
+    // consumer, so the prompt enqueued but was never driven → 0 messages →
+    // timeout. session.prompt() still blocks server-side until the model
+    // finishes and RETURNS { info, parts }; the new stream is observability,
+    // never completion authority.
     // Pass the resolved model + bypassPermissions (no UI to approve tool perms,
     // else claude/anthropic stalls — ws_gateway.ts #711).
     //
@@ -976,16 +999,41 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     }
 
     // ── Persist to Rhythm's message store + flip status ───────────────────────
-    // AgentRunner bypasses the WS stream bridge (which normally persists turns +
-    // flips status for interactive chats), so without this the run's session
-    // stays stuck on 'starting'/"Waiting for output…" in the UI even though it
-    // succeeded. Write the prompt + assistant result and mark the session idle.
+    // The stream bridge now persists structured parts live for headless runs,
+    // but completion remains authoritative for reliability (#738). Upsert the
+    // final assistant response by its SDK message id so this fallback and the
+    // bridge converge on one row regardless of which writer arrives first.
+    // If the SDK omits a message id, retain the legacy append behavior.
     if (rhythmSessionId) {
       try {
         const msgRepo = new AgentSessionMessagesRepository();
-        msgRepo.append(rhythmSessionId, 'input', prompt, prompt);
+        // #1040 dedupe (input side): the stream bridge also persists the user
+        // message (role 'user' → 'input') with its sdk_message_id. Only append
+        // the legacy input row when the bridge hasn't already written one for
+        // this fresh headless session — otherwise every run shows a doubled
+        // prompt. (Headless sessions are one-turn, so any existing input row
+        // means the bridge got there first.)
+        const hasBridgeInput = msgRepo
+          .listBySession(rhythmSessionId, 50)
+          .some((m) => m.role === 'input');
+        if (!hasBridgeInput) {
+          msgRepo.append(rhythmSessionId, 'input', prompt, prompt);
+        }
         if (resultText) {
-          msgRepo.append(rhythmSessionId, 'output', resultText, resultText);
+          const sdkMessageId =
+            typeof response.info?.id === 'string' ? response.info.id : null;
+          if (sdkMessageId) {
+            msgRepo.upsertStructured(
+              rhythmSessionId,
+              sdkMessageId,
+              'output',
+              JSON.stringify(response.parts ?? []),
+              null,
+              null,
+            );
+          } else {
+            msgRepo.append(rhythmSessionId, 'output', resultText, resultText);
+          }
         }
         const sessRepo = new AgentSessionsRepository();
         sessRepo.updateStatus(rhythmSessionId, 'idle');
