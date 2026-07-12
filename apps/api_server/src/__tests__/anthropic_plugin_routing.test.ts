@@ -67,8 +67,8 @@ let portA = 0;
 let portB = 0;
 let anthropicRequests: CapturedRequest[] = [];
 let spilloverBodies: Record<string, unknown>[] = [];
-/** When set, stubA answers this bearer with 429 + retry-after far over the cap. */
-let rateLimitedBearer: string | null = null;
+/** Bearers that should return an immediate quota-exhaustion response. */
+let rateLimitedBearers = new Map<string, 429 | 529>();
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
@@ -99,8 +99,9 @@ beforeAll(async () => {
     void readBody(req).then((body) => {
       const auth = (req.headers['authorization'] as string | undefined) ?? null;
       anthropicRequests.push({ auth, path: req.url ?? '', body });
-      if (rateLimitedBearer && auth === `Bearer ${rateLimitedBearer}`) {
-        res.writeHead(429, {
+      const rateLimitStatus = rateLimitedBearers.get(auth?.replace(/^Bearer /, '') ?? '');
+      if (rateLimitStatus) {
+        res.writeHead(rateLimitStatus, {
           'content-type': 'application/json',
           // Far over the plugin's 30s retry cap → fetchWithRetry returns the
           // 429 immediately (quota-exhaustion path), exactly one request sent.
@@ -220,7 +221,7 @@ function requestInit(sessionId?: string): RequestInit {
 beforeEach(() => {
   anthropicRequests = [];
   spilloverBodies = [];
-  rateLimitedBearer = null;
+  rateLimitedBearers = new Map();
   storeFile = join(mkdtempSync(join(tmpdir(), 'plugin-routing-')), 'accounts.json');
   writeStoreFixture();
   process.env.RHYTHM_ACCOUNTS_FILE = storeFile;
@@ -255,7 +256,7 @@ describe('rhythm-anthropic-accounts plugin routing', () => {
   });
 
   it('fails over to the fallback account on quota-exhaustion 429 and reports spillover', async () => {
-    rateLimitedBearer = TEAM_TOKEN;
+    rateLimitedBearers.set(TEAM_TOKEN, 429);
     const opts = await loadPluginFetch();
     const res = await opts.fetch(messagesUrl(), requestInit('ses_a'));
 
@@ -283,6 +284,33 @@ describe('rhythm-anthropic-accounts plugin routing', () => {
     expect(anthropicRequests[2].auth).toBe(`Bearer ${PERSONAL_TOKEN}`);
   });
 
+  it.each([429, 529] as const)(
+    'reports total exhaustion when both accounts return %i',
+    async (status) => {
+      rateLimitedBearers.set(TEAM_TOKEN, status);
+      rateLimitedBearers.set(PERSONAL_TOKEN, status);
+      const opts = await loadPluginFetch();
+      const res = await opts.fetch(messagesUrl(), requestInit('ses_a'));
+
+      // The plugin retries once with personal, then keeps the original
+      // response while reporting that no Anthropic account remains usable.
+      expect(res.status).toBe(status);
+      expect(anthropicRequests).toHaveLength(2);
+      expect(anthropicRequests[0].auth).toBe(`Bearer ${TEAM_TOKEN}`);
+      expect(anthropicRequests[1].auth).toBe(`Bearer ${PERSONAL_TOKEN}`);
+
+      await waitFor(() => spilloverBodies.length >= 1);
+      expect(spilloverBodies).toContainEqual(
+        expect.objectContaining({
+          sdkSessionId: 'ses_a',
+          fromAccountId: 'personal',
+          exhausted: true,
+          reason: 'rate_limited',
+        }),
+      );
+    },
+  );
+
   it('RHYTHM_FORCE_SPILLOVER deterministically routes to the fallback before sending', async () => {
     process.env.RHYTHM_FORCE_SPILLOVER = 'team';
     const opts = await loadPluginFetch();
@@ -304,7 +332,7 @@ describe('rhythm-anthropic-accounts plugin routing', () => {
 
   it('a fresh store write beats a stale spillover override', async () => {
     // Spill ses_a from team → personal (records the in-memory override).
-    rateLimitedBearer = TEAM_TOKEN;
+    rateLimitedBearers.set(TEAM_TOKEN, 429);
     const opts = await loadPluginFetch();
     const res = await opts.fetch(messagesUrl(), requestInit('ses_a'));
     expect(res.status).toBe(200);
@@ -314,7 +342,7 @@ describe('rhythm-anthropic-accounts plugin routing', () => {
 
     // api_server rewrites the store routing ses_a back to team. Force the
     // mtime strictly forward — same-ms rewrites must still win.
-    rateLimitedBearer = null;
+    rateLimitedBearers = new Map();
     writeStoreFixture({ ses_a: 'team' });
     const bumped = new Date(statSync(storeFile).mtimeMs + 2000);
     utimesSync(storeFile, bumped, bumped);

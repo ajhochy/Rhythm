@@ -352,6 +352,12 @@ const plugin = async () => {
                                 rhythmAccount = rhythmFallback;
                                 rhythmFallback = undefined;
                             }
+                            else if (retryResponse.status === 429 || retryResponse.status === 529) {
+                                // Both Anthropic accounts are exhausted. Keep the original
+                                // response so callers retain the first failure, but notify
+                                // api_server so it can hand off to the next provider tier.
+                                markAccountsExhausted(rhythmSessionId, rhythmFallback.id);
+                            }
                         }
                         // rhythm: #930 — same rate-limit condition as above, but with NO other
                         // Anthropic account to spill to (rhythmFallback undefined). Report

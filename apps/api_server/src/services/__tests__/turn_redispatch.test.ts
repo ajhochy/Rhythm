@@ -19,6 +19,7 @@ import {
   onSessionError,
   decideHandoff,
   failHandoff,
+  advanceFallbackCascade,
   redispatchTurn,
   _resetForTests,
   RedispatchDeps,
@@ -31,6 +32,7 @@ const MSG = 'msg_user_1';
 function makeDeps(overrides?: Partial<RedispatchDeps>): RedispatchDeps & {
   abort: ReturnType<typeof vi.fn>;
   revert: ReturnType<typeof vi.fn>;
+  prepare: ReturnType<typeof vi.fn>;
   prompt: ReturnType<typeof vi.fn>;
   clearError: ReturnType<typeof vi.fn>;
   setError: ReturnType<typeof vi.fn>;
@@ -38,6 +40,7 @@ function makeDeps(overrides?: Partial<RedispatchDeps>): RedispatchDeps & {
   return {
     abort: vi.fn().mockResolvedValue(true),
     revert: vi.fn().mockResolvedValue(undefined),
+    prepare: vi.fn().mockResolvedValue(true),
     prompt: vi.fn().mockResolvedValue(true),
     clearError: vi.fn(),
     setError: vi.fn(),
@@ -127,7 +130,7 @@ describe('single-flight — duplicate exhausted reports from the engine retry lo
 });
 
 describe('at-most-once', () => {
-  it('a session.error AFTER a successful re-dispatch finalizes normally — no second retry', async () => {
+  it('a non-rate-limit session.error AFTER a successful re-dispatch finalizes normally', async () => {
     seedTurn();
     beginHandoff(SID);
     decideHandoff(SID, 'openai', 'gpt-5.3-codex');
@@ -137,6 +140,84 @@ describe('at-most-once', () => {
     expect(onSessionError(SID, 'openai 400 tool pairing')).toBe('finalize');
     // And there is no lingering state — a further error also finalizes.
     expect(onSessionError(SID, 'again')).toBe('finalize');
+  });
+});
+
+describe('bounded multi-tier rate-limit cascade', () => {
+  it('walks Anthropic -> Codex -> Gemini -> OpenRouter once each, then terminates', async () => {
+    retainTurn(SID, {
+      sdkSessionId: SDK,
+      data: 'PREFACE\n\noriginal user prompt',
+      cwd: '/tmp/work',
+      model: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+      mcpRoleConfig: null,
+    });
+    noteUserMessage(SID, MSG);
+    const engine = makeDeps();
+    const cascadeDeps = {
+      listAuthedProviders: vi
+        .fn()
+        .mockResolvedValue(['anthropic', 'openai', 'google', 'openrouter']),
+      persistDecision: vi.fn(),
+      notifyDecision: vi.fn(),
+      redispatch: (id: string) => redispatchTurn(id, engine),
+    };
+
+    const first = await advanceFallbackCascade(
+      SID,
+      { providerID: 'anthropic', message: 'Anthropic exhausted' },
+      cascadeDeps,
+    );
+    expect(first).toMatchObject({
+      outcome: 'redispatched',
+      decision: { tier: { id: 'codex' }, providerID: 'openai' },
+    });
+
+    expect(
+      onSessionError(SID, 'OpenAI 429', {
+        name: 'APIError',
+        data: { statusCode: 429, isRetryable: true },
+      }),
+    ).toBe('cascade');
+    const second = await advanceFallbackCascade(SID, { message: 'OpenAI 429' }, cascadeDeps);
+    expect(second).toMatchObject({
+      outcome: 'redispatched',
+      decision: { tier: { id: 'gemini' }, providerID: 'google' },
+    });
+
+    expect(
+      onSessionError(SID, 'Google RESOURCE_EXHAUSTED', {
+        name: 'APIError',
+        data: { statusCode: 429, isRetryable: true },
+      }),
+    ).toBe('cascade');
+    const third = await advanceFallbackCascade(SID, { message: 'Google exhausted' }, cascadeDeps);
+    expect(third).toMatchObject({
+      outcome: 'redispatched',
+      decision: { tier: { id: 'openrouter-free' }, providerID: 'openrouter' },
+    });
+
+    expect(
+      onSessionError(SID, 'OpenRouter 429', {
+        name: 'APIError',
+        data: { statusCode: 429, isRetryable: true },
+      }),
+    ).toBe('cascade');
+    await expect(
+      advanceFallbackCascade(SID, { message: 'OpenRouter exhausted' }, cascadeDeps),
+    ).resolves.toEqual({ outcome: 'terminal', error: 'OpenRouter 429' });
+
+    expect((engine.prompt as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[2]))
+      .toEqual([
+        { providerID: 'openai', modelID: 'gpt-5.4' },
+        { providerID: 'google', modelID: 'gemini-2.5-pro' },
+        { providerID: 'openrouter', modelID: 'openrouter/free' },
+      ]);
+    expect(engine.prepare.mock.calls.map((call) => call[2])).toEqual([
+      'openai',
+      'google',
+      'openrouter',
+    ]);
   });
 });
 
