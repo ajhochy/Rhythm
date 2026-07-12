@@ -2795,6 +2795,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       sessionFirstSeenAt.remove(msg.id);
       _disposeTerminal(msg.id);
       if (_selectedSessionId == msg.id) _selectedSessionId = null;
+    } else if (msg is AgentConfigsChangedMessage) {
+      unawaited(refreshCatalog());
+      final activeSessionId = _selectedSessionId;
+      if (activeSessionId != null) {
+        unawaited(fetchAvailableAgents(activeSessionId));
+      }
     } else if (msg is PermissionAskedMessage) {
       final list = _pendingPermissions.putIfAbsent(msg.sessionId, () => []);
       // Deduplicate by permissionId.

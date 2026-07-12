@@ -33,6 +33,8 @@ abstract class AgentWsMessage {
         return SessionUpdatedMessage.fromJson(json);
       case 'session.removed':
         return SessionRemovedMessage.fromJson(json);
+      case 'agent-configs.changed':
+        return const AgentConfigsChangedMessage();
       case 'trigger.fired':
         return TriggerFiredMessage.fromJson(json);
       case 'notification.push':
@@ -377,6 +379,12 @@ class SessionRemovedMessage extends AgentWsMessage {
   factory SessionRemovedMessage.fromJson(Map<String, dynamic> json) {
     return SessionRemovedMessage(id: asString(json['id']) ?? '');
   }
+}
+
+/// Server broadcast after an agent profile is created, updated, deleted, or
+/// re-synced to disk. Consumers should refresh profile-derived caches.
+class AgentConfigsChangedMessage extends AgentWsMessage {
+  const AgentConfigsChangedMessage();
 }
 
 /// #608 — server broadcast when the SDK emits `permission.asked`.

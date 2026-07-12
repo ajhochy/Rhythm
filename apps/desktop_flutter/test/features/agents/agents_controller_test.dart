@@ -5,9 +5,11 @@ import 'package:rhythm_desktop/app/core/agents/agent_server_controller.dart';
 import 'package:rhythm_desktop/app/core/notifications/local_notification_service.dart';
 import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
 import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dart';
+import 'package:rhythm_desktop/features/agents/data/agent_models_data_source.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
+import 'package:rhythm_desktop/features/agents/models/catalog_model_entry.dart';
 import 'package:rhythm_desktop/features/agents/models/chat_models.dart';
 import 'package:rhythm_desktop/features/agents/repositories/agents_repository.dart';
 import 'package:rhythm_desktop/features/notifications/controllers/notifications_controller.dart';
@@ -74,6 +76,7 @@ class _FakeAgentsRepository implements AgentsRepository {
   bool disposeCalled = false;
   final List<Map<String, dynamic>> sentMessages = [];
   List<AgentSession> sessionsToReturn = [];
+  List<AgentInfo> availableAgentsToReturn = const [];
 
   /// Push a synthetic WS message from the test.
   void emit(AgentWsMessage msg) => _msgController.add(msg);
@@ -261,7 +264,8 @@ class _FakeAgentsRepository implements AgentsRepository {
   }
 
   @override
-  Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) async => const [];
+  Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) async =>
+      availableAgentsToReturn;
 
   @override
   Future<String> createPty(String sessionId) async => 'pty-stub';
@@ -274,6 +278,13 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   String ptyWsUrl(String ptyId) => 'ws://localhost:4001/ws/pty/$ptyId';
+}
+
+class _FakeAgentModelsDataSource extends AgentModelsDataSource {
+  List<CatalogModelEntry> catalogToReturn = const [];
+
+  @override
+  Future<List<CatalogModelEntry>> fetchCatalog() async => catalogToReturn;
 }
 
 // ---------------------------------------------------------------------------
@@ -613,6 +624,52 @@ void main() {
       expect(controller.sessions.map((s) => s.id), containsAll(['a', 'b']));
       expect(controller.resumable, hasLength(1));
       expect(controller.resumable.first.id, 'r1');
+    });
+
+    test(
+        'AgentConfigsChangedMessage refreshes the catalog and selected-session agents',
+        () async {
+      final modelsDataSource = _FakeAgentModelsDataSource();
+      final localController = AgentsController(
+        fakeRepo,
+        _FakeAgentServerController(ready: true, anyAgent: true),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        modelsDataSource: modelsDataSource,
+      );
+      addTearDown(localController.dispose);
+
+      localController.handleWsMessageForTest(SessionCreatedMessage(
+        session: _makeSession('active-session', AgentSessionStatus.idle),
+      ));
+      await localController.selectSession('active-session');
+      await pumpEventQueue();
+
+      modelsDataSource.catalogToReturn = const [
+        CatalogModelEntry(
+          agent: 'opencode',
+          provider: 'anthropic',
+          modelId: 'claude-sonnet-4-6',
+          displayName: 'Claude Sonnet 4.6',
+          route: 'direct',
+          authorized: true,
+          authProvider: 'anthropic',
+        ),
+      ];
+      fakeRepo.availableAgentsToReturn = const [
+        AgentInfo(name: 'config-doctor', builtIn: false),
+      ];
+
+      localController.handleWsMessageForTest(
+        const AgentConfigsChangedMessage(),
+      );
+      await pumpEventQueue();
+
+      expect(localController.catalog.single.modelId, 'claude-sonnet-4-6');
+      expect(
+        localController.availableAgentsFor('active-session').single.name,
+        'config-doctor',
+      );
     });
   });
 
