@@ -1,0 +1,51 @@
+{
+  "run_id": "2026-07-10-issue-999",
+  "issue": 999,
+  "date": "2026-07-10",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-999-c1",
+      "text": "Session History transcripts render for tool-using sessions (not '(empty message)')",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Real app click-through against the branch backend: 'Memory Consolidation' and 'daily-morning-briefing' (both tool-using) rendered full Input+Output transcripts. Backend probe: GET /agent-sessions/:id/messages returned 63/63 msgs, 248 parts. Reported symptom fixed."
+    },
+    {
+      "criterion_id": "issue-999-c2-adjacent",
+      "text": "(adjacent, not in #999 scope) errored/failed sessions render a transcript or empty-state",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "none",
+      "notes": "User: 'failed sessions show nothing'. Two cases confirmed via :4001: (1) interrupted 0-msg sessions have no transcript (need empty-state); (2) aborted-with-content sessions (e.g. 0788f045 = 70 msgs/226 parts) — endpoint returns parts but UI blanks them. Backend serves the data; gap is view-side. NOT a #999 regression — filed as follow-up #1006."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "release-deploy",
+      "description": "Production task server api.vcrcapps.com returned HTTP 502 during smoke, blocking the desktop shell's prod-health gate. Worked around with --dart-define=RHYTHM_SERVER_URL=http://localhost:4001 so the agents-server screens (#999/#1000, hardcoded to :4001) could be smoked. Prod outage is unrelated to this PR.",
+      "detected_by": "curl https://api.vcrcapps.com/health -> 502; app error screen 'Could not reach the Rhythm server'"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "coding-agent (in-process)", "verification-gate (in-process live probes)", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": ["acceptance-contract"],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "acceptance-contract",
+        "description": "acceptance-contract not invoked — these were pre-scoped bug fixes with no issue-writer acceptance section; live behavioral probes were used as the gate per the run's DoD instead of contract tests.",
+        "detected_by": "transcript inspection; no docs/ai/contracts/issue-999.json produced"
+      }
+    ]
+  },
+  "implementation_files": ["apps/api_server/src/controllers/agent_sessions_controller.ts"],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Ship #999 (verified). Track the errored-session blank-transcript gap as #1006 (Flutter view-side)."
+}
