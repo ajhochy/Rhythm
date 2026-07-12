@@ -14,14 +14,19 @@ const configsRepo = new AgentConfigsRepository();
  * opencode exposes subagents ONLY as delegation targets — resolving one as a
  * top-level `agent:` throws "Agent not found", which used to surface as the
  * silent "model produced no output" at run time. Reject that binding here, at
- * config time, with an actionable message instead. CLI kinds ('opencode' /
- * 'claude' / 'codex') and built-in modes have no agent_configs row → getById
- * returns null → no guard fires (they are runnable). Never throws on lookup.
+ * config time, with an actionable message instead. CLI kinds either have no
+ * agent_configs row (getById returns null) or exist only as preset rows
+ * (preset_id set) — presets are excluded from .md projection entirely
+ * (opencode_agent_writer), so they can never be a delegation-only subagent
+ * and the guard must not fire on them regardless of session_selectable
+ * (which for presets only controls picker visibility). Never throws on
+ * lookup.
  */
 function assertSchedulableProfile(configId: string | null | undefined): void {
   if (!configId || typeof configId !== 'string') return;
   const config = configsRepo.getById(configId);
   if (!config) return; // not a profile (CLI kind / built-in) — runnable
+  if (config.presetId) return; // CLI preset — runs via PTY runner, never a subagent
   if (config.sessionSelectable === false) {
     throw AppError.badRequest(
       `"${config.label}" is a delegation-only subagent and can't be scheduled — ` +

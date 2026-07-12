@@ -53,6 +53,7 @@ import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { recordSeedMarker, seedMarkerExists } from './seed_once';
 
 // ── .mcp-roles reader (READ-ONLY for the tool-grant map; mirrors
 // ministry_recipes_seed.ts's resolution strategy, generalized to a role name
@@ -288,8 +289,13 @@ export async function seedOrgOptimizerTask(): Promise<OrgOptimizerSeedResult> {
 
   // ── Internal audit task (daily) ───────────────────────────────────────
   const AUDIT_TASK_NAME = 'Org Self-Optimizer';
+  const auditMarker = `seeded_task:${AUDIT_TASK_NAME}`;
   if (existingTasks.some((t) => t.name === AUDIT_TASK_NAME)) {
+    recordSeedMarker(auditMarker); // adopt pre-marker installs
     result.auditTaskSkippedReason = 'already seeded';
+  } else if (seedMarkerExists(auditMarker)) {
+    // Durable tombstone: the user deleted the seeded task — never resurrect it.
+    result.auditTaskSkippedReason = 'deleted by user (tombstoned)';
   } else {
     const roleFile = readRoleFile('org-optimizer');
     if (!roleFile) {
@@ -318,6 +324,7 @@ export async function seedOrgOptimizerTask(): Promise<OrgOptimizerSeedResult> {
           allowedMcpsJson: JSON.stringify(canonicalMcpToolsMap(roleFile)),
           allowedSkillsJson: allowedSkillsScopeJson(roleFile) ?? undefined,
         });
+        recordSeedMarker(auditMarker);
         result.auditTaskSeeded = true;
         existingTasks.push({ name: AUDIT_TASK_NAME } as (typeof existingTasks)[number]);
         logger.info(`[org-optimizer-seed] seeded "${AUDIT_TASK_NAME}" (daily @ 02:00)`);
@@ -330,8 +337,13 @@ export async function seedOrgOptimizerTask(): Promise<OrgOptimizerSeedResult> {
 
   // ── External discovery task (weekly) ──────────────────────────────────
   const EXTERNAL_TASK_NAME = 'Org External Discovery';
+  const externalMarker = `seeded_task:${EXTERNAL_TASK_NAME}`;
   if (existingTasks.some((t) => t.name === EXTERNAL_TASK_NAME)) {
+    recordSeedMarker(externalMarker); // adopt pre-marker installs
     result.externalTaskSkippedReason = 'already seeded';
+  } else if (seedMarkerExists(externalMarker)) {
+    // Durable tombstone: the user deleted the seeded task — never resurrect it.
+    result.externalTaskSkippedReason = 'deleted by user (tombstoned)';
   } else {
     const roleFile = readRoleFile('org-external-discovery');
     if (!roleFile) {
@@ -362,6 +374,7 @@ export async function seedOrgOptimizerTask(): Promise<OrgOptimizerSeedResult> {
           allowedMcpsJson: JSON.stringify(canonicalMcpToolsMap(roleFile)),
           allowedSkillsJson: allowedSkillsScopeJson(roleFile) ?? undefined,
         });
+        recordSeedMarker(externalMarker);
         result.externalTaskSeeded = true;
         logger.info(`[org-optimizer-seed] seeded "${EXTERNAL_TASK_NAME}" (weekly)`);
       } catch (err) {

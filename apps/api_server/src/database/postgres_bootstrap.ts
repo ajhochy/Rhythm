@@ -812,11 +812,32 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_category ON agent_sessions(category);
   `);
 
+  // One-time repair, marker-guarded (schema_meta) — same contract as the
+  // SQLite twin in migrations.ts ('nonmanager_delegates_wipe_v1'): this
+  // bootstrap runs on EVERY boot, so an unguarded content UPDATE here
+  // re-stomps user edits on every restart. Content repairs must be
+  // one-time; only structural statements may run unguarded.
   await pool.query(`
-    UPDATE agent_configs
-       SET allowed_delegates_json = NULL
-     WHERE id IN ('worship-planning', 'theologian')
-       AND COALESCE(is_manager, 0) = 0
-       AND allowed_delegates_json IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS schema_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
   `);
+  const wipeMarker = await pool.query(
+    `SELECT key FROM schema_meta WHERE key = 'nonmanager_delegates_wipe_v1'`,
+  );
+  if ((wipeMarker.rowCount ?? 0) === 0) {
+    await pool.query(`
+      UPDATE agent_configs
+         SET allowed_delegates_json = NULL
+       WHERE id IN ('worship-planning', 'theologian')
+         AND COALESCE(is_manager, 0) = 0
+         AND allowed_delegates_json IS NOT NULL;
+    `);
+    await pool.query(
+      `INSERT INTO schema_meta (key, value) VALUES ('nonmanager_delegates_wipe_v1', $1)
+       ON CONFLICT (key) DO NOTHING`,
+      [new Date().toISOString()],
+    );
+  }
 }

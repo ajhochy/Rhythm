@@ -17,6 +17,7 @@
 
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
+import { recordSeedMarker, seedMarkerExists } from './seed_once';
 import { logger } from '../utils/logger';
 import { resolveMemoryDirPath } from '../config/env';
 import { vaultKeyToMemoryDirRelative } from './memoryVaultSyncService';
@@ -134,9 +135,15 @@ export const agentMemoryService = {
    * Safe to call on every startup — idempotent (checks before inserting).
    */
   async seedConsolidationTask() {
+    const marker = 'seeded_task:Memory Consolidation';
     const existing = await schedRepo.listAllAsync();
     const alreadySeeded = existing.some((t) => t.name === 'Memory Consolidation');
-    if (alreadySeeded) return;
+    if (alreadySeeded) {
+      recordSeedMarker(marker); // adopt pre-marker installs
+      return;
+    }
+    // Durable tombstone: the user deleted the seeded task — never resurrect it.
+    if (seedMarkerExists(marker)) return;
 
     await schedRepo.createAsync({
       name: 'Memory Consolidation',
@@ -160,6 +167,7 @@ Report how many memories were added.`,
       allowedSkillsJson: JSON.stringify(['anthropic-skills:consolidate-memory']),
     });
 
+    recordSeedMarker(marker);
     logger.info('[AgentMemory] Seeded memory consolidation scheduled task');
   },
 
@@ -179,9 +187,15 @@ Report how many memories were added.`,
    * background scan. Idempotent — safe to call on every startup.
    */
   async seedMemoryInterviewTask() {
+    const marker = 'seeded_task:Memory Interview';
     const existing = await schedRepo.listAllAsync();
     const alreadySeeded = existing.some((t) => t.name === 'Memory Interview');
-    if (alreadySeeded) return;
+    if (alreadySeeded) {
+      recordSeedMarker(marker); // adopt pre-marker installs
+      return;
+    }
+    // Durable tombstone: the user deleted the seeded task — never resurrect it.
+    if (seedMarkerExists(marker)) return;
 
     await schedRepo.createAsync({
       name: 'Memory Interview',
@@ -216,6 +230,7 @@ clean (no near-duplicates) and report a short summary of what was captured.`,
       allowedSkillsJson: JSON.stringify(['anthropic-skills:consolidate-memory']),
     });
 
+    recordSeedMarker(marker);
     logger.info('[AgentMemory] Seeded memory interview scheduled task');
   },
 };

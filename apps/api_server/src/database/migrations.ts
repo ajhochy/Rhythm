@@ -1,6 +1,52 @@
 import type Database from 'better-sqlite3';
 
 export function runMigrations(db: Database.Database): void {
+  // ── Write-discipline contract ─────────────────────────────────────────
+  // runMigrations() runs on EVERY boot (db.ts initDb), not just first
+  // install. Every statement here is one of exactly two classes:
+  //   1. STRUCTURE — CREATE TABLE IF NOT EXISTS / add-column-if-missing /
+  //      indexes / content-preserving rebuilds. Naturally idempotent.
+  //   2. CONTENT — anything writing a value into a field a user or agent
+  //      can also edit through the API (agent_configs prompts, scopes,
+  //      models, CLI presets, …). These MUST be wrapped in runOnce():
+  //      a durable schema_meta marker makes them one-time repairs. An
+  //      unguarded content UPDATE here silently re-stomps live user edits
+  //      on every restart — the "my Config Doctor changes are gone after
+  //      reboot" bug class.
+  // To ship a NEW revision of seeded content (e.g. an improved default
+  // prompt), add a runOnce() with a NEW versioned key; never edit the
+  // values inside an already-shipped key, and never write content
+  // unguarded. migrations_replay_guard.test.ts enforces this contract:
+  // it customizes every user-editable field, re-runs runMigrations, and
+  // fails on any data change.
+  //
+  // Marker consumption is DELIBERATELY unconditional — a repair whose
+  // target row doesn't exist yet (fresh install; the row arrives later via
+  // profile sync/seeds) is consumed as a no-op and never retried. That is
+  // the intent: these blocks repair PRE-EXISTING installs' drift; fresh
+  // installs get their defaults from the insert paths. Do NOT "fix" this
+  // by gating the marker on rowcount — a state-shaped repair (e.g. the
+  // '[]'→NULL normalization) that stays armed until it matches would
+  // silently rewrite a future deliberate user value, which is the exact
+  // bug class this contract exists to kill.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    )
+  `);
+  const runOnce = (key: string, fn: () => void): void => {
+    const done = db.prepare(`SELECT key FROM schema_meta WHERE key = ?`).get(key);
+    if (done) return;
+    db.transaction(() => {
+      fn();
+      db.prepare(`INSERT INTO schema_meta (key, value) VALUES (?, ?)`).run(
+        key,
+        new Date().toISOString(),
+      );
+    })();
+  };
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
@@ -931,20 +977,22 @@ export function runMigrations(db: Database.Database): void {
   //       would require a PTY-runner change and is tracked separately.
   //   • session_id_pattern = NULL for the same reason as can_resume = 0.
   //
-  // This UPDATE is idempotent — it re-asserts the same values that the seed INSERT set,
-  // ensuring any existing dev DB that ran the original seed is aligned with the verified
-  // values after this migration block executes.
-  db.exec(`
-    UPDATE agent_configs
-    SET
-      command        = 'gemini',
-      can_resume     = 0,
-      resume_command = NULL,
-      session_id_pattern = NULL,
-      output_marker  = '✦',
-      updated_at     = datetime('now')
-    WHERE id = 'gemini-cli';
-  `);
+  // One-time repair (runOnce): re-asserts the verified values once on DBs
+  // that ran the original seed. Not re-applied every boot — the row is
+  // user-editable and must not be re-stamped after this repair lands.
+  runOnce('gemini_cli_preset_v1', () => {
+    db.exec(`
+      UPDATE agent_configs
+      SET
+        command        = 'gemini',
+        can_resume     = 0,
+        resume_command = NULL,
+        session_id_pattern = NULL,
+        output_marker  = '✦',
+        updated_at     = datetime('now')
+      WHERE id = 'gemini-cli';
+    `);
+  });
 
   // Issue #498 — Verify OpenCode end-to-end and lock in seed values.
   //
@@ -964,20 +1012,22 @@ export function runMigrations(db: Database.Database): void {
   //   • output_marker = '│' (U+2502) is unchanged — CLIdeck presets list this as the
   //       OpenCode output indicator and the seed value is already correct.
   //
-  // This UPDATE is idempotent — it re-asserts the same values that the seed INSERT set
-  // (with can_resume now corrected to 1), ensuring any existing dev DB is aligned with
-  // the verified values after this migration block executes.
-  db.exec(`
-    UPDATE agent_configs
-    SET
-      command            = 'opencode',
-      can_resume         = 1,
-      resume_command     = 'opencode --session {{sessionId}}',
-      session_id_pattern = '(ses_[a-zA-Z0-9]{10,})',
-      output_marker      = '│',
-      updated_at         = datetime('now')
-    WHERE id = 'opencode';
-  `);
+  // One-time repair (runOnce): re-asserts the verified values (with
+  // can_resume corrected to 1) once on DBs that ran the original seed.
+  // Not re-applied every boot — the row is user-editable.
+  runOnce('opencode_preset_v1', () => {
+    db.exec(`
+      UPDATE agent_configs
+      SET
+        command            = 'opencode',
+        can_resume         = 1,
+        resume_command     = 'opencode --session {{sessionId}}',
+        session_id_pattern = '(ses_[a-zA-Z0-9]{10,})',
+        output_marker      = '│',
+        updated_at         = datetime('now')
+      WHERE id = 'opencode';
+    `);
+  });
 
   // PR #598 follow-up — relabel the bare "opencode" agent kind to "OpenRouter"
   // for the UI. The internal id stays 'opencode' (matches the SDK agent kind);
@@ -1804,13 +1854,18 @@ export function runMigrations(db: Database.Database): void {
   if (!cfgColsForAcct.includes('default_anthropic_account_id')) {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN default_anthropic_account_id TEXT`);
   }
-  db.exec(`
-    UPDATE agent_configs
-       SET allowed_delegates_json = NULL
-     WHERE id IN ('worship-planning', 'theologian')
-       AND COALESCE(is_manager, 0) = 0
-       AND allowed_delegates_json IS NOT NULL
-  `);
+  // One-time repair (runOnce): clears stale delegate rosters left on two
+  // never-promoted profiles. Unguarded, this wiped a delegate a user grants
+  // to a non-manager profile on every restart.
+  runOnce('nonmanager_delegates_wipe_v1', () => {
+    db.exec(`
+      UPDATE agent_configs
+         SET allowed_delegates_json = NULL
+       WHERE id IN ('worship-planning', 'theologian')
+         AND COALESCE(is_manager, 0) = 0
+         AND allowed_delegates_json IS NOT NULL
+    `);
+  });
 
   // Config Doctor — a chattable diagnostic/repair agent profile. Runs the
   // existing `rhythm doctor` CLI plus a duplicate-agent-profile check (the
@@ -1872,12 +1927,22 @@ Rules:
     5,
   );
 
-  db.prepare(
-    `UPDATE agent_configs
-        SET system_prompt = ?,
-            core_permissions_json = ?
-      WHERE id = 'config-doctor'`,
-  ).run(configDoctorSystemPrompt, JSON.stringify({ bash: 'ask' }));
+  // One-time repair (runOnce): pushes the current shipped prompt/permission
+  // revision to installs seeded with an older one. This was previously
+  // UNGUARDED — the exact "my Config Doctor re-spec is gone on the next
+  // boot" bug: every restart re-stamped the hardcoded literal over any
+  // prompt or permission edit made through the API/designer. To ship a new
+  // default prompt revision, add a runOnce with a bumped key (v2, v3, …) —
+  // that applies the new default exactly once and then leaves the field
+  // user-owned again.
+  runOnce('config_doctor_prompt_v1', () => {
+    db.prepare(
+      `UPDATE agent_configs
+          SET system_prompt = ?,
+              core_permissions_json = ?
+        WHERE id = 'config-doctor'`,
+    ).run(configDoctorSystemPrompt, JSON.stringify({ bash: 'ask' }));
+  });
 
   // #895 — agent approval gate. SQLite-only, same convention as
   // agent_sessions/agent_configs: local-agent execution state never syncs to
@@ -1969,30 +2034,45 @@ Your job, in order:
     ],
   });
 
-  db.prepare(
-    `UPDATE agent_configs
-        SET allowed_mcps_json = ?
-      WHERE id = 'config-doctor'
-        AND (allowed_mcps_json IS NULL OR TRIM(allowed_mcps_json) = '[]')`,
-  ).run(JSON.stringify(['rhythm']));
+  // One-time repairs (runOnce). All three previously re-fired on every boot:
+  //  • config-doctor scope: NULL/'[]' guard still re-stamped a user's
+  //    deliberate NULL (unrestricted) or '[]' (deny-all) choice each restart.
+  //  • org-optimizer scope: "IS NOT NULL" re-stamped the hardcoded tool list
+  //    over any user edit each restart.
+  //  • '[]'→NULL normalization: a #916/#923-era repair for the OLD fail-open
+  //    semantics — under the NEW contract '[]' is a deliberate deny-all, so
+  //    re-running this every boot silently WIDENED a user's deny-all to
+  //    unrestricted.
+  runOnce('config_doctor_mcps_v1', () => {
+    db.prepare(
+      `UPDATE agent_configs
+          SET allowed_mcps_json = ?
+        WHERE id = 'config-doctor'
+          AND (allowed_mcps_json IS NULL OR TRIM(allowed_mcps_json) = '[]')`,
+    ).run(JSON.stringify(['rhythm']));
+  });
 
-  db.prepare(
-    `UPDATE agent_configs
-        SET allowed_mcps_json = ?
-      WHERE (id = '8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f' OR id = 'org-optimizer' OR label = 'Org Optimizer')
-        AND allowed_mcps_json IS NOT NULL`,
-  ).run(orgOptimizerAllowedMcpsJson);
+  runOnce('org_optimizer_mcps_v1', () => {
+    db.prepare(
+      `UPDATE agent_configs
+          SET allowed_mcps_json = ?
+        WHERE (id = '8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f' OR id = 'org-optimizer' OR label = 'Org Optimizer')
+          AND allowed_mcps_json IS NOT NULL`,
+    ).run(orgOptimizerAllowedMcpsJson);
+  });
 
-  db.exec(`
-    UPDATE agent_configs
-       SET allowed_mcps_json = NULL
-     WHERE TRIM(allowed_mcps_json) = '[]'
-       AND id <> 'config-doctor';
+  runOnce('empty_scope_to_null_v1', () => {
+    db.exec(`
+      UPDATE agent_configs
+         SET allowed_mcps_json = NULL
+       WHERE TRIM(allowed_mcps_json) = '[]'
+         AND id <> 'config-doctor';
 
-    UPDATE agent_configs
-       SET allowed_skills_json = NULL
-     WHERE TRIM(allowed_skills_json) = '[]';
-  `);
+      UPDATE agent_configs
+         SET allowed_skills_json = NULL
+       WHERE TRIM(allowed_skills_json) = '[]';
+    `);
+  });
 
   // #917/#918/#919 — profile data hygiene repairs. Keep these JSON updates
   // shape-preserving and idempotent: rows are read, transformed, and then
@@ -2043,37 +2123,43 @@ Your job, in order:
     'rhythm_update_calendar_event',
   ];
 
-  for (const id of ['theologian', 'worship-planning', 'worship-production', 'fantasy-gm', 'money']) {
-    updateAgentConfigJson(id, 'allowed_mcps_json', (parsed) => {
-      if (Array.isArray(parsed)) return parsed.map(renameRhythmMemoryTools);
-      if (parsed === null || typeof parsed !== 'object') return parsed;
+  // One-time repair (runOnce): renames deprecated rhythm memory tools and
+  // fixes worship-planning's calendar scope. Previously re-applied every
+  // boot — permanently re-transforming any user edit that reintroduced a
+  // renamed tool name or the stray 'calendar' server.
+  runOnce('memory_tool_rename_scope_v1', () => {
+    for (const id of ['theologian', 'worship-planning', 'worship-production', 'fantasy-gm', 'money']) {
+      updateAgentConfigJson(id, 'allowed_mcps_json', (parsed) => {
+        if (Array.isArray(parsed)) return parsed.map(renameRhythmMemoryTools);
+        if (parsed === null || typeof parsed !== 'object') return parsed;
 
-      const out: Record<string, unknown> = {};
-      for (const [server, tools] of Object.entries(parsed as Record<string, unknown>)) {
-        if (server === 'calendar' && id === 'worship-planning') continue;
-        if (Array.isArray(tools)) {
-          out[server] = tools.map(renameRhythmMemoryTools);
-        } else if (
-          tools !== null &&
-          typeof tools === 'object' &&
-          Array.isArray((tools as { allowedTools?: unknown }).allowedTools)
-        ) {
-          out[server] = {
-            ...(tools as Record<string, unknown>),
-            allowedTools: ((tools as { allowedTools: unknown[] }).allowedTools).map(renameRhythmMemoryTools),
-          };
-        } else {
-          out[server] = tools;
+        const out: Record<string, unknown> = {};
+        for (const [server, tools] of Object.entries(parsed as Record<string, unknown>)) {
+          if (server === 'calendar' && id === 'worship-planning') continue;
+          if (Array.isArray(tools)) {
+            out[server] = tools.map(renameRhythmMemoryTools);
+          } else if (
+            tools !== null &&
+            typeof tools === 'object' &&
+            Array.isArray((tools as { allowedTools?: unknown }).allowedTools)
+          ) {
+            out[server] = {
+              ...(tools as Record<string, unknown>),
+              allowedTools: ((tools as { allowedTools: unknown[] }).allowedTools).map(renameRhythmMemoryTools),
+            };
+          } else {
+            out[server] = tools;
+          }
         }
-      }
 
-      if (id === 'worship-planning') {
-        const rhythmTools = Array.isArray(out.rhythm) ? out.rhythm : [];
-        out.rhythm = appendUnique(rhythmTools, rhythmCalendarTools);
-      }
-      return out;
-    });
-  }
+        if (id === 'worship-planning') {
+          const rhythmTools = Array.isArray(out.rhythm) ? out.rhythm : [];
+          out.rhythm = appendUnique(rhythmTools, rhythmCalendarTools);
+        }
+        return out;
+      });
+    }
+  });
 
   const copyScopeFromDuplicate = (sourceId: string, targetId: string) => {
     const source = db
@@ -2094,63 +2180,99 @@ Your job, in order:
     ).run(source.allowed_mcps_json, source.allowed_skills_json, targetId);
   };
 
-  copyScopeFromDuplicate(
-    '32294c7d-a26e-4e3a-b5f1-92350225e701',
-    'AI-Trend-Researcher',
-  );
-  copyScopeFromDuplicate(
-    'd74b471f-ca90-4246-8182-e769b10d80c6',
-    'Theological-Researcher',
-  );
-
-  db.prepare(
-    `UPDATE agent_configs
-        SET core_permissions_json = ?
-      WHERE id = 'Theological-Researcher'`,
-  ).run(JSON.stringify({ skill: 'allow', read: 'allow', bash: 'ask' }));
-
-  updateAgentConfigJson('research', 'allowed_skills_json', (parsed) => {
-    if (!Array.isArray(parsed)) return parsed;
-    return parsed.filter(
-      (skill) =>
-        skill !== 'searxng-search' &&
-        skill !== 'domain-intel' &&
-        skill !== 'parallel-cli',
+  // One-time repairs (runOnce). The core-permissions stamp and the skill
+  // prune previously re-fired every boot: any user edit to
+  // Theological-Researcher's permissions was reverted on restart, and
+  // re-granting a pruned skill to 'research' never stuck.
+  runOnce('copy_scope_from_duplicates_v1', () => {
+    copyScopeFromDuplicate(
+      '32294c7d-a26e-4e3a-b5f1-92350225e701',
+      'AI-Trend-Researcher',
+    );
+    copyScopeFromDuplicate(
+      'd74b471f-ca90-4246-8182-e769b10d80c6',
+      'Theological-Researcher',
     );
   });
 
-  db.prepare(
-    `UPDATE agent_configs
-        SET model_provider = 'openrouter',
-            model_id = 'anthropic/claude-sonnet-4.6'
-      WHERE id = 'coding-agent'
-        AND model_provider = 'openrouter'
-        AND model_id = 'openrouter/free'`,
-  ).run();
+  runOnce('theological_researcher_perms_v1', () => {
+    db.prepare(
+      `UPDATE agent_configs
+          SET core_permissions_json = ?
+        WHERE id = 'Theological-Researcher'`,
+    ).run(JSON.stringify({ skill: 'allow', read: 'allow', bash: 'ask' }));
+  });
 
-  db.prepare(
-    `UPDATE agent_configs
-        SET model_provider = 'anthropic',
-            model_id = 'claude-sonnet-4-6'
-      WHERE id = 'rhythm-setup'
-        AND (model_provider IS NULL OR model_id IS NULL)`,
-  ).run();
+  runOnce('research_skills_prune_v1', () => {
+    updateAgentConfigJson('research', 'allowed_skills_json', (parsed) => {
+      if (!Array.isArray(parsed)) return parsed;
+      return parsed.filter(
+        (skill) =>
+          skill !== 'searxng-search' &&
+          skill !== 'domain-intel' &&
+          skill !== 'parallel-cli',
+      );
+    });
+  });
 
-  db.prepare(
-    `UPDATE agent_configs
-        SET model_provider = 'anthropic',
-            model_id = 'claude-sonnet-4-6',
-            model_tier_hint = 'cheap'
-      WHERE id = 'worship-production'
-        AND (model_id IS NULL OR model_id LIKE '%opus%' OR model_tier_hint IS NULL)`,
-  ).run();
+  // One-time model repairs (runOnce). The worship-production and
+  // title/compaction/summary stamps previously re-fired every boot,
+  // reverting any deliberate user model choice (e.g. an opus pick) on
+  // restart. Model routing is user-owned after these one-time repairs.
+  runOnce('coding_agent_model_v1', () => {
+    db.prepare(
+      `UPDATE agent_configs
+          SET model_provider = 'openrouter',
+              model_id = 'anthropic/claude-sonnet-4.6'
+        WHERE id = 'coding-agent'
+          AND model_provider = 'openrouter'
+          AND model_id = 'openrouter/free'`,
+    ).run();
+  });
 
-  db.prepare(
-    `UPDATE agent_configs
-        SET model_provider = 'anthropic',
-            model_id = 'claude-haiku-4-5',
-            model_tier_hint = 'cheap'
-      WHERE id IN ('title', 'compaction', 'summary')
-        AND (model_id IS NULL OR model_id <> 'claude-haiku-4-5' OR model_tier_hint IS NULL)`,
-  ).run();
+  runOnce('rhythm_setup_model_v1', () => {
+    db.prepare(
+      `UPDATE agent_configs
+          SET model_provider = 'anthropic',
+              model_id = 'claude-sonnet-4-6'
+        WHERE id = 'rhythm-setup'
+          AND (model_provider IS NULL OR model_id IS NULL)`,
+    ).run();
+  });
+
+  runOnce('worship_production_model_v1', () => {
+    db.prepare(
+      `UPDATE agent_configs
+          SET model_provider = 'anthropic',
+              model_id = 'claude-sonnet-4-6',
+              model_tier_hint = 'cheap'
+        WHERE id = 'worship-production'
+          AND (model_id IS NULL OR model_id LIKE '%opus%' OR model_tier_hint IS NULL)`,
+    ).run();
+  });
+
+  // One-time repair (runOnce): CLI wrapper rows are seeded as preset rows
+  // (session_selectable defaults to 1) and must start hidden from the
+  // session picker — claude-code intentionally stays visible (user escape
+  // hatch). The picker-refresh sync used to force these false on EVERY sync,
+  // which also made a deliberate user promotion impossible; now hiding is a
+  // one-time default and session_selectable is user-owned after it.
+  runOnce('hide_cli_presets_v1', () => {
+    db.exec(`
+      UPDATE agent_configs
+         SET session_selectable = 0
+       WHERE id IN ('build', 'codex', 'gemini-cli', 'opencode')
+    `);
+  });
+
+  runOnce('utility_modes_haiku_v1', () => {
+    db.prepare(
+      `UPDATE agent_configs
+          SET model_provider = 'anthropic',
+              model_id = 'claude-haiku-4-5',
+              model_tier_hint = 'cheap'
+        WHERE id IN ('title', 'compaction', 'summary')
+          AND (model_id IS NULL OR model_id <> 'claude-haiku-4-5' OR model_tier_hint IS NULL)`,
+    ).run();
+  });
 }
