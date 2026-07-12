@@ -1,0 +1,97 @@
+{
+  "run_id": "2026-07-11-uso-epic-1002",
+  "issue": 1002,
+  "date": "2026-07-11",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1002-headless-output",
+      "text": "Background/scheduled agent runs produce output instead of 'model produced no output'",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "verification-gate's live probe exercised the optimizer-diagnosis path (AgentRunner.run with mcpRole + NO profile ocAgent), which produced real output and proved the #1002 directory-scoping (cwd) fix. But the USER symptom 'background runs fail' had >=3 root causes; the probe's entry point avoided the other two. Manual smoke on REAL scheduled tasks (bound to profiles WITH an ocAgent) still failed: (A) Theological-Researcher (session_selectable=0 -> mode:subagent) throws opencode 'Agent not found' when AgentRunner forwards agent:ocAgent; (B) AI-Trend-Researcher (session_selectable=1 -> mode:primary) returns empty output. Coverage gap: the live probe should have driven a real profile-bound scheduled task, not only the optimizer path."
+    },
+    {
+      "criterion_id": "issue-1002-cwd-directory-scoping",
+      "text": "Headless prompt/listMessages/abortSession use the same effectiveCwd as createSession",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "cwd fix re-landed (was stranded on stale PR #1005, dropped by the #1020 partial re-land). Live-confirmed: optimizer-diagnosis + skill-refine self_improvement sessions reach idle with transcripts; boot recovered 'starting' orphans."
+    },
+    {
+      "criterion_id": "uso-a1-b1-scope-category",
+      "text": "GET /agent-sessions?scope= filters chats/scheduled/self_improvement on the category column",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Live-verified on the real 62MB DB: 3 scopes disjoint, migration+backfill correct, unknown->chats fallback."
+    },
+    {
+      "criterion_id": "uso-a2-a4-flutter",
+      "text": "Category filter + status sort + Session History retired (transcript detail reused)",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "5/5 manual smoke items passed. Follow-up (user enhancement beyond #1027): open every session in the interactive chat surface, not read-only transcript — built on stacked branch."
+    },
+    {
+      "criterion_id": "uso-b-phase-observability",
+      "text": "Background self-improvement loops record observable self_improvement sessions",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "User confirmed the Background self-improvement filter populates live from real loop runs — the Phase B thesis working end to end."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "partial-reland-dropped-fix",
+      "description": "The proven #1002 fix (commit 009823585) was stranded on the stale PR #1005 branch; the re-land #1020 (66e129474) carried only #999/#1000/#1003/#1004 and silently dropped #1002, so beta.18.42 shipped without it. Not P1-P4 — a subset-re-land process gap.",
+      "detected_by": "git branch --contains 009823585 (NOT on HEAD) + git log --grep 1002 showing #1020 re-landed a subset"
+    },
+    {
+      "process_category": "verification-probe-entry-point-mismatch",
+      "description": "verification-gate's live behavioral probe for a multi-cause bug used a convenience entry point (optimizer-diagnosis) that did not represent the user's real failing path (profile-bound scheduled tasks). Green verification, failing reality. Not P1-P4 — a probe-representativeness gap.",
+      "detected_by": "Live log trace during manual smoke: optimizer-diagnosis sessions reached idle while the user's Theological/AI-Trend scheduled tasks errored on distinct causes."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": ["acceptance-contract"],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "acceptance-contract",
+        "description": "For a 13-issue epic, acceptance-contract was not run per-issue to emit docs/ai/contracts/issue-N.json + failing contract tests; instead the acceptance criteria were inlined verbatim into each coding-agent dispatch as the mandate. Downstream effect: no independent contract test to catch the #1002 real-scheduled-task path, contributing to the C1 coverage gap that manual smoke caught.",
+        "detected_by": "Transcript: coding-agent dispatches embedded criteria + required tsc/vitest, but no acceptance-contract Skill invocation or contract.json artifacts were produced."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/agent_runner.ts",
+    "apps/api_server/src/repositories/agent_sessions_repository.ts",
+    "apps/api_server/src/controllers/agent_sessions_controller.ts",
+    "apps/api_server/src/database/migrations.ts",
+    "apps/api_server/src/database/postgres_bootstrap.ts",
+    "apps/api_server/src/models/agent_session.ts",
+    "apps/api_server/src/services/generators/workflow_signal_generator.ts",
+    "apps/api_server/src/services/skill_refiner.ts",
+    "apps/api_server/src/services/org_proposal_measure.ts",
+    "apps/api_server/src/services/skill_extractor.ts",
+    "apps/desktop_flutter/lib/features/agents/views/_agents_nav_column.dart",
+    "apps/desktop_flutter/lib/app/core/layout/navigation_sidebar.dart",
+    "apps/desktop_flutter/lib/app/core/layout/app_shell.dart",
+    ".github/workflows/desktop_release.yml",
+    "tools/release/sign_and_notarize_macos.sh",
+    "apps/desktop_flutter/lib/app/core/server/api_server_service.dart"
+  ],
+  "failure_output": "UnknownError: Agent not found: \"Theological-Researcher\". Available agents: build, ..., theologian, research, web-researcher, ... (Theological-Researcher absent because session_selectable=0 -> mode:subagent). AI-Trend-Researcher (primary): prompt returned no response (empty parts), profile model + opus escalation both empty.",
+  "overall_category": "C1",
+  "suggested_follow_up": "verification-gate's live behavioral probe must drive the feature's REAL user entry point (a profile-bound scheduled task via trigger-now), not a convenience path, when the issue symptom spans multiple entry points; and acceptance-contract should run per-issue even in large epics so a contract test pins the real path."
+}
