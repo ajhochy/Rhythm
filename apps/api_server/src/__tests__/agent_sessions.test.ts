@@ -578,6 +578,40 @@ describe('Agent Sessions API', () => {
     expect(body.sessions.find((s) => s.name === 'AssignedX')).toBeUndefined();
   });
 
+  // ── USO A1 (#1024) / B1 (#1028): GET /agent-sessions?scope= ──────────────
+  it('scope param slices the session list (chats default, scheduled, self_improvement, safe fallback)', async () => {
+    const { getDb } = await import('../database/db');
+    getDb()
+      .prepare(`INSERT INTO agent_scheduled_tasks (id, name, prompt) VALUES (?, ?, ?)`)
+      .run('sched-scope', 'Scope Task', 'do it');
+    const repo = new AgentSessionsRepository();
+    const chat = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: os.homedir(), name: 'ChatRow' });
+    const scheduled = repo.insert({
+      agentKind: 'claude-code', taskId: null, cwd: os.homedir(), name: 'ScheduledRow',
+      scheduledTaskId: 'sched-scope', isSystem: true,
+    });
+    const selfImprove = repo.insert({
+      agentKind: 'claude-code', taskId: null, cwd: os.homedir(), name: 'SelfImproveRow',
+      isSystem: true, category: 'self_improvement',
+    });
+
+    const ids = async (qs: string): Promise<string[]> => {
+      const res = await fetch(`${baseUrl}/agent-sessions${qs}`, { headers: authHeaders });
+      const body = (await res.json()) as { sessions: Array<{ id: string }> };
+      return body.sessions.map((s) => s.id);
+    };
+
+    // No scope === scope=chats: interactive chat only.
+    expect(await ids('')).toEqual([chat.id]);
+    expect(await ids('?scope=chats')).toEqual([chat.id]);
+    // scope=scheduled surfaces the scheduled row that chats hides.
+    expect(await ids('?scope=scheduled')).toEqual([scheduled.id]);
+    // scope=self_improvement surfaces only the self-improvement row.
+    expect(await ids('?scope=self_improvement')).toEqual([selfImprove.id]);
+    // Unknown scope falls back safely to chats.
+    expect(await ids('?scope=bogus')).toEqual([chat.id]);
+  });
+
   it('projects migration is idempotent (running it twice on same DB is a no-op)', async () => {
     const { runMigrations: run } = await import('../database/migrations');
     const { getDb } = await import('../database/db');

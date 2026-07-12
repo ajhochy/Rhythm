@@ -667,52 +667,47 @@ function parseDiagnosisResponse(raw: string): DiagnosisResult | null {
 }
 
 /**
- * Default (real) diagnosis function — calls the opencode engine with the full
- * context and parses the JSON response. Calls `ensureReady()` first because
- * the background optimizer path may run before the engine's first interactive
- * session. Returns null on any failure (no session, no response, parse error).
+ * Default (real) diagnosis function — routes the full context through
+ * `AgentRunner.run()` so the diagnosis is an OBSERVABLE `self_improvement`
+ * agent_sessions row (is_system=1, visible under ?scope=self_improvement) with a
+ * real transcript, rather than a direct, invisible engine call (USO B2 #1029).
+ * `run()` handles `ensureReady()` internally. Returns null on any failure (no
+ * response, engine down, parse error).
  */
-const defaultDiagnose: DiagnoseCall = async (ctx) => {
+export const defaultDiagnose: DiagnoseCall = async (ctx) => {
   try {
-    const { opencodeClient } = await import('../opencode_engine');
-    const { resolveRunModel } = await import('../agent_runner');
+    const { resolveRunModel, run } = await import('../agent_runner');
     const model = resolveRunModel();
     const system = buildDiagnosisSystemPrompt();
     const user = buildDiagnosisUserPrompt(ctx);
     const promptText = `${system}\n\n${user}`;
 
-    await opencodeClient.ensureReady();
-
     // This call only needs text reasoning back (a JSON diagnosis), never tool
-    // use — pass an explicit empty mcpAllowlist so the session carries zero
-    // MCP function declarations. Without this, the session inherits every
-    // connected MCP server's full toolset, which blows past Gemini's 512
-    // function-declaration cap and 400s whenever the most-recently-used model
-    // is a `google` provider.
-    const session = await opencodeClient.createSession(
-      'org-optimizer-diagnose',
-      undefined,
-      { role: 'org-optimizer-diagnose', mcpServers: {}, allowedToolsJson: '{}' },
-      undefined,
-      model.providerID,
-    );
-    if (!session?.id) {
-      logger.warn('[workflow-signal-generator] diagnose: no session created (engine may not be running)');
+    // use — mcpRole + an explicit empty allowedMcpsJson reproduces the old
+    // zero-tool `{ role, mcpServers:{}, allowedToolsJson:'{}' }` config so the
+    // session carries zero MCP function declarations. Without it the session
+    // inherits every connected MCP server's full toolset, which blows past
+    // Gemini's 512 function-declaration cap and 400s on a `google` provider.
+    // modelOverride pins the already-resolved model so run() does NOT re-resolve
+    // it. No agentConfigId — keeping it null is what makes mcpRole +
+    // allowedMcpsJson build that exact zero-tool config.
+    const res = await run({
+      prompt: promptText,
+      sessionName: `optimizer-diagnosis: ${ctx.affectedSkill}`,
+      category: 'self_improvement',
+      modelOverride: model,
+      mcpRole: 'org-optimizer-diagnose',
+      allowedMcpsJson: '{}',
+    });
+
+    if (res.status === 'error' || !res.result) {
+      logger.warn('[workflow-signal-generator] diagnose: no response from AgentRunner (engine may not be running)');
       return null;
     }
 
-    const resp = await opencodeClient.prompt(session.id, promptText, model, undefined, {
-      permissionMode: 'bypassPermissions',
-    });
-    const text = (resp?.parts ?? [])
-      .filter((p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text')
-      .map((p) => p.text)
-      .join('\n')
-      .trim();
-
-    const result = parseDiagnosisResponse(text);
+    const result = parseDiagnosisResponse(res.result);
     if (!result) {
-      logger.warn(`[workflow-signal-generator] diagnose: failed to parse LLM response: ${text.slice(0, 200)}`);
+      logger.warn(`[workflow-signal-generator] diagnose: failed to parse LLM response: ${res.result.slice(0, 200)}`);
     }
     return result;
   } catch (err) {

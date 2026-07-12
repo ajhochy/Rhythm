@@ -28,6 +28,8 @@ import '../../agent_schedules/views/agent_schedules_view.dart';
 import '../../agent_skills/views/agent_skills_view.dart';
 import '../../agent_webhooks/views/agent_webhooks_view.dart';
 import '../../run_quality/views/run_quality_view.dart';
+import '../../session_history/models/session_history_agent_session.dart';
+import '../../session_history/views/session_history_view.dart';
 import '../../settings/views/settings_view.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
@@ -66,8 +68,8 @@ class AgentsNavColumn extends StatefulWidget {
   State<AgentsNavColumn> createState() => _AgentsNavColumnState();
 }
 
-/// #903 — session list sort keys.
-enum _SessionSortField { dateNewest, dateOldest, name, lastActivity }
+/// #903 — session list sort keys. #1026 (USO A3) adds [status].
+enum _SessionSortField { dateNewest, dateOldest, name, lastActivity, status }
 
 class _AgentsNavColumnState extends State<AgentsNavColumn> {
   String _searchQuery = '';
@@ -103,7 +105,34 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
     if (_hasMultiSelection) {
       setState(() => _multiSelected.clear());
     }
-    context.read<AgentsController>().selectSession(id);
+    final controller = context.read<AgentsController>();
+    // #1027 (USO A4): scheduled / self-improvement rows are read-only
+    // background runs — open the reused transcript detail view (the retained
+    // Session History detail) instead of the interactive chat surface.
+    if (controller.scope != AgentSessionScope.chats) {
+      AgentSession? session;
+      for (final s in controller.sessions) {
+        if (s.id == id) {
+          session = s;
+          break;
+        }
+      }
+      if (session != null) {
+        final name = session.name.trim();
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => SessionTranscriptView(
+              sessionId: session!.id,
+              title: name.isEmpty ? 'Session' : name,
+              status: SessionHistoryStatus.fromWire(session.status.wireValue),
+              statusMessage: session.statusMessage,
+            ),
+          ),
+        );
+        return;
+      }
+    }
+    controller.selectSession(id);
   }
 
   /// #903 — comparator backing the session-list sort menu. `lastActivity`
@@ -121,6 +150,34 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
         final aTime = a.lastActivityAt ?? a.createdAt;
         final bTime = b.lastActivityAt ?? b.createdAt;
         return bTime.compareTo(aTime);
+      case _SessionSortField.status:
+        // #1026 (USO A3) — deterministic status order
+        // (working → starting → idle → error), ties broken by recency.
+        final byStatus = _statusRank(a.status).compareTo(_statusRank(b.status));
+        if (byStatus != 0) return byStatus;
+        final aTime = a.lastActivityAt ?? a.createdAt;
+        final bTime = b.lastActivityAt ?? b.createdAt;
+        return bTime.compareTo(aTime);
+    }
+  }
+
+  /// #1026 (USO A3) — ordering weight for the Status sort. Lower sorts first:
+  /// working → starting → idle → error, then the terminal/dormant states so
+  /// the order is total (deterministic) across every possible status.
+  static int _statusRank(AgentSessionStatus status) {
+    switch (status) {
+      case AgentSessionStatus.working:
+        return 0;
+      case AgentSessionStatus.starting:
+        return 1;
+      case AgentSessionStatus.idle:
+        return 2;
+      case AgentSessionStatus.error:
+        return 3;
+      case AgentSessionStatus.closed:
+        return 4;
+      case AgentSessionStatus.resumable:
+        return 5;
     }
   }
 
@@ -318,13 +375,44 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
             child: Row(
               children: [
-                Text(
-                  'CHATS',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: context.rhythm.textMuted,
-                    letterSpacing: 0.8,
+                // #1025 (USO A2) — category filter dropdown. Replaces the
+                // static "CHATS" header; switching scope reloads the list with
+                // the matching `?scope=` param. Default scope's headerLabel is
+                // 'CHATS', preserving the original section wording.
+                PopupMenuButton<AgentSessionScope>(
+                  key: const ValueKey('session-scope-dropdown'),
+                  tooltip: 'Filter sessions by category',
+                  initialValue: controller.scope,
+                  onSelected: (s) =>
+                      context.read<AgentsController>().loadSessions(s),
+                  itemBuilder: (_) => [
+                    for (final s in AgentSessionScope.values)
+                      PopupMenuItem<AgentSessionScope>(
+                        value: s,
+                        child: Text(s.menuLabel),
+                      ),
+                  ],
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          controller.scope.headerLabel,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: context.rhythm.textMuted,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        Icons.arrow_drop_down,
+                        size: 16,
+                        color: context.rhythm.textMuted,
+                      ),
+                    ],
                   ),
                 ),
                 const Spacer(),
@@ -350,6 +438,10 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
                     PopupMenuItem(
                       value: _SessionSortField.lastActivity,
                       child: Text('Last activity'),
+                    ),
+                    PopupMenuItem(
+                      value: _SessionSortField.status,
+                      child: Text('Status'),
                     ),
                   ],
                   child: SizedBox(

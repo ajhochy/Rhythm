@@ -132,11 +132,15 @@ class AgentsDataSource {
   Future<List<AgentSession>> listSessions({
     bool includeArchived = false,
     bool archivedOnly = false,
+    // #1025 (USO A2) — server category scope: chats | scheduled |
+    // self_improvement. Null omits the param (server defaults to chats).
+    String? scope,
   }) async {
     final uri = Uri.parse('$_baseUrl/agent-sessions').replace(
       queryParameters: {
         if (includeArchived) 'includeArchived': 'true',
         if (archivedOnly) 'archivedOnly': 'true',
+        if (scope != null && scope.isNotEmpty) 'scope': scope,
       },
     );
     final response = await _client.get(

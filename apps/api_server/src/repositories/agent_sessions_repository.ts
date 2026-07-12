@@ -4,6 +4,7 @@ import type {
   AgentSessionStatus,
   CreateAgentSessionDto,
   PermissionMode,
+  SessionScope,
 } from '../models/agent_session';
 
 interface AgentSessionRow {
@@ -44,6 +45,8 @@ interface AgentSessionRow {
   anthropic_account_id: string | null;
   owner_user_id: number | null;
   delegation_depth: number | null;
+  /** USO B1 (#1028) — session classification. Legacy rows coalesce to a derived value. */
+  category: string | null;
 }
 
 function rowToModel(row: AgentSessionRow): AgentSession {
@@ -78,6 +81,10 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     anthropicAccountId: row.anthropic_account_id ?? null,
     ownerUserId: row.owner_user_id ?? null,
     delegationDepth: row.delegation_depth ?? 0,
+    // USO B1 (#1028): read-time coalesce for any row the migration backfill
+    // missed (defensive — the migration sets a NOT NULL default + backfill).
+    category: (row.category as AgentSession['category']) ??
+      (row.scheduled_task_id ? 'scheduled' : 'chat'),
   };
 }
 
@@ -85,13 +92,17 @@ export class AgentSessionsRepository {
   insert(dto: CreateAgentSessionDto): AgentSession {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
+    // USO B1 (#1028): stamp category at creation. Explicit category wins
+    // (e.g. 'self_improvement' from a curator run); otherwise derive
+    // 'scheduled' when a scheduled task drives the run, else 'chat'.
+    const category = dto.category ?? (dto.scheduledTaskId ? 'scheduled' : 'chat');
     getDb()
       .prepare(
         `INSERT INTO agent_sessions
            (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
             mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
-            anthropic_account_id, owner_user_id, delegation_depth, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            anthropic_account_id, owner_user_id, delegation_depth, category, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -108,6 +119,7 @@ export class AgentSessionsRepository {
         dto.anthropicAccountId ?? null,
         dto.ownerUserId ?? null,
         dto.delegationDepth ?? 0,
+        category,
         now,
         now,
       );
@@ -176,17 +188,30 @@ export class AgentSessionsRepository {
 
   listAll(
     limit = 100,
-    opts: { includeArchived?: boolean; archivedOnly?: boolean } = {},
+    opts: { includeArchived?: boolean; archivedOnly?: boolean; scope?: SessionScope } = {},
   ): AgentSession[] {
-    // #747: exclude background/system sessions from the normal session list.
-    const baseClause = ' WHERE is_system = 0';
+    // USO B1 (#1028): the `scope` selects which slice of sessions to return,
+    // filtered on the persisted `category` column (upgraded from A1's
+    // is_system/scheduled_task_id placeholder).
+    //   - 'chats' (default) → category = 'chat' AND is_system = 0. The is_system
+    //     guard is retained so a stray is_system=1 row can never leak into the
+    //     default Chats view even if its category were 'chat'.
+    //   - 'scheduled' → category = 'scheduled'.
+    //   - 'self_improvement' → category = 'self_improvement'.
+    const scope = opts.scope ?? 'chats';
+    const scopeClause =
+      scope === 'scheduled'
+        ? "category = 'scheduled'"
+        : scope === 'self_improvement'
+          ? "category = 'self_improvement'"
+          : "category = 'chat' AND is_system = 0";
     const archiveClause = opts.archivedOnly
       ? ' AND archived_at IS NOT NULL'
       : opts.includeArchived
         ? ''
         : ' AND archived_at IS NULL';
     const rows = getDb()
-      .prepare(`SELECT * FROM agent_sessions${baseClause}${archiveClause} ORDER BY created_at DESC LIMIT ?`)
+      .prepare(`SELECT * FROM agent_sessions WHERE ${scopeClause}${archiveClause} ORDER BY created_at DESC LIMIT ?`)
       .all(limit) as AgentSessionRow[];
     return rows.map(rowToModel);
   }
@@ -537,12 +562,17 @@ export class AgentSessionsRepository {
    * forever. Called by the scheduler on boot.
    */
   resetStaleRunning(message = 'Server restarted — run interrupted'): number {
+    // #738-fix / #1002 — Reset orphaned in-flight sessions to 'error' on boot.
+    // A headless run that dies BEFORE it enters 'running' stays stuck at
+    // 'starting' forever (resetStaleRunning historically only freed 'running').
+    // This runs boot-only (startAgentSchedulerJob), when nothing is genuinely
+    // in-flight, so both 'running' and 'starting' orphans are safe to recover.
     const now = new Date().toISOString();
     const result = getDb()
       .prepare(
         `UPDATE agent_sessions
          SET status = 'error', status_message = ?, updated_at = ?
-         WHERE status = 'running'`,
+         WHERE status IN ('running', 'starting')`,
       )
       .run(message, now);
     return result.changes;

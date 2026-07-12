@@ -144,20 +144,23 @@ const defaultJudge: JudgeCall = async (existing, candidate) => {
     `CANDIDATE skill:\n${skillText(candidate)}\n\n` +
     'Verdict (better|equal|worse) + one-sentence reason:';
   _setRefineRunning(true, new Date().toISOString());
-  const session = await opencodeClient.createSession('skill-refine-judge');
-  if (!session?.id) {
-    _setRefineRunning(false);
-    return { verdict: 'equal', reason: 'no judge session' };
-  }
-  const resp = await opencodeClient.prompt(session.id, `${system}\n\n${user}`, model, undefined, {
-    permissionMode: 'bypassPermissions',
+  // USO B3 (#1030): route the judge through AgentRunner so it becomes an
+  // observable self_improvement session (recorded row + transcript) instead of
+  // a bare createSession/prompt pair. allowedMcpsJson '{}' → zero MCP tools
+  // (Gemini-safe), matching the old createSession that passed no tools. A failed
+  // run resolves status:'error' → '' → parseJudgeResponse's fail-closed 'equal'
+  // (same fail-path as the old "no judge session" / empty-parts branches).
+  const { run } = await import('./agent_runner');
+  const res = await run({
+    prompt: `${system}\n\n${user}`,
+    sessionName: 'skill-refine-judge',
+    category: 'self_improvement',
+    modelOverride: model,
+    mcpRole: 'skill-refine-judge',
+    allowedMcpsJson: '{}',
   });
   _setRefineRunning(false);
-  const text = (resp?.parts ?? [])
-    .filter((p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text')
-    .map((p) => p.text)
-    .join('\n')
-    .trim();
+  const text = res.status === 'error' ? '' : res.result;
   return parseJudgeResponse(text);
 };
 
@@ -254,30 +257,26 @@ const defaultScorer: ScoreCall = async (purpose, body) => {
     `BODY:\n${(body ?? '').trim() || '(empty)'}\n\n` +
     'Score (0-100) + one-sentence reason:';
   const failures: string[] = [];
+  // USO B3 (#1030): route each provider-fallback attempt through AgentRunner so
+  // scoring runs become observable self_improvement sessions. The #930/#997
+  // fallback loop is preserved verbatim — one run() per model, modelOverride
+  // pins the exact per-iteration provider/model (run() forwards providerID to
+  // createSession internally for the Gemini function-declaration cap, replacing
+  // the old #884 provider-at-create-time arg), and a non-numeric result still
+  // falls through to the next reliable provider. allowedMcpsJson '{}' → zero
+  // MCP tools (Gemini-safe), matching the old createSession that passed no tools.
+  const { run } = await import('./agent_runner');
   for (const model of models) {
     logger.info(`[skill-refine] scoring with ${model.providerID}/${model.modelID}`);
-    // #884: pass the provider at create time so a Google fallback session gets
-    // the Gemini-safe deferred allowlist before its first prompt. Omitting it
-    // exposes every connected tool and the scorer dies at 512 declarations.
-    const session = await opencodeClient.createSession(
-      'skill-measure-score',
-      undefined,
-      undefined,
-      undefined,
-      model.providerID,
-    );
-    if (!session?.id) {
-      failures.push(`${model.providerID}: no scorer session`);
-      continue;
-    }
-    const resp = await opencodeClient.prompt(session.id, `${system}\n\n${user}`, model, undefined, {
-      permissionMode: 'bypassPermissions',
+    const res = await run({
+      prompt: `${system}\n\n${user}`,
+      sessionName: 'skill-measure-score',
+      category: 'self_improvement',
+      modelOverride: model,
+      mcpRole: 'skill-measure-score',
+      allowedMcpsJson: '{}',
     });
-    const text = (resp?.parts ?? [])
-      .filter((p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text')
-      .map((p) => p.text)
-      .join('\n')
-      .trim();
+    const text = res.status === 'error' ? '' : res.result;
     if (!/^\s*-?\d+\b/.test(text)) {
       failures.push(`${model.providerID}: ${text || 'empty scorer response'}`);
       logger.warn(
@@ -367,16 +366,22 @@ const defaultRewrite: RewriteCall = async (purpose, currentBody, reason) => {
     `CURRENT BODY (inadequate):\n${(currentBody ?? '').trim() || '(empty)'}\n\n` +
     `WHY IT WAS FLAGGED: ${reason || '(no reason recorded)'}\n\n` +
     'Improved BODY:';
-  const session = await opencodeClient.createSession('skill-refine-rewrite');
-  if (!session?.id) return currentBody; // fail-closed: nothing to improve on
-  const resp = await opencodeClient.prompt(session.id, `${system}\n\n${user}`, model, undefined, {
-    permissionMode: 'bypassPermissions',
+  // USO B3 (#1030): route the rewrite through AgentRunner so it becomes an
+  // observable self_improvement session. allowedMcpsJson '{}' → zero MCP tools
+  // (Gemini-safe), matching the old createSession that passed no tools. A failed
+  // run (status:'error' → '') or an empty rewrite degrades to the CURRENT body
+  // UNCHANGED — same fail-closed path as the old "no rewrite session" / empty
+  // response, so a generation failure can never masquerade as an improvement.
+  const { run } = await import('./agent_runner');
+  const res = await run({
+    prompt: `${system}\n\n${user}`,
+    sessionName: 'skill-refine-rewrite',
+    category: 'self_improvement',
+    modelOverride: model,
+    mcpRole: 'skill-refine-rewrite',
+    allowedMcpsJson: '{}',
   });
-  const text = (resp?.parts ?? [])
-    .filter((p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text')
-    .map((p) => p.text)
-    .join('\n')
-    .trim();
+  const text = res.status === 'error' ? '' : res.result;
   return text || currentBody;
 };
 

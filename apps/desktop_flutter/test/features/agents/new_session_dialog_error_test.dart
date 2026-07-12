@@ -103,6 +103,7 @@ class _ErrorAgentsRepository implements AgentsRepository {
   Future<List<AgentSession>> listSessions({
     bool includeArchived = false,
     bool archivedOnly = false,
+    String? scope,
   }) async =>
       [];
 

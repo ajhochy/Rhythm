@@ -272,32 +272,56 @@ export type LlmCall = (
 ) => Promise<string>;
 
 /**
- * Default (real) LLM call — thin + guarded. Creates a throwaway opencode
- * session and fires one synchronous prompt. Rides the extracting session's
- * own model when given (that provider just completed the turns being
- * distilled, so it is proven authed + live); falls back to
+ * Default (real) LLM call — thin + guarded. USO B5 (#1032): routes the distill
+ * turn through AgentRunner.run() with category 'self_improvement' instead of a
+ * bespoke opencodeClient.createSession + prompt, so the skill-extract loop shows
+ * up as an observable self_improvement session (is_system=1, out of the default
+ * Chats view). mcpRole 'skill-extract' + allowedMcpsJson '{}' builds the SAME
+ * zero-MCP-tool config the old no-tool createSession had; run() applies
+ * bypassPermissions internally (agent_runner._runOnce). Rides the extracting
+ * session's own model when given (that provider just completed the turns being
+ * distilled, so it is proven authed + live) via modelOverride; falls back to
  * resolveRunModel()'s MRU/default only when the session carries no model —
- * a global MRU can point at a provider that is unauthed here even though
- * the session itself ran fine (#949 live E2E). Lazy imports keep
- * opencode/AgentRunner out of the module's hot path (and out of test
- * bundles, since this is never reached under isTestEnv).
+ * a global MRU can point at a provider that is unauthed here even though the
+ * session itself ran fine (#949 live E2E). run() may prepend a transient
+ * skills/memory preface to the PROMPT (input) when those toggles are on; that
+ * never touches the model's OUTPUT, so extractJsonObject(res.result) is
+ * unaffected. Lazy import keeps AgentRunner out of the module's hot path (and
+ * out of test bundles, since this is never reached under isTestEnv).
+ *
+ * ── USO B5 (#1032) createSession audit — background-loop LLM routing ─────────
+ * grep `opencodeClient.createSession` across apps/api_server/src (non-test):
+ *   • skill_extractor.ts (this file, defaultLlmCall) — BACKGROUND LOOP → MIGRATED
+ *       to run({category:'self_improvement'}) here.
+ *   • harvested_skill_evaluator.ts (evaluateHarvestedDrafts) — NO createSession
+ *       of its own; its LLM calls delegate to skill_refiner.scoreSkillBody /
+ *       rewriteSkillBody. Nothing to migrate in this file (skill_refiner is a
+ *       separate B-phase target).
+ *   • skill_consolidation_drafter.ts / memory_consolidation_drafter.ts — the
+ *       "consolidation drafters"; BOTH are deliberately MECHANICAL (documented
+ *       "no LLM call") string merges. No createSession, no loop to migrate.
+ *   • skill_refiner.ts (x3), generators/workflow_signal_generator.ts,
+ *       org_proposal_measure.ts — other B-phase agents' background loops (owned
+ *       elsewhere), out of this issue's file ownership.
+ *   • agent_runner.ts:834 — run()'s OWN createSession. Legitimate, MUST stay.
+ *   • ws_gateway.ts (x2), agent_sessions_controller.ts (x2) — the INTERACTIVE
+ *       session-creation path (user-driven), NOT background loops. Kept as-is.
  */
 const defaultLlmCall: LlmCall = async (systemPrompt, userContent, sessionModel) => {
-  const { opencodeClient } = await import('./opencode_engine');
-  const { resolveRunModel } = await import('./agent_runner');
+  const { run, resolveRunModel } = await import('./agent_runner');
   const model = sessionModel ?? resolveRunModel();
-  const session = await opencodeClient.createSession('skill-extract');
-  if (!session?.id) return '';
   const combined = `${systemPrompt}\n\n${userContent}`;
-  const resp = await opencodeClient.prompt(session.id, combined, model, undefined, {
-    permissionMode: 'bypassPermissions',
+  const res = await run({
+    prompt: combined,
+    sessionName: 'skill-extract',
+    category: 'self_improvement',
+    modelOverride: model,
+    mcpRole: 'skill-extract',
+    allowedMcpsJson: '{}',
   });
-  const parts = resp?.parts ?? [];
-  return parts
-    .filter((p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text')
-    .map((p) => p.text)
-    .join('\n')
-    .trim();
+  // '' triggers the SAME fail path (LLM declined / no session) the old
+  // no-session / empty-parts return used.
+  return res.status === 'error' ? '' : res.result;
 };
 
 export interface DistillOptions {

@@ -34,6 +34,10 @@ vi.mock('../services/opencode_engine', () => ({
 // ── Import after mock ─────────────────────────────────────────────────────────
 
 import { run, _activeRunCount } from '../services/agent_runner';
+import Database from 'better-sqlite3';
+import { runMigrations } from '../database/migrations';
+import { getDb, setDb } from '../database/db';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -75,11 +79,13 @@ describe('#738 — AgentRunner', () => {
     // #738-fix: prompt must be called WITH a resolved model (not undefined).
     // The DB is not initialized in this test so MRU lookup falls back to the
     // hardcoded default: anthropic / claude-sonnet-4-6.
+    // #1002: post-creation calls are directory-scoped to effectiveCwd
+    // (cwd ?? process.cwd()); with no cwd passed, that resolves to process.cwd().
     expect(mockPrompt).toHaveBeenCalledWith(
       'sdk-session-1',
       'Say hello',
       { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
-      undefined,
+      process.cwd(),
       expect.objectContaining({ permissionMode: 'bypassPermissions' }),
     );
   });
@@ -100,7 +106,8 @@ describe('#738 — AgentRunner', () => {
 
     expect(result.status).toBe('error');
     expect(result.error).toMatch(/run timed out/i);
-    expect(mockAbortSession).toHaveBeenCalledWith('sdk-session-1', undefined);
+    // #1002: abort is directory-scoped to effectiveCwd (process.cwd() here).
+    expect(mockAbortSession).toHaveBeenCalledWith('sdk-session-1', process.cwd());
 
     delete process.env.AGENT_RUN_TIMEOUT_MS;
   });
@@ -195,6 +202,31 @@ describe('#738 — AgentRunner', () => {
     expect(result.error).toMatch(/no output/i);
     // abortSession should NOT be called for a null response (only for timeout)
     expect(mockAbortSession).not.toHaveBeenCalled();
+  });
+
+  // ── USO B1 (#1028): category option threaded to the recorded session ──────
+
+  it('records the run session with the caller-supplied category (self_improvement stays is_system=1)', async () => {
+    setDb(new Database(':memory:'));
+    runMigrations(getDb());
+    mockPrompt.mockResolvedValue(makePromptResponse('Done'));
+
+    const result = await run({ prompt: 'Improve a skill', category: 'self_improvement' });
+    expect(result.status).toBe('done');
+
+    const recorded = new AgentSessionsRepository().findById(result.sessionId);
+    expect(recorded?.category).toBe('self_improvement');
+    expect(recorded?.isSystem).toBe(true);
+  });
+
+  it('defaults a plain run to category chat', async () => {
+    setDb(new Database(':memory:'));
+    runMigrations(getDb());
+    mockPrompt.mockResolvedValue(makePromptResponse('Done'));
+
+    const result = await run({ prompt: 'Just chat' });
+    const recorded = new AgentSessionsRepository().findById(result.sessionId);
+    expect(recorded?.category).toBe('chat');
   });
 
   // ── F. Concurrency cap rejects (N+1)th run ────────────────────────────────

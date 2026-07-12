@@ -9,8 +9,8 @@ import { AgentConfigsRepository } from '../repositories/agent_configs_repository
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
-import type { AgentKind, CreateAgentSessionDto, PermissionMode } from '../models/agent_session';
-import { PERMISSION_MODES } from '../models/agent_session';
+import type { AgentKind, CreateAgentSessionDto, PermissionMode, SessionScope } from '../models/agent_session';
+import { PERMISSION_MODES, SESSION_SCOPES } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
 import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 import { estimateToolSurface } from '../services/tool_surface_estimator';
@@ -351,7 +351,15 @@ export class AgentSessionsController {
           ? repo.listByProject(null, 100, archiveOpts)
           : repo.listByProject(projectIdParam, 100, archiveOpts);
       } else {
-        sessions = repo.listAll(100, archiveOpts);
+        // USO A1 (#1024) — `scope` selects the session slice. Unknown values
+        // fall back safely to 'chats' (pre-USO default), so no-scope and any
+        // malformed scope both return today's interactive-chats response.
+        const scopeParam = req.query.scope;
+        const scope: SessionScope =
+          typeof scopeParam === 'string' && SESSION_SCOPES.includes(scopeParam as SessionScope)
+            ? (scopeParam as SessionScope)
+            : 'chats';
+        sessions = repo.listAll(100, { ...archiveOpts, scope });
       }
       const resumable = archivedOnly ? [] : repo.listResumable();
       res.json({ sessions, resumable });

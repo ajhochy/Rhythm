@@ -144,6 +144,116 @@ describe('AgentSessionsRepository', () => {
     expect(repo.listAll()).toHaveLength(2);
   });
 
+  // USO A1 (#1024) / B1 (#1028) — scope-aware listAll.
+  describe('listAll scope', () => {
+    function seedScheduledTask(id: string) {
+      getDb()
+        .prepare(`INSERT INTO agent_scheduled_tasks (id, name, prompt) VALUES (?, ?, ?)`)
+        .run(id, `Task ${id}`, 'do the thing');
+    }
+
+    beforeEach(() => {
+      seedScheduledTask('sched-1');
+    });
+
+    it('no scope === scope:chats === is_system=0 interactive set', () => {
+      const chat = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Chat' });
+      repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Scheduled',
+        scheduledTaskId: 'sched-1', isSystem: true,
+      });
+      repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'SelfImprove',
+        isSystem: true, category: 'self_improvement',
+      });
+
+      const noScope = repo.listAll(100);
+      const chats = repo.listAll(100, { scope: 'chats' });
+      expect(noScope.map((s) => s.id)).toEqual([chat.id]);
+      expect(chats.map((s) => s.id)).toEqual([chat.id]);
+    });
+
+    it('the three scopes return disjoint row sets', () => {
+      const chat = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Chat' });
+      const scheduled = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Scheduled',
+        scheduledTaskId: 'sched-1', isSystem: true,
+      });
+      const selfImprove = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'SelfImprove',
+        isSystem: true, category: 'self_improvement',
+      });
+
+      expect(repo.listAll(100, { scope: 'chats' }).map((s) => s.id)).toEqual([chat.id]);
+      expect(repo.listAll(100, { scope: 'scheduled' }).map((s) => s.id)).toEqual([scheduled.id]);
+      expect(repo.listAll(100, { scope: 'self_improvement' }).map((s) => s.id)).toEqual([selfImprove.id]);
+    });
+
+    it('scope:scheduled includes scheduled rows that chats excludes; rows carry parentSessionId', () => {
+      const scheduled = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Scheduled',
+        scheduledTaskId: 'sched-1', isSystem: true,
+      });
+      const chatsIds = repo.listAll(100, { scope: 'chats' }).map((s) => s.id);
+      const scheduledRows = repo.listAll(100, { scope: 'scheduled' });
+      expect(chatsIds).not.toContain(scheduled.id);
+      expect(scheduledRows.map((s) => s.id)).toContain(scheduled.id);
+      // parent_session_id is preserved on the returned model (null here).
+      expect(scheduledRows[0]).toHaveProperty('parentSessionId', null);
+    });
+  });
+
+  // USO B1 (#1028) — category stamping + legacy derive.
+  describe('category', () => {
+    function seedScheduledTask(id: string) {
+      getDb()
+        .prepare(`INSERT INTO agent_scheduled_tasks (id, name, prompt) VALUES (?, ?, ?)`)
+        .run(id, `Task ${id}`, 'do the thing');
+    }
+
+    it('stamps chat by default for interactive sessions', () => {
+      const s = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Chat' });
+      expect(s.category).toBe('chat');
+    });
+
+    it('derives scheduled when scheduledTaskId is set', () => {
+      seedScheduledTask('sched-cat');
+      const s = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'Scheduled',
+        scheduledTaskId: 'sched-cat', isSystem: true,
+      });
+      expect(s.category).toBe('scheduled');
+    });
+
+    it('honors an explicit self_improvement category', () => {
+      const s = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'SelfImprove',
+        isSystem: true, category: 'self_improvement',
+      });
+      expect(s.category).toBe('self_improvement');
+    });
+
+    it('backfills legacy rows: scheduled_task_id NOT NULL → scheduled, else chat', () => {
+      seedScheduledTask('sched-legacy');
+      // Simulate the state right after ADD COLUMN ... DEFAULT 'chat' but BEFORE
+      // the backfill UPDATE: every pre-#1028 row carries the 'chat' default,
+      // including scheduled ones. Force both to 'chat' to model that.
+      const chat = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'LegacyChat' });
+      const scheduled = repo.insert({
+        agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'LegacyScheduled',
+        scheduledTaskId: 'sched-legacy', isSystem: true,
+      });
+      getDb().prepare(`UPDATE agent_sessions SET category = 'chat'`).run();
+      // Re-run the migration's backfill statement.
+      getDb()
+        .prepare(`UPDATE agent_sessions SET category = 'scheduled' WHERE scheduled_task_id IS NOT NULL`)
+        .run();
+
+      expect(repo.findById(chat.id)?.category).toBe('chat');
+      expect(repo.findById(scheduled.id)?.category).toBe('scheduled');
+    });
+  });
+
   // #904 — background loop activity log.
   describe('listByScheduledTaskId', () => {
     function seedScheduledTask(id: string) {

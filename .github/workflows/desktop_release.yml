@@ -47,6 +47,17 @@ jobs:
         with:
           channel: stable
 
+      # #1023 — Pin ONE Node version for the whole release. better-sqlite3 is
+      # compiled against this Node's ABI (in every npm install below) AND the
+      # matching Node binary is bundled into the app, so the app always runs
+      # the embedded server under a Node whose ABI equals the compiled
+      # better_sqlite3.node by construction. Without this pin the runner drifts
+      # (e.g. to Node 24 / ABI 137) while the user machine runs a different Node
+      # (ABI 127) → ERR_DLOPEN_FAILED at initDb → agent server never binds.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
       - name: Install Flutter dependencies
         working-directory: apps/desktop_flutter
         run: flutter pub get
@@ -130,6 +141,45 @@ jobs:
           test -d "$DEST/node_modules"
           test -f "$DEST/node_modules/better-sqlite3/package.json"
 
+      - name: Bundle Node runtime into app (#1023)
+        working-directory: apps/desktop_flutter
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="build/macos/Build/Products/Release/Rhythm.app"
+          DEST="$APP/Contents/Resources/node/bin"
+          mkdir -p "$DEST"
+          # Copy the SAME Node binary that just compiled better-sqlite3 (the
+          # pinned setup-node runtime). Copying — rather than re-downloading —
+          # guarantees the bundled Node's ABI equals the compiled
+          # better_sqlite3.node ABI by construction. `process.execPath` resolves
+          # the real binary behind any toolcache symlink (BSD readlink lacks -f).
+          NODE_REAL="$(node -e 'process.stdout.write(process.execPath)')"
+          echo "Bundling Node from: $NODE_REAL ($(node --version))"
+          cp "$NODE_REAL" "$DEST/node"
+          chmod +x "$DEST/node"
+          BUNDLED_ABI="$("$DEST/node" -e 'process.stdout.write(process.versions.modules)')"
+          echo "Bundled Node ABI (process.versions.modules) = $BUNDLED_ABI"
+          # Prove the bundled Node can actually dlopen + use the bundled
+          # better-sqlite3. On an ABI mismatch this throws ERR_DLOPEN_FAILED and
+          # FAILS the release here instead of shipping a broken agent server.
+          BSQLITE="$PWD/$APP/Contents/Resources/api_server/node_modules/better-sqlite3"
+          "$DEST/node" -e "
+            const Database = require('$BSQLITE');
+            const db = new Database(':memory:');
+            const row = db.prepare('select 1 as x').get();
+            if (row.x !== 1) { console.error('better-sqlite3 query wrong'); process.exit(1); }
+            console.log('bundled Node loads bundled better-sqlite3 OK (ABI ' + process.versions.modules + ')');
+          "
+
+      - name: Verify bundled Node payload (#1023)
+        working-directory: apps/desktop_flutter
+        run: |
+          NODE="build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/node/bin/node"
+          test -f "$NODE"
+          test -x "$NODE"
+          "$NODE" --version
+
       - name: Build rhythm MCP server
         working-directory: apps/mcp_server
         run: |
@@ -174,12 +224,23 @@ jobs:
         shell: bash
         run: |
           set -u
-          SCRIPT="apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/api_server/dist/server.js"
+          APP="apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app"
+          SCRIPT="$APP/Contents/Resources/api_server/dist/server.js"
+          # #1023 — Run under the BUNDLED Node, not the runner's node. The
+          # runner's node always matches the just-compiled better_sqlite3 ABI,
+          # so it structurally cannot catch a mismatch; the bundled node is what
+          # the user machine actually runs. A better-sqlite3 ABI mismatch fails
+          # initDb here (the server exits before /health), failing the release.
+          BUNDLED_NODE="$APP/Contents/Resources/node/bin/node"
           if [ ! -f "$SCRIPT" ]; then
             echo "::error::Bundled CLI server not found at $SCRIPT"
             exit 1
           fi
-          AGENT_LOCAL=true PORT=4002 DB_PATH="$RUNNER_TEMP/smoke.db" NODE_ENV=test node "$SCRIPT" &
+          if [ ! -f "$BUNDLED_NODE" ]; then
+            echo "::error::Bundled Node runtime not found at $BUNDLED_NODE"
+            exit 1
+          fi
+          AGENT_LOCAL=true PORT=4002 DB_PATH="$RUNNER_TEMP/smoke.db" NODE_ENV=test "$BUNDLED_NODE" "$SCRIPT" &
           PID=$!
           cleanup() {
             kill $PID 2>/dev/null || true

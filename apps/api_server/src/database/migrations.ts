@@ -1654,6 +1654,18 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_sessions_is_system ON agent_sessions(is_system)`);
   }
 
+  // #1028 (USO B1) — agent_sessions.category: session classification driving the
+  // USO scope filters (chat / scheduled / self_improvement). Additive ALTER
+  // guarded by pragma (idempotent). New rows are stamped at insert; legacy rows
+  // are backfilled once here (scheduled_task_id NOT NULL → 'scheduled', else the
+  // 'chat' column default already applies).
+  const agentSessionCols1028 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionCols1028.includes('category')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN category TEXT NOT NULL DEFAULT 'chat'`);
+    db.exec(`UPDATE agent_sessions SET category = 'scheduled' WHERE scheduled_task_id IS NOT NULL`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_sessions_category ON agent_sessions(category)`);
+  }
+
   // #817 (org-optimizer-01) — agent_org_proposals: the foundation proposal
   // store + lifecycle state machine for the org self-optimizer. Every
   // generator (create-agent, tighten-scope, prune-scope, refine-skill,
