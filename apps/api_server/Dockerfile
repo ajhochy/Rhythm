@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim AS base
+FROM node:24-bookworm-slim AS base
 WORKDIR /app
 
 # Stage with toolchain for compiling native modules (node-pty, better-sqlite3 fallback).
