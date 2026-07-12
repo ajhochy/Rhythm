@@ -12,7 +12,13 @@ import { extractInvokedSkillNamesFromParts, ensureLazyDepsForTurn } from './lazy
 import { isToolAllowed } from './mcp_dispatch_guard';
 import { classifyCommand, extractBashCommand } from '../security/command_approval';
 import { resolveApprovalsMode } from '../config/env';
-import { onSessionError, noteUserMessage, clearTurn } from './turn_redispatch';
+import {
+  advanceFallbackCascade,
+  clearTurn,
+  finalizeErrorStatus,
+  noteUserMessage,
+  onSessionError,
+} from './turn_redispatch';
 import type { AgentSession, PermissionMode } from '../models/agent_session';
 
 /**
@@ -1188,12 +1194,21 @@ export class OpencodeStreamBridge {
         // (or finalizes with this message if no tier resolves). The partial
         // output is discarded (revert removes it engine-side; the pending
         // buffer is dropped here) — the user sees one final answer, not a
-        // duplicate partial. A session whose RETRY fails returns 'finalize'
-        // (at-most-once) and errors normally below.
+        // duplicate partial. A rate-limited replacement tier returns
+        // 'cascade'; auth/schema/tool/other failures still finalize below.
         if (localSessionId) {
-          const action = onSessionError(localSessionId, message);
+          const action = onSessionError(localSessionId, message, errorInfo);
           if (action === 'defer') {
             this.pendingText.delete(localSessionId);
+            break;
+          }
+          if (action === 'cascade') {
+            this.pendingText.delete(localSessionId);
+            void advanceFallbackCascade(localSessionId, { message }).then((result) => {
+              if (result.outcome === 'terminal') {
+                finalizeErrorStatus(localSessionId!, result.error ?? message);
+              }
+            });
             break;
           }
         }

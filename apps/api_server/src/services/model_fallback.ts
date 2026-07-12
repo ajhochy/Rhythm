@@ -63,9 +63,41 @@ export type ProviderErrorClass = 'rate_limit' | 'auth' | 'other';
  * rhythm-anthropic-accounts plugin (`status === 429 || status === 529`),
  * generalized to a shared, testable helper.
  */
-export function classifyProviderError(status: number, _body?: string): ProviderErrorClass {
+export function classifyProviderError(error: unknown, body?: string): ProviderErrorClass {
+  const obj =
+    error && typeof error === 'object' ? (error as Record<string, unknown>) : undefined;
+  const data =
+    obj?.data && typeof obj.data === 'object'
+      ? (obj.data as Record<string, unknown>)
+      : undefined;
+  const status =
+    typeof error === 'number'
+      ? error
+      : typeof data?.statusCode === 'number'
+        ? data.statusCode
+        : typeof obj?.statusCode === 'number'
+          ? obj.statusCode
+          : undefined;
+
   if (status === 429 || status === 529) return 'rate_limit';
   if (status === 401 || status === 403) return 'auth';
+
+  const text = [
+    body,
+    typeof obj?.message === 'string' ? obj.message : undefined,
+    typeof data?.message === 'string' ? data.message : undefined,
+    typeof data?.responseBody === 'string' ? data.responseBody : undefined,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join('\n')
+    .toLowerCase();
+  if (
+    /rate[_ -]?limit|too many requests|resource[_ -]?exhausted|insufficient[_ -]?quota|quota (?:is )?exhausted|quota exceeded/.test(
+      text,
+    )
+  ) {
+    return 'rate_limit';
+  }
   return 'other';
 }
 
@@ -99,8 +131,8 @@ export function getConfiguredFallbackChain(): FallbackTier[] {
  * actually authed, per the existing global `listAuthedProviders()` gate
  * (product decision: no new per-profile allowlist — reuse this as the sole
  * "allowed providers" check). Preserves chain order. GLM-5.2 and
- * OpenRouter-free are never authed today, so they are always filtered out
- * here — this is what makes them "inert" entries rather than a code gap.
+ * GLM remains filtered because no credential loader exists. OpenRouter-free
+ * is included whenever the real `openrouter` auth entry is present.
  */
 export function resolveAuthedFallbackChain(authedProviders: readonly string[]): FallbackTier[] {
   const authed = new Set(authedProviders);
@@ -115,12 +147,15 @@ export function resolveAuthedFallbackChain(authedProviders: readonly string[]): 
 export function nextFallbackTier(
   currentTierId: string | undefined,
   authedProviders: readonly string[],
+  visitedTierIds: readonly string[] = [],
 ): FallbackTier | undefined {
-  const chain = resolveAuthedFallbackChain(authedProviders);
-  if (!currentTierId) return chain[0];
-  const idx = chain.findIndex((tier) => tier.id === currentTierId);
-  if (idx === -1) return chain[0];
-  return chain[idx + 1];
+  const chain = getConfiguredFallbackChain();
+  const authed = new Set(authedProviders);
+  const visited = new Set(visitedTierIds);
+  const idx = currentTierId ? chain.findIndex((tier) => tier.id === currentTierId) : -1;
+  return chain
+    .slice(idx + 1)
+    .find((tier) => authed.has(tier.providerID) && !visited.has(tier.id));
 }
 
 // ── Unit 3 (scoped) — cross-provider handoff decision ───────────────────────
@@ -156,6 +191,24 @@ export interface ReliableFallbackModelDecision {
   tier: FallbackTier;
   providerID: string;
   modelID: string;
+}
+
+/** Resolve the next unvisited, authenticated tier with a known default model. */
+export function resolveNextFallbackHandoff(
+  currentTierId: string | undefined,
+  authedProviders: readonly string[],
+  visitedTierIds: readonly string[] = [],
+): CrossProviderHandoffDecision | undefined {
+  const visited = new Set(visitedTierIds);
+  let cursor = currentTierId;
+  while (true) {
+    const tier = nextFallbackTier(cursor, authedProviders, [...visited]);
+    if (!tier) return undefined;
+    const modelID = DEFAULT_MODEL_BY_PROVIDER[tier.providerID];
+    if (modelID) return { tier, providerID: tier.providerID, modelID };
+    visited.add(tier.id);
+    cursor = tier.id;
+  }
 }
 
 /**
@@ -210,10 +263,12 @@ export function resolveCrossProviderHandoff(
   exhaustedProviderID: string,
   authedProviders: readonly string[],
 ): CrossProviderHandoffDecision | undefined {
-  const chain = resolveAuthedFallbackChain(authedProviders);
-  const tier = chain.find((t) => t.providerID !== exhaustedProviderID);
-  if (!tier) return undefined;
-  const modelID = DEFAULT_MODEL_BY_PROVIDER[tier.providerID];
-  if (!modelID) return undefined; // no known default model for this provider — decline rather than guess
-  return { tier, providerID: tier.providerID, modelID };
+  const providerTiers = getConfiguredFallbackChain().filter(
+    (tier) => tier.providerID === exhaustedProviderID,
+  );
+  return resolveNextFallbackHandoff(
+    providerTiers.at(-1)?.id,
+    authedProviders,
+    providerTiers.map((tier) => tier.id),
+  );
 }

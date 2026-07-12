@@ -1,0 +1,48 @@
+{
+  "issue": 930,
+  "generated": "2026-07-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-930-c1",
+      "text": "A structured provider error carrying HTTP 429/529 or an exhaustion code is classified as rate-limit eligible, while auth and unrelated errors are not.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_930_fallback_cascade.test.ts",
+      "test_id": "issue-930-c1: structured provider errors retain rate-limit classification",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-930-c2",
+      "text": "After an Anthropic-to-Codex redispatch, a structured Codex rate-limit failure advances the same retained turn instead of finalizing under the old at-most-once policy.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_930_fallback_cascade.test.ts",
+      "test_id": "issue-930-c2: a redispatched Codex rate limit remains cascade-eligible",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-930-c3",
+      "text": "Before a retained turn is redispatched to Google/Gemini, provider-aware session preparation completes before promptAsync is invoked.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_930_fallback_cascade.test.ts",
+      "test_id": "issue-930-c3: Gemini session preparation precedes the redispatch prompt",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-930-c4",
+      "text": "Visited or unauthenticated tiers are skipped in configured order and no tier remains after OpenRouter-free, so the cascade cannot loop.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_930_fallback_cascade.test.ts",
+      "test_id": "issue-930-c4: visited tiers are skipped and the final tier is terminal",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-930-c5",
+      "text": "Through the running API surface, simulated Anthropic exhaustion advances to OpenAI/Codex and a subsequent simulated OpenAI exhaustion advances the same session to Google/Gemini.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_930.test.ts",
+      "test_id": "C: generic exhaustion signals walk Anthropic -> OpenAI -> Google without repeating a tier",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

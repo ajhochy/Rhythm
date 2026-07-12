@@ -426,6 +426,42 @@ describe('POST /opencode/spillover — engine plugin failover intake', () => {
     expect(broadcasts.find((b) => b.type === 'session.spillover')).toBeUndefined();
   });
 
+  it('8b. generic provider exhaustion advances Anthropic -> OpenAI -> Google in order', async () => {
+    const session = repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'GenericCascade',
+      anthropicAccountId: 'team',
+    });
+    repo.setSdkSessionId(session.id, 'sdk-cascade-1');
+    vi.spyOn(service.ref, 'listAuthedProviders').mockResolvedValue([
+      'anthropic',
+      'openai',
+      'google',
+    ]);
+
+    const first = await req('POST', '/opencode/spillover', {
+      sdkSessionId: 'sdk-cascade-1',
+      providerID: 'anthropic',
+      exhausted: true,
+    });
+    expect(first.status).toBe(200);
+    expect(first.body.providerID).toBe('openai');
+    expect(repo.findById(session.id)?.providerId).toBe('openai');
+
+    const second = await req('POST', '/opencode/spillover', {
+      sdkSessionId: 'sdk-cascade-1',
+      providerID: 'openai',
+      exhausted: true,
+    });
+    expect(second.status).toBe(200);
+    expect(second.body.providerID).toBe('google');
+    expect(second.body.modelID).toBe('gemini-2.5-pro');
+    expect(repo.findById(session.id)?.providerId).toBe('google');
+  });
+
   it('9. missing sdkSessionId and no toAccountId/exhausted → 400', async () => {
     const { status } = await req('POST', '/opencode/spillover', {
       fromAccountId: 'team',
