@@ -121,7 +121,8 @@ describe('workflow-orchestrator file projection', () => {
 
     // The written .md must be made visible to the running engine's cached
     // agent registry — otherwise `agent: <id>` throws "Agent not found" live.
-    expect(mockReloadConfig).toHaveBeenCalledTimes(1);
+    expect(mockReloadConfig).toHaveBeenCalledOnce();
+    expect(mockReloadConfig).toHaveBeenCalledWith(process.cwd());
   });
 
   it('does not project disabled profile rows', () => {
