@@ -10,7 +10,8 @@
  *   id                 = agent.name            (stable; agent_configs.id is the kind string)
  *   label              = Title Case of name    (only on first insert; user edits preserved)
  *   ocAgent            = agent.name            (routing target for the opencode SDK)
- *   sessionSelectable  = mode==='primary' AND not an opencode-internal primary
+ *   sessionSelectable  = mode==='primary' OR mode==='all', AND not an
+ *                        opencode-internal primary
  *                        EXCEPT: dev front-door de-dup overrides (see DEV_FRONT_DOOR_*)
  *
  * "session selectable" controls visibility in the composer AgentSelectorPill.
@@ -583,9 +584,17 @@ export async function syncOpencodeAgentProfiles(
     const name = agent.name;
     if (!name) continue;
 
-    // Base selectability: primary + non-internal → true; everything else false.
-    // Dev front-door de-dup overrides this below.
-    let selectable = agent.mode === 'primary' && !INTERNAL_PRIMARY.has(name);
+    // Base selectability — used at INSERT time only (see the update-path
+    // comment below: session_selectable is user-owned once the row exists).
+    // primary/all + non-internal → true; everything else false. #1039
+    // (opencode_agent_writer.ts) writes `mode: 'all'` — not just 'primary' —
+    // for any profile with sessionSelectable=true, so a promoted profile
+    // stays BOTH runnable as a top-level session AND a delegation target.
+    // This reader must recognize 'all' too, or the seeded default for a
+    // promoted profile would be wrong on first import.
+    // Dev front-door de-dup overrides this below (insert-time default only).
+    let selectable =
+      (agent.mode === 'primary' || agent.mode === 'all') && !INTERNAL_PRIMARY.has(name);
 
     // Dev front-door de-dup: force exactly one entry-point agent into the
     // picker. Secondary front-doors are kept in the DB but hidden from the
@@ -612,19 +621,24 @@ export async function syncOpencodeAgentProfiles(
 
       const existing = repo.getById(name);
       if (existing) {
-        // Refresh routing + selectability. The sessionSelectable override for
-        // dev front-doors is always re-applied on every sync pass so it is
-        // idempotent. Backfill prompt/model ONLY when the profile has none yet
-        // — never clobber values the user edited in the designer (which is now
-        // the source of truth for model/prompt).
+        // session_selectable is USER-OWNED after first insert. The engine's
+        // mode seeds it at INSERT below, but the update path must never
+        // recompute it: the DB is the single authority for user-editable
+        // profile fields, the .md file is a projection of the DB (the writer
+        // emits mode:'all'/'subagent' FROM sessionSelectable), and reading
+        // that projection back on every picker refresh is exactly what
+        // silently reverted user promotions/demotions (#1039 family — the
+        // dev-front-door force had the same revert effect on those seven
+        // agents). The front-door de-dup therefore applies at insert only.
+        // Backfill prompt/model ONLY when the profile has none yet — never
+        // clobber values the user edited in the designer (the source of
+        // truth for model/prompt).
         //
         // is_manager is intentionally absent — see comment block above the
         // DEV_FRONT_DOOR_PRIMARY constant. That flag is user-controlled and
         // must survive re-syncs unchanged.
-        const patch: Parameters<typeof repo.update>[1] = {
-          ocAgent: name,
-          sessionSelectable: selectable,
-        };
+        const patch: Parameters<typeof repo.update>[1] = {};
+        if (existing.ocAgent !== name) patch.ocAgent = name;
         if (!existing.systemPrompt && prompt) patch.systemPrompt = prompt;
         if (!existing.modelProvider && !existing.modelId) {
           patch.modelProvider = resolvedProvider;
@@ -667,7 +681,9 @@ export async function syncOpencodeAgentProfiles(
         if (existing.allowedDelegatesJson === null && allowedDelegatesJson !== null) {
           patch.allowedDelegatesJson = allowedDelegatesJson;
         }
-        repo.update(name, patch);
+        if (Object.keys(patch).length > 0) {
+          repo.update(name, patch);
+        }
       } else {
         repo.insert({
           id: name,

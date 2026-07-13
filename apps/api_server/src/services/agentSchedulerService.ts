@@ -284,6 +284,7 @@ async function insertScheduledTrigger(task: {
 // ── Scheduler loop ────────────────────────────────────────────────────────
 
 const repo = new AgentScheduledTasksRepository();
+const CAPACITY_RETRY_MS = 60_000; // scheduler ticks once per minute
 
 async function checkDueTasks(): Promise<void> {
   let dueTasks: Awaited<ReturnType<typeof repo.findDueAsync>>;
@@ -339,15 +340,28 @@ async function checkDueTasks(): Promise<void> {
           // Null owner → only instance-global memory is injected (fail-safe).
           ownerUserId: task.createdByUserId ?? null,
         }).then(async (result) => {
-          const status = result.status === 'done' ? 'success' : 'error';
+          const capacityDeferred = result.errorCode === 'capacity';
+          const status = result.status === 'done'
+            ? 'success'
+            : capacityDeferred
+              ? 'queued'
+              : 'error';
           const errMsg = result.error ?? undefined;
+          // Capacity is transient, not a failed task execution. Preserve the
+          // global resource cap and retry on the next scheduler tick instead
+          // of waiting for the task's next normal recurrence.
+          const resultNextRun = capacityDeferred
+            ? new Date(Date.now() + CAPACITY_RETRY_MS).toISOString()
+            : nextRun;
           try {
-            await repo.updateNextRunAsync(task.id, nextRun, runStart, status, errMsg);
+            await repo.updateNextRunAsync(task.id, resultNextRun, runStart, status, errMsg);
           } catch (updateErr) {
             logger.warn(`[AgentScheduler] Could not update last_run_status for "${task.name}": ${String(updateErr)}`);
           }
           if (status === 'success') {
             logger.info(`[AgentScheduler] Task "${task.name}" completed. Session: ${result.sessionId}`);
+          } else if (capacityDeferred) {
+            logger.warn(`[AgentScheduler] Task "${task.name}" deferred for capacity. Retry: ${resultNextRun}`);
           } else {
             logger.error(`[AgentScheduler] Task "${task.name}" failed: ${errMsg}`);
           }

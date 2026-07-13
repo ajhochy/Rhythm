@@ -254,6 +254,7 @@ describe('#738 — AgentRunner', () => {
 
     expect(secondResult.status).toBe('error');
     expect(secondResult.error).toMatch(/concurrency cap/i);
+    expect(secondResult.errorCode).toBe('capacity');
 
     // Unblock and await first run (it will time out at 100ms and release slot)
     firstRunResolve(null); // return null so it just times out cleanly

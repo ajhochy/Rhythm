@@ -117,15 +117,15 @@ describe('syncOpencodeAgentProfiles — overlay-field preservation', () => {
     expect(after.modelId).toBe('claude-opus-4-8');
   });
 
-  it('refreshes engine-derived ocAgent + sessionSelectable on every sync', async () => {
+  it('refreshes engine-derived ocAgent on every sync; sessionSelectable is user-owned', async () => {
     repo.insert({
       id: 'workflow-orchestrator',
       label: 'Workflow Orchestrator',
       icon: 'assets/agents/opencode.png',
       isAgent: true,
       enabled: true,
-      ocAgent: 'workflow-orchestrator',
-      sessionSelectable: false, // stale value the sync should correct to true
+      ocAgent: 'stale-handle', // internal routing field the sync should repair
+      sessionSelectable: false, // USER-OWNED — a demotion must survive every sync
       allowedDelegatesJson: '["custom-delegate"]', // user override must survive
       sortOrder: 100,
     });
@@ -133,10 +133,15 @@ describe('syncOpencodeAgentProfiles — overlay-field preservation', () => {
     await syncOpencodeAgentProfiles([ocAgent('workflow-orchestrator', 'primary')]);
 
     const after = repo.getById('workflow-orchestrator')!;
-    // Dev front-door primary: forced selectable=true on every sync.
-    expect(after.sessionSelectable).toBe(true);
+    // session_selectable is user-owned after first insert: the sync must not
+    // recompute it on existing rows — recomputing on every picker refresh
+    // (including the dev front-door force) was the #1039-family silent-revert
+    // bug.
+    expect(after.sessionSelectable).toBe(false);
+    // ocAgent is engine-internal (always the projected file handle) — still
+    // repaired when stale.
     expect(after.ocAgent).toBe('workflow-orchestrator');
-    // …but the user's delegate override is preserved, not regenerated.
+    // …and the user's delegate override is preserved, not regenerated.
     expect(after.allowedDelegatesJson).toBe('["custom-delegate"]');
   });
 
