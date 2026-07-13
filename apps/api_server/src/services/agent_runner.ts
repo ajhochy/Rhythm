@@ -214,6 +214,8 @@ export interface AgentRunResult {
   result: string;
   status: 'done' | 'error';
   error?: string;
+  /** Machine-readable classification for errors callers may safely retry. */
+  errorCode?: 'capacity';
 }
 
 // ── In-process concurrency gate ───────────────────────────────────────────────
@@ -436,6 +438,7 @@ export function resolveTeacherModel(
  * P4-1 (PURE — unit-tested directly): should this run be escalated to the
  * teacher model? True only when ALL hold:
  *  • the original result is an observable failure (status === 'error'), AND
+ *  • the failure is not a transient capacity rejection, AND
  *  • teacher escalation is enabled, AND
  *  • this run is NOT itself an escalation (recursion guard).
  *
@@ -443,12 +446,13 @@ export function resolveTeacherModel(
  * toggle is testable without a process restart.
  */
 export function shouldEscalate(
-  result: Pick<AgentRunResult, 'status'>,
+  result: Pick<AgentRunResult, 'status' | 'errorCode'>,
   opts: Pick<AgentRunOptions, '_isEscalation'>,
   enabled: boolean = env.agentTeacherEscalationEnabled,
 ): boolean {
   if (!enabled) return false;
   if (opts._isEscalation) return false; // recursion guard — escalate at most once
+  if (result.errorCode === 'capacity') return false; // load is not a model-quality failure
   return result.status === 'error';
 }
 
@@ -593,6 +597,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       result: '',
       status: 'error',
       error: msg,
+      errorCode: 'capacity',
     };
   }
 

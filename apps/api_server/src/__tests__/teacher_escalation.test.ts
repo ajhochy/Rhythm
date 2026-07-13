@@ -52,6 +52,12 @@ describe('shouldEscalate', () => {
     expect(shouldEscalate(doneResult(), baseOpts(), true)).toBe(false);
   });
 
+  it('capacity rejection → false because a teacher model cannot create a slot', () => {
+    expect(
+      shouldEscalate(errorResult({ errorCode: 'capacity' }), baseOpts(), true),
+    ).toBe(false);
+  });
+
   it('toggle OFF → false even on error', () => {
     expect(shouldEscalate(errorResult(), baseOpts(), false)).toBe(false);
   });

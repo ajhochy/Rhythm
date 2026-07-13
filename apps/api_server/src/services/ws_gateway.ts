@@ -844,6 +844,8 @@ export async function handleInputFrame(
         parts: forwardParts,
         cwd,
         sdkOpts,
+        model,
+        mcpRoleConfig: wsMcpRoleConfig ?? null,
       });
     }
 
