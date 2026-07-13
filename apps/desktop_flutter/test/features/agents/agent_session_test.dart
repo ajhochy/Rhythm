@@ -290,6 +290,14 @@ void main() {
       expect((msg as WsErrorMessage).message, 'Something went wrong');
     });
 
+    test('agent-configs.changed parses as a typed message', () {
+      final msg = AgentWsMessage.parse({
+        'v': 1,
+        'type': 'agent-configs.changed',
+      });
+      expect(msg, isA<AgentConfigsChangedMessage>());
+    });
+
     test('unknown type returns UnknownWsMessage with rawType', () {
       final msg = AgentWsMessage.parse({'type': 'some.future.type'});
       expect(msg, isA<UnknownWsMessage>());

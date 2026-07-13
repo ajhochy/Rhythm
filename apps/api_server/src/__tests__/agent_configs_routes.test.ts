@@ -8,6 +8,17 @@ import { SessionsRepository } from '../repositories/sessions_repository';
 import { startTestServer } from './helpers/real_server';
 import { opencodeClient } from '../services/opencode_engine';
 
+const { broadcastAgentConfigsChangedSpy } = vi.hoisted(() => ({
+  broadcastAgentConfigsChangedSpy: vi.fn(),
+}));
+
+vi.mock('../services/ws_gateway', () => ({
+  broadcast: vi.fn(),
+  broadcastSessionUpdated: vi.fn(),
+  broadcastSessionRemoved: vi.fn(),
+  broadcastAgentConfigsChanged: broadcastAgentConfigsChangedSpy,
+}));
+
 function makeDb() {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
@@ -16,6 +27,7 @@ function makeDb() {
 }
 
 async function setup() {
+  broadcastAgentConfigsChangedSpy.mockClear();
   const db = makeDb();
   setDb(db);
 
@@ -125,6 +137,7 @@ describe('POST /agent-configs', () => {
     expect(config.command).toBeUndefined();
     expect(config.presetId).toBeNull();
     expect(typeof config.id).toBe('string');
+    expect(broadcastAgentConfigsChangedSpy).toHaveBeenCalledTimes(1);
   });
 
   it('honors a custom slug id on create', async () => {
@@ -333,6 +346,7 @@ describe('PATCH /agent-configs/:id', () => {
       body: JSON.stringify({ label: 'Original', command: 'myagent' }),
     });
     const created = (await createRes.json()) as Record<string, unknown>;
+    broadcastAgentConfigsChangedSpy.mockClear();
 
     const res = await fetch(`${baseUrl}/agent-configs/${created.id}`, {
       method: 'PATCH',
@@ -342,6 +356,7 @@ describe('PATCH /agent-configs/:id', () => {
     expect(res.status).toBe(200);
     const updated = (await res.json()) as Record<string, unknown>;
     expect(updated.label).toBe('Updated');
+    expect(broadcastAgentConfigsChangedSpy).toHaveBeenCalledTimes(1);
   });
 
   it('issue-1014: reloads engine profiles when a delegate roster is patched', async () => {
@@ -493,12 +508,14 @@ describe('DELETE /agent-configs/:id', () => {
       body: JSON.stringify({ label: 'Temp Agent', command: 'tempagent' }),
     });
     const created = (await createRes.json()) as Record<string, unknown>;
+    broadcastAgentConfigsChangedSpy.mockClear();
 
     const delRes = await fetch(`${baseUrl}/agent-configs/${created.id}`, {
       method: 'DELETE',
       headers: authHeaders,
     });
     expect(delRes.status).toBe(204);
+    expect(broadcastAgentConfigsChangedSpy).toHaveBeenCalledTimes(1);
 
     // Confirm it's gone
     const getRes = await fetch(`${baseUrl}/agent-configs/${created.id}`, {
@@ -546,6 +563,7 @@ describe('POST /agent-configs/:id/resync-agent-file', () => {
     const body = (await res.json()) as { id: string; label: string };
     expect(body.id).toBe('config-doctor');
     expect(body.label).toBe('Config Doctor');
+    expect(broadcastAgentConfigsChangedSpy).toHaveBeenCalledTimes(1);
   });
 
   it('404s for an unknown id', async () => {

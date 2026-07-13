@@ -123,6 +123,11 @@ export function broadcastSessionRemoved(id: string): void {
   broadcast({ v: 1, type: 'session.removed', id });
 }
 
+/** Broadcast that the agent-profile catalog changed. */
+export function broadcastAgentConfigsChanged(): void {
+  broadcast({ v: 1, type: 'agent-configs.changed' });
+}
+
 /**
  * OPC-M3-4 — Handle a `session.command` WS frame.
  *

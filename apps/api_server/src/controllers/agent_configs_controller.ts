@@ -15,6 +15,7 @@ import {
 } from '../services/agent_config_export_import';
 import { opencodeClient } from '../services/opencode_engine';
 import { detectAgentSkillWiringMismatches } from '../services/agent_skill_wiring';
+import { broadcastAgentConfigsChanged } from '../services/ws_gateway';
 import { logger } from '../utils/logger';
 
 const repo = new AgentConfigsRepository();
@@ -210,6 +211,7 @@ export class AgentConfigsController {
       const config = repo.getById(req.params.id);
       if (!config) throw AppError.notFound('AgentConfig');
       writeAgentProfileFile(config);
+      broadcastAgentConfigsChanged();
       res.json(config);
     } catch (err) {
       next(err);
@@ -268,6 +270,7 @@ export class AgentConfigsController {
       // truth). No-op for CLI presets / opencode built-ins. Non-fatal.
       writeAgentProfileFile(config);
       await reloadAgentProfilesBestEffort();
+      broadcastAgentConfigsChanged();
       res.status(201).json(config);
     } catch (err) {
       next(err);
@@ -324,6 +327,7 @@ export class AgentConfigsController {
       // system prompt, scope, model, AND the delegate roster — so the next
       // task call in an existing session sees the newly persisted allowlist.
       await reloadAgentProfilesBestEffort();
+      broadcastAgentConfigsChanged();
       res.json(updated);
     } catch (err) {
       next(err);
@@ -398,6 +402,7 @@ export class AgentConfigsController {
       // Remove the projected opencode agent file. Non-fatal.
       deleteAgentProfileFile(req.params.id);
       await reloadAgentProfilesBestEffort();
+      broadcastAgentConfigsChanged();
       res.status(204).end();
     } catch (err) {
       next(err);
