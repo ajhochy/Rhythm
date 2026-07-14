@@ -14,6 +14,28 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 
 ## Running tests
 
+### Isolated dev sandbox
+
+Use `tools/dev/sandbox.sh` to run a second local api_server without touching
+the live app's ports, database, HOME-relative Opencode files, or run slots.
+It uses API port `4098`, engine port `4097`, a SQLite `.backup` copy, and a
+temporary HOME. It disables every copied scheduled task before launch.
+
+```bash
+tools/dev/sandbox.sh up
+tools/dev/sandbox.sh status
+tools/dev/sandbox.sh down
+```
+
+The live SQLite source defaults to
+`~/Library/Application Support/Rhythm/rhythm.db`; override it only with
+`RHYTHM_LIVE_DB_PATH=/absolute/path/to/rhythm.db`. The sandbox directory
+defaults to `$TMPDIR/rhythm-dev-sandbox`; set
+`RHYTHM_SANDBOX_DIR=/absolute/path` to retain it elsewhere. `up` refuses to
+touch occupied sandbox ports, and `down` only signals the PID recorded inside
+its own sandbox directory. Do not enable copied scheduled tasks unless the
+specific task is being tested.
+
 ### Live inert-regression contracts (#1014, #1007, #997)
 
 `src/__tests__/live_e2e_inert_regressions.test.ts` drives the real api_server,

@@ -1,5 +1,14 @@
 # Failure Patterns
 
+## 2026-07-14 — Dev sandbox isolation lifecycle — smoke PASS
+
+- **Result**: smoke PASS; verification had not yet claimed PASS; no divergence.
+- **Category**: none (correctness); process: `verification-environment` and `stale-sandbox-state`.
+- **Criteria affected**: live-service PID preservation, sandbox health, and complete sandbox cleanup all passed.
+- **Root cause**: the first attempts encountered stale sandbox metadata and an unsupported Node 26 / better-sqlite3 ABI mismatch; selecting the existing supported Node 22 runtime and safely clearing stale sandbox state produced a clean lifecycle.
+- **Suggested fix**: run the lifecycle from the repository-supported login-shell runtime and preflight stale sandbox metadata before `up`.
+- See `.agent-stack/postmortems/2026-07-14-dev-sandbox-isolation.json`.
+
 ## 2026-06-27 — mcp-scope-04 — REST-first interactive session bypasses profile scope
 
 - **Result**: smoke FAIL (verification claimed PASS) — divergence
