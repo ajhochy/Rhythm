@@ -25,6 +25,45 @@ import { existsSync } from 'fs';
 
 const mockExistsSync = existsSync as ReturnType<typeof vi.fn>;
 
+describe('RHYTHM_OPENCODE_ENGINE_PORT', () => {
+  const original = process.env.RHYTHM_OPENCODE_ENGINE_PORT;
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.RHYTHM_OPENCODE_ENGINE_PORT;
+    else process.env.RHYTHM_OPENCODE_ENGINE_PORT = original;
+    vi.resetModules();
+  });
+
+  it('uses the override consistently after a module reset', async () => {
+    process.env.RHYTHM_OPENCODE_ENGINE_PORT = '4097';
+    vi.resetModules();
+
+    const { OPENCODE_ENGINE_PORT } = await import('./opencode_client_service');
+    const { ptyEngineUrl } = await import('./pty_proxy');
+
+    expect(OPENCODE_ENGINE_PORT).toBe(4097);
+    expect(ptyEngineUrl('session-1')).toBe('ws://127.0.0.1:4097/pty/session-1/connect');
+  });
+
+  it('defaults to 4096 after a module reset when unset', async () => {
+    delete process.env.RHYTHM_OPENCODE_ENGINE_PORT;
+    vi.resetModules();
+
+    const { OPENCODE_ENGINE_PORT } = await import('./opencode_client_service');
+
+    expect(OPENCODE_ENGINE_PORT).toBe(4096);
+  });
+
+  it('rejects an invalid override during module initialization', async () => {
+    process.env.RHYTHM_OPENCODE_ENGINE_PORT = 'not-a-port';
+    vi.resetModules();
+
+    await expect(import('./opencode_client_service')).rejects.toThrow(
+      'RHYTHM_OPENCODE_ENGINE_PORT must be an integer',
+    );
+  });
+});
+
 describe('augmentPathForOpencode', () => {
   let originalPath: string | undefined;
   let originalDevBin: string | undefined;

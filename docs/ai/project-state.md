@@ -2,43 +2,32 @@
 
 ## Current focus
 
-**USO epic + follow-ups shipped (2026-07-12)** — unified session observability
-(PR #1036) plus the background-agent execution fixes and live streaming
-(PR #1077, stacked). All live-verified on the running app. See
-`docs/ai/runs/2026-07-12-uso-followups-live-verified.md`.
+Dev sandbox isolation is implemented and fully verified on `feat/dev-sandbox-isolation`.
 
 ## Active branch / PR
 
-- **PR #1036** `workflow/uso-epic-2026-07-11` — USO epic (#1002, #1023–#1034).
-  CI green, manual smoke 5/5 PASS. Merge FIRST.
-- **PR #1077** `uso/agent-followups` (stacked on #1036) — #1039 (3 root causes,
-  live-verified) + #1040 (live streaming) + uniform-chat UX. Awaiting CI +
-  final user smoke (watch a scheduled run stream live). Merge after #1036,
-  then retarget/merge.
+- Branch: `feat/dev-sandbox-isolation`
+- Commit verified: `a59a759a76d8fecd53d09f4f7d13e87a426dc020` plus uncommitted implementation and verification records.
+- PR: none; no push or PR action was performed.
 
 ## In progress
 
-- User smoke of live streaming (open a running scheduled session — parts
-  should render as they happen).
+- Awaiting human review of the branch diff and verification record.
 
 ## Risks / known issues
 
-1. #1023 release-build acceptance still needs a real `workflow_dispatch` build.
-2. Profile promotions must go through the API (PATCH /agent-configs) — raw
-   SQL edits get reverted by profile sync.
-3. Open follow-ups: #1038 (Projects dark mode), #1041 (workflow-prompt-fix ref
-   resolver). Feature ask not yet filed: async delegation + completion notify.
-4. Org-optimizer cron stays OFF pending safety review (unchanged).
+- Run local lifecycle checks with the repository-supported Node 22 login-shell runtime; the host command shell currently resolves unsupported Node 26.
+- API tests require the documented `MEMORY_VAULT_SUBDIR=memory` layout because the host exports an empty value.
+- Sandbox copies contain sensitive local auth/data until `sandbox.sh down` removes the temporary directory.
 
 ## Test status
 
-- api_server tsc clean; full vitest 2692 passed / 0 failed.
-- Flutter analyze clean; 861 tests passed.
-- Live e2e: 3 scopes; headless runs produce output past 5 min; mid-flight
-  promote works; streamed multi-step transcripts dedupe cleanly.
+- Issue-level workflow checks passed: Flutter analyze, Dart format, and API TypeScript.
+- PR-level workflow checks passed with normalized memory-vault layout; API build passed.
+- Focused API contracts passed 54/54; Flutter tests passed 861/861.
+- Full lifecycle smoke passed: live `:4001`/`:4096` PIDs remained unchanged; sandbox `:4098` and `:4098/opencode/health` were healthy; `down` freed `:4097`/`:4098` and removed the sandbox directory.
+- Postmortem: `.agent-stack/postmortems/2026-07-14-dev-sandbox-isolation.json`.
 
 ## Next step
 
-1. CI green on #1077 → user merges #1036 then #1077 → release build (#1023
-   acceptance).
-2. File the async-delegation + completion-notify feature issue if wanted.
+Human reviews the diff and durable run note, then decides whether to push/open a draft PR. No additional manual behavior gap is known.

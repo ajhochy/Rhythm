@@ -93,3 +93,4 @@ apps/opencode_bin/
 # Generated locally, may contain (redacted/truncated) transcript excerpts —
 # never committed.
 docs/testing/results/
+.playwright-mcp/
