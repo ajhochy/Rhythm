@@ -464,4 +464,75 @@ describe('syncOpencodeAgentProfiles hygiene (P3)', () => {
       ).toBe(false);
     }
   });
+
+  // #1039 live regression: opencode_agent_writer.ts writes mode: 'all' (not
+  // 'primary') for any profile with sessionSelectable=true, so a promoted
+  // profile stays BOTH runnable AND still a delegation target. Before this
+  // fix, the sync reader only recognized mode==='primary' as selectable, so
+  // EVERY call to this sync (fired on every GET /agent-sessions/agents — i.e.
+  // every Agents-picker refresh) read the engine's real mode:'all', decided
+  // it wasn't selectable, and silently reverted the promotion the user/API
+  // had just made — observed live: Config Doctor kept disappearing from the
+  // picker after every reopen.
+  it('a promoted profile with engine mode "all" stays sessionSelectable=true across re-syncs', async () => {
+    const agents = [
+      ...makeWorkflowAgents(),
+      { name: 'config-doctor', mode: 'all', builtIn: false },
+    ];
+
+    await syncOpencodeAgentProfiles(agents as never);
+    let row = new AgentConfigsRepository().getById('config-doctor');
+    expect(row, 'config-doctor should exist after first sync').not.toBeNull();
+    expect(
+      row!.sessionSelectable,
+      'a mode:"all" agent must be sessionSelectable=true, not just mode:"primary"',
+    ).toBe(true);
+
+    // The exact live failure mode: a SECOND sync (e.g. from reopening the
+    // picker) must not revert it.
+    await syncOpencodeAgentProfiles(agents as never);
+    row = new AgentConfigsRepository().getById('config-doctor');
+    expect(
+      row!.sessionSelectable,
+      'sessionSelectable must survive a re-sync, not silently flip back to false',
+    ).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Boot-stomp class fix: session_selectable is USER-OWNED after first insert.
+  // The sync seeds it from the engine's mode at INSERT time, but the update
+  // path must never recompute it — recomputing on every picker refresh is
+  // what silently reverted user promotions/demotions (#1039 family; the dev
+  // front-door force had the same revert effect on those seven agents).
+  // ---------------------------------------------------------------------------
+
+  it('a user demotion (sessionSelectable=false) survives re-sync unchanged', async () => {
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+    const repo = new AgentConfigsRepository();
+    expect(repo.getById('workflow-orchestrator')!.sessionSelectable).toBe(true);
+
+    // User hides the agent from the picker in the designer.
+    repo.update('workflow-orchestrator', { sessionSelectable: false });
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    expect(
+      repo.getById('workflow-orchestrator')!.sessionSelectable,
+      'a user demotion must not be re-promoted by the picker-refresh sync',
+    ).toBe(false);
+  });
+
+  it('a user promotion of a hidden CLI agent survives re-sync unchanged', async () => {
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+    const repo = new AgentConfigsRepository();
+    expect(repo.getById('codex')!.sessionSelectable).toBe(false);
+
+    // User deliberately surfaces the CLI agent in the picker.
+    repo.update('codex', { sessionSelectable: true });
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    expect(
+      repo.getById('codex')!.sessionSelectable,
+      'a user promotion must not be re-hidden by the insert-time front-door default',
+    ).toBe(true);
+  });
 });

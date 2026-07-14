@@ -14,8 +14,8 @@
  *   - opencode engine spawned and ready (GET /opencode/health → ready).
  *   - At least one NON-Anthropic provider authed (openai / google /
  *     openrouter) — the cross-provider handoff needs a tier to land on.
- *     Phase A runs its turns on OpenRouter's free model, so openrouter auth
- *     is the cheapest sufficient setup.
+ *     Phase A creates the engine session without prompting Anthropic, then
+ *     verifies the next real turn on the resolved fallback provider.
  *
  * Phase B (mid-run resume) is ADDITIONALLY gated behind
  * RHYTHM_LIVE_E2E_FORCE_EXHAUSTED=1, which asserts the OPERATOR started the
@@ -173,41 +173,82 @@ describeLive('live E2E — #930 fallback chain (route-level, no engine forcing n
   });
 
   it(
+    'C: generic exhaustion signals walk Anthropic -> OpenAI -> Google without repeating a tier',
+    async () => {
+      const agentId = await createTempAgent('E2E 930 Cascade', 'anthropic', 'claude-sonnet-4-6');
+      const sessionId = await createSession(agentId, 'E2E 930 bounded cascade probe');
+      const initial = await poll(
+        async () => {
+          const session = await getSession(sessionId);
+          if (!session.sdkSessionId) throw new Error('sdk_session_id not persisted yet');
+          return session;
+        },
+        30_000,
+        250,
+        'await cascade SDK session id',
+      );
+
+      const first = await apiJson<{ handoff: boolean; providerID: string; modelID: string }>(
+        '/opencode/spillover',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            sdkSessionId: initial.sdkSessionId,
+            providerID: 'anthropic',
+            exhausted: true,
+          }),
+        },
+      );
+      expect(first.handoff).toBe(true);
+      expect(first.providerID).toBe('openai');
+      expect((await getSession(sessionId)).providerId).toBe('openai');
+
+      const second = await apiJson<{ handoff: boolean; providerID: string; modelID: string }>(
+        '/opencode/spillover',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            sdkSessionId: initial.sdkSessionId,
+            providerID: 'openai',
+            exhausted: true,
+          }),
+        },
+      );
+      expect(second.handoff).toBe(true);
+      expect(second.providerID).toBe('google');
+      expect(second.modelID).toBe('gemini-2.5-pro');
+      expect((await getSession(sessionId)).providerId).toBe('google');
+    },
+    90_000,
+  );
+
+  it(
     'A1+A2+A3: exhaustion intake → authed cross-provider handoff persisted + broadcast; next turn routes to the new provider; an idle-time report never spuriously re-dispatches',
     async () => {
-      // Phase A runs its turns on OpenRouter's free model so the test itself
-      // costs nothing and works while RHYTHM_FORCE_EXHAUSTED 429s anthropic.
-      const agentId = await createTempAgent('E2E 930 Route', 'openrouter', '');
+      const agentId = await createTempAgent(
+        'E2E 930 Route',
+        'anthropic',
+        'claude-sonnet-4-6',
+      );
       const sessionId = await createSession(agentId, 'E2E 930 route probe');
 
       const { ws, frames } = await openCapturingWs();
       try {
-        // One cheap turn so the engine session exists (persists sdk_session_id).
-        // Wait for an actual assistant answer, not just a non-working status —
-        // the DB can still read 'idle' before the engine starts the turn, and
-        // A1 below REQUIRES the turn to be finished (idle-time report).
-        sendTurn(ws, sessionId, 'Reply with the single word: ready');
+        // Session creation persists sdk_session_id before any LLM prompt. This
+        // keeps route-level setup token-free and ensures the reported exhausted
+        // provider matches the session's actual current provider.
         const settled = await poll(
           async () => {
             const s = await getSession(sessionId);
-            if (s.status === 'working' || s.status === 'starting') {
-              throw new Error(`session still ${s.status}`);
-            }
-            const m = await apiJson<{ messages: Array<{ role: string }> }>(
-              `/agent-sessions/${sessionId}/messages`,
-            );
-            if (!m.messages.some((msg) => msg.role === 'output')) {
-              throw new Error(`no assistant answer yet (status=${s.status})`);
-            }
+            if (!s.sdkSessionId) throw new Error('sdk_session_id not persisted yet');
             return s;
           },
-          120_000,
-          800,
-          `await first answer for ${sessionId}`,
+          30_000,
+          250,
+          `await SDK session for ${sessionId}`,
         );
-        expect(settled.status).toBe('idle');
         const sdkSessionId = settled.sdkSessionId;
-        expect(sdkSessionId, 'sdk_session_id not persisted after first turn').toBeTruthy();
+        expect(sdkSessionId).toBeTruthy();
 
         // ── A1: exhaustion intake resolves + persists + notifies ──────────
         frames.length = 0;
@@ -306,15 +347,17 @@ describeLive('live E2E — #930 fallback chain (route-level, no engine forcing n
         // at-most-once — retry fails → normal error — is unit-covered in
         // turn_redispatch.test.ts; not forcible live.)
         const before = await getSession(sessionId);
-        const handoff = await apiJson<{ handoff: boolean; providerID: string; modelID: string }>(
+        const handoff = await apiJson<{ handoff: boolean; stale?: boolean }>(
           '/opencode/spillover',
           {
             method: 'POST',
             body: JSON.stringify({ sdkSessionId, fromAccountId: 'team', exhausted: true }),
           },
         );
-        // The idle report still resolves + persists a handoff (decide+persist ran).
-        expect(handoff.handoff).toBe(true);
+        // A duplicate Anthropic report after the session has already moved to
+        // another provider is stale and must not consume another tier.
+        expect(handoff.handoff).toBe(false);
+        expect(handoff.stale).toBe(true);
         await new Promise((r) => setTimeout(r, 3_000));
         const still = await getSession(sessionId);
         expect(

@@ -95,6 +95,11 @@ describe('agent_configs migration', () => {
        VALUES (?, ?, '', '', 1, ?, ?)`,
     ).run('legacy-empty', 'Legacy Empty', '[]', '[]');
 
+    // Simulate upgrading a pre-marker install (stale data present, no
+    // schema_meta markers yet): the content repairs fire exactly ONCE on the
+    // next boot. Ongoing non-re-stomp is enforced by
+    // migrations_replay_guard.test.ts.
+    db.exec(`DELETE FROM schema_meta`);
     runMigrations(db);
 
     const rows = db
@@ -236,6 +241,11 @@ describe('agent_configs migration', () => {
       ]),
     );
 
+    // Simulate upgrading a pre-marker install (stale data present, no
+    // schema_meta markers yet): the content repairs fire exactly ONCE on the
+    // next boot. Ongoing non-re-stomp is enforced by
+    // migrations_replay_guard.test.ts.
+    db.exec(`DELETE FROM schema_meta`);
     runMigrations(db);
 
     const rows = db
@@ -363,6 +373,10 @@ describe('agent_configs migration', () => {
        VALUES (?, ?, '', '', 1, ?, ?)`,
     ).run('secretary', 'Secretary', 1, JSON.stringify(['worship-planning']));
 
+    // Simulate upgrading a pre-marker install (stale data present, no
+    // schema_meta markers yet): the wipe fires exactly ONCE on the next boot.
+    // Ongoing non-re-stomp is enforced by migrations_replay_guard.test.ts.
+    db.exec(`DELETE FROM schema_meta`);
     runMigrations(db);
 
     const rows = db

@@ -20,17 +20,16 @@
  * as `agent_profile_sync.ts`'s allowed_mcps_json / allowed_skills_json
  * handling): it only flips false → true, never true → false.
  *
- * `allowed_delegates_json` is the ONE exception to that overlay contract,
- * scoped to the secretary seed only: the role file
- * (`.mcp-roles/secretary.mcp.json`) is the reproducible source of truth for
- * Secretary's roster, and the live roster has drifted into a broken mixed
- * state (raw UUIDs and spaced display names instead of the hyphenated agent
- * slugs `agent_delegation_service` validates against) — a NULL-only backfill
- * can never repair that drift. So for `secretary` specifically, this seed
- * RECONCILES `allowed_delegates_json` to the role file's `allowedDelegates`
- * whenever the two differ (including non-null → different value), not just
- * when it is NULL. This makes the manager/roster configuration reproducible
- * on a clean OR a drifted database without manual SQL or UI edits.
+ * `allowed_delegates_json` gets a ONE-TIME reconcile on top of the null
+ * backfill: the live roster had drifted into a broken mixed state (raw UUIDs
+ * and spaced display names instead of the hyphenated agent slugs
+ * `agent_delegation_service` validates against), which a NULL-only backfill
+ * can never repair. So the FIRST time this seed sees a non-null secretary
+ * roster it reconciles it to the role file's `allowedDelegates` if they
+ * differ, then records a durable schema_meta marker — after which the roster
+ * is user-owned like every other overlay field. (This used to reconcile on
+ * EVERY sync, which silently reverted any roster edit made in the designer
+ * on the next picker refresh — the same bug class as #1039.)
  *
  * Invoked from `agent_profile_sync.syncOpencodeAgentProfiles()` (appended
  * after its main loop, alongside the #858 oc_agent repair pass) rather than
@@ -52,8 +51,12 @@ import path from 'node:path';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { recordSeedMarker, seedMarkerExists } from './seed_once';
 
 const SECRETARY_ROLE_SLUG = 'secretary';
+
+/** One-time roster-drift repair marker — see module doc. */
+const RECONCILE_MARKER = 'secretary_delegates_reconcile_v1';
 
 const MCP_ROLES_DIR = () =>
   process.env.MCP_ROLES_DIR ?? path.join(__dirname, '..', '..', '..', '..', '.mcp-roles');
@@ -161,25 +164,36 @@ export async function seedSecretaryDelegation(): Promise<SecretaryDelegationSeed
   }
 
   let reconciled = false;
+  let consumeReconcileMarker = false;
   if (roleFile.allowedDelegates) {
     const desiredJson = JSON.stringify(roleFile.allowedDelegates);
     if (existing.allowedDelegatesJson === null) {
+      // A roster this seed itself writes is by definition non-drifted, so the
+      // one-time drift repair is consumed here too — the roster is user-owned
+      // from the moment it first has a value.
       patch.allowedDelegatesJson = desiredJson;
-    } else if (!rosterMatches(existing.allowedDelegatesJson, roleFile.allowedDelegates)) {
-      // Secretary-only exception to the USER-OWNED overlay contract: the live
-      // roster is reconciled to the role file's roster even when it already
-      // holds a (dirty/drifted) non-null value — see module doc.
-      patch.allowedDelegatesJson = desiredJson;
-      reconciled = true;
+      consumeReconcileMarker = true;
+    } else if (!seedMarkerExists(RECONCILE_MARKER)) {
+      // ONE-TIME drift repair: the first time a non-null roster is seen, fix
+      // it to the role file if it differs, then consume the marker — either
+      // way the roster is user-owned from here on. Reconciling on every sync
+      // reverted designer edits on the next picker refresh (see module doc).
+      consumeReconcileMarker = true;
+      if (!rosterMatches(existing.allowedDelegatesJson, roleFile.allowedDelegates)) {
+        patch.allowedDelegatesJson = desiredJson;
+        reconciled = true;
+      }
     }
   }
 
   if (Object.keys(patch).length === 0) {
+    if (consumeReconcileMarker) recordSeedMarker(RECONCILE_MARKER);
     return result;
   }
 
   try {
     repo.update(SECRETARY_ROLE_SLUG, patch);
+    if (consumeReconcileMarker) recordSeedMarker(RECONCILE_MARKER);
     result.managerBackfilled = patch.isManager === true;
     result.delegatesBackfilled = patch.allowedDelegatesJson !== undefined;
     if (reconciled) {
