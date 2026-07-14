@@ -152,6 +152,9 @@ export function injectManagerPreamble(
   delegateRoster: string[] = [],
   profileId?: string,
 ): string {
+  // ponytail: disabled mandatory routing rules as per user request
+  return body;
+
   if (!isManager) return body;
   if (body.includes(PREAMBLE_MARKER) || body.includes(HUB_PREAMBLE_MARKER)) return body;
 

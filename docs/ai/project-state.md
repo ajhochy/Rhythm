@@ -46,3 +46,33 @@ in `docs/ai/decisions/2026-07-11-content-writes-are-one-time.md`.
 
 Open draft PR, hand to owner for manual smoke (edit Config Doctor in the real
 app, restart, confirm it sticks), merge #1080 first or fold it in.
+
+## Recent coding-agent runs
+
+### 2026-07-13 — openmontage-local-wrapper
+- Files modified: machine-local `/Users/ajhochhalter/Documents/OpenMontage-mcp/openmontage_mcp_server.py`; machine-local OpenCode config/skill; this run log and decision record.
+- Checks run: OpenMontage setup + zero-key Remotion demos; stdio MCP gate/render path; live Rhythm profile/MCP scope checks. Repo workflow checks pending verification-gate.
+- Decisions made: narrowed Graphic Designer to four OpenMontage MCP tools while retaining `corePermissionsJson: null` and Bash deny; see `docs/ai/decisions/2026-07-13-openmontage-wrapper-boundary.md`.
+- Deviations from spec: the wrapper deliberately provides local text-motion drafts only, not stock/AI footage, narration, music, or publishing.
+- Concerns: superseded by the zero-key documentary workflow entry below.
+
+### 2026-07-13 — openmontage-zero-key-documentary-workflow
+- Files modified: machine-local `/Users/ajhochhalter/Documents/OpenMontage-mcp/openmontage_mcp_server.py`; machine-local Piper model and social-video skill; this decision/run record.
+- Checks run: Piper narration smoke; fresh stdio MCP E2E (script approval → no-key Archive.org candidate → asset approval → local vertical render) passed; live Graphic Designer scope refresh/resync passed.
+- Decisions made: retained Graphic Designer's Bash deny and added only two review-gated zero-key tool calls; FFmpeg caption support is detected and made visible rather than silently omitted. See `docs/ai/decisions/2026-07-13-openmontage-wrapper-boundary.md`.
+- Deviations from spec: music remains intentionally unavailable without a separately approved, user-supplied licensed track; this FFmpeg build cannot burn captions.
+- Concerns: public-source license metadata is presented for human review, not treated as a universal clearance; repository-wide PR checks remain blocked by a pre-existing unrelated `opencode_agent_writer` test mismatch.
+
+### 2026-07-13 — openmontage-captions-local-music
+- Files modified: machine-local OpenMontage wrapper and social-video skill; machine-local music-library README; Graphic Designer's MCP allowlist; this decision/run record.
+- Checks run: full FFmpeg `libass` filter check; fresh MCP E2E with burned SRT captions and an explicitly approved synthetic test-music fixture; local fixture removed after the render; live MCP disconnect/connect and profile resync passed.
+- Decisions made: pin the wrapper—not global PATH—to keg-only `ffmpeg-full`; allow music only from the metadata-gated local library with a separate explicit approval. See `docs/ai/decisions/2026-07-13-openmontage-wrapper-boundary.md`.
+- Deviations from spec: no production music is preloaded; AJ must add tracks with declared rights metadata.
+- Concerns: prior unrelated `opencode_agent_writer` test mismatch still blocks repository-wide PR verification.
+
+### 2026-07-13 — openmontage-fast-first-pass-timeout-guard
+- Files modified: machine-local OpenMontage MCP wrapper and `social-video-pipeline` skill; this run record.
+- Checks run: wrapper compile/config assertions; simulated timeout contract; live stdio MCP asset acquisition and text-motion-rejection check; live MCP reconnect plus Rhythm skill/profile refresh.
+- Decisions made: limit first-pass footage retrieval to three queries, one clip each, and a 75-second deadline; preserve partial candidates for review and make no-result retrieval an explicit human-decision state. Once zero-key acquisition starts, the same project cannot render text motion.
+- Deviations from spec: none.
+- Concerns: public-source response speed remains network-dependent; a timeout can still return no candidates, but now stops safely rather than hiding the condition.
