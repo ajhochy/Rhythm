@@ -186,6 +186,61 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
     envSpy.mockRestore();
   });
 
+  it('with AGENT_LOCAL=true: capacity rejection is queued for the next scheduler tick', async () => {
+    const envSpy = vi.spyOn(env, 'agentLocal', 'get').mockReturnValue(true);
+    mockFindDueAsync.mockResolvedValue([makeDueTask()]);
+    mockRun.mockResolvedValue({
+      sessionId: '',
+      result: '',
+      status: 'error',
+      error: 'AgentRunner: concurrency cap (3) reached — rejecting run',
+      errorCode: 'capacity',
+    });
+
+    const beforeDispatch = Date.now();
+    const cronTask = startAgentSchedulerJob();
+    cronTask.stop();
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+
+    const capacityUpdate = mockUpdateNextRunAsync.mock.calls.find(
+      (call) => call[3] === 'queued',
+    );
+    expect(capacityUpdate).toBeDefined();
+    const retryAt = Date.parse(capacityUpdate?.[1] as string);
+    expect(retryAt).toBeGreaterThanOrEqual(beforeDispatch + 59_000);
+    expect(retryAt).toBeLessThanOrEqual(Date.now() + 61_000);
+    expect(capacityUpdate?.[4]).toMatch(/concurrency cap/i);
+
+    envSpy.mockRestore();
+  });
+
+  it('with AGENT_LOCAL=true: genuine run errors keep the normal recurrence', async () => {
+    const envSpy = vi.spyOn(env, 'agentLocal', 'get').mockReturnValue(true);
+    mockFindDueAsync.mockResolvedValue([makeDueTask()]);
+    mockRun.mockResolvedValue({
+      sessionId: 'sdk-sess-1',
+      result: '',
+      status: 'error',
+      error: 'provider request failed',
+    });
+
+    const cronTask = startAgentSchedulerJob();
+    cronTask.stop();
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+
+    const runningUpdate = mockUpdateNextRunAsync.mock.calls.find(
+      (call) => call[3] === 'running',
+    );
+    const errorUpdate = mockUpdateNextRunAsync.mock.calls.find(
+      (call) => call[3] === 'error',
+    );
+    expect(errorUpdate).toBeDefined();
+    expect(errorUpdate?.[1]).toBe(runningUpdate?.[1]);
+    expect(errorUpdate?.[4]).toBe('provider request failed');
+
+    envSpy.mockRestore();
+  });
+
   // ── D. No tasks → no calls ────────────────────────────────────────────────
 
   it('does not call AgentRunner or insertScheduledTrigger when no tasks are due', async () => {

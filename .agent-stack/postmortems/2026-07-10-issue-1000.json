@@ -1,0 +1,43 @@
+{
+  "run_id": "2026-07-10-issue-1000",
+  "issue": 1000,
+  "date": "2026-07-10",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1000-c1",
+      "text": "Saving a scheduled task (enable/disable toggle) does not 500; state persists",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Real app: toggled a scheduled task's enable switch — 'save worked, toggle state stayed after save'. Backend probe pre-smoke: PATCH /agent-schedules/:id {enabled} -> HTTP 200 (was 500). Boolean coerced to 0/1 for better-sqlite3."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "release-deploy",
+      "description": "Same prod-502 shell-gate workaround as issue-999 (shared smoke session). Toggle screen is on the agents server (:4001), unaffected by the prod URL.",
+      "detected_by": "curl https://api.vcrcapps.com/health -> 502"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "coding-agent (in-process)", "verification-gate (in-process live probes)", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": ["acceptance-contract"],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "acceptance-contract",
+        "description": "acceptance-contract not invoked — pre-scoped one-line bug fix; live probe used as the gate per the run DoD.",
+        "detected_by": "transcript inspection; no contract file"
+      }
+    ]
+  },
+  "implementation_files": ["apps/api_server/src/repositories/agent_scheduled_tasks_repository.ts"],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Ship #1000 (verified). No pipeline change needed."
+}

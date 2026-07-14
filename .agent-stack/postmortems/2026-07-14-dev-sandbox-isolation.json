@@ -1,0 +1,72 @@
+{
+  "run_id": "2026-07-14-dev-sandbox-isolation",
+  "issue": 0,
+  "date": "2026-07-14",
+  "smoke_result": "pass",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "dev-sandbox-c1",
+      "text": "Starting the isolated sandbox must leave the live :4096 and :4001 listener PIDs unchanged.",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Live :4096 remained PID 4099 and live :4001 remained PID 4089 before and after sandbox startup."
+    },
+    {
+      "criterion_id": "dev-sandbox-c2",
+      "text": "The sandbox API on :4098 and its Opencode health endpoint must become healthy while the engine listens on :4097.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": ":4098 /health returned status ok, :4098/opencode/health returned status ready, :4097 listened on PID 51478, and copied scheduled tasks enabled count was zero."
+    },
+    {
+      "criterion_id": "dev-sandbox-c3",
+      "text": "Stopping the sandbox must free :4097/:4098, remove the sandbox directory, and preserve live services.",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "After sandbox.sh down, :4097/:4098 had no listeners, the sandbox directory was absent, and live :4096/:4001 PIDs and health were unchanged."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "verification-environment",
+      "description": "The host command shell selected unsupported Node 26 (ABI 147) while better-sqlite3 was built for supported Node 22 (ABI 127); the first launch failed before binding :4098.",
+      "detected_by": "api_server.log reported NODE_MODULE_VERSION 127 versus required 147; package.json declares Node >=20 <25. The lifecycle passed after selecting the existing Node 22 login-shell runtime."
+    },
+    {
+      "process_category": "stale-sandbox-state",
+      "description": "The previously authorized process cleanup left a stale sandbox PID file and directory, so the first up command correctly refused to proceed.",
+      "detected_by": "sandbox.sh up reported an existing api_server.pid while status showed both sandbox ports free; sandbox.sh down safely removed the stale directory before retry."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "verification-gate",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "verification-gate",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/opencode_client_service.test.ts",
+    "apps/api_server/src/services/opencode_client_service.ts",
+    "docs/ai/project-state.md",
+    "docs/ai/testing-guide.md",
+    "docs/ai/decisions/2026-07-14-dev-sandbox-isolation.md",
+    "docs/ai/generated-issues/api-server-vitest-memory-vault-env.md",
+    "docs/ai/runs/2026-07-14-dev-sandbox-isolation.md",
+    "tools/dev/sandbox.sh"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Run sandbox lifecycle verification under the repository-supported Node 22 login-shell runtime and remove stale sandbox state before launch."
+}

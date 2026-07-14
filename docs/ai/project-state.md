@@ -2,77 +2,90 @@
 
 ## Current focus
 
-**Boot-stomp class fix (2026-07-11)** — one architectural fix for the whole
-"my agent/skill/task edits are gone on the next boot" bug family. Root cause:
-one-time seeds/repairs coded as eternal enforcement (unguarded content writes
-firing on every boot / every picker refresh). Full taxonomy + fix in
-`docs/ai/runs/2026-07-11-boot-stomp-class-fix.md`; the convention is recorded
-in `docs/ai/decisions/2026-07-11-content-writes-are-one-time.md`.
+Dev sandbox isolation is implemented and fully verified on `feat/dev-sandbox-isolation`.
+**Two independent reliability fixes (2026-07-12)**, dispatched as 4 concurrent
+Codex agents (1 terra, 3 sol) across isolated worktrees, reviewed/verified/
+committed by the orchestrating session, then merged into 2 issue-grouped
+integration branches:
 
-## Active branch / PR
+1. **Provider fallback chain (#930)** — was stuck bouncing between team/
+   personal Anthropic, never reaching Codex/Gemini/OpenRouter-free. Two root
+   causes: the vendored plugin never reported total exhaustion on a dual
+   429/529, and even when it did, the handoff was one-shot (no real cascade,
+   no generic non-Anthropic exhaustion signal, Gemini's tool cap not
+   reapplied on redispatch). See `docs/ai/decisions/2026-07-12-bounded-provider-fallback-cascade.md`
+   and `docs/ai/runs/2026-07-12-fallback-multi-tier-cascade.md`.
+2. **Scheduled-task inconsistent success/failure** — three independent causes
+   found: (a) plugin dual-exhaustion never firing (same root cause as #1
+   above), (b) a global concurrency cap of 3 shared by every agent run,
+   treated identically to real errors (5-min blind backoff, wasteful teacher
+   escalation) instead of a retryable capacity signal, (c) an "Agent not
+   found" registry-sync gap that was already fixed on main
+   (`7c949ef5b`, #1039) — only the regression test needed hardening. See
+   `docs/ai/runs/2026-07-12-scheduled-agent-registry-diagnosis.md`.
 
-- **PR #1080** `fix/1039-profile-sync-mode-all-revert` — mode:'all' sync fix
-  (open, awaiting merge).
-- **NEW (this session)** `fix/boot-stomp-config-revert-class` (stacked on
-  #1080) — runOnce marker mechanism for all migration content repairs,
-  session_selectable made user-owned (insert-only in sync), secretary roster
-  reconcile one-time, seeded-task delete tombstones, CLI-preset scheduling
-  guard fix. Draft PR to be opened; do NOT merge without owner sign-off.
+- Branch: `feat/dev-sandbox-isolation`
+- Commit verified: `a59a759a76d8fecd53d09f4f7d13e87a426dc020` plus uncommitted implementation and verification records.
+- PR: none; no push or PR action was performed.
 
 ## In progress
 
-- Draft PR + owner smoke of the fix branch. Everything else verified:
-  tsc clean, 2702/2702 tests, live 3-boot restart proof 16/16, negative
-  control (replay guard fails on pre-fix code) confirmed.
+- Awaiting human review of the branch diff and verification record.
 
 ## Risks / known issues
 
-1. Repairs now fire once per install — shipping a NEW default prompt/preset
-   value requires a new `runOnce` key (contract documented at top of
-   runMigrations; enforced by `migrations_replay_guard.test.ts`).
-2. Postgres bootstrap marker path is code-reviewed but not integration-tested
-   (test infra is SQLite-only) — verify on next prod deploy.
-3. Follow-ups to file: stale DB-body snapshot in org-optimizer
-   `applySkillBodyRevision` revert path; `allowed_mcps_json` NULL overload
-   (unset vs unrestricted); prod-task mirror reverts local edits to mirrored
-   non-done tasks (by design, but undocumented for users).
+- Run local lifecycle checks with the repository-supported Node 22 login-shell runtime; the host command shell currently resolves unsupported Node 26.
+- API tests require the documented `MEMORY_VAULT_SUBDIR=memory` layout because the host exports an empty value.
+- Sandbox copies contain sensitive local auth/data until `sandbox.sh down` removes the temporary directory.
 
 ## Test status
 
-- api_server: 2702 passed / 26 skipped; `tsc` clean.
-- Live: 3 real server boots against scratch DB — all user edits survived.
+- Issue-level workflow checks passed: Flutter analyze, Dart format, and API TypeScript.
+- PR-level workflow checks passed with normalized memory-vault layout; API build passed.
+- Focused API contracts passed 54/54; Flutter tests passed 861/861.
+- Full lifecycle smoke passed: live `:4001`/`:4096` PIDs remained unchanged; sandbox `:4098` and `:4098/opencode/health` were healthy; `down` freed `:4097`/`:4098` and removed the sandbox directory.
+- Postmortem: `.agent-stack/postmortems/2026-07-14-dev-sandbox-isolation.json`.
 
 ## Next step
 
-Open draft PR, hand to owner for manual smoke (edit Config Doctor in the real
-app, restart, confirm it sticks), merge #1080 first or fold it in.
+Human reviews the diff and durable run note, then decides whether to push/open a draft PR. No additional manual behavior gap is known.
+## Active branches / PRs
 
-## Recent coding-agent runs
+- `fix/930-fallback-cascade` — folds `fix/fallback-plugin-dual-exhaustion` +
+  `fix/fallback-multi-tier-cascade`. Draft PR to be opened; do NOT merge
+  without owner sign-off.
+- `fix/scheduled-task-reliability` — folds `fix/scheduled-task-concurrency` +
+  `fix/scheduled-task-registry-sync`. Draft PR to be opened; do NOT merge
+  without owner sign-off.
 
-### 2026-07-13 — openmontage-local-wrapper
-- Files modified: machine-local `/Users/ajhochhalter/Documents/OpenMontage-mcp/openmontage_mcp_server.py`; machine-local OpenCode config/skill; this run log and decision record.
-- Checks run: OpenMontage setup + zero-key Remotion demos; stdio MCP gate/render path; live Rhythm profile/MCP scope checks. Repo workflow checks pending verification-gate.
-- Decisions made: narrowed Graphic Designer to four OpenMontage MCP tools while retaining `corePermissionsJson: null` and Bash deny; see `docs/ai/decisions/2026-07-13-openmontage-wrapper-boundary.md`.
-- Deviations from spec: the wrapper deliberately provides local text-motion drafts only, not stock/AI footage, narration, music, or publishing.
-- Concerns: superseded by the zero-key documentary workflow entry below.
+## Risks / known issues
 
-### 2026-07-13 — openmontage-zero-key-documentary-workflow
-- Files modified: machine-local `/Users/ajhochhalter/Documents/OpenMontage-mcp/openmontage_mcp_server.py`; machine-local Piper model and social-video skill; this decision/run record.
-- Checks run: Piper narration smoke; fresh stdio MCP E2E (script approval → no-key Archive.org candidate → asset approval → local vertical render) passed; live Graphic Designer scope refresh/resync passed.
-- Decisions made: retained Graphic Designer's Bash deny and added only two review-gated zero-key tool calls; FFmpeg caption support is detected and made visible rather than silently omitted. See `docs/ai/decisions/2026-07-13-openmontage-wrapper-boundary.md`.
-- Deviations from spec: music remains intentionally unavailable without a separately approved, user-supplied licensed track; this FFmpeg build cannot burn captions.
-- Concerns: public-source license metadata is presented for human review, not treated as a universal clearance; repository-wide PR checks remain blocked by a pre-existing unrelated `opencode_agent_writer` test mismatch.
+1. The fallback cascade's live route-level test (`live_e2e_930.test.ts`)
+   requires a freshly-built local server on port 4001 — the default port is
+   normally occupied by the already-running desktop app's bundled (older)
+   server, which will make those 3 gated tests silently exercise the WRONG
+   code if run carelessly. They're skipped by default (`RHYTHM_LIVE_E2E`
+   unset); only run them against a server built from this branch.
+2. GLM-5.2 remains an intentionally inert fallback tier (no credential
+   loader exists). OpenRouter-free is real but only reachable when
+   `openrouter` is authed.
+3. The scheduled-task concurrency cap (default 3, `MAX_CONCURRENT_AGENT_RUNS`)
+   was investigated but NOT raised — no measured resource ceiling justified a
+   higher number. The fix instead reclassifies capacity rejections as
+   retryable (`queued`, ~60s retry) instead of `error`.
+4. Local DB schedule-collision data issue noted but not modified: two
+   scheduled tasks currently fire at the same instant (09:00 daily, as of
+   this session) — operator cleanup, not a code fix.
 
-### 2026-07-13 — openmontage-captions-local-music
-- Files modified: machine-local OpenMontage wrapper and social-video skill; machine-local music-library README; Graphic Designer's MCP allowlist; this decision/run record.
-- Checks run: full FFmpeg `libass` filter check; fresh MCP E2E with burned SRT captions and an explicitly approved synthetic test-music fixture; local fixture removed after the render; live MCP disconnect/connect and profile resync passed.
-- Decisions made: pin the wrapper—not global PATH—to keg-only `ffmpeg-full`; allow music only from the metadata-gated local library with a separate explicit approval. See `docs/ai/decisions/2026-07-13-openmontage-wrapper-boundary.md`.
-- Deviations from spec: no production music is preloaded; AJ must add tracks with declared rights metadata.
-- Concerns: prior unrelated `opencode_agent_writer` test mismatch still blocks repository-wide PR verification.
+## Test status
 
-### 2026-07-13 — openmontage-fast-first-pass-timeout-guard
-- Files modified: machine-local OpenMontage MCP wrapper and `social-video-pipeline` skill; this run record.
-- Checks run: wrapper compile/config assertions; simulated timeout contract; live stdio MCP asset acquisition and text-motion-rejection check; live MCP reconnect plus Rhythm skill/profile refresh.
-- Decisions made: limit first-pass footage retrieval to three queries, one clip each, and a 75-second deadline; preserve partial candidates for review and make no-result retrieval an explicit human-decision state. Once zero-key acquisition starts, the same project cannot render text motion.
-- Deviations from spec: none.
-- Concerns: public-source response speed remains network-dependent; a timeout can still return no candidates, but now stops safely rather than hiding the condition.
+- `fix/930-fallback-cascade`: `tsc --noEmit` clean; full api_server suite
+  311 files / 2713 tests passed, 10 files / 27 tests skipped (gated live
+  E2E + pre-existing).
+- `fix/scheduled-task-reliability`: `tsc --noEmit` clean; full api_server
+  suite 310 files / 2705 tests passed, 11 files / 27 tests skipped.
+
+## Next step
+
+Open both draft PRs, hand to owner for manual smoke, merge on owner
+sign-off (do not merge automatically).

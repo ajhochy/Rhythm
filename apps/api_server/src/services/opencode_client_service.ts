@@ -61,13 +61,22 @@ type EngineStatus = 'uninitialized' | 'ready' | 'error' | 'reloading';
  */
 const KEYLESS_LOCAL_PROVIDER_IDS = new Set(['ollama', 'omlx']);
 
-/**
- * The fixed TCP port the bundled opencode engine listens on. The SDK's
- * `createOpencode()` spawns `opencode serve` on this port by default, and the
- * Flutter client + ws_gateway assume it is fixed (see #655 — making it dynamic
- * would ripple through more surfaces than the kill-stale approach).
- */
-export const OPENCODE_ENGINE_PORT = 4096;
+/** Resolve the engine port once so the SDK, stale-port reclaim, and PTY proxy agree. */
+export function resolveOpencodeEnginePort(): number {
+  const raw = process.env.RHYTHM_OPENCODE_ENGINE_PORT?.trim();
+  if (!raw) return 4096;
+
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      `RHYTHM_OPENCODE_ENGINE_PORT must be an integer between 1 and 65535; received "${raw}".`,
+    );
+  }
+  return port;
+}
+
+/** TCP port used by this api_server process's bundled opencode engine. */
+export const OPENCODE_ENGINE_PORT = resolveOpencodeEnginePort();
 
 /**
  * Injectable boundary for the OS calls that {@link reclaimStalePortForOpencode}
@@ -671,7 +680,7 @@ export class OpencodeClientService {
       logger.info(`[Opencode][timing] omlxProviderConfig took ${Date.now() - t3b}ms`);
 
       // Phase 4: reclaim stale port.
-      // #655 — Before spawning, reclaim :4096 from a stale opencode orphan
+      // #655 — Before spawning, reclaim this process's engine port from a stale opencode orphan
       // (e.g. one reparented to launchd after a Force-Quit / SIGKILL). A bound
       // port makes the SDK's fresh spawn exit code 1 ("engine not ready"). A
       // non-opencode holder throws a clear error (caught below → status=error
@@ -683,7 +692,7 @@ export class OpencodeClientService {
       // Phase 5: spawn the opencode engine and wait for readiness.
       // Use createOpencode which starts an in-process Opencode server.
       // `server.close()` is the only documented way to stop the spawned
-      // opencode subprocess on :4096 — we MUST hold this handle for clean
+      // opencode subprocess on the resolved port — we MUST hold this handle for clean
       // shutdown (see dispose()).
       //
       // #930 — the vendored rhythm-anthropic-accounts plugin POSTs its
@@ -701,7 +710,7 @@ export class OpencodeClientService {
         );
       }
       const t5 = Date.now();
-      const { client, server } = await mod.createOpencode({});
+      const { client, server } = await mod.createOpencode({ port: OPENCODE_ENGINE_PORT });
       logger.info(`[Opencode][timing] createOpencode (engine spawn) took ${Date.now() - t5}ms`);
 
       this.client = client;
