@@ -5,6 +5,12 @@ export type ClientOptions = {
 }
 
 export type Event =
+  | EventTuiPromptAppend
+  | EventTuiCommandExecute
+  | EventTuiToastShow1
+  | EventTuiSessionSelect
+  | EventServerConnected
+  | EventGlobalDisposed
   | EventServerInstanceDisposed
   | EventFileEdited
   | EventFileWatcherUpdated
@@ -24,10 +30,6 @@ export type Event =
   | EventSessionStatus
   | EventSessionIdle
   | EventSessionCompacted
-  | EventTuiPromptAppend
-  | EventTuiCommandExecute
-  | EventTuiToastShow1
-  | EventTuiSessionSelect
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
@@ -75,8 +77,6 @@ export type Event =
   | EventSessionNextCompactionStarted
   | EventSessionNextCompactionDelta
   | EventSessionNextCompactionEnded
-  | EventServerConnected
-  | EventGlobalDisposed
 
 export type OAuth = {
   type: "oauth"
@@ -102,6 +102,61 @@ export type WellKnownAuth = {
 }
 
 export type Auth = OAuth | ApiAuth | WellKnownAuth
+
+export type EventTuiPromptAppend = {
+  id: string
+  type: "tui.prompt.append"
+  properties: {
+    text: string
+  }
+}
+
+export type EventTuiCommandExecute = {
+  id: string
+  type: "tui.command.execute"
+  properties: {
+    command:
+      | "session.list"
+      | "session.new"
+      | "session.share"
+      | "session.interrupt"
+      | "session.compact"
+      | "session.page.up"
+      | "session.page.down"
+      | "session.line.up"
+      | "session.line.down"
+      | "session.half.page.up"
+      | "session.half.page.down"
+      | "session.first"
+      | "session.last"
+      | "prompt.clear"
+      | "prompt.submit"
+      | "agent.cycle"
+      | string
+  }
+}
+
+export type EventTuiToastShow = {
+  id: string
+  type: "tui.toast.show"
+  properties: {
+    title?: string
+    message: string
+    variant: "info" | "success" | "warning" | "error"
+    duration?: number
+  }
+}
+
+export type EventTuiSessionSelect = {
+  id: string
+  type: "tui.session.select"
+  properties: {
+    /**
+     * Session ID to navigate to
+     */
+    sessionID: string
+  }
+}
 
 export type PermissionRequest = {
   id: string
@@ -286,61 +341,6 @@ export type SessionStatus =
   | {
       type: "busy"
     }
-
-export type EventTuiPromptAppend = {
-  id: string
-  type: "tui.prompt.append"
-  properties: {
-    text: string
-  }
-}
-
-export type EventTuiCommandExecute = {
-  id: string
-  type: "tui.command.execute"
-  properties: {
-    command:
-      | "session.list"
-      | "session.new"
-      | "session.share"
-      | "session.interrupt"
-      | "session.compact"
-      | "session.page.up"
-      | "session.page.down"
-      | "session.line.up"
-      | "session.line.down"
-      | "session.half.page.up"
-      | "session.half.page.down"
-      | "session.first"
-      | "session.last"
-      | "prompt.clear"
-      | "prompt.submit"
-      | "agent.cycle"
-      | string
-  }
-}
-
-export type EventTuiToastShow = {
-  id: string
-  type: "tui.toast.show"
-  properties: {
-    title?: string
-    message: string
-    variant: "info" | "success" | "warning" | "error"
-    duration?: number
-  }
-}
-
-export type EventTuiSessionSelect = {
-  id: string
-  type: "tui.session.select"
-  properties: {
-    /**
-     * Session ID to navigate to
-     */
-    sessionID: string
-  }
-}
 
 export type Project = {
   id: string
@@ -783,6 +783,14 @@ export type Session = {
     snapshot?: string
     diff?: string
   }
+  mcpAllowlist?: {
+    servers: Array<string>
+    tools: Array<string>
+    deferred?: boolean
+  }
+  skillAllowlist?: {
+    skills: Array<string>
+  }
 }
 
 export type Prompt = {
@@ -797,6 +805,12 @@ export type GlobalEvent = {
   project?: string
   workspace?: string
   payload:
+    | EventTuiPromptAppend
+    | EventTuiCommandExecute
+    | EventTuiToastShow
+    | EventTuiSessionSelect
+    | EventServerConnected
+    | EventGlobalDisposed
     | EventServerInstanceDisposed
     | EventFileEdited
     | EventFileWatcherUpdated
@@ -816,10 +830,6 @@ export type GlobalEvent = {
     | EventSessionStatus
     | EventSessionIdle
     | EventSessionCompacted
-    | EventTuiPromptAppend
-    | EventTuiCommandExecute
-    | EventTuiToastShow
-    | EventTuiSessionSelect
     | EventMcpToolsChanged
     | EventMcpBrowserOpenFailed
     | EventCommandExecuted
@@ -867,8 +877,6 @@ export type GlobalEvent = {
     | EventSessionNextCompactionStarted
     | EventSessionNextCompactionDelta
     | EventSessionNextCompactionEnded
-    | EventServerConnected
-    | EventGlobalDisposed
     | SyncEventMessageUpdated
     | SyncEventMessageRemoved
     | SyncEventMessagePartUpdated
@@ -1507,6 +1515,14 @@ export type GlobalSession = {
     snapshot?: string
     diff?: string
   }
+  mcpAllowlist?: {
+    servers: Array<string>
+    tools: Array<string>
+    deferred?: boolean
+  }
+  skillAllowlist?: {
+    skills: Array<string>
+  }
   project: ProjectSummary | null
 }
 
@@ -1995,6 +2011,14 @@ export type SyncEventSessionUpdated = {
         snapshot?: string
         diff?: string
       } | null
+      mcpAllowlist?: {
+        servers: Array<string>
+        tools: Array<string>
+        deferred?: boolean
+      } | null
+      skillAllowlist?: {
+        skills: Array<string>
+      } | null
     }
   }
 }
@@ -2406,6 +2430,22 @@ export type SyncEventSessionNextCompactionEnded = {
     sessionID: string
     text: string
     include?: string
+  }
+}
+
+export type EventServerConnected = {
+  id: string
+  type: "server.connected"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventGlobalDisposed = {
+  id: string
+  type: "global.disposed"
+  properties: {
+    [key: string]: unknown
   }
 }
 
@@ -3133,22 +3173,6 @@ export type EventSessionNextCompactionEnded = {
     sessionID: string
     text: string
     include?: string
-  }
-}
-
-export type EventServerConnected = {
-  id: string
-  type: "server.connected"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventGlobalDisposed = {
-  id: string
-  type: "global.disposed"
-  properties: {
-    [key: string]: unknown
   }
 }
 
@@ -4540,6 +4564,49 @@ export type AppSkillsResponses = {
 
 export type AppSkillsResponse = AppSkillsResponses[keyof AppSkillsResponses]
 
+export type AppSkillsReloadData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/skill/reload"
+}
+
+export type AppSkillsReloadResponses = {
+  /**
+   * Reloaded list of skills
+   */
+  200: Array<{
+    name: string
+    description?: string
+    location: string
+    content: string
+  }>
+}
+
+export type AppSkillsReloadResponse = AppSkillsReloadResponses[keyof AppSkillsReloadResponses]
+
+export type AppConfigReloadData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/reload"
+}
+
+export type AppConfigReloadResponses = {
+  /**
+   * Config cache invalidated
+   */
+  200: boolean
+}
+
+export type AppConfigReloadResponse = AppConfigReloadResponses[keyof AppConfigReloadResponses]
+
 export type LspStatusData = {
   body?: never
   path?: never
@@ -5433,6 +5500,14 @@ export type SessionCreateData = {
     }
     permission?: PermissionRuleset
     workspaceID?: string
+    mcpAllowlist?: {
+      servers: Array<string>
+      tools: Array<string>
+      deferred?: boolean
+    }
+    skillAllowlist?: {
+      skills: Array<string>
+    }
   }
   path?: never
   query?: {
@@ -5564,6 +5639,14 @@ export type SessionUpdateData = {
     permission?: PermissionRuleset
     time?: {
       archived?: number
+    }
+    mcpAllowlist?: {
+      servers: Array<string>
+      tools: Array<string>
+      deferred?: boolean
+    }
+    skillAllowlist?: {
+      skills: Array<string>
     }
   }
   path: {

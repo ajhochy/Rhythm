@@ -5,8 +5,10 @@ import { buildClientParams, type Client, type Options as Options2, type TDataSha
 import type {
   AgentPartInput,
   AppAgentsResponses,
+  AppConfigReloadResponses,
   AppLogErrors,
   AppLogResponses,
+  AppSkillsReloadResponses,
   AppSkillsResponses,
   Auth as Auth3,
   AuthRemoveErrors,
@@ -14,7 +16,7 @@ import type {
   AuthSetErrors,
   AuthSetResponses,
   CommandListResponses,
-  Config as Config3,
+  Config as Config4,
   ConfigGetResponses,
   ConfigProvidersResponses,
   ConfigUpdateErrors,
@@ -327,6 +329,70 @@ export class Auth extends HeyApiClient {
   }
 }
 
+export class Skills extends HeyApiClient {
+  /**
+   * Reload skills
+   *
+   * Invalidate the memoized skill discovery cache and re-scan the disk, returning the freshly-discovered skills. Used after writing SKILL.md files into a configured skill path.
+   */
+  public reload<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<AppSkillsReloadResponses, unknown, ThrowOnError>({
+      url: "/skill/reload",
+      ...options,
+      ...params,
+    })
+  }
+}
+
+export class Config extends HeyApiClient {
+  /**
+   * Reload config
+   *
+   * Invalidate the memoized global config cache (agents, permission, providers) so the next read re-scans ~/.config/opencode/agent(s)*.md and config files. Used by the Rhythm /system/refresh endpoint so a config-repair agent's on-disk edits are visible to new sessions without an instance bounce.
+   */
+  public reload<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<AppConfigReloadResponses, unknown, ThrowOnError>({
+      url: "/config/reload",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class App extends HeyApiClient {
   /**
    * Write log
@@ -432,9 +498,19 @@ export class App extends HeyApiClient {
       ...params,
     })
   }
+
+  private _skills?: Skills
+  get skills2(): Skills {
+    return (this._skills ??= new Skills({ client: this.client }))
+  }
+
+  private _config?: Config
+  get config(): Config {
+    return (this._config ??= new Config({ client: this.client }))
+  }
 }
 
-export class Config extends HeyApiClient {
+export class Config2 extends HeyApiClient {
   /**
    * Get global configuration
    *
@@ -454,7 +530,7 @@ export class Config extends HeyApiClient {
    */
   public update<ThrowOnError extends boolean = false>(
     parameters?: {
-      config?: Config3
+      config?: Config4
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -533,9 +609,9 @@ export class Global extends HeyApiClient {
     })
   }
 
-  private _config?: Config
-  get config(): Config {
-    return (this._config ??= new Config({ client: this.client }))
+  private _config?: Config2
+  get config(): Config2 {
+    return (this._config ??= new Config2({ client: this.client }))
   }
 }
 
@@ -571,7 +647,7 @@ export class Event extends HeyApiClient {
   }
 }
 
-export class Config2 extends HeyApiClient {
+export class Config3 extends HeyApiClient {
   /**
    * Get configuration
    *
@@ -611,7 +687,7 @@ export class Config2 extends HeyApiClient {
     parameters?: {
       directory?: string
       workspace?: string
-      config?: Config3
+      config?: Config4
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3013,6 +3089,14 @@ export class Session2 extends HeyApiClient {
       }
       permission?: PermissionRuleset
       workspaceID?: string
+      mcpAllowlist?: {
+        servers: Array<string>
+        tools: Array<string>
+        deferred?: boolean
+      }
+      skillAllowlist?: {
+        skills: Array<string>
+      }
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3029,6 +3113,8 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "model" },
             { in: "body", key: "permission" },
             { in: "body", key: "workspaceID" },
+            { in: "body", key: "mcpAllowlist" },
+            { in: "body", key: "skillAllowlist" },
           ],
         },
       ],
@@ -3154,6 +3240,14 @@ export class Session2 extends HeyApiClient {
       time?: {
         archived?: number
       }
+      mcpAllowlist?: {
+        servers: Array<string>
+        tools: Array<string>
+        deferred?: boolean
+      }
+      skillAllowlist?: {
+        skills: Array<string>
+      }
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3168,6 +3262,8 @@ export class Session2 extends HeyApiClient {
             { in: "body", key: "title" },
             { in: "body", key: "permission" },
             { in: "body", key: "time" },
+            { in: "body", key: "mcpAllowlist" },
+            { in: "body", key: "skillAllowlist" },
           ],
         },
       ],
@@ -4918,9 +5014,9 @@ export class OpencodeClient extends HeyApiClient {
     return (this._event ??= new Event({ client: this.client }))
   }
 
-  private _config?: Config2
-  get config(): Config2 {
-    return (this._config ??= new Config2({ client: this.client }))
+  private _config?: Config3
+  get config(): Config3 {
+    return (this._config ??= new Config3({ client: this.client }))
   }
 
   private _experimental?: Experimental

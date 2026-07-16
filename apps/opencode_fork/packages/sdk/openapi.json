@@ -2314,6 +2314,115 @@
         ]
       }
     },
+    "/skill/reload": {
+      "post": {
+        "tags": ["instance"],
+        "operationId": "app.skills.reload",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reloaded list of skills",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "location": {
+                        "type": "string"
+                      },
+                      "content": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["name", "location", "content"],
+                    "additionalProperties": false
+                  },
+                  "description": "Reloaded list of skills"
+                }
+              }
+            }
+          }
+        },
+        "description": "Invalidate the memoized skill discovery cache and re-scan the disk, returning the freshly-discovered skills. Used after writing SKILL.md files into a configured skill path.",
+        "summary": "Reload skills",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.app.skills.reload({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/config/reload": {
+      "post": {
+        "tags": ["instance"],
+        "operationId": "app.config.reload",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Config cache invalidated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean",
+                  "description": "Config cache invalidated"
+                }
+              }
+            }
+          }
+        },
+        "description": "Invalidate the memoized global config cache (agents, permission, providers) so the next read re-scans ~/.config/opencode/agent(s)/*.md and config files. Used by the Rhythm /system/refresh endpoint so a config-repair agent's on-disk edits are visible to new sessions without an instance bounce.",
+        "summary": "Reload config",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.app.config.reload({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/lsp": {
       "get": {
         "tags": ["instance"],
@@ -4530,6 +4639,41 @@
                   "workspaceID": {
                     "type": "string",
                     "pattern": "^wrk"
+                  },
+                  "mcpAllowlist": {
+                    "type": "object",
+                    "properties": {
+                      "servers": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "tools": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "deferred": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["servers", "tools"],
+                    "additionalProperties": false
+                  },
+                  "skillAllowlist": {
+                    "type": "object",
+                    "properties": {
+                      "skills": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": ["skills"],
+                    "additionalProperties": false
                   }
                 },
                 "additionalProperties": false
@@ -4830,6 +4974,41 @@
                         "type": "number"
                       }
                     },
+                    "additionalProperties": false
+                  },
+                  "mcpAllowlist": {
+                    "type": "object",
+                    "properties": {
+                      "servers": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "tools": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "deferred": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["servers", "tools"],
+                    "additionalProperties": false
+                  },
+                  "skillAllowlist": {
+                    "type": "object",
+                    "properties": {
+                      "skills": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": ["skills"],
                     "additionalProperties": false
                   }
                 },
@@ -8985,6 +9164,24 @@
       "Event": {
         "anyOf": [
           {
+            "$ref": "#/components/schemas/Event.tui.prompt.append"
+          },
+          {
+            "$ref": "#/components/schemas/Event.tui.command.execute"
+          },
+          {
+            "$ref": "#/components/schemas/EventTuiToastShow1"
+          },
+          {
+            "$ref": "#/components/schemas/Event.tui.session.select"
+          },
+          {
+            "$ref": "#/components/schemas/EventServerConnected"
+          },
+          {
+            "$ref": "#/components/schemas/EventGlobalDisposed"
+          },
+          {
             "$ref": "#/components/schemas/EventServerInstanceDisposed"
           },
           {
@@ -9040,18 +9237,6 @@
           },
           {
             "$ref": "#/components/schemas/EventSessionCompacted"
-          },
-          {
-            "$ref": "#/components/schemas/Event.tui.prompt.append"
-          },
-          {
-            "$ref": "#/components/schemas/Event.tui.command.execute"
-          },
-          {
-            "$ref": "#/components/schemas/EventTuiToastShow1"
-          },
-          {
-            "$ref": "#/components/schemas/Event.tui.session.select"
           },
           {
             "$ref": "#/components/schemas/EventMcpToolsChanged"
@@ -9193,12 +9378,6 @@
           },
           {
             "$ref": "#/components/schemas/EventSessionNextCompactionEnded"
-          },
-          {
-            "$ref": "#/components/schemas/EventServerConnected"
-          },
-          {
-            "$ref": "#/components/schemas/EventGlobalDisposed"
           }
         ]
       },
@@ -9278,6 +9457,140 @@
             "$ref": "#/components/schemas/WellKnownAuth"
           }
         ]
+      },
+      "Event.tui.prompt.append": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["tui.prompt.append"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": ["text"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "Event.tui.command.execute": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["tui.command.execute"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "session.list",
+                      "session.new",
+                      "session.share",
+                      "session.interrupt",
+                      "session.compact",
+                      "session.page.up",
+                      "session.page.down",
+                      "session.line.up",
+                      "session.line.down",
+                      "session.half.page.up",
+                      "session.half.page.down",
+                      "session.first",
+                      "session.last",
+                      "prompt.clear",
+                      "prompt.submit",
+                      "agent.cycle"
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "required": ["command"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "Event.tui.toast.show": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["tui.toast.show"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "variant": {
+                "type": "string",
+                "enum": ["info", "success", "warning", "error"]
+              },
+              "duration": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": ["message", "variant"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "Event.tui.session.select": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["tui.session.select"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {
+              "sessionID": {
+                "type": "string",
+                "pattern": "^ses",
+                "description": "Session ID to navigate to"
+              }
+            },
+            "required": ["sessionID"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
       },
       "PermissionRequest": {
         "type": "object",
@@ -9522,6 +9835,27 @@
         "required": ["name", "data"],
         "additionalProperties": false
       },
+      "CompactionLoopError": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": ["CompactionLoopError"]
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["message"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["name", "data"],
+        "additionalProperties": false
+      },
       "QuestionOption": {
         "type": "object",
         "properties": {
@@ -9737,140 +10071,6 @@
             "additionalProperties": false
           }
         ]
-      },
-      "Event.tui.prompt.append": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["tui.prompt.append"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "text": {
-                "type": "string"
-              }
-            },
-            "required": ["text"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "Event.tui.command.execute": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["tui.command.execute"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "command": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "enum": [
-                      "session.list",
-                      "session.new",
-                      "session.share",
-                      "session.interrupt",
-                      "session.compact",
-                      "session.page.up",
-                      "session.page.down",
-                      "session.line.up",
-                      "session.line.down",
-                      "session.half.page.up",
-                      "session.half.page.down",
-                      "session.first",
-                      "session.last",
-                      "prompt.clear",
-                      "prompt.submit",
-                      "agent.cycle"
-                    ]
-                  },
-                  {
-                    "type": "string"
-                  }
-                ]
-              }
-            },
-            "required": ["command"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "Event.tui.toast.show": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["tui.toast.show"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "title": {
-                "type": "string"
-              },
-              "message": {
-                "type": "string"
-              },
-              "variant": {
-                "type": "string",
-                "enum": ["info", "success", "warning", "error"]
-              },
-              "duration": {
-                "type": "integer",
-                "exclusiveMinimum": 0
-              }
-            },
-            "required": ["message", "variant"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "Event.tui.session.select": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["tui.session.select"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {
-              "sessionID": {
-                "type": "string",
-                "pattern": "^ses",
-                "description": "Session ID to navigate to"
-              }
-            },
-            "required": ["sessionID"],
-            "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
       },
       "Project": {
         "type": "object",
@@ -10150,6 +10350,9 @@
               },
               {
                 "$ref": "#/components/schemas/APIError"
+              },
+              {
+                "$ref": "#/components/schemas/CompactionLoopError"
               }
             ]
           },
@@ -11236,6 +11439,41 @@
             },
             "required": ["messageID"],
             "additionalProperties": false
+          },
+          "mcpAllowlist": {
+            "type": "object",
+            "properties": {
+              "servers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "deferred": {
+                "type": "boolean"
+              }
+            },
+            "required": ["servers", "tools"],
+            "additionalProperties": false
+          },
+          "skillAllowlist": {
+            "type": "object",
+            "properties": {
+              "skills": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["skills"],
+            "additionalProperties": false
           }
         },
         "required": ["id", "slug", "projectID", "directory", "title", "version", "time"],
@@ -11283,6 +11521,24 @@
           },
           "payload": {
             "anyOf": [
+              {
+                "$ref": "#/components/schemas/Event.tui.prompt.append"
+              },
+              {
+                "$ref": "#/components/schemas/Event.tui.command.execute"
+              },
+              {
+                "$ref": "#/components/schemas/Event.tui.toast.show"
+              },
+              {
+                "$ref": "#/components/schemas/Event.tui.session.select"
+              },
+              {
+                "$ref": "#/components/schemas/EventServerConnected"
+              },
+              {
+                "$ref": "#/components/schemas/EventGlobalDisposed"
+              },
               {
                 "$ref": "#/components/schemas/EventServerInstanceDisposed"
               },
@@ -11339,18 +11595,6 @@
               },
               {
                 "$ref": "#/components/schemas/EventSessionCompacted"
-              },
-              {
-                "$ref": "#/components/schemas/Event.tui.prompt.append"
-              },
-              {
-                "$ref": "#/components/schemas/Event.tui.command.execute"
-              },
-              {
-                "$ref": "#/components/schemas/Event.tui.toast.show"
-              },
-              {
-                "$ref": "#/components/schemas/Event.tui.session.select"
               },
               {
                 "$ref": "#/components/schemas/EventMcpToolsChanged"
@@ -11492,12 +11736,6 @@
               },
               {
                 "$ref": "#/components/schemas/EventSessionNextCompactionEnded"
-              },
-              {
-                "$ref": "#/components/schemas/EventServerConnected"
-              },
-              {
-                "$ref": "#/components/schemas/EventGlobalDisposed"
               },
               {
                 "$ref": "#/components/schemas/SyncEventMessageUpdated"
@@ -13211,6 +13449,41 @@
             "required": ["messageID"],
             "additionalProperties": false
           },
+          "mcpAllowlist": {
+            "type": "object",
+            "properties": {
+              "servers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "tools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "deferred": {
+                "type": "boolean"
+              }
+            },
+            "required": ["servers", "tools"],
+            "additionalProperties": false
+          },
+          "skillAllowlist": {
+            "type": "object",
+            "properties": {
+              "skills": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["skills"],
+            "additionalProperties": false
+          },
           "project": {
             "anyOf": [
               {
@@ -14864,6 +15137,55 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "mcpAllowlist": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "servers": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "tools": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "deferred": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["servers", "tools"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "skillAllowlist": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "skills": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": ["skills"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "additionalProperties": false
@@ -16179,6 +16501,42 @@
         "required": ["type", "name", "id", "seq", "aggregateID", "data"],
         "additionalProperties": false
       },
+      "EventServerConnected": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["server.connected"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
+      "EventGlobalDisposed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["global.disposed"]
+          },
+          "properties": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "required": ["id", "type", "properties"],
+        "additionalProperties": false
+      },
       "EventServerInstanceDisposed": {
         "type": "object",
         "properties": {
@@ -16459,6 +16817,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/APIError"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CompactionLoopError"
                   }
                 ]
               }
@@ -18377,42 +18738,6 @@
             },
             "required": ["timestamp", "sessionID", "text"],
             "additionalProperties": false
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventServerConnected": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["server.connected"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {}
-          }
-        },
-        "required": ["id", "type", "properties"],
-        "additionalProperties": false
-      },
-      "EventGlobalDisposed": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": ["global.disposed"]
-          },
-          "properties": {
-            "type": "object",
-            "properties": {}
           }
         },
         "required": ["id", "type", "properties"],
