@@ -66,6 +66,14 @@ const emptyObjectSchema = (schema: Record<string, unknown>) =>
 const projectNode = (schema: unknown): Record<string, unknown> | undefined => {
   if (!isRecord(schema)) return undefined
   if (emptyObjectSchema(schema)) return undefined
+  // Vertex rejects a functionDeclaration node that sets any_of alongside sibling
+  // keys ("when using any_of, it must be the only field set"). An optional param
+  // like `budget` arrives as anyOf plus a sibling type/description; emit the
+  // combiner alone with its branches projected. (#1091)
+  if (hasCombiner(schema)) {
+    const combiner = Array.isArray(schema.anyOf) ? "anyOf" : Array.isArray(schema.oneOf) ? "oneOf" : "allOf"
+    return { [combiner]: (schema[combiner] as unknown[]).map(projectNode) }
+  }
   return Object.fromEntries(
     [
       ["description", schema.description],
@@ -88,9 +96,6 @@ const projectNode = (schema: unknown): Record<string, unknown> | undefined => {
             ? undefined
             : projectNode(schema.items),
       ],
-      ["allOf", Array.isArray(schema.allOf) ? schema.allOf.map(projectNode) : undefined],
-      ["anyOf", Array.isArray(schema.anyOf) ? schema.anyOf.map(projectNode) : undefined],
-      ["oneOf", Array.isArray(schema.oneOf) ? schema.oneOf.map(projectNode) : undefined],
       ["minLength", schema.minLength],
     ].filter((entry) => entry[1] !== undefined),
   )
