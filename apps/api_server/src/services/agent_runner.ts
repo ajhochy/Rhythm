@@ -24,7 +24,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { queueSkillExtraction } from './skill_extractor';
-import { evaluateHarvestedDrafts } from './harvested_skill_evaluator';
+import { scheduleIdleEvaluation } from './harvested_skill_evaluator';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
 import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
@@ -1079,12 +1079,13 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       queueSkillExtraction(rhythmSessionId);
     }
 
-    // #929 — fire-and-forget evaluation of any harvested draft that just
-    // crossed its use threshold (real `skill`-tool invocations persisted this
-    // turn may have pushed one over). NEVER awaited; never throws.
-    evaluateHarvestedDrafts().catch((err) =>
-      logger.warn(`[AgentRunner] evaluateHarvestedDrafts failed (non-fatal): ${String(err)}`),
-    );
+    // #929 / #1109 — schedule (not run) evaluation of any harvested draft that
+    // just crossed its use threshold (real `skill`-tool invocations persisted
+    // this turn may have pushed one over). #1109: no longer calls
+    // evaluateHarvestedDrafts() directly on every turn — scheduleIdleEvaluation
+    // coalesces a burst of turns into ONE sweep after the loop goes idle.
+    // NEVER awaited; never throws.
+    scheduleIdleEvaluation();
 
     // P3-2: bump `uses` for each injected skill (non-fatal, success path only).
     // This is the only persisted side-effect of injection — the preface text

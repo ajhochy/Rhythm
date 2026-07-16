@@ -741,19 +741,82 @@ const MIN_ROUNDS = 2;
  */
 export type DistillFn = (sessionId: string) => Promise<AgentSkill | null>;
 
+// ── #1109 — per-session guard + global cooldown ──────────────────────────────
+// Measured on live rhythm.db: 472 skill-extract sessions in 5 days (~94/day,
+// bursts of 16/hr) because the ONLY existing gates were the 90s cold-start
+// throttle above and the >=2-round floor — nothing stopped the SAME session
+// firing again on every later turn, and nothing capped how often DIFFERENT
+// sessions could fire back-to-back. Two orthogonal, cheap (no DB/LLM) gates
+// close that: a per-session lifetime guard, and a global cooldown.
+
+/**
+ * A sessionId that has already triggered (or is triggering) a harvest LLM
+ * call. Deliberately in-memory only — not persisted to a DB column: a process
+ * restart re-opens the window for a session still in flight, which is an
+ * acceptable, rare re-incurred cost rather than a correctness bug. A durable
+ * marker (agent_sessions column) is the documented upgrade path if that ever
+ * matters in practice.
+ */
+const _harvestedSessionIds = new Set<string>();
+
+/**
+ * Timestamp (Date.now()) of the most recent harvest LLM call, across ALL
+ * sessions. null means "never fired yet in this process" (no cooldown to
+ * check). Global (not per-session) so it caps BURSTS from many different
+ * sessions completing turns in quick succession — the per-session guard above
+ * already prevents the SAME session from re-firing, so a per-session cooldown
+ * would be redundant with it.
+ */
+let _lastHarvestFiredAt: number | null = null;
+
+/**
+ * Minimum time between any two harvest LLM calls, regardless of session.
+ * Default 5 minutes. Override via RHYTHM_HARVEST_COOLDOWN_MS (ms) for tests
+ * or tuning; non-numeric/negative falls back to the default (mirrors
+ * harvested_skill_evaluator.ts's evalThreshold()/harvestJudgeTimeoutMs()
+ * parsing style). Resolved per-call so a launch-time env var applies without
+ * a module-load race.
+ */
+function harvestCooldownMs(): number {
+  const raw = process.env.RHYTHM_HARVEST_COOLDOWN_MS;
+  if (raw === undefined) return 5 * 60_000;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 5 * 60_000;
+}
+
+/**
+ * Test-only reset of the #1109 per-session guard + cooldown timestamp.
+ * Mirrors {@link _resetEngineReadyForTests} — needed because both are
+ * module-level state that would otherwise leak across test cases sharing this
+ * module within one vitest worker/file.
+ */
+export function _resetHarvestGuardForTests(): void {
+  _harvestedSessionIds.clear();
+  _lastHarvestFiredAt = null;
+}
+
 /**
  * P2-2 — Fire-and-forget queue for background skill extraction.
  *
  * Call this AFTER a successful agent turn has been persisted. It:
- *  1. Counts the session's assistant ('output') message rounds. If fewer than
- *     {@link MIN_ROUNDS}, returns immediately without touching the LLM.
- *  2. Otherwise kicks off {@link distillFromSession} WITHOUT awaiting it, so the
- *     caller's turn/run resolves before the (potentially slow) distill does.
+ *  1. #1109 — Skips (no-op, no LLM call) when this sessionId has already
+ *     triggered a harvest, ever (lifetime guard), or when the global cooldown
+ *     since the last harvest hasn't elapsed yet. Both checks run BEFORE any
+ *     model call and before the round-count DB query.
+ *  2. Counts the session's assistant ('output') message rounds. If fewer than
+ *     {@link MIN_ROUNDS}, returns immediately without touching the LLM (and
+ *     without consuming the per-session guard — a session under the floor
+ *     must still get its one shot once a later turn crosses it).
+ *  3. Otherwise marks the guard + cooldown, then kicks off
+ *     {@link distillFromSession} WITHOUT awaiting it, so the caller's turn/run
+ *     resolves before the (potentially slow) distill does.
  *
  * Contract — this function:
  *  • NEVER throws (the round-count query is wrapped in try/catch).
  *  • NEVER awaits the distill — it is genuinely fire-and-forget.
  *  • NEVER rejects the caller — a distill that throws/rejects is swallowed here.
+ *  • Fires AT MOST ONCE per sessionId, ever, and at most once per cooldown
+ *    window across all sessions.
  *
  * Inert under test: {@link distillFromSession} itself no-ops under VITEST /
  * Postgres, so wiring this into real run/turn paths stays a no-op in CI unless a
@@ -768,6 +831,24 @@ export function queueSkillExtraction(sessionId: string, distill: DistillFn = dis
       `[skill-extract] queue: throttled during engine cold-start window (${elapsed}ms elapsed of ${CURATOR_COLD_WINDOW_MS}ms) for ${sessionId} — skipping`,
     );
     return;
+  }
+
+  // #1109 — per-session lifetime guard: cheapest check first (in-memory Set).
+  if (_harvestedSessionIds.has(sessionId)) {
+    logger.info(`[skill-extract] queue: session ${sessionId} already harvested (lifetime guard) — skipping`);
+    return;
+  }
+
+  // #1109 — global cooldown: caps burst fan-out across DIFFERENT sessions.
+  if (_lastHarvestFiredAt !== null) {
+    const sinceLast = Date.now() - _lastHarvestFiredAt;
+    const cooldownMs = harvestCooldownMs();
+    if (sinceLast < cooldownMs) {
+      logger.info(
+        `[skill-extract] queue: cooldown active (${sinceLast}ms of ${cooldownMs}ms elapsed) for ${sessionId} — skipping`,
+      );
+      return;
+    }
   }
 
   let rounds = 0;
@@ -785,6 +866,11 @@ export function queueSkillExtraction(sessionId: string, distill: DistillFn = dis
     logger.info(`[skill-extract] queue: below threshold (rounds=${rounds} < ${MIN_ROUNDS}) for ${sessionId} — skipping`);
     return;
   }
+
+  // #1109 — mark BEFORE firing so a session can never race past its own
+  // lifetime guard and so the cooldown clock starts at the actual fire time.
+  _harvestedSessionIds.add(sessionId);
+  _lastHarvestFiredAt = Date.now();
 
   logger.info(`[skill-extract] queued for ${sessionId}`);
   // Fire-and-forget — do NOT await. Swallow any rejection so the caller's
