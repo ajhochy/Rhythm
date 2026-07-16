@@ -84,6 +84,7 @@ import {
   writeManagedSkill,
   deleteManagedSkill,
   managedSkillExists,
+  readManagedSkillBody,
 } from './rhythm_managed_skills';
 import { downloadSkillBody } from './generators/external_discovery_search';
 import { scanContextContent } from '../security/context_scanner';
@@ -524,9 +525,16 @@ function draftPromptFixBody(priorBody: string, concreteFix: string): string {
  */
 function applySkillBodyRevision(skill: AgentSkill, revisedBody: string): ProposalApplyResult {
   const skillsRepo = new AgentSkillsRepository();
+  // #1082 — the managed SKILL.md FILE is the source of truth, not the DB row.
+  // A direct on-disk edit (PUT /opencode/skills/:name → writeManagedSkill) does
+  // NOT update agent_skills.body, so snapshotting skill.body here can capture a
+  // stale value; a later measure→revert would then restore the stale DB body
+  // over the user's on-disk edit (data loss). Snapshot the actual on-disk body,
+  // falling back to the DB row only when no managed file exists yet.
+  const priorBody = readManagedSkillBody(skill.title) ?? skill.body ?? null;
   const beforeSnapshotJson = JSON.stringify({
     skillId: skill.id,
-    priorBody: skill.body ?? null,
+    priorBody,
     priorStatus: skill.status,
   });
   skillsRepo.update(skill.id, { body: revisedBody });
