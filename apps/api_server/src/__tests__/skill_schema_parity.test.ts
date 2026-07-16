@@ -1,6 +1,8 @@
 /**
  * #792 — Dual-DB schema parity guard for the agent_skills sidecar + the
- * agent_skill_versions ledger.
+ * agent_skill_versions ledger. Extended by #1113 to also cover
+ * agent_capability_gaps (the same drift class caught this table missing from
+ * postgres_bootstrap.ts entirely).
  *
  * The skills sidecar/measurement-ledger model must keep the SQLite migration
  * (migrations.ts, the engine of the embedded local server) and the Postgres
@@ -28,7 +30,7 @@ import { describe, expect, it } from 'vitest';
 
 import { runMigrations } from '../database/migrations';
 
-const TABLES = ['agent_skills', 'agent_skill_versions'] as const;
+const TABLES = ['agent_skills', 'agent_skill_versions', 'agent_capability_gaps'] as const;
 
 /** Real SQLite column set after all migrations (incl. guarded ALTERs). */
 function sqliteColumns(table: string): string[] {

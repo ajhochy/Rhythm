@@ -7,18 +7,26 @@
  * discovery, resolving a gap once it adopts and keeps a fix (on revert it
  * stays 'open').
  *
- * Local-SQLite-only. Async-named per this codebase's convention
- * (AgentOrgProposalsRepository): every public method wraps a synchronous
- * better-sqlite3 call in a Promise-returning `*Async` method. The constructor
- * mirrors AgentOrgProposalsRepository's guard — when no global DB is
- * initialized (including the Postgres path, where `getDb()` throws because
- * there is no local SQLite instance), fall back to a throwaway in-memory DB
- * instead of crashing.
+ * Dual-engine (#1113 — Discovery-005): every method branches on
+ * `env.dbClient`. SQLite keeps the original synchronous better-sqlite3 calls
+ * (with the constructor's throwaway `:memory:` fallback preserved ONLY for
+ * "no global DB initialized" under SQLite, e.g. a unit test that never called
+ * initDb()). Postgres queries `getPostgresPool()` directly — there is no
+ * in-memory fallback for Postgres: before this fix, `getDb()` unconditionally
+ * threw under Postgres (no local `_db`), so every instance silently fell back
+ * to a throwaway in-memory SQLite DB and every gap vanished per-instance. See
+ * docs/ai/current-plan.md #1113 and postgres_bootstrap.ts for the matching
+ * `agent_capability_gaps` table.
+ *
+ * Async-named per this codebase's convention (AgentOrgProposalsRepository):
+ * every public method returns a Promise, whether it wraps a synchronous
+ * better-sqlite3 call (SQLite) or an actual async pg query (Postgres).
  */
 
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'crypto';
-import { getDb } from '../database/db';
+import { env } from '../config/env';
+import { getDb, getPostgresPool } from '../database/db';
 import { runMigrations } from '../database/migrations';
 
 /** Canonical model type (Plan B depends on this exact name and shape). */
@@ -43,7 +51,13 @@ export interface CapabilityGapInput {
   agentConfigId?: string | null;
 }
 
-/** Raw SQLite row shape (snake_case) — internal only, never exported. */
+/**
+ * Raw DB row shape (snake_case) — internal only, never exported.
+ * created_at/updated_at come back as a plain string from SQLite (TEXT) but
+ * as a native Date from the `pg` driver (Postgres columns are TIMESTAMPTZ,
+ * matching every other agent_* table in postgres_bootstrap.ts) — rowToModel
+ * normalizes both to an ISO string.
+ */
 interface CapabilityGapDbRow {
   id: string;
   dedup_key: string;
@@ -53,8 +67,8 @@ interface CapabilityGapDbRow {
   sample_session_id: string | null;
   agent_config_id: string | null;
   status: string;
-  created_at: string;
-  updated_at: string;
+  created_at: string | Date;
+  updated_at: string | Date;
 }
 
 function parseTags(raw: string | null): string[] | null {
@@ -67,6 +81,10 @@ function parseTags(raw: string | null): string[] | null {
   }
 }
 
+function toIso(value: string | Date): string {
+  return typeof value === 'string' ? value : value.toISOString();
+}
+
 function rowToModel(row: CapabilityGapDbRow): CapabilityGapRow {
   return {
     id: row.id,
@@ -77,8 +95,8 @@ function rowToModel(row: CapabilityGapDbRow): CapabilityGapRow {
     sampleSessionId: row.sample_session_id ?? null,
     agentConfigId: row.agent_config_id ?? null,
     status: row.status,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
   };
 }
 
@@ -90,17 +108,23 @@ function makeInMemoryDb(): Database.Database {
 }
 
 export class AgentCapabilityGapsRepository {
-  private db: Database.Database;
+  /** SQLite-only handle. Never populated (and never used) under Postgres. */
+  private db: Database.Database | null;
 
   constructor(db?: Database.Database) {
+    if (env.dbClient === 'postgres') {
+      this.db = null;
+      return;
+    }
     if (db) {
       this.db = db;
     } else {
       try {
         this.db = getDb();
       } catch {
-        // No global DB initialized (or running against Postgres, which has no
-        // local table for this) — create a throwaway in-memory instance.
+        // No global DB initialized (e.g. a unit test that never called
+        // initDb()) — create a throwaway in-memory instance. SQLite-only:
+        // Postgres never falls back here (see constructor guard above).
         this.db = makeInMemoryDb();
       }
     }
@@ -122,18 +146,34 @@ export class AgentCapabilityGapsRepository {
   }
 
   private findByDedupKeySync(dedupKey: string): CapabilityGapRow | null {
-    const row = this.db
+    const row = this.db!
       .prepare(`SELECT * FROM agent_capability_gaps WHERE dedup_key = ?`)
       .get(dedupKey) as CapabilityGapDbRow | undefined;
     return row ? rowToModel(row) : null;
   }
 
+  private async findByDedupKeyPg(dedupKey: string): Promise<CapabilityGapRow | null> {
+    const r = await getPostgresPool().query(
+      `SELECT * FROM agent_capability_gaps WHERE dedup_key = $1`,
+      [dedupKey],
+    );
+    return r.rows.length > 0 ? rowToModel(r.rows[0]) : null;
+  }
+
   async findByDedupKeyAsync(dedupKey: string): Promise<CapabilityGapRow | null> {
+    if (env.dbClient === 'postgres') return this.findByDedupKeyPg(dedupKey);
     return this.findByDedupKeySync(dedupKey);
   }
 
   async listOpenAsync(): Promise<CapabilityGapRow[]> {
-    const rows = this.db
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(
+        `SELECT * FROM agent_capability_gaps WHERE status = $1 ORDER BY created_at`,
+        ['open'],
+      );
+      return r.rows.map(rowToModel);
+    }
+    const rows = this.db!
       .prepare(`SELECT * FROM agent_capability_gaps WHERE status = 'open' ORDER BY created_at`)
       .all() as CapabilityGapDbRow[];
     return rows.map(rowToModel);
@@ -154,7 +194,36 @@ export class AgentCapabilityGapsRepository {
     );
     const id = randomUUID();
     const now = new Date().toISOString();
-    const result = this.db
+    const tagsJson = input.intentTags != null ? JSON.stringify(input.intentTags) : null;
+
+    if (env.dbClient === 'postgres') {
+      const inserted = await getPostgresPool().query(
+        `INSERT INTO agent_capability_gaps
+           (id, dedup_key, intent_title, intent_problem, intent_tags_json,
+            sample_session_id, agent_config_id, status, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'open', $8, $8)
+         ON CONFLICT (dedup_key) DO NOTHING
+         RETURNING *`,
+        [
+          id,
+          dedupKey,
+          input.intentTitle,
+          input.intentProblem ?? null,
+          tagsJson,
+          input.sampleSessionId ?? null,
+          input.agentConfigId ?? null,
+          now,
+        ],
+      );
+      if (inserted.rows.length > 0) {
+        return { inserted: true, gap: rowToModel(inserted.rows[0]) };
+      }
+      // Conflict — a row with this dedup_key already existed. Re-select it.
+      const gap = (await this.findByDedupKeyPg(dedupKey))!;
+      return { inserted: false, gap };
+    }
+
+    const result = this.db!
       .prepare(
         `INSERT INTO agent_capability_gaps
            (id, dedup_key, intent_title, intent_problem, intent_tags_json,
@@ -167,7 +236,7 @@ export class AgentCapabilityGapsRepository {
         dedupKey,
         input.intentTitle,
         input.intentProblem ?? null,
-        input.intentTags != null ? JSON.stringify(input.intentTags) : null,
+        tagsJson,
         input.sampleSessionId ?? null,
         input.agentConfigId ?? null,
         now,
@@ -183,10 +252,18 @@ export class AgentCapabilityGapsRepository {
    * throws, if dedupKey is unknown.
    */
   async resolveByDedupKeyAsync(dedupKey: string): Promise<void> {
-    this.db
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `UPDATE agent_capability_gaps SET status = 'resolved', updated_at = $1 WHERE dedup_key = $2`,
+        [now, dedupKey],
+      );
+      return;
+    }
+    this.db!
       .prepare(
         `UPDATE agent_capability_gaps SET status = 'resolved', updated_at = ? WHERE dedup_key = ?`,
       )
-      .run(new Date().toISOString(), dedupKey);
+      .run(now, dedupKey);
   }
 }

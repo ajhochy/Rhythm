@@ -42,9 +42,15 @@
  *    the affected task for this pass and is retried next boot (mirrors
  *    `ministry_recipes_seed.ts`'s per-recipe try/catch discipline). Boot
  *    must never be blocked by this seed.
- *  • Local-only: no-ops entirely under Postgres (agent_scheduled_tasks /
- *    agent_configs scoping is a local-SQLite agent-execution surface, same
- *    rule as every other seed in this family).
+ *  • Role-gated, not engine-gated (#1113): no-ops only under the 'cloud'
+ *    deployment role (env.agentExecutionEnabled === false) — NOT merely
+ *    because the DB engine is Postgres. Under the default 'all' role on a
+ *    Postgres-backed deployment, `AgentConfigsRepository` (used by
+ *    `ensureAgentConfigForRole` below) has no Postgres branch yet, so a fresh
+ *    install still safely no-ops per-task there (caught, logged, retried next
+ *    boot) until that repository gets Postgres parity — a documented gap, not
+ *    a silent one. `AgentScheduledTasksRepository`, used by the #1111
+ *    reconciliation pass, already fully supports Postgres.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -248,10 +254,28 @@ export async function seedOrgOptimizerTask(): Promise<OrgOptimizerSeedResult> {
     externalTaskSeeded: false,
   };
 
-  // No-op under Postgres: this is a local-SQLite agent-execution surface,
-  // same rule as ministry_recipes_seed / obsidian_scope_backfill / the skill
-  // seed importer — production Postgres never runs a local opencode engine.
-  if (env.dbClient === 'postgres') {
+  // #1113 (Discovery-005): gate on DEPLOYMENT ROLE, not database engine —
+  // these are orthogonal (see env.ts's DeploymentRole doc). The prior
+  // `dbClient === 'postgres'` check conflated "which storage engine" with
+  // "does this deployment run agent execution," which is the #755 role
+  // switch's actual job. Under the 'cloud' role, agent execution never runs
+  // (by design) so this seed correctly still no-ops there. Under the default
+  // 'all' role — including today's Postgres-backed prod image — the seed now
+  // attempts to run, matching every other agent-execution table/seed gated by
+  // `env.agentExecutionEnabled` (see postgres_bootstrap.ts).
+  //
+  // KNOWN LIMITATION: `ensureAgentConfigForRole` below calls
+  // `AgentConfigsRepository`, which has no Postgres branch yet — a
+  // pre-existing, broader gap outside #1113's scope (flagged as a follow-up).
+  // Until that repository gets Postgres parity, a fresh install on Postgres
+  // safely no-ops per-task (the existing try/catch below catches the throw,
+  // sets `*TaskSkippedReason`, and retries next boot) rather than seeding for
+  // real — a documented "not yet," not a silent "never." The #1111
+  // dedup/re-enable reconciliation below DOES work correctly on Postgres
+  // today, since AgentScheduledTasksRepository already has full Postgres
+  // support — so an already-seeded row (created by hand, or once
+  // AgentConfigsRepository is fixed) is reconciled on Postgres too.
+  if (!env.agentExecutionEnabled) {
     return result;
   }
 

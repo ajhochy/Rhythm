@@ -694,6 +694,30 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_agent_skill_versions_skill_id ON agent_skill_versions(skill_id)`,
   );
 
+  // #1113 (Discovery-005) — agent_capability_gaps: this table was previously
+  // missing from the Postgres path entirely (same missing-CREATE drift class
+  // as agent_configs/agent_sessions below); AgentCapabilityGapsRepository
+  // silently fell back to a throwaway in-memory SQLite DB under Postgres, so
+  // every gap vanished per-instance. Column set MUST stay identical to the
+  // SQLite migration (migrations.ts) — enforced by skill_schema_parity.test.ts.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_capability_gaps (
+      id                TEXT PRIMARY KEY,
+      dedup_key         TEXT NOT NULL UNIQUE,
+      intent_title      TEXT NOT NULL,
+      intent_problem    TEXT,
+      intent_tags_json  TEXT,
+      sample_session_id TEXT,
+      agent_config_id   TEXT,
+      status            TEXT NOT NULL DEFAULT 'open',
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_capability_gaps_status ON agent_capability_gaps(status)`,
+  );
+
   // agent_configs — user-configurable list of CLI agents (issue #481 / #466).
   // NOTE: this CREATE was previously missing from the Postgres path; only the SQLite
   // migrations.ts created it, while the ALTERs below assumed it existed. On a Postgres
