@@ -157,6 +157,40 @@ describe("Gemini route", () => {
     }),
   )
 
+  it.effect("emits anyOf as the sole key on an optional param (Vertex #1091)", () =>
+    Effect.gen(function* () {
+      const prepared = yield* LLMClient.prepare(
+        LLM.request({
+          id: "req_anyof_budget",
+          model,
+          prompt: "Use the tool.",
+          tools: [
+            {
+              name: "engraph_context",
+              description: "Context lookup",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  // An optional param serializes as anyOf plus sibling type/description.
+                  budget: {
+                    description: "Token budget",
+                    anyOf: [{ type: "number" }, { type: "null" }],
+                  },
+                },
+              },
+            },
+          ],
+        }),
+      )
+
+      const budget = (prepared.body as any).tools[0].functionDeclarations[0].parameters.properties.budget
+      expect(Object.keys(budget)).toEqual(["anyOf"])
+      expect(budget.type).toBeUndefined()
+      expect(budget.description).toBeUndefined()
+      expect(Array.isArray(budget.anyOf)).toBe(true)
+    }),
+  )
+
   it.effect("parses text, reasoning, and usage stream fixtures", () =>
     Effect.gen(function* () {
       const body = sseEvents(
