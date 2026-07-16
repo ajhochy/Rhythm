@@ -46,6 +46,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { writeDraftManagedSkill } from '../services/rhythm_managed_skills';
+import { assertLiveE2EIsolation } from './_live_e2e_guard';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
 // NOTE: defaults to :4000 (this environment's reservation) rather than
@@ -176,6 +177,7 @@ afterEach(async () => {
 
 describeLive('live E2E — #929 skill self-regulation loop', () => {
   beforeAll(async () => {
+    assertLiveE2EIsolation(); // #1001 — fail closed unless an isolated backend was stood up.
     const health = await api('/health');
     if (!health.ok) throw new Error(`server not reachable at ${BASE} — start it first`);
     const eng = await apiJson<{ status: string }>('/opencode/health');
@@ -318,6 +320,7 @@ describeLive('live E2E — #929 skill self-regulation loop', () => {
  */
 describeLive('live E2E — #959 dependency guard (deterministic seed, no live distillation)', () => {
   beforeAll(async () => {
+    assertLiveE2EIsolation(); // #1001 — fail closed unless an isolated backend was stood up.
     const health = await api('/health');
     if (!health.ok) throw new Error(`server not reachable at ${BASE} — start it first`);
     const eng = await apiJson<{ status: string }>('/opencode/health');
@@ -542,6 +545,7 @@ afterEach(async () => {
  */
 describeLive('live E2E — #969 rewrite-needed -> refiner wiring (deterministic seed)', () => {
   beforeAll(async () => {
+    assertLiveE2EIsolation(); // #1001 — fail closed unless an isolated backend was stood up.
     const health = await api('/health');
     if (!health.ok) throw new Error(`server not reachable at ${BASE} — start it first`);
     const eng = await apiJson<{ status: string }>('/opencode/health');
