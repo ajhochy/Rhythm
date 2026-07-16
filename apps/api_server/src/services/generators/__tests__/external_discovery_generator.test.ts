@@ -23,6 +23,7 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../../../database/migrations';
 import { setDb } from '../../../database/db';
 import { AgentOrgProposalsRepository } from '../../../repositories/agent_org_proposals_repository';
+import { AgentCapabilityGapsRepository } from '../../../repositories/agent_capability_gaps_repository';
 import type { OrgAuditGap } from '../../org_audit_service';
 import {
   requiresSecurityNote as applyServiceRequiresSecurityNote,
@@ -295,6 +296,89 @@ describe('issue-828-c4: approval runs the curated-install/skill-create path, nev
 
     const { applyProposal } = await import('../../org_proposal_apply_service');
     await expect(applyProposal(proposal)).rejects.toThrow();
+  });
+});
+
+describe('#1114 — MCP adoption: agentConfigId threaded to installCuratedMcp; gap resolves on success', () => {
+  it('passes the originating agentConfigId to installCuratedMcp and resolves the gap on a successful install', async () => {
+    const gapsRepo = new AgentCapabilityGapsRepository();
+    const { gap } = await gapsRepo.insertIfAbsentAsync({ intentTitle: 'send templated reminders' });
+    expect(gap.status).toBe('open');
+
+    const { registerExternalAdoptionApplier } = await import('../external_discovery_generator');
+
+    let installInput: unknown = null;
+    registerExternalAdoptionApplier(registerProposalApplier, {
+      installCuratedMcp: async (input) => {
+        installInput = input;
+        return { changed: true, registered: true, beforeSnapshotJson: JSON.stringify({ priorAllowedMcpsJson: null }) };
+      },
+      installSkill: async () => {
+        throw new Error('should not be called for an mcp candidate');
+      },
+      checkAlignment: async () => ({ aligned: true }),
+    });
+
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'external-adoption',
+      risk: 'high',
+      external: 1,
+      title: 'Adopt reminder-mcp MCP server',
+      signalRef: `gapId:${gap.dedupKey}`,
+      targetRef: 'mcp:reminder-mcp',
+      changeJson: JSON.stringify({
+        candidateKind: 'mcp',
+        serverName: 'reminder-mcp',
+        installCommand: 'npx -y @example/reminder-mcp',
+        agentConfigId: 'secretary',
+      }),
+      provenanceJson: JSON.stringify(FULL_PROVENANCE),
+      dedupKey: 'external-adoption:mcp:reminder-mcp',
+    });
+
+    const { applyProposal } = await import('../../org_proposal_apply_service');
+    const result = await applyProposal(proposal);
+
+    expect(installInput).toMatchObject({ serverName: 'reminder-mcp', agentConfigId: 'secretary' });
+    expect(result.measurable).toBe(false);
+    expect(result.beforeSnapshotJson).toBeTruthy();
+
+    const afterGap = await gapsRepo.findByDedupKeyAsync(gap.dedupKey);
+    expect(afterGap?.status).toBe('resolved');
+  });
+
+  it('does not resolve the gap when the install fails', async () => {
+    const gapsRepo = new AgentCapabilityGapsRepository();
+    const { gap } = await gapsRepo.insertIfAbsentAsync({ intentTitle: 'a fix that will fail to align' });
+
+    const { registerExternalAdoptionApplier } = await import('../external_discovery_generator');
+    registerExternalAdoptionApplier(registerProposalApplier, {
+      installCuratedMcp: async () => ({ changed: true, registered: true }),
+      installSkill: async () => {
+        throw new Error('should not be called for an mcp candidate');
+      },
+      checkAlignment: async () => ({ aligned: false, reason: 'not found live' }),
+    });
+
+    const proposalsRepo = new AgentOrgProposalsRepository();
+    const proposal = await proposalsRepo.createAsync({
+      kind: 'external-adoption',
+      risk: 'high',
+      external: 1,
+      title: 'Adopt failing-mcp MCP server',
+      signalRef: `gapId:${gap.dedupKey}`,
+      targetRef: 'mcp:failing-mcp',
+      changeJson: JSON.stringify({ candidateKind: 'mcp', serverName: 'failing-mcp' }),
+      provenanceJson: JSON.stringify(FULL_PROVENANCE),
+      dedupKey: 'external-adoption:mcp:failing-mcp',
+    });
+
+    const { applyProposal } = await import('../../org_proposal_apply_service');
+    await expect(applyProposal(proposal)).rejects.toThrow();
+
+    const afterGap = await gapsRepo.findByDedupKeyAsync(gap.dedupKey);
+    expect(afterGap?.status).toBe('open'); // unresolved — the install never succeeded
   });
 });
 

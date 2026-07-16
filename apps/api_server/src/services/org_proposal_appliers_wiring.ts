@@ -109,6 +109,7 @@ import {
 } from './org_diagnosis_types';
 import { alignMcpName } from './mcp_name_alignment';
 import { opencodeClient } from './opencode_engine';
+import type { CuratedMcpServer } from '../config/curated_mcp_servers';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import type { AgentSkill } from '../models/agent_skill';
 import type { ProposalValidationResult } from './org_proposal_apply_service';
@@ -127,13 +128,61 @@ export interface AppliersRegistry {
  */
 export function buildRealExternalAdoptionDeps(): ExternalAdoptionApplyDeps {
   return {
-    async installCuratedMcp({ serverName }) {
-      // Stage B — register the discovered server through the sanctioned curated
-      // path (idempotent merge into opencode.json + live register). ensureCuratedMcps
-      // reports whether the server is now present + registered.
-      const result = await opencodeClient.ensureCuratedMcps({ register: true });
+    async installCuratedMcp({ serverName, installCommand, agentConfigId }) {
+      // #1114 — a genuinely NEW discovered server is not in the static
+      // curated catalog (CURATED_MCP_SERVERS in curated_mcp_servers.ts), so
+      // the OLD `ensureCuratedMcps({register:true})` call (no `servers`
+      // override -> defaults to that static list) would silently install
+      // NOTHING for it. `servers` was previously test-only; it is exactly
+      // the sanctioned way to ensure an AD HOC server definition through the
+      // same idempotent-merge-into-opencode.json + live-register path
+      // without adding it to the permanent catalog. Build a minimal
+      // definition from what the registry candidate gave us.
+      const argv = (installCommand ?? '').trim().split(/\s+/).filter(Boolean);
+      if (argv.length === 0) {
+        throw new Error(
+          `installCuratedMcp: no installCommand for '${serverName}' — cannot build a server definition`,
+        );
+      }
+      const server: CuratedMcpServer = {
+        id: serverName,
+        name: serverName,
+        type: 'local',
+        command: argv,
+        requiredEnv: [],
+      };
+      const result = await opencodeClient.ensureCuratedMcps({ servers: [server], register: true });
       const installed = result.servers.some((s) => s.id === serverName);
-      return { changed: result.changed, registered: installed && result.registered };
+
+      // #1114 (secretary-MCP-scope lesson) — a curated install must never
+      // leave a newly-adopted server globally enabled for every agent. Wire
+      // it into JUST the needing agent's allowedMcpsJson, reversibly
+      // (captures the prior value) — mirrors installSkill's identical
+      // allowedSkillsJson wiring below verbatim, just for the MCP scope
+      // field instead of the skill one.
+      let beforeSnapshotJson: string | undefined;
+      if (agentConfigId) {
+        const configsRepo = new AgentConfigsRepository();
+        const config = configsRepo.getById(agentConfigId);
+        if (config) {
+          const priorAllowedMcpsJson = config.allowedMcpsJson ?? null;
+          const list = parseAllowlist(priorAllowedMcpsJson);
+          if (!list.includes(serverName)) {
+            const nextJson = JSON.stringify([...list, serverName]);
+            configsRepo.update(agentConfigId, { allowedMcpsJson: nextJson });
+            const updated = configsRepo.getById(agentConfigId);
+            if (updated) writeAgentProfileFile(updated); // resync the opencode agent file
+          }
+          beforeSnapshotJson = JSON.stringify({
+            externalAdoption: true,
+            adoptedServerName: serverName,
+            agentConfigId,
+            priorAllowedMcpsJson,
+          });
+        }
+      }
+
+      return { changed: result.changed, registered: installed && result.registered, beforeSnapshotJson };
     },
 
     async installSkill({ skillName, downloadUrl, agentConfigId, sampleSessionId, categories }) {
