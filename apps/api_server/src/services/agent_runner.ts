@@ -659,9 +659,13 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // to config.systemPrompt, never persisted, and never passed to the agent
   // writer. When the instance-wide toggle is off, no retrieval happens and the
   // prompt is unchanged. uses are incremented post-send (success path only).
+  // #1110 — self_improvement runs (distill/score/judge/rewrite) are cheap,
+  // tool-less, mechanical background calls that never benefit from retrieved
+  // skills or memory; skip the retrieval work entirely (not just its result)
+  // to avoid re-paying that cost on every harvest call.
   let effectivePrompt = prompt;
   let injectedSkillIds: string[] = [];
-  if (isSkillInjectionEnabled()) {
+  if (isSkillInjectionEnabled() && category !== 'self_improvement') {
     try {
       // P1b: pass the profile's allowedSkillsJson so only permitted skills are injected.
       const preface = buildSkillsPreface(prompt, { allowedSkillsJson: profileScope.allowedSkillsJson });
@@ -694,7 +698,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // injection was disabled or failed — no provenance is recorded in that case
   // (distinct from an explicit empty-list "0 memories used" turn).
   let memoryProvenance: { memoryIds: string[]; notePaths: (string | null)[] } | null = null;
-  if (isMemoryInjectionEnabled()) {
+  if (isMemoryInjectionEnabled() && category !== 'self_improvement') {
     try {
       const memPreface = await buildMemoryPreface(prompt, ownerUserId ?? null);
       if (memPreface.text) {

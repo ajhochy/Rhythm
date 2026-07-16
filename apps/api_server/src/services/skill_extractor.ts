@@ -264,12 +264,8 @@ function matchingBrace(s: string, open: number): number {
   return -1;
 }
 
-/** Injectable LLM call: (systemPrompt, userContent, model?) => raw model text. */
-export type LlmCall = (
-  systemPrompt: string,
-  userContent: string,
-  model?: { providerID: string; modelID: string },
-) => Promise<string>;
+/** Injectable LLM call: (systemPrompt, userContent) => raw model text. */
+export type LlmCall = (systemPrompt: string, userContent: string) => Promise<string>;
 
 /**
  * Default (real) LLM call — thin + guarded. USO B5 (#1032): routes the distill
@@ -278,16 +274,22 @@ export type LlmCall = (
  * up as an observable self_improvement session (is_system=1, out of the default
  * Chats view). mcpRole 'skill-extract' + allowedMcpsJson '{}' builds the SAME
  * zero-MCP-tool config the old no-tool createSession had; run() applies
- * bypassPermissions internally (agent_runner._runOnce). Rides the extracting
- * session's own model when given (that provider just completed the turns being
- * distilled, so it is proven authed + live) via modelOverride; falls back to
- * resolveRunModel()'s MRU/default only when the session carries no model —
- * a global MRU can point at a provider that is unauthed here even though the
- * session itself ran fine (#949 live E2E). run() may prepend a transient
- * skills/memory preface to the PROMPT (input) when those toggles are on; that
- * never touches the model's OUTPUT, so extractJsonObject(res.result) is
- * unaffected. Lazy import keeps AgentRunner out of the module's hot path (and
- * out of test bundles, since this is never reached under isTestEnv).
+ * bypassPermissions internally (agent_runner._runOnce). run() may prepend a
+ * transient skills/memory preface to the PROMPT (input) when those toggles are
+ * on; that never touches the model's OUTPUT, so extractJsonObject(res.result)
+ * is unaffected. Lazy import keeps AgentRunner out of the module's hot path
+ * (and out of test bundles, since this is never reached under isTestEnv).
+ *
+ * #1110 — cost-002: this call no longer rides the extracting session's own
+ * (potentially frontier, e.g. opus) model. `taskKind: 'summarization'` routes
+ * through AgentRunner's existing tiered-routing (agent_model_resolver.
+ * resolveTieredModel) to the cheapest AUTHED route instead — distillation is a
+ * mechanical, low-stakes summarize-a-transcript task, not a judgment call.
+ * `allowedSkillsJson: '[]'` (mirrors allowedMcpsJson: '{}') denies all skills
+ * so the engine's system prompt carries no ~104-skill listing (the single
+ * largest injected block measured on this loop). No modelOverride is passed —
+ * doing so would bypass resolveTieredModel entirely (an explicit override
+ * always wins over tier policy), defeating the cheap-tier goal.
  *
  * ── USO B5 (#1032) createSession audit — background-loop LLM routing ─────────
  * grep `opencodeClient.createSession` across apps/api_server/src (non-test):
@@ -307,17 +309,17 @@ export type LlmCall = (
  *   • ws_gateway.ts (x2), agent_sessions_controller.ts (x2) — the INTERACTIVE
  *       session-creation path (user-driven), NOT background loops. Kept as-is.
  */
-const defaultLlmCall: LlmCall = async (systemPrompt, userContent, sessionModel) => {
-  const { run, resolveRunModel } = await import('./agent_runner');
-  const model = sessionModel ?? resolveRunModel();
+const defaultLlmCall: LlmCall = async (systemPrompt, userContent) => {
+  const { run } = await import('./agent_runner');
   const combined = `${systemPrompt}\n\n${userContent}`;
   const res = await run({
     prompt: combined,
     sessionName: 'skill-extract',
     category: 'self_improvement',
-    modelOverride: model,
+    taskKind: 'summarization',
     mcpRole: 'skill-extract',
     allowedMcpsJson: '{}',
+    allowedSkillsJson: '[]',
   });
   // '' triggers the SAME fail path (LLM declined / no session) the old
   // no-session / empty-parts return used.
@@ -513,21 +515,12 @@ export async function distillFromSession(
     const systemPrompt = buildSystemPrompt(rounds);
     const userContent = `Conversation:\n${conversation}`;
 
-    // Prefer the extracting session's own (bridge-backfilled) model — the
-    // provider that just produced the rounds being distilled.
-    let sessionModel: { providerID: string; modelID: string } | undefined;
-    try {
-      const sess = new AgentSessionsRepository().findById(sessionId);
-      if (sess?.providerId && sess?.modelId) {
-        sessionModel = { providerID: sess.providerId, modelID: sess.modelId };
-      }
-    } catch {
-      // non-fatal — fall back to defaultLlmCall's own resolution
-    }
-
+    // #1110 — no longer resolves/forwards the extracting session's own model;
+    // defaultLlmCall routes to the cheap tier via taskKind regardless of what
+    // model produced the rounds being distilled (see its docstring).
     let response: string;
     try {
-      response = await llmCall(systemPrompt, userContent, sessionModel);
+      response = await llmCall(systemPrompt, userContent);
     } catch (err) {
       logger.warn(`[skill-extract] LLM call failed (non-fatal): ${String(err)}`);
       return null;
