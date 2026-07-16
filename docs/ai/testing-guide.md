@@ -55,6 +55,27 @@ Build the fork and api_server and launch with `RHYTHM_OPENCODE_BIN_DIR` as
 documented below. Recon evidence and response shapes are recorded in
 `docs/testing/results/recon-inert-fixes-2026-07-11.md`.
 
+### Live managed-skill rollback contract (#1082)
+
+`src/__tests__/live_e2e_1082_skill_revert.test.ts` proves the real HTTP
+PUT → proposal approve → measure/revert path restores the authoritative
+managed `SKILL.md` rather than a stale `agent_skills.body`. Run it only against
+the isolated sandbox; the test requires an explicit non-default localhost URL,
+matching copied DB paths, and the isolation attestation flag.
+
+```bash
+RHYTHM_LIVE_E2E=1 \
+RHYTHM_LIVE_E2E_ISOLATED=1 \
+RHYTHM_LIVE_URL=http://127.0.0.1:4098 \
+DB_PATH=/tmp/<isolated-run>/rhythm.db \
+RHYTHM_LIVE_DB_PATH=/tmp/<isolated-run>/rhythm.db \
+RHYTHM_LIVE_SERVER_LOG=/tmp/<isolated-run>/api_server.log \
+npx vitest run src/__tests__/live_e2e_1082_skill_revert.test.ts
+```
+
+Recon evidence and observed timing are recorded in
+`docs/ai/runs/2026-07-16-1082-skill-revert-ondisk-snapshot.md`.
+
 ### api_server (Node.js/TypeScript)
 ```bash
 cd apps/api_server

@@ -1,0 +1,64 @@
+{
+  "issue": 1082,
+  "generated": "2026-07-16",
+  "criteria": [
+    {
+      "criterion_id": "issue-1082-c1",
+      "text": "managed SKILL.md file is source of truth; DB row can be stale after PUT /opencode/skills/:name; scheduled apply→measure→revert must restore the original on-disk bytes/body rather than stale DB content.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1082_acceptance_contract.test.ts",
+      "test_id": "issue-1082-c1: DB/file divergence restores the original on-disk bytes through apply, measure, and revert",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1082-c2",
+      "text": "real sandboxed API behavioral path",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1082_skill_revert.test.ts",
+      "test_id": "issue-1082-c2: sandboxed PUT then proposal approve and measure/revert restores the HTTP-visible SKILL.md bytes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1082-c3",
+      "text": "frontmatter",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1082_acceptance_contract.test.ts",
+      "test_id": "issue-1082-c3: revert preserves custom frontmatter byte-for-byte",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1082-c4",
+      "text": "empty body",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1082_acceptance_contract.test.ts",
+      "test_id": "issue-1082-c4: an existing file with an empty body is restored rather than treated as missing",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1082-c5",
+      "text": "trailing whitespace",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1082_acceptance_contract.test.ts",
+      "test_id": "issue-1082-c5: revert preserves trailing whitespace byte-for-byte",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1082-c6",
+      "text": "missing-file fallback",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1082_acceptance_contract.test.ts",
+      "test_id": "issue-1082-c6: a missing managed file falls back to the DB body and recreates it on revert",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1082-c7",
+      "text": "unsafe scan rejection",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1082_acceptance_contract.test.ts",
+      "test_id": "issue-1082-c7: an unsafe proposed body is rejected without mutating DB, file, or proposal lifecycle",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

@@ -640,6 +640,29 @@ export function managedSkillExists(name: string): boolean {
   return existsSync(join(managedSkillDir(name), 'SKILL.md'));
 }
 
+/** Read a managed SKILL.md as exact bytes, or null when the file is absent. */
+export function readManagedSkillBytes(name: string): Buffer | null {
+  const location = join(managedSkillDir(name), 'SKILL.md');
+  if (!existsSync(location)) return null;
+  return readFileSync(location);
+}
+
+/**
+ * Read the frontmatter-stripped body of a managed SKILL.md by name, or null if
+ * no managed file exists. The FILE is the source of truth for skill bodies
+ * (#1082): a direct edit via {@link writeManagedSkill} / PUT does NOT update
+ * `agent_skills.body`, so callers that need the actual on-disk body (e.g. the
+ * org-optimizer revert snapshot) must read here rather than trust the DB row.
+ * Returns the same shape `writeManagedSkill` round-trips (stripped body), so a
+ * later revert that re-renders it reproduces the file byte-for-byte.
+ */
+export function readManagedSkillBody(name: string): string | null {
+  const location = join(managedSkillDir(name), 'SKILL.md');
+  if (!existsSync(location)) return null;
+  const content = readFileSync(location, 'utf8');
+  return stripFrontmatterBlock(content).trim();
+}
+
 /**
  * Delete a managed skill by name. Returns true if it existed and was removed,
  * false if no such managed skill exists. Only ever removes within the managed

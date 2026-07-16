@@ -55,7 +55,11 @@ import {
   type AgentScheduledTask,
 } from '../repositories/agent_scheduled_tasks_repository';
 import { writeAgentProfileFile } from './opencode_agent_writer';
-import { writeManagedSkill, deleteManagedSkill } from './rhythm_managed_skills';
+import {
+  writeManagedSkill,
+  deleteManagedSkill,
+  restoreManagedSkillBytes,
+} from './rhythm_managed_skills';
 import { CONFIG_PATCH_FIELDS, SCOPE_PATCH_FIELDS, TASK_PATCH_FIELDS } from './org_diagnosis_types';
 import {
   isConsolidationPairingChange,
@@ -209,19 +213,35 @@ export function computeScopeList(
 /** The before_snapshot_json shape workflow-prompt-fix AND refine-skill write. */
 export interface SkillBodyRevertSnapshot {
   skillId: string;
+  /** Semantic source body used by the body-measure path. */
   priorBody: string | null;
+  /** Exact pre-apply DB value, kept separate from the file source of truth. */
+  priorDbBody?: string | null;
   priorStatus: string;
+  /** Absent on legacy snapshots created before #1082. */
+  managedFileWasPresent?: boolean;
+  /** Base64 of the complete pre-apply SKILL.md, including frontmatter/whitespace. */
+  managedFileBytesBase64?: string | null;
 }
 
 export function isSkillBodyRevertSnapshot(v: unknown): v is SkillBodyRevertSnapshot {
   if (!v || typeof v !== 'object') return false;
   const c = v as Record<string, unknown>;
-  return (
+  const legacyFieldsValid =
     typeof c.skillId === 'string' &&
     ('priorBody' in c) &&
     (typeof c.priorBody === 'string' || c.priorBody === null) &&
-    typeof c.priorStatus === 'string'
-  );
+    typeof c.priorStatus === 'string';
+  if (!legacyFieldsValid) return false;
+
+  if ('priorDbBody' in c && typeof c.priorDbBody !== 'string' && c.priorDbBody !== null) {
+    return false;
+  }
+  if (!('managedFileWasPresent' in c)) return true;
+  if (typeof c.managedFileWasPresent !== 'boolean') return false;
+  return c.managedFileWasPresent
+    ? typeof c.managedFileBytesBase64 === 'string'
+    : c.managedFileBytesBase64 === null;
 }
 
 // ── Shared agent_scheduled_tasks field mechanics (#981 refine-task) ──────────
@@ -656,21 +676,34 @@ export async function revertProposal(
       (proposal.kind === 'workflow-prompt-fix' || proposal.kind === 'refine-skill') &&
       isSkillBodyRevertSnapshot(snapshot)
     ) {
-      // #971 / #976 — restore the skill body + status the applier overwrote,
-      // and re-write the managed SKILL.md so the on-disk copy matches the DB.
+      // #971 / #976 / #1082 — restore the DB and managed file from their
+      // separate pre-apply snapshots. The file is authoritative and is
+      // restored as raw bytes so custom frontmatter and whitespace survive.
       const skillsRepo = deps.skillsRepo ?? new AgentSkillsRepository();
+      const priorDbBody =
+        snapshot.priorDbBody !== undefined ? snapshot.priorDbBody : snapshot.priorBody;
       skillsRepo.update(snapshot.skillId, {
-        body: snapshot.priorBody,
+        body: priorDbBody,
         status: snapshot.priorStatus,
       });
       const skill = skillsRepo.getById(snapshot.skillId);
       if (skill) {
         try {
-          writeManagedSkill({
-            name: skill.title,
-            description: skill.description ?? undefined,
-            body: snapshot.priorBody ?? '',
-          });
+          if (snapshot.managedFileWasPresent === true) {
+            restoreManagedSkillBytes(
+              skill.title,
+              Buffer.from(snapshot.managedFileBytesBase64!, 'base64'),
+            );
+          } else {
+            // Legacy snapshots and #1082's explicit missing-file case both
+            // recreate a managed file from the semantic snapshot. Crucially,
+            // this fallback is never used when an original file was present.
+            writeManagedSkill({
+              name: skill.title,
+              description: skill.description ?? undefined,
+              body: snapshot.priorBody ?? priorDbBody ?? '',
+            });
+          }
         } catch (err) {
           logger.warn(`[org-proposal-apply] revert: managed-skill restore failed for '${skill.title}' (non-fatal): ${String(err)}`);
         }

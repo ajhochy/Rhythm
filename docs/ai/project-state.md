@@ -2,47 +2,35 @@
 
 ## Current focus
 
-Issue #1038 / draft PR #1104 fixes the shipping Flutter client's Projects
-background so both Active Projects and Templates follow light and dark themes
-with readable header contrast. Verification is complete on the local candidate.
+PR #1106 / issue #1082 is fully verified on the rebased local candidate: managed-skill apply → measure → revert restores the authoritative `SKILL.md` byte-for-byte instead of overwriting it from a stale database row.
 
 ## Active branch / PR
 
-- Candidate branch: `codex/pr-1104-verify` at `e68ab156d`.
-- Draft PR: #1104 — https://github.com/ajhochy/Rhythm/pull/1104
-- The production fix, issue contract, and four golden baselines are still dirty
-  in this worktree for orchestrator integration.
-- Run record: `docs/ai/runs/2026-07-16-issue-1038-projects-dark-mode.md`.
+- Branch: `codex/pr-1106-hardening`
+- PR: #1106 — https://github.com/ajhochy/Rhythm/pull/1106
+- Candidate: `85c338223`, based directly on `main` `f7d3004b1`.
+- Hosted PR head is still the pre-rebase `4c52d907b`; push and CI are pending.
+- Run record: `docs/ai/runs/2026-07-16-1082-skill-revert-ondisk-snapshot.md`.
 
 ## In progress
 
-- No implementation or verification work remains for #1104.
-- The merge-train orchestrator still needs to integrate the verified dirty files,
-  rebase the PR onto the then-current `main`, and run the final post-rebase gates.
+- Update the hosted PR branch to candidate `85c338223` and require CI on that exact SHA before merge.
 
 ## Risks / known issues
 
-- Open PRs must be rebased and merged sequentially; #1106 precedes #1107, and
-  #1100 remains last because it changes the shipping engine binary.
-- Other train gates remain unresolved outside #1104: #1105 live-sandbox
-  attestation, #1102 legacy nullable MCP scopes, #1095 Postgres owner isolation,
-  #1101 DST/production cron restoration, and #1103 model/fallback availability.
-- A sandbox may return HTTP 200 while its engine initializes; backend probes must
-  wait for `/opencode/health` JSON status `ready`. This UI-only PR does not use the
-  backend, so a live backend behavioral test is not applicable.
+- The full-suite task-controller malformed-query failure is an intermittent, pre-existing transport/global-fetch contamination issue, not part of PR #1106. Follow-up: `docs/ai/generated-issues/FOLLOWUP-flaky-tasks-controller-overdue.md`.
+- PR #1106 makes rollback byte-safe; the separate workflow-prompt-fix stale-source composition concern remains owned by PR #1107.
+- The hosted PR is not yet evidence for this local candidate because it still points at `4c52d907b`.
 
 ## Test status
 
-- Issue contract: 1/1 passed; full Flutter suite: 864/864 passed.
-- `dart format . --set-exit-if-changed`, `flutter analyze --no-fatal-infos`, and
-  both `ai-workflow checks --level issue` / `--level pr` passed.
-- `flutter build macos --release` passed; packaged app size was 68.4 MB.
-- Four contract goldens and native packaged dark-mode screenshots of both
-  Projects panes were visually inspected; backgrounds were dark and headers
-  remained readable.
+- Static, issue, and PR workflow gates all pass on `85c338223`; the targeted suite passed 7/7 and contract c1-c7 are recorded pass.
+- Vendored-engine and API builds passed.
+- The dedicated API/engine sandbox on ports 4198/4197 passed health, capabilities, and auth probes.
+- The live real-HTTP exact-byte rollback passed 1/1 in 19 seconds and cleanup confirmed zero residual fixtures.
+- GitNexus compare reported low risk and zero affected execution flows.
+- Hosted CI for `85c338223` remains pending until the rebased branch is pushed.
 
 ## Next step
 
-Integrate the verified #1104 candidate into its PR branch, rebase it onto the
-latest merge-train `main`, rerun the same automated gates, and merge only after
-the rebased checks remain green.
+Force-push the refreshed PR branch with lease protection, watch CI, then merge only candidate `85c338223` if that exact SHA is green.
