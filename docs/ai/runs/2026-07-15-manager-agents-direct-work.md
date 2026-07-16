@@ -2,7 +2,7 @@
 date: 2026-07-15
 repo: Rhythm
 branch: fix/manager-agents-direct-work
-pr: null
+pr: 1097
 issues: []
 status: verified
 tags: [run, Rhythm, agents, routing]
@@ -73,3 +73,5 @@ index: "[[Rhythm]]"
 - No generated files under the real `~/.config/opencode/agents/` were edited or
   resynced. No permissions, MCP/skill scope, models, visibility, merge, or deploy
   authority changed.
+- Published commit `e9ac62684` on `fix/manager-agents-direct-work` and opened
+  draft PR #1097. No merge or deployment was performed.

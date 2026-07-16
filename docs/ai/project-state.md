@@ -9,12 +9,12 @@ generated files in the installed app were edited.
 ## Active branch / PR
 
 - Branch: `fix/manager-agents-direct-work`
-- PR: not opened yet
+- Draft PR: #1097 — https://github.com/ajhochy/Rhythm/pull/1097
 - Run record: `docs/ai/runs/2026-07-15-manager-agents-direct-work.md`
 
 ## In progress
 
-- Prepare the verified change for a draft PR and human manual review.
+- Await AJ's manual smoke and review on draft PR #1097.
 
 ## Risks / known issues
 
@@ -39,5 +39,5 @@ generated files in the installed app were edited.
 
 ## Next step
 
-Open a draft PR only, then hand it to AJ for the repository's manual smoke and
-release decision. Never merge or deploy automatically.
+AJ performs the repository's manual smoke on draft PR #1097 and decides whether
+to release. Never merge or deploy automatically.
