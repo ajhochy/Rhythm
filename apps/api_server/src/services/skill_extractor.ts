@@ -627,13 +627,28 @@ export async function distillFromSession(
     // the draft write) makes the gap independent of draft-write success. Never
     // throws; a failed gap insert must not block the draft below.
     try {
-      await new AgentCapabilityGapsRepository().insertIfAbsentAsync({
+      const gapResult = await new AgentCapabilityGapsRepository().insertIfAbsentAsync({
         intentTitle: title,
         intentProblem: problem || null,
         intentTags: tags,
         sampleSessionId: sessionId,
         agentConfigId: resolveExtractingAgentConfigId(sessionId),
       });
+      // #1112 — a genuinely NEW gap (never a dedup re-ask of an already-open
+      // one) schedules a debounced gap-driven discovery pass instead of
+      // waiting for the next weekly cron / shared-cap sweep to reach it.
+      // Dynamic import avoids a static circular dependency: gap_discovery_
+      // scheduler.ts imports isEngineColdStart from THIS file.
+      if (gapResult.inserted) {
+        try {
+          const { scheduleGapDrivenDiscovery } = await import('./gap_discovery_scheduler');
+          scheduleGapDrivenDiscovery();
+        } catch (schedErr) {
+          logger.warn(
+            `[skill-extract] gap-driven discovery scheduling failed for '${title}' (non-fatal): ${String(schedErr)}`,
+          );
+        }
+      }
     } catch (gapErr) {
       logger.warn(`[skill-extract] capability-gap emit failed for '${title}' (non-fatal): ${String(gapErr)}`);
     }
