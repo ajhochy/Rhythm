@@ -26,11 +26,14 @@
  *      own to build in this issue's scope, so it calls them with an empty
  *      signal list every run (a correct, conservative no-op: "no signals
  *      detected this run" rather than fabricating one). `external_discovery_
- *      generator` is likewise skipped here — the decision doc (§6) and the
- *      #830 seed intentionally run it on its OWN, separate, less-frequent
- *      schedule with the mcp-registry/web-search composition happening
- *      OUTSIDE this module; wiring it into every audit-cadence run would
- *      violate that throttle.
+ *      generator` DOES run inline in this loop on every pass (Stage B / #994,
+ *      see below) — grounded on the open capability-gaps already on the
+ *      snapshot (`taggedSnapshot.gaps`), so it needs no injected signal. This
+ *      is IN ADDITION TO the #830 seed's own separate, less-frequent "Org
+ *      External Discovery" scheduled task (decision doc §6), which still runs
+ *      a deeper mcp-registry/web-search sweep on its own cadence (#1111
+ *      reconciled this comment with the code — it had drifted stale since
+ *      #994 stopped skipping the inline pass).
  *   4. Each generator persists (or, per the code above, is invoked with no
  *      signals to persist) its own proposals via `AgentOrgProposalsRepository
  *      .createAsync`, which is idempotent on `dedupKey` — the run loop relies

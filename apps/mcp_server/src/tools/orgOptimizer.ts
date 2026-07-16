@@ -25,7 +25,7 @@ import { registerTool } from './_tool.js';
 
 export function registerOrgOptimizerTools(server: McpServer, agentUrl: string, apiToken: string) {
   registerTool(server, 'rhythm_run_org_optimizer',
-    `Run one full pass of the org self-optimizer loop, server-side: build a fresh org audit snapshot, run the internal generators (scope hygiene, recipe, webhook wiring; delegation/new-agent run with no signals this pass, external discovery is on its own separate schedule), persist proposals deduped against previously-seen gaps, and auto-apply LOW-risk proposals only (HIGH-risk kinds — create-agent, grant/expand-delegation, broaden-scope, webhook-wiring, external-adoption — are NEVER auto-applied; they are left in the review queue).
+    `Run one full pass of the org self-optimizer loop, server-side: build a fresh org audit snapshot, run the internal generators (scope hygiene, recipe, webhook wiring; delegation/new-agent run with no signals this pass; external discovery also runs, grounded on open capability gaps, IN ADDITION to its own separate less-frequent schedule), persist proposals deduped against previously-seen gaps, and auto-apply LOW-risk proposals only (HIGH-risk kinds — create-agent, grant/expand-delegation, broaden-scope, webhook-wiring, external-adoption — are NEVER auto-applied; they are left in the review queue).
 
 Per-run caps (proposals/run, LLM calls/run) and the engine cold-start throttle are enforced server-side — a call during the cold-start window is a documented no-op (skipped: true), not an error.
 

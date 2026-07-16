@@ -194,6 +194,11 @@ const DEFAULT_OPTIMIZER_MODEL = {
   id: 'claude-sonnet-4-6',
 } as const;
 
+// Hoisted so both the #1111 reconciliation pass and the per-task seed blocks
+// below share the same canonical names.
+const AUDIT_TASK_NAME = 'Org Self-Optimizer';
+const EXTERNAL_TASK_NAME = 'Org External Discovery';
+
 function ensureAgentConfigForRole(
   configsRepo: AgentConfigsRepository,
   roleFile: McpRoleFile,
@@ -287,8 +292,71 @@ export async function seedOrgOptimizerTask(): Promise<OrgOptimizerSeedResult> {
     return result;
   }
 
+  // ── #1111 (Discovery-003) — boot-time reconciliation ──────────────────
+  // From live rhythm.db (docs/ai/generated-issues/discovery-003-unbreak-crons.md):
+  // "Org Self-Optimizer" sat enabled=0 after an errored run — root cause was
+  // the historical NULL-model "no route in catalog" stall (already fixed
+  // above by the model backfill, commits a9c92bed6/5c4af4ae8), but that fix
+  // never restored `enabled`. A stray "Org External Discovery v2" row also
+  // existed, enabled=1, alongside the canonical "Org External Discovery" row
+  // sitting enabled=0. This block converges each task family to exactly one
+  // enabled row (preferring the exact canonical name as survivor over any
+  // "<name> <suffix>" stray) and re-enables a LONE disabled survivor exactly
+  // ONCE via a seed marker, so a later, deliberate user disable is never
+  // auto-reversed again (the #1083 boot-stomp lesson). Disabling extra
+  // duplicates is unconditional on every boot — two+ enabled rows for one
+  // conceptual task is never a valid end-state. Never throws.
+  for (const canonicalName of [AUDIT_TASK_NAME, EXTERNAL_TASK_NAME]) {
+    try {
+      const related = existingTasks.filter(
+        (t) => t.name === canonicalName || t.name.startsWith(`${canonicalName} `),
+      );
+      if (related.length === 0) continue;
+
+      const exactMatches = related.filter((t) => t.name === canonicalName);
+      const pool = exactMatches.length > 0 ? exactMatches : related;
+      const survivor = [...pool].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+
+      for (const row of related) {
+        if (row.id !== survivor.id && row.enabled) {
+          await schedRepo.updateAsync(row.id, { enabled: false });
+          logger.info(
+            `[org-optimizer-seed] reconciliation: disabled stale duplicate "${row.name}" (${row.id})`,
+          );
+        }
+      }
+
+      const reenableMarker = `reconciled_enable_v1:${canonicalName}`;
+      if (related.length > 1) {
+        // A genuine duplicate existed — the survivor must win regardless of
+        // the marker (picking ONE enabled winner among duplicates is never
+        // ambiguous w.r.t. user intent).
+        if (!survivor.enabled) {
+          await schedRepo.updateAsync(survivor.id, { enabled: true });
+          logger.info(
+            `[org-optimizer-seed] reconciliation: enabled survivor "${survivor.name}" (${survivor.id})`,
+          );
+        }
+      } else if (!seedMarkerExists(reenableMarker)) {
+        // Lone row, first time observed: repair the historical-bug leftover
+        // disabled state ONCE, then lock in via the marker so a LATER,
+        // deliberate user disable is respected on every subsequent boot.
+        if (!survivor.enabled) {
+          await schedRepo.updateAsync(survivor.id, { enabled: true });
+          logger.info(
+            `[org-optimizer-seed] reconciliation: re-enabled "${survivor.name}" (${survivor.id}) (one-time historical-bug repair)`,
+          );
+        }
+        recordSeedMarker(reenableMarker);
+      }
+    } catch (err) {
+      logger.warn(
+        `[org-optimizer-seed] reconciliation for "${canonicalName}" failed (non-fatal): ${String(err)}`,
+      );
+    }
+  }
+
   // ── Internal audit task (daily) ───────────────────────────────────────
-  const AUDIT_TASK_NAME = 'Org Self-Optimizer';
   const auditMarker = `seeded_task:${AUDIT_TASK_NAME}`;
   if (existingTasks.some((t) => t.name === AUDIT_TASK_NAME)) {
     recordSeedMarker(auditMarker); // adopt pre-marker installs
@@ -336,7 +404,6 @@ export async function seedOrgOptimizerTask(): Promise<OrgOptimizerSeedResult> {
   }
 
   // ── External discovery task (weekly) ──────────────────────────────────
-  const EXTERNAL_TASK_NAME = 'Org External Discovery';
   const externalMarker = `seeded_task:${EXTERNAL_TASK_NAME}`;
   if (existingTasks.some((t) => t.name === EXTERNAL_TASK_NAME)) {
     recordSeedMarker(externalMarker); // adopt pre-marker installs
