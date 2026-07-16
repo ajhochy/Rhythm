@@ -33,6 +33,7 @@ import { readdir, readFile, rm, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { assertLiveE2EIsolation } from './_live_e2e_guard';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
 const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://localhost:4001';
@@ -209,6 +210,8 @@ afterEach(async () => {
 
 describeLive('live E2E — #948 + #949', () => {
   beforeAll(async () => {
+    // #1001 — fail closed unless an isolated backend was explicitly stood up.
+    assertLiveE2EIsolation();
     // Fail fast with a clear message if the server isn't up / engine not ready.
     const health = await api('/health');
     if (!health.ok) throw new Error(`server not reachable at ${BASE} — start it first`);
