@@ -49,7 +49,7 @@ class _ProjectsViewState extends State<ProjectsView> {
           end: Alignment.bottomRight,
           colors: [
             context.rhythm.canvas,
-            const Color(0xFFF7F4EF),
+            context.rhythm.surfaceMuted,
             context.rhythm.accentMuted,
           ],
           stops: const [0.0, 0.5, 1.0],

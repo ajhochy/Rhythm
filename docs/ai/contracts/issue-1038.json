@@ -1,0 +1,16 @@
+{
+  "issue": 1038,
+  "generated": "2026-07-16",
+  "criteria": [
+    {
+      "criterion_id": "issue-1038-c1",
+      "text": "Projects screen both Templates and Active Projects panes respect active light/dark theme like other screens, with readable header contrast; current bug is cream pane in dark mode.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1038_test.dart",
+      "test_id": "issue-1038-c1: both Projects panes follow light and dark themes with readable headers",
+      "status": "pass"
+    }
+  ],
+  "stack": "dart",
+  "not_tested": []
+}
