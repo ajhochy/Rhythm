@@ -131,13 +131,15 @@ AgentConfig _makeConfig() => AgentConfig(
       sortOrder: 0,
     );
 
-OpencodeSkillEntry _skill(String name, {bool managed = false}) =>
+OpencodeSkillEntry _skill(String name,
+        {bool managed = false, String? source}) =>
     OpencodeSkillEntry(
       name: name,
       description: 'desc of $name',
       location:
           managed ? '/managed/$name/SKILL.md' : '/external/$name/SKILL.md',
       managed: managed,
+      source: source,
     );
 
 Widget _buildSheet({
@@ -259,6 +261,61 @@ void main() {
       expect(find.byKey(const ValueKey('edit-skill-docx')), findsNothing);
       expect(find.byKey(const ValueKey('delete-skill-docx')), findsNothing);
     });
+
+    // #1055 — an org skill (pulled from the shared org index — read-only) must
+    // remain selectable in the allowlist like any other skill, with no
+    // edit/delete affordance (same scope-only treatment as external).
+    testWidgets(
+      'org skill is selectable with no edit/delete, and persists like any other name',
+      (tester) async {
+        final config = _makeConfig();
+        final configsDs = _RecordingAgentConfigsDataSource(config);
+        final skillsDs = _FakeSkillsDataSource([
+          _skill('release-notes', managed: true),
+          _skill('shared-onboarding', source: 'org'),
+        ]);
+
+        await tester.pumpWidget(
+          _buildSheet(
+            config: config,
+            configsDs: configsDs,
+            skillsDs: skillsDs,
+            mcpDs: _FakeMcpDataSource(const []),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _tapRestrictSkills(tester);
+
+        // Org skill has no edit/delete (scope-only, like external).
+        expect(
+          find.byKey(const ValueKey('edit-skill-shared-onboarding')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey('delete-skill-shared-onboarding')),
+          findsNothing,
+        );
+
+        // Restrict pre-selects all live names; deselect the managed one so
+        // only the org skill remains selected, then verify it persists.
+        await tester.tap(find.text('release-notes'));
+        await tester.pumpAndSettle();
+
+        await tester.dragUntilVisible(
+          find.widgetWithText(FilledButton, 'Save changes'),
+          find.byType(ListView).first,
+          const Offset(0, -120),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Save changes'));
+        await tester.pumpAndSettle();
+
+        final json = configsDs.lastUpdatePatch?['allowedSkillsJson'] as String?;
+        expect(json, isNotNull);
+        expect(jsonDecode(json!), equals(['shared-onboarding']));
+      },
+    );
 
     testWidgets('selecting persists allowed_skills_json verbatim', (
       tester,
