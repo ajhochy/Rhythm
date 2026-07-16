@@ -111,6 +111,36 @@ void main() {
       expect(updated.taskId, isNull);
       expect(updated.lastPreview, isNull);
     });
+
+    // #1090 — isSystem/category drive client-side scope classification for
+    // the live WS path (see AgentsController._belongsToScope). They mirror
+    // the server's agent_sessions.is_system / .category columns.
+    test('fromJson defaults isSystem to false and category to chat', () {
+      final session = AgentSession.fromJson(jsonFull);
+      expect(session.isSystem, isFalse);
+      expect(session.category, 'chat');
+    });
+
+    test('fromJson parses isSystem and category when present', () {
+      final session = AgentSession.fromJson({
+        ...jsonFull,
+        'isSystem': true,
+        'category': 'self_improvement',
+      });
+      expect(session.isSystem, isTrue);
+      expect(session.category, 'self_improvement');
+    });
+
+    test('copyWith preserves isSystem and category', () {
+      final session = AgentSession.fromJson({
+        ...jsonFull,
+        'isSystem': true,
+        'category': 'self_improvement',
+      });
+      final updated = session.copyWith(status: AgentSessionStatus.idle);
+      expect(updated.isSystem, isTrue);
+      expect(updated.category, 'self_improvement');
+    });
   });
 
   // --------------------------------------------------------------------------

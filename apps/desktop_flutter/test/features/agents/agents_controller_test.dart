@@ -333,6 +333,28 @@ AgentSession _makeSession(String id, AgentSessionStatus status) {
   );
 }
 
+/// #1090 — like [_makeSession] but with explicit isSystem/category, so tests
+/// can construct background/scheduled/self_improvement fixtures.
+AgentSession _makeScopedSession(
+  String id,
+  AgentSessionStatus status, {
+  bool isSystem = false,
+  String category = 'chat',
+}) {
+  final now = DateTime.now();
+  return AgentSession(
+    id: id,
+    agentId: 'claude-code',
+    status: status,
+    cwd: '/tmp',
+    name: 'Test Session $id',
+    createdAt: now,
+    updatedAt: now,
+    isSystem: isSystem,
+    category: category,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -491,6 +513,122 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(controller.sessions.where((s) => s.id == 'dup'), hasLength(1));
+    });
+
+    // ------------------------------------------------------------------------
+    // #1090 — background/scheduled/self_improvement sessions must never leak
+    // into the chats scope on a live WS insert (create or update).
+    // ------------------------------------------------------------------------
+
+    test(
+        '#1090 SessionCreatedMessage excludes a self_improvement background '
+        'session from the chats scope', () async {
+      expect(controller.scope, AgentSessionScope.chats);
+
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeScopedSession(
+          'bg-created',
+          AgentSessionStatus.working,
+          isSystem: true,
+          category: 'self_improvement',
+        ),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.sessions, isEmpty);
+    });
+
+    test(
+        '#1090 SessionUpdatedMessage excludes a self_improvement background '
+        'session from the chats scope', () async {
+      expect(controller.scope, AgentSessionScope.chats);
+
+      fakeRepo.emit(SessionUpdatedMessage(
+        session: _makeScopedSession(
+          'bg-updated',
+          AgentSessionStatus.working,
+          isSystem: true,
+          category: 'self_improvement',
+        ),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.sessions, isEmpty);
+      expect(controller.resumable, isEmpty);
+      expect(controller.archived, isEmpty);
+    });
+
+    test(
+        '#1090 an interactive chat session still appears immediately via '
+        'SessionCreatedMessage and SessionUpdatedMessage', () async {
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeScopedSession('chat-created', AgentSessionStatus.idle),
+      ));
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.sessions.map((s) => s.id), contains('chat-created'));
+
+      fakeRepo.emit(SessionUpdatedMessage(
+        session: _makeScopedSession('chat-updated', AgentSessionStatus.idle),
+      ));
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.sessions.map((s) => s.id), contains('chat-updated'));
+    });
+
+    test(
+        '#1090 a scheduled session enters the list when scope is scheduled '
+        '(the predicate admits matching-scope sessions, not just chats)',
+        () async {
+      await controller.loadSessions(AgentSessionScope.scheduled);
+      expect(controller.scope, AgentSessionScope.scheduled);
+
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeScopedSession(
+          'sched-1',
+          AgentSessionStatus.working,
+          category: 'scheduled',
+        ),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.sessions.map((s) => s.id), contains('sched-1'));
+    });
+
+    test(
+        '#1090 a refresh does not change which sessions belong to chats '
+        '(no refresh-only divergence)', () async {
+      // Live WS insert: an interactive chat session and a background session
+      // arrive over the same shared channel. The background session must be
+      // filtered on insert, matching what the server's ?scope=chats query
+      // would have returned on a full load.
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeScopedSession('chat-a', AgentSessionStatus.idle),
+      ));
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeScopedSession(
+          'bg-b',
+          AgentSessionStatus.idle,
+          isSystem: true,
+          category: 'self_improvement',
+        ),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      final beforeIds = controller.sessions.map((s) => s.id).toSet();
+      expect(beforeIds, {'chat-a'});
+
+      // Simulate a refresh: a real ?scope=chats response would only ever
+      // include the interactive chat row.
+      fakeRepo.sessionsToReturn = [
+        _makeScopedSession('chat-a', AgentSessionStatus.idle),
+      ];
+      await controller.loadSessions(AgentSessionScope.chats);
+
+      final afterIds = controller.sessions.map((s) => s.id).toSet();
+      expect(
+        afterIds,
+        beforeIds,
+        reason: 'A refresh must not change which sessions belong to chats.',
+      );
     });
 
     test(
