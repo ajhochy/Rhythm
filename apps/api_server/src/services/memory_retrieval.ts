@@ -44,13 +44,19 @@
 
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import type { AgentMemory } from '../repositories/agent_memory_repository';
+import { getAgentMemoryRetrievalMode, resolveEngraphMemoryVaultRoot, resolveMemoryDirPath } from '../config/env';
+import { EngraphHttpClient, mapEngraphFileToSourceId } from './engraph_client';
+import type { EngraphClient } from './engraph_client';
 
 const DEFAULT_TOP_N = 5;
 
-/** Tokens shorter than this (after stripping punctuation) are dropped as noise. */
+/** Tokens shorter than this are dropped as noise. */
 const MIN_TOKEN_LEN = 3;
 /** Cap how many distinct prompt tokens we probe so a huge prompt can't fan out. */
 const MAX_QUERY_TOKENS = 12;
+const RRF_K = 60;
+
+type MemoryRepository = Pick<AgentMemoryRepository, 'searchAsync' | 'findBySourceIdsAsync'>;
 
 /**
  * Very common English words that carry no retrieval signal. Kept tiny on
@@ -79,8 +85,7 @@ const STOPWORDS = new Set([
 export function extractQueryTokens(query: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const raw of query.toLowerCase().split(/\s+/)) {
-    const w = raw.replace(/[^a-z0-9]+/g, '');
+  for (const w of query.toLowerCase().split(/[^a-z0-9]+/)) {
     if (w.length < MIN_TOKEN_LEN) continue;
     if (STOPWORDS.has(w)) continue;
     if (seen.has(w)) continue;
@@ -122,7 +127,7 @@ export async function getRelevantMemories(
   query: string,
   ownerUserId?: number | null,
   topN: number = DEFAULT_TOP_N,
-  repo: AgentMemoryRepository = new AgentMemoryRepository(),
+  repo: MemoryRepository = new AgentMemoryRepository(),
 ): Promise<AgentMemory[]> {
   if (!query || query.trim().length === 0) return [];
 
@@ -158,6 +163,73 @@ export async function getRelevantMemories(
   }
 
   return Array.from(byId.values()).slice(0, topN);
+}
+
+/** Deterministic rank-only fusion; raw FTS and Engraph scores are incomparable. */
+export function fuseMemoryRanks(
+  fts: AgentMemory[],
+  semantic: AgentMemory[],
+  topN: number,
+): AgentMemory[] {
+  const fused = new Map<string, { memory: AgentMemory; score: number; first: number }>();
+  let first = 0;
+  for (const ranked of [fts, semantic]) {
+    ranked.forEach((memory, index) => {
+      const current = fused.get(memory.id);
+      const score = 1 / (RRF_K + index + 1);
+      if (current) current.score += score;
+      else fused.set(memory.id, { memory, score, first: first++ });
+    });
+  }
+  return [...fused.values()]
+    .sort((a, b) => b.score - a.score || a.first - b.first)
+    .slice(0, topN)
+    .map(({ memory }) => memory);
+}
+
+/**
+ * Opt-in hybrid retrieval. FTS always runs so fresh vault writes remain visible;
+ * any failed/untrusted semantic lane returns its original FTS ordering unchanged.
+ */
+export async function getRelevantMemoriesSemantic(
+  query: string,
+  ownerUserId?: number | null,
+  topN: number = DEFAULT_TOP_N,
+  repo: MemoryRepository = new AgentMemoryRepository(),
+  engraph: EngraphClient = new EngraphHttpClient(),
+): Promise<AgentMemory[]> {
+  const ftsPromise = getRelevantMemories(query, ownerUserId, topN, repo);
+  const hitsPromise = engraph.search(query, topN).catch(() => []);
+  const [fts, hits] = await Promise.all([ftsPromise, hitsPromise]);
+  if (hits.length === 0) return fts;
+
+  const sourceIds = [...new Set(hits.map((hit) => mapEngraphFileToSourceId(
+    hit.file,
+    resolveMemoryDirPath(),
+    resolveEngraphMemoryVaultRoot(),
+  )).filter((sourceId): sourceId is string => sourceId !== null))];
+  if (sourceIds.length === 0) return fts;
+
+  const wanted = ownerUserId == null ? null : ownerUserId;
+  let joined: AgentMemory[];
+  try {
+    joined = await repo.findBySourceIdsAsync('obsidian-memory', sourceIds, wanted ?? undefined);
+  } catch {
+    return fts;
+  }
+  const candidatesBySourceId = new Map<string, AgentMemory[]>();
+  for (const memory of joined) {
+    // Defense in depth after the semantic-to-index join, including null owners.
+    if (memory.ownerUserId !== wanted || memory.source !== 'obsidian-memory' || !memory.sourceId) continue;
+    const candidates = candidatesBySourceId.get(memory.sourceId) ?? [];
+    candidates.push(memory);
+    candidatesBySourceId.set(memory.sourceId, candidates);
+  }
+  const semantic = sourceIds.flatMap((sourceId) => {
+    const candidates = candidatesBySourceId.get(sourceId);
+    return candidates?.length === 1 ? candidates : [];
+  });
+  return semantic.length === 0 ? fts : fuseMemoryRanks(fts, semantic, topN);
 }
 
 export interface MemoryPreface {
@@ -212,7 +284,9 @@ export async function buildMemoryPreface(
   const enabled = opts.enabled ?? isMemoryInjectionEnabled();
   if (!enabled) return { text: '', memoryIds: [], notePaths: [] };
 
-  const retrieve = opts.getRelevant ?? getRelevantMemories;
+  const retrieve = opts.getRelevant ?? (
+    getAgentMemoryRetrievalMode() === 'hybrid' ? getRelevantMemoriesSemantic : getRelevantMemories
+  );
   let matches: AgentMemory[];
   try {
     matches = await retrieve(query, ownerUserId, opts.topN ?? DEFAULT_TOP_N);
