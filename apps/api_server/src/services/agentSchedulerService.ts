@@ -97,10 +97,9 @@ export function computeNextRun(opts: {
 
     if (scheduleType === 'cron') {
       if (!cronExpression) return null;
-      // Use node-cron's next() method to compute the next fire time.
-      // node-cron doesn't expose a standalone "next()" but we can use the
-      // cron-parser library if available, or fall back to a minute-increment scan.
-      return _computeNextCron(cronExpression, afterDate);
+      // node-cron has no standalone next(); keep the existing minute scan but
+      // match each candidate against WALL-CLOCK fields in the task timezone.
+      return _computeNextCron(cronExpression, afterDate, tz);
     }
 
     if (!scheduledTime) return null;
@@ -153,25 +152,67 @@ export function computeNextRun(opts: {
   }
 }
 
+const _cronTzFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function _cronTzFormatter(tz: string): Intl.DateTimeFormat {
+  let formatter = _cronTzFormatterCache.get(tz);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hourCycle: 'h23',
+      weekday: 'short',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+    });
+    _cronTzFormatterCache.set(tz, formatter);
+  }
+  return formatter;
+}
+
+const _cronWeekdayToNumber: Record<string, number> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
+
+function _cronLocalFields(instant: Date, tz: string) {
+  const parts = _cronTzFormatter(tz).formatToParts(instant);
+  const part = (type: string) => parts.find((entry) => entry.type === type)?.value ?? '';
+  return {
+    minute: parseInt(part('minute'), 10),
+    hour: parseInt(part('hour'), 10),
+    dayOfMonth: parseInt(part('day'), 10),
+    month: parseInt(part('month'), 10),
+    dayOfWeek: _cronWeekdayToNumber[part('weekday')] ?? 0,
+  };
+}
+
 /**
  * Compute next cron fire time by advancing minute-by-minute.
- * This is a simple but correct fallback that doesn't require cron-parser.
- * Scans up to 1 year ahead; returns null if no match found.
+ * Cron expressions are wall-clock time in `tz`, not UTC. Each UTC candidate is
+ * rendered in that timezone and matched on the local fields, so DST shifts are
+ * handled automatically without adding a new dependency.
  */
-function _computeNextCron(expression: string, after: Date): string | null {
-  // Fast path: use node-cron's internal validation + brute-force scan
+function _computeNextCron(expression: string, after: Date, tz: string): string | null {
   // Advance in 1-minute steps up to 366 days = ~527,040 iterations (worst case)
   // This is acceptable for a scheduled background job.
   const MAX_ITERATIONS = 527_040;
   let candidate = new Date(after.getTime() + 60_000); // start 1 minute ahead
-  candidate.setSeconds(0, 0);
+  candidate.setUTCSeconds(0, 0);
 
   // Parse the 5-field cron expression
   const parts = expression.trim().split(/\s+/);
   if (parts.length !== 5) return null;
-  const [minPart, hourPart, domPart, monPart, dowPart] = parts;
+  const [minPart, hourPart, domPart, monPart, rawDowPart] = parts;
+  const dowPart = rawDowPart.replace(/\b7\b/g, '0');
 
-  const matchField = (value: number, field: string, min: number, max: number): boolean => {
+  const matchField = (value: number, field: string, min: number): boolean => {
     if (field === '*') return true;
     for (const part of field.split(',')) {
       if (part.includes('/')) {
@@ -190,18 +231,14 @@ function _computeNextCron(expression: string, after: Date): string | null {
   };
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const m = candidate.getUTCMinutes();
-    const h = candidate.getUTCHours();
-    const dom = candidate.getUTCDate();
-    const mon = candidate.getUTCMonth() + 1;
-    const dow = candidate.getUTCDay();
+    const local = _cronLocalFields(candidate, tz);
 
     if (
-      matchField(m, minPart, 0, 59) &&
-      matchField(h, hourPart, 0, 23) &&
-      matchField(dom, domPart, 1, 31) &&
-      matchField(mon, monPart, 1, 12) &&
-      matchField(dow, dowPart, 0, 7) // 0 and 7 are both Sunday
+      matchField(local.minute, minPart, 0) &&
+      matchField(local.hour, hourPart, 0) &&
+      matchField(local.dayOfMonth, domPart, 1) &&
+      matchField(local.month, monPart, 1) &&
+      matchField(local.dayOfWeek, dowPart, 0)
     ) {
       return candidate.toISOString();
     }
