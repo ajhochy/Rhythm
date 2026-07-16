@@ -481,11 +481,95 @@ function extractTaskPatch(change: Record<string, unknown> | null): TaskPatch | n
   return { scheduledTaskId: o.scheduledTaskId, field: o.field as TaskPatch['field'], value: o.value };
 }
 
+/** Strip an optional "namespace:" prefix from an allowlist entry (e.g.
+ * "anthropic-skills:consolidate-memory" → "consolidate-memory"). */
+function bareSkillName(entry: string): string {
+  const i = entry.lastIndexOf(':');
+  return i >= 0 ? entry.slice(i + 1) : entry;
+}
+
+/** Parse an allowedSkillsJson array; invalid/absent → []. */
+function parseAllowlist(json: string | null | undefined): string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === 'string' && s.trim().length > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The profile id a skill-fix proposal is *about* — the LLM diagnosis conflates
+ * this with the skill title, so `targetRef`/`affectedSkill` frequently name the
+ * PROFILE (e.g. "worship-planning") rather than the actual skill title (e.g.
+ * "monday-worship-planning"). Used by the resolver fallback to consult the
+ * profile's allowed-skills list.
+ */
+function proposalProfileId(proposal: AgentOrgProposal): string | null {
+  const ref = proposal.targetRef;
+  if (ref && ref.startsWith('skill:')) return ref.slice('skill:'.length) || null;
+  if (ref && ref.startsWith('profile:')) return ref.slice('profile:'.length) || null;
+  const change = parseChange(proposal.changeJson);
+  const cand = change?.affectedSkill ?? change?.skillName ?? change?.skillId;
+  return typeof cand === 'string' && cand.trim() ? cand : null;
+}
+
+/**
+ * Fallback resolution when the direct id/title lookups miss (#1041). LLM
+ * diagnoses conflate profile names with skill titles in
+ * targetRef/affectedSkill, so before failing we try:
+ *   (a) skill titles mentioned in the proposal's diagnosis/concreteFix text;
+ *   (b) the affected profile's allowed-skills list — only when EXACTLY ONE of
+ *       its live skills matches.
+ * Returns the resolved skill (logging which fallback hit) or null. Kept
+ * fail-closed: ambiguous (>1) or no match → null so the caller can refuse.
+ */
+function resolveSkillByFallback(proposal: AgentOrgProposal, skillsRepo: AgentSkillsRepository): AgentSkill | null {
+  const allSkills = skillsRepo.list();
+
+  // (a) skill titles named in the diagnosis / concreteFix prose.
+  const change = parseChange(proposal.changeJson);
+  const diagnosisText = [change?.diagnosis, change?.concreteFix, proposal.rationale]
+    .filter((s): s is string => typeof s === 'string')
+    .join('\n');
+  if (diagnosisText.trim()) {
+    const mentioned = allSkills.filter((s) => s.title && diagnosisText.includes(s.title));
+    if (mentioned.length === 1) {
+      logger.info(
+        `[org-proposal-appliers-wiring] resolveSkillForProposal fallback (a): resolved '${mentioned[0].title}' from diagnosis/fix text (targetRef='${proposal.targetRef}')`,
+      );
+      return mentioned[0];
+    }
+  }
+
+  // (b) the affected profile's allowed-skills list — exactly one live match.
+  const profileId = proposalProfileId(proposal);
+  if (profileId) {
+    const config = new AgentConfigsRepository().getById(profileId);
+    if (config) {
+      const allowedBare = new Set(parseAllowlist(config.allowedSkillsJson).map(bareSkillName));
+      const matches = allSkills.filter((s) => s.title && allowedBare.has(bareSkillName(s.title)));
+      if (matches.length === 1) {
+        logger.info(
+          `[org-proposal-appliers-wiring] resolveSkillForProposal fallback (b): resolved '${matches[0].title}' from profile '${profileId}' allowed-skills (targetRef='${proposal.targetRef}')`,
+        );
+        return matches[0];
+      }
+    }
+  }
+
+  return null;
+}
+
 /**
  * Resolve the live skill a workflow-prompt-fix / refine-skill proposal targets:
  * first from `targetRef` ("skill:<id>"), then from a `skillId` / `affectedSkill`
- * / `skillName` field in change_json (by id, then by title). Missing → null
- * (stale signal). A fresh repo is constructed per call because
+ * / `skillName` field in change_json (by id, then by title). When those direct
+ * lookups miss — the common case where the LLM put the PROFILE id in
+ * targetRef/affectedSkill instead of the skill title (#1041) — fall back to
+ * {@link resolveSkillByFallback}. Still returns null (stale signal) only when
+ * no fallback resolves. A fresh repo is constructed per call because
  * AgentSkillsRepository pins its DB connection at construction time.
  */
 function resolveSkillForProposal(proposal: AgentOrgProposal): AgentSkill | null {
@@ -498,9 +582,52 @@ function resolveSkillForProposal(proposal: AgentOrgProposal): AgentSkill | null 
   const change = parseChange(proposal.changeJson);
   const cand = change?.skillId ?? change?.affectedSkill ?? change?.skillName;
   if (typeof cand === 'string' && cand.trim()) {
-    return skillsRepo.getById(cand) ?? skillsRepo.findByTitle(cand);
+    const direct = skillsRepo.getById(cand) ?? skillsRepo.findByTitle(cand);
+    if (direct) return direct;
   }
-  return null;
+  return resolveSkillByFallback(proposal, skillsRepo);
+}
+
+/**
+ * Build an ACTIONABLE refusal (#1041 acceptance): name the ref we looked for
+ * AND the closest candidate skill titles, so an un-appliable card tells the
+ * user what to point it at instead of a bare "stale signal".
+ */
+function describeSkillResolutionFailure(proposal: AgentOrgProposal): string {
+  const skillsRepo = new AgentSkillsRepository();
+  const change = parseChange(proposal.changeJson);
+  const lookedFor = [
+    proposal.targetRef,
+    typeof change?.affectedSkill === 'string' ? `affectedSkill='${change.affectedSkill}'` : null,
+    typeof change?.skillName === 'string' ? `skillName='${change.skillName}'` : null,
+  ]
+    .filter((s): s is string => typeof s === 'string' && s.length > 0)
+    .join(', ') || '(no ref)';
+
+  // Candidate titles: the profile's allowed skills first (most likely intent),
+  // then any titles mentioned in the diagnosis text, deduped.
+  const candidates = new Set<string>();
+  const profileId = proposalProfileId(proposal);
+  if (profileId) {
+    const config = new AgentConfigsRepository().getById(profileId);
+    if (config) {
+      const allowedBare = new Set(parseAllowlist(config.allowedSkillsJson).map(bareSkillName));
+      for (const s of skillsRepo.list()) {
+        if (s.title && allowedBare.has(bareSkillName(s.title))) candidates.add(s.title);
+      }
+    }
+  }
+  const diagnosisText = [change?.diagnosis, change?.concreteFix]
+    .filter((s): s is string => typeof s === 'string')
+    .join('\n');
+  if (diagnosisText.trim()) {
+    for (const s of skillsRepo.list()) {
+      if (s.title && diagnosisText.includes(s.title)) candidates.add(s.title);
+    }
+  }
+  const closest = [...candidates].slice(0, 5);
+  const closestText = closest.length ? closest.join(', ') : '(none — no matching skill on this instance)';
+  return `could not resolve a live skill (looked for ${lookedFor}). Closest candidate skill titles: ${closestText}. Re-point the proposal's targetRef/affectedSkill at the intended skill title.`;
 }
 
 /**
@@ -656,7 +783,7 @@ function validateWorkflowPromptFix(proposal: AgentOrgProposal): ProposalValidati
   if (!resolveSkillForProposal(proposal)) {
     return {
       valid: false,
-      reason: 'workflow-prompt-fix could not resolve a live skill from targetRef/affectedSkill (stale signal)',
+      reason: `workflow-prompt-fix ${describeSkillResolutionFailure(proposal)}`,
     };
   }
   return { valid: true };
@@ -669,7 +796,7 @@ const workflowPromptFixApplier: ProposalApplier = (proposal): ProposalApplyResul
     throw AppError.badRequest('workflow-prompt-fix change_json is missing its concreteFix at apply time');
   }
   const skill = resolveSkillForProposal(proposal);
-  if (!skill) throw AppError.badRequest('workflow-prompt-fix could not resolve a live skill at apply time (stale signal)');
+  if (!skill) throw AppError.badRequest(`workflow-prompt-fix ${describeSkillResolutionFailure(proposal)}`);
 
   const priorBody = skill.body ?? '';
   const revisedBody = draftPromptFixBody(priorBody, concreteFix);
@@ -699,7 +826,7 @@ function validateRefineSkill(proposal: AgentOrgProposal): ProposalValidationResu
   if (!resolveSkillForProposal(proposal)) {
     return {
       valid: false,
-      reason: 'refine-skill could not resolve a live skill from targetRef/skillName (stale signal)',
+      reason: `refine-skill ${describeSkillResolutionFailure(proposal)}`,
     };
   }
   return { valid: true };
@@ -712,7 +839,7 @@ const refineSkillApplier: ProposalApplier = (proposal): ProposalApplyResult => {
     throw AppError.badRequest('refine-skill change_json is missing its revisedBody at apply time');
   }
   const skill = resolveSkillForProposal(proposal);
-  if (!skill) throw AppError.badRequest('refine-skill could not resolve a live skill at apply time (stale signal)');
+  if (!skill) throw AppError.badRequest(`refine-skill ${describeSkillResolutionFailure(proposal)}`);
   return applySkillBodyRevision(skill, revisedBody);
 };
 
