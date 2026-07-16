@@ -11,6 +11,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 
 import { runMigrations } from '../database/migrations';
@@ -152,6 +153,16 @@ describe('memory injection — getRelevantMemories is OWNER-SCOPED (no cross-use
     const forUnknown = await getRelevantMemories('standups', null);
     expect(forUnknown.map((m) => m.content)).toEqual(['Global policy: standups are optional']);
     expect(forUnknown.some((m) => m.content.includes('Alice'))).toBe(false);
+  });
+
+  it('retrieves a null-owner memory queried with a hyphenated fresh FTS marker', async () => {
+    const repo = new AgentMemoryRepository();
+    const marker = `fresh-fts-${randomUUID()}`;
+    const created = await repo.createAsync({ content: marker, ownerUserId: undefined });
+
+    const matches = await getRelevantMemories(marker, null);
+
+    expect(matches.map(({ id }) => id)).toContain(created.id);
   });
 
   it('empty / whitespace query → no retrieval', async () => {

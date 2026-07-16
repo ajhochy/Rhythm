@@ -80,6 +80,22 @@ export function resolveMemoryDirPath(): string {
   return sub ? path.join(resolveMemoryVaultPath(), sub) : resolveMemoryVaultPath();
 }
 
+/** Optional #1093 prompt-retrieval augmentation. Unknown values stay on FTS. */
+export function getAgentMemoryRetrievalMode(): 'fts' | 'hybrid' {
+  return process.env.AGENT_MEMORY_RETRIEVAL_MODE?.trim().toLowerCase() === 'hybrid'
+    ? 'hybrid'
+    : 'fts';
+}
+
+/**
+ * Root used by the operator-managed Engraph HTTP service. It may be the memory
+ * directory itself or its parent vault; results are still confined to
+ * resolveMemoryDirPath() before joining index rows.
+ */
+export function resolveEngraphMemoryVaultRoot(): string {
+  return expandHome(process.env.ENGRAPH_MEMORY_VAULT_ROOT ?? resolveMemoryDirPath());
+}
+
 /**
  * Google Cloud project ID used to enable the native Google Gemini provider in
  * the embedded opencode engine. The `opencode-gemini-auth` plugin only

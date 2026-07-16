@@ -148,6 +148,32 @@ export class AgentMemoryRepository {
     }
   }
 
+  /** Exact, owner-scoped lookup for trusted vault source ids (Engraph join). */
+  async findBySourceIdsAsync(source: string, sourceIds: string[], ownerUserId?: number): Promise<AgentMemory[]> {
+    if (sourceIds.length === 0) return [];
+    if (env.dbClient === 'postgres') {
+      const params: unknown[] = [source, sourceIds];
+      const ownerFilter = ownerUserId != null ? `AND owner_user_id = $3` : 'AND owner_user_id IS NULL';
+      if (ownerUserId != null) params.push(ownerUserId);
+      const r = await getPostgresPool().query(
+        `SELECT id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at
+         FROM agent_memory WHERE source = $1 AND source_id = ANY($2::text[]) ${ownerFilter}`,
+        params,
+      );
+      return r.rows.map(rowToModel);
+    }
+
+    const placeholders = sourceIds.map(() => '?').join(',');
+    const ownerFilter = ownerUserId != null ? 'AND owner_user_id = ?' : 'AND owner_user_id IS NULL';
+    const params: unknown[] = [source, ...sourceIds];
+    if (ownerUserId != null) params.push(ownerUserId);
+    const rows = getDb().prepare(
+      `SELECT id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at
+       FROM agent_memory WHERE source = ? AND source_id IN (${placeholders}) ${ownerFilter}`,
+    ).all(...params);
+    return (rows as Record<string, unknown>[]).map(rowToModel);
+  }
+
   async listAsync(ownerUserId?: number, kind?: string, limit = 50): Promise<AgentMemory[]> {
     if (env.dbClient === 'postgres') {
       const conditions: string[] = [];
