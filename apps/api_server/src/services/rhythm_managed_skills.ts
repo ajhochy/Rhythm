@@ -640,6 +640,13 @@ export function managedSkillExists(name: string): boolean {
   return existsSync(join(managedSkillDir(name), 'SKILL.md'));
 }
 
+/** Read a managed SKILL.md as exact bytes, or null when the file is absent. */
+export function readManagedSkillBytes(name: string): Buffer | null {
+  const location = join(managedSkillDir(name), 'SKILL.md');
+  if (!existsSync(location)) return null;
+  return readFileSync(location);
+}
+
 /**
  * Read the frontmatter-stripped body of a managed SKILL.md by name, or null if
  * no managed file exists. The FILE is the source of truth for skill bodies

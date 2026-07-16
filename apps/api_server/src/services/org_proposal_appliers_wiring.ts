@@ -84,10 +84,11 @@ import {
   writeManagedSkill,
   deleteManagedSkill,
   managedSkillExists,
-  readManagedSkillBody,
+  readManagedSkillBytes,
 } from './rhythm_managed_skills';
 import { downloadSkillBody } from './generators/external_discovery_search';
 import { scanContextContent } from '../security/context_scanner';
+import { stripFrontmatterBlock } from './skill_frontmatter';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { writeAgentProfileFile } from './opencode_agent_writer';
 import {
@@ -525,17 +526,32 @@ function draftPromptFixBody(priorBody: string, concreteFix: string): string {
  */
 function applySkillBodyRevision(skill: AgentSkill, revisedBody: string): ProposalApplyResult {
   const skillsRepo = new AgentSkillsRepository();
+  // Reject unsafe content before mutating the DB, managed file, or proposal.
+  // writeManagedSkill scans again at its own boundary; this preflight is what
+  // makes the DB + file update atomic with respect to an injection rejection.
+  const scan = scanContextContent(revisedBody, `skill "${skill.title}"`);
+  if (scan.blocked) {
+    throw AppError.badRequest(scan.warning ?? `Unsafe revision blocked for skill '${skill.title}'`);
+  }
+
   // #1082 — the managed SKILL.md FILE is the source of truth, not the DB row.
   // A direct on-disk edit (PUT /opencode/skills/:name → writeManagedSkill) does
   // NOT update agent_skills.body, so snapshotting skill.body here can capture a
-  // stale value; a later measure→revert would then restore the stale DB body
-  // over the user's on-disk edit (data loss). Snapshot the actual on-disk body,
-  // falling back to the DB row only when no managed file exists yet.
-  const priorBody = readManagedSkillBody(skill.title) ?? skill.body ?? null;
+  // stale value. Capture both representations separately: exact file bytes for
+  // byte-for-byte rollback, and the semantic DB body for DB rollback. Only use
+  // the DB as the source-body fallback when SKILL.md is genuinely absent.
+  const priorManagedFileBytes = readManagedSkillBytes(skill.title);
+  const managedFileWasPresent = priorManagedFileBytes !== null;
+  const priorBody = managedFileWasPresent
+    ? stripFrontmatterBlock(priorManagedFileBytes.toString('utf8')).trim()
+    : (skill.body ?? null);
   const beforeSnapshotJson = JSON.stringify({
     skillId: skill.id,
     priorBody,
+    priorDbBody: skill.body ?? null,
     priorStatus: skill.status,
+    managedFileWasPresent,
+    managedFileBytesBase64: priorManagedFileBytes?.toString('base64') ?? null,
   });
   skillsRepo.update(skill.id, { body: revisedBody });
   try {

@@ -15,7 +15,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -80,6 +80,7 @@ describe('#1082: revert restores the ON-DISK body, not the stale DB body', () =>
     // Direct on-disk edit — mirrors PUT /opencode/skills/:name (writeManagedSkill),
     // which does NOT touch agent_skills.body.
     writeManagedSkill({ name: skillTitle, body: onDiskBody });
+    const onDiskBytes = readFileSync(join(managedDir, skillTitle, 'SKILL.md'));
     expect(readManagedSkillBody(skillTitle)).toBe(onDiskBody);
 
     // Refine-skill proposal targeting this skill by id.
@@ -103,6 +104,9 @@ describe('#1082: revert restores the ON-DISK body, not the stale DB body', () =>
     const snapshot = JSON.parse(result.beforeSnapshotJson!);
     expect(snapshot.priorBody).toBe(onDiskBody);
     expect(snapshot.priorBody).not.toBe(dbBody);
+    expect(snapshot.priorDbBody).toBe(dbBody);
+    expect(snapshot.managedFileWasPresent).toBe(true);
+    expect(Buffer.from(snapshot.managedFileBytesBase64, 'base64')).toEqual(onDiskBytes);
 
     // Drive the real approve-flow persistence, then revert from the snapshot.
     await proposalsRepo.updateStatusAsync(proposal.id, 'applied', {
@@ -115,5 +119,7 @@ describe('#1082: revert restores the ON-DISK body, not the stale DB body', () =>
 
     // The user's on-disk edit is preserved — NOT clobbered by the stale DB body.
     expect(readManagedSkillBody(skillTitle)).toBe(onDiskBody);
+    // The semantic DB state is restored independently from the file source.
+    expect(skillsRepo.getById(skill.id)?.body).toBe(dbBody);
   });
 });
