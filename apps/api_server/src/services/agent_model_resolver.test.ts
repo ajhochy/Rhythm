@@ -23,6 +23,7 @@ describe('classifyRouteTier', () => {
     expect(classifyRouteTier({ providerID: 'anthropic', modelID: 'claude-opus-4-7' })).toBe('frontier');
     expect(classifyRouteTier({ providerID: 'google', modelID: 'gemini-2.5-pro' })).toBe('frontier');
     expect(classifyRouteTier({ providerID: 'openai', modelID: 'gpt-5.3-codex' })).toBe('frontier');
+    expect(classifyRouteTier({ providerID: 'openai', modelID: 'gpt-5.6-sol' })).toBe('frontier');
   });
 
   it('classifies haiku/mini/flash/qwen models as cheap', () => {
