@@ -102,15 +102,13 @@ const WORKFLOW_ORCHESTRATOR_CODING_BODY =
  * Build the combined routing preamble for a manager that has a non-empty
  * `allowedDelegates` roster (a "hub" manager, e.g. Secretary). Unlike the
  * plain `MANAGER_ROUTING_PREAMBLE` (dev-only manager, no roster), this
- * preamble routes ALL work rather than handling non-dev tasks itself. BOTH
- * domain and coding work go through the engine-native `task` tool (a real
+ * preamble makes direct work the default within the manager's own scope.
+ * Exceptional delegation goes through the engine-native `task` tool (a real
  * subagent that nests under the caller in the UI) — NOT the `rhythm_delegate`
  * MCP tool, which creates an orphaned top-level session with no parent link
- * (#891). subagent_type selects the specialist:
- *   (a) domain/ministry work → `task` with `subagent_type=<specialist>`
- *   (b) coding/dev work → workflow-orchestrator, or coding-agent when the
- *       current profile is workflow-orchestrator itself
- *   (c) only trivial admin/summarize/read work is handled directly
+ * (#891). subagent_type selects an approved specialist; coding/dev work routes
+ * to workflow-orchestrator, or coding-agent when the current profile is
+ * workflow-orchestrator itself.
  */
 export function buildHubRoutingPreamble(roster: string[], profileId?: string): string {
   const rosterList = roster.map((id) => `\`${id}\``).join(', ');
@@ -120,17 +118,20 @@ export function buildHubRoutingPreamble(roster: string[], profileId?: string): s
       : CODING_HANDOFF_BODY;
   return (
     `${HUB_PREAMBLE_MARKER}\n` +
-    'You are a routing hub. Do not attempt domain or coding work yourself — route it ' +
-    'through the `task` tool so the delegated run appears as a subagent under this ' +
-    'session.\n\n' +
-    '**Domain / ministry work:** delegate to the fitting specialist by calling the ' +
-    '`task` tool with `subagent_type` set to one of your approved specialists ' +
+    'Handle the request directly when it fits your own role, system prompt, granted ' +
+    'skills, tools, and permissions. Delegate only when the request is outside your ' +
+    'direct scope; a specialist capability is materially required and you lack it; AJ ' +
+    'explicitly requests delegation; or an independently owned parallel slice justifies ' +
+    'delegation. Never delegate merely because an allowed specialist exists or shares ' +
+    'the request topic.\n\n' +
+    '**Exceptional delegation:** when one of those conditions applies, call the `task` ' +
+    'tool with `subagent_type` set to one of your approved specialists ' +
     `(${rosterList}) and the focused task as the prompt. Name the specialist ` +
-    'explicitly; never use `"general"` and never omit `subagent_type`. Pick whichever ' +
-    'specialist fits the request, delegate, then summarize the result for the user.\n\n' +
+    'explicitly; never use `"general"` as a fallback and never omit `subagent_type`. ' +
+    'Summarize the delegated result for the user.\n\n' +
     `**Coding / development work:** ${codingHandoff}\n\n` +
-    'Only handle trivial admin yourself — quick summaries, reading back information, or ' +
-    'simple lookups that do not require a specialist or the coding workflow.'
+    'Direct work includes trivial admin, quick summaries, reading back information, and ' +
+    'simple lookups, but is not limited to those tasks.'
   );
 }
 

@@ -1,0 +1,64 @@
+{
+  "issue": 0,
+  "generated": "2026-07-15",
+  "criteria": [
+    {
+      "criterion_id": "issue-0-manager-routing-c1",
+      "text": "Generated secretary.md no longer says Do not attempt domain or coding work yourself or Only handle trivial admin yourself.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+      "test_id": "projects direct-first routing for Secretary, Theologian, and Coding Workflow",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-manager-routing-c2",
+      "text": "Generated theologian.md permits direct theology/study/synthesis work and presents Theological-Researcher as an escalation for new-source discovery.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+      "test_id": "projects direct-first routing for Secretary, Theologian, and Coding Workflow",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-manager-routing-c3",
+      "text": "Generated workflow-orchestrator.md permits direct in-scope orchestration rather than requiring every action to become a subagent task.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+      "test_id": "projects direct-first routing for Secretary, Theologian, and Coding Workflow",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-manager-routing-c4",
+      "text": "All three still receive exact task: allowlists from allowedDelegatesJson.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+      "test_id": "projects direct-first routing for Secretary, Theologian, and Coding Workflow",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-manager-routing-c5",
+      "text": "Non-manager projection behavior is unchanged.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer.test.ts",
+      "test_id": "does NOT inject the preamble",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-manager-routing-c6",
+      "text": "Existing sandbox requirement and mandatory independent verification-gate before draft PR remain unchanged.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+      "test_id": "projects direct-first routing for Secretary, Theologian, and Coding Workflow",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-manager-routing-c7",
+      "text": "No permissions, MCP scope, skill grants, picker visibility, model assignments, merge authority, or deploy authority expand.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+      "test_id": "projects direct-first routing for Secretary, Theologian, and Coding Workflow",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

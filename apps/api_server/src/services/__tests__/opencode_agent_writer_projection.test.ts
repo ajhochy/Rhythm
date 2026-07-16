@@ -79,7 +79,90 @@ function agentConfig(id: string, label = id): AgentConfig {
   };
 }
 
+function managerConfig(
+  id: string,
+  label: string,
+  systemPrompt: string,
+  delegates: string[],
+): AgentConfig {
+  return {
+    ...workflowOrchestratorConfig(),
+    id,
+    label,
+    systemPrompt,
+    allowedDelegatesJson: JSON.stringify(delegates),
+    ocAgent: id,
+  };
+}
+
 describe('workflow-orchestrator file projection', () => {
+  it('projects direct-first routing for Secretary, Theologian, and Coding Workflow', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    const profiles = [
+      managerConfig(
+        'secretary',
+        'Secretary',
+        'Handle daily administrative tasks directly. Coding and development work is ' +
+          'outside your role and routes to workflow-orchestrator.',
+        ['workflow-orchestrator', 'theologian'],
+      ),
+      managerConfig(
+        'theologian',
+        'Theologian',
+        'Perform theology, study, and synthesis directly. Escalate to ' +
+          'Theological-Researcher when new-source discovery is required.',
+        ['Theological-Researcher'],
+      ),
+      managerConfig(
+        'workflow-orchestrator',
+        'Coding Workflow',
+        'Perform in-scope orchestration directly. Work in the required sandbox and use ' +
+          'the mandatory independent verification-gate before a draft PR.',
+        ['coding-agent', 'verification-gate'],
+      ),
+    ];
+
+    for (const profile of profiles) writeAgentProfileFile(profile);
+
+    const readProjected = (id: string) =>
+      readFileSync(join(state.home, '.config', 'opencode', 'agents', `${id}.md`), 'utf8');
+    const secretary = readProjected('secretary');
+    const theologian = readProjected('theologian');
+    const workflow = readProjected('workflow-orchestrator');
+
+    for (const projected of [secretary, theologian, workflow]) {
+      expect(projected).toContain(
+        'Handle the request directly when it fits your own role, system prompt, granted ' +
+          'skills, tools, and permissions.',
+      );
+      expect(projected).not.toContain('Do not attempt domain or coding work yourself');
+      expect(projected).not.toContain('Only handle trivial admin yourself');
+    }
+
+    expect(secretary).toContain(
+      'Coding and development work is outside your role and routes to workflow-orchestrator.',
+    );
+    expect(theologian).toContain('Perform theology, study, and synthesis directly.');
+    expect(theologian).toContain(
+      'Theological-Researcher when new-source discovery is required.',
+    );
+    expect(workflow).toContain('Perform in-scope orchestration directly.');
+    expect(workflow).toContain('mandatory independent verification-gate before a draft PR');
+
+    expect(secretary).toContain(
+      '  task:\n    "*": deny\n    "workflow-orchestrator": allow\n    "theologian": allow',
+    );
+    expect(theologian).toContain(
+      '  task:\n    "*": deny\n    "Theological-Researcher": allow',
+    );
+    expect(workflow).toContain(
+      '  task:\n    "*": deny\n    "coding-agent": allow\n    "verification-gate": allow',
+    );
+  });
+
   it('issue-0-c6: workflow-orchestrator projection grants write', () => {
     state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
     const agentsDir = join(state.home, '.config', 'opencode', 'agents');

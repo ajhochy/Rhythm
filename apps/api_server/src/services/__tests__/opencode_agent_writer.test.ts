@@ -165,6 +165,31 @@ describe('injectManagerPreamble — manager WITHOUT a roster stays on the plain 
 });
 
 describe('buildHubRoutingPreamble', () => {
+  it('makes direct work the default and delegation an explicit exception', () => {
+    const result = buildHubRoutingPreamble([
+      'theologian',
+      'Theological-Researcher',
+      'workflow-orchestrator',
+    ]);
+
+    // Regression caught: the injected preamble used to override each profile's
+    // direct-work prompt by declaring the manager a routing-only hub.
+    expect(result).toContain(
+      'Handle the request directly when it fits your own role, system prompt, granted ' +
+        'skills, tools, and permissions.',
+    );
+    expect(result).toContain('Delegate only when');
+    expect(result).toContain('outside your direct scope');
+    expect(result).toContain(
+      'a specialist capability is materially required and you lack it',
+    );
+    expect(result).toContain('AJ explicitly requests delegation');
+    expect(result).toContain('an independently owned parallel slice justifies delegation');
+    expect(result).toContain('Never delegate merely because');
+    expect(result).not.toContain('Do not attempt domain or coding work yourself');
+    expect(result).not.toContain('Only handle trivial admin yourself');
+  });
+
   it('lists every roster id and routes domain work via the `task` tool (#891)', () => {
     const roster = ['theologian', 'AI-Trend-Researcher', 'fantasy-gm'];
     const result = buildHubRoutingPreamble(roster);
