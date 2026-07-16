@@ -143,12 +143,11 @@ const IMPORTER_DEFAULT_MODEL_ID = IMPORTER_TIER2_MODEL_ID;
  * profiles — issue #842 (tokens-02, "scoped-by-default sessions").
  *
  * Scope: this constant ONLY affects a generic/non-roled profile whose
- * `allowed_mcps_json` column is still null (the initial insert, or a later
- * sync's backfill-when-null guard — see the two call sites below). Agents
+ * `allowed_mcps_json` column is still null on first insert. Agents
  * with a `.mcp-roles/<slug>.mcp.json` file (secretary, worship-planning, …)
  * are unaffected: they are scoped at session-create time via the separate
  * `mcpRole` mechanism (`agent_sessions_controller.ts`), and/or already carry
- * a non-null `allowed_mcps_json` from onboarding — the null-guard here never
+ * a non-null `allowed_mcps_json` from onboarding — the insert path here never
  * overwrites an existing value. This satisfies #842's AC3 ("NO behavior
  * change for existing roled agents").
  *
@@ -173,9 +172,9 @@ const IMPORTER_DEFAULT_MODEL_ID = IMPORTER_TIER2_MODEL_ID;
  * `agent_sessions_controller.ts#create`).
  *
  * Users can always widen/narrow an individual profile's scope in the
- * designer (the `allowed_mcps_json === null` guard below only fires ONCE, at
- * first-backfill — a user-set value, including an explicit empty array, is
- * never overwritten by a later sync). All names are validated against the
+ * designer (the importer default is insert-time only — a user-set value,
+ * including explicit null or an empty array, is never overwritten by a later
+ * sync). All names are validated against the
  * live engine id set (#789 normalize → #788 validate) before persistence, so
  * an unavailable server (e.g. pdf-tools not yet connected) is silently
  * dropped from an individual row's persisted scope rather than persisted as
@@ -646,38 +645,15 @@ export async function syncOpencodeAgentProfiles(
         }
         // USER-OWNED overlay allowlists — allowed_mcps_json, allowed_skills_json,
         // and allowed_delegates_json are owned by the designer, not the engine.
-        // The sync must NEVER overwrite a value the user set; it only BACKFILLS a
-        // still-null row with the first-insert default (same preserve-when-set
-        // policy as systemPrompt / modelProvider / modelId above).
+        // The sync must NEVER overwrite a value the user set. MCP + skill
+        // defaults are INSERT-ONLY so an explicit NULL survives re-sync as
+        // unrestricted; delegate seeding remains null-backfill-on-update because
+        // its NULL state is not the runtime "unrestricted" sentinel.
         //
         // Live bug this guards against: re-syncing was nulling/regenerating these
         // columns, so e.g. Secretary silently lost its allowed_mcps_json scope and
         // had to be re-PATCHed. allowedDelegatesJson was the worst offender — it
         // was written unconditionally, clobbering user overrides on every sync.
-        if (existing.allowedMcpsJson === null) {
-          // #789 normalize → #788 validate: backfill the DERIVED default,
-          // normalized to live engine ids, then validated against the live set so
-          // a dead name is never silently backfilled. null (no live match / engine
-          // down with no default left) leaves the row unrestricted.
-          const validatedMcps = validateMcpsAgainstLive(
-            importerDefaultAllowedMcpsJson,
-            liveMcpNames,
-            name,
-          );
-          if (validatedMcps !== null) {
-            patch.allowedMcpsJson = validatedMcps;
-          }
-        }
-        if (existing.allowedSkillsJson === null) {
-          const derived = filterAllowlistToLive(
-            deriveSkillAllowlist(name),
-            liveSkillNames,
-            name,
-          );
-          if (derived !== null) {
-            patch.allowedSkillsJson = derived;
-          }
-        }
         if (existing.allowedDelegatesJson === null && allowedDelegatesJson !== null) {
           patch.allowedDelegatesJson = allowedDelegatesJson;
         }

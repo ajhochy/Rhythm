@@ -174,27 +174,106 @@ describe('syncOpencodeAgentProfiles hygiene (P3)', () => {
     }
   });
 
-  it('re-sync backfills allowed_skills_json on pre-existing null rows', async () => {
-    // First sync inserts all rows
+  // ---------------------------------------------------------------------------
+  // #1083 — NULL = unrestricted must survive re-sync.
+  //
+  // The table convention is: allowed_mcps_json / allowed_skills_json NULL =
+  // unrestricted, '[]' = deny-all. The importer default is applied ONCE at
+  // INSERT of a brand-new row with no scope. A recurring re-sync of an
+  // already-known profile must NEVER rewrite the stored value — otherwise a
+  // user who deliberately clears a profile's scope to NULL (wanting
+  // unrestricted) gets silently re-scoped to the importer default by the
+  // picker-refresh sync.
+  //
+  // These tests re-express the former "re-sync backfills allowed_skills_json on
+  // pre-existing null rows" test: insert-time backfill still works (proven by
+  // the '(a)' case below and the 'inserted rows carry non-null …' tests
+  // above), but an existing NULL is now PRESERVED, not re-backfilled.
+  // ---------------------------------------------------------------------------
+
+  it('#1083 (a) a brand-new imported row with no scope gets the importer default on INSERT', async () => {
+    // First-ever sync — every agent is a fresh insert. This is the ONE place the
+    // importer default is applied.
     await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
 
-    // Manually null out allowedSkillsJson on a known agent (simulating an old row)
     const repo = new AgentConfigsRepository();
-    repo.update('coding-agent', { allowedSkillsJson: null });
+    const coding = repo.getById('coding-agent');
+    expect(coding, 'coding-agent should exist after first sync').not.toBeNull();
+
+    // MCP default backfilled at insert (non-null).
+    expect(
+      coding!.allowedMcpsJson,
+      'coding-agent allowedMcpsJson should be seeded at INSERT',
+    ).not.toBeNull();
+    // Skills default backfilled at insert for a known workflow agent.
+    expect(
+      coding!.allowedSkillsJson,
+      'coding-agent allowedSkillsJson should be seeded at INSERT',
+    ).not.toBeNull();
+    const skills: unknown = JSON.parse(coding!.allowedSkillsJson!);
+    expect(Array.isArray(skills)).toBe(true);
+    expect((skills as string[]).includes('coding-agent')).toBe(true);
+  });
+
+  it('#1083 (b) an existing row with NULL scope survives re-sync unchanged (NULL = unrestricted)', async () => {
+    // First sync inserts all rows.
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    // User deliberately clears BOTH scopes to NULL (wanting unrestricted).
+    const repo = new AgentConfigsRepository();
+    repo.update('coding-agent', { allowedMcpsJson: null, allowedSkillsJson: null });
     const afterNull = repo.getById('coding-agent');
+    expect(afterNull?.allowedMcpsJson).toBeNull();
     expect(afterNull?.allowedSkillsJson).toBeNull();
 
-    // Second sync must backfill it
+    // Re-sync (e.g. a picker refresh) must NOT re-backfill the importer default.
     await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
 
     const afterResync = repo.getById('coding-agent');
     expect(
+      afterResync?.allowedMcpsJson,
+      'a deliberate NULL allowed_mcps_json must survive re-sync (NULL = unrestricted)',
+    ).toBeNull();
+    expect(
       afterResync?.allowedSkillsJson,
-      'coding-agent allowedSkillsJson should be backfilled on re-sync',
-    ).not.toBeNull();
-    const parsed: unknown = JSON.parse(afterResync!.allowedSkillsJson!);
-    expect(Array.isArray(parsed)).toBe(true);
-    expect((parsed as string[]).includes('coding-agent')).toBe(true);
+      'a deliberate NULL allowed_skills_json must survive re-sync (NULL = unrestricted)',
+    ).toBeNull();
+  });
+
+  it('#1083 (c) an existing row with [] (deny-all) scope survives re-sync unchanged', async () => {
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    // User sets an explicit deny-all on both scopes.
+    const repo = new AgentConfigsRepository();
+    repo.update('coding-agent', { allowedMcpsJson: '[]', allowedSkillsJson: '[]' });
+
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    const after = repo.getById('coding-agent');
+    expect(
+      after?.allowedMcpsJson,
+      'an explicit [] (deny-all) allowed_mcps_json must survive re-sync',
+    ).toBe('[]');
+    expect(
+      after?.allowedSkillsJson,
+      'an explicit [] (deny-all) allowed_skills_json must survive re-sync',
+    ).toBe('[]');
+  });
+
+  it('#1083 (d) an existing row with an explicit list scope is unchanged by re-sync', async () => {
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    const repo = new AgentConfigsRepository();
+    repo.update('coding-agent', {
+      allowedMcpsJson: JSON.stringify(['gmail-work']),
+      allowedSkillsJson: JSON.stringify(['some-custom-skill']),
+    });
+
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    const after = repo.getById('coding-agent');
+    expect(after?.allowedMcpsJson).toBe(JSON.stringify(['gmail-work']));
+    expect(after?.allowedSkillsJson).toBe(JSON.stringify(['some-custom-skill']));
   });
 
   it('exactly one dev front-door is sessionSelectable=true after sync', async () => {
