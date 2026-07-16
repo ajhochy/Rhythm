@@ -69,6 +69,7 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
     { providerID: 'openrouter', modelID: 'anthropic/claude-haiku-4.5' },
   ],
   codex: [
+    { providerID: 'openai', modelID: 'gpt-5.6-sol' },
     { providerID: 'openai', modelID: 'gpt-5.3-codex' },
     { providerID: 'openai', modelID: 'gpt-5.4' },
     { providerID: 'openai', modelID: 'gpt-5.4-mini' },
@@ -416,7 +417,12 @@ export function resolveModelTier(opts: {
  */
 export function classifyRouteTier(route: ModelRoute): ModelTier {
   const id = route.modelID.toLowerCase();
-  if (id.includes('opus') || id.includes('gpt-5.3-codex') || id.includes('pro')) {
+  if (
+    id.includes('opus') ||
+    id.includes('gpt-5.3-codex') ||
+    id.includes('gpt-5.6-sol') ||
+    id.includes('pro')
+  ) {
     return 'frontier';
   }
   if (

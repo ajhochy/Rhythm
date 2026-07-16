@@ -209,7 +209,7 @@ describe('bounded multi-tier rate-limit cascade', () => {
 
     expect((engine.prompt as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[2]))
       .toEqual([
-        { providerID: 'openai', modelID: 'gpt-5.4' },
+        { providerID: 'openai', modelID: 'gpt-5.6-sol' },
         { providerID: 'google', modelID: 'gemini-2.5-pro' },
         { providerID: 'openrouter', modelID: 'openrouter/free' },
       ]);

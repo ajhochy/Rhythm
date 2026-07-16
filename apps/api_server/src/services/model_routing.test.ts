@@ -49,6 +49,14 @@ describe('resolveTieredModel — cross-agent routing selection', () => {
     expect(decision.route.modelID).toMatch(/mini/);
   });
 
+  it('picks gpt-5.6-sol as the frontier route for the codex agent', async () => {
+    listAuthedProviders.mockResolvedValue(['openai']);
+    const decision = await resolveTieredModel({ agentId: 'codex', explicitTierHint: 'frontier' });
+    expect(decision.route.providerID).toBe('openai');
+    expect(decision.tier).toBe('frontier');
+    expect(decision.route.modelID).toBe('gpt-5.6-sol');
+  });
+
   it('picks a frontier-tier authed route for claude-code on a planning task', async () => {
     listAuthedProviders.mockResolvedValue(['anthropic']);
     const decision = await resolveTieredModel({ agentId: 'claude-code', taskKind: 'planning' });
