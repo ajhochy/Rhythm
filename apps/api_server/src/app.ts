@@ -13,6 +13,7 @@ import { integrationsRouter } from './routes/integrations_routes';
 import { googleBrokerRouter } from './routes/google_broker_routes';
 import { pcoBrokerRouter } from './routes/pco_broker_routes';
 import { messagesRouter } from './routes/messages_routes';
+import { orgSkillsRouter } from './routes/org_skills_routes';
 import { projectInstancesRouter } from './routes/project_instances_routes';
 import { projectTemplatesRouter } from './routes/project_templates_routes';
 import { projectsRouter } from './routes/projects_routes';
@@ -109,6 +110,12 @@ export function createApp() {
   app.use('/claude-triggers', claudeTriggersRouter);
   app.use('/integrations/gmail-signals', gmailSignalsRouter);
   app.use('/projects', projectsRouter);
+  // #1053 (OCU-12) — the org's shared skill library. Always-on (NOT gated by
+  // agentExecutionEnabled): the 'cloud' deployment role IS the production API
+  // this is hosted on, and that role has agentExecutionEnabled=false. Reads
+  // (index.json, files/:name/:file) are public by design; writes require
+  // requireAuth (see org_skills_routes.ts).
+  app.use('/org-skills', orgSkillsRouter);
 
   // ── Agent-execution surfaces (#755) ───────────────────────────────────────
   // Registered only when the deployment role enables the agent runtime
