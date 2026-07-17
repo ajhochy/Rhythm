@@ -12,11 +12,13 @@
  * this is a core, always-on production API surface (like /tasks or
  * /facilities), not an agent-runtime surface: the 'cloud' deployment role
  * (production) has agentExecutionEnabled=false but MUST still serve this
- * route. #1054 (out of scope here) will point a running engine's
- * `skills.urls` config at this endpoint.
+ * route. #1054 points a running engine's `skills.urls` config at this
+ * endpoint's BASE (`<prodBase>/org-skills`, no `/index.json` suffix — the
+ * fork's Discovery.pull resolves index.json and per-skill files relative to
+ * that same base — see opencode_plugin_config.ts's `ensureOrgSkillIndex`).
  *
  * IMPORTANT — org skills must contain no secrets. Reads (GET index.json,
- * GET files/:name/:file) are UNAUTHENTICATED BY DESIGN: the fork's discovery
+ * GET :name/:file) are UNAUTHENTICATED BY DESIGN: the fork's discovery
  * downloader fetches them anonymously, and any machine running the org's
  * engine needs to read them without a login. Keep read responses to exactly
  * the documented shape (name/files for the index; the raw skill body for a
@@ -54,14 +56,24 @@ orgSkillsRouter.get('/index.json', async (_req: Request, res: Response, next: Ne
   }
 });
 
-// ── GET /files/:name/:file — public, raw file body ───────────────────────────
+// ── GET /:name/:file — public, raw file body ─────────────────────────────────
+//
+// #1054 fix: this path (NOT the originally-shipped /files/:name/:file) is what
+// the fork's Discovery.pull actually requests. It treats a configured
+// skills.urls entry as a BASE directory and resolves both `index.json` AND
+// each skill's files relative to that SAME base — `<base>/index.json` and
+// `<base>/<name>/<file>`, with no extra "files" segment (verified against
+// apps/opencode_fork/packages/opencode/src/skill/discovery.ts's `Discovery.pull`
+// and `skill/index.ts`'s `for (const url of cfg.skills?.urls ?? [])` loop). The
+// original /files/:name/:file path would never be reached by a real engine
+// pull, silently breaking discovery despite index.json resolving correctly.
 //
 // Single-file model: only SKILL.md is ever servable. Any other requested file
 // name, an unpublished skill, or an unknown name all 404 identically — an
 // unpublished skill must not be readable by guessing its name.
 
 orgSkillsRouter.get(
-  '/files/:name/:file',
+  '/:name/:file',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { name, file } = req.params;

@@ -4,8 +4,13 @@
  * Covers the acceptance criteria in docs/ai/current-plan.md's #1053 section:
  *  - GET /org-skills/index.json is public, fork-discovery-shape compatible,
  *    and excludes published:false skills.
- *  - GET /org-skills/files/:name/SKILL.md is public and serves the raw body;
- *    an unpublished or unknown skill, or any other file name, 404s.
+ *  - GET /org-skills/:name/:file is public and serves the raw body; an
+ *    unpublished or unknown skill, or any other file name, 404s. #1054 fix:
+ *    this path (not the original /org-skills/files/:name/:file) is what the
+ *    fork's Discovery.pull actually requests — it resolves each skill file
+ *    at `<skills.urls base>/<name>/<file>`, sibling to `<base>/index.json`,
+ *    with no extra path segment (verified against
+ *    apps/opencode_fork/packages/opencode/src/skill/discovery.ts).
  *  - POST/PUT/DELETE /org-skills/:name reject unauthenticated requests and
  *    succeed with a valid session token.
  *  - No secret/token-shaped fields ever appear in a GET response.
@@ -118,35 +123,35 @@ describe('org-skills routes (#1053)', () => {
     expect(text).not.toMatch(/"(token|secret|password|api[_-]?key|authorization)"\s*:/i);
   });
 
-  it('GET /files/:name/SKILL.md serves the raw body for a published skill', async () => {
+  it('GET /:name/SKILL.md serves the raw body for a published skill', async () => {
     await repo.upsertAsync('doc-skill', {
       description: 'A doc skill',
       content: '# Doc Skill\n\nInstructions here.',
     });
 
-    const res = await fetch(`${baseUrl}/org-skills/files/doc-skill/SKILL.md`);
+    const res = await fetch(`${baseUrl}/org-skills/doc-skill/SKILL.md`);
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toBe('# Doc Skill\n\nInstructions here.');
     expect(text).not.toMatch(/"(token|secret|password|api[_-]?key|authorization)"\s*:/i);
   });
 
-  it('GET /files/:name/SKILL.md 404s for an unpublished skill (not readable by guessing the name)', async () => {
+  it('GET /:name/SKILL.md 404s for an unpublished skill (not readable by guessing the name)', async () => {
     await repo.upsertAsync('secret-draft', { content: 'draft body', published: false });
 
-    const res = await fetch(`${baseUrl}/org-skills/files/secret-draft/SKILL.md`);
+    const res = await fetch(`${baseUrl}/org-skills/secret-draft/SKILL.md`);
     expect(res.status).toBe(404);
   });
 
-  it('GET /files/:name/SKILL.md 404s for an unknown skill name', async () => {
-    const res = await fetch(`${baseUrl}/org-skills/files/no-such-skill/SKILL.md`);
+  it('GET /:name/SKILL.md 404s for an unknown skill name', async () => {
+    const res = await fetch(`${baseUrl}/org-skills/no-such-skill/SKILL.md`);
     expect(res.status).toBe(404);
   });
 
-  it('GET /files/:name/<other> 404s — only SKILL.md is servable in the single-file model', async () => {
+  it('GET /:name/<other> 404s — only SKILL.md is servable in the single-file model', async () => {
     await repo.upsertAsync('doc-skill', { content: 'body' });
 
-    const res = await fetch(`${baseUrl}/org-skills/files/doc-skill/reference.md`);
+    const res = await fetch(`${baseUrl}/org-skills/doc-skill/reference.md`);
     expect(res.status).toBe(404);
   });
 

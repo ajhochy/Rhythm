@@ -343,10 +343,18 @@ async function main() {
     // so direct routing to anthropic / google works once the user has
     // authed via the corresponding flow.
     try {
-      const { ensureRequiredPlugins } = await import(
+      const { ensureRequiredPlugins, ensureOrgSkillIndex } = await import(
         './services/opencode_plugin_config'
       );
       ensureRequiredPlugins();
+      // #1054 — point skills.urls at this org's shared skill index before the
+      // engine spawns, preserving any user-added entries (never touches
+      // skills.paths). reloadSkills() is a documented no-op while the engine
+      // isn't ready yet (see its own doc comment), so calling it here is safe
+      // and is also correct for any future runtime re-ensure once the engine
+      // is live. Never throws — a config-write failure must never block boot.
+      ensureOrgSkillIndex();
+      await opencodeClient.reloadSkills();
       // #947 — Rhythm manages ~/.config/opencode/skills as the SOLE skill
       // source. The engine auto-scans that config dir, so no opencode.json
       // `skills.paths` registration is needed — just make sure the dir exists
