@@ -1112,12 +1112,19 @@ export class OpencodeStreamBridge {
           // Child session: persist and register.
           const childTitle = (createdInfo?.title as string | undefined) ?? '';
           const childCwd = (createdInfo?.directory as string | undefined) ?? '';
+          // Recording-gap fix: the engine carries the child's resolved MCP
+          // scope on info.mcpAllowlist (Session.Info, see projectors.ts
+          // `mcp_allowlist: grab(info, "mcpAllowlist")`) — persist it into the
+          // existing mcp_allowed_tools_json column so the agent-sessions API
+          // stops reporting NULL for task-spawned children.
+          const childMcpAllowlist = createdInfo?.mcpAllowlist as unknown;
           try {
             const childRow = this.sessionsRepo.upsertChildSession(
               opencodeSessionId,
               createdParentId,
               childTitle,
               childCwd,
+              childMcpAllowlist ? JSON.stringify(childMcpAllowlist) : null,
             );
             if (childRow) {
               // Register in the session map so subsequent events route correctly.

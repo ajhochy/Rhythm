@@ -653,3 +653,80 @@ describe('OpencodeStreamBridge — #812 role-scoped dispatch guard (array allowl
     expect(types).not.toContain('message.part.updated');
   });
 });
+
+describe('OpencodeStreamBridge — session.created recording-gap fix (mcp_allowed_tools_json)', () => {
+  let bridge: OpencodeStreamBridge;
+  let repo: AgentSessionsRepository;
+
+  function relay(event: Record<string, unknown>): void {
+    (bridge as unknown as { _relayEvent: (e: unknown) => void })._relayEvent(event);
+  }
+
+  beforeEach(() => {
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    setDb(db);
+    sessionMap.clear();
+    broadcastSpy.mockClear();
+    bridge = new OpencodeStreamBridge();
+    repo = new AgentSessionsRepository();
+  });
+
+  it("persists the child's info.mcpAllowlist into mcp_allowed_tools_json on session.created (task-spawned child)", () => {
+    const parent = repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: '/tmp',
+      name: 'Parent',
+    });
+    repo.setSdkSessionId(parent.id, 'sdk-parent-recgap');
+
+    relay({
+      type: 'session.created',
+      properties: {
+        sessionID: 'sdk-child-recgap',
+        info: {
+          parentID: 'sdk-parent-recgap',
+          title: 'Do X (@coding-agent subagent)',
+          directory: '/tmp/proj',
+          mcpAllowlist: { servers: ['rhythm'], tools: [] },
+        },
+      },
+    });
+
+    const childRow = repo.findBySdkSessionId('sdk-child-recgap');
+    expect(childRow).not.toBeNull();
+    expect(childRow!.mcpAllowedToolsJson).toBe(
+      JSON.stringify({ servers: ['rhythm'], tools: [] }),
+    );
+  });
+
+  it('persists null when the child session.created event carries no mcpAllowlist (unscoped)', () => {
+    const parent = repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: '/tmp',
+      name: 'Parent',
+    });
+    repo.setSdkSessionId(parent.id, 'sdk-parent-recgap-2');
+
+    relay({
+      type: 'session.created',
+      properties: {
+        sessionID: 'sdk-child-recgap-2',
+        info: {
+          parentID: 'sdk-parent-recgap-2',
+          title: 'Do Y (@coding-agent subagent)',
+          directory: '/tmp/proj',
+        },
+      },
+    });
+
+    const childRow = repo.findBySdkSessionId('sdk-child-recgap-2');
+    expect(childRow).not.toBeNull();
+    expect(childRow!.mcpAllowedToolsJson).toBeNull();
+  });
+});

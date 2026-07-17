@@ -31,6 +31,27 @@ function isMcpAllowlist(value: unknown): value is NonNullable<Session.Info["mcpA
   )
 }
 
+export function isSkillAllowlist(value: unknown): value is NonNullable<Session.Info["skillAllowlist"]> {
+  if (!value || typeof value !== "object") return false
+  const candidate = value as Record<string, unknown>
+  return Array.isArray(candidate.skills) && candidate.skills.every((item): item is string => typeof item === "string")
+}
+
+export function childSkillAllowlist(agent: Agent.Info, parent: Session.Info): Session.Info["skillAllowlist"] {
+  // Mirror childMcpAllowlist (#1012): the projected profile carries its expanded
+  // skill scope in options.skillAllowlist (opencode_agent_writer). Read it so the
+  // task tool scopes the delegated child instead of injecting all discovered
+  // skills (~89k first-turn tokens with 105 skills installed).
+  const value = agent.options.skillAllowlist
+  if (isSkillAllowlist(value)) return { skills: [...value.skills] }
+  // Profile declares no skill scope: inherit the PARENT session's scope rather
+  // than falling back to "all skills". undefined only survives if the parent is
+  // also unscoped (a genuinely unrestricted root). Never changes ROOT-session
+  // behavior — root scope is set per-turn by api_server ws_gateway, and those
+  // sessions never pass through this helper.
+  return parent.skillAllowlist
+}
+
 function childMcpAllowlist(agent: Agent.Info, model: { providerID: string }): Session.Info["mcpAllowlist"] {
   // ConfigAgent preserves custom agent-file frontmatter in `options`. The
   // resolved target profile carries its already-expanded session shape there,
@@ -139,6 +160,7 @@ export const TaskTool = Tool.define(
           parentID: ctx.sessionID,
           title: params.description + ` (@${next.name} subagent)`,
           mcpAllowlist: childMcpAllowlist(next, model),
+          skillAllowlist: childSkillAllowlist(next, parent),
           permission: [
             ...deriveSubagentSessionPermission({
               parentSessionPermission: parent.permission ?? [],

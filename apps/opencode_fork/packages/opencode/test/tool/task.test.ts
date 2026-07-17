@@ -1,4 +1,4 @@
-import { afterEach, describe, expect } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Config } from "@/config/config"
@@ -8,7 +8,7 @@ import { MessageV2 } from "../../src/session/message-v2"
 import type { SessionPrompt } from "../../src/session/prompt"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { ModelID, ProviderID } from "../../src/provider/schema"
-import { TaskTool, type TaskPromptOps } from "../../src/tool/task"
+import { TaskTool, childSkillAllowlist, isSkillAllowlist, type TaskPromptOps } from "../../src/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { disposeAllInstances } from "../fixture/fixture"
@@ -589,4 +589,87 @@ describe("tool.task", () => {
       },
     },
   )
+
+  it.instance(
+    "execute applies the target subagent's resolved skill scope",
+    () =>
+      Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const { chat, assistant } = yield* seed()
+        const tool = yield* TaskTool
+        const def = yield* tool.init()
+
+        const result = yield* def.execute(
+          {
+            description: "inspect scoped skills",
+            prompt: "list the current tasks",
+            subagent_type: "skill-scoped",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: { promptOps: stubOps() },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+
+        const child = yield* sessions.get(result.metadata.sessionId)
+        expect(child.skillAllowlist).toEqual({ skills: ["alpha", "beta"] })
+      }),
+    {
+      config: {
+        agent: {
+          "skill-scoped": {
+            mode: "subagent",
+            // Same promotion path as mcpAllowlist above: unknown frontmatter keys
+            // land in agent.options via ConfigAgent.normalize.
+            skillAllowlist: { skills: ["alpha", "beta"] },
+          },
+        },
+      },
+    },
+  )
+})
+
+describe("tool.task childSkillAllowlist / isSkillAllowlist", () => {
+  test("isSkillAllowlist accepts well-shaped skill lists", () => {
+    expect(isSkillAllowlist({ skills: [] })).toBe(true)
+    expect(isSkillAllowlist({ skills: ["a"] })).toBe(true)
+  })
+
+  test("isSkillAllowlist rejects malformed values", () => {
+    expect(isSkillAllowlist(null)).toBe(false)
+    expect(isSkillAllowlist({})).toBe(false)
+    expect(isSkillAllowlist({ skills: [1] })).toBe(false)
+    expect(isSkillAllowlist({ skills: "a" })).toBe(false)
+  })
+
+  test("childSkillAllowlist returns a fresh copy of the profile's declared scope", () => {
+    const skills = ["a", "b"]
+    const agent = { options: { skillAllowlist: { skills } } } as unknown as Agent.Info
+    const parent = { skillAllowlist: undefined } as unknown as Session.Info
+
+    const result = childSkillAllowlist(agent, parent)
+
+    expect(result).toEqual({ skills: ["a", "b"] })
+    expect(result?.skills).not.toBe(skills)
+  })
+
+  test("childSkillAllowlist inherits the parent session's scope when the profile declares none", () => {
+    const agent = { options: {} } as unknown as Agent.Info
+    const parent = { skillAllowlist: { skills: ["x"] } } as unknown as Session.Info
+
+    expect(childSkillAllowlist(agent, parent)).toEqual({ skills: ["x"] })
+  })
+
+  test("childSkillAllowlist stays undefined when neither the profile nor the parent are scoped", () => {
+    const agent = { options: {} } as unknown as Agent.Info
+    const parent = { skillAllowlist: undefined } as unknown as Session.Info
+
+    expect(childSkillAllowlist(agent, parent)).toBeUndefined()
+  })
 })
