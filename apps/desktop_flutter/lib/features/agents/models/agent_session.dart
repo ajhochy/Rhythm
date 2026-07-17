@@ -94,6 +94,8 @@ class AgentSession {
     this.parentId,
     this.sdkSessionId,
     this.anthropicAccountId,
+    this.isSystem = false,
+    this.category = 'chat',
   });
 
   final String id;
@@ -141,6 +143,16 @@ class AgentSession {
   /// Null means the app/profile default; updated live on spillover.
   final String? anthropicAccountId;
 
+  /// #1090 — mirrors the server's `agent_sessions.is_system` column: true for
+  /// background/system sessions (skill-extract, scheduler loops, memory
+  /// consolidation) that must never surface in the normal chats list.
+  final bool isSystem;
+
+  /// #1090 — mirrors the server's `agent_sessions.category` column
+  /// ('chat' | 'scheduled' | 'self_improvement'). Stamped at creation; drives
+  /// which `AgentSessionScope` a session belongs to.
+  final String category;
+
   factory AgentSession.fromJson(Map<String, dynamic> json) {
     // Accept `agent_id` (new) or fall back to `agent_kind` (legacy) for one
     // release, normalising the wire value to the canonical agentId string.
@@ -173,6 +185,8 @@ class AgentSession {
       sdkSessionId:
           asString(json['sdkSessionId']) ?? asString(json['sdk_session_id']),
       anthropicAccountId: asString(json['anthropicAccountId']),
+      isSystem: json['isSystem'] as bool? ?? false,
+      category: asString(json['category']) ?? 'chat',
     );
   }
 
@@ -265,6 +279,8 @@ class AgentSession {
       anthropicAccountId: anthropicAccountId == _sentinel
           ? this.anthropicAccountId
           : anthropicAccountId as String?,
+      isSystem: isSystem,
+      category: category,
     );
   }
 }

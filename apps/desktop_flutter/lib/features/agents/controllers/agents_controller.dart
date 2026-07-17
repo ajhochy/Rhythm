@@ -2655,7 +2655,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
     } else if (msg is SessionCreatedMessage) {
-      if (!_sessions.any((s) => s.id == msg.session.id)) {
+      // #1090 — the WS channel is shared across all scopes; only insert the
+      // session if it belongs to the scope currently being viewed (mirrors
+      // the server's `?scope=` filter, which a full [load] already relies on).
+      if (_belongsToScope(msg.session, _scope) &&
+          !_sessions.any((s) => s.id == msg.session.id)) {
         _sessions = [..._sessions, msg.session];
       }
       // Record first-seen via WS (??= so createSession() timestamp takes
@@ -2783,7 +2787,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       } else {
         _resumable = _resumable.where((x) => x.id != s.id).toList();
         _archived = _archived.where((x) => x.id != s.id).toList();
-        _sessions = _upsertById(_sessions, s);
+        // #1090 — same scope guard as SessionCreatedMessage above: don't let
+        // a background/scheduled/self_improvement session upsert into the
+        // scope list currently being viewed.
+        if (_belongsToScope(s, _scope)) {
+          _sessions = _upsertById(_sessions, s);
+        }
       }
     } else if (msg is SessionRemovedMessage) {
       // #605 — hard-deleted row; drop from all local caches.
@@ -3266,6 +3275,27 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
+
+/// #1090 — the single place that classifies a session into an
+/// [AgentSessionScope]. Mirrors the server-side `?scope=` filter
+/// (`agent_sessions_repository.ts`: chats = `category='chat' AND
+/// is_system=0`; scheduled = `category='scheduled'`; self_improvement =
+/// `category='self_improvement'`). A full [AgentsController.load] already
+/// gets a correctly-scoped list from the server; the live WS channel is
+/// shared across every scope, so both `_onWsMessage` incremental branches
+/// (session.created / session.updated) call this before admitting a session
+/// into the currently-viewed list — otherwise a background/scheduled/
+/// self_improvement session would leak into whichever scope is open.
+bool _belongsToScope(AgentSession session, AgentSessionScope scope) {
+  switch (scope) {
+    case AgentSessionScope.chats:
+      return !session.isSystem && session.category == 'chat';
+    case AgentSessionScope.scheduled:
+      return session.category == 'scheduled';
+    case AgentSessionScope.selfImprovement:
+      return session.category == 'self_improvement';
+  }
+}
 
 /// Upsert [item] into [list] by id. If a row with the same id exists it is
 /// replaced; otherwise [item] is appended.
