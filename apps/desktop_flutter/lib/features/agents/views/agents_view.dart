@@ -2375,6 +2375,12 @@ class _InputAreaState extends State<_InputArea> {
             child: SlashCommandPopover(
               inputController: widget.inputController,
               commands: controller.slashCommands,
+              // OCU-11 (#1052): refetch the command catalog whenever the
+              // popover opens so a playbook created since session-select
+              // appears immediately.
+              onOpen: session == null
+                  ? null
+                  : () => controller.refreshSlashCommands(session.id),
               onCommandSelected: (cmd) {
                 widget.inputController.value = TextEditingValue(
                   text: cmd,

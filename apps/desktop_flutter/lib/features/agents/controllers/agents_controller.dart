@@ -2716,6 +2716,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// OCU-11 (#1052): force a re-fetch of the slash-command catalog for
+  /// [sessionId], bypassing the [_loadSlashCommands] cache guard. Called when
+  /// the slash popover opens so a playbook created/edited/deleted in the
+  /// Playbooks manager (or another window) shows up without an app restart.
+  Future<void> refreshSlashCommands(String sessionId) async {
+    _commandsBySession.remove(sessionId);
+    await _loadSlashCommands(sessionId);
+  }
+
   /// #639 — Re-fetch model routes for the currently-selected session.
   /// Called after the OpenRouter visibility map is changed in Settings so the
   /// picker refreshes without requiring a session switch.

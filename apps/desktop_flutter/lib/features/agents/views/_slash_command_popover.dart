@@ -33,6 +33,7 @@ class SlashCommandPopover extends StatefulWidget {
     required this.commands,
     required this.child,
     required this.onCommandSelected,
+    this.onOpen,
   });
 
   final TextEditingController inputController;
@@ -40,12 +41,19 @@ class SlashCommandPopover extends StatefulWidget {
   final Widget child;
   final ValueChanged<String> onCommandSelected;
 
+  /// OCU-11 (#1052): called the moment the input transitions from NOT
+  /// starting with '/' to starting with '/' (i.e. the popover is opening).
+  /// The caller uses this to refetch the command catalog so a playbook
+  /// created since the session was selected shows up immediately.
+  final VoidCallback? onOpen;
+
   @override
   State<SlashCommandPopover> createState() => _SlashCommandPopoverState();
 }
 
 class _SlashCommandPopoverState extends State<SlashCommandPopover> {
   int _highlightedIndex = 0;
+  bool _wasOpen = false;
 
   List<SlashCommand> _filtered(String input) {
     final query = input.substring(1).toLowerCase(); // strip leading '/'
@@ -63,6 +71,11 @@ class _SlashCommandPopoverState extends State<SlashCommandPopover> {
   @override
   void initState() {
     super.initState();
+    // Capture the open/closed state as of first mount BEFORE attaching the
+    // listener, so the first text change is compared against the pre-change
+    // value (not the already-mutated value _onInputChanged would otherwise
+    // observe on its very first invocation).
+    _wasOpen = widget.inputController.text.startsWith('/');
     widget.inputController.addListener(_onInputChanged);
   }
 
@@ -73,6 +86,11 @@ class _SlashCommandPopoverState extends State<SlashCommandPopover> {
   }
 
   void _onInputChanged() {
+    final startsWithSlash = widget.inputController.text.startsWith('/');
+    if (startsWithSlash && !_wasOpen) {
+      widget.onOpen?.call();
+    }
+    _wasOpen = startsWithSlash;
     setState(() {
       _highlightedIndex = 0;
     });
@@ -228,6 +246,20 @@ class _CommandList extends StatelessWidget {
                             : context.rhythm.textPrimary,
                       ),
                     ),
+                    // OCU-11 (#1052): argument hint ghost text, e.g. "$1 $2"
+                    // or "$ARGUMENTS" — only shown for commands that declare one.
+                    if (cmd.hints.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        cmd.hints.join(' '),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontFamily: 'Menlo',
+                          fontStyle: FontStyle.italic,
+                          color: context.rhythm.textMuted,
+                        ),
+                      ),
+                    ],
                     if (cmd.description != null &&
                         cmd.description!.isNotEmpty) ...[
                       const SizedBox(width: 10),

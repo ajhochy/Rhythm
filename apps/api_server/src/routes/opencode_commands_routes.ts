@@ -53,6 +53,8 @@ opencodeCommandsRouter.get(
         // actually exists for it — a built-in 'command'-source row like
         // init/review has no managed file and stays read-only.
         managed: isManagedCommand(c.name),
+        // OCU-11 (#1052): argument hints for the slash popover's ghost text.
+        hints: c.hints ?? [],
       }));
       res.json(entries);
     } catch (err) {

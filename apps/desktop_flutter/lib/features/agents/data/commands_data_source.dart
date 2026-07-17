@@ -31,11 +31,19 @@ class CommandsDataSource {
 }
 
 class SlashCommand {
-  const SlashCommand({required this.name, this.description});
+  const SlashCommand(
+      {required this.name, this.description, this.hints = const []});
   final String name;
   final String? description;
+
+  /// OCU-11 (#1052): argument placeholders the engine parsed from the
+  /// command's template (e.g. `['$1', '$2']` or `['$ARGUMENTS']`). Empty when
+  /// the command takes no arguments.
+  final List<String> hints;
+
   factory SlashCommand.fromJson(Map<String, dynamic> json) => SlashCommand(
         name: json['name'] as String? ?? '',
         description: json['description'] as String?,
+        hints: (json['hints'] as List<dynamic>?)?.cast<String>() ?? const [],
       );
 }
