@@ -97,16 +97,22 @@ describe('issue-817-c2: required indexes exist (status + unique dedup)', () => {
   });
 });
 
-describe('issue-817-c3: agent_org_proposals must NOT be added to postgres_bootstrap.ts', () => {
-  it('postgres_bootstrap.ts source contains no reference to agent_org_proposals', () => {
-    // Bug this catches: someone copies the agent_skills dual-DB pattern and
-    // adds this SQLite-only proposal table to production Postgres, which the
-    // issue explicitly forbids (local-only, never synced to prod).
+describe('issue-817-c3 (superseded by the proposals-parity fix, #1113 sibling): agent_org_proposals IS now in postgres_bootstrap.ts', () => {
+  it('postgres_bootstrap.ts creates the agent_org_proposals table', () => {
+    // #817's original call was "local-only, never synced to prod" (see
+    // docs/ai/decisions/2026-06-29-org-self-optimizer-cron.md §5). That
+    // predates #1111/#1113, which made the org-optimizer's own seed run
+    // against a Postgres-backed deployment (role-gated, not engine-gated) —
+    // so proposals now genuinely get written there too, and a proposal store
+    // that silently discards every row under Postgres (the exact #1113 bug
+    // class: getDb() throws -> falls back to a throwaway in-memory SQLite DB)
+    // defeats the review queue entirely. Bug THIS test catches: the table
+    // definition drifting out of postgres_bootstrap.ts again.
     const pgSource = readFileSync(
       join(__dirname, '..', 'database', 'postgres_bootstrap.ts'),
       'utf8',
     );
-    expect(pgSource).not.toMatch(/agent_org_proposals/);
+    expect(pgSource).toMatch(/CREATE TABLE IF NOT EXISTS agent_org_proposals/);
   });
 });
 

@@ -7,7 +7,7 @@ import { AgentSessionMessagesRepository } from '../repositories/agent_session_me
 import { DeniedToolEventsRepository } from '../repositories/denied_tool_events_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { queueSkillExtraction } from './skill_extractor';
-import { evaluateHarvestedDrafts } from './harvested_skill_evaluator';
+import { scheduleIdleEvaluation } from './harvested_skill_evaluator';
 import { extractInvokedSkillNamesFromParts, ensureLazyDepsForTurn } from './lazy_deps_turn_hook';
 import { isToolAllowed } from './mcp_dispatch_guard';
 import { classifyCommand, extractBashCommand } from '../security/command_approval';
@@ -1008,16 +1008,17 @@ export class OpencodeStreamBridge {
             // queueSkillExtraction). Must NOT block or reject the turn.
             queueSkillExtraction(localSessionId);
 
-            // #929 — fire-and-forget evaluation of any harvested draft that
-            // just crossed its use threshold. Placed HERE (not in
+            // #929 / #1109 — schedule (not run) evaluation of any harvested
+            // draft that just crossed its use threshold. Placed HERE (not in
             // ws_gateway.ts right after promptFn) because this is the actual
             // WS/interactive turn-completion point — promptFn/promptAsync
             // resolves before the turn's `skill`-tool call is durably
             // persisted, so evaluating there always sees the PREVIOUS turn's
-            // usage count. NEVER awaited; never throws.
-            evaluateHarvestedDrafts().catch((err) =>
-              logger.warn(`[OpencodeStreamBridge] evaluateHarvestedDrafts failed (non-fatal): ${String(err)}`),
-            );
+            // usage count. #1109: no longer calls evaluateHarvestedDrafts()
+            // directly on every turn (that fanned out into a scorer/rewrite
+            // session per turn) — scheduleIdleEvaluation coalesces a burst of
+            // turns into ONE sweep after the loop goes idle. NEVER throws.
+            scheduleIdleEvaluation();
 
             // #876 — "on first use" lazy dependency install. The real skill
             // invocation happens inside the vendored fork's `skill` tool

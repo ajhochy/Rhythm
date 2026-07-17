@@ -42,9 +42,15 @@
  *    the affected task for this pass and is retried next boot (mirrors
  *    `ministry_recipes_seed.ts`'s per-recipe try/catch discipline). Boot
  *    must never be blocked by this seed.
- *  • Local-only: no-ops entirely under Postgres (agent_scheduled_tasks /
- *    agent_configs scoping is a local-SQLite agent-execution surface, same
- *    rule as every other seed in this family).
+ *  • Role-gated, not engine-gated (#1113): no-ops only under the 'cloud'
+ *    deployment role (env.agentExecutionEnabled === false) — NOT merely
+ *    because the DB engine is Postgres. Under the default 'all' role on a
+ *    Postgres-backed deployment, `AgentConfigsRepository` (used by
+ *    `ensureAgentConfigForRole` below) has no Postgres branch yet, so a fresh
+ *    install still safely no-ops per-task there (caught, logged, retried next
+ *    boot) until that repository gets Postgres parity — a documented gap, not
+ *    a silent one. `AgentScheduledTasksRepository`, used by the #1111
+ *    reconciliation pass, already fully supports Postgres.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -194,6 +200,11 @@ const DEFAULT_OPTIMIZER_MODEL = {
   id: 'claude-sonnet-4-6',
 } as const;
 
+// Hoisted so both the #1111 reconciliation pass and the per-task seed blocks
+// below share the same canonical names.
+const AUDIT_TASK_NAME = 'Org Self-Optimizer';
+const EXTERNAL_TASK_NAME = 'Org External Discovery';
+
 function ensureAgentConfigForRole(
   configsRepo: AgentConfigsRepository,
   roleFile: McpRoleFile,
@@ -243,10 +254,28 @@ export async function seedOrgOptimizerTask(): Promise<OrgOptimizerSeedResult> {
     externalTaskSeeded: false,
   };
 
-  // No-op under Postgres: this is a local-SQLite agent-execution surface,
-  // same rule as ministry_recipes_seed / obsidian_scope_backfill / the skill
-  // seed importer — production Postgres never runs a local opencode engine.
-  if (env.dbClient === 'postgres') {
+  // #1113 (Discovery-005): gate on DEPLOYMENT ROLE, not database engine —
+  // these are orthogonal (see env.ts's DeploymentRole doc). The prior
+  // `dbClient === 'postgres'` check conflated "which storage engine" with
+  // "does this deployment run agent execution," which is the #755 role
+  // switch's actual job. Under the 'cloud' role, agent execution never runs
+  // (by design) so this seed correctly still no-ops there. Under the default
+  // 'all' role — including today's Postgres-backed prod image — the seed now
+  // attempts to run, matching every other agent-execution table/seed gated by
+  // `env.agentExecutionEnabled` (see postgres_bootstrap.ts).
+  //
+  // KNOWN LIMITATION: `ensureAgentConfigForRole` below calls
+  // `AgentConfigsRepository`, which has no Postgres branch yet — a
+  // pre-existing, broader gap outside #1113's scope (flagged as a follow-up).
+  // Until that repository gets Postgres parity, a fresh install on Postgres
+  // safely no-ops per-task (the existing try/catch below catches the throw,
+  // sets `*TaskSkippedReason`, and retries next boot) rather than seeding for
+  // real — a documented "not yet," not a silent "never." The #1111
+  // dedup/re-enable reconciliation below DOES work correctly on Postgres
+  // today, since AgentScheduledTasksRepository already has full Postgres
+  // support — so an already-seeded row (created by hand, or once
+  // AgentConfigsRepository is fixed) is reconciled on Postgres too.
+  if (!env.agentExecutionEnabled) {
     return result;
   }
 
@@ -287,8 +316,71 @@ export async function seedOrgOptimizerTask(): Promise<OrgOptimizerSeedResult> {
     return result;
   }
 
+  // ── #1111 (Discovery-003) — boot-time reconciliation ──────────────────
+  // From live rhythm.db (docs/ai/generated-issues/discovery-003-unbreak-crons.md):
+  // "Org Self-Optimizer" sat enabled=0 after an errored run — root cause was
+  // the historical NULL-model "no route in catalog" stall (already fixed
+  // above by the model backfill, commits a9c92bed6/5c4af4ae8), but that fix
+  // never restored `enabled`. A stray "Org External Discovery v2" row also
+  // existed, enabled=1, alongside the canonical "Org External Discovery" row
+  // sitting enabled=0. This block converges each task family to exactly one
+  // enabled row (preferring the exact canonical name as survivor over any
+  // "<name> <suffix>" stray) and re-enables a LONE disabled survivor exactly
+  // ONCE via a seed marker, so a later, deliberate user disable is never
+  // auto-reversed again (the #1083 boot-stomp lesson). Disabling extra
+  // duplicates is unconditional on every boot — two+ enabled rows for one
+  // conceptual task is never a valid end-state. Never throws.
+  for (const canonicalName of [AUDIT_TASK_NAME, EXTERNAL_TASK_NAME]) {
+    try {
+      const related = existingTasks.filter(
+        (t) => t.name === canonicalName || t.name.startsWith(`${canonicalName} `),
+      );
+      if (related.length === 0) continue;
+
+      const exactMatches = related.filter((t) => t.name === canonicalName);
+      const pool = exactMatches.length > 0 ? exactMatches : related;
+      const survivor = [...pool].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+
+      for (const row of related) {
+        if (row.id !== survivor.id && row.enabled) {
+          await schedRepo.updateAsync(row.id, { enabled: false });
+          logger.info(
+            `[org-optimizer-seed] reconciliation: disabled stale duplicate "${row.name}" (${row.id})`,
+          );
+        }
+      }
+
+      const reenableMarker = `reconciled_enable_v1:${canonicalName}`;
+      if (related.length > 1) {
+        // A genuine duplicate existed — the survivor must win regardless of
+        // the marker (picking ONE enabled winner among duplicates is never
+        // ambiguous w.r.t. user intent).
+        if (!survivor.enabled) {
+          await schedRepo.updateAsync(survivor.id, { enabled: true });
+          logger.info(
+            `[org-optimizer-seed] reconciliation: enabled survivor "${survivor.name}" (${survivor.id})`,
+          );
+        }
+      } else if (!seedMarkerExists(reenableMarker)) {
+        // Lone row, first time observed: repair the historical-bug leftover
+        // disabled state ONCE, then lock in via the marker so a LATER,
+        // deliberate user disable is respected on every subsequent boot.
+        if (!survivor.enabled) {
+          await schedRepo.updateAsync(survivor.id, { enabled: true });
+          logger.info(
+            `[org-optimizer-seed] reconciliation: re-enabled "${survivor.name}" (${survivor.id}) (one-time historical-bug repair)`,
+          );
+        }
+        recordSeedMarker(reenableMarker);
+      }
+    } catch (err) {
+      logger.warn(
+        `[org-optimizer-seed] reconciliation for "${canonicalName}" failed (non-fatal): ${String(err)}`,
+      );
+    }
+  }
+
   // ── Internal audit task (daily) ───────────────────────────────────────
-  const AUDIT_TASK_NAME = 'Org Self-Optimizer';
   const auditMarker = `seeded_task:${AUDIT_TASK_NAME}`;
   if (existingTasks.some((t) => t.name === AUDIT_TASK_NAME)) {
     recordSeedMarker(auditMarker); // adopt pre-marker installs
@@ -336,7 +428,6 @@ export async function seedOrgOptimizerTask(): Promise<OrgOptimizerSeedResult> {
   }
 
   // ── External discovery task (weekly) ──────────────────────────────────
-  const EXTERNAL_TASK_NAME = 'Org External Discovery';
   const externalMarker = `seeded_task:${EXTERNAL_TASK_NAME}`;
   if (existingTasks.some((t) => t.name === EXTERNAL_TASK_NAME)) {
     recordSeedMarker(externalMarker); // adopt pre-marker installs

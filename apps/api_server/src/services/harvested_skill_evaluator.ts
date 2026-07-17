@@ -143,6 +143,64 @@ function harvestJudgeTimeoutMs(): number {
   return Number.isFinite(n) && n > 0 ? n : 60_000;
 }
 
+// ── #1109 — idle sweep (replaces the per-turn call sites) ──────────────────
+// evaluateHarvestedDrafts() used to fire after EVERY completed turn
+// (opencode_stream_bridge.ts / agent_runner.ts), fanning out further because
+// Unit 3's scorer loop + Unit 5's rewrite sweep can each launch their own
+// self_improvement session per draft. `scheduleIdleEvaluation` replaces those
+// direct per-turn calls: many turns completing in quick succession coalesce
+// into ONE evaluation pass after the loop has been idle for the debounce
+// window, instead of one sweep per turn.
+
+/**
+ * Idle-debounce window before a coalesced sweep fires. Default 60s; override
+ * via RHYTHM_HARVEST_EVAL_IDLE_MS (ms) for tests/tuning — same parsing style
+ * as evalThreshold()/harvestJudgeTimeoutMs() above.
+ */
+function idleEvalDebounceMs(): number {
+  const raw = process.env.RHYTHM_HARVEST_EVAL_IDLE_MS;
+  if (raw === undefined) return 60_000;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 60_000;
+}
+
+let _idleEvalTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Fire-and-forget scheduling replacement for the old per-turn
+ * `evaluateHarvestedDrafts()` call. If a sweep is already pending, this is a
+ * no-op — the pending sweep will run once the idle window elapses regardless
+ * of how many more turns complete before then, so a burst of turns collapses
+ * into exactly one evaluation pass. Never throws; the eventual sweep's own
+ * rejection is caught here (mirrors evaluateHarvestedDrafts's own posture, and
+ * the old call sites' `.catch(...)` handling this same way).
+ *
+ * `runFn` is an injectable seam for tests (defaults to the real
+ * {@link evaluateHarvestedDrafts}) — production callers (agent_runner.ts,
+ * opencode_stream_bridge.ts) call this with no arguments.
+ */
+export function scheduleIdleEvaluation(
+  runFn: () => Promise<unknown> = evaluateHarvestedDrafts,
+): void {
+  if (_idleEvalTimer) return; // already pending — coalesce
+  const timer = setTimeout(() => {
+    _idleEvalTimer = null;
+    Promise.resolve(runFn()).catch((err) =>
+      logger.warn(`[harvest-eval] scheduled evaluation failed (non-fatal): ${String(err)}`),
+    );
+  }, idleEvalDebounceMs());
+  // Don't hold the process open for this alone (mirrors other background
+  // timers in this codebase, e.g. agent_runner.ts's deadline races).
+  timer.unref?.();
+  _idleEvalTimer = timer;
+}
+
+/** Test-only: cancel any pending idle-evaluation timer + reset state. */
+export function _resetIdleEvaluationForTests(): void {
+  if (_idleEvalTimer) clearTimeout(_idleEvalTimer);
+  _idleEvalTimer = null;
+}
+
 class HarvestJudgeTimeoutError extends Error {
   constructor(label: string, timeoutMs: number) {
     super(`${label} timed out after ${timeoutMs}ms`);

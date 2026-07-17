@@ -109,6 +109,10 @@ import {
 } from './org_diagnosis_types';
 import { alignMcpName } from './mcp_name_alignment';
 import { opencodeClient } from './opencode_engine';
+import { env } from '../config/env';
+import { resolveProdApiBase } from './opencode_plugin_config';
+import { AgentOrgProposalsRepository } from '../repositories/agent_org_proposals_repository';
+import type { CuratedMcpServer } from '../config/curated_mcp_servers';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import type { AgentSkill } from '../models/agent_skill';
 import type { ProposalValidationResult } from './org_proposal_apply_service';
@@ -127,13 +131,61 @@ export interface AppliersRegistry {
  */
 export function buildRealExternalAdoptionDeps(): ExternalAdoptionApplyDeps {
   return {
-    async installCuratedMcp({ serverName }) {
-      // Stage B — register the discovered server through the sanctioned curated
-      // path (idempotent merge into opencode.json + live register). ensureCuratedMcps
-      // reports whether the server is now present + registered.
-      const result = await opencodeClient.ensureCuratedMcps({ register: true });
+    async installCuratedMcp({ serverName, installCommand, agentConfigId }) {
+      // #1114 — a genuinely NEW discovered server is not in the static
+      // curated catalog (CURATED_MCP_SERVERS in curated_mcp_servers.ts), so
+      // the OLD `ensureCuratedMcps({register:true})` call (no `servers`
+      // override -> defaults to that static list) would silently install
+      // NOTHING for it. `servers` was previously test-only; it is exactly
+      // the sanctioned way to ensure an AD HOC server definition through the
+      // same idempotent-merge-into-opencode.json + live-register path
+      // without adding it to the permanent catalog. Build a minimal
+      // definition from what the registry candidate gave us.
+      const argv = (installCommand ?? '').trim().split(/\s+/).filter(Boolean);
+      if (argv.length === 0) {
+        throw new Error(
+          `installCuratedMcp: no installCommand for '${serverName}' — cannot build a server definition`,
+        );
+      }
+      const server: CuratedMcpServer = {
+        id: serverName,
+        name: serverName,
+        type: 'local',
+        command: argv,
+        requiredEnv: [],
+      };
+      const result = await opencodeClient.ensureCuratedMcps({ servers: [server], register: true });
       const installed = result.servers.some((s) => s.id === serverName);
-      return { changed: result.changed, registered: installed && result.registered };
+
+      // #1114 (secretary-MCP-scope lesson) — a curated install must never
+      // leave a newly-adopted server globally enabled for every agent. Wire
+      // it into JUST the needing agent's allowedMcpsJson, reversibly
+      // (captures the prior value) — mirrors installSkill's identical
+      // allowedSkillsJson wiring below verbatim, just for the MCP scope
+      // field instead of the skill one.
+      let beforeSnapshotJson: string | undefined;
+      if (agentConfigId) {
+        const configsRepo = new AgentConfigsRepository();
+        const config = configsRepo.getById(agentConfigId);
+        if (config) {
+          const priorAllowedMcpsJson = config.allowedMcpsJson ?? null;
+          const list = parseAllowlist(priorAllowedMcpsJson);
+          if (!list.includes(serverName)) {
+            const nextJson = JSON.stringify([...list, serverName]);
+            configsRepo.update(agentConfigId, { allowedMcpsJson: nextJson });
+            const updated = configsRepo.getById(agentConfigId);
+            if (updated) writeAgentProfileFile(updated); // resync the opencode agent file
+          }
+          beforeSnapshotJson = JSON.stringify({
+            externalAdoption: true,
+            adoptedServerName: serverName,
+            agentConfigId,
+            priorAllowedMcpsJson,
+          });
+        }
+      }
+
+      return { changed: result.changed, registered: installed && result.registered, beforeSnapshotJson };
     },
 
     async installSkill({ skillName, downloadUrl, agentConfigId, sampleSessionId, categories }) {
@@ -898,6 +950,133 @@ const refineTaskApplier: ProposalApplier = async (proposal): Promise<ProposalApp
   return result;
 };
 
+// ── publish-skill-to-org (#1056 / OCU-15) ──
+//
+// Promotes an approved LOCAL managed skill to the shared org library (#1053's
+// `/org-skills/<name>` endpoint) through the existing human-gated review
+// queue, or removes it (`action: 'unpublish'`). NEVER auto-applied —
+// org-visible artifacts stay human-gated (see org_risk_classifier.ts).
+//
+// `content` is the skill's EXACT on-disk SKILL.md bytes (frontmatter
+// included, via readManagedSkillBytes) — the fork's discovery downloader
+// expects a real SKILL.md, not a frontmatter-stripped body (unlike
+// applySkillBodyRevision's DB-facing body above, a different consumer).
+//
+// Auth: POST/DELETE against `/org-skills/:name` require the same JWT
+// session-token auth as every other authenticated route (#1053). This
+// instance authenticates using env.prodAuthToken (PROD_AUTH_TOKEN) — the
+// SAME credential sync_orchestrator_service.ts already uses to call
+// production for task mirroring — against env.prodApiUrl's org-skills
+// endpoint (resolveProdApiBase(), shared with #1054's ensureOrgSkillIndex).
+
+interface PublishToOrgChange {
+  skillName: string;
+  action: 'publish' | 'unpublish';
+}
+
+function parsePublishToOrgChange(proposal: AgentOrgProposal): PublishToOrgChange | null {
+  const change = parseChange(proposal.changeJson);
+  const skillName = change?.skillName;
+  const action = change?.action;
+  if (typeof skillName !== 'string' || !skillName.trim()) return null;
+  if (action !== 'publish' && action !== 'unpublish') return null;
+  return { skillName: skillName.trim(), action };
+}
+
+function validatePublishToOrg(proposal: AgentOrgProposal): ProposalValidationResult {
+  const change = parsePublishToOrgChange(proposal);
+  if (!change) {
+    return {
+      valid: false,
+      reason:
+        "publish-skill-to-org requires change_json {skillName, action: 'publish'|'unpublish'}",
+    };
+  }
+  if (change.action === 'publish' && !managedSkillExists(change.skillName)) {
+    return {
+      valid: false,
+      reason: `publish-skill-to-org target managed skill '${change.skillName}' no longer exists`,
+    };
+  }
+  return { valid: true };
+}
+
+/**
+ * POST/DELETE against the org skill library. Throws on any non-OK response
+ * or transport failure — the applier below turns that into the 'failed'
+ * (retryable) proposal status rather than silently pretending success or
+ * leaving the proposal stuck at 'proposed' with no record an attempt ran.
+ */
+async function callOrgSkillsEndpoint(
+  skillName: string,
+  init: { method: 'POST' | 'DELETE'; body?: string },
+): Promise<void> {
+  const token = env.prodAuthToken;
+  if (!token) {
+    throw new Error(
+      'publish-skill-to-org: no production auth token configured (PROD_AUTH_TOKEN) — cannot publish',
+    );
+  }
+  const url = `${resolveProdApiBase()}/org-skills/${encodeURIComponent(skillName)}`;
+  const res = await fetch(url, {
+    method: init.method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(init.body !== undefined ? { body: init.body } : {}),
+  });
+  if (!res.ok) {
+    throw new Error(`publish-skill-to-org: ${init.method} ${url} -> HTTP ${res.status}`);
+  }
+}
+
+const publishToOrgApplier: ProposalApplier = async (proposal): Promise<ProposalApplyResult> => {
+  const change = parsePublishToOrgChange(proposal);
+  if (!change) {
+    throw AppError.badRequest(
+      'publish-skill-to-org change_json is missing skillName/action at apply time',
+    );
+  }
+
+  try {
+    if (change.action === 'unpublish') {
+      await callOrgSkillsEndpoint(change.skillName, { method: 'DELETE' });
+    } else {
+      const bytes = readManagedSkillBytes(change.skillName);
+      if (bytes === null) {
+        throw new Error(
+          `publish-skill-to-org: managed SKILL.md for '${change.skillName}' not found on disk`,
+        );
+      }
+      const sidecar = new AgentSkillsRepository().findByName(change.skillName);
+      await callOrgSkillsEndpoint(change.skillName, {
+        method: 'POST',
+        body: JSON.stringify({
+          description: sidecar?.description ?? undefined,
+          content: bytes.toString('utf8'),
+          published: true,
+        }),
+      });
+    }
+  } catch (err) {
+    // Never silently "succeed" — mark failed (retryable via a re-approve;
+    // see org_proposals_controller.ts's approve() guard) and re-throw so the
+    // approve request itself still surfaces an error to the caller.
+    await new AgentOrgProposalsRepository().updateStatusAsync(proposal.id, 'failed');
+    throw err;
+  }
+
+  return {
+    measurable: false,
+    beforeSnapshotJson: JSON.stringify({
+      publishToOrg: true,
+      skillName: change.skillName,
+      action: change.action,
+    }),
+  };
+};
+
 /**
  * Wire all six generators' apply steps into the given registry (normally
  * `org_proposal_apply_service.ts`'s module-level `registerProposalApplier`
@@ -976,7 +1155,18 @@ export function registerAllProposalAppliers(registry: AppliersRegistry = {
     logger.warn(`[org-proposal-appliers-wiring] failed to register diagnosis-lane appliers (non-fatal): ${String(err)}`);
   }
 
+  // #1056 — publish-skill-to-org: promote/unpublish an approved local skill
+  // to the shared org library. A distinct kind from #1114's external-adoption
+  // (inbound: adopt a discovered skill/MCP) — this is outbound: publish a
+  // LOCAL skill org-wide.
+  try {
+    registry.registerProposalValidator('publish-skill-to-org', validatePublishToOrg);
+    registry.registerProposalApplier('publish-skill-to-org', publishToOrgApplier);
+  } catch (err) {
+    logger.warn(`[org-proposal-appliers-wiring] failed to register publish-skill-to-org applier (non-fatal): ${String(err)}`);
+  }
+
   logger.info(
-    '[org-proposal-appliers-wiring] registered appliers for: create-agent, grant-delegation, expand-delegation, external-adoption, webhook-wiring, create-recipe, refine-config, refine-scope, workflow-prompt-fix, refine-skill, refine-task',
+    '[org-proposal-appliers-wiring] registered appliers for: create-agent, grant-delegation, expand-delegation, external-adoption, webhook-wiring, create-recipe, refine-config, refine-scope, workflow-prompt-fix, refine-skill, refine-task, publish-skill-to-org',
   );
 }

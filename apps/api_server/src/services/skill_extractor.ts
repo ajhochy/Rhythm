@@ -264,12 +264,8 @@ function matchingBrace(s: string, open: number): number {
   return -1;
 }
 
-/** Injectable LLM call: (systemPrompt, userContent, model?) => raw model text. */
-export type LlmCall = (
-  systemPrompt: string,
-  userContent: string,
-  model?: { providerID: string; modelID: string },
-) => Promise<string>;
+/** Injectable LLM call: (systemPrompt, userContent) => raw model text. */
+export type LlmCall = (systemPrompt: string, userContent: string) => Promise<string>;
 
 /**
  * Default (real) LLM call — thin + guarded. USO B5 (#1032): routes the distill
@@ -278,16 +274,22 @@ export type LlmCall = (
  * up as an observable self_improvement session (is_system=1, out of the default
  * Chats view). mcpRole 'skill-extract' + allowedMcpsJson '{}' builds the SAME
  * zero-MCP-tool config the old no-tool createSession had; run() applies
- * bypassPermissions internally (agent_runner._runOnce). Rides the extracting
- * session's own model when given (that provider just completed the turns being
- * distilled, so it is proven authed + live) via modelOverride; falls back to
- * resolveRunModel()'s MRU/default only when the session carries no model —
- * a global MRU can point at a provider that is unauthed here even though the
- * session itself ran fine (#949 live E2E). run() may prepend a transient
- * skills/memory preface to the PROMPT (input) when those toggles are on; that
- * never touches the model's OUTPUT, so extractJsonObject(res.result) is
- * unaffected. Lazy import keeps AgentRunner out of the module's hot path (and
- * out of test bundles, since this is never reached under isTestEnv).
+ * bypassPermissions internally (agent_runner._runOnce). run() may prepend a
+ * transient skills/memory preface to the PROMPT (input) when those toggles are
+ * on; that never touches the model's OUTPUT, so extractJsonObject(res.result)
+ * is unaffected. Lazy import keeps AgentRunner out of the module's hot path
+ * (and out of test bundles, since this is never reached under isTestEnv).
+ *
+ * #1110 — cost-002: this call no longer rides the extracting session's own
+ * (potentially frontier, e.g. opus) model. `taskKind: 'summarization'` routes
+ * through AgentRunner's existing tiered-routing (agent_model_resolver.
+ * resolveTieredModel) to the cheapest AUTHED route instead — distillation is a
+ * mechanical, low-stakes summarize-a-transcript task, not a judgment call.
+ * `allowedSkillsJson: '[]'` (mirrors allowedMcpsJson: '{}') denies all skills
+ * so the engine's system prompt carries no ~104-skill listing (the single
+ * largest injected block measured on this loop). No modelOverride is passed —
+ * doing so would bypass resolveTieredModel entirely (an explicit override
+ * always wins over tier policy), defeating the cheap-tier goal.
  *
  * ── USO B5 (#1032) createSession audit — background-loop LLM routing ─────────
  * grep `opencodeClient.createSession` across apps/api_server/src (non-test):
@@ -307,17 +309,17 @@ export type LlmCall = (
  *   • ws_gateway.ts (x2), agent_sessions_controller.ts (x2) — the INTERACTIVE
  *       session-creation path (user-driven), NOT background loops. Kept as-is.
  */
-const defaultLlmCall: LlmCall = async (systemPrompt, userContent, sessionModel) => {
-  const { run, resolveRunModel } = await import('./agent_runner');
-  const model = sessionModel ?? resolveRunModel();
+const defaultLlmCall: LlmCall = async (systemPrompt, userContent) => {
+  const { run } = await import('./agent_runner');
   const combined = `${systemPrompt}\n\n${userContent}`;
   const res = await run({
     prompt: combined,
     sessionName: 'skill-extract',
     category: 'self_improvement',
-    modelOverride: model,
+    taskKind: 'summarization',
     mcpRole: 'skill-extract',
     allowedMcpsJson: '{}',
+    allowedSkillsJson: '[]',
   });
   // '' triggers the SAME fail path (LLM declined / no session) the old
   // no-session / empty-parts return used.
@@ -513,21 +515,12 @@ export async function distillFromSession(
     const systemPrompt = buildSystemPrompt(rounds);
     const userContent = `Conversation:\n${conversation}`;
 
-    // Prefer the extracting session's own (bridge-backfilled) model — the
-    // provider that just produced the rounds being distilled.
-    let sessionModel: { providerID: string; modelID: string } | undefined;
-    try {
-      const sess = new AgentSessionsRepository().findById(sessionId);
-      if (sess?.providerId && sess?.modelId) {
-        sessionModel = { providerID: sess.providerId, modelID: sess.modelId };
-      }
-    } catch {
-      // non-fatal — fall back to defaultLlmCall's own resolution
-    }
-
+    // #1110 — no longer resolves/forwards the extracting session's own model;
+    // defaultLlmCall routes to the cheap tier via taskKind regardless of what
+    // model produced the rounds being distilled (see its docstring).
     let response: string;
     try {
-      response = await llmCall(systemPrompt, userContent, sessionModel);
+      response = await llmCall(systemPrompt, userContent);
     } catch (err) {
       logger.warn(`[skill-extract] LLM call failed (non-fatal): ${String(err)}`);
       return null;
@@ -634,13 +627,28 @@ export async function distillFromSession(
     // the draft write) makes the gap independent of draft-write success. Never
     // throws; a failed gap insert must not block the draft below.
     try {
-      await new AgentCapabilityGapsRepository().insertIfAbsentAsync({
+      const gapResult = await new AgentCapabilityGapsRepository().insertIfAbsentAsync({
         intentTitle: title,
         intentProblem: problem || null,
         intentTags: tags,
         sampleSessionId: sessionId,
         agentConfigId: resolveExtractingAgentConfigId(sessionId),
       });
+      // #1112 — a genuinely NEW gap (never a dedup re-ask of an already-open
+      // one) schedules a debounced gap-driven discovery pass instead of
+      // waiting for the next weekly cron / shared-cap sweep to reach it.
+      // Dynamic import avoids a static circular dependency: gap_discovery_
+      // scheduler.ts imports isEngineColdStart from THIS file.
+      if (gapResult.inserted) {
+        try {
+          const { scheduleGapDrivenDiscovery } = await import('./gap_discovery_scheduler');
+          scheduleGapDrivenDiscovery();
+        } catch (schedErr) {
+          logger.warn(
+            `[skill-extract] gap-driven discovery scheduling failed for '${title}' (non-fatal): ${String(schedErr)}`,
+          );
+        }
+      }
     } catch (gapErr) {
       logger.warn(`[skill-extract] capability-gap emit failed for '${title}' (non-fatal): ${String(gapErr)}`);
     }
@@ -741,19 +749,82 @@ const MIN_ROUNDS = 2;
  */
 export type DistillFn = (sessionId: string) => Promise<AgentSkill | null>;
 
+// ── #1109 — per-session guard + global cooldown ──────────────────────────────
+// Measured on live rhythm.db: 472 skill-extract sessions in 5 days (~94/day,
+// bursts of 16/hr) because the ONLY existing gates were the 90s cold-start
+// throttle above and the >=2-round floor — nothing stopped the SAME session
+// firing again on every later turn, and nothing capped how often DIFFERENT
+// sessions could fire back-to-back. Two orthogonal, cheap (no DB/LLM) gates
+// close that: a per-session lifetime guard, and a global cooldown.
+
+/**
+ * A sessionId that has already triggered (or is triggering) a harvest LLM
+ * call. Deliberately in-memory only — not persisted to a DB column: a process
+ * restart re-opens the window for a session still in flight, which is an
+ * acceptable, rare re-incurred cost rather than a correctness bug. A durable
+ * marker (agent_sessions column) is the documented upgrade path if that ever
+ * matters in practice.
+ */
+const _harvestedSessionIds = new Set<string>();
+
+/**
+ * Timestamp (Date.now()) of the most recent harvest LLM call, across ALL
+ * sessions. null means "never fired yet in this process" (no cooldown to
+ * check). Global (not per-session) so it caps BURSTS from many different
+ * sessions completing turns in quick succession — the per-session guard above
+ * already prevents the SAME session from re-firing, so a per-session cooldown
+ * would be redundant with it.
+ */
+let _lastHarvestFiredAt: number | null = null;
+
+/**
+ * Minimum time between any two harvest LLM calls, regardless of session.
+ * Default 5 minutes. Override via RHYTHM_HARVEST_COOLDOWN_MS (ms) for tests
+ * or tuning; non-numeric/negative falls back to the default (mirrors
+ * harvested_skill_evaluator.ts's evalThreshold()/harvestJudgeTimeoutMs()
+ * parsing style). Resolved per-call so a launch-time env var applies without
+ * a module-load race.
+ */
+function harvestCooldownMs(): number {
+  const raw = process.env.RHYTHM_HARVEST_COOLDOWN_MS;
+  if (raw === undefined) return 5 * 60_000;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 5 * 60_000;
+}
+
+/**
+ * Test-only reset of the #1109 per-session guard + cooldown timestamp.
+ * Mirrors {@link _resetEngineReadyForTests} — needed because both are
+ * module-level state that would otherwise leak across test cases sharing this
+ * module within one vitest worker/file.
+ */
+export function _resetHarvestGuardForTests(): void {
+  _harvestedSessionIds.clear();
+  _lastHarvestFiredAt = null;
+}
+
 /**
  * P2-2 — Fire-and-forget queue for background skill extraction.
  *
  * Call this AFTER a successful agent turn has been persisted. It:
- *  1. Counts the session's assistant ('output') message rounds. If fewer than
- *     {@link MIN_ROUNDS}, returns immediately without touching the LLM.
- *  2. Otherwise kicks off {@link distillFromSession} WITHOUT awaiting it, so the
- *     caller's turn/run resolves before the (potentially slow) distill does.
+ *  1. #1109 — Skips (no-op, no LLM call) when this sessionId has already
+ *     triggered a harvest, ever (lifetime guard), or when the global cooldown
+ *     since the last harvest hasn't elapsed yet. Both checks run BEFORE any
+ *     model call and before the round-count DB query.
+ *  2. Counts the session's assistant ('output') message rounds. If fewer than
+ *     {@link MIN_ROUNDS}, returns immediately without touching the LLM (and
+ *     without consuming the per-session guard — a session under the floor
+ *     must still get its one shot once a later turn crosses it).
+ *  3. Otherwise marks the guard + cooldown, then kicks off
+ *     {@link distillFromSession} WITHOUT awaiting it, so the caller's turn/run
+ *     resolves before the (potentially slow) distill does.
  *
  * Contract — this function:
  *  • NEVER throws (the round-count query is wrapped in try/catch).
  *  • NEVER awaits the distill — it is genuinely fire-and-forget.
  *  • NEVER rejects the caller — a distill that throws/rejects is swallowed here.
+ *  • Fires AT MOST ONCE per sessionId, ever, and at most once per cooldown
+ *    window across all sessions.
  *
  * Inert under test: {@link distillFromSession} itself no-ops under VITEST /
  * Postgres, so wiring this into real run/turn paths stays a no-op in CI unless a
@@ -768,6 +839,24 @@ export function queueSkillExtraction(sessionId: string, distill: DistillFn = dis
       `[skill-extract] queue: throttled during engine cold-start window (${elapsed}ms elapsed of ${CURATOR_COLD_WINDOW_MS}ms) for ${sessionId} — skipping`,
     );
     return;
+  }
+
+  // #1109 — per-session lifetime guard: cheapest check first (in-memory Set).
+  if (_harvestedSessionIds.has(sessionId)) {
+    logger.info(`[skill-extract] queue: session ${sessionId} already harvested (lifetime guard) — skipping`);
+    return;
+  }
+
+  // #1109 — global cooldown: caps burst fan-out across DIFFERENT sessions.
+  if (_lastHarvestFiredAt !== null) {
+    const sinceLast = Date.now() - _lastHarvestFiredAt;
+    const cooldownMs = harvestCooldownMs();
+    if (sinceLast < cooldownMs) {
+      logger.info(
+        `[skill-extract] queue: cooldown active (${sinceLast}ms of ${cooldownMs}ms elapsed) for ${sessionId} — skipping`,
+      );
+      return;
+    }
   }
 
   let rounds = 0;
@@ -785,6 +874,11 @@ export function queueSkillExtraction(sessionId: string, distill: DistillFn = dis
     logger.info(`[skill-extract] queue: below threshold (rounds=${rounds} < ${MIN_ROUNDS}) for ${sessionId} — skipping`);
     return;
   }
+
+  // #1109 — mark BEFORE firing so a session can never race past its own
+  // lifetime guard and so the cooldown clock starts at the actual fire time.
+  _harvestedSessionIds.add(sessionId);
+  _lastHarvestFiredAt = Date.now();
 
   logger.info(`[skill-extract] queued for ${sessionId}`);
   // Fire-and-forget — do NOT await. Swallow any rejection so the caller's

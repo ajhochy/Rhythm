@@ -22,7 +22,7 @@
  * rhythm_managed_skills.managedSkillsRoot() honors).
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
@@ -36,6 +36,15 @@ import { AgentSessionMessagesRepository } from '../repositories/agent_session_me
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { distillFromSession, type LlmCall } from '../services/skill_extractor';
 import { draftSkillExists, draftsRoot } from '../services/rhythm_managed_skills';
+
+// #1112 — distillFromSession's gap-write branch dynamically imports
+// gap_discovery_scheduler.ts (to avoid a static circular dependency: that
+// module imports isEngineColdStart from skill_extractor.ts). Mock it so
+// these tests can assert scheduling fired without a real debounce timer.
+const mockScheduleGapDrivenDiscovery = vi.fn();
+vi.mock('../services/gap_discovery_scheduler', () => ({
+  scheduleGapDrivenDiscovery: mockScheduleGapDrivenDiscovery,
+}));
 
 const SESSION_ID = 'sess-extract-1';
 const AGENT_CONFIG_ID = 'claude-code'; // matches seedSession's agent_kind
@@ -120,6 +129,7 @@ describe('skill_extractor — injected llmCall logic (guard lifted)', () => {
     savedNodeEnv = process.env.NODE_ENV;
     delete process.env.VITEST;
     process.env.NODE_ENV = 'development';
+    mockScheduleGapDrivenDiscovery.mockClear();
   });
 
   afterEach(() => {
@@ -174,6 +184,34 @@ describe('skill_extractor — injected llmCall logic (guard lifted)', () => {
     const bound = JSON.parse(config!.allowedSkillsJson!) as string[];
     expect(bound).toContain('existing-skill');
     expect(bound).toContain(EXPECTED_SKILL_NAME);
+  });
+
+  it('#1112 — a genuinely NEW capability-gap schedules a gap-driven discovery pass', async () => {
+    seedRounds(SESSION_ID, 2);
+    seedScopedAgentConfig(['existing-skill']);
+    const llmCall: LlmCall = async () => VALID_SKILL_JSON;
+
+    await distillFromSession(SESSION_ID, { llmCall });
+
+    expect(mockScheduleGapDrivenDiscovery).toHaveBeenCalledTimes(1);
+  });
+
+  it('#1112 — a dedup re-ask of the SAME intent (already-open gap) does not re-schedule', async () => {
+    seedRounds(SESSION_ID, 2);
+    seedScopedAgentConfig(['existing-skill']);
+    const llmCall: LlmCall = async () => VALID_SKILL_JSON;
+
+    await distillFromSession(SESSION_ID, { llmCall });
+    expect(mockScheduleGapDrivenDiscovery).toHaveBeenCalledTimes(1);
+
+    // A second harvest of the identical intent (same session, seeded fresh
+    // below) re-asks the SAME dedup_key — insertIfAbsentAsync returns the
+    // existing row unchanged (inserted: false), so scheduling must not fire
+    // again even though the gap-write branch itself runs again.
+    seedRounds(SESSION_ID, 2);
+    await distillFromSession(SESSION_ID, { llmCall });
+
+    expect(mockScheduleGapDrivenDiscovery).toHaveBeenCalledTimes(1);
   });
 
   it('strips the injected Known context memory preface from the distill transcript', async () => {

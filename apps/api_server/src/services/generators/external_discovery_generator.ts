@@ -295,6 +295,14 @@ export async function runExternalDiscoveryGenerator(
 export interface InstallCuratedMcpResult {
   changed: boolean;
   registered: boolean;
+  /**
+   * #1114 — before_snapshot_json the external-adoption revert path would
+   * replay (the needing agent's prior allowedMcpsJson), mirroring
+   * InstallSkillResult.beforeSnapshotJson. Optional: a candidate install
+   * with no agentConfigId (gap had no known requester) has nothing to wire
+   * or snapshot.
+   */
+  beforeSnapshotJson?: string;
 }
 
 /** Result of running the skill-adopt path for an adopted external skill. */
@@ -331,6 +339,30 @@ function isExternalAdoptionChange(v: unknown): v is ExternalAdoptionChange {
 }
 
 /**
+ * #1114 — resolve the capability-gap a proposal's `signalRef` (`gapId:<dedup_
+ * key>`) points at. Mirrors org_proposal_measure.ts's identical resolve call
+ * on the skill path's `active` transition (same dynamic import, to avoid
+ * pulling the repository — and its own dependents — into every module that
+ * imports this generator). Never throws; a resolve failure is logged and
+ * swallowed, matching AgentCapabilityGapsRepository.resolveByDedupKeyAsync's
+ * own no-op-on-unknown-key contract.
+ */
+async function resolveOriginatingGap(proposal: AgentOrgProposal): Promise<void> {
+  try {
+    const dedupKey = (proposal.signalRef ?? '').replace(/^gapId:/, '').trim();
+    if (!dedupKey) return;
+    const { AgentCapabilityGapsRepository } = await import(
+      '../../repositories/agent_capability_gaps_repository'
+    );
+    await new AgentCapabilityGapsRepository().resolveByDedupKeyAsync(dedupKey);
+  } catch (err) {
+    logger.warn(
+      `[external-discovery-generator] resolve capability-gap failed for '${proposal.id}' (non-fatal): ${String(err)}`,
+    );
+  }
+}
+
+/**
  * Dependencies the applier needs at approval time. Production callers wire
  * these to the REAL curated-MCP install path (`OpencodeClientService
  * .ensureCuratedMcps`), the real skill-create path, and the real alignment
@@ -342,6 +374,15 @@ export interface ExternalAdoptionApplyDeps {
   installCuratedMcp: (input: {
     serverName: string;
     installCommand?: string;
+    /**
+     * #1114 — the agent that needs this MCP server (from the originating
+     * capability-gap). When present, the REAL implementation wires the
+     * server into JUST this agent's allowedMcpsJson (secretary-MCP-scope
+     * lesson: a curated install must never leave a newly-adopted server
+     * globally enabled for every agent). Absent for a gap with no known
+     * requester — install proceeds but wires nothing.
+     */
+    agentConfigId?: string;
   }) => Promise<InstallCuratedMcpResult>;
   installSkill: (input: {
     skillName: string;
@@ -419,6 +460,7 @@ export function registerExternalAdoptionApplier(
       const installResult = await deps.installCuratedMcp({
         serverName,
         installCommand: change.installCommand,
+        agentConfigId: change.agentConfigId,
       });
       if (!installResult.changed && !installResult.registered) {
         throw new Error(
@@ -435,7 +477,17 @@ export function registerExternalAdoptionApplier(
         );
       }
 
-      return { measurable: false };
+      // #1114 — MCP adoption is `measurable: false` (a one-shot install, not
+      // a behavioral measure/keep/revert candidate — there is no downloaded
+      // body or replayable session shape for it, unlike a skill). Its
+      // terminal state is `applied`, which never reaches org_proposal_
+      // measure.ts's `active`-transition resolve call (the skill path's own
+      // gap-resolution site). Resolve the originating capability-gap HERE,
+      // immediately on a successful install+align, so a gap is never left
+      // dangling `open` just because its fix took the MCP branch.
+      await resolveOriginatingGap(proposal);
+
+      return { measurable: false, beforeSnapshotJson: installResult.beforeSnapshotJson };
     }
 
     // candidateKind === 'skill'

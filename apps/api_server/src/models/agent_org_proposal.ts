@@ -3,10 +3,14 @@
  *
  * Foundation store every optimizer generator and the human review queue write
  * to (see docs/ai/decisions/2026-06-29-org-self-optimizer-cron.md §5 for the
- * full design). Local SQLite (agent DB) only — this table is intentionally
- * NOT added to postgres_bootstrap.ts; proposals are local-only and never
- * synced to production, matching the `agent_skills` / `agent_scheduled_tasks`
- * / `agent_webhook_endpoints` precedent.
+ * full design). Dual-engine (proposals-parity fix, #1113 sibling): also
+ * present in postgres_bootstrap.ts. The decision doc's original "local SQLite
+ * only, never synced to production" call predates #1111/#1113, which made
+ * the org-optimizer's own seed run against a Postgres-backed deployment
+ * (gated on the deployment ROLE, not the DB engine — see
+ * org_optimizer_seed.ts) — so the optimizer, and every proposal it writes,
+ * now genuinely runs there too. See AgentOrgProposalsRepository's dual-engine
+ * branch for the read/write paths.
  *
  * Lifecycle/revert mechanics mirror the `agent_skills` sidecar
  * (see models/agent_skill.ts): `before_snapshot_json` plays the role
@@ -15,11 +19,13 @@
  *
  * Status state machine (enforced by AgentOrgProposalsRepository.updateStatusAsync):
  *
- *   proposed  -> approved | rejected | applied
+ *   proposed  -> approved | rejected | applied | failed
  *   approved  -> applied
  *   applied   -> measuring
  *   measuring -> active | reverted
  *   active    -> reverted   (#857 — human-triggered undo of an already-kept proposal)
+ *   failed    -> applied | failed   (#1056 — retryable: a re-approve re-runs
+ *                                    the same apply step)
  *
  * `proposed -> applied` (skipping `approved`) is the auto-apply lane for
  * low-risk, reversible proposals per the maintainer's full-autonomy-with-
@@ -36,7 +42,7 @@ export interface AgentOrgProposal {
    * create-agent|grant-delegation|expand-delegation|broaden-scope|
    * tighten-scope|prune-scope|create-recipe|refine-recipe|refine-skill|
    * consolidate-skill|external-adoption|webhook-wiring|refine-config|
-   * refine-scope|workflow-prompt-fix|refine-task
+   * refine-scope|workflow-prompt-fix|refine-task|publish-skill-to-org
    */
   kind: string;
   /** 'low' | 'high' — from classifyProposalRisk. */
@@ -44,7 +50,7 @@ export interface AgentOrgProposal {
   /** 1 for external-adoption (extra vetting gate); 0 otherwise. */
   external: number;
   /**
-   * proposed|approved|rejected|applied|measuring|active|reverted.
+   * proposed|approved|rejected|applied|measuring|active|reverted|failed.
    * See the state machine documented above.
    */
   status: string;

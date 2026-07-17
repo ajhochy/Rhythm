@@ -33,6 +33,12 @@ function parseOptions(body: unknown): RunOrgOptimizerOptions {
 export class OrgOptimizerRunController {
   async run(req: Request, res: Response, next: NextFunction) {
     try {
+      // #1115 — a full pass can run 200-600s. Disable this socket's
+      // inactivity timeout so the server side can't tear the connection
+      // down mid-run, matching the raised client-side timeout in
+      // mcp_server/api_client.ts (defense-in-depth: Node's http.Server has
+      // no timeout by default, but don't depend on that implicit default).
+      req.socket?.setTimeout(0);
       const options = parseOptions(req.body);
       const result = await runOrgOptimizer(options);
       res.json(result);

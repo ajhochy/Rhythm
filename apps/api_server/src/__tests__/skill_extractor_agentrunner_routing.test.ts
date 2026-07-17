@@ -85,7 +85,7 @@ describe('skill_extractor — USO B5 routes the distill loop through AgentRunner
     else process.env.NODE_ENV = savedNodeEnv;
   });
 
-  it('invokes run() with category self_improvement, a zero-MCP scope, and the distill prompt', async () => {
+  it('invokes run() with category self_improvement, a zero-MCP/zero-skill scope, cheap tier, and the distill prompt', async () => {
     seedRounds(SESSION_ID, 2);
 
     // No injected llmCall — the real defaultLlmCall (→ run()) is exercised.
@@ -99,13 +99,18 @@ describe('skill_extractor — USO B5 routes the distill loop through AgentRunner
     expect(opts.sessionName).toBe('skill-extract');
     expect(opts.mcpRole).toBe('skill-extract');
     expect(opts.allowedMcpsJson).toBe('{}');
+    // #1110 — deny-all skills so the engine's system prompt carries no
+    // ~104-skill listing (mirrors the existing allowedMcpsJson: '{}').
+    expect(opts.allowedSkillsJson).toBe('[]');
     // agentConfigId is intentionally NOT passed (keeps the zero-tool config).
     expect(opts.agentConfigId).toBeUndefined();
     // The distill prompt (system + transcript) is forwarded verbatim.
     expect(String(opts.prompt)).toContain('Conversation:');
     expect(String(opts.prompt)).toContain("Extract a reusable 'skill'");
-    // Model resolved via the mocked resolveRunModel (session carries no model).
-    expect(opts.modelOverride).toEqual({ providerID: 'anthropic', modelID: 'claude-sonnet-4-6' });
+    // #1110 — cheap tier via taskKind, NOT the extracting session's own
+    // (potentially frontier) model. No modelOverride is forced anymore.
+    expect(opts.taskKind).toBe('summarization');
+    expect(opts.modelOverride).toBeUndefined();
   });
 
   it('maps a run() error to the empty-string decline path (no draft, no throw)', async () => {

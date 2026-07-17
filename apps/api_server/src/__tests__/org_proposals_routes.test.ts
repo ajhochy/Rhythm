@@ -287,6 +287,29 @@ describe('issue-826: human-gate review queue API', () => {
     expect(restoredList.sort()).toEqual(['nfl-mcp', 'rhythm'].sort());
   });
 
+  it('#1056: approve accepts a failed proposal for retry, not just proposed', async () => {
+    // Bug this catches: publish-skill-to-org's applier marks a prod-down
+    // proposal 'failed' (see issue_1056_publish_skill_to_org.test.ts); if
+    // approve() only accepted 'proposed', a human could never retry it after
+    // fixing connectivity — it would be stuck 409-conflicting forever.
+    const proposal = await repo.createAsync({
+      kind: 'create-agent',
+      risk: 'high',
+      title: 'Retryable after a failed apply attempt',
+      dedupKey: 'create-agent:retry-after-failed',
+      changeJson: JSON.stringify({ agentSlug: 'retry-agent' }),
+    });
+    await repo.updateStatusAsync(proposal.id, 'failed');
+
+    const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, {
+      method: 'POST',
+    });
+
+    expect(res.status).toBe(200);
+    const stored = await repo.findByIdAsync(proposal.id);
+    expect(stored?.status).not.toBe('failed');
+  });
+
   it('issue-857-c7b: revert refused (4xx) for a proposal that is not active', async () => {
     const proposal = await repo.createAsync({
       kind: 'create-agent',

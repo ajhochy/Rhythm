@@ -22,6 +22,11 @@ import { startTestServer } from './helpers/real_server';
 const MANAGED_DIR = mkdtempSync(join(tmpdir(), 'rhythm-managed-skills-'));
 process.env.RHYTHM_MANAGED_SKILLS_DIR = MANAGED_DIR;
 
+// #1055 — same redirection for the org-skills cache dir (where the engine
+// lands skills.urls-pulled org skills once #1054 wires it up).
+const ORG_CACHE_DIR = mkdtempSync(join(tmpdir(), 'rhythm-org-skills-cache-'));
+process.env.RHYTHM_ORG_SKILLS_CACHE_DIR = ORG_CACHE_DIR;
+
 const reloadSkills = vi.fn().mockResolvedValue([]);
 const listSkills = vi.fn();
 // #929 — was a hardcoded `() => Promise.resolve([])`; promoted to a vi.fn()
@@ -83,6 +88,30 @@ describe('/opencode/skills', () => {
     expect(body.find((s) => s.name === 'docx')!.managed).toBe(false);
     // content is never surfaced
     expect(body[0]).not.toHaveProperty('content');
+  });
+
+  // #1055 — Skills UI source badges: `source` classifies every live skill as
+  // managed (Rhythm-authored, writable), org (pulled from the shared org index
+  // via skills.urls — read-only), or external (everything else). Org skills
+  // land under the engine's skills-cache dir (RHYTHM_ORG_SKILLS_CACHE_DIR in
+  // tests) once #1054 wires skills.urls; this route only needs to recognize
+  // that location and classify it — no #1054 wiring is exercised here.
+  it('GET / classifies each entry\'s source as managed, org, or external', async () => {
+    const managedLoc = join(MANAGED_DIR, 'my-skill', 'SKILL.md');
+    const orgLoc = join(ORG_CACHE_DIR, 'shared-onboarding', 'SKILL.md');
+    listSkills.mockResolvedValueOnce([
+      { name: 'my-skill', description: 'Rhythm owned', location: managedLoc },
+      { name: 'shared-onboarding', description: 'Org shared', location: orgLoc },
+      { name: 'docx', description: 'External', location: '/Users/x/.claude/skills/docx/SKILL.md' },
+    ]);
+
+    const res = await fetch(`${baseUrl}/opencode/skills`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<{ name: string; source: string }>;
+
+    expect(body.find((s) => s.name === 'my-skill')!.source).toBe('managed');
+    expect(body.find((s) => s.name === 'shared-onboarding')!.source).toBe('org');
+    expect(body.find((s) => s.name === 'docx')!.source).toBe('external');
   });
 
   it('POST / writes a SKILL.md inside the managed dir and reloads', async () => {
@@ -378,6 +407,7 @@ describe('/opencode/skills', () => {
 
   afterAll(() => {
     rmSync(MANAGED_DIR, { recursive: true, force: true });
+    rmSync(ORG_CACHE_DIR, { recursive: true, force: true });
   });
 });
 

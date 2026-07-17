@@ -694,6 +694,91 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_agent_skill_versions_skill_id ON agent_skill_versions(skill_id)`,
   );
 
+  // #1113 (Discovery-005) — agent_capability_gaps: this table was previously
+  // missing from the Postgres path entirely (same missing-CREATE drift class
+  // as agent_configs/agent_sessions below); AgentCapabilityGapsRepository
+  // silently fell back to a throwaway in-memory SQLite DB under Postgres, so
+  // every gap vanished per-instance. Column set MUST stay identical to the
+  // SQLite migration (migrations.ts) — enforced by skill_schema_parity.test.ts.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_capability_gaps (
+      id                TEXT PRIMARY KEY,
+      dedup_key         TEXT NOT NULL UNIQUE,
+      intent_title      TEXT NOT NULL,
+      intent_problem    TEXT,
+      intent_tags_json  TEXT,
+      sample_session_id TEXT,
+      agent_config_id   TEXT,
+      status            TEXT NOT NULL DEFAULT 'open',
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_capability_gaps_status ON agent_capability_gaps(status)`,
+  );
+
+  // proposals-parity fix (#1113 sibling) — agent_org_proposals: the org
+  // self-optimizer's proposal store + lifecycle state machine. Previously
+  // missing from the Postgres path entirely per a now-reversed decision
+  // (docs/ai/decisions/2026-06-29-org-self-optimizer-cron.md §5 — "proposals
+  // are local-only, never synced to production"); that assumption predates
+  // #1111/#1113 making the optimizer's own seed run on a Postgres-backed
+  // deployment (role-gated, not engine-gated — see org_optimizer_seed.ts), so
+  // the optimizer now genuinely writes proposals against Postgres-backed
+  // prod. Without this table AgentOrgProposalsRepository fell back to the
+  // same throwaway in-memory SQLite DB #1113 fixed for agent_capability_gaps
+  // — every proposal vanished per-instance. Column set MUST stay identical to
+  // the SQLite migration (migrations.ts) — enforced by skill_schema_parity.test.ts.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_org_proposals (
+      id            TEXT PRIMARY KEY,
+      audit_run_id  TEXT,
+      kind          TEXT NOT NULL,
+      risk          TEXT NOT NULL,
+      external      INTEGER DEFAULT 0,
+      status        TEXT NOT NULL DEFAULT 'proposed',
+      title         TEXT NOT NULL,
+      rationale     TEXT,
+      signal_ref    TEXT,
+      target_ref    TEXT,
+      change_json   TEXT,
+      before_snapshot_json TEXT,
+      provenance_json TEXT,
+      dedup_key     TEXT,
+      baseline_score INTEGER,
+      post_score     INTEGER,
+      measure_reason TEXT,
+      decided_by_user_id INTEGER,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_proposals_status ON agent_org_proposals(status)`,
+  );
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_org_proposals_dedup ON agent_org_proposals(dedup_key)`,
+  );
+
+  // #1053 (OCU-12) — org_skills: matching table for the production org skill
+  // library (see migrations.ts for the full rationale — public reads, authed
+  // writes, single-file SKILL.md-only model for now). Column set MUST stay
+  // identical to the SQLite migration — enforced by skill_schema_parity.test.ts.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_skills (
+      name        TEXT PRIMARY KEY,
+      description TEXT,
+      content     TEXT NOT NULL,
+      published   BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_skills_published ON org_skills(published)`,
+  );
+
   // agent_configs — user-configurable list of CLI agents (issue #481 / #466).
   // NOTE: this CREATE was previously missing from the Postgres path; only the SQLite
   // migrations.ts created it, while the ALTERs below assumed it existed. On a Postgres
