@@ -26,6 +26,7 @@ import '../../agent_optimizer/views/org_proposals_view.dart';
 import '../../agent_research/views/agent_research_view.dart';
 import '../../agent_schedules/views/agent_schedules_view.dart';
 import '../../agent_skills/views/agent_skills_view.dart';
+import '../../agent_playbooks/views/agent_playbooks_view.dart';
 import '../../agent_webhooks/views/agent_webhooks_view.dart';
 import '../../run_quality/views/run_quality_view.dart';
 import '../../settings/views/settings_view.dart';
@@ -859,6 +860,18 @@ class _ToolsSection extends StatelessWidget {
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => const AgentSkillsView(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          _ToolsRow(
+            key: const ValueKey('tools-row-playbooks'),
+            icon: '📜',
+            label: 'Playbooks',
+            subtitle: 'Custom slash commands',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AgentPlaybooksView(),
               ),
             ),
           ),
