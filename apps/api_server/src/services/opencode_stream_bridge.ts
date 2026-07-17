@@ -409,6 +409,62 @@ export class OpencodeStreamBridge {
   }
 
   /**
+   * OCU-04 (#1045) — reconcile locally-persisted session status against the
+   * engine's authoritative GET /session/status map on engine ready / stream
+   * (re)subscribe. Session status is otherwise tracked only from live events;
+   * a missed event (engine restart, api_server restart, stream gap) leaves a
+   * row stuck 'working'/'starting' forever.
+   *
+   * For every local row still in 'working'/'starting': if the engine reports
+   * it idle (status.type !== 'busy') OR the engine doesn't know it at all
+   * (absent from the map — the engine treats unknown sessions as idle), correct
+   * the row to 'idle' and broadcast the corrected status.
+   *
+   * Error-precedence rule (shared with the live status/idle handlers): rows in
+   * status='error' are NEVER clobbered — listActive() already excludes them, so
+   * this is naturally satisfied, but the guard is kept explicit for safety.
+   *
+   * Idempotent and non-fatal: any per-row failure is logged and skipped; a
+   * row the engine reports busy is left untouched.
+   */
+  async reconcileSessionStatuses(directory?: string): Promise<void> {
+    let statusMap: Record<string, { type: string }>;
+    try {
+      statusMap = await opencodeClient.getSessionStatuses(directory);
+    } catch {
+      return;
+    }
+    let active: AgentSession[];
+    try {
+      active = this.sessionsRepo.listActive();
+    } catch (err) {
+      logger.error('[OpencodeStreamBridge] reconcileSessionStatuses: listActive failed:', err);
+      return;
+    }
+    for (const session of active) {
+      // Error-precedence: listActive() only returns starting/working/idle rows,
+      // so an error row is never in this set and is never clobbered (#1045 AC).
+      if (session.status !== 'working' && session.status !== 'starting') continue;
+      if (this.stoppedSessions.has(session.id)) continue;
+      const sdkId = session.sdkSessionId;
+      const engineStatus = sdkId ? statusMap[sdkId] : undefined;
+      // Busy engine-side → leave as-is. Idle OR unknown → correct to idle.
+      if (engineStatus && engineStatus.type === 'busy') continue;
+      try {
+        this.sessionsRepo.updateStatus(session.id, 'idle');
+        broadcast({ v: 1, type: 'session.status', id: session.id, working: false });
+        const updated = this.sessionsRepo.findById(session.id);
+        if (updated) broadcastSessionUpdated(updated);
+      } catch (err) {
+        logger.error(
+          `[OpencodeStreamBridge] reconcileSessionStatuses: failed to correct ${session.id}:`,
+          err,
+        );
+      }
+    }
+  }
+
+  /**
    * Start streaming events for a given local session.
    * Subscribes (idempotently) to the opencode /event SSE for the session's
    * cwd. Multiple sessions in the same directory share a single subscriber.
@@ -459,6 +515,9 @@ export class OpencodeStreamBridge {
       // are idempotent, so a card the live stream also redelivers is deduped.
       void this.recoverPendingQuestions(directory);
       void this.recoverPendingPermissions(directory);
+      // OCU-04 (#1045) — reconcile any row left stuck 'working'/'starting' by a
+      // missed event before this (re)subscribe, using the engine's status map.
+      void this.reconcileSessionStatuses(directory);
       logger.info(
         `[OpencodeStreamBridge] Subscribed to events for directory=${directory} (session=${localSessionId})`,
       );

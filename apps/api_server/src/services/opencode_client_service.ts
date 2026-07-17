@@ -1849,6 +1849,34 @@ export class OpencodeClientService {
   }
 
   /**
+   * GET /session/status (OCU-04 #1045) — the engine's authoritative status map
+   * for all sessions: `Record<sdkSessionId, { type: 'idle' | 'busy', ... }>`.
+   * A session the engine does not know about is absent from the map (the engine
+   * treats an unknown session as idle). Used to reconcile local DB rows stuck
+   * 'working'/'starting' after a missed event (engine/api_server restart, stream
+   * gap). Raw fetch (mirrors {@link listQuestions}) — the SDK client does not
+   * generate this instance route. Never throws — returns {} on any failure so a
+   * reconcile pass degrades to "no correction" rather than crashing the caller.
+   */
+  async getSessionStatuses(
+    directory?: string,
+  ): Promise<Record<string, { type: string }>> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const res = await fetch(`${this.serverUrl}/session/status${qs}`);
+      if (!res.ok) {
+        logger.warn('[OpencodeClientService] getSessionStatuses HTTP %s', res.status);
+        return {};
+      }
+      const data = (await res.json()) as Record<string, { type: string }>;
+      return data && typeof data === 'object' ? data : {};
+    } catch (err) {
+      logger.error('[OpencodeClientService] getSessionStatuses failed:', err);
+      return {};
+    }
+  }
+
+  /**
    * POST /session/{id}/command — dispatch a slash-command in the session.
    *
    * Returns null when the SDK returns an error envelope.
