@@ -278,6 +278,11 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   String ptyWsUrl(String ptyId) => 'ws://localhost:4001/ws/pty/$ptyId';
+
+  // OCU-19..25 (#1060-#1066): vcs/shell/init/files methods added to
+  // AgentsRepository — not exercised by this test file, so fall back.
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeAgentModelsDataSource extends AgentModelsDataSource {

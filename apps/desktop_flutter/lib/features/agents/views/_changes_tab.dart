@@ -17,6 +17,9 @@
 ///   ChangesTabBadge(sessionId: session.id)
 library;
 
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:rhythm_desktop/app/core/ui/tokens/rhythm_theme.dart';
@@ -28,15 +31,29 @@ import 'package:rhythm_desktop/features/agents/models/chat_models.dart';
 // ChangesTab
 // ---------------------------------------------------------------------------
 
-/// Displays working-tree file diffs for a session.
+/// OCU-23 (#1064) — which diff [ChangesTab] is currently showing.
+enum ChangesScope {
+  /// This session only: GET /agent-sessions/:id/diff (existing M3-1 path).
+  session('This session'),
+
+  /// All uncommitted working-tree changes: GET /vcs/diff?mode=git.
+  allUncommitted('All uncommitted'),
+
+  /// Full diff vs the default branch: GET /vcs/diff?mode=branch.
+  vsDefaultBranch('vs default branch');
+
+  const ChangesScope(this.label);
+  final String label;
+}
+
+/// Displays working-tree file diffs for a session, with a scope toggle
+/// between the session-scoped diff and the two vcs/diff proxy modes.
 ///
-/// [diffEntries] is a list of raw FileDiff JSON maps with keys:
-///   file (String), before (String), after (String),
-///   additions (int), deletions (int).
-///
-/// This widget is stateless — the parent (usually [AgentsController]) owns
-/// the fetch lifecycle and passes results in here.
-class ChangesTab extends StatelessWidget {
+/// [diffEntries]/[isLoading]/[errorMessage] are the [ChangesScope.session]
+/// data (owned by [AgentsController.fetchSessionDiff], same as before M3-1).
+/// The other two scopes are fetched lazily on first selection and read
+/// directly from [AgentsController].
+class ChangesTab extends StatefulWidget {
   const ChangesTab({
     super.key,
     required this.sessionId,
@@ -51,9 +68,106 @@ class ChangesTab extends StatelessWidget {
   final String? errorMessage;
 
   @override
+  State<ChangesTab> createState() => _ChangesTabState();
+}
+
+class _ChangesTabState extends State<ChangesTab> {
+  ChangesScope _scope = ChangesScope.session;
+
+  void _selectScope(ChangesScope scope) {
+    setState(() => _scope = scope);
+    final controller = context.read<AgentsController>();
+    switch (scope) {
+      case ChangesScope.session:
+        break;
+      case ChangesScope.allUncommitted:
+        controller.fetchVcsDiff(widget.sessionId, 'git');
+      case ChangesScope.vsDefaultBranch:
+        controller.fetchVcsDiff(widget.sessionId, 'branch');
+    }
+  }
+
+  Future<void> _exportPatch(BuildContext context) async {
+    final controller = context.read<AgentsController>();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final patch = await controller.fetchVcsDiffRaw(widget.sessionId);
+      final path = await FilePicker.saveFile(
+        dialogTitle: 'Export patch',
+        fileName: '${widget.sessionId}.patch',
+        type: FileType.custom,
+        allowedExtensions: const ['patch', 'diff'],
+      );
+      if (path == null) return; // user cancelled the save dialog
+      await File(path).writeAsString(patch);
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Patch exported to $path')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Export failed: $e')),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+
+    final List<Map<String, dynamic>> entries;
+    final bool isLoading;
+    final String? errorMessage;
+    final bool patchMode;
+    switch (_scope) {
+      case ChangesScope.session:
+        entries = widget.diffEntries;
+        isLoading = widget.isLoading;
+        errorMessage = widget.errorMessage;
+        patchMode = false;
+      case ChangesScope.allUncommitted:
+        entries = controller.vcsDiffFor(widget.sessionId, 'git');
+        isLoading = controller.vcsDiffLoading(widget.sessionId, 'git');
+        errorMessage = controller.vcsDiffErrorFor(widget.sessionId, 'git');
+        patchMode = true;
+      case ChangesScope.vsDefaultBranch:
+        entries = controller.vcsDiffFor(widget.sessionId, 'branch');
+        isLoading = controller.vcsDiffLoading(widget.sessionId, 'branch');
+        errorMessage = controller.vcsDiffErrorFor(widget.sessionId, 'branch');
+        patchMode = true;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _ScopeToggleRow(
+          scope: _scope,
+          onSelect: _selectScope,
+          onExport: () => _exportPatch(context),
+        ),
+        Expanded(
+          child: _buildBody(
+            context,
+            entries: entries,
+            isLoading: isLoading,
+            errorMessage: errorMessage,
+            patchMode: patchMode,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBody(
+    BuildContext context, {
+    required List<Map<String, dynamic>> entries,
+    required bool isLoading,
+    required String? errorMessage,
+    required bool patchMode,
+  }) {
     // Loading state.
-    if (isLoading && diffEntries.isEmpty) {
+    if (isLoading && entries.isEmpty) {
       return Center(
         child: CircularProgressIndicator(
           strokeWidth: 2,
@@ -68,7 +182,7 @@ class ChangesTab extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            errorMessage!,
+            errorMessage,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13,
@@ -80,7 +194,7 @@ class ChangesTab extends StatelessWidget {
     }
 
     // Empty state — "No file changes yet" (c3).
-    if (diffEntries.isEmpty) {
+    if (entries.isEmpty) {
       return Center(
         child: Text(
           'No file changes yet',
@@ -92,29 +206,162 @@ class ChangesTab extends StatelessWidget {
       );
     }
 
-    // Summary header (files / +adds / −dels) + revert/restore controls,
-    // then one file row per diff entry (c2).
+    // Summary header (files / +adds / −dels) + revert/restore controls for
+    // the session scope only, then one file row per diff entry (c2).
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _ChangesSummaryHeader(
-          sessionId: sessionId,
-          diffEntries: diffEntries,
-        ),
+        _scope == ChangesScope.session
+            ? _ChangesSummaryHeader(
+                sessionId: widget.sessionId,
+                diffEntries: entries,
+              )
+            : _ScopeSummaryHeader(diffEntries: entries),
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.all(12),
-            itemCount: diffEntries.length,
+            itemCount: entries.length,
             itemBuilder: (context, index) {
-              final entry = diffEntries[index];
+              final entry = entries[index];
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: _FileDiffRow(entry: entry),
+                child: _FileDiffRow(entry: entry, patchMode: patchMode),
               );
             },
           ),
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _ScopeToggleRow
+// ---------------------------------------------------------------------------
+
+/// Segmented [ChangesScope] toggle + the "Export patch" action.
+class _ScopeToggleRow extends StatelessWidget {
+  const _ScopeToggleRow({
+    required this.scope,
+    required this.onSelect,
+    required this.onExport,
+  });
+
+  final ChangesScope scope;
+  final ValueChanged<ChangesScope> onSelect;
+  final VoidCallback onExport;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: [
+                for (final s in ChangesScope.values)
+                  _ScopeChip(
+                    label: s.label,
+                    selected: s == scope,
+                    onTap: () => onSelect(s),
+                    scopeKey: s.name,
+                  ),
+              ],
+            ),
+          ),
+          Tooltip(
+            message: 'Export patch',
+            child: IconButton(
+              key: const ValueKey('changes-export-patch-button'),
+              onPressed: onExport,
+              icon: const Icon(Icons.ios_share, size: 16),
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScopeChip extends StatelessWidget {
+  const _ScopeChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    required this.scopeKey,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final String scopeKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      key: ValueKey('changes-scope-$scopeKey'),
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: selected ? context.rhythm.accentMuted : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected ? context.rhythm.accent : context.rhythm.border,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: selected ? context.rhythm.accent : context.rhythm.textMuted,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Lightweight file-count summary for the two vcs/diff scopes (no
+/// revert/restore — those are session-transcript concepts only).
+class _ScopeSummaryHeader extends StatelessWidget {
+  const _ScopeSummaryHeader({required this.diffEntries});
+
+  final List<Map<String, dynamic>> diffEntries;
+
+  @override
+  Widget build(BuildContext context) {
+    var adds = 0;
+    var dels = 0;
+    for (final entry in diffEntries) {
+      adds += (entry['additions'] as num?)?.toInt() ?? 0;
+      dels += (entry['deletions'] as num?)?.toInt() ?? 0;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceRaised,
+        border: Border(
+          bottom: BorderSide(color: context.rhythm.borderSubtle),
+        ),
+      ),
+      child: Text(
+        '${diffEntries.length} files · +$adds −$dels',
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          fontFamily: 'JetBrainsMono',
+          color: context.rhythm.textSecondary,
+        ),
+      ),
     );
   }
 }
@@ -281,9 +528,13 @@ class _ChangesSummaryHeader extends StatelessWidget {
 /// the full [UnifiedDiffView]. Uses the existing [_UnifiedDiffView] widget by
 /// constructing a synthetic [ChatPart] from the FileDiff fields.
 class _FileDiffRow extends StatefulWidget {
-  const _FileDiffRow({required this.entry});
+  const _FileDiffRow({required this.entry, this.patchMode = false});
 
   final Map<String, dynamic> entry;
+
+  /// OCU-23 (#1064): true for vcs/diff entries, which carry a raw unified
+  /// `patch` string instead of split `before`/`after` content.
+  final bool patchMode;
 
   @override
   State<_FileDiffRow> createState() => _FileDiffRowState();
@@ -386,11 +637,16 @@ class _FileDiffRowState extends State<_FileDiffRow> {
             Padding(
               padding: const EdgeInsets.all(8),
               child: UnifiedDiffView(
-                part: _buildSyntheticPart(
-                  file: file,
-                  before: before,
-                  after: after,
-                ),
+                part: widget.patchMode
+                    ? _buildSyntheticPatchPart(
+                        file: file,
+                        patch: (entry['patch'] as String?) ?? '',
+                      )
+                    : _buildSyntheticPart(
+                        file: file,
+                        before: before,
+                        after: after,
+                      ),
               ),
             ),
           ],
@@ -425,6 +681,34 @@ class _FileDiffRowState extends State<_FileDiffRow> {
           'oldContent': before,
           'newContent': after,
         },
+      },
+    });
+    return part;
+  }
+
+  /// OCU-23 (#1064): vcs/diff entries carry a raw unified `patch` string (not
+  /// split before/after content). [UnifiedDiffView] renders that as plain
+  /// monospace output when `oldContent`/`newContent` are both absent — so this
+  /// reuses the existing widget without modification, matching the issue's
+  /// "render all three scopes through the existing UnifiedDiffView" scope.
+  ChatPart _buildSyntheticPatchPart({
+    required String file,
+    required String patch,
+  }) {
+    final part = ChatPart(
+      id: 'diff-$file',
+      messageId: '',
+      type: 'tool',
+      text: '',
+    );
+    part.mergePart({
+      'id': 'diff-$file',
+      'type': 'tool',
+      'tool': 'edit',
+      'state': {
+        'status': 'completed',
+        'input': {'filePath': file},
+        'output': patch,
       },
     });
     return part;

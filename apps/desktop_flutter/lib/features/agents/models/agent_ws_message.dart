@@ -55,6 +55,8 @@ abstract class AgentWsMessage {
         return SessionTodoUpdatedMessage.fromJson(json);
       case 'session.spillover':
         return SessionSpilloverMessage.fromJson(json);
+      case 'vcs.branch.updated':
+        return VcsBranchUpdatedMessage.fromJson(json);
       case 'error':
         return WsErrorMessage.fromJson(json);
       default:
@@ -571,6 +573,20 @@ class SessionSpilloverMessage extends AgentWsMessage {
       fromAccountId: asString(json['fromAccountId']) ?? '',
       toAccountId: asString(json['toAccountId']) ?? '',
     );
+  }
+}
+
+/// OCU-22 (#1063) — `vcs.branch.updated` is project-scoped (no sessionID; the
+/// bridge relays it as a bare top-level frame). [branch] is the new branch
+/// name when known. The client refetches vcs info for the selected session on
+/// receipt since the frame doesn't identify which directory changed.
+class VcsBranchUpdatedMessage extends AgentWsMessage {
+  const VcsBranchUpdatedMessage({this.branch});
+
+  final String? branch;
+
+  factory VcsBranchUpdatedMessage.fromJson(Map<String, dynamic> json) {
+    return VcsBranchUpdatedMessage(branch: asString(json['branch']));
   }
 }
 

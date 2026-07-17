@@ -593,6 +593,160 @@ class AgentsDataSource {
   }
 
   // --------------------------------------------------------------------------
+  // VCS (OCU-22 #1063 / OCU-23 #1064)
+  // --------------------------------------------------------------------------
+
+  /// GET /agent-sessions/:id/vcs — `{branch?, default_branch?}` for the
+  /// session's directory. Returns `{}` (both null) for a non-git directory.
+  Future<Map<String, dynamic>> getVcs(String sessionId) async {
+    final response = await _client.get(
+      Uri.parse('$_baseUrl/agent-sessions/$sessionId/vcs'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  /// GET /agent-sessions/:id/vcs/status — changed files in the working tree.
+  /// Each entry: `{file, additions, deletions, status}`.
+  Future<List<Map<String, dynamic>>> getVcsStatus(String sessionId) async {
+    final response = await _client.get(
+      Uri.parse('$_baseUrl/agent-sessions/$sessionId/vcs/status'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list.cast<Map<String, dynamic>>();
+  }
+
+  /// GET /agent-sessions/:id/vcs/diff?mode= — structured diff. `mode` is
+  /// 'git' (working-tree uncommitted) or 'branch' (vs the default branch).
+  /// Each entry: `{file, patch, additions, deletions, status}`.
+  Future<List<Map<String, dynamic>>> getVcsDiff(
+    String sessionId,
+    String mode,
+  ) async {
+    final response = await _client.get(
+      Uri.parse('$_baseUrl/agent-sessions/$sessionId/vcs/diff?mode=$mode'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list.cast<Map<String, dynamic>>();
+  }
+
+  /// GET /agent-sessions/:id/vcs/diff/raw — the raw text/x-diff patch for
+  /// uncommitted working-tree changes (used by the Changes-tab patch export).
+  Future<String> getVcsDiffRaw(String sessionId) async {
+    final response = await _client.get(
+      Uri.parse('$_baseUrl/agent-sessions/$sessionId/vcs/diff/raw'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    return response.body;
+  }
+
+  // --------------------------------------------------------------------------
+  // session.shell / session.init (OCU-24 #1065 / OCU-25 #1066)
+  // --------------------------------------------------------------------------
+
+  /// POST /agent-sessions/:id/shell {command} — run a non-interactive shell
+  /// command through the session so the invocation + output land in history.
+  Future<void> shellCommand(String sessionId, String command) async {
+    final response = await _client.post(
+      Uri.parse('$_baseUrl/agent-sessions/$sessionId/shell'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({'command': command}),
+    );
+    assertOk(response);
+  }
+
+  /// POST /agent-sessions/:id/init — run the engine's init flow (analyze the
+  /// project + generate/update AGENTS.md). Progress streams via the normal
+  /// transcript. The server defaults providerID/modelID/messageID from the
+  /// session's persisted model when omitted.
+  Future<void> initProject(String sessionId) async {
+    final response = await _client.post(
+      Uri.parse('$_baseUrl/agent-sessions/$sessionId/init'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode(const {}),
+    );
+    assertOk(response);
+  }
+
+  // --------------------------------------------------------------------------
+  // File / find proxy (OCU-19 #1060 consumers: OCU-20 #1061 / OCU-21 #1062)
+  // --------------------------------------------------------------------------
+
+  /// GET /agent-sessions/:id/files/find-files?query=&limit=&type=
+  /// Fuzzy file/dir search scoped to the session directory (worktree dir when
+  /// isolated). Returns matched relative paths.
+  Future<List<String>> findFiles(
+    String sessionId,
+    String query, {
+    int? limit,
+    String? type,
+  }) async {
+    final uri =
+        Uri.parse('$_baseUrl/agent-sessions/$sessionId/files/find-files')
+            .replace(
+      queryParameters: {
+        'query': query,
+        if (limit != null) 'limit': '$limit',
+        if (type != null) 'type': type,
+      },
+    );
+    final response =
+        await _client.get(uri, headers: AuthSessionStore.headers());
+    assertOk(response);
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list.cast<String>();
+  }
+
+  /// GET /agent-sessions/:id/files/list?path= — list files/dirs at [path]
+  /// (default '.') within the session directory.
+  Future<List<Map<String, dynamic>>> listSessionFiles(
+    String sessionId, {
+    String path = '.',
+  }) async {
+    final uri = Uri.parse('$_baseUrl/agent-sessions/$sessionId/files/list')
+        .replace(queryParameters: {'path': path});
+    final response =
+        await _client.get(uri, headers: AuthSessionStore.headers());
+    assertOk(response);
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list.cast<Map<String, dynamic>>();
+  }
+
+  /// GET /agent-sessions/:id/files/content?path= — read a file's content
+  /// (worktree-safe: fetched through the proxy, never local file IO, so it
+  /// works for isolated worktree sessions too). Throws [AppException] on a
+  /// 413 (>2MB cap) or other HTTP error.
+  Future<Map<String, dynamic>> fileContent(
+    String sessionId,
+    String path,
+  ) async {
+    final uri = Uri.parse('$_baseUrl/agent-sessions/$sessionId/files/content')
+        .replace(queryParameters: {'path': path});
+    final response =
+        await _client.get(uri, headers: AuthSessionStore.headers());
+    assertOk(response);
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  /// GET /agent-sessions/:id/files/status — git-aware file status list for
+  /// the session directory. Each entry: `{file, additions, deletions, status}`.
+  Future<List<Map<String, dynamic>>> filesGitStatus(String sessionId) async {
+    final response = await _client.get(
+      Uri.parse('$_baseUrl/agent-sessions/$sessionId/files/status'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list.cast<Map<String, dynamic>>();
+  }
+
+  // --------------------------------------------------------------------------
   // PTY
   // --------------------------------------------------------------------------
 

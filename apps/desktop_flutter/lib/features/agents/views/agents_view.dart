@@ -22,6 +22,7 @@ import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/chat_models.dart';
 import '../../settings/services/destructive_modal_service.dart';
+import '_at_mention_popover.dart';
 import '_attachment_mime.dart';
 import '_chat_cost_footer.dart';
 import '_compaction_divider.dart';
@@ -44,6 +45,33 @@ import '_tool_renderers/_terminal_output_view.dart';
 import '_tool_renderers/_todo_checklist_view.dart';
 import '_tool_renderers/_task_chip.dart';
 import '_unified_agent_model_picker.dart';
+
+/// OCU-24 (#1065) — result of parsing a composer message for the "!cmd" shell
+/// prefix. Exactly one of [command] / [text] is non-null:
+///   - [command] set → the message should run as `session.shell` instead of a
+///     chat turn (leading "!" stripped, remainder trimmed).
+///   - [text] set → the message should send as a normal chat turn. A leading
+///     "\!" is unescaped to a literal "!" here.
+class ComposerShellParse {
+  const ComposerShellParse.shell(this.command) : text = null;
+  const ComposerShellParse.text(this.text) : command = null;
+
+  final String? command;
+  final String? text;
+}
+
+/// Parses [trimmed] (already-trimmed composer text) for the "!"/"\!" prefix
+/// convention. Pure function — no BuildContext/controller dependency — so it
+/// is directly unit-testable.
+ComposerShellParse parseComposerShellPrefix(String trimmed) {
+  if (trimmed.startsWith(r'\!')) {
+    return ComposerShellParse.text(trimmed.substring(1));
+  }
+  if (trimmed.startsWith('!')) {
+    return ComposerShellParse.shell(trimmed.substring(1).trim());
+  }
+  return ComposerShellParse.text(trimmed);
+}
 
 class AgentsView extends StatefulWidget {
   const AgentsView({super.key});
@@ -817,6 +845,12 @@ class _TranscriptHeader extends StatelessWidget {
             const SizedBox(width: 6),
             _AnthropicAccountBadge(session: session),
           ],
+          // OCU-22 (#1063): branch badge + dirty count. Hidden for non-git
+          // sessions (vcsInfoFor returns null once the fetch resolves).
+          if (controller.vcsInfoFor(session.id) != null) ...[
+            const SizedBox(width: 6),
+            _VcsBranchBadge(session: session),
+          ],
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -892,7 +926,10 @@ class _TranscriptHeader extends StatelessWidget {
             const SizedBox(width: 6),
           ],
           // OPC-M3-3: compacting spinner shown while summarize is in-flight.
-          if (controller.isCompacting(session.id)) ...[
+          // OCU-25 (#1066): also shown while "Prepare project for agents" is
+          // in-flight (both are short-lived header-triggered engine calls).
+          if (controller.isCompacting(session.id) ||
+              controller.isInitializingProject(session.id)) ...[
             SizedBox(
               width: 14,
               height: 14,
@@ -929,10 +966,31 @@ class _TranscriptHeader extends StatelessWidget {
                   ],
                 ),
               ),
+              PopupMenuItem<String>(
+                value: 'init',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.auto_awesome_outlined,
+                      size: 16,
+                      color: context.rhythm.textSecondary,
+                    ),
+                    const SizedBox(width: 8),
+                    const Flexible(
+                      child: Text(
+                        'Prepare project for agents',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
             onSelected: (v) {
               if (v == 'compact') {
                 context.read<AgentsController>().summarizeSession(session.id);
+              } else if (v == 'init') {
+                context.read<AgentsController>().initializeProject(session.id);
               }
             },
           ),
@@ -952,6 +1010,78 @@ class _TranscriptHeader extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// OCU-22 (#1063) — branch name + dirty-file count badge for the transcript
+/// header. Only rendered by the caller when [AgentsController.vcsInfoFor]
+/// is non-null (i.e. the session directory is a git repo). The tooltip lists
+/// the changed files (or "Clean" when there are none).
+class _VcsBranchBadge extends StatelessWidget {
+  const _VcsBranchBadge({required this.session});
+
+  final AgentSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    final info = controller.vcsInfoFor(session.id);
+    final branch = info?['branch'] as String?;
+    if (branch == null || branch.isEmpty) return const SizedBox.shrink();
+
+    final status = controller.vcsStatusFor(session.id);
+    final dirtyCount = status.length;
+    final tooltip = dirtyCount == 0
+        ? 'Clean working tree'
+        : status
+            .map((e) => (e['file'] as String?) ?? '')
+            .where((f) => f.isNotEmpty)
+            .join('\n');
+
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        key: const ValueKey('vcs-branch-badge'),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: context.rhythm.surfaceMuted,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: context.rhythm.border),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.call_split,
+              size: 12,
+              color: context.rhythm.textSecondary,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              branch,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                fontFamily: 'JetBrainsMono',
+                color: context.rhythm.textSecondary,
+              ),
+            ),
+            if (dirtyCount > 0) ...[
+              const SizedBox(width: 4),
+              Text(
+                '($dirtyCount)',
+                key: const ValueKey('vcs-dirty-count'),
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: context.rhythm.warning,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -2046,6 +2176,68 @@ class _InputAreaState extends State<_InputArea> {
     }
   }
 
+  /// OCU-20 (#1061) — attach [relPath] (picked from the @-mention popover) by
+  /// fetching its content through the worktree-safe content proxy and running
+  /// it through the same classification path as [_pickFiles]: text is inlined
+  /// (capped at 100KB), image/PDF becomes a FilePart data URI, anything else
+  /// is rejected with a SnackBar.
+  Future<void> _attachFromMention(String relPath) async {
+    final controller = context.read<AgentsController>();
+    final id = controller.selectedSessionId;
+    if (id == null) return;
+    final filename = relPath.contains('/') ? relPath.split('/').last : relPath;
+
+    void reject(String reason) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(reason), duration: const Duration(seconds: 4)),
+        );
+      }
+    }
+
+    try {
+      final content = await controller.fetchFileContent(id, relPath);
+      final isText = content['type'] == 'text';
+      final ext = filename.contains('.') ? filename.split('.').last : '';
+      final mime = (content['mimeType'] as String?) ?? mimeFromExtension(ext);
+
+      if (isText) {
+        final raw = (content['content'] as String?) ?? '';
+        final bytes = utf8.encode(raw);
+        final text = bytes.length > _kTextSizeCap
+            ? '${utf8.decode(bytes.sublist(0, _kTextSizeCap), allowMalformed: true)}'
+                '\n\n… [truncated — showing first 100 KB of $filename]'
+            : raw;
+        controller.addPendingAttachment(id, {
+          'type': 'text',
+          'filename': filename,
+          'mime': isTextLikeMime(mime) ? mime : 'text/plain',
+          'text': text,
+        });
+        return;
+      }
+
+      if (mime.startsWith('image/') || mime == 'application/pdf') {
+        final raw = (content['content'] as String?) ?? '';
+        final b64 = content['encoding'] == 'base64'
+            ? raw
+            : base64Encode(utf8.encode(raw));
+        controller.addPendingAttachment(id, {
+          'type': 'file',
+          'mime': mime,
+          'filename': filename,
+          'url': 'data:$mime;base64,$b64',
+        });
+        return;
+      }
+
+      reject('$filename: unsupported file type. '
+          'Only text files, images, and PDFs can be attached.');
+    } catch (e) {
+      reject('Could not attach $filename: $e');
+    }
+  }
+
   void _send() {
     final controller = context.read<AgentsController>();
     final id = controller.selectedSessionId;
@@ -2054,16 +2246,34 @@ class _InputAreaState extends State<_InputArea> {
     // cannot accept new input. Guard here so the Enter key and onSubmitted
     // paths are blocked too, not just the (disabled) Send button.
     if (!_canSendTo(controller.selectedSession)) return;
-    final text = widget.inputController.text.trim();
+    final trimmed = widget.inputController.text.trim();
+
+    // OCU-24 (#1065): a "!"-prefixed message runs as a shell command instead
+    // of a chat turn; "\!" escapes to a literal leading "!" as plain text.
+    final parsed = parseComposerShellPrefix(trimmed);
+    if (parsed.command != null) {
+      if (parsed.command!.isNotEmpty) {
+        controller.runShellCommand(id, parsed.command!);
+        widget.inputController.clear();
+      }
+      return;
+    }
+
+    final text = parsed.text!;
     final pending = controller.pendingAttachmentsFor(id);
     if (text.isEmpty && pending.isEmpty) return;
 
     if (pending.isNotEmpty) {
       // OPC-M4-1: send with parts array (text + file parts).
       // sendInput merges the controller-held pending attachments internally.
-      controller.sendInput(id, '${text}\n');
+      controller.sendInput(id, '$text\n');
       widget.inputController.clear();
     } else {
+      // The unescaped '\!' form must still reach the plain-text send path
+      // (widget.onSend() re-reads inputController.text via _sendInput).
+      if (text != trimmed) {
+        widget.inputController.text = text;
+      }
       widget.onSend();
     }
   }
@@ -2155,64 +2365,72 @@ class _InputAreaState extends State<_InputArea> {
             ),
           ],
           // Text field
-          SlashCommandPopover(
+          // OCU-20 (#1061): @-mention popover wraps the slash popover so
+          // typing '@' anywhere in the message can trigger a fuzzy file
+          // search regardless of whether the message also starts with '/'.
+          AtMentionPopover(
             inputController: widget.inputController,
-            commands: controller.slashCommands,
-            onCommandSelected: (cmd) {
-              widget.inputController.value = TextEditingValue(
-                text: cmd,
-                selection: TextSelection.collapsed(offset: cmd.length),
-              );
-            },
-            child: Focus(
-              onKeyEvent: (node, event) {
-                if (event is KeyDownEvent &&
-                    event.logicalKey == LogicalKeyboardKey.enter &&
-                    !HardwareKeyboard.instance.isShiftPressed) {
-                  _send();
-                  return KeyEventResult.handled;
-                }
-                return KeyEventResult.ignored;
+            sessionId: session?.id,
+            onFileSelected: _attachFromMention,
+            child: SlashCommandPopover(
+              inputController: widget.inputController,
+              commands: controller.slashCommands,
+              onCommandSelected: (cmd) {
+                widget.inputController.value = TextEditingValue(
+                  text: cmd,
+                  selection: TextSelection.collapsed(offset: cmd.length),
+                );
               },
-              child: TextField(
-                key: const ValueKey('agent-composer-input'),
-                controller: widget.inputController,
-                enabled: canSend,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontFamily: 'Menlo',
-                  color: context.rhythm.textPrimary,
-                ),
-                maxLines: 3,
-                minLines: 1,
-                onSubmitted: (_) => _send(),
-                decoration: InputDecoration(
-                  hintText: canSend
-                      ? 'Type a command or reply… (Shift+Enter for newline)'
-                      : _kUnresumableReason,
-                  hintStyle: TextStyle(
-                    color: context.rhythm.textMuted,
+              child: Focus(
+                onKeyEvent: (node, event) {
+                  if (event is KeyDownEvent &&
+                      event.logicalKey == LogicalKeyboardKey.enter &&
+                      !HardwareKeyboard.instance.isShiftPressed) {
+                    _send();
+                    return KeyEventResult.handled;
+                  }
+                  return KeyEventResult.ignored;
+                },
+                child: TextField(
+                  key: const ValueKey('agent-composer-input'),
+                  controller: widget.inputController,
+                  enabled: canSend,
+                  style: TextStyle(
                     fontSize: 13,
                     fontFamily: 'Menlo',
+                    color: context.rhythm.textPrimary,
                   ),
-                  isDense: true,
-                  filled: true,
-                  fillColor: context.rhythm.canvas.withValues(alpha: 0.6),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                    borderSide: BorderSide(color: context.rhythm.border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                    borderSide: BorderSide(color: context.rhythm.border),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                    borderSide: BorderSide(color: context.rhythm.accent),
+                  maxLines: 3,
+                  minLines: 1,
+                  onSubmitted: (_) => _send(),
+                  decoration: InputDecoration(
+                    hintText: canSend
+                        ? 'Type a command or reply… (Shift+Enter for newline)'
+                        : _kUnresumableReason,
+                    hintStyle: TextStyle(
+                      color: context.rhythm.textMuted,
+                      fontSize: 13,
+                      fontFamily: 'Menlo',
+                    ),
+                    isDense: true,
+                    filled: true,
+                    fillColor: context.rhythm.canvas.withValues(alpha: 0.6),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                      borderSide: BorderSide(color: context.rhythm.border),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                      borderSide: BorderSide(color: context.rhythm.border),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                      borderSide: BorderSide(color: context.rhythm.accent),
+                    ),
                   ),
                 ),
               ),
