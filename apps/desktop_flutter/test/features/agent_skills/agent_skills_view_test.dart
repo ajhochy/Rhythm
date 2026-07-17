@@ -57,6 +57,18 @@ class _FakeSkillsDataSource extends OpencodeSkillsDataSource {
   String? lastDeleted;
   String? lastGetContentName;
 
+  /// #1055 — count of [reload] calls (the Refresh button's backend re-scan),
+  /// recorded instead of hitting the network in tests.
+  int reloadCalls = 0;
+
+  /// #1055 — skills that become visible only once [reload] runs, simulating a
+  /// newly published org skill the engine only discovers after a re-scan.
+  final List<OpencodeSkillEntry> _pendingOnReload = [];
+
+  void addOrgSkillOnReload(String name) {
+    _pendingOnReload.add(_skill(name, source: 'org'));
+  }
+
   bool throwOnList = false;
   bool hangOnList = false;
 
@@ -132,6 +144,15 @@ class _FakeSkillsDataSource extends OpencodeSkillsDataSource {
     lastDeleted = name;
     _entries = _entries.where((s) => s.name != name).toList();
   }
+
+  @override
+  Future<void> reload() async {
+    reloadCalls += 1;
+    if (_pendingOnReload.isNotEmpty) {
+      _entries = [..._entries, ..._pendingOnReload];
+      _pendingOnReload.clear();
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +162,7 @@ class _FakeSkillsDataSource extends OpencodeSkillsDataSource {
 OpencodeSkillEntry _skill(
   String name, {
   bool managed = false,
+  String? source,
   String? description = 'desc',
   OpencodeSkillMetadata? metadata,
 }) =>
@@ -150,6 +172,7 @@ OpencodeSkillEntry _skill(
       location:
           managed ? '/managed/$name/SKILL.md' : '/external/$name/SKILL.md',
       managed: managed,
+      source: source,
       metadata: metadata ?? const OpencodeSkillMetadata(),
     );
 
@@ -223,6 +246,97 @@ void main() {
       expect(find.byKey(const ValueKey('delete-skill-docx')), findsNothing);
       expect(find.byKey(const ValueKey('readonly-skill-docx')), findsOneWidget);
     });
+
+    // #1055 — Skills UI source badges: an org skill (pulled from the shared
+    // org index — read-only) renders its own ORG badge and no edit/delete,
+    // distinct from both MANAGED and EXTERNAL; managed rows are unaffected.
+    testWidgets(
+      'org row shows an ORG badge and no edit/delete; managed row unchanged',
+      (tester) async {
+        final ds = _FakeSkillsDataSource([
+          _skill('release-notes', managed: true),
+          _skill('shared-onboarding', source: 'org'),
+          _skill('docx'),
+        ]);
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        // Managed row: unchanged (badge + edit/delete).
+        expect(
+          find.byKey(const ValueKey('badge-managed-release-notes')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('edit-skill-release-notes')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('delete-skill-release-notes')),
+          findsOneWidget,
+        );
+
+        // Org row: its own badge, no edit/delete, read-only lock shown.
+        expect(
+          find.byKey(const ValueKey('badge-org-shared-onboarding')),
+          findsOneWidget,
+        );
+        expect(find.text('ORG'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('edit-skill-shared-onboarding')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey('delete-skill-shared-onboarding')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey('readonly-skill-shared-onboarding')),
+          findsOneWidget,
+        );
+
+        // External row: still its own distinct badge (falsifies "org and
+        // external share a badge").
+        expect(
+            find.byKey(const ValueKey('badge-external-docx')), findsOneWidget);
+      },
+    );
+
+    // #1055 — the Refresh action re-scans the engine (backend reloadSkills,
+    // via POST /system/refresh) BEFORE re-listing, so a newly published org
+    // skill appears without an app/engine restart.
+    testWidgets(
+      'tapping Refresh calls the backend reload then re-lists newly published skills',
+      (tester) async {
+        final ds = _FakeSkillsDataSource([
+          _skill('release-notes', managed: true),
+        ]);
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        expect(ds.reloadCalls, equals(0));
+        expect(find.text('shared-onboarding'), findsNothing);
+
+        // Simulate a newly published org skill becoming visible to the engine
+        // only after a reload (e.g. #1054's skills.urls re-fetch).
+        ds.addOrgSkillOnReload('shared-onboarding');
+
+        await tester.tap(find.byTooltip('Refresh'));
+        await tester.pumpAndSettle();
+
+        expect(ds.reloadCalls, equals(1));
+        expect(find.text('shared-onboarding'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('badge-org-shared-onboarding')),
+          findsOneWidget,
+        );
+      },
+    );
 
     testWidgets('renders lifecycle status + baseline→post score', (
       tester,

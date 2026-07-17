@@ -192,6 +192,14 @@ class _AgentSkillsViewState extends State<AgentSkillsView> {
     await controller.loadSkills();
   }
 
+  /// #1055 — re-scans the engine (backend `reloadSkills` via
+  /// `POST /system/refresh`) BEFORE re-listing, so a newly published org skill
+  /// (pulled via `skills.urls`, #1054) appears without an app/engine restart.
+  Future<void> _onRefresh(AgentSkillsController controller) async {
+    await controller.dataSource.reload();
+    await controller.loadSkills();
+  }
+
   Future<void> _onEditSkill(
     BuildContext context,
     AgentSkillsController controller,
@@ -287,7 +295,7 @@ class _AgentSkillsViewState extends State<AgentSkillsView> {
                     color: context.rhythm.textSecondary,
                   ),
                   tooltip: 'Refresh',
-                  onPressed: () => controller.loadSkills(),
+                  onPressed: () => _onRefresh(controller),
                 ),
             ],
           ),
@@ -1018,7 +1026,9 @@ class _NumericCell extends StatelessWidget {
   }
 }
 
-/// `MANAGED` (accent) or `EXTERNAL` (muted) pill rendered next to a skill name.
+/// `MANAGED` (accent), `ORG` (info), or `EXTERNAL` (muted) pill rendered next
+/// to a skill name (#1055 — org skills are pulled from the shared org index
+/// via `skills.urls` and are read-only, like external, but shown distinctly).
 class _ProvenanceBadge extends StatelessWidget {
   const _ProvenanceBadge({required this.skill});
 
@@ -1027,14 +1037,19 @@ class _ProvenanceBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rhythm = context.rhythm;
-    final managed = skill.managed;
-    final color = managed ? rhythm.accent : rhythm.textMuted;
+    final source = skill.source;
+    final label = switch (source) {
+      'managed' => 'MANAGED',
+      'org' => 'ORG',
+      _ => 'EXTERNAL',
+    };
+    final color = switch (source) {
+      'managed' => rhythm.accent,
+      'org' => rhythm.info,
+      _ => rhythm.textMuted,
+    };
     return Container(
-      key: ValueKey(
-        managed
-            ? 'badge-managed-${skill.name}'
-            : 'badge-external-${skill.name}',
-      ),
+      key: ValueKey('badge-$source-${skill.name}'),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.14),
@@ -1042,7 +1057,7 @@ class _ProvenanceBadge extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Text(
-        managed ? 'MANAGED' : 'EXTERNAL',
+        label,
         style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w700,

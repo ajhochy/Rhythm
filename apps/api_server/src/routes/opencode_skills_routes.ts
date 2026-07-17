@@ -22,6 +22,8 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
+import { homedir } from 'os';
+import { join, resolve, sep } from 'path';
 import { AppError } from '../errors/app_error';
 import { opencodeClient } from '../services/opencode_engine';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
@@ -41,6 +43,49 @@ import { countSkillToolUses } from '../services/skill_usage_tracker';
 
 export const opencodeSkillsRouter = Router();
 
+/** Provenance of a live skill, surfaced to the Flutter Skills UI (#1055). */
+type SkillSource = 'managed' | 'org' | 'external';
+
+/**
+ * Root dir the opencode engine caches `skills.urls`-pulled org skills under
+ * (`<xdg-cache>/opencode/skills` — see apps/opencode_fork's
+ * `skill/discovery.ts` `Discovery.pull`, which downloads each org skill's
+ * files under `Global.Path.cache/skills/<name>/`). Rhythm mirrors the same
+ * plain `~/.cache` default (`xdg-basedir`'s fallback when `XDG_CACHE_HOME` is
+ * unset — no macOS-specific translation) rather than importing the vendored
+ * fork (AGENTS.md: never wire `apps/opencode_fork` into the api_server build).
+ * Overridable for tests via `RHYTHM_ORG_SKILLS_CACHE_DIR`, mirroring
+ * `RHYTHM_MANAGED_SKILLS_DIR` in rhythm_managed_skills.ts. #1054 wires the
+ * engine's `skills.urls` at this same default; this route only needs to
+ * recognize the resulting location.
+ */
+function orgSkillsCacheRoot(): string {
+  return (
+    process.env.RHYTHM_ORG_SKILLS_CACHE_DIR ??
+    join(homedir(), '.cache', 'opencode', 'skills')
+  );
+}
+
+/** True when a fork-reported skill `location` lives inside the org skills cache. */
+function isOrgLocation(location: string | undefined | null): boolean {
+  if (!location) return false;
+  const root = resolve(orgSkillsCacheRoot());
+  const loc = resolve(location);
+  return loc === root || loc.startsWith(root + sep);
+}
+
+/**
+ * #1055 — classify a live engine skill's provenance: `managed` (Rhythm-authored,
+ * writable), `org` (pulled from the shared org index via `skills.urls` —
+ * read-only), or `external` (everything else: engine built-ins,
+ * `~/.claude/skills`, plugins, etc — also read-only).
+ */
+function classifySkillSource(location: string | undefined | null): SkillSource {
+  if (isManagedLocation(location)) return 'managed';
+  if (isOrgLocation(location)) return 'org';
+  return 'external';
+}
+
 /** Shape returned to clients — no `content` (the full SKILL.md body). */
 interface SkillListEntry {
   name: string;
@@ -48,6 +93,8 @@ interface SkillListEntry {
   location: string;
   /** True when this skill lives in the Rhythm-managed dir (writable/deletable). */
   managed: boolean;
+  /** #1055 — provenance for the Skills UI source badge. */
+  source: SkillSource;
 }
 
 /**
@@ -132,6 +179,7 @@ opencodeSkillsRouter.get(
         description: s.description,
         location: s.location,
         managed: isManagedLocation(s.location),
+        source: classifySkillSource(s.location),
       }));
 
       // #874/#875/#929 — read each skill's OWN frontmatter straight off disk via
@@ -337,6 +385,7 @@ async function upsertManagedSkill(
       description,
       location,
       managed: true,
+      source: 'managed',
     } satisfies SkillListEntry);
   } catch (err) {
     next(err);

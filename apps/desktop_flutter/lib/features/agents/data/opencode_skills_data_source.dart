@@ -99,8 +99,9 @@ class OpencodeSkillEntry {
     this.description,
     required this.location,
     required this.managed,
+    String? source,
     this.metadata,
-  });
+  }) : source = source ?? (managed ? 'managed' : 'external');
 
   final String name;
   final String? description;
@@ -112,6 +113,14 @@ class OpencodeSkillEntry {
   /// False for external skills (plugins, `~/.claude/skills`, etc.) which are
   /// read-only and scope-only.
   final bool managed;
+
+  /// #1055 — provenance for the Skills UI source badge: `managed`
+  /// (Rhythm-authored, editable), `org` (pulled from the shared org index —
+  /// read-only, still selectable in a profile allowlist), or `external`
+  /// (everything else — also read-only). Defaults from [managed] when the
+  /// server/fixture omits it, so existing managed/external call sites are
+  /// unaffected.
+  final String source;
 
   /// Sidecar provenance + lifecycle, present only when fetched with
   /// `?withMetadata=true` (#793). Null on the plain picker read.
@@ -138,6 +147,7 @@ class OpencodeSkillEntry {
       description: json['description'] as String?,
       location: json['location'] as String? ?? '',
       managed: json['managed'] as bool? ?? false,
+      source: json['source'] as String?,
       metadata: rawMeta is Map<String, dynamic>
           ? OpencodeSkillMetadata.fromJson(rawMeta)
           : null,
@@ -210,6 +220,20 @@ class OpencodeSkillsDataSource {
           .toList();
     } catch (_) {
       return [];
+    }
+  }
+
+  /// #1055 — triggers a server-side re-scan of engine skills via
+  /// `POST /system/refresh` (#948) so newly published skills — including org
+  /// skills pulled via `skills.urls` (#1054) — are discoverable without an
+  /// app/engine restart. Best-effort: swallows any error so the caller's
+  /// subsequent [list]/[listWithMetadata] call still runs and simply shows
+  /// whatever the engine already had cached.
+  Future<void> reload() async {
+    try {
+      await _client.post(Uri.parse('$_baseUrl/system/refresh'));
+    } catch (_) {
+      // best-effort — the following list refresh proceeds regardless.
     }
   }
 
