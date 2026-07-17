@@ -476,6 +476,7 @@ export class AgentSessionsRepository {
     parentSdkSessionId: string,
     title: string,
     cwd: string,
+    mcpAllowedToolsJson?: string | null,
   ): AgentSession | null {
     // Look up the local parent row by its SDK session id.
     const parentRow = getDb()
@@ -513,8 +514,8 @@ export class AgentSessionsRepository {
       .prepare(
         `INSERT INTO agent_sessions
            (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
-            sdk_session_id, parent_session_id, created_at, updated_at)
-         VALUES (?, NULL, NULL, ?, 'starting', ?, ?, NULL, ?, ?, ?, ?)`,
+            sdk_session_id, parent_session_id, mcp_allowed_tools_json, created_at, updated_at)
+         VALUES (?, NULL, NULL, ?, 'starting', ?, ?, NULL, ?, ?, ?, ?, ?)`,
       )
       .run(
         childLocalId,
@@ -523,6 +524,7 @@ export class AgentSessionsRepository {
         title || 'Subagent task',
         childSdkSessionId,
         parentLocalId,
+        mcpAllowedToolsJson ?? null,
         now,
         now,
       );

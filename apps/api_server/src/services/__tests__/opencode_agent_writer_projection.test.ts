@@ -269,4 +269,66 @@ describe('workflow-orchestrator file projection', () => {
     expect(ordinary).not.toContain('read: allow');
     expect(ordinary).not.toContain('edit: allow');
   });
+
+  it('projects both mcpAllowlist and skillAllowlist into one options: line when the profile declares both', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    writeAgentProfileFile({
+      ...agentConfig('scoped-both', 'Scoped Both'),
+      allowedMcpsJson: JSON.stringify(['rhythm']),
+      allowedSkillsJson: JSON.stringify(['skill-a', 'skill-b']),
+    });
+
+    const projected = readFileSync(
+      join(state.home, '.config', 'opencode', 'agents', 'scoped-both.md'),
+      'utf8',
+    );
+    const optionsLine = projected.split('\n').find((l) => l.startsWith('options:'));
+    expect(optionsLine).toBeDefined();
+    const options = JSON.parse(optionsLine!.slice('options: '.length));
+    expect(options.mcpAllowlist).toBeDefined();
+    expect(options.skillAllowlist).toEqual({ skills: ['skill-a', 'skill-b'] });
+  });
+
+  it('projects only skillAllowlist when only allowedSkillsJson is scoped', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    writeAgentProfileFile({
+      ...agentConfig('scoped-skills-only', 'Scoped Skills Only'),
+      allowedMcpsJson: null,
+      allowedSkillsJson: JSON.stringify(['skill-a']),
+    });
+
+    const projected = readFileSync(
+      join(state.home, '.config', 'opencode', 'agents', 'scoped-skills-only.md'),
+      'utf8',
+    );
+    const optionsLine = projected.split('\n').find((l) => l.startsWith('options:'));
+    expect(optionsLine).toBeDefined();
+    const options = JSON.parse(optionsLine!.slice('options: '.length));
+    expect(options.mcpAllowlist).toBeUndefined();
+    expect(options.skillAllowlist).toEqual({ skills: ['skill-a'] });
+  });
+
+  it('omits the options: line entirely when neither allowlist is scoped', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    writeAgentProfileFile({
+      ...agentConfig('unscoped-agent', 'Unscoped Agent'),
+      allowedMcpsJson: null,
+      allowedSkillsJson: null,
+    });
+
+    const projected = readFileSync(
+      join(state.home, '.config', 'opencode', 'agents', 'unscoped-agent.md'),
+      'utf8',
+    );
+    expect(projected.split('\n').some((l) => l.startsWith('options:'))).toBe(false);
+  });
 });

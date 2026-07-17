@@ -2,41 +2,41 @@
 
 ## Current focus
 
-Epic #1116 (Self-Improvement Engine) mega-PR — all 13 child issues implemented, integrated,
-and verified green on `workflow/skill-discovery-cost-2026-07-16`. About to push + open the PR.
+First-turn token bloat fix: scope `task`-tool child sessions to their profile's skills
+(mirror of the #1012 MCP fix, for skills). Draft PR #1120 open, verified, awaiting human smoke + merge.
 
 ## Active branch / PR
 
-- Branch: `workflow/skill-discovery-cost-2026-07-16` (mega branch, integrated from 6 clusters).
-- PR: pending (push + open next). Will carry `Closes #N` for #1109 #1110 #1111 #1112 #1113 #1114
-  #1115 #1053 #1054 #1055 #1056 #1090 #1067 (epic #1116 + #1098 auto-close via children).
+- Branch: `fix/skill-scope-task-children` (off `main` @ #1117).
+- PR: [#1120](https://github.com/ajhochy/Rhythm/pull/1120) — draft. No linked issues (direct fix).
+- Prior: Epic #1116 (Self-Improvement Engine) shipped — PR #1117 merged to `main`.
 
 ## In progress
 
-- Push mega branch → CI gate → open PR → human merge → trigger release build.
+- CI gate on #1120 → human smoke-test → merge. Fork change ships only on a fork rebuild (release build).
 
 ## Risks / known issues
 
-- **#1110 exact live token number not captured** — behavior verified (structural 9/9 test hooks on real
-  code + A1 live cheap-model); the exact cost total was blocked by sandbox creds isolation. Capture in
-  the real app post-merge if a hard number is wanted.
+- **NULL-semantics decision flagged for review** in #1120: `childSkillAllowlist` falls back to the
+  parent session's scope when a profile declares no skills (never "all skills"). Reviewer may prefer the
+  pure #1012 mirror (return `undefined`). See `docs/ai/decisions/2026-07-17-child-session-skill-scope.md`.
+- **Sandbox provider isolation** — the dev sandbox's isolated HOME can't reach keychain-bound Anthropic
+  OAuth; only OpenRouter (static API key in `auth.json`) works there. Live e2e model runs use an
+  OpenRouter model; token accounting is provider-independent.
 - **Pre-existing test pollution** — `issue_723_mcp_remove_reconcile.test.ts` writes the real
-  `~/.config/opencode/opencode.json` (`foo`/`npx foo-mcp`) on full-suite runs under real HOME. Run
-  api_server suites under a sandboxed `HOME` until fixed (follow-up).
-- **Pre-existing flaky tests** — `issue_895_agent_approvals` + a research-job vault test fail ~1/2 runs,
-  pass on re-run. Watch CI; re-run on that signature.
-- **`task_4cc07f52`** — the older #1039/#1040 undici fix in `api_server/server.ts` may be inert (same
-  global-`fetch` pattern #1115 proved doesn't work). Separate investigation.
-- #1067 fork regen is inert until #1068 (out of scope) and ships only on a fork rebuild (release build).
+  `~/.config/opencode/opencode.json` under real HOME. Run api_server suites under a sandboxed HOME.
+- **better-sqlite3 ABI** — root `node_modules` binary is ABI 147 (Node 26); default `node` on PATH is
+  v22 (ABI 127). Run api_server vitest/build with `PATH="/opt/homebrew/bin:$PATH"` (Node 26).
 
 ## Test status
 
-Integrated mega branch (sandboxed HOME): api_server `tsc` clean + `vitest` **2877 passed** / 32 skipped /
-0 failed; mcp_server `tsc` clean + `vitest` **80 passed**; desktop_flutter `flutter analyze` clean +
-`flutter test` **875 passed**; opencode_fork `bun test` **366 pass** + `openapi.json` 133 ops. Per-issue
-live e2e verified (see docs/ai/runs/2026-07-16-epic-1116-mega-pr.md).
+`fix/skill-scope-task-children` (Node 26 / sandboxed HOME): api_server `tsc` clean + `vitest`
+**2889 passed** / 32 skipped / 0 failed; fork `bun run typecheck` clean + `bun test test/tool/task.test.ts`
+**16 pass**; fork `bun run build --single` + api_server `npm run build` clean. GitNexus `detect_changes`
+vs main: risk **low**, 0 affected processes. Live e2e in `docs/ai/runs/2026-07-17-skill-scope-task-children.md`
+(task-tool children 10–13k first turns vs 85k unscoped baseline; before-fix live children 116–126k).
 
 ## Next step
 
-`git push` the mega branch, watch CI to green, open the PR (draft), hand off for human merge. After the
-user merges, trigger `desktop_release.yml` (patch bump from latest tag; rebuilds bundled Node + opencode fork).
+Confirm Server CI green on #1120, hand off for human smoke-test + merge. The fork `task.ts` change is
+inert until a fork rebuild (release build), so post-merge a release build is needed to ship it to the app.

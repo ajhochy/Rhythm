@@ -213,6 +213,23 @@ export function expandProfileMcpAllowlist(
   }
 }
 
+/**
+ * Expand a profile's allowed_skills_json into the fork's skillAllowlist shape
+ * ({skills:[...]}) for projection into an agent .md `options` block. null
+ * (unrestricted) → undefined so the writer omits the key. Mirrors
+ * expandProfileMcpAllowlist. Reuses _normalizeAllowedSkillsJson so the
+ * null/malformed/deny-all contract stays identical to the per-turn path.
+ */
+export function expandProfileSkillAllowlist(
+  allowedSkillsJson: string | null,
+): { skills: string[] } | undefined {
+  const normalized = _normalizeAllowedSkillsJson(allowedSkillsJson, 'profile');
+  if (normalized === null) return undefined;
+  const parsed = JSON.parse(normalized) as unknown;
+  if (!Array.isArray(parsed)) return { skills: [] };
+  return { skills: parsed.filter((s): s is string => typeof s === 'string') };
+}
+
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 /**

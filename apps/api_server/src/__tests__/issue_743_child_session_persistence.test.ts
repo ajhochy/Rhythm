@@ -144,6 +144,47 @@ describe('#743 — upsertChildSession (repository)', () => {
     expect(result).toBeNull();
   });
 
+  it('persists the optional 5th mcpAllowedToolsJson arg into mcp_allowed_tools_json (recording-gap fix)', () => {
+    const parent = repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      cwd: '/tmp/proj',
+      name: 'Parent session',
+    });
+    repo.setSdkSessionId(parent.id, 'sdk-parent-scope');
+
+    const child = repo.upsertChildSession(
+      'sdk-child-scope',
+      'sdk-parent-scope',
+      'Subagent task',
+      '/tmp/proj',
+      JSON.stringify({ servers: ['rhythm'], tools: [] }),
+    );
+
+    expect(child).not.toBeNull();
+    expect(child!.mcpAllowedToolsJson).toBe(JSON.stringify({ servers: ['rhythm'], tools: [] }));
+  });
+
+  it('defaults mcpAllowedToolsJson to null when the 5th arg is omitted (backward compatible)', () => {
+    const parent = repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      cwd: '/tmp/proj',
+      name: 'Parent session',
+    });
+    repo.setSdkSessionId(parent.id, 'sdk-parent-noscope');
+
+    const child = repo.upsertChildSession(
+      'sdk-child-noscope',
+      'sdk-parent-noscope',
+      'Subagent task',
+      '/tmp/proj',
+    );
+
+    expect(child).not.toBeNull();
+    expect(child!.mcpAllowedToolsJson).toBeNull();
+  });
+
   it('persists parentSessionId on the returned model', () => {
     const parent = repo.insert({
       agentKind: 'claude-code',

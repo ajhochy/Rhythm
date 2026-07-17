@@ -31,7 +31,7 @@ import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { scanContextContent } from '../security/context_scanner';
 import type { AgentConfig } from '../repositories/agent_configs_repository';
-import { expandProfileMcpAllowlist } from './agent_profile_scope';
+import { expandProfileMcpAllowlist, expandProfileSkillAllowlist } from './agent_profile_scope';
 import { opencodeClient } from './opencode_engine';
 
 /**
@@ -471,12 +471,16 @@ export function writeAgentProfileFile(config: AgentConfig): void {
       config.id,
       config.label,
     );
-    if (childMcpAllowlist) {
-      fm = setFrontmatterKey(
-        fm,
-        'options',
-        JSON.stringify({ mcpAllowlist: childMcpAllowlist }),
-      );
+    // Mirror #1012 for skills: project the profile's expanded skill allowlist so
+    // task.ts reads options.skillAllowlist onto delegated child sessions (that
+    // path never round-trips through ws_gateway's per-turn PATCH). Unscoped
+    // profile (allowedSkillsJson=null) → undefined → key omitted.
+    const childSkillAllowlist = expandProfileSkillAllowlist(config.allowedSkillsJson ?? null);
+    const options: Record<string, unknown> = {};
+    if (childMcpAllowlist) options.mcpAllowlist = childMcpAllowlist;
+    if (childSkillAllowlist) options.skillAllowlist = childSkillAllowlist;
+    if (Object.keys(options).length > 0) {
+      fm = setFrontmatterKey(fm, 'options', JSON.stringify(options));
     }
     body = injectManagerPreamble(
       body,
