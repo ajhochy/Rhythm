@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/auth_middleware';
 import { env } from '../config/env';
-import { getRunQualityRollup } from '../services/run_quality_service';
+import { getRunQualityRollup, ingestToolEvent, isToolTelemetryEnabled } from '../services/run_quality_service';
 
 export const runQualityRouter = Router();
 
@@ -32,4 +32,42 @@ runQualityRouter.get('/', (req: Request, res: Response) => {
   } catch (err) {
     res.status(503).json({ error: 'run quality rollup unavailable', detail: String(err) });
   }
+});
+
+/**
+ * POST /agents/run-quality/tool-events — #1069 (OCU-28) ingestion endpoint the
+ * vendored rhythm-telemetry plugin POSTs to (fire-and-forget, from inside the
+ * engine subprocess via RHYTHM_API_BASE). Always responds fast — persistence
+ * failures are swallowed inside ingestToolEvent so a plugin retry storm can
+ * never cascade into a slow/failing response. Disabled via the same
+ * RHYTHM_TOOL_TELEMETRY_DISABLED flag the plugin itself checks (defense in
+ * depth — accepts and silently drops rather than erroring, since a stale
+ * plugin process from before the flag flipped may still be sending events).
+ */
+runQualityRouter.post('/tool-events', (req: Request, res: Response) => {
+  if (!isToolTelemetryEnabled()) {
+    res.status(202).end(); // accepted-and-dropped — never surfaces as a plugin-side error
+    return;
+  }
+  const body = req.body as Record<string, unknown>;
+  if (
+    typeof body?.sessionID !== 'string' ||
+    typeof body?.callID !== 'string' ||
+    typeof body?.tool !== 'string' ||
+    typeof body?.startedAt !== 'number' ||
+    typeof body?.durationMs !== 'number'
+  ) {
+    res.status(400).json({ error: 'malformed tool event' });
+    return;
+  }
+  ingestToolEvent({
+    sessionID: body.sessionID,
+    callID: body.callID,
+    tool: body.tool,
+    startedAt: body.startedAt,
+    durationMs: body.durationMs,
+    status: body.status === 'error' ? 'error' : 'success',
+    errorClass: typeof body.errorClass === 'string' ? body.errorClass : null,
+  });
+  res.status(202).end();
 });

@@ -40,6 +40,7 @@ import { opencodeClient } from './opencode_engine';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import {
   classifyProviderError,
+  formatFallbackExhaustedMessage,
   getConfiguredFallbackChain,
   resolveNextFallbackHandoff,
   type CrossProviderHandoffDecision,
@@ -342,8 +343,17 @@ export async function advanceFallbackCascade(
       [...st.visitedTierIds],
     );
     if (!decision) {
-      const error = failHandoff(localSessionId);
-      return { outcome: 'terminal', ...(hasRetainedTurn && error ? { error } : {}) };
+      const deferred = failHandoff(localSessionId);
+      // #1108 — name the provider/model/account that was last attempted so
+      // the user has an actionable lead, instead of only the raw upstream
+      // error text (which rarely says WHICH account/tier was exhausted).
+      const exhausted = formatFallbackExhaustedMessage(
+        st.currentProviderID,
+        st.currentModelID,
+        signal.fromAccountId,
+      );
+      const error = deferred ? `${deferred} — ${exhausted}` : exhausted;
+      return { outcome: 'terminal', ...(hasRetainedTurn ? { error } : {}) };
     }
     if (
       decideHandoff(

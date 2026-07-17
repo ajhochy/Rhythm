@@ -12,6 +12,7 @@ import {
   nextFallbackTier,
   resolveCrossProviderHandoff,
   resolveReliableAuthedFallbackModels,
+  formatFallbackExhaustedMessage,
 } from '../model_fallback';
 
 describe('classifyProviderError', () => {
@@ -226,5 +227,30 @@ describe('resolveReliableAuthedFallbackModels', () => {
 
   it('does not duplicate Team and Personal Claude as two Anthropic retries', () => {
     expect(resolveReliableAuthedFallbackModels(['anthropic'])).toHaveLength(1);
+  });
+});
+
+// #1108 — the terminal "chain exhausted" error must name provider/model/
+// account so the user has an actionable lead, not a bare generic string.
+describe('formatFallbackExhaustedMessage', () => {
+  it('names provider, model, and account when all are known', () => {
+    const msg = formatFallbackExhaustedMessage('openrouter', 'openrouter/free', 'acct-123');
+    expect(msg).toContain('provider=openrouter');
+    expect(msg).toContain('model=openrouter/free');
+    expect(msg).toContain('account=acct-123');
+  });
+
+  it('omits unknown fields instead of rendering "undefined"', () => {
+    const msg = formatFallbackExhaustedMessage(undefined, null, undefined);
+    expect(msg).not.toContain('undefined');
+    expect(msg).not.toContain('null');
+    expect(msg).toContain('exhausted');
+  });
+
+  it('names only the fields that are known', () => {
+    const msg = formatFallbackExhaustedMessage('anthropic', undefined, undefined);
+    expect(msg).toContain('provider=anthropic');
+    expect(msg).not.toContain('model=');
+    expect(msg).not.toContain('account=');
   });
 });

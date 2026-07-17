@@ -1,0 +1,12 @@
+{
+  "name": "rhythm-telemetry",
+  "version": "1.0.0",
+  "description": "Vendored opencode plugin — POSTs tool.execute.before/after events to Rhythm's local run-quality ingestion endpoint. No build step; plain ESM.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  }
+}

@@ -62,8 +62,75 @@
  */
 
 import { getDb } from '../database/db';
+import { logger } from '../utils/logger';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 
 export const MIN_RUNS_FOR_SIGNAL = 5;
+
+// ── #1069 (OCU-28) — rhythm-telemetry plugin ingestion ──────────────────────
+
+export interface ToolEventInput {
+  /** Engine SDK session id (the plugin only ever sees the SDK id, never Rhythm's local one). */
+  sessionID: string;
+  callID: string;
+  tool: string;
+  /** Epoch ms when the tool call started. */
+  startedAt: number;
+  durationMs: number;
+  status: 'success' | 'error';
+  errorClass?: string | null;
+}
+
+/**
+ * Instance-wide toggle mirroring the plugin's own `RHYTHM_TOOL_TELEMETRY_DISABLED`
+ * flag (defense in depth: the plugin should already skip sending events when
+ * disabled, but the ingestion side must not silently accept them either if
+ * the flag was flipped between the engine spawn and now).
+ */
+export function isToolTelemetryEnabled(): boolean {
+  return process.env.RHYTHM_TOOL_TELEMETRY_DISABLED !== '1';
+}
+
+/**
+ * Persist one tool-call telemetry record from the rhythm-telemetry plugin.
+ * Resolves the SDK session id to Rhythm's local `agent_sessions.id` via the
+ * existing durable `findBySdkSessionId` lookup (no new resolver route needed
+ * — this runs in-process in api_server, the same process that owns that
+ * repository). `sessionId` is left null when no matching local row is found
+ * (e.g. a session that closed/was pruned between the tool call and this
+ * ingestion) — the row is still recorded by `sdkSessionId` for observability.
+ *
+ * Never throws — a persistence failure is logged and swallowed so a
+ * malformed/duplicate event can never break the plugin's fire-and-forget
+ * POST or the ingestion route.
+ */
+export function ingestToolEvent(event: ToolEventInput): void {
+  if (!isToolTelemetryEnabled()) return;
+  try {
+    const local = new AgentSessionsRepository().findBySdkSessionId(event.sessionID);
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `INSERT INTO tool_events
+          (id, session_id, sdk_session_id, call_id, tool, started_at, duration_ms, status, error_class, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        crypto.randomUUID(),
+        local?.id ?? null,
+        event.sessionID,
+        event.callID,
+        event.tool,
+        new Date(event.startedAt).toISOString(),
+        event.durationMs,
+        event.status,
+        event.errorClass ?? null,
+        now,
+      );
+  } catch (err) {
+    logger.warn(`[RunQuality] ingestToolEvent failed (non-fatal): ${String(err)}`);
+  }
+}
 
 const TERMINAL_STATUSES = new Set(['closed', 'idle', 'error']);
 const COMPLETED_STATUSES = new Set(['closed', 'idle']);

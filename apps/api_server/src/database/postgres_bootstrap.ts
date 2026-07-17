@@ -779,6 +779,21 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_org_skills_published ON org_skills(published)`,
   );
 
+  // #1072 (OCU-31) — org_settings: a single org-wide instructions markdown
+  // (see migrations.ts for the full rationale — public read, authed write,
+  // singleton row keyed by a fixed id). MANUAL-REVIEW FLAG (AGENTS.md
+  // production posture): this is the ONLY prod-schema change in the
+  // #1042-1108 mega-PR — purely additive (a brand-new table, no ALTER on an
+  // existing one, no data migration), zero destructive-migration risk.
+  // Column set MUST stay identical to the SQLite migration.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_settings (
+      id         TEXT PRIMARY KEY,
+      content    TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
   // agent_configs — user-configurable list of CLI agents (issue #481 / #466).
   // NOTE: this CREATE was previously missing from the Postgres path; only the SQLite
   // migrations.ts created it, while the ALTERs below assumed it existed. On a Postgres

@@ -144,3 +144,68 @@ describe('#1039 — scheduling delegation-only profiles is blocked at config tim
     expect(message).toContain('delegation-only subagent');
   });
 });
+
+describe('#1088 — schedulable is decoupled from picker visibility (sessionSelectable)', () => {
+  let baseUrl: string;
+  let closeServer: () => Promise<void>;
+  let authHeaders: Record<string, string>;
+  let configs: AgentConfigsRepository;
+
+  beforeEach(async () => {
+    setDb(makeDb());
+    const user = new UsersRepository().create({ name: 'T2', email: 't2@example.com' });
+    const session = await new SessionsRepository().createAsync(user.id);
+    authHeaders = { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json' };
+
+    configs = new AgentConfigsRepository();
+    // Hidden from the picker, but EXPLICITLY made schedulable.
+    configs.insert({
+      id: 'hidden-schedulable-specialist',
+      label: 'Hidden Schedulable Specialist',
+      icon: 'book',
+      isAgent: true,
+      sessionSelectable: false,
+      schedulable: true,
+    });
+
+    const { baseUrl: b, close } = await startTestServer(createApp());
+    baseUrl = b;
+    closeServer = close;
+  });
+
+  afterEach(async () => {
+    await closeServer();
+  });
+
+  it('accepts scheduling a hidden profile that is explicitly schedulable', async () => {
+    const res = await fetch(`${baseUrl}/agent-schedules`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        name: 'hidden-schedulable-daily',
+        scheduleType: 'daily',
+        scheduledTime: '05:00',
+        prompt: 'Run',
+        agentConfigId: 'hidden-schedulable-specialist',
+      }),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it('the profile remains sessionSelectable=false (picker-hidden) after scheduling', async () => {
+    await fetch(`${baseUrl}/agent-schedules`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        name: 'hidden-schedulable-daily-2',
+        scheduleType: 'daily',
+        scheduledTime: '05:00',
+        prompt: 'Run',
+        agentConfigId: 'hidden-schedulable-specialist',
+      }),
+    });
+    const profile = configs.getById('hidden-schedulable-specialist')!;
+    expect(profile.sessionSelectable).toBe(false);
+    expect(profile.schedulable).toBe(true);
+  });
+});

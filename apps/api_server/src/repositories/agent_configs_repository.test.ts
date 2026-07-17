@@ -305,4 +305,81 @@ describe('AgentConfigsRepository', () => {
       expect(result).toBe(false);
     });
   });
+
+  // #1088 — schedulable decoupled from sessionSelectable (picker visibility).
+  describe('schedulable (#1088)', () => {
+    it('inherits sessionSelectable when no explicit override is given', () => {
+      const visible = repo.insert({ label: 'Visible', icon: 'a', sessionSelectable: true });
+      const hidden = repo.insert({ label: 'Hidden', icon: 'a', sessionSelectable: false });
+      expect(visible.schedulable).toBe(true);
+      expect(visible.schedulableOverride).toBeNull();
+      expect(hidden.schedulable).toBe(false);
+      expect(hidden.schedulableOverride).toBeNull();
+    });
+
+    it('a hidden profile can be made explicitly schedulable without becoming picker-visible', () => {
+      const created = repo.insert({
+        label: 'Hidden Specialist',
+        icon: 'a',
+        sessionSelectable: false,
+        schedulable: true,
+      });
+      expect(created.sessionSelectable).toBe(false);
+      expect(created.schedulable).toBe(true);
+      expect(created.schedulableOverride).toBe(true);
+    });
+
+    it('an explicit false override can make a visible profile non-schedulable', () => {
+      const created = repo.insert({
+        label: 'Visible Non-Schedulable',
+        icon: 'a',
+        sessionSelectable: true,
+        schedulable: false,
+      });
+      expect(created.sessionSelectable).toBe(true);
+      expect(created.schedulable).toBe(false);
+    });
+
+    it('patch(schedulable: null) clears the override back to inherit', () => {
+      const created = repo.insert({
+        label: 'Toggle',
+        icon: 'a',
+        sessionSelectable: false,
+        schedulable: true,
+      });
+      expect(created.schedulable).toBe(true);
+      const cleared = repo.update(created.id, { schedulable: null });
+      expect(cleared!.schedulableOverride).toBeNull();
+      expect(cleared!.schedulable).toBe(false); // falls back to sessionSelectable=false
+    });
+
+    it('patch(schedulable: true) overrides a hidden profile independent of sessionSelectable', () => {
+      const created = repo.insert({ label: 'Toggle2', icon: 'a', sessionSelectable: false });
+      expect(created.schedulable).toBe(false);
+      const updated = repo.update(created.id, { schedulable: true });
+      expect(updated!.sessionSelectable).toBe(false);
+      expect(updated!.schedulable).toBe(true);
+    });
+  });
+
+  // #1094 — OpenAI native image_generation capability grant.
+  describe('imageGenerationEnabled (#1094)', () => {
+    it('defaults to false', () => {
+      const created = repo.insert({ label: 'No Image Gen', icon: 'a' });
+      expect(created.imageGenerationEnabled).toBe(false);
+    });
+
+    it('round-trips true through insert', () => {
+      const created = repo.insert({ label: 'Image Gen', icon: 'a', imageGenerationEnabled: true });
+      expect(created.imageGenerationEnabled).toBe(true);
+    });
+
+    it('round-trips through patch', () => {
+      const created = repo.insert({ label: 'Toggle Image Gen', icon: 'a' });
+      const updated = repo.update(created.id, { imageGenerationEnabled: true });
+      expect(updated!.imageGenerationEnabled).toBe(true);
+      const reverted = repo.update(created.id, { imageGenerationEnabled: false });
+      expect(reverted!.imageGenerationEnabled).toBe(false);
+    });
+  });
 });

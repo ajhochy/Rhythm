@@ -331,4 +331,100 @@ describe('workflow-orchestrator file projection', () => {
     );
     expect(projected.split('\n').some((l) => l.startsWith('options:'))).toBe(false);
   });
+
+  // #1088 — schedulability decoupled from picker visibility (sessionSelectable).
+  describe('mode projection honors schedulable independent of sessionSelectable', () => {
+    const readMode = (id: string): string => {
+      const content = readFileSync(join(state.home, '.config', 'opencode', 'agents', `${id}.md`), 'utf8');
+      const match = content.match(/^mode:\s*(\S+)\s*$/m);
+      return match![1];
+    };
+
+    it('a hidden profile with no override still writes mode:subagent (unchanged default)', () => {
+      state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+      process.env.VITEST = 'false';
+      process.env.NODE_ENV = 'development';
+
+      writeAgentProfileFile({
+        ...agentConfig('hidden-default', 'Hidden Default'),
+        sessionSelectable: false,
+      });
+      expect(readMode('hidden-default')).toBe('subagent');
+    });
+
+    it('a hidden profile with schedulable=true writes mode:all (top-level runnable + delegatable)', () => {
+      state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+      process.env.VITEST = 'false';
+      process.env.NODE_ENV = 'development';
+
+      writeAgentProfileFile({
+        ...agentConfig('hidden-schedulable', 'Hidden Schedulable'),
+        sessionSelectable: false,
+        schedulable: true,
+      });
+      expect(readMode('hidden-schedulable')).toBe('all');
+    });
+
+    it('a visible profile with schedulable=false writes mode:subagent', () => {
+      state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+      process.env.VITEST = 'false';
+      process.env.NODE_ENV = 'development';
+
+      writeAgentProfileFile({
+        ...agentConfig('visible-not-schedulable', 'Visible Not Schedulable'),
+        sessionSelectable: true,
+        schedulable: false,
+      });
+      expect(readMode('visible-not-schedulable')).toBe('subagent');
+    });
+  });
+
+  // #1094 — OpenAI native image_generation capability grant.
+  describe('image_generation capability projection (#1094)', () => {
+    const readProjected = (id: string): string =>
+      readFileSync(join(state.home, '.config', 'opencode', 'agents', `${id}.md`), 'utf8');
+
+    it('projects permission.image_generation: allow when granted', () => {
+      state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+      process.env.VITEST = 'false';
+      process.env.NODE_ENV = 'development';
+
+      writeAgentProfileFile({
+        ...agentConfig('graphic-designer', 'Graphic Designer'),
+        imageGenerationEnabled: true,
+      });
+      const projected = readProjected('graphic-designer');
+      expect(projected).toMatch(/^\s*image_generation:\s*allow\s*$/m);
+    });
+
+    it('does not project image_generation when not granted', () => {
+      state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+      process.env.VITEST = 'false';
+      process.env.NODE_ENV = 'development';
+
+      writeAgentProfileFile({
+        ...agentConfig('no-image-gen-agent', 'No Image Gen Agent'),
+        imageGenerationEnabled: false,
+      });
+      const projected = readProjected('no-image-gen-agent');
+      expect(projected).not.toContain('image_generation');
+    });
+
+    it('does NOT add image_generation to the MCP allowlist (options.mcpAllowlist)', () => {
+      state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+      process.env.VITEST = 'false';
+      process.env.NODE_ENV = 'development';
+
+      writeAgentProfileFile({
+        ...agentConfig('image-gen-scoped', 'Image Gen Scoped'),
+        imageGenerationEnabled: true,
+        allowedMcpsJson: JSON.stringify(['rhythm']),
+      });
+      const projected = readProjected('image-gen-scoped');
+      const optionsLine = projected.split('\n').find((l) => l.startsWith('options:'));
+      expect(optionsLine).toBeDefined();
+      const options = JSON.parse(optionsLine!.slice('options: '.length));
+      expect(JSON.stringify(options.mcpAllowlist)).not.toContain('image_generation');
+    });
+  });
 });

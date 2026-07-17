@@ -39,17 +39,47 @@ export interface AgentConfig {
    */
   sessionSelectable: boolean;
   /**
+   * #1088 — resolved schedulability: whether AgentRunner may launch this
+   * profile directly as a top-level agent (scheduled/background work),
+   * independent of picker visibility. Falls back to `sessionSelectable` when
+   * no explicit override is stored (see `schedulableOverride`), so existing
+   * rows behave exactly as before this field existed until edited.
+   * Optional on the TYPE (not just the DB column) so hand-built AgentConfig
+   * fixtures that predate #1088 still type-check; callers that need the
+   * resolved value should read `config.schedulable ?? config.sessionSelectable`
+   * — real repository reads always populate it, this fallback only matters
+   * for literal test fixtures.
+   */
+  schedulable?: boolean;
+  /**
+   * #1088 — the raw override value as stored, before the `sessionSelectable`
+   * fallback is applied. `null` means "inherit sessionSelectable"; a boolean
+   * is an explicit user choice (e.g. a hidden specialist made schedulable).
+   * Exposed so callers can round-trip "inherit" vs "explicitly true/false"
+   * through the API without collapsing the distinction.
+   */
+  schedulableOverride?: boolean | null;
+  /**
    * #844 — optional tier preference ('cheap' | 'standard' | 'frontier') fed to
    * agent_model_resolver.resolveModelTier() as the `explicitTierHint`. Wins
    * over the task-kind default; itself loses to an explicit per-call model
    * override. Null means "no profile-level tier preference".
    */
   modelTierHint: string | null;
-  /**
-   * Task D (dual Anthropic accounts) — profile-level default account id for
-   * sessions created with this profile. Null = fall back to the store default.
-   */
   defaultAnthropicAccountId: string | null;
+  /**
+   * #1094 — OpenAI native `image_generation` tool grant, separate from
+   * `allowedMcpsJson` (this is a provider-native/hosted tool, not an MCP
+   * server) and from the general `corePermissionsJson` map (a dedicated,
+   * designer-discoverable boolean rather than requiring the caller to know
+   * the `image_generation` permission-key name). When true, the writer
+   * projects `permission.image_generation: allow` into frontmatter; the
+   * existing ask/allow/deny approval flow still governs the actual call.
+   * Optional on the TYPE (like `schedulable`) so pre-#1094 hand-built
+   * AgentConfig fixtures still type-check; real repository reads always
+   * populate it. Writer/controller code treats `undefined` as `false`.
+   */
+  imageGenerationEnabled?: boolean;
   // Legacy CLI fields — retained on the row but no longer used by the
   // Opencode-based client. Marked optional so consumers do not depend on
   // them. New writes set these to NULL / empty defaults (issue #581).
@@ -82,10 +112,18 @@ export interface AgentConfigInput {
   ocAgent?: string | null;
   /** Whether this profile appears in session-level agent pickers. Default true. */
   sessionSelectable?: boolean;
+  /**
+   * #1088 — explicit schedulability override, independent of picker
+   * visibility. `null`/omitted = inherit `sessionSelectable` (default,
+   * unchanged behavior); `true`/`false` = explicit override.
+   */
+  schedulable?: boolean | null;
   /** #844 — optional tier preference ('cheap' | 'standard' | 'frontier'). Null = no preference. */
   modelTierHint?: string | null;
   /** Task D — profile-level default Anthropic account id. Null = store default. */
   defaultAnthropicAccountId?: string | null;
+  /** #1094 — grant the OpenAI native image_generation tool. Default false. */
+  imageGenerationEnabled?: boolean;
   // Legacy fields — accepted on the input shape for back-compat with stale
   // clients, but silently ignored by insert()/update() (issue #581).
   command?: string;
@@ -122,6 +160,8 @@ interface AgentConfigRow {
   session_selectable: number;
   model_tier_hint: string | null;
   default_anthropic_account_id: string | null;
+  schedulable: number | null;
+  image_generation_enabled: number;
 }
 
 export function slugIdFromLabel(label: string): string {
@@ -168,8 +208,15 @@ function rowToModel(row: AgentConfigRow): AgentConfig {
     modelId: row.model_id ?? null,
     ocAgent: row.oc_agent ?? null,
     sessionSelectable: (row.session_selectable ?? 1) !== 0,
+    schedulable: row.schedulable !== null && row.schedulable !== undefined
+      ? row.schedulable !== 0
+      : (row.session_selectable ?? 1) !== 0,
+    schedulableOverride: row.schedulable !== null && row.schedulable !== undefined
+      ? row.schedulable !== 0
+      : null,
     modelTierHint: row.model_tier_hint ?? null,
     defaultAnthropicAccountId: row.default_anthropic_account_id ?? null,
+    imageGenerationEnabled: (row.image_generation_enabled ?? 0) !== 0,
   };
 }
 
@@ -217,8 +264,9 @@ export class AgentConfigsRepository {
            allowed_mcps_json, allowed_skills_json, core_permissions_json, allowed_delegates_json, can_resume,
            resume_command, session_id_pattern, output_marker, preset_id, sort_order,
            model_provider, model_id, oc_agent, session_selectable, model_tier_hint,
-           default_anthropic_account_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           default_anthropic_account_id, schedulable, image_generation_enabled,
+           created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -245,6 +293,10 @@ export class AgentConfigsRepository {
         config.sessionSelectable === false ? 0 : 1,
         config.modelTierHint ?? null,
         config.defaultAnthropicAccountId ?? null,
+        config.schedulable === undefined || config.schedulable === null
+          ? null
+          : config.schedulable ? 1 : 0,
+        config.imageGenerationEnabled ? 1 : 0,
         now,
         now,
       );
@@ -317,6 +369,14 @@ export class AgentConfigsRepository {
     if (patch.sessionSelectable !== undefined) {
       fields.push('session_selectable = ?');
       values.push(patch.sessionSelectable ? 1 : 0);
+    }
+    if (patch.schedulable !== undefined) {
+      fields.push('schedulable = ?');
+      values.push(patch.schedulable === null ? null : patch.schedulable ? 1 : 0);
+    }
+    if (patch.imageGenerationEnabled !== undefined) {
+      fields.push('image_generation_enabled = ?');
+      values.push(patch.imageGenerationEnabled ? 1 : 0);
     }
     if (patch.modelTierHint !== undefined) {
       fields.push('model_tier_hint = ?');
