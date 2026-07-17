@@ -1662,6 +1662,61 @@ export class OpencodeClientService {
     });
   }
 
+  /**
+   * OCU-01 (#1042) — reply to a pending permission via the engine's MODERN
+   * endpoint `POST /permission/{requestID}/reply` (reply=once|always|reject
+   * + optional {message}). `always` persists a project-level approval engine-
+   * side; a reject message is fed back to the agent's next turn. This is the
+   * default path; the deprecated per-session endpoint
+   * ({@link respondToPermission}) is used ONLY as a fallback when the modern
+   * route 404s (older engine binary that predates it).
+   *
+   * Direct fetch (mirrors {@link questionAction}) until OCU-27 (#1068) lands a
+   * typed SDK for this route. Never throws — returns true on 2xx, false on any
+   * failure (the caller still clears local UI state). `message` is agent-
+   * facing feedback, never logged as a secret.
+   */
+  async replyToPermission(
+    requestID: string,
+    reply: 'once' | 'always' | 'reject',
+    message?: string,
+    directory?: string,
+    sdkSessionId?: string,
+  ): Promise<boolean> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    const url = `${this.serverUrl}/permission/${encodeURIComponent(requestID)}/reply${qs}`;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reply, ...(message ? { message } : {}) }),
+      });
+      if (res.ok) return true;
+      // Older engine that never shipped /permission/:id/reply → fall back to
+      // the deprecated per-session endpoint (needs the SDK session id).
+      if (res.status === 404 && sdkSessionId) {
+        logger.warn(
+          '[OpencodeClientService] replyToPermission: modern /permission/%s/reply 404 — falling back to deprecated per-session endpoint',
+          requestID,
+        );
+        try {
+          await this.respondToPermission(sdkSessionId, requestID, reply, directory, message);
+          return true;
+        } catch (err) {
+          logger.error('[OpencodeClientService] replyToPermission fallback failed:', err);
+          return false;
+        }
+      }
+      logger.error(
+        `[OpencodeClientService] replyToPermission failed (${res.status}) for ${requestID}`,
+      );
+      return false;
+    } catch (err) {
+      logger.error(`[OpencodeClientService] replyToPermission threw for ${requestID}:`, err);
+      return false;
+    }
+  }
+
   // ── Question API (AskUserQuestion handshake) ──────────────────────────────
   //
   // opencode answers its `question` tool through POST /question/{id}/reply.

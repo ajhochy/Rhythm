@@ -883,28 +883,49 @@ export class AgentSessionsController {
       if (!opencodeId) {
         throw AppError.badRequest('Session has no SDK mapping for permission.');
       }
+      // OCU-01 (#1042) — accept allow|always|deny (legacy accept/deny still
+      // honored for older Flutter builds). Map to the engine's modern
+      // once|always|reject reply vocabulary.
       const decision = req.params.decision as string;
-      if (decision !== 'accept' && decision !== 'deny') {
-        throw AppError.badRequest('decision must be accept or deny');
+      const replyMap: Record<string, 'once' | 'always' | 'reject'> = {
+        allow: 'once',
+        accept: 'once',
+        always: 'always',
+        deny: 'reject',
+      };
+      const reply = replyMap[decision];
+      if (!reply) {
+        throw AppError.badRequest('decision must be allow, always, or deny');
       }
       const permissionId = req.params.permissionId;
+      const message =
+        typeof (req.body as Record<string, unknown> | undefined)?.message === 'string'
+          ? ((req.body as Record<string, unknown>).message as string)
+          : undefined;
 
-      // Forward to the SDK.
-      const ok = await opencodeClient.respondPermission(opencodeId, permissionId, decision, session.cwd);
-      // If the SDK doesn't support this endpoint, respond gracefully (204).
-      // The caller can still update their local state.
+      // Forward to the engine's modern /permission/:id/reply endpoint (falls
+      // back to the deprecated per-session route only on a 404).
+      const ok = await opencodeClient.replyToPermission(
+        permissionId,
+        reply,
+        message,
+        session.cwd,
+        opencodeId,
+      );
 
       // Clear the pending permission from the bridge.
       streamBridge.clearPendingPermission(session.id, permissionId);
 
-      // Broadcast resolution so other connected clients update their UI.
+      // Broadcast resolution so other connected clients update their UI. Keep
+      // the legacy accept/deny decision word on the WS frame the Flutter card
+      // still expects (OCU-02 handles the always affordance UI-side).
       const { broadcast } = await import('../services/ws_gateway');
       broadcast({
         v: 1,
         type: 'permission.resolved',
         sessionId: session.id,
         permissionId,
-        decision,
+        decision: reply === 'reject' ? 'deny' : 'accept',
       });
 
       if (!ok) {

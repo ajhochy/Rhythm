@@ -1307,21 +1307,13 @@ export class OpencodeStreamBridge {
               return undefined;
             }
           })();
-          (async () => {
-            try {
-              await opencodeClient.respondPermission(
-                sdkSessionId,
-                permissionId,
-                'deny',
-                dir,
-              );
-            } catch (err) {
-              logger.error(
-                '[OpencodeStreamBridge] #736 auto-deny respondPermission failed:',
-                err,
-              );
-            }
-          })();
+          void opencodeClient.replyToPermission(
+            permissionId,
+            'reject',
+            `Tool '${toolName}' is not in this session's allowlist.`,
+            dir,
+            sdkSessionId,
+          );
           broadcast({
             v: 1,
             type: 'permission.resolved',
@@ -1352,16 +1344,13 @@ export class OpencodeStreamBridge {
                   return undefined;
                 }
               })();
-              (async () => {
-                try {
-                  await opencodeClient.respondPermission(sdkSessionId, permissionId, 'deny', dir);
-                } catch (err) {
-                  logger.error(
-                    '[OpencodeStreamBridge] #878 command-approval auto-deny respondPermission failed:',
-                    err,
-                  );
-                }
-              })();
+              void opencodeClient.replyToPermission(
+                permissionId,
+                'reject',
+                `Command blocked: ${classification.detail} (reason: ${classification.reason})`,
+                dir,
+                sdkSessionId,
+              );
               broadcast({
                 v: 1,
                 type: 'permission.resolved',
@@ -1430,19 +1419,17 @@ export class OpencodeStreamBridge {
           // Pass the session cwd as directory — opencode scopes permissions per
           // directory; without it the auto-response doesn't unblock the tool.
           const dir = this.sessionsRepo.findById(localSessionId)?.cwd;
-          // Auto-resolve — call the SDK to unblock the agent.
-          (async () => {
-            try {
-              await opencodeClient.respondPermission(
-                sdkSessionId,
-                permissionId,
-                decision,
-                dir,
-              );
-            } catch (err) {
-              logger.error(`[OpencodeStreamBridge] Auto-${decision} respondPermission failed:`, err);
-            }
-          })();
+          // Auto-resolve via the modern reply endpoint. Plan-mode auto-deny
+          // sends a reject classification message the agent sees next turn.
+          void opencodeClient.replyToPermission(
+            permissionId,
+            shouldAutoAccept ? 'once' : 'reject',
+            shouldAutoDeny
+              ? "Auto-denied: session is in plan mode (read-only)."
+              : undefined,
+            dir,
+            sdkSessionId,
+          );
           // Broadcast a permission.resolved so Flutter can update its UI.
           broadcast({
             v: 1,
