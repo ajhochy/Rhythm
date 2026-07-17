@@ -14,6 +14,7 @@ import { googleBrokerRouter } from './routes/google_broker_routes';
 import { pcoBrokerRouter } from './routes/pco_broker_routes';
 import { messagesRouter } from './routes/messages_routes';
 import { orgSkillsRouter } from './routes/org_skills_routes';
+import { orgSettingsRouter } from './routes/org_settings_routes';
 import { projectInstancesRouter } from './routes/project_instances_routes';
 import { projectTemplatesRouter } from './routes/project_templates_routes';
 import { projectsRouter } from './routes/projects_routes';
@@ -118,6 +119,10 @@ export function createApp() {
   // (index.json, files/:name/:file) are public by design; writes require
   // requireAuth (see org_skills_routes.ts).
   app.use('/org-skills', orgSkillsRouter);
+  // #1072 (OCU-31) — the org's single instructions markdown. Same
+  // always-on-in-production posture as /org-skills above (GET is public,
+  // PUT requires requireAuth — see org_settings_routes.ts).
+  app.use('/org-settings', orgSettingsRouter);
 
   // ── Agent-execution surfaces (#755) ───────────────────────────────────────
   // Registered only when the deployment role enables the agent runtime

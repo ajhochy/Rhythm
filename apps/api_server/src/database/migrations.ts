@@ -2415,4 +2415,23 @@ Your job, in order:
   runOnce('issue_1069_tool_events', () => {
     // Marker only — the CREATE TABLE/INDEX above are idempotent STRUCTURE changes.
   });
+
+  // #1072 (OCU-31) — org_settings: a single org-wide instructions markdown,
+  // hosted on the production API (org_settings_routes.ts, public read /
+  // authed write) and synced to every local machine's opencode `instructions`
+  // config (opencode_plugin_config.ts's `syncOrgInstructions`). Singleton row
+  // keyed by a fixed id ('org_instructions') — see org_settings_repository.ts.
+  // THE ONLY PROD-SCHEMA ISSUE IN THIS BATCH: see postgres_bootstrap.ts for
+  // the matching table (additive only, flagged there for manual review per
+  // AGENTS.md production posture).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS org_settings (
+      id         TEXT PRIMARY KEY,
+      content    TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  runOnce('issue_1072_org_settings', () => {
+    // Marker only — the CREATE TABLE above is an idempotent STRUCTURE change.
+  });
 }

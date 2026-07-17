@@ -386,3 +386,107 @@ export async function ensureManagedDefaults(
     return false;
   }
 }
+
+// ── #1072 (OCU-31) — org instructions synced from production ────────────────
+
+/** The Rhythm-managed instructions file every local machine writes/reads. */
+function resolveOrgInstructionsFilePath(): string {
+  const override = process.env.RHYTHM_ORG_INSTRUCTIONS_FILE?.trim();
+  if (override) return override;
+  return join(homedir(), '.config', 'opencode', 'rhythm-org-instructions.md');
+}
+
+/**
+ * Fetch the org instructions markdown from `${prodApiBase}/org-settings/instructions`
+ * with a short timeout. Returns null on ANY failure (unreachable, non-200,
+ * malformed body, empty content) — callers must fall back to the cached file
+ * rather than treat null as "clear the instructions". Never throws.
+ */
+async function fetchOrgInstructions(prodApiBase: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${prodApiBase}/org-settings/instructions`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { content?: unknown };
+    return typeof body.content === 'string' && body.content.trim() !== '' ? body.content : null;
+  } catch (err) {
+    logger.warn(`[OpencodePluginConfig] org instructions fetch failed (non-fatal, using cache): ${String(err)}`);
+    return null;
+  }
+}
+
+/**
+ * Idempotently sync the org's instructions markdown from production into
+ * this machine's opencode config:
+ *
+ *  1. Fetch the current content from prod (short timeout, never blocks
+ *     startup). On failure, fall back to whatever is already cached on disk
+ *     — never treat "prod unreachable" as "clear the instructions".
+ *  2. Write the resolved content to a Rhythm-managed file (only when it
+ *     actually changed, so this is a no-op write on every subsequent daily
+ *     sync that finds the same content).
+ *  3. Ensure opencode.json's `instructions` array contains that file's path
+ *     — ADDITIVE, every other entry a user added is preserved untouched.
+ *
+ * Returns true iff opencode.json was modified (caller should reloadConfig).
+ * Never throws — any failure at any step is logged and treated as "nothing
+ * to do this pass," matching the other ensure-/sync-prefixed functions above.
+ */
+export async function syncOrgInstructions(
+  prodApiBase: string = resolveProdApiBase(),
+  configPath: string = resolveOpencodeConfigPath(),
+  instructionsFilePath: string = resolveOrgInstructionsFilePath(),
+): Promise<boolean> {
+  const fetched = await fetchOrgInstructions(prodApiBase);
+  const cached = existsSync(instructionsFilePath) ? readFileSync(instructionsFilePath, 'utf8') : null;
+  const content = fetched ?? cached;
+  if (content === null) {
+    // Never fetched successfully AND nothing cached yet — nothing to
+    // register. Startup must never block on this.
+    return false;
+  }
+
+  if (fetched !== null && fetched !== cached) {
+    try {
+      mkdirSync(dirname(instructionsFilePath), { recursive: true });
+      writeFileSync(instructionsFilePath, fetched, 'utf8');
+      logger.info(`[OpencodePluginConfig] wrote org instructions to ${instructionsFilePath}`);
+    } catch (err) {
+      logger.error('[OpencodePluginConfig] failed to write org instructions file (using in-memory content only for this pass):', err);
+    }
+  }
+
+  let parsed: Record<string, unknown> = {};
+  if (existsSync(configPath)) {
+    try {
+      parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+    } catch (err) {
+      logger.error(
+        '[OpencodePluginConfig] opencode.json is malformed; leaving alone (org instructions not registered):',
+        err,
+      );
+      return false;
+    }
+  } else {
+    parsed['$schema'] = 'https://opencode.ai/config.json';
+  }
+
+  const existingInstructions = Array.isArray(parsed.instructions)
+    ? (parsed.instructions as string[])
+    : [];
+  if (existingInstructions.includes(instructionsFilePath)) {
+    return false; // already registered; the file write above (if any) doesn't need a config change
+  }
+
+  parsed.instructions = [...existingInstructions, instructionsFilePath];
+  try {
+    mkdirSync(dirname(configPath), { recursive: true });
+    writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+    logger.info(`[OpencodePluginConfig] registered org instructions in instructions[]: ${instructionsFilePath}`);
+    return true;
+  } catch (err) {
+    logger.error('[OpencodePluginConfig] failed to write opencode.json (org instructions not registered):', err);
+    return false;
+  }
+}

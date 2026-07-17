@@ -343,9 +343,12 @@ async function main() {
     // so direct routing to anthropic / google works once the user has
     // authed via the corresponding flow.
     try {
-      const { ensureRequiredPlugins, ensureOrgSkillIndex, ensureManagedDefaults } = await import(
-        './services/opencode_plugin_config'
-      );
+      const {
+        ensureRequiredPlugins,
+        ensureOrgSkillIndex,
+        ensureManagedDefaults,
+        syncOrgInstructions,
+      } = await import('./services/opencode_plugin_config');
       ensureRequiredPlugins();
       // #1054 — point skills.urls at this org's shared skill index before the
       // engine spawns, preserving any user-added entries (never touches
@@ -361,6 +364,23 @@ async function main() {
       await ensureManagedDefaults().catch((err) => {
         console.warn('[Opencode] Managed defaults update failed (non-fatal):', err);
       });
+      // #1072 (OCU-31) — org instructions markdown, synced from production
+      // and registered in the engine's `instructions` config. Offline/
+      // unreachable prod falls back to the last cached copy (never blocks
+      // boot). Re-synced daily thereafter — see the setInterval below.
+      await syncOrgInstructions().catch((err) => {
+        console.warn('[Opencode] Org instructions sync failed (non-fatal):', err);
+      });
+      setInterval(
+        () => {
+          syncOrgInstructions()
+            .then(async (changed) => {
+              if (changed) await opencodeClient.reloadConfig();
+            })
+            .catch((err) => console.warn('[Opencode] Daily org instructions sync failed (non-fatal):', err));
+        },
+        24 * 60 * 60 * 1000,
+      ).unref();
       await opencodeClient.reloadSkills();
       // #947 — Rhythm manages ~/.config/opencode/skills as the SOLE skill
       // source. The engine auto-scans that config dir, so no opencode.json
