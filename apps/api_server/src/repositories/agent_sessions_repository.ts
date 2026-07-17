@@ -47,6 +47,10 @@ interface AgentSessionRow {
   delegation_depth: number | null;
   /** USO B1 (#1028) — session classification. Legacy rows coalesce to a derived value. */
   category: string | null;
+  /** OCU-17 (#1058) — isolated-worktree metadata (all null for normal sessions). */
+  worktree_name: string | null;
+  worktree_path: string | null;
+  worktree_branch: string | null;
 }
 
 function rowToModel(row: AgentSessionRow): AgentSession {
@@ -85,6 +89,9 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     // missed (defensive — the migration sets a NOT NULL default + backfill).
     category: (row.category as AgentSession['category']) ??
       (row.scheduled_task_id ? 'scheduled' : 'chat'),
+    worktreeName: row.worktree_name ?? null,
+    worktreePath: row.worktree_path ?? null,
+    worktreeBranch: row.worktree_branch ?? null,
   };
 }
 
@@ -273,6 +280,24 @@ export class AgentSessionsRepository {
         `UPDATE agent_sessions SET sdk_session_id = ?, updated_at = ? WHERE id = ?`,
       )
       .run(sdkSessionId, now, id);
+  }
+
+  /**
+   * OCU-17 (#1058) — persist the isolated-worktree metadata on the session row.
+   * Called after the worktree is created (before the session cwd is set to it).
+   */
+  setWorktree(
+    id: string,
+    worktree: { name: string; path: string; branch: string | null },
+  ): void {
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `UPDATE agent_sessions
+           SET worktree_name = ?, worktree_path = ?, worktree_branch = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(worktree.name, worktree.path, worktree.branch, now, id);
   }
 
   /**

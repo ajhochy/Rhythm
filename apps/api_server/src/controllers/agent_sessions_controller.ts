@@ -587,6 +587,39 @@ export class AgentSessionsController {
         }
       }
 
+      // OCU-17 (#1058) — isolated worktree. When requested, create a git
+      // worktree in the project dir FIRST, then run the session with the
+      // worktree dir as its cwd so agent edits land in the isolated checkout
+      // instead of the main one. createWorktree throws AppError on failure, so
+      // a non-git dir surfaces a clean 4xx/5xx before any session row exists.
+      let sessionCwd = expandedCwd;
+      let worktreeMeta: { name: string; path: string; branch: string | null } | null = null;
+      const isolateWorktree = body.isolateWorktree === true;
+      if (isolateWorktree) {
+        const worktreeNameRaw = body.worktreeName;
+        if (
+          worktreeNameRaw !== undefined &&
+          worktreeNameRaw !== null &&
+          typeof worktreeNameRaw !== 'string'
+        ) {
+          throw AppError.badRequest('worktreeName must be a string');
+        }
+        if (!opencodeClient.isReady && !(await opencodeClient.ensureReady())) {
+          throw AppError.badRequest(
+            `Opencode engine is not ready (${opencodeClient.statusMessage}) — cannot create a worktree`,
+          );
+        }
+        const created = await opencodeClient.createWorktree(expandedCwd, {
+          name: typeof worktreeNameRaw === 'string' ? worktreeNameRaw : undefined,
+        });
+        sessionCwd = created.directory;
+        worktreeMeta = {
+          name: created.name,
+          path: created.directory,
+          branch: created.branch ?? null,
+        };
+      }
+
       let projectId: string | null = null;
       if (Object.prototype.hasOwnProperty.call(body, 'projectId')) {
         const raw = body.projectId;
@@ -595,7 +628,7 @@ export class AgentSessionsController {
         }
         projectId = (raw as string | null) ?? null;
       } else {
-        const match = new ProjectsRepository().findByCwdPrefix(expandedCwd);
+        const match = new ProjectsRepository().findByCwdPrefix(sessionCwd);
         projectId = match?.id ?? null;
       }
 
@@ -608,7 +641,9 @@ export class AgentSessionsController {
         agentKind: resolvedEngineAgentKind as AgentKind,
         taskId: resolvedTaskId,
         taskTitle: taskTitle != null ? (taskTitle as string) : null,
-        cwd: expandedCwd,
+        // OCU-17 (#1058) — when isolating, cwd is the worktree dir so agent
+        // edits land there; otherwise the requested project dir.
+        cwd: sessionCwd,
         // OPC-#710: name defaults to '' for instant-create sessions.
         name: typeof name === 'string' ? name.trim() : '',
         projectId,
@@ -621,6 +656,12 @@ export class AgentSessionsController {
       };
 
       const session = repo.insert(dto);
+
+      // OCU-17 (#1058) — record the isolated worktree on the row so the payload
+      // carries it and hard-delete can optionally clean it up later.
+      if (worktreeMeta) {
+        repo.setWorktree(session.id, worktreeMeta);
+      }
 
       // #842 (tokens-02) — unscoped sessions are a visible deliberate
       // exception, not a silent default. Flag every unscoped (no mcpRole)
@@ -726,7 +767,9 @@ export class AgentSessionsController {
       // with task title + notes that the user can edit before hitting Enter).
       // The server no longer fabricates "I need help with: ..." prompts.
 
-      res.status(201).json(session);
+      // Re-read so the response payload carries any worktree metadata just
+      // persisted (OCU-17 #1058); falls back to the insert result otherwise.
+      res.status(201).json(worktreeMeta ? (repo.findById(session.id) ?? session) : session);
     } catch (err) {
       next(err);
     }
@@ -1074,6 +1117,25 @@ export class AgentSessionsController {
       if (!session) throw AppError.notFound('AgentSession');
 
       streamBridge.stopStream(session.id);
+
+      // OCU-17 (#1058) — optional worktree cleanup on hard delete. Default is
+      // KEEP the worktree (an explicit ?removeWorktree=true / body flag opts in).
+      // Best-effort: a cleanup failure must never block clearing the local row.
+      const removeWorktreeFlag =
+        (req.query.removeWorktree === 'true') ||
+        ((req.body as Record<string, unknown> | undefined)?.removeWorktree === true);
+      if (removeWorktreeFlag && session.worktreePath) {
+        const projectDir = session.projectId
+          ? (new ProjectsRepository().findById(session.projectId)?.cwd ?? session.worktreePath)
+          : session.worktreePath;
+        try {
+          await opencodeClient.removeWorktree(projectDir, session.worktreePath);
+        } catch (err) {
+          logger.warn(
+            `[AgentSessionsController] destroy: worktree removal failed for ${session.id} — continuing local delete: ${String(err)}`,
+          );
+        }
+      }
 
       // #1048 (OCU-07) — hard delete also removes the engine-side session so
       // messages/parts/snapshots don't leak forever. Engine delete is recursive
