@@ -259,6 +259,8 @@ export class AgentConfigsController {
         // visibility. Omitted/undefined → repository stores NULL (inherit
         // sessionSelectable); explicit boolean → stored override.
         schedulable: typeof body.schedulable === 'boolean' ? body.schedulable : null,
+        // #1094 — OpenAI native image_generation capability grant.
+        imageGenerationEnabled: Boolean(body.imageGenerationEnabled),
         modelTierHint: typeof body.modelTierHint === 'string' ? body.modelTierHint : null,
         defaultAnthropicAccountId:
           typeof body.defaultAnthropicAccountId === 'string' ? body.defaultAnthropicAccountId : null,
@@ -322,6 +324,7 @@ export class AgentConfigsController {
       if (body.schedulable !== undefined) {
         patch.schedulable = body.schedulable === null ? null : Boolean(body.schedulable);
       }
+      if (body.imageGenerationEnabled !== undefined) patch.imageGenerationEnabled = Boolean(body.imageGenerationEnabled);
       if (body.modelTierHint !== undefined) patch.modelTierHint = typeof body.modelTierHint === 'string' ? body.modelTierHint : null;
       if (body.defaultAnthropicAccountId !== undefined) patch.defaultAnthropicAccountId = typeof body.defaultAnthropicAccountId === 'string' ? body.defaultAnthropicAccountId : null;
       // Legacy CLI fields (#581) — accept on the wire for back-compat

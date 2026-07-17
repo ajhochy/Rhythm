@@ -2362,8 +2362,25 @@ Your job, in order:
   });
 
   // #1094 — OpenAI native image_generation capability, grantable per-profile
-  // and NOT represented as an MCP server / allowedMcpsJson entry. Additive +
-  // nullable boolean-as-integer; local SQLite only.
+  // and NOT represented as an MCP server / allowedMcpsJson entry. A dedicated
+  // boolean (rather than requiring callers to know the low-level
+  // `core_permissions_json.image_generation` permission-key name) that the
+  // writer projects into `permission.image_generation: allow` frontmatter;
+  // the existing ask/allow/deny approval flow still governs the actual call.
+  // Additive + NOT NULL DEFAULT 0 (opt-in); local SQLite only.
+  //
+  // FORK CAVEAT (verified during implementation, not a Rhythm-side gap): the
+  // vendored engine's session tool-assembly (packages/opencode/src/session)
+  // has no existing mechanism that adds ANY provider-hosted tool (image
+  // generation, web_search, etc.) to a request — grep across that directory
+  // for HOSTED_TOOLS/providerExecuted-request-side wiring found only
+  // RESPONSE-side handling (processor.ts interprets a hosted tool-call IF one
+  // arrives) and the tool implementation itself under packages/core/llm, but
+  // no caller that offers it to the model. Granting this flag is real,
+  // inert-until-then Rhythm-side plumbing; actually OFFERING the tool to the
+  // model needs a follow-up fork change (out of scope here per AGENTS.md —
+  // the fork is edited only for mcp-scope-* issues — and per this issue's own
+  // "if a fork rebuild IS required, SKIP with a note" contingency).
   const agentConfigCols1094 = (db.pragma('table_info(agent_configs)') as { name: string }[]).map(
     (c) => c.name,
   );

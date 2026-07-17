@@ -378,4 +378,53 @@ describe('workflow-orchestrator file projection', () => {
       expect(readMode('visible-not-schedulable')).toBe('subagent');
     });
   });
+
+  // #1094 — OpenAI native image_generation capability grant.
+  describe('image_generation capability projection (#1094)', () => {
+    const readProjected = (id: string): string =>
+      readFileSync(join(state.home, '.config', 'opencode', 'agents', `${id}.md`), 'utf8');
+
+    it('projects permission.image_generation: allow when granted', () => {
+      state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+      process.env.VITEST = 'false';
+      process.env.NODE_ENV = 'development';
+
+      writeAgentProfileFile({
+        ...agentConfig('graphic-designer', 'Graphic Designer'),
+        imageGenerationEnabled: true,
+      });
+      const projected = readProjected('graphic-designer');
+      expect(projected).toMatch(/^\s*image_generation:\s*allow\s*$/m);
+    });
+
+    it('does not project image_generation when not granted', () => {
+      state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+      process.env.VITEST = 'false';
+      process.env.NODE_ENV = 'development';
+
+      writeAgentProfileFile({
+        ...agentConfig('no-image-gen-agent', 'No Image Gen Agent'),
+        imageGenerationEnabled: false,
+      });
+      const projected = readProjected('no-image-gen-agent');
+      expect(projected).not.toContain('image_generation');
+    });
+
+    it('does NOT add image_generation to the MCP allowlist (options.mcpAllowlist)', () => {
+      state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+      process.env.VITEST = 'false';
+      process.env.NODE_ENV = 'development';
+
+      writeAgentProfileFile({
+        ...agentConfig('image-gen-scoped', 'Image Gen Scoped'),
+        imageGenerationEnabled: true,
+        allowedMcpsJson: JSON.stringify(['rhythm']),
+      });
+      const projected = readProjected('image-gen-scoped');
+      const optionsLine = projected.split('\n').find((l) => l.startsWith('options:'));
+      expect(optionsLine).toBeDefined();
+      const options = JSON.parse(optionsLine!.slice('options: '.length));
+      expect(JSON.stringify(options.mcpAllowlist)).not.toContain('image_generation');
+    });
+  });
 });

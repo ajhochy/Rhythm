@@ -361,4 +361,25 @@ describe('AgentConfigsRepository', () => {
       expect(updated!.schedulable).toBe(true);
     });
   });
+
+  // #1094 — OpenAI native image_generation capability grant.
+  describe('imageGenerationEnabled (#1094)', () => {
+    it('defaults to false', () => {
+      const created = repo.insert({ label: 'No Image Gen', icon: 'a' });
+      expect(created.imageGenerationEnabled).toBe(false);
+    });
+
+    it('round-trips true through insert', () => {
+      const created = repo.insert({ label: 'Image Gen', icon: 'a', imageGenerationEnabled: true });
+      expect(created.imageGenerationEnabled).toBe(true);
+    });
+
+    it('round-trips through patch', () => {
+      const created = repo.insert({ label: 'Toggle Image Gen', icon: 'a' });
+      const updated = repo.update(created.id, { imageGenerationEnabled: true });
+      expect(updated!.imageGenerationEnabled).toBe(true);
+      const reverted = repo.update(created.id, { imageGenerationEnabled: false });
+      expect(reverted!.imageGenerationEnabled).toBe(false);
+    });
+  });
 });

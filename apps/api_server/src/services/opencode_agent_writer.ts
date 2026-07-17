@@ -459,6 +459,18 @@ export function writeAgentProfileFile(config: AgentConfig): void {
     for (const [permission, action] of Object.entries(parseCorePermissions(config))) {
       fm = setPermissionValue(fm, permission, action);
     }
+    // #1094 — OpenAI native image_generation grant. A dedicated capability
+    // flag (not an MCP allowlist entry), projected as the same permission-key
+    // mechanism every other tool uses so the existing ask/allow/deny approval
+    // flow applies uniformly. Written AFTER the corePermissionsJson loop so
+    // an explicit `image_generation` entry there (if the profile ever sets
+    // one directly) is not silently clobbered when the flag is also true —
+    // last-match-wins means this only overrides when the flag disagrees.
+    // Absence when false (never writes 'deny') keeps a profile's own explicit
+    // corePermissionsJson override authoritative.
+    if (config.imageGenerationEnabled === true) {
+      fm = setPermissionKey(fm, 'image_generation', 'allow');
+    }
     const delegateRoster = parseDelegateRoster(config);
     if (config.isManager === true) {
       fm = setPermissionValue(fm, 'task', buildTaskDelegatePermissions(delegateRoster));
