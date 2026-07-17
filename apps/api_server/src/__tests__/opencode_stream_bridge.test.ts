@@ -5,6 +5,10 @@ import { setDb } from '../database/db';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 
 const respondPermissionSpy = vi.fn().mockResolvedValue(true);
+// OCU-01 (#1042) — bridge auto-resolve now routes through replyToPermission.
+const replyToPermissionSpy = vi.fn().mockResolvedValue(true);
+// OCU-03 (#1044) — GET /permission rehydration source (default: nothing pending).
+const listPermissionsSpy = vi.fn().mockResolvedValue([]);
 
 const { broadcastSpy, sessionMap, engineSpies } = vi.hoisted(() => ({
   broadcastSpy: vi.fn(),
@@ -27,6 +31,8 @@ vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
     subscribeToEvents: vi.fn().mockResolvedValue(null),
     respondPermission: (...args: unknown[]) => respondPermissionSpy(...args),
+    replyToPermission: (...args: unknown[]) => replyToPermissionSpy(...args),
+    listPermissions: (...args: unknown[]) => listPermissionsSpy(...args),
     ...engineSpies,
   },
   opencodeSessionMap: sessionMap,
@@ -333,6 +339,7 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
     sessionMap.clear();
     broadcastSpy.mockClear();
     respondPermissionSpy.mockClear();
+    replyToPermissionSpy.mockClear();
     bridge = new OpencodeStreamBridge();
 
     const repo = new AgentSessionsRepository();
@@ -356,7 +363,7 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
     expect(asked).toBeDefined();
     expect(asked?.permissionId).toBe('perm-1');
     expect(asked?.toolName).toBe('bash');
-    expect(respondPermissionSpy).not.toHaveBeenCalled();
+    expect(replyToPermissionSpy).not.toHaveBeenCalled();
 
     // Pending entry should be registered.
     expect(bridge.getPendingPermission(localId, 'perm-1')).toBeDefined();
@@ -368,10 +375,10 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
 
     relay(makePermEvent({ permissionID: 'perm-2', toolName: 'edit' }));
 
-    // Give the async respondPermission call a tick to run.
+    // Give the async replyToPermission call a tick to run.
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-2', 'accept', '/tmp');
+    expect(replyToPermissionSpy).toHaveBeenCalledWith('perm-2', 'once', undefined, '/tmp', SDK_ID);
     const resolved = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.resolved');
@@ -386,7 +393,7 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
 
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(respondPermissionSpy).not.toHaveBeenCalled();
+    expect(replyToPermissionSpy).not.toHaveBeenCalled();
     const asked = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.asked');
@@ -401,7 +408,13 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
 
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-4', 'deny', '/tmp');
+    expect(replyToPermissionSpy).toHaveBeenCalledWith(
+      'perm-4',
+      'reject',
+      expect.stringContaining('plan mode'),
+      '/tmp',
+      SDK_ID,
+    );
     const resolved = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.resolved');
@@ -416,7 +429,7 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
 
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-5', 'accept', '/tmp');
+    expect(replyToPermissionSpy).toHaveBeenCalledWith('perm-5', 'once', undefined, '/tmp', SDK_ID);
     const resolved = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.resolved');
@@ -462,6 +475,7 @@ describe('OpencodeStreamBridge — #878 command approval (bash tool)', () => {
     sessionMap.clear();
     broadcastSpy.mockClear();
     respondPermissionSpy.mockClear();
+    replyToPermissionSpy.mockClear();
     bridge = new OpencodeStreamBridge();
 
     const repo = new AgentSessionsRepository();
@@ -489,7 +503,14 @@ describe('OpencodeStreamBridge — #878 command approval (bash tool)', () => {
     await new Promise((r) => setTimeout(r, 10));
 
     // The dangerous command must be denied, NOT auto-accepted despite bypassPermissions.
-    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-hard-1', 'deny', '/tmp');
+    // OCU-01 (#1042): auto-deny now routes through replyToPermission(reject + message).
+    expect(replyToPermissionSpy).toHaveBeenCalledWith(
+      'perm-hard-1',
+      'reject',
+      expect.stringContaining('Command blocked'),
+      '/tmp',
+      SDK_ID,
+    );
     const resolved = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.resolved');
@@ -509,7 +530,7 @@ describe('OpencodeStreamBridge — #878 command approval (bash tool)', () => {
     relay(makeBashPermEvent('perm-safe-1', 'ls -la'));
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-safe-1', 'accept', '/tmp');
+    expect(replyToPermissionSpy).toHaveBeenCalledWith('perm-safe-1', 'once', undefined, '/tmp', SDK_ID);
   });
 
   it('default (manual) mode: even a low-risk command surfaces an ask, since manual mode always asks for bash', async () => {
@@ -519,7 +540,7 @@ describe('OpencodeStreamBridge — #878 command approval (bash tool)', () => {
     relay(makeBashPermEvent('perm-manual-safe-1', 'ls -la'));
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(respondPermissionSpy).not.toHaveBeenCalled();
+    expect(replyToPermissionSpy).not.toHaveBeenCalled();
     const asked = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.asked');
@@ -535,7 +556,7 @@ describe('OpencodeStreamBridge — #878 command approval (bash tool)', () => {
     await new Promise((r) => setTimeout(r, 10));
 
     // Must NOT auto-accept despite bypassPermissions — forced to the ask path.
-    expect(respondPermissionSpy).not.toHaveBeenCalled();
+    expect(replyToPermissionSpy).not.toHaveBeenCalled();
     const asked = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.asked');
@@ -559,7 +580,7 @@ describe('OpencodeStreamBridge — #878 command approval (bash tool)', () => {
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.asked');
     expect(asked).toBeDefined();
-    expect(respondPermissionSpy).not.toHaveBeenCalled();
+    expect(replyToPermissionSpy).not.toHaveBeenCalled();
   });
 
   it('mode=off still blocks a hardline command', async () => {
@@ -570,7 +591,13 @@ describe('OpencodeStreamBridge — #878 command approval (bash tool)', () => {
     relay(makeBashPermEvent('perm-off-2', ':(){:|:&};:'));
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-off-2', 'deny', '/tmp');
+    expect(replyToPermissionSpy).toHaveBeenCalledWith(
+      'perm-off-2',
+      'reject',
+      expect.stringContaining('Command blocked'),
+      '/tmp',
+      SDK_ID,
+    );
   });
 });
 
@@ -728,5 +755,118 @@ describe('OpencodeStreamBridge — session.created recording-gap fix (mcp_allowe
     const childRow = repo.findBySdkSessionId('sdk-child-recgap-2');
     expect(childRow).not.toBeNull();
     expect(childRow!.mcpAllowedToolsJson).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// OCU-03 (#1044) — rehydrate pending permissions on (re)connect via GET /permission
+// ---------------------------------------------------------------------------
+
+describe('OpencodeStreamBridge — #1044 permission rehydration on reconnect', () => {
+  let bridge: OpencodeStreamBridge;
+  const SDK_ID = 'sdk-rehydrate-1';
+  let localId: string;
+
+  function relay(event: Record<string, unknown>): void {
+    (bridge as unknown as { _relayEvent: (e: unknown) => void })._relayEvent(event);
+  }
+
+  beforeEach(() => {
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    setDb(db);
+    sessionMap.clear();
+    broadcastSpy.mockClear();
+    listPermissionsSpy.mockClear();
+    listPermissionsSpy.mockResolvedValue([]);
+    bridge = new OpencodeStreamBridge();
+
+    const repo = new AgentSessionsRepository();
+    repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: '/tmp',
+      name: 'rehydrate-test',
+    });
+    localId = repo.listActive()[0].id;
+    sessionMap.set(localId, SDK_ID);
+  });
+
+  it('re-broadcasts a permission.asked card for a permission GET /permission reports pending (server restart)', async () => {
+    // Simulate a fresh bridge (no in-memory pending) with the engine still
+    // holding one pending permission.
+    listPermissionsSpy.mockResolvedValue([
+      {
+        id: 'perm-orphan-1',
+        sessionID: SDK_ID,
+        permission: 'bash',
+        metadata: { command: 'ls -la' },
+        tool: { callID: 'call-1' },
+      },
+    ]);
+
+    await bridge.recoverPendingPermissions('/tmp');
+
+    const asked = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'permission.asked' && m.permissionId === 'perm-orphan-1');
+    expect(asked).toBeDefined();
+    expect(asked?.toolName).toBe('bash');
+    // And it is now tracked so a reply routes correctly.
+    expect(bridge.getPendingPermission(localId, 'perm-orphan-1')).toBeDefined();
+  });
+
+  it('does not double-broadcast when recovery runs twice (idempotent)', async () => {
+    listPermissionsSpy.mockResolvedValue([
+      { id: 'perm-orphan-2', sessionID: SDK_ID, permission: 'edit', metadata: {} },
+    ]);
+
+    await bridge.recoverPendingPermissions('/tmp');
+    await bridge.recoverPendingPermissions('/tmp');
+
+    const asks = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .filter((m) => m.type === 'permission.asked' && m.permissionId === 'perm-orphan-2');
+    expect(asks).toHaveLength(1);
+  });
+
+  it('dedups against a live permission.updated for the same requestID (event + rehydrate → one card)', async () => {
+    // Live event surfaces the card first.
+    relay({
+      type: 'permission.updated',
+      properties: {
+        id: 'perm-dup-1',
+        type: 'bash',
+        sessionID: SDK_ID,
+        messageID: 'msg-x',
+        title: 'Allow bash?',
+        metadata: {},
+        time: { created: 0 },
+      },
+    });
+    // Then rehydrate reports the same one still pending.
+    listPermissionsSpy.mockResolvedValue([
+      { id: 'perm-dup-1', sessionID: SDK_ID, permission: 'bash', metadata: {} },
+    ]);
+    await bridge.recoverPendingPermissions('/tmp');
+
+    const asks = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .filter((m) => m.type === 'permission.asked' && m.permissionId === 'perm-dup-1');
+    expect(asks).toHaveLength(1);
+  });
+
+  it('ignores pending permissions for unknown SDK sessions', async () => {
+    listPermissionsSpy.mockResolvedValue([
+      { id: 'perm-unknown', sessionID: 'sdk-not-mapped', permission: 'bash', metadata: {} },
+    ]);
+    await bridge.recoverPendingPermissions('/tmp');
+
+    const asks = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .filter((m) => m.type === 'permission.asked');
+    expect(asks).toHaveLength(0);
   });
 });

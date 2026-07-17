@@ -2303,4 +2303,30 @@ Your job, in order:
           AND (model_id IS NULL OR model_id <> 'claude-haiku-4-5' OR model_tier_hint IS NULL)`,
     ).run();
   });
+
+  // OCU-17 (#1058) — worktree isolation fields on agent_sessions. When a session
+  // is created with isolateWorktree, the engine makes a git worktree first and
+  // the session's cwd becomes the worktree dir; these columns remember the
+  // worktree so the UI/cleanup can act on it later. Additive + nullable, guarded
+  // by a pragma check (STRUCTURE class — no runOnce needed; the runOnce key
+  // 'issue_1058_worktree_fields' is recorded so the migration replay guard and
+  // audit trail can see the migration ran, matching the spine convention).
+  const agentSessionCols1058 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map(
+    (c) => c.name,
+  );
+  if (!agentSessionCols1058.includes('worktree_name')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN worktree_name TEXT`);
+  }
+  if (!agentSessionCols1058.includes('worktree_path')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN worktree_path TEXT`);
+  }
+  if (!agentSessionCols1058.includes('worktree_branch')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN worktree_branch TEXT`);
+  }
+  runOnce('issue_1058_worktree_fields', () => {
+    // Marker only — the additive ALTERs above are idempotent STRUCTURE changes.
+    // This runOnce records that the #1058 worktree-fields migration landed
+    // (agent_sessions is local-SQLite only; postgres_bootstrap.ts is NOT needed
+    // for agent sessions, per the issue's verification note).
+  });
 }

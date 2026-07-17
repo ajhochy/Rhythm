@@ -38,6 +38,8 @@ import { agentModelVisibilityRouter } from './routes/agent_model_visibility_rout
 import { opencodeModelsRouter } from './routes/opencode_models_routes';
 import { opencodeMcpRouter } from './routes/opencode_mcp_routes';
 import { opencodeSkillsRouter } from './routes/opencode_skills_routes';
+import { opencodeCommandsRouter } from './routes/opencode_commands_routes';
+import { opencodeWorktreesRouter } from './routes/opencode_worktrees_routes';
 import { opencodeSpilloverRouter } from './routes/opencode_spillover_routes';
 import { syncRouter } from './routes/sync_routes';
 import { ptyRouter } from './routes/pty_routes';
@@ -169,6 +171,8 @@ export function createApp() {
     app.use('/opencode/mcp', opencodeMcpRouter);
     // Unify-2 — skills source of truth: live fork skills + Rhythm-managed writes
     app.use('/opencode/skills', opencodeSkillsRouter);
+    // OCU-16 (#1057) — worktree lifecycle (list/create/remove/reset).
+    app.use('/opencode/worktrees', opencodeWorktreesRouter);
     // Task D (dual Anthropic accounts) — rate-limit spillover intake from the
     // vendored engine plugin (POST http://localhost:4001/opencode/spillover).
     app.use('/opencode/spillover', opencodeSpilloverRouter);
@@ -189,8 +193,15 @@ export function createApp() {
       });
     });
 
-    // M5-1 (Providers tab) / M4-3 — list user-defined commands from the SDK.
-    app.get('/opencode/commands', async (_req, res) => {
+    // OCU-09 (#1050) — Playbooks: custom slash-command CRUD (list/content/
+    // create/edit/delete) writing managed `commands/*.md` + config reload.
+    // Supersedes the earlier inline GET-only route (its list shape is preserved
+    // by the router's GET /).
+    app.use('/opencode/commands', opencodeCommandsRouter);
+
+    // M5-1 (Providers tab) / M4-3 — legacy inline list retained under a distinct
+    // path so nothing that consumed the old GET shape breaks (kept minimal).
+    app.get('/opencode/commands-legacy', async (_req, res) => {
       try {
         const commands = await opencodeClient.listCommands();
         res.json(commands);
@@ -202,6 +213,9 @@ export function createApp() {
       res.json({
         status: opencodeClient.isReady ? 'ready' : 'unavailable',
         message: opencodeClient.statusMessage,
+        // OCU-08 (#1049) — surface websearch-tool availability so the UI can
+        // show it as configured/not. Never exposes the key itself.
+        websearchConfigured: opencodeClient.websearchConfigured,
       });
     });
   }

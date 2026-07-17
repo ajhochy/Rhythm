@@ -30,6 +30,25 @@ import type { AgentSession, PermissionMode } from '../models/agent_session';
 const QUESTION_RECOVERY_POLL_MS = 1500;
 
 /**
+ * OCU-29 (#1070) — heartbeat watchdog window. The engine emits a synthetic
+ * `server.heartbeat` every 10s on every SSE stream; if NOTHING (event or
+ * heartbeat) arrives for longer than this, the stream is considered dead —
+ * tear it down and resubscribe (which re-runs the recover/reconcile path).
+ */
+const HEARTBEAT_WATCHDOG_MS = 30_000;
+
+/**
+ * OCU-29 (#1070) — fallback flag. Default is the consolidated single
+ * `/global/event` stream. Set RHYTHM_SSE_GLOBAL=0 (or 'false') to revert to the
+ * legacy per-directory `/event` subscriptions for one release while the global
+ * path bakes. Read fresh so a test can flip it without a process restart.
+ */
+function useGlobalStream(): boolean {
+  const raw = (process.env.RHYTHM_SSE_GLOBAL ?? '').trim().toLowerCase();
+  return !(raw === '0' || raw === 'false');
+}
+
+/**
  * Tools implemented by the embedded OpenCode engine. These are governed by
  * OpenCode's own agent permission policy; `skill` is additionally constrained
  * by the session skill allowlist. The MCP dispatch guard must only gate MCP
@@ -178,6 +197,16 @@ export class OpencodeStreamBridge {
   // directory never produce events on that stream. The same process may
   // host sessions across different cwds, so we track multiple streams.
   private streamsByDirectory = new Map<string, DirectoryStream>();
+  // OCU-29 (#1070) — the single consolidated /global/event subscription (when
+  // RHYTHM_SSE_GLOBAL is on). Null until the first session starts it.
+  private globalStream: {
+    abort: () => void;
+    watchdog: ReturnType<typeof setInterval>;
+  } | null = null;
+  /** Epoch ms of the last frame (event OR heartbeat) seen on the global stream. */
+  private lastGlobalActivity = 0;
+  /** Guards against overlapping resubscribes from the watchdog. */
+  private globalResubscribing = false;
   private sessionsRepo = new AgentSessionsRepository();
   private messagesRepo = new AgentSessionMessagesRepository();
   // #818 — best-effort deny-path telemetry sink; see isToolAllowedForSession.
@@ -227,6 +256,82 @@ export class OpencodeStreamBridge {
   /** Remove a pending permission after it is resolved. */
   clearPendingPermission(localSessionId: string, permissionId: string): void {
     this.pendingPermissions.delete(`${localSessionId}:${permissionId}`);
+  }
+
+  /**
+   * Register a pending permission and broadcast the `permission.asked` card
+   * frame (OCU-03 #1044). Idempotent: if a permission with this `permissionId`
+   * is already tracked for the session, nothing is broadcast and `false` is
+   * returned. Shared by the live `permission.updated` ask path and the
+   * `GET /permission` recovery poll so a permission surfaced by either path
+   * never double-broadcasts (dedup guarantee for the no-duplicate-cards AC).
+   */
+  private registerPermission(
+    localSessionId: string,
+    entry: PendingPermission,
+  ): boolean {
+    if (this.stoppedSessions.has(localSessionId)) return false;
+    const key = `${localSessionId}:${entry.permissionId}`;
+    if (this.pendingPermissions.has(key)) return false;
+    this.pendingPermissions.set(key, entry);
+    broadcast({
+      v: 1,
+      type: 'permission.asked',
+      sessionId: localSessionId,
+      permissionId: entry.permissionId,
+      toolName: entry.toolName,
+      args: entry.args,
+      summary: entry.summary,
+    });
+    return true;
+  }
+
+  /**
+   * Recover permission requests whose `permission.updated` event never reached
+   * us on the SSE stream (api_server/engine restart while a permission ask was
+   * pending). opencode keeps the tool blocked until the permission is answered,
+   * so a missed ask orphans the turn with no card. We poll GET /permission
+   * (scoped to a directory), reverse-map each pending permission's SDK session
+   * id to a local session, and surface any we are not already tracking.
+   *
+   * Idempotent and safe to call repeatedly; only newly-seen permissions
+   * broadcast (registerPermission dedups against the same requestID delivered
+   * by the live stream).
+   */
+  async recoverPendingPermissions(directory: string): Promise<void> {
+    let pending: Array<{
+      id: string;
+      sessionID: string;
+      permission?: string;
+      metadata?: Record<string, unknown>;
+      tool?: { callID?: string };
+    }>;
+    try {
+      pending = await opencodeClient.listPermissions(directory);
+    } catch {
+      return;
+    }
+    if (!Array.isArray(pending) || pending.length === 0) return;
+
+    for (const p of pending) {
+      if (!p?.id || !p.sessionID) continue;
+      let localSessionId: string | undefined;
+      for (const [localId, sdkId] of opencodeSessionMap.entries()) {
+        if (sdkId === p.sessionID) {
+          localSessionId = localId;
+          break;
+        }
+      }
+      if (!localSessionId) continue;
+      const toolName = p.permission ?? '';
+      this.registerPermission(localSessionId, {
+        permissionId: p.id,
+        toolName,
+        args: (p.metadata as Record<string, unknown>) ?? {},
+        summary: toolName,
+        sdkSessionId: p.sessionID,
+      });
+    }
   }
 
   // In-memory map of pending questions. Key = `${localSessionId}:${requestId}`.
@@ -333,6 +438,62 @@ export class OpencodeStreamBridge {
   }
 
   /**
+   * OCU-04 (#1045) — reconcile locally-persisted session status against the
+   * engine's authoritative GET /session/status map on engine ready / stream
+   * (re)subscribe. Session status is otherwise tracked only from live events;
+   * a missed event (engine restart, api_server restart, stream gap) leaves a
+   * row stuck 'working'/'starting' forever.
+   *
+   * For every local row still in 'working'/'starting': if the engine reports
+   * it idle (status.type !== 'busy') OR the engine doesn't know it at all
+   * (absent from the map — the engine treats unknown sessions as idle), correct
+   * the row to 'idle' and broadcast the corrected status.
+   *
+   * Error-precedence rule (shared with the live status/idle handlers): rows in
+   * status='error' are NEVER clobbered — listActive() already excludes them, so
+   * this is naturally satisfied, but the guard is kept explicit for safety.
+   *
+   * Idempotent and non-fatal: any per-row failure is logged and skipped; a
+   * row the engine reports busy is left untouched.
+   */
+  async reconcileSessionStatuses(directory?: string): Promise<void> {
+    let statusMap: Record<string, { type: string }>;
+    try {
+      statusMap = await opencodeClient.getSessionStatuses(directory);
+    } catch {
+      return;
+    }
+    let active: AgentSession[];
+    try {
+      active = this.sessionsRepo.listActive();
+    } catch (err) {
+      logger.error('[OpencodeStreamBridge] reconcileSessionStatuses: listActive failed:', err);
+      return;
+    }
+    for (const session of active) {
+      // Error-precedence: listActive() only returns starting/working/idle rows,
+      // so an error row is never in this set and is never clobbered (#1045 AC).
+      if (session.status !== 'working' && session.status !== 'starting') continue;
+      if (this.stoppedSessions.has(session.id)) continue;
+      const sdkId = session.sdkSessionId;
+      const engineStatus = sdkId ? statusMap[sdkId] : undefined;
+      // Busy engine-side → leave as-is. Idle OR unknown → correct to idle.
+      if (engineStatus && engineStatus.type === 'busy') continue;
+      try {
+        this.sessionsRepo.updateStatus(session.id, 'idle');
+        broadcast({ v: 1, type: 'session.status', id: session.id, working: false });
+        const updated = this.sessionsRepo.findById(session.id);
+        if (updated) broadcastSessionUpdated(updated);
+      } catch (err) {
+        logger.error(
+          `[OpencodeStreamBridge] reconcileSessionStatuses: failed to correct ${session.id}:`,
+          err,
+        );
+      }
+    }
+  }
+
+  /**
    * Start streaming events for a given local session.
    * Subscribes (idempotently) to the opencode /event SSE for the session's
    * cwd. Multiple sessions in the same directory share a single subscriber.
@@ -346,6 +507,18 @@ export class OpencodeStreamBridge {
     logger.info(
       `[OpencodeStreamBridge] streamSession entry session=${localSessionId} sdkSession=${_opencodeSessionId} directory=${directory}`,
     );
+
+    // OCU-29 (#1070) — consolidated single-stream mode: one /global/event
+    // subscription spans every directory, so per-session/per-directory
+    // subscribes collapse into starting (once) the global stream. Only take
+    // this path when the engine wrapper actually exposes the global subscribe
+    // (an older engine binary — or a partial test double — that lacks it falls
+    // back to the legacy per-directory subscription below).
+    if (useGlobalStream() && typeof opencodeClient.subscribeToGlobalEvents === 'function') {
+      await this.ensureGlobalStream();
+      return;
+    }
+
     if (this.streamsByDirectory.has(directory)) return;
 
     try {
@@ -363,6 +536,8 @@ export class OpencodeStreamBridge {
       // idempotent). Cleared when the stream ends or the session stops.
       const questionPoll = setInterval(() => {
         void this.recoverPendingQuestions(directory);
+        // OCU-03 (#1044) — same recovery for orphaned permission asks.
+        void this.recoverPendingPermissions(directory);
       }, QUESTION_RECOVERY_POLL_MS);
       if (typeof questionPoll.unref === 'function') questionPoll.unref();
       this.streamsByDirectory.set(directory, {
@@ -375,6 +550,15 @@ export class OpencodeStreamBridge {
       this._listen(directory).catch((err) =>
         logger.error('[OpencodeStreamBridge] listener crashed:', err),
       );
+      // OCU-03 (#1044) — immediate rehydration on (re)connect: surface any
+      // permission/question that was already pending before this subscribe
+      // (api_server restart mid-ask) without waiting a full poll cycle. Both
+      // are idempotent, so a card the live stream also redelivers is deduped.
+      void this.recoverPendingQuestions(directory);
+      void this.recoverPendingPermissions(directory);
+      // OCU-04 (#1045) — reconcile any row left stuck 'working'/'starting' by a
+      // missed event before this (re)subscribe, using the engine's status map.
+      void this.reconcileSessionStatuses(directory);
       logger.info(
         `[OpencodeStreamBridge] Subscribed to events for directory=${directory} (session=${localSessionId})`,
       );
@@ -383,6 +567,110 @@ export class OpencodeStreamBridge {
         `[OpencodeStreamBridge] Failed to subscribe to ${directory}:`,
         err,
       );
+    }
+  }
+
+  /**
+   * OCU-29 (#1070) — start (idempotently) the single consolidated
+   * /global/event subscription plus its heartbeat watchdog. Safe to call on
+   * every session start; a no-op once the stream is live.
+   */
+  async ensureGlobalStream(): Promise<void> {
+    if (this.globalStream) return;
+    let sub: Awaited<ReturnType<typeof opencodeClient.subscribeToGlobalEvents>>;
+    try {
+      sub = await opencodeClient.subscribeToGlobalEvents();
+    } catch (err) {
+      logger.error('[OpencodeStreamBridge] ensureGlobalStream subscribe threw:', err);
+      return;
+    }
+    if (!sub) {
+      logger.error('[OpencodeStreamBridge] ensureGlobalStream: no global stream available');
+      return;
+    }
+    this.lastGlobalActivity = Date.now();
+    // Watchdog: if no frame (incl. the engine's 10s heartbeat) arrives within
+    // the window, the stream is dead — resubscribe. unref so it never keeps the
+    // process alive.
+    const watchdog = setInterval(() => {
+      if (Date.now() - this.lastGlobalActivity > HEARTBEAT_WATCHDOG_MS) {
+        logger.warn(
+          '[OpencodeStreamBridge] global stream watchdog fired (no activity > %sms) — resubscribing',
+          HEARTBEAT_WATCHDOG_MS,
+        );
+        void this.resubscribeGlobalStream();
+      }
+    }, HEARTBEAT_WATCHDOG_MS / 3);
+    if (typeof watchdog.unref === 'function') watchdog.unref();
+    this.globalStream = { abort: sub.abort, watchdog };
+    this._listenGlobal(sub.stream).catch((err) =>
+      logger.error('[OpencodeStreamBridge] global listener crashed:', err),
+    );
+    logger.info('[OpencodeStreamBridge] subscribed to consolidated /global/event stream');
+  }
+
+  private async _listenGlobal(
+    stream: AsyncIterable<import('@opencode-ai/sdk').Event & { __directory?: string }>,
+  ): Promise<void> {
+    try {
+      for await (const event of stream) {
+        this.lastGlobalActivity = Date.now();
+        // server.heartbeat / server.connected are liveness-only — swallow them
+        // (they carry no session and would otherwise emit a generic `event`).
+        // The SDK Event union doesn't declare these synthetic types, so compare
+        // via a widened view.
+        const evType = (event as { type: string }).type;
+        if (evType === 'server.heartbeat' || evType === 'server.connected') continue;
+        this._relayEvent(event);
+      }
+    } catch (err) {
+      logger.error('[OpencodeStreamBridge] global stream error:', err);
+    } finally {
+      // Stream ended on its own — trigger a resubscribe so a transient drop
+      // self-heals (unless we are shutting down / already resubscribing).
+      if (this.globalStream && !this.globalResubscribing) {
+        void this.resubscribeGlobalStream();
+      }
+    }
+  }
+
+  /**
+   * OCU-29 (#1070) — tear down the current global stream and start a fresh one,
+   * then re-run the recover/reconcile path (OCU-03/#1044 + OCU-04/#1045) so any
+   * event missed during the gap is recovered. Guarded against overlap.
+   */
+  async resubscribeGlobalStream(): Promise<void> {
+    if (this.globalResubscribing) return;
+    this.globalResubscribing = true;
+    try {
+      if (this.globalStream) {
+        try {
+          this.globalStream.abort();
+        } catch {
+          /* best-effort */
+        }
+        clearInterval(this.globalStream.watchdog);
+        this.globalStream = null;
+      }
+      await this.ensureGlobalStream();
+      // Soft dependency on OCU-03/OCU-04 recovery: reconcile stuck statuses and
+      // recover orphaned permission/question asks against every active dir.
+      void this.reconcileSessionStatuses();
+      for (const dir of this.activeDirectories()) {
+        void this.recoverPendingQuestions(dir);
+        void this.recoverPendingPermissions(dir);
+      }
+    } finally {
+      this.globalResubscribing = false;
+    }
+  }
+
+  /** Distinct cwds of currently-active sessions (for recovery scoping). */
+  private activeDirectories(): string[] {
+    try {
+      return [...new Set(this.sessionsRepo.listActive().map((s) => s.cwd).filter(Boolean))];
+    } catch {
+      return [];
     }
   }
 
@@ -604,6 +892,48 @@ export class OpencodeStreamBridge {
     // stopStream), drop all events for it. The shared SSE subscription stays
     // alive for other sessions in the same directory.
     if (localSessionId && this.stoppedSessions.has(localSessionId)) {
+      return;
+    }
+
+    // OCU-16 (#1057) — worktree lifecycle events are project-scoped, NOT
+    // session-scoped (they carry no sessionID). Handle them here, BEFORE the
+    // no-session-id generic fallback below, so they surface as typed top-level
+    // WS frames the Flutter client can react to directly.
+    // Cast the event to a loose shape: the generated SDK `Event` union does not
+    // declare the experimental worktree events, so a direct `event.type ===`
+    // comparison narrows `event` to `never`. Read type/properties off the
+    // widened view instead.
+    const wtEvent = event as { type: string; properties?: Record<string, unknown> };
+    if (wtEvent.type === 'worktree.ready') {
+      const wp = (wtEvent.properties ?? {}) as { name?: string; branch?: string };
+      broadcast({
+        v: 1,
+        type: 'worktree.ready',
+        name: wp.name ?? '',
+        ...(wp.branch ? { branch: wp.branch } : {}),
+      });
+      return;
+    }
+    if (wtEvent.type === 'worktree.failed') {
+      const wp = (wtEvent.properties ?? {}) as { message?: string };
+      broadcast({
+        v: 1,
+        type: 'worktree.failed',
+        message: wp.message ?? 'worktree operation failed',
+      });
+      return;
+    }
+
+    // OCU-22 (#1063) — vcs.branch.updated is project-scoped (no sessionID).
+    // Relay it as a typed top-level WS frame so the transcript-header branch
+    // badge refreshes live when an agent switches branches.
+    if (wtEvent.type === 'vcs.branch.updated') {
+      const vp = (wtEvent.properties ?? {}) as { branch?: string };
+      broadcast({
+        v: 1,
+        type: 'vcs.branch.updated',
+        ...(vp.branch ? { branch: vp.branch } : {}),
+      });
       return;
     }
 
@@ -1314,21 +1644,13 @@ export class OpencodeStreamBridge {
               return undefined;
             }
           })();
-          (async () => {
-            try {
-              await opencodeClient.respondPermission(
-                sdkSessionId,
-                permissionId,
-                'deny',
-                dir,
-              );
-            } catch (err) {
-              logger.error(
-                '[OpencodeStreamBridge] #736 auto-deny respondPermission failed:',
-                err,
-              );
-            }
-          })();
+          void opencodeClient.replyToPermission(
+            permissionId,
+            'reject',
+            `Tool '${toolName}' is not in this session's allowlist.`,
+            dir,
+            sdkSessionId,
+          );
           broadcast({
             v: 1,
             type: 'permission.resolved',
@@ -1359,16 +1681,13 @@ export class OpencodeStreamBridge {
                   return undefined;
                 }
               })();
-              (async () => {
-                try {
-                  await opencodeClient.respondPermission(sdkSessionId, permissionId, 'deny', dir);
-                } catch (err) {
-                  logger.error(
-                    '[OpencodeStreamBridge] #878 command-approval auto-deny respondPermission failed:',
-                    err,
-                  );
-                }
-              })();
+              void opencodeClient.replyToPermission(
+                permissionId,
+                'reject',
+                `Command blocked: ${classification.detail} (reason: ${classification.reason})`,
+                dir,
+                sdkSessionId,
+              );
               broadcast({
                 v: 1,
                 type: 'permission.resolved',
@@ -1393,22 +1712,12 @@ export class OpencodeStreamBridge {
               // Force this to the pending/broadcast path below regardless of
               // permissionMode — a manual-mode or smart-uncertain command must
               // surface an approval ask even under bypassPermissions/acceptEdits.
-              const pending: PendingPermission = {
+              this.registerPermission(localSessionId, {
                 permissionId,
                 toolName,
                 args,
                 summary: `${summary} — ${classification.detail}`,
                 sdkSessionId,
-              };
-              this.pendingPermissions.set(`${localSessionId}:${permissionId}`, pending);
-              broadcast({
-                v: 1,
-                type: 'permission.asked',
-                sessionId: localSessionId,
-                permissionId,
-                toolName,
-                args,
-                summary: pending.summary,
               });
               break;
             }
@@ -1437,19 +1746,17 @@ export class OpencodeStreamBridge {
           // Pass the session cwd as directory — opencode scopes permissions per
           // directory; without it the auto-response doesn't unblock the tool.
           const dir = this.sessionsRepo.findById(localSessionId)?.cwd;
-          // Auto-resolve — call the SDK to unblock the agent.
-          (async () => {
-            try {
-              await opencodeClient.respondPermission(
-                sdkSessionId,
-                permissionId,
-                decision,
-                dir,
-              );
-            } catch (err) {
-              logger.error(`[OpencodeStreamBridge] Auto-${decision} respondPermission failed:`, err);
-            }
-          })();
+          // Auto-resolve via the modern reply endpoint. Plan-mode auto-deny
+          // sends a reject classification message the agent sees next turn.
+          void opencodeClient.replyToPermission(
+            permissionId,
+            shouldAutoAccept ? 'once' : 'reject',
+            shouldAutoDeny
+              ? "Auto-denied: session is in plan mode (read-only)."
+              : undefined,
+            dir,
+            sdkSessionId,
+          );
           // Broadcast a permission.resolved so Flutter can update its UI.
           broadcast({
             v: 1,
@@ -1461,23 +1768,15 @@ export class OpencodeStreamBridge {
           break;
         }
 
-        // Default / acceptEdits-but-non-edit path: store in pending map and broadcast.
-        const pending: PendingPermission = {
+        // Default / acceptEdits-but-non-edit path: register + broadcast.
+        // registerPermission dedups against a permissionId already surfaced by
+        // the GET /permission recovery poll (OCU-03 #1044).
+        this.registerPermission(localSessionId, {
           permissionId,
           toolName,
           args,
           summary,
           sdkSessionId,
-        };
-        this.pendingPermissions.set(`${localSessionId}:${permissionId}`, pending);
-        broadcast({
-          v: 1,
-          type: 'permission.asked',
-          sessionId: localSessionId,
-          permissionId,
-          toolName,
-          args,
-          summary,
         });
         break;
       }
@@ -1594,6 +1893,16 @@ export class OpencodeStreamBridge {
       entry.abort.abort();
     }
     this.streamsByDirectory.clear();
+    // OCU-29 (#1070) — tear down the consolidated global stream + watchdog.
+    if (this.globalStream) {
+      try {
+        this.globalStream.abort();
+      } catch {
+        /* best-effort */
+      }
+      clearInterval(this.globalStream.watchdog);
+      this.globalStream = null;
+    }
     this.stoppedSessions.clear();
     this.pendingText.clear();
     this.pendingPermissions.clear();

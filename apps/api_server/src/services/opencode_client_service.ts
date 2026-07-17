@@ -18,6 +18,7 @@ import {
   ensureOmlxProviderConfig,
   detectAndUnloadCompetingOllamaModel,
 } from './local_omlx_provider';
+import { resolveWebsearchConfig } from '../config/env';
 
 /**
  * MCP-6 — resolves a FRESH OAuth access token for a curated server's
@@ -516,6 +517,16 @@ export class OpencodeClientService {
   }
 
   /**
+   * OCU-08 (#1049) — whether a websearch provider + key are configured (so the
+   * engine's native websearch tool is enabled for this process). Surfaced in the
+   * capabilities/status payload so the UI can show websearch as available. Reads
+   * the config fresh; never returns the key.
+   */
+  get websearchConfigured(): boolean {
+    return resolveWebsearchConfig() !== null;
+  }
+
+  /**
    * Indirection around `this.status` used where TypeScript's control-flow
    * narrowing would otherwise (incorrectly) hold a property read to a
    * literal type assigned earlier in the same method, across intervening
@@ -709,6 +720,20 @@ export class OpencodeClientService {
           `[OpencodeClientService] RHYTHM_API_BASE bridged to ${process.env.RHYTHM_API_BASE} for engine plugins`,
         );
       }
+      // OCU-08 (#1049) — enable the engine's native websearch tool by exporting
+      // its provider + key env vars onto process.env BEFORE the spawn, so the
+      // engine child inherits them. No-op when unconfigured (no key) → the
+      // engine spawns with zero websearch env delta, exactly as before. The key
+      // is NEVER logged (only the provider name + a masked marker).
+      const websearch = resolveWebsearchConfig();
+      if (websearch) {
+        process.env.OPENCODE_WEBSEARCH_PROVIDER = websearch.provider;
+        process.env[websearch.keyEnvVar] = websearch.apiKey;
+        logger.info(
+          `[OpencodeClientService] websearch tool enabled (provider=${websearch.provider}, key=***)`,
+        );
+      }
+
       const t5 = Date.now();
       const { client, server } = await mod.createOpencode({ port: OPENCODE_ENGINE_PORT });
       logger.info(`[Opencode][timing] createOpencode (engine spawn) took ${Date.now() - t5}ms`);
@@ -776,13 +801,27 @@ export class OpencodeClientService {
     }
   }
 
-  /** List all user-defined commands from the SDK (for the slash-command popover). */
-  async listCommands(): Promise<Array<{ name: string; description?: string }>> {
+  /**
+   * List all commands from the engine (for the slash-command popover and the
+   * OCU-09 (#1050) Playbooks CRUD merge). `source` is the engine's own
+   * provenance tag: 'command' (config `commands/*.md` OR a built-in like
+   * init/review), 'mcp' (an MCP-server prompt), or 'skill' (a skill surfaced as
+   * a command). The commands router uses it — combined with the on-disk managed
+   * file check — to flag which rows Rhythm may edit/delete and which names are
+   * off-limits for a create (built-in / MCP / skill collision → 409).
+   */
+  async listCommands(): Promise<
+    Array<{ name: string; description?: string; source?: string }>
+  > {
     if (!this.client) return [];
     try {
       const raw = await this.client.command.list();
       const commands = raw.data ?? [];
-      return commands.map((c) => ({ name: c.name, description: c.description }));
+      return commands.map((c) => ({
+        name: c.name,
+        description: c.description,
+        source: (c as { source?: string }).source,
+      }));
     } catch (err) {
       logger.warn('[OpencodeClientService] listCommands failed:', err);
       return [];
@@ -1429,6 +1468,80 @@ export class OpencodeClientService {
   }
 
   /**
+   * OCU-29 (#1070) — subscribe to the engine's single `/global/event` SSE
+   * stream spanning ALL directories. Each frame is an envelope
+   * `{ directory, project?, workspace?, payload: {id, type, properties} }`.
+   * We parse the SSE ourselves (raw fetch) because the generated SDK client
+   * only exposes the per-directory `event.subscribe`. Yields the UNWRAPPED
+   * inner event augmented with `__directory` so the bridge can route by
+   * directory in addition to sessionID. Returns null when the engine is not
+   * reachable.
+   *
+   * The returned object carries an `abort()` to tear the stream down (used by
+   * the heartbeat watchdog to force a resubscribe).
+   */
+  async subscribeToGlobalEvents(): Promise<{
+    stream: AsyncIterable<import('@opencode-ai/sdk').Event & { __directory?: string }>;
+    abort: () => void;
+  } | null> {
+    const controller = new AbortController();
+    let res: Response;
+    try {
+      res = await fetch(`${this.serverUrl}/global/event`, {
+        headers: { accept: 'text/event-stream' },
+        signal: controller.signal,
+      });
+    } catch (err) {
+      logger.error('[OpencodeClientService] subscribeToGlobalEvents failed:', err);
+      return null;
+    }
+    if (!res.ok || !res.body) {
+      logger.warn('[OpencodeClientService] subscribeToGlobalEvents HTTP %s', res.status);
+      return null;
+    }
+    // res.body is a ReadableStream<Uint8Array>, which is async-iterable at
+    // runtime under Node's fetch (undici). Access the iterator through a
+    // narrow structural type rather than a double widening cast (the #685
+    // anti-duck-typing guard forbids that pattern in this file).
+    const body = res.body as Pick<AsyncIterable<Uint8Array>, typeof Symbol.asyncIterator>;
+
+    async function* iterate(): AsyncIterable<
+      import('@opencode-ai/sdk').Event & { __directory?: string }
+    > {
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for await (const chunk of body) {
+        buffer += decoder.decode(chunk, { stream: true });
+        // SSE frames are separated by a blank line; each `data:` line is JSON.
+        let idx: number;
+        while ((idx = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          const dataLine = frame
+            .split('\n')
+            .find((l) => l.startsWith('data:'));
+          if (!dataLine) continue;
+          const json = dataLine.slice(5).trim();
+          if (!json) continue;
+          let envelope: {
+            directory?: string;
+            payload?: import('@opencode-ai/sdk').Event;
+          };
+          try {
+            envelope = JSON.parse(json);
+          } catch {
+            continue;
+          }
+          if (!envelope.payload) continue;
+          yield { ...envelope.payload, __directory: envelope.directory };
+        }
+      }
+    }
+
+    return { stream: iterate(), abort: () => controller.abort() };
+  }
+
+  /**
    * Get OAuth authorization URL for a provider.
    * Returns the URL, method, and instructions on success.
    * Returns `{ error: string }` on failure so the caller can surface the SDK message.
@@ -1662,6 +1775,61 @@ export class OpencodeClientService {
     });
   }
 
+  /**
+   * OCU-01 (#1042) — reply to a pending permission via the engine's MODERN
+   * endpoint `POST /permission/{requestID}/reply` (reply=once|always|reject
+   * + optional {message}). `always` persists a project-level approval engine-
+   * side; a reject message is fed back to the agent's next turn. This is the
+   * default path; the deprecated per-session endpoint
+   * ({@link respondToPermission}) is used ONLY as a fallback when the modern
+   * route 404s (older engine binary that predates it).
+   *
+   * Direct fetch (mirrors {@link questionAction}) until OCU-27 (#1068) lands a
+   * typed SDK for this route. Never throws — returns true on 2xx, false on any
+   * failure (the caller still clears local UI state). `message` is agent-
+   * facing feedback, never logged as a secret.
+   */
+  async replyToPermission(
+    requestID: string,
+    reply: 'once' | 'always' | 'reject',
+    message?: string,
+    directory?: string,
+    sdkSessionId?: string,
+  ): Promise<boolean> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    const url = `${this.serverUrl}/permission/${encodeURIComponent(requestID)}/reply${qs}`;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reply, ...(message ? { message } : {}) }),
+      });
+      if (res.ok) return true;
+      // Older engine that never shipped /permission/:id/reply → fall back to
+      // the deprecated per-session endpoint (needs the SDK session id).
+      if (res.status === 404 && sdkSessionId) {
+        logger.warn(
+          '[OpencodeClientService] replyToPermission: modern /permission/%s/reply 404 — falling back to deprecated per-session endpoint',
+          requestID,
+        );
+        try {
+          await this.respondToPermission(sdkSessionId, requestID, reply, directory, message);
+          return true;
+        } catch (err) {
+          logger.error('[OpencodeClientService] replyToPermission fallback failed:', err);
+          return false;
+        }
+      }
+      logger.error(
+        `[OpencodeClientService] replyToPermission failed (${res.status}) for ${requestID}`,
+      );
+      return false;
+    } catch (err) {
+      logger.error(`[OpencodeClientService] replyToPermission threw for ${requestID}:`, err);
+      return false;
+    }
+  }
+
   // ── Question API (AskUserQuestion handshake) ──────────────────────────────
   //
   // opencode answers its `question` tool through POST /question/{id}/reply.
@@ -1757,6 +1925,376 @@ export class OpencodeClientService {
       logger.error('[OpencodeClientService] listQuestions failed:', err);
       return [];
     }
+  }
+
+  /**
+   * GET /permission — list pending permission requests across all sessions
+   * (OCU-03 #1044). Mirrors {@link listQuestions}: used to rehydrate the
+   * bridge's in-memory pending-permission map after an api_server/engine
+   * restart, so an orphaned permission ask resurfaces as a card. Never throws.
+   */
+  async listPermissions(
+    directory?: string,
+  ): Promise<
+    Array<{
+      id: string;
+      sessionID: string;
+      permission?: string;
+      metadata?: Record<string, unknown>;
+      tool?: { callID?: string; messageID?: string };
+    }>
+  > {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const res = await fetch(`${this.serverUrl}/permission${qs}`);
+      if (!res.ok) return [];
+      return (await res.json()) as Array<{
+        id: string;
+        sessionID: string;
+        permission?: string;
+        metadata?: Record<string, unknown>;
+        tool?: { callID?: string; messageID?: string };
+      }>;
+    } catch (err) {
+      logger.error('[OpencodeClientService] listPermissions failed:', err);
+      return [];
+    }
+  }
+
+  /**
+   * GET /session/status (OCU-04 #1045) — the engine's authoritative status map
+   * for all sessions: `Record<sdkSessionId, { type: 'idle' | 'busy', ... }>`.
+   * A session the engine does not know about is absent from the map (the engine
+   * treats an unknown session as idle). Used to reconcile local DB rows stuck
+   * 'working'/'starting' after a missed event (engine/api_server restart, stream
+   * gap). Raw fetch (mirrors {@link listQuestions}) — the SDK client does not
+   * generate this instance route. Never throws — returns {} on any failure so a
+   * reconcile pass degrades to "no correction" rather than crashing the caller.
+   */
+  async getSessionStatuses(
+    directory?: string,
+  ): Promise<Record<string, { type: string }>> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const res = await fetch(`${this.serverUrl}/session/status${qs}`);
+      if (!res.ok) {
+        logger.warn('[OpencodeClientService] getSessionStatuses HTTP %s', res.status);
+        return {};
+      }
+      const data = (await res.json()) as Record<string, { type: string }>;
+      return data && typeof data === 'object' ? data : {};
+    } catch (err) {
+      logger.error('[OpencodeClientService] getSessionStatuses failed:', err);
+      return {};
+    }
+  }
+
+  // ── Worktree wrappers (OCU-16 #1057) ──────────────────────────────────────
+  //
+  // The engine exposes experimental worktree lifecycle endpoints scoped by the
+  // project `directory` query param. Direct fetch (mirrors questionAction /
+  // getSessionStatuses) until a typed SDK lands (OCU-27). All non-throwing:
+  // list returns [] and the mutators return null/false on any failure so a
+  // route can surface a clean error without crashing the process.
+
+  /** GET /experimental/worktree — list worktrees for a project directory. */
+  async listWorktrees(
+    directory: string,
+  ): Promise<Array<{ name: string; branch?: string; directory: string }>> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const res = await fetch(`${this.serverUrl}/experimental/worktree${qs}`);
+      if (!res.ok) {
+        logger.warn('[OpencodeClientService] listWorktrees HTTP %s', res.status);
+        return [];
+      }
+      const data = (await res.json()) as Array<{ name: string; branch?: string; directory: string }>;
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      logger.error('[OpencodeClientService] listWorktrees failed:', err);
+      return [];
+    }
+  }
+
+  /**
+   * POST /experimental/worktree — create a worktree in the project directory.
+   * Returns the created worktree Info (name/branch/directory) or throws
+   * AppError(502) on failure so the route surfaces worktree.failed cleanly.
+   */
+  async createWorktree(
+    directory: string,
+    opts?: { name?: string; startCommand?: string },
+  ): Promise<{ name: string; branch?: string; directory: string }> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    const body: Record<string, unknown> = {};
+    if (opts?.name) body.name = opts.name;
+    if (opts?.startCommand) body.startCommand = opts.startCommand;
+    let res: Response;
+    try {
+      res = await fetch(`${this.serverUrl}/experimental/worktree${qs}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      throw new AppError(502, 'SDK_ERROR', `createWorktree threw: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new AppError(502, 'SDK_ERROR', `createWorktree failed (${res.status}): ${detail.slice(0, 300)}`);
+    }
+    return (await res.json()) as { name: string; branch?: string; directory: string };
+  }
+
+  /**
+   * DELETE /experimental/worktree — remove a worktree (forced; deletes branch).
+   * `worktreeDir` is the worktree's own directory (the `directory` field from
+   * listWorktrees), passed in the body per the engine's RemoveInput schema.
+   * Returns true on success, false otherwise (never throws).
+   */
+  async removeWorktree(directory: string, worktreeDir: string): Promise<boolean> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const res = await fetch(`${this.serverUrl}/experimental/worktree${qs}`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ directory: worktreeDir }),
+      });
+      if (!res.ok) {
+        logger.warn('[OpencodeClientService] removeWorktree HTTP %s', res.status);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      logger.error('[OpencodeClientService] removeWorktree failed:', err);
+      return false;
+    }
+  }
+
+  /**
+   * POST /experimental/worktree/reset — reset a worktree branch to the primary
+   * default branch. `worktreeDir` is the worktree's own directory. Returns true
+   * on success, false otherwise (never throws).
+   */
+  async resetWorktree(directory: string, worktreeDir: string): Promise<boolean> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const res = await fetch(`${this.serverUrl}/experimental/worktree/reset${qs}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ directory: worktreeDir }),
+      });
+      if (!res.ok) {
+        logger.warn('[OpencodeClientService] resetWorktree HTTP %s', res.status);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      logger.error('[OpencodeClientService] resetWorktree failed:', err);
+      return false;
+    }
+  }
+
+  // ── File / find wrappers (OCU-19 #1060) ───────────────────────────────────
+  //
+  // Proxy the engine's ripgrep/find/file endpoints, all scoped by the session's
+  // `directory`. Direct fetch (SDK doesn't generate these instance routes).
+  // Non-throwing where a [] degradation is safe; readFileContent throws
+  // AppError(502) on engine error so the route surfaces a real failure.
+
+  /** GET /find — ripgrep text search (engine caps results). */
+  async findText(directory: string, pattern: string): Promise<unknown[]> {
+    const qs = `?directory=${encodeURIComponent(directory)}&pattern=${encodeURIComponent(pattern)}`;
+    try {
+      const res = await fetch(`${this.serverUrl}/find${qs}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      logger.error('[OpencodeClientService] findText failed:', err);
+      return [];
+    }
+  }
+
+  /** GET /find/file — fuzzy file/dir search (limit 1-200, optional type filter). */
+  async findFiles(
+    directory: string,
+    query: string,
+    opts?: { limit?: number; type?: 'file' | 'directory'; dirs?: boolean },
+  ): Promise<string[]> {
+    const params = new URLSearchParams({ directory, query });
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    if (opts?.type) params.set('type', opts.type);
+    if (opts?.dirs != null) params.set('dirs', String(opts.dirs));
+    try {
+      const res = await fetch(`${this.serverUrl}/find/file?${params.toString()}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? (data as string[]) : [];
+    } catch (err) {
+      logger.error('[OpencodeClientService] findFiles failed:', err);
+      return [];
+    }
+  }
+
+  /** GET /file — list files/dirs at a path within the session directory. */
+  async listFiles(directory: string, path: string): Promise<unknown[]> {
+    const qs = `?directory=${encodeURIComponent(directory)}&path=${encodeURIComponent(path)}`;
+    try {
+      const res = await fetch(`${this.serverUrl}/file${qs}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      logger.error('[OpencodeClientService] listFiles failed:', err);
+      return [];
+    }
+  }
+
+  /**
+   * GET /file/content — read a file's content (engine flags binary / returns
+   * base64 per its own semantics). Throws AppError on engine error so the route
+   * can 4xx/5xx cleanly rather than silently returning empty.
+   */
+  async readFileContent(directory: string, path: string): Promise<unknown> {
+    const qs = `?directory=${encodeURIComponent(directory)}&path=${encodeURIComponent(path)}`;
+    const res = await fetch(`${this.serverUrl}/file/content${qs}`);
+    if (!res.ok) {
+      throw new AppError(502, 'SDK_ERROR', `readFileContent failed (${res.status}) for ${path}`);
+    }
+    return res.json();
+  }
+
+  /** GET /file/status — git-aware file status for the session directory. */
+  async fileStatus(directory: string): Promise<unknown[]> {
+    const qs = `?directory=${encodeURIComponent(directory)}`;
+    try {
+      const res = await fetch(`${this.serverUrl}/file/status${qs}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      logger.error('[OpencodeClientService] fileStatus failed:', err);
+      return [];
+    }
+  }
+
+  // ── VCS wrappers (OCU-22 #1063 / OCU-23 #1064) ────────────────────────────
+  //
+  // Proxy the engine's project-scoped VCS endpoints. Direct fetch; all scoped
+  // by the project `directory`. Non-throwing (null/[] on failure) so a route
+  // can degrade to "no badge / empty diff" rather than 500.
+
+  /** GET /vcs — { branch?, defaultBranch? } for the project directory. */
+  async getVcs(directory: string): Promise<{ branch?: string; defaultBranch?: string } | null> {
+    const qs = `?directory=${encodeURIComponent(directory)}`;
+    try {
+      const res = await fetch(`${this.serverUrl}/vcs${qs}`);
+      if (!res.ok) return null;
+      return (await res.json()) as { branch?: string; defaultBranch?: string };
+    } catch (err) {
+      logger.error('[OpencodeClientService] getVcs failed:', err);
+      return null;
+    }
+  }
+
+  /** GET /vcs/status — changed files in the working tree. */
+  async getVcsStatus(directory: string): Promise<unknown[]> {
+    const qs = `?directory=${encodeURIComponent(directory)}`;
+    try {
+      const res = await fetch(`${this.serverUrl}/vcs/status${qs}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      logger.error('[OpencodeClientService] getVcsStatus failed:', err);
+      return [];
+    }
+  }
+
+  /**
+   * GET /vcs/diff?mode=git|branch — structured diff. `git` = working-tree
+   * uncommitted; `branch` = full diff vs the default branch. Throws AppError on
+   * engine error so the route surfaces a real failure.
+   */
+  async getVcsDiff(directory: string, mode: 'git' | 'branch'): Promise<unknown[]> {
+    const qs = `?directory=${encodeURIComponent(directory)}&mode=${mode}`;
+    const res = await fetch(`${this.serverUrl}/vcs/diff${qs}`);
+    if (!res.ok) {
+      throw new AppError(502, 'SDK_ERROR', `getVcsDiff failed (${res.status})`);
+    }
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  }
+
+  /**
+   * GET /vcs/diff/raw — the raw text/x-diff patch for uncommitted changes.
+   * Returns the patch text (or '' on failure — an empty patch is a valid,
+   * clean-tree result).
+   */
+  async getVcsDiffRaw(directory: string): Promise<string> {
+    const qs = `?directory=${encodeURIComponent(directory)}`;
+    try {
+      const res = await fetch(`${this.serverUrl}/vcs/diff/raw${qs}`);
+      if (!res.ok) return '';
+      return await res.text();
+    } catch (err) {
+      logger.error('[OpencodeClientService] getVcsDiffRaw failed:', err);
+      return '';
+    }
+  }
+
+  // ── session.shell / session.init wrappers (OCU-24 #1065 / OCU-25 #1066) ────
+
+  /**
+   * POST /session/{id}/shell — run a non-interactive command through the
+   * session so the invocation + output land in session history. `agent` is the
+   * engine agent name to attribute the run to; `command` is the shell command.
+   * Direct fetch (mirrors questionAction). Returns the created message on
+   * success, or throws AppError on engine error.
+   */
+  async sessionShell(
+    sdkId: string,
+    command: string,
+    agent: string,
+    directory?: string,
+    model?: string,
+  ): Promise<unknown> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    const body: Record<string, unknown> = { command, agent };
+    if (model) body.model = model;
+    const res = await fetch(`${this.serverUrl}/session/${encodeURIComponent(sdkId)}/shell${qs}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new AppError(502, 'SDK_ERROR', `sessionShell failed (${res.status}) for ${sdkId}`);
+    }
+    return res.json();
+  }
+
+  /**
+   * POST /session/{id}/init — run the engine's built-in init flow (analyze the
+   * project + generate AGENTS.md). Progress streams via SSE as a normal turn.
+   * Requires providerID/modelID/messageID (the model that writes AGENTS.md).
+   * Returns true on 2xx.
+   */
+  async sessionInit(
+    sdkId: string,
+    opts: { providerID: string; modelID: string; messageID: string },
+    directory?: string,
+  ): Promise<boolean> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    const res = await fetch(`${this.serverUrl}/session/${encodeURIComponent(sdkId)}/init${qs}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(opts),
+    });
+    if (!res.ok) {
+      throw new AppError(502, 'SDK_ERROR', `sessionInit failed (${res.status}) for ${sdkId}`);
+    }
+    return true;
   }
 
   /**
@@ -2740,6 +3278,33 @@ export class OpencodeClientService {
       return null;
     }
     return raw.data;
+  }
+
+  /**
+   * #1048 (OCU-07) — DELETE /session/{id}. Removes the engine-side session
+   * (messages, parts, snapshots) so hard-deleting a Rhythm row doesn't leak
+   * engine storage forever. The engine delete is recursive over child sessions,
+   * so one call cleans the whole tree.
+   *
+   * 404-tolerant: an already-gone engine session (envelope error / no data) is
+   * treated as success — hard delete must not fail because the engine record
+   * was cleaned up earlier. Returns true on delete-or-already-gone, false only
+   * when the SDK is not initialized. A thrown transport error propagates so the
+   * caller can decide (the hard-delete path swallows it best-effort).
+   */
+  async deleteSession(sdkId: string, directory?: string): Promise<boolean> {
+    if (!this.client) return false;
+    const raw = await this.client.session.delete({
+      path: { id: sdkId },
+      ...(directory ? { query: { directory } } : {}),
+    });
+    if (raw.error) {
+      // 404 / already-gone surfaces as an envelope error — tolerate it.
+      logger.warn(
+        `[OpencodeClientService] deleteSession: session "${sdkId}" not deleted (already gone?): ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return true;
   }
 
   /**
