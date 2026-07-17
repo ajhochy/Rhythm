@@ -2,6 +2,7 @@ import { opencodeClient } from './opencode_engine';
 import { getUsageBudget } from './usage_budget_service';
 import { logger } from '../utils/logger';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 
 /**
  * OPC-M1-1: Server-side provider-to-agent-kind mapping.
@@ -274,9 +275,14 @@ async function resolveModelFromAgentConfigs(agentId: string): Promise<ModelRoute
  * M2-2 / #854 precedence helper. Resolve the model for one turn of a session.
  *
  * Order:
- *   1. Per-turn `modelOverride` field on the WS `session.input` payload (not
- *      persisted; applies to this prompt only).
- *   2. Session row's persisted `providerId` + `modelId` from M2-1.
+ *   1. Per-turn `modelOverride` field on the WS `session.input` payload.
+ *      #1108: when `sessionId` is provided AND this override differs from the
+ *      session's currently-stored provider/model, it is PERSISTED onto the
+ *      session row (see below) so it is no longer "applies to this prompt
+ *      only" — it becomes the new step-2 value for every subsequent turn
+ *      until the user changes it again.
+ *   2. Session row's persisted `providerId` + `modelId` from M2-1 (now also
+ *      the durable landing spot for a successful step-1 override, #1108).
  *   3. #854 — `agent_configs.model_provider` + `model_id` for `agentId`, only
  *      when BOTH are set and the provider is authed/in the live catalog.
  *      This is the step that was missing: a configured custom agent (e.g.
@@ -284,15 +290,46 @@ async function resolveModelFromAgentConfigs(agentId: string): Promise<ModelRoute
  *      step 4's static table, which doesn't know custom agent ids, returned
  *      `undefined`, and stalled the turn (ws_gateway's undefined-model guard).
  *   4. `resolveModelForAgent(agentId)` static fallback list.
+ *
+ * #1108 root cause this closes: a rate-limit/exhaustion AUTOMATIC cross-
+ * provider handoff already persists its decision onto the session row
+ * (turn_redispatch.ts's `persistDecision`) — that half worked. A MANUAL
+ * per-turn override picked by the user (e.g. switching to a working OpenAI
+ * model after a failed Anthropic turn) did NOT: it applied for exactly one
+ * prompt, then the very next message (no override on that frame) fell back
+ * to step 2's STALE stored provider/model — reproducing the original
+ * usage-limit error every time. Persisting a real override here (not in
+ * ws_gateway, which stays a thin caller) closes that gap for both origins.
  */
 export async function resolveModelForSessionTurn(opts: {
   agentId: string;
   sessionProviderId: string | null;
   sessionModelId: string | null;
   perTurnOverride?: { providerId?: string; modelId?: string } | null;
+  /**
+   * #1108 — local agent_sessions.id to persist a successful override onto.
+   * Omit to preserve the exact pre-#1108 behavior (override applies to this
+   * call's return value only, never written back).
+   */
+  sessionId?: string;
 }): Promise<ModelRoute | undefined> {
   const override = opts.perTurnOverride;
   if (override?.providerId && override.modelId) {
+    if (
+      opts.sessionId &&
+      (override.providerId !== opts.sessionProviderId || override.modelId !== opts.sessionModelId)
+    ) {
+      try {
+        new AgentSessionsRepository().updateFields(opts.sessionId, {
+          providerId: override.providerId,
+          modelId: override.modelId,
+        });
+      } catch (err) {
+        logger.warn(
+          `[ModelResolver] #1108: failed to persist per-turn model override for session ${opts.sessionId} (non-fatal, override still applies to this turn): ${String(err)}`,
+        );
+      }
+    }
     return { providerID: override.providerId, modelID: override.modelId };
   }
   if (opts.sessionProviderId && opts.sessionModelId) {
