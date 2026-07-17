@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/services/default_agent_profile_service.dart';
+import '../../../app/core/ui/rhythm_disclosure.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../../agent_configs/models/agent_config.dart';
@@ -130,9 +131,9 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
     sorted.sort((a, b) {
       switch (_sortField) {
         case _ProfileSortField.name:
-          return a.displayLabel
-              .toLowerCase()
-              .compareTo(b.displayLabel.toLowerCase());
+          return a.displayLabel.toLowerCase().compareTo(
+                b.displayLabel.toLowerCase(),
+              );
         case _ProfileSortField.modelProvider:
           return (a.modelProvider ?? '').compareTo(b.modelProvider ?? '');
       }
@@ -151,10 +152,9 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
       return;
     }
     if (!mounted) return;
-    await context.read<AgentConfigsController>().update(
-      config.id,
-      {'label': newLabel},
-    );
+    await context.read<AgentConfigsController>().update(config.id, {
+      'label': newLabel,
+    });
   }
 
   String _subtitle(AgentConfig c) {
@@ -207,8 +207,11 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
                             color: rhythm.textSecondary,
                           ),
                         )
-                      : Icon(Icons.refresh_rounded,
-                          size: 18, color: rhythm.textSecondary),
+                      : Icon(
+                          Icons.refresh_rounded,
+                          size: 18,
+                          color: rhythm.textSecondary,
+                        ),
                   onPressed: controller.status == AgentConfigsStatus.loading
                       ? null
                       : () => controller.refresh(),
@@ -238,10 +241,15 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
                       style: TextStyle(fontSize: 13, color: rhythm.textPrimary),
                       decoration: InputDecoration(
                         hintText: 'Search profiles…',
-                        hintStyle:
-                            TextStyle(fontSize: 13, color: rhythm.textMuted),
-                        prefixIcon: Icon(Icons.search,
-                            size: 16, color: rhythm.textMuted),
+                        hintStyle: TextStyle(
+                          fontSize: 13,
+                          color: rhythm.textMuted,
+                        ),
+                        prefixIcon: Icon(
+                          Icons.search,
+                          size: 16,
+                          color: rhythm.textMuted,
+                        ),
                         isDense: true,
                         contentPadding: const EdgeInsets.symmetric(
                           vertical: 8,
@@ -275,14 +283,19 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
                     ],
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
                         color: rhythm.surfaceMuted,
                         borderRadius: BorderRadius.circular(RhythmRadius.md),
                         border: Border.all(color: rhythm.borderSubtle),
                       ),
-                      child: Icon(Icons.sort_rounded,
-                          size: 16, color: rhythm.textSecondary),
+                      child: Icon(
+                        Icons.sort_rounded,
+                        size: 16,
+                        color: rhythm.textSecondary,
+                      ),
                     ),
                   ),
                 ],
@@ -374,8 +387,11 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
                               // full profile editor sheet.
                               IconButton(
                                 key: ValueKey('rename-profile-${c.id}'),
-                                icon: Icon(Icons.edit_outlined,
-                                    size: 16, color: rhythm.textMuted),
+                                icon: Icon(
+                                  Icons.edit_outlined,
+                                  size: 16,
+                                  color: rhythm.textMuted,
+                                ),
                                 tooltip: 'Rename',
                                 visualDensity: VisualDensity.compact,
                                 padding: EdgeInsets.zero,
@@ -521,8 +537,9 @@ class _RenameProfileDialog extends StatefulWidget {
 }
 
 class _RenameProfileDialogState extends State<_RenameProfileDialog> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.currentLabel);
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.currentLabel,
+  );
 
   @override
   void dispose() {
@@ -618,12 +635,24 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
   late final TextEditingController _iconController;
   late final TextEditingController _systemPromptController;
   late final TextEditingController _allowedDelegatesController;
+  final _bashPatternController = TextEditingController();
 
   late bool _isManager;
 
   // null means "all allowed" (no restriction); non-null means restricted set.
   List<String>? _selectedMcps;
   List<String>? _selectedSkills;
+
+  // #1074 — native-tool permission tri-state matrix. Only keys the user has
+  // explicitly set appear here; an absent key means "engine default" and is
+  // never written to frontmatter (round-trips untouched). `bash` is handled
+  // separately below since it supports per-pattern rules, not just a single
+  // action.
+  late Map<String, dynamic> _corePermissions;
+
+  // #909-style toggle — #1079. Whether this profile appears in the session
+  // composer's agent picker.
+  late bool _sessionSelectable;
 
   // Model picker state — null means "no preference" (AgentRunner falls back
   // to most-recently-used or hardcoded default).
@@ -673,6 +702,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     _selectedSkills = cfg?.allowedSkills != null
         ? List<String>.from(cfg!.allowedSkills!)
         : null;
+    _corePermissions = _parseCorePermissions(cfg?.corePermissionsJson);
+    _sessionSelectable = cfg?.sessionSelectable ?? true;
     _skillsDataSource = widget._skillsDataSource ?? OpencodeSkillsDataSource();
     _mcpDataSource = widget._mcpDataSource ?? OpencodeMcpDataSource();
     _selectedAnthropicAccountId = cfg?.defaultAnthropicAccountId;
@@ -748,6 +779,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     _iconController.dispose();
     _systemPromptController.dispose();
     _allowedDelegatesController.dispose();
+    _bashPatternController.dispose();
     super.dispose();
   }
 
@@ -760,6 +792,64 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         .toList()
       ..sort();
   }
+
+  // --------------------------------------------------------------------------
+  // #1074 — Tool permissions
+  // --------------------------------------------------------------------------
+
+  /// The well-known opencode core permission keys (mirrors
+  /// `apps/opencode_fork/packages/opencode/src/config/permission.ts`'s
+  /// `InputObject`, minus the exotic keys hidden behind "Advanced":
+  /// repo_clone, repo_overview, lsp, doom_loop).
+  static const _kKnownPermissionKeys = [
+    'read',
+    'edit',
+    'glob',
+    'grep',
+    'list',
+    'bash',
+    'task',
+    'external_directory',
+    'todowrite',
+    'question',
+    'webfetch',
+    'websearch',
+    'skill',
+  ];
+
+  static Map<String, dynamic> _parseCorePermissions(String? json) {
+    if (json == null || json.isEmpty) return {};
+    try {
+      final decoded = jsonDecode(json);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    return {};
+  }
+
+  /// bash's rule may be a plain action string (shorthand for "*") or an
+  /// object of pattern->action. Normalize to a pattern map for editing; `*`
+  /// is the row's own default action.
+  Map<String, String> get _bashPatterns {
+    final raw = _corePermissions['bash'];
+    if (raw is String) return {'*': raw};
+    if (raw is Map) return Map<String, String>.from(raw);
+    return {};
+  }
+
+  void _setBashPatterns(Map<String, String> patterns) {
+    setState(() {
+      if (patterns.isEmpty) {
+        _corePermissions.remove('bash');
+      } else {
+        _corePermissions['bash'] = patterns;
+      }
+    });
+  }
+
+  String _titleCase(String key) => key
+      .split('_')
+      .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
+      .join(' ');
 
   // --------------------------------------------------------------------------
   // Save
@@ -801,6 +891,9 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         'modelProvider': _selectedModel?.provider,
         'modelId': _selectedModel?.modelId,
         'defaultAnthropicAccountId': _selectedAnthropicAccountId,
+        'sessionSelectable': _sessionSelectable,
+        'corePermissionsJson':
+            _corePermissions.isEmpty ? null : jsonEncode(_corePermissions),
       };
       final ok = await controller.update(widget.config!.id, patch);
       if (ok) {
@@ -828,6 +921,9 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         'modelProvider': _selectedModel?.provider,
         'modelId': _selectedModel?.modelId,
         'defaultAnthropicAccountId': _selectedAnthropicAccountId,
+        'sessionSelectable': _sessionSelectable,
+        'corePermissionsJson':
+            _corePermissions.isEmpty ? null : jsonEncode(_corePermissions),
       };
       result = await controller.create(input);
     }
@@ -885,10 +981,14 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
                   const SizedBox(height: 24),
                   _buildClaudeAccountSection(),
                 ],
+                const SizedBox(height: 16),
+                _buildSessionSelectableToggle(),
                 const SizedBox(height: 24),
                 _buildMcpsSection(),
                 const SizedBox(height: 24),
                 _buildSkillsSection(),
+                const SizedBox(height: 24),
+                _buildToolPermissionsSection(),
                 if (_error != null) ...[
                   const SizedBox(height: 16),
                   Text(
@@ -1071,6 +1171,42 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     );
   }
 
+  /// #1079 — "in picker" visibility is independent of schedulability (#1088
+  /// decoupled the two): a profile can be scheduled without being session-
+  /// selectable. This only toggles the picker-visibility bit; the backend's
+  /// #1039 write path already re-derives `mode: all` vs `mode: subagent` from
+  /// it and guards subagent-only profiles from being scheduled.
+  Widget _buildSessionSelectableToggle() {
+    return Container(
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+        border: Border.all(color: context.rhythm.border),
+      ),
+      child: Material(
+        type: MaterialType.transparency,
+        child: CheckboxListTile(
+          key: const ValueKey('session-selectable-toggle'),
+          value: _sessionSelectable,
+          onChanged: (v) => setState(() => _sessionSelectable = v ?? true),
+          activeColor: context.rhythm.accent,
+          title: Text(
+            'Show in agent picker',
+            style: TextStyle(
+              color: context.rhythm.textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          subtitle: Text(
+            'Runnable as a standalone chat from the session composer.',
+            style: TextStyle(color: context.rhythm.textMuted, fontSize: 12),
+          ),
+          controlAffinity: ListTileControlAffinity.leading,
+        ),
+      ),
+    );
+  }
+
   Widget _buildModelSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1188,10 +1324,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
               value: null,
               child: Text(
                 'App default',
-                style: TextStyle(
-                  color: context.rhythm.textMuted,
-                  fontSize: 13,
-                ),
+                style: TextStyle(color: context.rhythm.textMuted, fontSize: 13),
               ),
             ),
             ..._anthropicAccounts.map(
@@ -1243,14 +1376,18 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
       decoration: BoxDecoration(
         color: context.rhythm.warning.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(RhythmRadius.sm),
-        border:
-            Border.all(color: context.rhythm.warning.withValues(alpha: 0.4)),
+        border: Border.all(
+          color: context.rhythm.warning.withValues(alpha: 0.4),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.warning_amber_rounded,
-              size: 16, color: context.rhythm.warning),
+          Icon(
+            Icons.warning_amber_rounded,
+            size: 16,
+            color: context.rhythm.warning,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -1259,8 +1396,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
               'automatically trim the least-recently-added servers at runtime '
               'rather than fail the session, but restricting to fewer servers '
               'here avoids relying on that.',
-              style:
-                  TextStyle(color: context.rhythm.textSecondary, fontSize: 12),
+              style: TextStyle(
+                color: context.rhythm.textSecondary,
+                fontSize: 12,
+              ),
             ),
           ),
         ],
@@ -1311,7 +1450,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
           _emptyBanner(_mcpsLoaded ? 'No MCP servers' : 'Loading MCP servers…')
         else if (_selectedMcps!.isEmpty)
           _denyAllBanner(
-              'No MCP access (deny-all) — agent will have no MCP tools')
+            'No MCP access (deny-all) — agent will have no MCP tools',
+          )
         else
           _filterChipWrap(
             // The restricted set may include names no longer live (e.g. a
@@ -1362,22 +1502,28 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
       decoration: BoxDecoration(
         color: context.rhythm.warning.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(RhythmRadius.sm),
-        border:
-            Border.all(color: context.rhythm.warning.withValues(alpha: 0.4)),
+        border: Border.all(
+          color: context.rhythm.warning.withValues(alpha: 0.4),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.warning_amber_rounded,
-              size: 16, color: context.rhythm.warning),
+          Icon(
+            Icons.warning_amber_rounded,
+            size: 16,
+            color: context.rhythm.warning,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               'Degraded — ${relevant.join(', ')} need${relevant.length == 1 ? 's' : ''} '
               're-authentication. Runs that depend on ${relevant.length == 1 ? 'it' : 'them'} '
               'will fail fast until reconnected in Integrations.',
-              style:
-                  TextStyle(color: context.rhythm.textSecondary, fontSize: 12),
+              style: TextStyle(
+                color: context.rhythm.textSecondary,
+                fontSize: 12,
+              ),
             ),
           ),
         ],
@@ -1436,7 +1582,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
           _emptyBanner(_skillsLoaded ? 'No skills' : 'Loading skills…')
         else if (_selectedSkills!.isEmpty)
           _denyAllBanner(
-              'No skill access (deny-all) — agent will have no skills')
+            'No skill access (deny-all) — agent will have no skills',
+          )
         else
           _buildSkillChipWrap(),
       ],
@@ -1634,6 +1781,234 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     await _loadSkills();
   }
 
+  // --------------------------------------------------------------------------
+  // #1074 — Tool permissions section
+  // --------------------------------------------------------------------------
+
+  Widget _buildToolPermissionsSection() {
+    final exoticKeys = _corePermissions.keys
+        .where((k) => k != 'bash' && !_kKnownPermissionKeys.contains(k))
+        .toList()
+      ..sort();
+    final overrideCount =
+        _corePermissions.keys.where((k) => k != 'bash').length +
+            (_corePermissions.containsKey('bash') ? 1 : 0);
+
+    return RhythmDisclosure(
+      title: 'Tool Permissions',
+      subtitle: overrideCount == 0
+          ? 'Engine defaults for every native tool'
+          : '$overrideCount override${overrideCount == 1 ? '' : 's'} set',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Unset rows use the engine default for this tool.',
+            style: TextStyle(color: context.rhythm.textMuted, fontSize: 11),
+          ),
+          const SizedBox(height: 12),
+          for (final key in _kKnownPermissionKeys.where((k) => k != 'bash'))
+            _buildPermissionRow(key),
+          _buildBashPermissionRow(),
+          if (exoticKeys.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            RhythmDisclosure(
+              title: 'Advanced',
+              subtitle: '${exoticKeys.length} additional key'
+                  '${exoticKeys.length == 1 ? '' : 's'}',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [for (final key in exoticKeys) _buildExoticRow(key)],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPermissionRow(String key) {
+    final value = _corePermissions[key] is String
+        ? _corePermissions[key] as String
+        : null;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              _titleCase(key),
+              style: TextStyle(color: context.rhythm.textPrimary, fontSize: 13),
+            ),
+          ),
+          _PermissionActionSelector(
+            key: ValueKey('permission-selector-$key'),
+            value: value,
+            onChanged: (v) => setState(() {
+              if (v == null) {
+                _corePermissions.remove(key);
+              } else {
+                _corePermissions[key] = v;
+              }
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Read-only-ish display for keys not in the known list — no authoring UI
+  /// (non-goal), but a plain-action value stays editable since it's already
+  /// present; a nested pattern object is summarized rather than edited (only
+  /// `bash` gets pattern-editing UI).
+  Widget _buildExoticRow(String key) {
+    final raw = _corePermissions[key];
+    if (raw is String) return _buildPermissionRow(key);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              key,
+              style: TextStyle(color: context.rhythm.textPrimary, fontSize: 13),
+            ),
+          ),
+          Text(
+            'custom rule — edit via API',
+            style: TextStyle(
+              color: context.rhythm.textMuted,
+              fontSize: 11,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBashPermissionRow() {
+    final patterns = _bashPatterns;
+    final extraPatterns = patterns.keys.where((k) => k != '*').toList()..sort();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Bash',
+                  style: TextStyle(
+                    color: context.rhythm.textPrimary,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              _PermissionActionSelector(
+                key: const ValueKey('permission-selector-bash'),
+                value: patterns['*'],
+                onChanged: (v) {
+                  final next = Map<String, String>.from(patterns);
+                  if (v == null) {
+                    next.remove('*');
+                  } else {
+                    next['*'] = v;
+                  }
+                  _setBashPatterns(next);
+                },
+              ),
+            ],
+          ),
+          for (final pattern in extraPatterns)
+            Padding(
+              padding: const EdgeInsets.only(left: 12, top: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      pattern,
+                      style: TextStyle(
+                        color: context.rhythm.textSecondary,
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                  _PermissionActionSelector(
+                    key: ValueKey('bash-pattern-selector-$pattern'),
+                    value: patterns[pattern],
+                    onChanged: (v) {
+                      final next = Map<String, String>.from(patterns);
+                      if (v == null) {
+                        next.remove(pattern);
+                      } else {
+                        next[pattern] = v;
+                      }
+                      _setBashPatterns(next);
+                    },
+                  ),
+                  IconButton(
+                    key: ValueKey('bash-pattern-remove-$pattern'),
+                    icon: Icon(
+                      Icons.close,
+                      size: 16,
+                      color: context.rhythm.textMuted,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 28,
+                      minHeight: 28,
+                    ),
+                    onPressed: () {
+                      final next = Map<String, String>.from(patterns)
+                        ..remove(pattern);
+                      _setBashPatterns(next);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.only(left: 12, top: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    key: const ValueKey('bash-add-pattern-field'),
+                    controller: _bashPatternController,
+                    style: TextStyle(
+                      color: context.rhythm.textPrimary,
+                      fontSize: 12,
+                    ),
+                    decoration: _inputDecoration(
+                      context,
+                      'Add pattern, e.g. "rm *"',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: () {
+                    final pattern = _bashPatternController.text.trim();
+                    if (pattern.isEmpty || pattern == '*') return;
+                    final next = Map<String, String>.from(patterns);
+                    next[pattern] = 'ask';
+                    _setBashPatterns(next);
+                    _bashPatternController.clear();
+                  },
+                  child: const Text('Add'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSaveButton() {
     return FilledButton(
       style: FilledButton.styleFrom(
@@ -1706,8 +2081,9 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
       decoration: BoxDecoration(
         color: context.rhythm.warning.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(RhythmRadius.sm),
-        border:
-            Border.all(color: context.rhythm.warning.withValues(alpha: 0.4)),
+        border: Border.all(
+          color: context.rhythm.warning.withValues(alpha: 0.4),
+        ),
       ),
       child: Row(
         children: [
@@ -1716,8 +2092,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
           Expanded(
             child: Text(
               label,
-              style:
-                  TextStyle(color: context.rhythm.textSecondary, fontSize: 13),
+              style: TextStyle(
+                color: context.rhythm.textSecondary,
+                fontSize: 13,
+              ),
             ),
           ),
         ],
@@ -1782,7 +2160,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
                     'or runs that depend on it will fail fast.',
             child: FilterChip(
               key: ValueKey(
-                  isStale ? 'stale-chip-$item' : 'needs-auth-chip-$item'),
+                isStale ? 'stale-chip-$item' : 'needs-auth-chip-$item',
+              ),
               avatar: Icon(
                 Icons.warning_amber_rounded,
                 size: 16,
@@ -1861,6 +2240,50 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
       ),
       filled: true,
       fillColor: context.rhythm.surfaceMuted,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// #1074 — Tri-state permission action selector (Ask / Allow / Deny / unset)
+// ---------------------------------------------------------------------------
+
+/// A compact tri-state control for one permission key/pattern. `value` of
+/// `null` means "unset" (engine default) and is rendered with no segment
+/// selected; tapping the already-selected segment clears it back to unset.
+class _PermissionActionSelector extends StatelessWidget {
+  const _PermissionActionSelector({
+    super.key,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String? value;
+  final ValueChanged<String?> onChanged;
+
+  static const _actions = ['ask', 'allow', 'deny'];
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<String>(
+      segments: const [
+        ButtonSegment(value: 'ask', label: Text('Ask')),
+        ButtonSegment(value: 'allow', label: Text('Allow')),
+        ButtonSegment(value: 'deny', label: Text('Deny')),
+      ],
+      selected: {if (value != null && _actions.contains(value)) value!},
+      emptySelectionAllowed: true,
+      showSelectedIcon: false,
+      style: const ButtonStyle(
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      onSelectionChanged: (selection) {
+        // Tapping the currently-selected segment toggles it back to unset;
+        // SegmentedButton with emptySelectionAllowed already reports an
+        // empty set in that case.
+        onChanged(selection.isEmpty ? null : selection.first);
+      },
     );
   }
 }
