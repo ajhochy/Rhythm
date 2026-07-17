@@ -2,7 +2,9 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
 import { logger } from '../utils/logger';
-import { env } from '../config/env';
+import { env, resolveMemoryVaultPath } from '../config/env';
+import { resolveSmallModel } from './agent_model_resolver';
+import { UsersRepository } from '../repositories/users_repository';
 
 /**
  * The SDK ships built-in loaders for `openrouter`, `openai`, `github-copilot`,
@@ -209,6 +211,150 @@ export function ensureOrgSkillIndex(
   } catch (err) {
     logger.error(
       '[OpencodePluginConfig] failed to write opencode.json (org skill index not ensured):',
+      err,
+    );
+    return false;
+  }
+}
+
+// ── #1071 (OCU-30) — managed config adoption: small_model, username, ────────
+// reference, compaction/tool_output defaults ─────────────────────────────────
+
+/**
+ * Repo docs dir, resolved the same way agent_sessions_controller resolves
+ * `.mcp-roles/` (`src/services/` → `../../../../` = repo root). Overridable
+ * via RHYTHM_DOCS_DIR for a packaged/bundled layout where the repo tree isn't
+ * present alongside the compiled server.
+ */
+function resolveDocsDir(): string {
+  const override = process.env.RHYTHM_DOCS_DIR?.trim();
+  if (override) return override;
+  return join(__dirname, '..', '..', '..', '..', 'docs');
+}
+
+/**
+ * Idempotently ensure opencode.json's managed defaults beyond
+ * plugin/mcp/$schema, using the same read-merge-write + preserve-unknown-keys
+ * discipline as `ensureRequiredPlugins`/`ensureOrgSkillIndex`. Two write
+ * policies, per key:
+ *
+ *  - `small_model` / `username` — RHYTHM-OWNED: recomputed and kept current
+ *    on every call. `small_model` is skipped entirely (never written, never
+ *    cleared) when no candidate provider is authed — see
+ *    `agent_model_resolver.resolveSmallModel`'s fail-safe contract.
+ *  - `reference` — ADDITIVE: Rhythm's own alias entries (`vault`, `docs`) are
+ *    kept current; every other alias key a user added is preserved untouched.
+ *    Each Rhythm entry is skipped when its target path doesn't exist, rather
+ *    than registering a dead reference.
+ *  - `compaction` / `tool_output` — ABSENT-ONLY: written once with sane
+ *    (engine-default-matching) values ONLY when the key is missing entirely;
+ *    never touched again once present, so a user's own tuning always wins.
+ *
+ * Never throws — a malformed config is left alone (logged, returns false),
+ * matching the existing functions' fail-safe contract. Returns true iff the
+ * file was modified (caller should reloadConfig).
+ */
+export async function ensureManagedDefaults(
+  configPath: string = resolveOpencodeConfigPath(),
+): Promise<boolean> {
+  let parsed: Record<string, unknown> = {};
+  if (existsSync(configPath)) {
+    try {
+      parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+    } catch (err) {
+      logger.error(
+        '[OpencodePluginConfig] opencode.json is malformed; leaving alone (managed defaults not ensured):',
+        err,
+      );
+      return false;
+    }
+  } else {
+    parsed['$schema'] = 'https://opencode.ai/config.json';
+  }
+
+  let changed = false;
+
+  // small_model — RHYTHM-OWNED. Skip (never write/clear) when unauthed.
+  try {
+    const small = await resolveSmallModel();
+    if (small) {
+      const value = `${small.providerID}/${small.modelID}`;
+      if (parsed.small_model !== value) {
+        parsed.small_model = value;
+        changed = true;
+      }
+    }
+  } catch (err) {
+    logger.warn('[OpencodePluginConfig] small_model resolution failed (non-fatal, skipping):', err);
+  }
+
+  // username — RHYTHM-OWNED. Uses the primary local user's display name
+  // (Rhythm is single-user-per-machine; the system bot row is excluded).
+  try {
+    const users = await new UsersRepository().findAllAsync();
+    const primary = users.find((u) => u.email !== UsersRepository.systemBotEmail);
+    if (primary?.name && parsed.username !== primary.name) {
+      parsed.username = primary.name;
+      changed = true;
+    }
+  } catch (err) {
+    logger.warn('[OpencodePluginConfig] username resolution failed (non-fatal, skipping):', err);
+  }
+
+  // reference — ADDITIVE. Only Rhythm's own two aliases are managed; every
+  // other alias a user added is left byte-for-byte untouched.
+  const referenceBlock: Record<string, unknown> =
+    parsed.reference && typeof parsed.reference === 'object' && !Array.isArray(parsed.reference)
+      ? (parsed.reference as Record<string, unknown>)
+      : {};
+  const nextReference = { ...referenceBlock };
+  // Live-read (mirrors resolveApprovalsMode's "read fresh" convention) so a
+  // test/late .env override without a module reload is honored.
+  const vaultPath = resolveMemoryVaultPath();
+  if (vaultPath && existsSync(vaultPath)) {
+    const entry = { path: vaultPath };
+    if (JSON.stringify(nextReference.vault) !== JSON.stringify(entry)) {
+      nextReference.vault = entry;
+      changed = true;
+    }
+  }
+  const docsDir = resolveDocsDir();
+  if (existsSync(docsDir)) {
+    const entry = { path: docsDir };
+    if (JSON.stringify(nextReference.docs) !== JSON.stringify(entry)) {
+      nextReference.docs = entry;
+      changed = true;
+    }
+  }
+  if (Object.keys(nextReference).length > 0) {
+    parsed.reference = nextReference;
+  }
+
+  // compaction / tool_output — ABSENT-ONLY, never override user tuning.
+  // Values mirror the engine's own documented defaults (config.ts) so writing
+  // them is a no-op behaviorally — it only makes the knobs discoverable/
+  // tunable in the file rather than implicit.
+  if (parsed.compaction === undefined) {
+    parsed.compaction = { auto: true, prune: true };
+    changed = true;
+  }
+  if (parsed.tool_output === undefined) {
+    parsed.tool_output = { max_lines: 2000, max_bytes: 51200 };
+    changed = true;
+  }
+
+  if (!changed) return false;
+
+  try {
+    mkdirSync(dirname(configPath), { recursive: true });
+    writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+    logger.info(
+      '[OpencodePluginConfig] ensured managed defaults (small_model/username/reference/compaction/tool_output)',
+    );
+    return true;
+  } catch (err) {
+    logger.error(
+      '[OpencodePluginConfig] failed to write opencode.json (managed defaults not ensured):',
       err,
     );
     return false;

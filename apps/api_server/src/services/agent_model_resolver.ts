@@ -125,6 +125,36 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
   ],
 };
 
+/**
+ * #1071 (OCU-30) — cheap model candidates for opencode.json's managed
+ * `small_model` (routes title/summary/compaction-title work off the session's
+ * main model). Ordered by preference; the first AUTHED provider wins. Model
+ * ids reuse the same cheap-tier entries already referenced elsewhere in this
+ * file (see `utility_modes_haiku_v1` in migrations.ts, classifyRouteTier's
+ * 'cheap' examples below) rather than inventing new ones.
+ */
+const SMALL_MODEL_CANDIDATES: ModelRoute[] = [
+  { providerID: 'anthropic', modelID: 'claude-haiku-4-5' },
+  { providerID: 'openai', modelID: 'gpt-5.4-mini' },
+  { providerID: 'google', modelID: 'gemini-2.5-flash' },
+];
+
+/**
+ * Resolve a cheap AUTHED model for `small_model`. Returns `undefined` when no
+ * candidate provider is authed — callers must skip writing the key entirely
+ * rather than guess (mirrors resolveModelFromAgentConfigs's fail-safe
+ * contract). Never throws.
+ */
+export async function resolveSmallModel(): Promise<ModelRoute | undefined> {
+  try {
+    const authed = new Set(await opencodeClient.listAuthedProviders());
+    return SMALL_MODEL_CANDIDATES.find((route) => authed.has(route.providerID));
+  } catch (err) {
+    logger.warn(`[ModelResolver] resolveSmallModel: listAuthedProviders failed (non-fatal): ${String(err)}`);
+    return undefined;
+  }
+}
+
 /** Pick the first authed route for the given agent, or the first route if none authed. */
 export async function resolveModelForAgent(
   agentId: string,
