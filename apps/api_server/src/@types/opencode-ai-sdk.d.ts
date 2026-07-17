@@ -755,10 +755,23 @@ declare module '@opencode-ai/sdk' {
     builtIn: boolean;
     color?: string;
     model?: { modelID: string; providerID: string };
+    /**
+     * #1073 (OCU-32) — the engine's RESOLVED permission block for this agent.
+     * The typed edit/bash/webfetch keys are the historically-modeled subset;
+     * the engine actually supports ~17 keys (read, edit, glob, grep, list,
+     * bash, task, external_directory, todowrite, question, webfetch,
+     * websearch, repo_clone, repo_overview, lsp, doom_loop, skill, plus any
+     * custom key) each valued either a plain 'allow'|'ask'|'deny' string or a
+     * pattern-map object (glob pattern → action, last-match-wins). The index
+     * signature covers every key beyond the three historically typed ones so
+     * agent_profile_sync can round-trip the FULL block without widening this
+     * type again per key.
+     */
     permission?: {
       edit?: string;
       bash?: Record<string, string>;
       webfetch?: string;
+      [key: string]: string | Record<string, string> | undefined;
     };
   };
 }

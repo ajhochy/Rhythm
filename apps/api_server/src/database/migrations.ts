@@ -2347,19 +2347,18 @@ Your job, in order:
     // Marker only — the additive ALTER above is an idempotent STRUCTURE change.
   });
 
-  // #1073 (OCU-32) — full permission-key round-trip. `permissions_json` stores
-  // the arbitrary permission-key map (string or pattern-map values) the
-  // designer/API can set beyond the historically-managed edit/bash/webfetch +
-  // task-roster keys; the writer serializes it into frontmatter alongside the
-  // existing core-permissions handling. Additive + nullable; local SQLite only.
-  const agentConfigCols1073 = (db.pragma('table_info(agent_configs)') as { name: string }[]).map(
-    (c) => c.name,
-  );
-  if (!agentConfigCols1073.includes('permissions_json')) {
-    db.exec(`ALTER TABLE agent_configs ADD COLUMN permissions_json TEXT`);
-  }
+  // #1073 (OCU-32) — full permission-key round-trip. `core_permissions_json`
+  // (added by an earlier migration, see the is_manager/core-permissions block
+  // above) ALREADY stores an arbitrary permission-key map — setPermissionValue
+  // in opencode_agent_writer.ts writes ANY key (string action OR a pattern-map
+  // object) into frontmatter generically, not just edit/bash/webfetch. #1073's
+  // net-new work is therefore NOT a new column — it's agent_profile_sync
+  // reading the engine's resolved permission block BACK into
+  // core_permissions_json (see syncOpencodeAgentProfiles). No STRUCTURE
+  // change; this runOnce is a marker only, kept for migration-coordination
+  // parity with the other Wave-C/D issues per the mega-plan §5 convention.
   runOnce('issue_1073_permissions_json', () => {
-    // Marker only — the additive ALTER above is an idempotent STRUCTURE change.
+    // Marker only — no schema change; core_permissions_json already existed.
   });
 
   // #1094 — OpenAI native image_generation capability, grantable per-profile

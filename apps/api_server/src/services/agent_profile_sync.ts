@@ -494,6 +494,25 @@ function resolveImporterModel(
 }
 
 /**
+ * #1073 (OCU-32) — normalize the engine's resolved `agent.permission` block
+ * (an arbitrary map of key → 'allow'|'ask'|'deny' string OR a pattern-map
+ * object) into the exact JSON shape `core_permissions_json` already stores
+ * and `opencode_agent_writer.setPermissionValue` already serializes generically
+ * for ANY key — not just the historically-typed edit/bash/webfetch. Returns
+ * null when the block is absent/empty so callers never persist `'{}'` as a
+ * false "the user configured zero permissions".
+ */
+function resolvePermissionsJsonFromAgent(
+  agent: import('@opencode-ai/sdk').SdkAgent,
+): string | null {
+  const permission = (agent as unknown as { permission?: Record<string, unknown> }).permission;
+  if (!permission || typeof permission !== 'object') return null;
+  const entries = Object.entries(permission).filter(([, v]) => v !== undefined && v !== null);
+  if (entries.length === 0) return null;
+  return JSON.stringify(Object.fromEntries(entries));
+}
+
+/**
  * Sync opencode agents into agent_configs. Idempotent: existing rows have their
  * ocAgent + sessionSelectable refreshed (so re-runs track engine changes) while
  * user-set label / model / systemPrompt are preserved. Never throws — failures
@@ -612,6 +631,11 @@ export async function syncOpencodeAgentProfiles(
       };
       const prompt = typeof a.prompt === 'string' && a.prompt.trim() !== '' ? a.prompt : null;
       const allowedDelegatesJson = deriveAllowedDelegates(name);
+      // #1073 — the engine's resolved permission block, read back so a
+      // hand-edited .md's permission keys (or an engine-side default) are
+      // reflected in the profile designer. Backfill-only (see below) —
+      // never clobbers a value the user set via PATCH /agent-configs.
+      const resolvedPermissionsJson = resolvePermissionsJsonFromAgent(agent);
 
       // Resolve model: registry string → tier detection → Tier 2 default.
       // For sortOrder=100 imports this guarantees a non-null model; the
@@ -657,6 +681,13 @@ export async function syncOpencodeAgentProfiles(
         if (existing.allowedDelegatesJson === null && allowedDelegatesJson !== null) {
           patch.allowedDelegatesJson = allowedDelegatesJson;
         }
+        // #1073 — same backfill-only discipline: only seed from the engine
+        // when the profile has no permission scope yet. A user who PATCHed
+        // corePermissionsJson via the designer keeps their exact value across
+        // every re-sync.
+        if (existing.corePermissionsJson === null && resolvedPermissionsJson !== null) {
+          patch.corePermissionsJson = resolvedPermissionsJson;
+        }
         if (Object.keys(patch).length > 0) {
           repo.update(name, patch);
         }
@@ -696,6 +727,9 @@ export async function syncOpencodeAgentProfiles(
           ),
           // is_manager is intentionally NOT set here — see comment block above.
           allowedDelegatesJson,
+          // #1073 — seed from the engine's resolved permission block on first
+          // import; null when the engine reports none (existing behavior).
+          corePermissionsJson: resolvedPermissionsJson,
           sortOrder: 100,
         });
       }
