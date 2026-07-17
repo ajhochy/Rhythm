@@ -46,9 +46,28 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
   // Parsed question list — filled once in [_parseQuestions].
   List<_Question> _questions = const [];
 
-  // For multi-question flows: track the selected option per question index
-  // before submitting the whole batch.
+  // For multi-question single-select flows: track the selected option per
+  // question index before submitting the whole batch.
   final Map<int, String> _pending = {};
+
+  // OCU-06: for `multiple` (multi-select) questions, the staged set of chosen
+  // option labels per question index.
+  final Map<int, Set<String>> _multiSelected = {};
+
+  // OCU-06: for `custom` (free-text) questions, the typed answer per question
+  // index (empty/absent when the user hasn't opened/typed the "Other…" field).
+  final Map<int, TextEditingController> _customControllers = {};
+
+  // OCU-06: which question indices currently show their "Other…" text field.
+  final Set<int> _customOpen = {};
+
+  @override
+  void dispose() {
+    for (final c in _customControllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -102,41 +121,97 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
           }
         }
       }
+      // OCU-06: `multiple` (multi-select) defaults false; `custom` (free-text
+      // allowed) defaults true per the engine question schema.
+      final multiple = item['multiple'] == true;
+      final custom = item['custom'] as bool? ?? true;
       if (question.isNotEmpty) {
         out.add(
-            _Question(header: header, question: question, options: options));
+          _Question(
+            header: header,
+            question: question,
+            options: options,
+            multiple: multiple,
+            custom: custom,
+          ),
+        );
       }
     }
     return out;
   }
 
+  /// OCU-06: the fast single-tap path applies only to a lone single-select
+  /// question. Multi-select (`multiple`) or multi-question flows stage their
+  /// selections behind an explicit Submit; free-text (`custom`) alone does NOT
+  /// disable the fast path — tapping an option is still a complete answer.
+  bool get _isFastSingleSelect =>
+      _questions.length == 1 && !_questions.first.multiple;
+
   void _selectOption(int qIdx, String option) {
-    if (_questions.length == 1) {
-      // Single question — submit immediately on tap.
-      _submit([
-        [option]
-      ], displayLabels: [
-        option
-      ]);
-    } else {
-      // Multi-question — stage the selection; submit when all answered.
-      setState(() {
-        _pending[qIdx] = option;
-        if (_pending.length == _questions.length) {
-          _submitFromPending();
-        }
-      });
+    if (_isFastSingleSelect) {
+      // Single single-select question — submit immediately on tap (unchanged).
+      _submit(
+        [
+          [option],
+        ],
+        displayLabels: [option],
+      );
+      return;
     }
+    if (_questions[qIdx].multiple) {
+      // Multi-select — toggle the option in the staged set.
+      setState(() {
+        final set = _multiSelected.putIfAbsent(qIdx, () => <String>{});
+        if (!set.remove(option)) set.add(option);
+      });
+    } else {
+      // Multi-question single-select — stage the selection.
+      setState(() => _pending[qIdx] = option);
+    }
+  }
+
+  /// OCU-06: staged answers for one question index — selected options plus any
+  /// typed custom string. Multi-select unions options + custom; single-select
+  /// uses the staged option (or the custom text when no option is chosen).
+  List<String> _answersFor(int qIdx) {
+    final q = _questions[qIdx];
+    final custom = _customControllers[qIdx]?.text.trim() ?? '';
+    if (q.multiple) {
+      final out = <String>[...?_multiSelected[qIdx]];
+      if (q.custom && custom.isNotEmpty) out.add(custom);
+      return out;
+    }
+    final opt = _pending[qIdx];
+    if (opt != null && opt.isNotEmpty) return [opt];
+    if (q.custom && custom.isNotEmpty) return [custom];
+    return const [];
+  }
+
+  /// Every question has at least one staged answer (option or custom text).
+  bool get _allStaged =>
+      _questions.isNotEmpty &&
+      List.generate(
+        _questions.length,
+        (i) => i,
+      ).every((i) => _answersFor(i).isNotEmpty);
+
+  String _submitLabel() {
+    if (_questions.length <= 1) return 'Submit';
+    final staged = List.generate(
+      _questions.length,
+      (i) => i,
+    ).where((i) => _answersFor(i).isNotEmpty).length;
+    return 'Submit ($staged/${_questions.length})';
   }
 
   void _submitFromPending() {
     final answers = <List<String>>[
-      for (var i = 0; i < _questions.length; i++) [_pending[i] ?? ''],
+      for (var i = 0; i < _questions.length; i++) _answersFor(i),
     ];
     final display = <String>[
       for (var i = 0; i < _questions.length; i++)
         '${_questions[i].header.isNotEmpty ? "${_questions[i].header}: " : ""}'
-            '${_pending[i] ?? ""}',
+            '${_answersFor(i).join(", ")}',
     ];
     _submit(answers, displayLabels: display);
   }
@@ -164,8 +239,10 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
   }) {
     final callId = widget.part.toolCallId;
     if (callId != null && callId.isNotEmpty) {
-      _controller(context, listen: false)
-          ?.replyQuestion(widget.sessionId, callId, answers);
+      _controller(
+        context,
+        listen: false,
+      )?.replyQuestion(widget.sessionId, callId, answers);
     }
     setState(() => _answers = displayLabels);
   }
@@ -175,8 +252,10 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
   void _dismiss() {
     final callId = widget.part.toolCallId;
     if (callId != null && callId.isNotEmpty) {
-      _controller(context, listen: false)
-          ?.rejectQuestion(widget.sessionId, callId);
+      _controller(
+        context,
+        listen: false,
+      )?.rejectQuestion(widget.sessionId, callId);
     }
     setState(() => _answers = ['Dismissed']);
   }
@@ -263,16 +342,13 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
             padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
             decoration: BoxDecoration(
               color: r.accentMuted, // primary tint
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(7)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(7),
+              ),
             ),
             child: Row(
               children: [
-                Icon(
-                  Icons.help_outline,
-                  size: 14,
-                  color: r.accent,
-                ),
+                Icon(Icons.help_outline, size: 14, color: r.accent),
                 const SizedBox(width: 6),
                 Text(
                   'Question',
@@ -296,7 +372,17 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
                   _QuestionSection(
                     question: _questions[i],
                     selectedOption: _pending[i],
+                    multiSelected: _multiSelected[i] ?? const {},
                     onSelect: (opt) => _selectOption(i, opt),
+                    customOpen: _customOpen.contains(i),
+                    customController: _questions[i].custom
+                        ? _customControllers.putIfAbsent(
+                            i,
+                            () => TextEditingController(),
+                          )
+                        : null,
+                    onOpenCustom: () => setState(() => _customOpen.add(i)),
+                    onCustomChanged: (_) => setState(() {}),
                   ),
                 ],
                 // Action row: Dismiss (always) + multi-question Submit.
@@ -314,24 +400,25 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
                       ),
                       child: const Text('Dismiss'),
                     ),
-                    // Multi-question submit — enabled once every question has a
-                    // staged selection.
-                    if (_questions.length > 1) ...[
+                    // Staged submit — shown for multi-select / multi-question /
+                    // custom flows (the lone single-select fast path submits on
+                    // tap and needs no button, UNTIL its "Other…" field opens,
+                    // since typed text has no tap-to-submit). Enabled once every
+                    // question has at least one staged answer (option or text).
+                    if (!_isFastSingleSelect || _customOpen.isNotEmpty) ...[
                       const SizedBox(width: 8),
                       FilledButton(
-                        onPressed: _pending.length == _questions.length
-                            ? _submitFromPending
-                            : null,
+                        onPressed: _allStaged ? _submitFromPending : null,
                         style: FilledButton.styleFrom(
                           backgroundColor: r.accent,
                           foregroundColor: r.surface,
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 6),
+                            horizontal: 14,
+                            vertical: 6,
+                          ),
                           textStyle: const TextStyle(fontSize: 12),
                         ),
-                        child: Text(
-                          'Submit (${_pending.length}/${_questions.length})',
-                        ),
+                        child: Text(_submitLabel()),
                       ),
                     ],
                   ],
@@ -353,12 +440,30 @@ class _QuestionSection extends StatelessWidget {
   const _QuestionSection({
     required this.question,
     required this.selectedOption,
+    required this.multiSelected,
     required this.onSelect,
+    required this.customOpen,
+    required this.customController,
+    required this.onOpenCustom,
+    required this.onCustomChanged,
   });
 
   final _Question question;
   final String? selectedOption;
+
+  /// OCU-06: staged option labels for a multi-select question.
+  final Set<String> multiSelected;
   final ValueChanged<String> onSelect;
+
+  /// OCU-06: free-text (`custom`) affordance state.
+  final bool customOpen;
+  final TextEditingController? customController;
+  final VoidCallback onOpenCustom;
+  final ValueChanged<String> onCustomChanged;
+
+  bool _isSelected(String option) => question.multiple
+      ? multiSelected.contains(option)
+      : selectedOption == option;
 
   @override
   Widget build(BuildContext context) {
@@ -395,11 +500,47 @@ class _QuestionSection extends StatelessWidget {
             for (final option in question.options)
               _OptionButton(
                 label: option,
-                selected: selectedOption == option,
+                selected: _isSelected(option),
                 onTap: () => onSelect(option),
+              ),
+            // OCU-06: `custom` free-text affordance — an "Other…" chip that
+            // expands into a text field. Hidden entirely when custom=false.
+            if (question.custom && !customOpen)
+              _OptionButton(
+                key: const ValueKey('question-other-chip'),
+                label: 'Other…',
+                selected: false,
+                onTap: onOpenCustom,
               ),
           ],
         ),
+        if (question.custom && customOpen) ...[
+          const SizedBox(height: 8),
+          TextField(
+            key: const ValueKey('question-custom-field'),
+            controller: customController,
+            onChanged: onCustomChanged,
+            autofocus: true,
+            style: TextStyle(fontSize: 13, color: r.textPrimary),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: 'Type your answer…',
+              hintStyle: TextStyle(fontSize: 13, color: r.textMuted),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 8,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide: BorderSide(color: r.border),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide: BorderSide(color: r.border),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -407,6 +548,7 @@ class _QuestionSection extends StatelessWidget {
 
 class _OptionButton extends StatelessWidget {
   const _OptionButton({
+    super.key,
     required this.label,
     required this.selected,
     required this.onTap,
@@ -427,9 +569,7 @@ class _OptionButton extends StatelessWidget {
           foregroundColor: r.surface,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           textStyle: const TextStyle(fontSize: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(6),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         ),
         child: Text(label),
       );
@@ -441,9 +581,7 @@ class _OptionButton extends StatelessWidget {
         side: BorderSide(color: r.border),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         textStyle: const TextStyle(fontSize: 12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(6),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         backgroundColor: r.surface,
       ),
       child: Text(label),
@@ -471,19 +609,12 @@ class _AnsweredStub extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.check_circle_outline,
-            size: 13,
-            color: r.accent,
-          ),
+          Icon(Icons.check_circle_outline, size: 13, color: r.accent),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
               'Answered: $display',
-              style: TextStyle(
-                fontSize: 12,
-                color: r.accent,
-              ),
+              style: TextStyle(fontSize: 12, color: r.accent),
             ),
           ),
         ],
@@ -501,9 +632,17 @@ class _Question {
     required this.header,
     required this.question,
     required this.options,
+    this.multiple = false,
+    this.custom = true,
   });
 
   final String header;
   final String question;
   final List<String> options;
+
+  /// OCU-06: multi-select — 0..n options may be chosen before submitting.
+  final bool multiple;
+
+  /// OCU-06: free-text allowed — renders an "Other…" affordance. Default true.
+  final bool custom;
 }

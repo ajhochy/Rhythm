@@ -208,6 +208,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// user's text renders twice inside the one (reconciled) bubble.
   final Set<String> _clientAuthoredMessageIds = {};
 
+  /// OCU-05 (#1046): message ids sent while the session was already working, so
+  /// the engine queues them. The user bubble shows a subtle "queued" chip until
+  /// the engine's `message.updated` reconciles the optimistic insert (promoting
+  /// its id in [_upsertChatMessage]), at which point the id is cleared.
+  final Set<String> _queuedMessageIds = {};
+
+  /// OCU-05: true while [messageId]'s bubble should show the "queued" chip.
+  bool isMessageQueued(String messageId) =>
+      _queuedMessageIds.contains(messageId);
+
   /// OPC-M1-3: tracks when the most-recent part activity arrived for each
   /// session. Used by [_recomputeStuck] instead of the old PTY output buffer.
   final Map<String, DateTime> _lastPartActivityAt = {};
@@ -2162,6 +2172,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // message appears immediately in the single render path.
     final optimisticMsgId =
         'optimistic-input-${DateTime.now().millisecondsSinceEpoch}';
+    // OCU-05 (#1046): if the session was already working, the engine queues this
+    // input behind the active turn — flag the bubble so it renders a "queued"
+    // chip until message.updated reconciles it.
+    if (isWorking(sessionId)) {
+      _queuedMessageIds.add(optimisticMsgId);
+    }
     final optimisticMsg = ChatMessage(
       id: optimisticMsgId,
       sessionId: sessionId,
@@ -2994,6 +3010,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     );
     if (optIdx >= 0) {
       final opt = list[optIdx];
+      // OCU-05 (#1046): the engine has now acknowledged this user message —
+      // clear the "queued" chip.
+      _queuedMessageIds.remove(opt.id);
       final optParts = _chatPartsByMessage.remove(opt.id);
       if (optParts != null && !_chatPartsByMessage.containsKey(messageId)) {
         _chatPartsByMessage[messageId] = optParts;
