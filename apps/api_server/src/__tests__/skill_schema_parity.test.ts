@@ -3,7 +3,8 @@
  * agent_skill_versions ledger. Extended by #1113 to also cover
  * agent_capability_gaps, and by the proposals-parity fix (#1113 sibling) to
  * cover agent_org_proposals too (the same drift class caught both tables
- * missing from postgres_bootstrap.ts entirely).
+ * missing from postgres_bootstrap.ts entirely). Extended by #1053 (OCU-12) to
+ * cover org_skills, the new org skill library table.
  *
  * The skills sidecar/measurement-ledger model must keep the SQLite migration
  * (migrations.ts, the engine of the embedded local server) and the Postgres
@@ -36,6 +37,7 @@ const TABLES = [
   'agent_skill_versions',
   'agent_capability_gaps',
   'agent_org_proposals',
+  'org_skills',
 ] as const;
 
 /** Real SQLite column set after all migrations (incl. guarded ALTERs). */

@@ -290,9 +290,14 @@ export const env = {
     return !(raw === 'false' || raw === '0');
   })(),
   /** URL of the production Rhythm API to mirror tasks from (agent-local mode only).
-   *  Set via PROD_API_URL env var.  When absent, production task mirroring is skipped. */
+   *  Set via PROD_API_URL env var.  When absent, production task mirroring is skipped.
+   *  #1054/#1056 reuse this SAME field as the org skill library's home
+   *  (`<prodApiUrl>/org-skills`) — falls back to the Flutter apiBaseUrl default
+   *  (https://api.vcrcapps.com) rather than skipping, since org-skill wiring
+   *  should work out of the box on a fresh install. */
   prodApiUrl: process.env.PROD_API_URL ?? null,
-  /** Bearer token to authenticate against the production API for task mirroring. */
+  /** Bearer token to authenticate against the production API for task mirroring
+   *  and (#1056) publishing an approved skill to the org library. */
   prodAuthToken: process.env.PROD_AUTH_TOKEN ?? null,
   /**
    * Issue #770 WI6: filesystem path to the dedicated Obsidian "Memory-Vault"

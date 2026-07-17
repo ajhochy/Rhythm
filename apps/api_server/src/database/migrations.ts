@@ -1755,6 +1755,34 @@ export function runMigrations(db: Database.Database): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_org_proposals_dedup ON agent_org_proposals(dedup_key);
   `);
 
+  // #1053 (OCU-12) — org_skills: the org's shared skill library, hosted on
+  // the production API in the engine-compatible skills.urls format
+  // (index.json + file serving — see org_skills_routes.ts). Reads are PUBLIC
+  // by design (the opencode engine's Discovery.pull fetches index.json + each
+  // file anonymously) — org skills must never contain secrets; writes
+  // (POST/PUT/DELETE) require the existing JWT session-token auth
+  // (requireAuth). Single-file model for now: `content` is the complete
+  // SKILL.md body. ponytail: a skill bundling extra reference files would
+  // need a files table instead of one `content` column; add that only when
+  // #1056's publish pipeline actually needs to carry more than SKILL.md.
+  // `published = 0` hides a row from index.json AND from direct file fetch —
+  // a skill not yet approved for the org library must not be readable by
+  // guessing its name. Dual-engine — see postgres_bootstrap.ts for the
+  // matching table (a NEW shared-seam table alongside #1113's
+  // agent_capability_gaps/agent_org_proposals); guarded by
+  // skill_schema_parity.test.ts.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS org_skills (
+      name        TEXT PRIMARY KEY,
+      description TEXT,
+      content     TEXT NOT NULL,
+      published   INTEGER NOT NULL DEFAULT 1,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_org_skills_published ON org_skills(published);
+  `);
+
   // #818 (org-optimizer-02) — denied_tool_events: best-effort telemetry of
   // dispatch-time tool denials from the #736/#812 MCP guard, so the org audit
   // (org-optimizer-03) can read "profile X was denied tool Y N times" — the

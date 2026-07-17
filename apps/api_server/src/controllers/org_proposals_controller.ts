@@ -67,9 +67,13 @@ export class OrgProposalsController {
       const proposal = await repo().findByIdAsync(id);
       if (!proposal) throw AppError.notFound('AgentOrgProposal');
 
-      if (proposal.status !== 'proposed') {
+      // #1056 — a proposal the applier marked 'failed' (e.g. a publish-skill-
+      // to-org attempt that hit an unreachable production API) is retryable:
+      // a re-approve re-runs the SAME apply step from here. No other kind
+      // ever writes 'failed', so this is a no-op for every other kind's flow.
+      if (proposal.status !== 'proposed' && proposal.status !== 'failed') {
         throw AppError.conflict(
-          `Proposal ${id} is '${proposal.status}', not 'proposed' — cannot approve`,
+          `Proposal ${id} is '${proposal.status}', not 'proposed' (or 'failed', retryable) — cannot approve`,
         );
       }
 

@@ -761,6 +761,24 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_org_proposals_dedup ON agent_org_proposals(dedup_key)`,
   );
 
+  // #1053 (OCU-12) — org_skills: matching table for the production org skill
+  // library (see migrations.ts for the full rationale — public reads, authed
+  // writes, single-file SKILL.md-only model for now). Column set MUST stay
+  // identical to the SQLite migration — enforced by skill_schema_parity.test.ts.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS org_skills (
+      name        TEXT PRIMARY KEY,
+      description TEXT,
+      content     TEXT NOT NULL,
+      published   BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_org_skills_published ON org_skills(published)`,
+  );
+
   // agent_configs — user-configurable list of CLI agents (issue #481 / #466).
   // NOTE: this CREATE was previously missing from the Postgres path; only the SQLite
   // migrations.ts created it, while the ALTERs below assumed it existed. On a Postgres

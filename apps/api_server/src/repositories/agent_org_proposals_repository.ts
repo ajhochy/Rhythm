@@ -76,13 +76,22 @@ interface AgentOrgProposalRow {
  * `active`'s only outgoing transition is the new revert path.
  */
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-  proposed: ['approved', 'rejected', 'applied'],
+  proposed: ['approved', 'rejected', 'applied', 'failed'],
   approved: ['applied'],
   applied: ['measuring'],
   measuring: ['active', 'reverted'],
   rejected: [],
   active: ['reverted'],
   reverted: [],
+  /**
+   * #1056 — publish-skill-to-org's applier marks a prod-down/unreachable
+   * publish attempt 'failed' instead of leaving the proposal stuck at
+   * 'proposed' with no record an attempt was made. Retryable: a human
+   * re-approving a 'failed' proposal (org_proposals_controller.ts's approve()
+   * guard accepts 'failed' the same as 'proposed') re-runs the SAME apply
+   * step; 'failed' -> 'failed' lets a repeat failure re-mark the same status.
+   */
+  failed: ['applied', 'failed'],
 };
 
 /**
