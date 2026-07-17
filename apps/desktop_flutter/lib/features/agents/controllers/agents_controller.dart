@@ -283,6 +283,24 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   final Map<String, Map<String, dynamic>> _sessionMemoryProvenanceBySession =
       {};
 
+  // OCU-22 (#1063): per-session VCS info ({branch}) and working-tree status
+  // (changed-file entries). An absent entry means no fetch has occurred yet;
+  // a null [_vcsInfoBySession] value means the last fetch succeeded but the
+  // directory isn't a git repo (no branch) — the badge stays hidden either way.
+  final Map<String, Map<String, dynamic>?> _vcsInfoBySession = {};
+  final Map<String, List<Map<String, dynamic>>> _vcsStatusBySession = {};
+  final Set<String> _vcsInfoLoading = {};
+
+  // OCU-23 (#1064): per-session, per-mode ('git' | 'branch') VCS diff entries
+  // for the Changes-tab scope toggle. Keyed by '$sessionId:$mode'.
+  final Map<String, List<Map<String, dynamic>>> _vcsDiffByKey = {};
+  final Set<String> _vcsDiffLoading = {};
+  final Map<String, String> _vcsDiffError = {};
+
+  // OCU-25 (#1066): true while a "Prepare project for agents" (session.init)
+  // call is in-flight for the given session id.
+  final Map<String, bool> _sessionInitializing = {};
+
   // OPC-M4-1: Pending file attachments per session.
   // Each entry is a FilePart map with keys: type, mime, filename, url (data URI).
   // Cleared after sendInput() sends the parts array.
@@ -698,6 +716,203 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // (the CompactionPart is persisted in the session).
     }
   }
+
+  // ── OCU-22 (#1063): VCS branch badge + dirty count ─────────────────────────
+
+  /// `{branch, ...}` for [sessionId], or null when no fetch has completed yet
+  /// OR the directory isn't a git repo (no `branch` key on the response). The
+  /// badge should be hidden in both the "not fetched" and "non-git" cases.
+  Map<String, dynamic>? vcsInfoFor(String sessionId) =>
+      _vcsInfoBySession[sessionId];
+
+  /// Changed-file entries (`{file, additions, deletions, status}`) from the
+  /// last vcs/status fetch for [sessionId]. Empty when clean or not fetched.
+  List<Map<String, dynamic>> vcsStatusFor(String sessionId) =>
+      List.unmodifiable(_vcsStatusBySession[sessionId] ?? const []);
+
+  bool vcsInfoLoading(String sessionId) => _vcsInfoLoading.contains(sessionId);
+
+  /// Fetch (or refresh) the VCS branch + working-tree status for [sessionId].
+  /// Non-fatal on error — a failed fetch just leaves the badge hidden/stale
+  /// rather than surfacing a session-level error.
+  Future<void> fetchVcsInfo(String sessionId) async {
+    if (sessionId.isEmpty) return;
+    if (_vcsInfoLoading.contains(sessionId)) return;
+    _vcsInfoLoading.add(sessionId);
+    try {
+      final results = await Future.wait([
+        _repository.getVcs(sessionId),
+        _repository.getVcsStatus(sessionId),
+      ]);
+      if (_disposed) return;
+      final info = results[0] as Map<String, dynamic>;
+      // No `branch` key → not a git directory; store null so the badge hides.
+      _vcsInfoBySession[sessionId] = info['branch'] != null ? info : null;
+      _vcsStatusBySession[sessionId] =
+          (results[1] as List<Map<String, dynamic>>);
+    } catch (_) {
+      // Leave any prior state as-is; the badge degrades to hidden/stale.
+    } finally {
+      _vcsInfoLoading.remove(sessionId);
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  /// Called when a `vcs.branch.updated` WS frame arrives. The frame is
+  /// project-scoped (no sessionID), so we refresh the currently-selected
+  /// session's badge — that's the only session visibly showing one.
+  void handleVcsBranchUpdatedEvent() {
+    final id = _selectedSessionId;
+    if (id != null) unawaited(fetchVcsInfo(id));
+  }
+
+  /// Test-only: seed VCS info without a server round-trip.
+  @visibleForTesting
+  void setVcsInfoForTest(
+    String sessionId, {
+    Map<String, dynamic>? info,
+    List<Map<String, dynamic>> status = const [],
+  }) {
+    _vcsInfoBySession[sessionId] = info;
+    _vcsStatusBySession[sessionId] = status;
+    notifyListeners();
+  }
+
+  // ── OCU-23 (#1064): Changes-tab scope toggle (vcs/diff) ────────────────────
+
+  String _vcsDiffKey(String sessionId, String mode) => '$sessionId:$mode';
+
+  /// VCS diff entries (`{file, patch, additions, deletions, status}`) for
+  /// [sessionId] in [mode] ('git' = all uncommitted, 'branch' = vs default
+  /// branch). Empty when not yet fetched or clean.
+  List<Map<String, dynamic>> vcsDiffFor(String sessionId, String mode) =>
+      List.unmodifiable(
+        _vcsDiffByKey[_vcsDiffKey(sessionId, mode)] ?? const [],
+      );
+
+  bool vcsDiffLoading(String sessionId, String mode) =>
+      _vcsDiffLoading.contains(_vcsDiffKey(sessionId, mode));
+
+  String? vcsDiffErrorFor(String sessionId, String mode) =>
+      _vcsDiffError[_vcsDiffKey(sessionId, mode)];
+
+  /// Fetch (or refresh) the vcs/diff entries for [sessionId] in [mode].
+  Future<void> fetchVcsDiff(String sessionId, String mode) async {
+    final key = _vcsDiffKey(sessionId, mode);
+    if (_vcsDiffLoading.contains(key)) return;
+    _vcsDiffLoading.add(key);
+    notifyListeners();
+    try {
+      final entries = await _repository.getVcsDiff(sessionId, mode);
+      if (_disposed) return;
+      _vcsDiffByKey[key] = entries;
+      _vcsDiffError.remove(key);
+    } catch (e) {
+      if (_disposed) return;
+      _vcsDiffByKey[key] ??= const [];
+      _vcsDiffError[key] = e.toString();
+    } finally {
+      _vcsDiffLoading.remove(key);
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  /// Fetch the raw unified-diff patch text for [sessionId]'s uncommitted
+  /// working-tree changes (used by the Changes-tab "Export patch" action).
+  Future<String> fetchVcsDiffRaw(String sessionId) =>
+      _repository.getVcsDiffRaw(sessionId);
+
+  // ── OCU-24 (#1065): session.shell quick-run ─────────────────────────────────
+
+  /// Run [command] as a non-interactive shell command inside [sessionId]. The
+  /// engine executes it through the bash tool under the session's normal
+  /// permission mode (plan/deny-all modes ask/deny like any other tool call),
+  /// and the resulting message (with its bash tool part) arrives on the
+  /// normal transcript WS stream — no separate rendering path is needed here.
+  Future<void> runShellCommand(String sessionId, String command) async {
+    try {
+      await _repository.shellCommand(sessionId, command);
+    } catch (e) {
+      if (_disposed) return;
+      _error = e.toString();
+      notifyListeners();
+    }
+  }
+
+  // ── OCU-25 (#1066): "Prepare project for agents" (session.init) ────────────
+
+  bool isInitializingProject(String sessionId) =>
+      _sessionInitializing[sessionId] ?? false;
+
+  /// Run the engine's init flow (analyze the project + generate/update
+  /// AGENTS.md) for [sessionId]. Progress streams through the normal
+  /// transcript like any other turn; this only tracks a short-lived spinner
+  /// for the header action while the POST is in-flight.
+  Future<void> initializeProject(String sessionId) async {
+    _sessionInitializing[sessionId] = true;
+    notifyListeners();
+    try {
+      await _repository.initProject(sessionId);
+    } catch (e) {
+      if (_disposed) return;
+      _error = e.toString();
+    } finally {
+      if (!_disposed) {
+        _sessionInitializing.remove(sessionId);
+        notifyListeners();
+      }
+    }
+  }
+
+  /// Test-only: seed the initializing state for [sessionId] without a server
+  /// round-trip.
+  @visibleForTesting
+  void setInitializingForTest(String sessionId, bool initializing) {
+    if (initializing) {
+      _sessionInitializing[sessionId] = true;
+    } else {
+      _sessionInitializing.remove(sessionId);
+    }
+    notifyListeners();
+  }
+
+  // ── OCU-20 (#1061): @-mention fuzzy file attach ─────────────────────────────
+
+  /// Fuzzy file search scoped to [sessionId]'s directory (worktree dir when
+  /// isolated) for the composer @-mention popover. Not cached — each
+  /// keystroke-debounced call proxies straight to the find-files endpoint.
+  Future<List<String>> searchFiles(
+    String sessionId,
+    String query, {
+    int limit = 20,
+  }) =>
+      _repository.findFiles(sessionId, query, limit: limit, type: 'file');
+
+  /// Fetch a file's content through the worktree-safe content proxy (never
+  /// local file IO — required so isolated-worktree sessions resolve correctly).
+  /// Shape: `{type: 'text'|'binary', content, encoding?, mimeType?}`. Also used
+  /// by the OCU-21 (#1062) Files-tab preview pane.
+  Future<Map<String, dynamic>> fetchFileContent(
+    String sessionId,
+    String path,
+  ) =>
+      _repository.fileContent(sessionId, path);
+
+  // ── OCU-21 (#1062): Inspector Files tab (browse + preview) ──────────────────
+
+  /// List files/dirs at [path] ('.' = session root) within [sessionId]'s
+  /// directory (worktree dir when isolated). Each entry:
+  /// `{name, path, absolute, type: 'file'|'directory', ignored}`.
+  Future<List<Map<String, dynamic>>> listSessionFiles(
+    String sessionId, {
+    String path = '.',
+  }) =>
+      _repository.listSessionFiles(sessionId, path: path);
+
+  /// Git-aware file status for [sessionId]'s directory, used to render
+  /// modified/untracked/staged status dots in the Files tab.
+  Future<List<Map<String, dynamic>>> filesGitStatus(String sessionId) =>
+      _repository.filesGitStatus(sessionId);
 
   // ── OPC-M3-2: revert / unrevert ────────────────────────────────────────────
 
@@ -2427,6 +2642,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     unawaited(fetchMemoryProvenance(id));
     // OPC-M4-4: fetch available agents for the session cwd.
     unawaited(fetchAvailableAgents(id));
+    // OCU-22 (#1063): fetch the branch badge + dirty count for this session.
+    unawaited(fetchVcsInfo(id));
     // OPC-#715: refresh the catalog on every session select so that curation
     // changes made since the last WS-connect fetch (e.g. a newly-curated
     // OpenRouter model) are reflected in the new session's model picker without
@@ -2911,6 +3128,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // session so the persisted CompactionPart renders as the divider live.
       handleSessionCompactedEvent(msg.id);
       return; // handleSessionCompactedEvent calls notifyListeners() itself.
+    } else if (msg is VcsBranchUpdatedMessage) {
+      // OCU-22 (#1063): project-scoped frame — refresh the selected session's
+      // branch badge live (e.g. after `git checkout -b`).
+      handleVcsBranchUpdatedEvent();
+      return; // handleVcsBranchUpdatedEvent's fetch calls notifyListeners().
     } else if (msg is SessionTodoUpdatedMessage) {
       // OPC-M3-5: todo.updated event — replace the session's todo state in-place.
       // State is keyed per session; an update for session B must not affect A.

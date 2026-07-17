@@ -179,6 +179,59 @@ class AgentsRepository {
       _dataSource.fetchAvailableAgents(cwd: cwd);
 
   // --------------------------------------------------------------------------
+  // VCS (OCU-22 #1063 / OCU-23 #1064)
+  // --------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>> getVcs(String sessionId) =>
+      _dataSource.getVcs(sessionId);
+
+  Future<List<Map<String, dynamic>>> getVcsStatus(String sessionId) =>
+      _dataSource.getVcsStatus(sessionId);
+
+  Future<List<Map<String, dynamic>>> getVcsDiff(
+    String sessionId,
+    String mode,
+  ) =>
+      _dataSource.getVcsDiff(sessionId, mode);
+
+  Future<String> getVcsDiffRaw(String sessionId) =>
+      _dataSource.getVcsDiffRaw(sessionId);
+
+  // --------------------------------------------------------------------------
+  // session.shell / session.init (OCU-24 #1065 / OCU-25 #1066)
+  // --------------------------------------------------------------------------
+
+  Future<void> shellCommand(String sessionId, String command) =>
+      _dataSource.shellCommand(sessionId, command);
+
+  Future<void> initProject(String sessionId) =>
+      _dataSource.initProject(sessionId);
+
+  // --------------------------------------------------------------------------
+  // File / find proxy (OCU-20 #1061 / OCU-21 #1062)
+  // --------------------------------------------------------------------------
+
+  Future<List<String>> findFiles(
+    String sessionId,
+    String query, {
+    int? limit,
+    String? type,
+  }) =>
+      _dataSource.findFiles(sessionId, query, limit: limit, type: type);
+
+  Future<List<Map<String, dynamic>>> listSessionFiles(
+    String sessionId, {
+    String path = '.',
+  }) =>
+      _dataSource.listSessionFiles(sessionId, path: path);
+
+  Future<Map<String, dynamic>> fileContent(String sessionId, String path) =>
+      _dataSource.fileContent(sessionId, path);
+
+  Future<List<Map<String, dynamic>>> filesGitStatus(String sessionId) =>
+      _dataSource.filesGitStatus(sessionId);
+
+  // --------------------------------------------------------------------------
   // PTY
   // --------------------------------------------------------------------------
 

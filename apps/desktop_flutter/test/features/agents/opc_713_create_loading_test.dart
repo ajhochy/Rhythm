@@ -240,6 +240,11 @@ class _SlowStubAgentsRepository implements AgentsRepository {
 
   @override
   String ptyWsUrl(String ptyId) => 'ws://localhost:4001/ws/pty/$ptyId';
+
+  // OCU-19..25 (#1060-#1066): vcs/shell/init/files methods added to
+  // AgentsRepository — not exercised by this test file, so fall back.
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 // ---------------------------------------------------------------------------
@@ -567,4 +572,56 @@ class _ThrowingStubRepo implements AgentsRepository {
 
   @override
   String ptyWsUrl(String ptyId) => inner.ptyWsUrl(ptyId);
+
+  // OCU-19..25 (#1060-#1066): vcs/shell/init/files methods added to
+  // AgentsRepository — delegate to inner like everything else here.
+  @override
+  Future<Map<String, dynamic>> getVcs(String sessionId) =>
+      inner.getVcs(sessionId);
+
+  @override
+  Future<List<Map<String, dynamic>>> getVcsStatus(String sessionId) =>
+      inner.getVcsStatus(sessionId);
+
+  @override
+  Future<List<Map<String, dynamic>>> getVcsDiff(
+    String sessionId,
+    String mode,
+  ) =>
+      inner.getVcsDiff(sessionId, mode);
+
+  @override
+  Future<String> getVcsDiffRaw(String sessionId) =>
+      inner.getVcsDiffRaw(sessionId);
+
+  @override
+  Future<void> shellCommand(String sessionId, String command) =>
+      inner.shellCommand(sessionId, command);
+
+  @override
+  Future<void> initProject(String sessionId) => inner.initProject(sessionId);
+
+  @override
+  Future<List<String>> findFiles(
+    String sessionId,
+    String query, {
+    int? limit,
+    String? type,
+  }) =>
+      inner.findFiles(sessionId, query, limit: limit, type: type);
+
+  @override
+  Future<List<Map<String, dynamic>>> listSessionFiles(
+    String sessionId, {
+    String path = '.',
+  }) =>
+      inner.listSessionFiles(sessionId, path: path);
+
+  @override
+  Future<Map<String, dynamic>> fileContent(String sessionId, String path) =>
+      inner.fileContent(sessionId, path);
+
+  @override
+  Future<List<Map<String, dynamic>>> filesGitStatus(String sessionId) =>
+      inner.filesGitStatus(sessionId);
 }
