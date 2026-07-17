@@ -331,4 +331,51 @@ describe('workflow-orchestrator file projection', () => {
     );
     expect(projected.split('\n').some((l) => l.startsWith('options:'))).toBe(false);
   });
+
+  // #1088 — schedulability decoupled from picker visibility (sessionSelectable).
+  describe('mode projection honors schedulable independent of sessionSelectable', () => {
+    const readMode = (id: string): string => {
+      const content = readFileSync(join(state.home, '.config', 'opencode', 'agents', `${id}.md`), 'utf8');
+      const match = content.match(/^mode:\s*(\S+)\s*$/m);
+      return match![1];
+    };
+
+    it('a hidden profile with no override still writes mode:subagent (unchanged default)', () => {
+      state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+      process.env.VITEST = 'false';
+      process.env.NODE_ENV = 'development';
+
+      writeAgentProfileFile({
+        ...agentConfig('hidden-default', 'Hidden Default'),
+        sessionSelectable: false,
+      });
+      expect(readMode('hidden-default')).toBe('subagent');
+    });
+
+    it('a hidden profile with schedulable=true writes mode:all (top-level runnable + delegatable)', () => {
+      state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+      process.env.VITEST = 'false';
+      process.env.NODE_ENV = 'development';
+
+      writeAgentProfileFile({
+        ...agentConfig('hidden-schedulable', 'Hidden Schedulable'),
+        sessionSelectable: false,
+        schedulable: true,
+      });
+      expect(readMode('hidden-schedulable')).toBe('all');
+    });
+
+    it('a visible profile with schedulable=false writes mode:subagent', () => {
+      state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+      process.env.VITEST = 'false';
+      process.env.NODE_ENV = 'development';
+
+      writeAgentProfileFile({
+        ...agentConfig('visible-not-schedulable', 'Visible Not Schedulable'),
+        sessionSelectable: true,
+        schedulable: false,
+      });
+      expect(readMode('visible-not-schedulable')).toBe('subagent');
+    });
+  });
 });

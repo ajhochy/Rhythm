@@ -255,6 +255,10 @@ export class AgentConfigsController {
         modelId: typeof body.modelId === 'string' ? body.modelId : null,
         ocAgent: typeof body.ocAgent === 'string' ? body.ocAgent : null,
         sessionSelectable: body.sessionSelectable !== false,
+        // #1088 — explicit schedulability override, independent of picker
+        // visibility. Omitted/undefined → repository stores NULL (inherit
+        // sessionSelectable); explicit boolean → stored override.
+        schedulable: typeof body.schedulable === 'boolean' ? body.schedulable : null,
         modelTierHint: typeof body.modelTierHint === 'string' ? body.modelTierHint : null,
         defaultAnthropicAccountId:
           typeof body.defaultAnthropicAccountId === 'string' ? body.defaultAnthropicAccountId : null,
@@ -313,6 +317,11 @@ export class AgentConfigsController {
       if (body.modelId !== undefined) patch.modelId = typeof body.modelId === 'string' ? body.modelId : null;
       if (body.ocAgent !== undefined) patch.ocAgent = typeof body.ocAgent === 'string' ? body.ocAgent : null;
       if (body.sessionSelectable !== undefined) patch.sessionSelectable = Boolean(body.sessionSelectable);
+      // #1088 — `schedulable: null` explicitly clears the override back to
+      // "inherit sessionSelectable"; a boolean sets an explicit override.
+      if (body.schedulable !== undefined) {
+        patch.schedulable = body.schedulable === null ? null : Boolean(body.schedulable);
+      }
       if (body.modelTierHint !== undefined) patch.modelTierHint = typeof body.modelTierHint === 'string' ? body.modelTierHint : null;
       if (body.defaultAnthropicAccountId !== undefined) patch.defaultAnthropicAccountId = typeof body.defaultAnthropicAccountId === 'string' ? body.defaultAnthropicAccountId : null;
       // Legacy CLI fields (#581) — accept on the wire for back-compat

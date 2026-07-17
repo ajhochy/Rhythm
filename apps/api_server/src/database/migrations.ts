@@ -2329,4 +2329,49 @@ Your job, in order:
     // (agent_sessions is local-SQLite only; postgres_bootstrap.ts is NOT needed
     // for agent sessions, per the issue's verification note).
   });
+
+  // #1088 — decouple picker visibility (session_selectable) from schedulability.
+  // `schedulable` is nullable: NULL means "inherit session_selectable" (byte-
+  // identical behavior to before this migration for every existing row), a
+  // 0/1 value is an explicit override so a hidden specialist can be made
+  // directly schedulable without becoming picker-visible. Additive + nullable
+  // STRUCTURE change; agent_configs is local-SQLite only (no postgres_bootstrap
+  // backfill needed).
+  const agentConfigCols1088 = (db.pragma('table_info(agent_configs)') as { name: string }[]).map(
+    (c) => c.name,
+  );
+  if (!agentConfigCols1088.includes('schedulable')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN schedulable INTEGER`);
+  }
+  runOnce('issue_1088_picker_schedule_fields', () => {
+    // Marker only — the additive ALTER above is an idempotent STRUCTURE change.
+  });
+
+  // #1073 (OCU-32) — full permission-key round-trip. `permissions_json` stores
+  // the arbitrary permission-key map (string or pattern-map values) the
+  // designer/API can set beyond the historically-managed edit/bash/webfetch +
+  // task-roster keys; the writer serializes it into frontmatter alongside the
+  // existing core-permissions handling. Additive + nullable; local SQLite only.
+  const agentConfigCols1073 = (db.pragma('table_info(agent_configs)') as { name: string }[]).map(
+    (c) => c.name,
+  );
+  if (!agentConfigCols1073.includes('permissions_json')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN permissions_json TEXT`);
+  }
+  runOnce('issue_1073_permissions_json', () => {
+    // Marker only — the additive ALTER above is an idempotent STRUCTURE change.
+  });
+
+  // #1094 — OpenAI native image_generation capability, grantable per-profile
+  // and NOT represented as an MCP server / allowedMcpsJson entry. Additive +
+  // nullable boolean-as-integer; local SQLite only.
+  const agentConfigCols1094 = (db.pragma('table_info(agent_configs)') as { name: string }[]).map(
+    (c) => c.name,
+  );
+  if (!agentConfigCols1094.includes('image_generation_enabled')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN image_generation_enabled INTEGER NOT NULL DEFAULT 0`);
+  }
+  runOnce('issue_1094_image_gen_capability', () => {
+    // Marker only — the additive ALTER above is an idempotent STRUCTURE change.
+  });
 }

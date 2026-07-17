@@ -8,29 +8,37 @@ const repo = new AgentScheduledTasksRepository();
 const configsRepo = new AgentConfigsRepository();
 
 /**
- * #1039 Cause A — a scheduled task runs its bound profile as a TOP-LEVEL agent
- * (AgentRunner passes `agent: <profileId>` to opencode). A profile that is not
- * session-selectable is projected `mode: subagent` (opencode_agent_writer) and
- * opencode exposes subagents ONLY as delegation targets — resolving one as a
- * top-level `agent:` throws "Agent not found", which used to surface as the
- * silent "model produced no output" at run time. Reject that binding here, at
- * config time, with an actionable message instead. CLI kinds either have no
- * agent_configs row (getById returns null) or exist only as preset rows
- * (preset_id set) — presets are excluded from .md projection entirely
- * (opencode_agent_writer), so they can never be a delegation-only subagent
- * and the guard must not fire on them regardless of session_selectable
- * (which for presets only controls picker visibility). Never throws on
- * lookup.
+ * #1039 Cause A / #1088 — a scheduled task runs its bound profile as a
+ * TOP-LEVEL agent (AgentRunner passes `agent: <profileId>` to opencode). A
+ * profile that is not SCHEDULABLE is projected `mode: subagent`
+ * (opencode_agent_writer) and opencode exposes subagents ONLY as delegation
+ * targets — resolving one as a top-level `agent:` throws "Agent not found",
+ * which used to surface as the silent "model produced no output" at run
+ * time. Reject that binding here, at config time, with an actionable message
+ * instead. CLI kinds either have no agent_configs row (getById returns null)
+ * or exist only as preset rows (preset_id set) — presets are excluded from
+ * .md projection entirely (opencode_agent_writer), so they can never be a
+ * delegation-only subagent and the guard must not fire on them regardless of
+ * schedulable/session_selectable (which for presets only controls picker
+ * visibility). Never throws on lookup.
+ *
+ * #1088: `config.schedulable` is picker-INDEPENDENT (falls back to
+ * `sessionSelectable` when no explicit override is stored — see
+ * agent_configs_repository), so a hidden specialist explicitly marked
+ * schedulable passes this guard even though it is not session-selectable,
+ * while a genuinely delegation-only profile (schedulable resolves false,
+ * whether by explicit override or by sessionSelectable fallback) is still
+ * rejected exactly as before.
  */
 function assertSchedulableProfile(configId: string | null | undefined): void {
   if (!configId || typeof configId !== 'string') return;
   const config = configsRepo.getById(configId);
   if (!config) return; // not a profile (CLI kind / built-in) — runnable
   if (config.presetId) return; // CLI preset — runs via PTY runner, never a subagent
-  if (config.sessionSelectable === false) {
+  if ((config.schedulable ?? config.sessionSelectable) === false) {
     throw AppError.badRequest(
       `"${config.label}" is a delegation-only subagent and can't be scheduled — ` +
-        `make it session-selectable in the agent designer to run it standalone.`,
+        `make it schedulable (or session-selectable) in the agent designer to run it standalone.`,
     );
   }
 }
