@@ -43,6 +43,14 @@ agentSessionsRouter.get('/:id/files/find-files', controller.findFiles.bind(contr
 agentSessionsRouter.get('/:id/files/list', controller.listFiles.bind(controller));
 agentSessionsRouter.get('/:id/files/content', controller.fileContent.bind(controller));
 agentSessionsRouter.get('/:id/files/status', controller.fileStatus.bind(controller));
+// OCU-22 (#1063) / OCU-23 (#1064) — VCS branch/status + branch-diff + raw patch.
+agentSessionsRouter.get('/:id/vcs', controller.getVcs.bind(controller));
+agentSessionsRouter.get('/:id/vcs/status', controller.getVcsStatus.bind(controller));
+agentSessionsRouter.get('/:id/vcs/diff', controller.getVcsDiff.bind(controller));
+agentSessionsRouter.get('/:id/vcs/diff/raw', controller.getVcsDiffRaw.bind(controller));
+// OCU-24 (#1065) — session.shell quick-run. OCU-25 (#1066) — session.init.
+agentSessionsRouter.post('/:id/shell', controller.shell.bind(controller));
+agentSessionsRouter.post('/:id/init', controller.init.bind(controller));
 agentSessionsRouter.post(
   '/:id/permission/:permissionId/:decision',
   controller.respondPermission.bind(controller),

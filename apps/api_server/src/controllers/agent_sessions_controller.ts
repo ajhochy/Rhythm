@@ -1782,4 +1782,94 @@ export class AgentSessionsController {
     }
   }
 
+  // ── VCS proxy (OCU-22 #1063 / OCU-23 #1064) ────────────────────────────────
+
+  async getVcs(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const dir = this.resolveSessionDir(req.params.id);
+      res.json(await opencodeClient.getVcs(dir));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getVcsStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const dir = this.resolveSessionDir(req.params.id);
+      res.json(await opencodeClient.getVcsStatus(dir));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getVcsDiff(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const dir = this.resolveSessionDir(req.params.id);
+      const mode = req.query.mode === 'branch' ? 'branch' : 'git';
+      res.json(await opencodeClient.getVcsDiff(dir, mode));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getVcsDiffRaw(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const dir = this.resolveSessionDir(req.params.id);
+      const raw = await opencodeClient.getVcsDiffRaw(dir);
+      res.type('text/x-diff').send(raw);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // ── session.shell (OCU-24 #1065) ───────────────────────────────────────────
+
+  async shell(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const sdkId = resolveSdkSessionId(session);
+      if (!sdkId) throw AppError.badRequest('session has no engine session id');
+      const command = (req.body as { command?: unknown })?.command;
+      if (typeof command !== 'string' || command.trim() === '') {
+        throw AppError.badRequest('command is required');
+      }
+      // Attribute the shell run to the session's agent (engine name). Falls back
+      // to 'build' — the engine's default agent — when the session is agent-less.
+      const agent = session.agentKind && session.agentKind.trim() !== '' ? session.agentKind : 'build';
+      const result = await opencodeClient.sessionShell(sdkId, command, agent, session.cwd);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // ── session.init (OCU-25 #1066) ────────────────────────────────────────────
+
+  async init(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const sdkId = resolveSdkSessionId(session);
+      if (!sdkId) throw AppError.badRequest('session has no engine session id');
+      const body = (req.body ?? {}) as { providerID?: unknown; modelID?: unknown; messageID?: unknown };
+      // The init flow needs the model that writes AGENTS.md + a message id. Fall
+      // back to the session's persisted provider/model when the caller omits
+      // them; a fresh messageID is generated when absent.
+      const providerID = typeof body.providerID === 'string' ? body.providerID : (session.providerId ?? '');
+      const modelID = typeof body.modelID === 'string' ? body.modelID : (session.modelId ?? '');
+      if (!providerID || !modelID) {
+        throw AppError.badRequest('providerID and modelID are required (session has no persisted model)');
+      }
+      const messageID =
+        typeof body.messageID === 'string' && body.messageID.trim() !== ''
+          ? body.messageID
+          : `msg_${Date.now().toString(36)}`;
+      const ok = await opencodeClient.sessionInit(sdkId, { providerID, modelID, messageID }, session.cwd);
+      res.json({ ok });
+    } catch (err) {
+      next(err);
+    }
+  }
+
 }

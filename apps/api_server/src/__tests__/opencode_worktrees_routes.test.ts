@@ -141,4 +141,15 @@ describe('OCU-16 worktree event relay', () => {
       message: 'not a git repo',
     });
   });
+
+  // OCU-22 (#1063) — same relay mechanism, verified alongside the worktree ones.
+  it('relays vcs.branch.updated as a typed top-level WS frame', async () => {
+    const { OpencodeStreamBridge } = await import('../services/opencode_stream_bridge');
+    const bridge = new OpencodeStreamBridge();
+    (bridge as unknown as { _relayEvent(e: unknown): void })._relayEvent({
+      type: 'vcs.branch.updated',
+      properties: { branch: 'feat/new' },
+    });
+    expect(broadcastSpy).toHaveBeenCalledWith({ v: 1, type: 'vcs.branch.updated', branch: 'feat/new' });
+  });
 });

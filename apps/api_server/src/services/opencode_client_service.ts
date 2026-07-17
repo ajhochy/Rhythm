@@ -2105,6 +2105,124 @@ export class OpencodeClientService {
     }
   }
 
+  // ── VCS wrappers (OCU-22 #1063 / OCU-23 #1064) ────────────────────────────
+  //
+  // Proxy the engine's project-scoped VCS endpoints. Direct fetch; all scoped
+  // by the project `directory`. Non-throwing (null/[] on failure) so a route
+  // can degrade to "no badge / empty diff" rather than 500.
+
+  /** GET /vcs — { branch?, defaultBranch? } for the project directory. */
+  async getVcs(directory: string): Promise<{ branch?: string; defaultBranch?: string } | null> {
+    const qs = `?directory=${encodeURIComponent(directory)}`;
+    try {
+      const res = await fetch(`${this.serverUrl}/vcs${qs}`);
+      if (!res.ok) return null;
+      return (await res.json()) as { branch?: string; defaultBranch?: string };
+    } catch (err) {
+      logger.error('[OpencodeClientService] getVcs failed:', err);
+      return null;
+    }
+  }
+
+  /** GET /vcs/status — changed files in the working tree. */
+  async getVcsStatus(directory: string): Promise<unknown[]> {
+    const qs = `?directory=${encodeURIComponent(directory)}`;
+    try {
+      const res = await fetch(`${this.serverUrl}/vcs/status${qs}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      logger.error('[OpencodeClientService] getVcsStatus failed:', err);
+      return [];
+    }
+  }
+
+  /**
+   * GET /vcs/diff?mode=git|branch — structured diff. `git` = working-tree
+   * uncommitted; `branch` = full diff vs the default branch. Throws AppError on
+   * engine error so the route surfaces a real failure.
+   */
+  async getVcsDiff(directory: string, mode: 'git' | 'branch'): Promise<unknown[]> {
+    const qs = `?directory=${encodeURIComponent(directory)}&mode=${mode}`;
+    const res = await fetch(`${this.serverUrl}/vcs/diff${qs}`);
+    if (!res.ok) {
+      throw new AppError(502, 'SDK_ERROR', `getVcsDiff failed (${res.status})`);
+    }
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  }
+
+  /**
+   * GET /vcs/diff/raw — the raw text/x-diff patch for uncommitted changes.
+   * Returns the patch text (or '' on failure — an empty patch is a valid,
+   * clean-tree result).
+   */
+  async getVcsDiffRaw(directory: string): Promise<string> {
+    const qs = `?directory=${encodeURIComponent(directory)}`;
+    try {
+      const res = await fetch(`${this.serverUrl}/vcs/diff/raw${qs}`);
+      if (!res.ok) return '';
+      return await res.text();
+    } catch (err) {
+      logger.error('[OpencodeClientService] getVcsDiffRaw failed:', err);
+      return '';
+    }
+  }
+
+  // ── session.shell / session.init wrappers (OCU-24 #1065 / OCU-25 #1066) ────
+
+  /**
+   * POST /session/{id}/shell — run a non-interactive command through the
+   * session so the invocation + output land in session history. `agent` is the
+   * engine agent name to attribute the run to; `command` is the shell command.
+   * Direct fetch (mirrors questionAction). Returns the created message on
+   * success, or throws AppError on engine error.
+   */
+  async sessionShell(
+    sdkId: string,
+    command: string,
+    agent: string,
+    directory?: string,
+    model?: string,
+  ): Promise<unknown> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    const body: Record<string, unknown> = { command, agent };
+    if (model) body.model = model;
+    const res = await fetch(`${this.serverUrl}/session/${encodeURIComponent(sdkId)}/shell${qs}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new AppError(502, 'SDK_ERROR', `sessionShell failed (${res.status}) for ${sdkId}`);
+    }
+    return res.json();
+  }
+
+  /**
+   * POST /session/{id}/init — run the engine's built-in init flow (analyze the
+   * project + generate AGENTS.md). Progress streams via SSE as a normal turn.
+   * Requires providerID/modelID/messageID (the model that writes AGENTS.md).
+   * Returns true on 2xx.
+   */
+  async sessionInit(
+    sdkId: string,
+    opts: { providerID: string; modelID: string; messageID: string },
+    directory?: string,
+  ): Promise<boolean> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    const res = await fetch(`${this.serverUrl}/session/${encodeURIComponent(sdkId)}/init${qs}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(opts),
+    });
+    if (!res.ok) {
+      throw new AppError(502, 'SDK_ERROR', `sessionInit failed (${res.status}) for ${sdkId}`);
+    }
+    return true;
+  }
+
   /**
    * POST /session/{id}/command — dispatch a slash-command in the session.
    *

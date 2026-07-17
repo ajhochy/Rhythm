@@ -779,6 +779,19 @@ export class OpencodeStreamBridge {
       return;
     }
 
+    // OCU-22 (#1063) — vcs.branch.updated is project-scoped (no sessionID).
+    // Relay it as a typed top-level WS frame so the transcript-header branch
+    // badge refreshes live when an agent switches branches.
+    if (wtEvent.type === 'vcs.branch.updated') {
+      const vp = (wtEvent.properties ?? {}) as { branch?: string };
+      broadcast({
+        v: 1,
+        type: 'vcs.branch.updated',
+        ...(vp.branch ? { branch: vp.branch } : {}),
+      });
+      return;
+    }
+
     // If no session mapping found, use the event's sessionID as a fallback key
     const eventId = localSessionId ?? opencodeSessionId;
     if (!eventId) {
