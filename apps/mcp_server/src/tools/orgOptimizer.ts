@@ -17,6 +17,16 @@
  * Access to this tool is restricted to the org-optimizer role's own scope
  * (.mcp-roles/org-optimizer.mcp.json) — the MCP dispatch guard (#736) denies
  * it for any other session, since it is not in another role's allowlist.
+ *
+ * #1112/#1114: a capability gap ALSO triggers its own debounced discovery
+ * pass directly (gap_discovery_scheduler.ts, server-side, no agent turn) —
+ * this tool's manual/scheduled full pass is additive to that, not the only
+ * way discovery runs. External discovery itself now judges BOTH a skill fix
+ * (skills.sh) and an MCP-server fix (mcp-registry, when
+ * RHYTHM_MCP_REGISTRY_SEARCH_URL is configured) per gap, through the same
+ * "strictly beats the would-be draft" judge and the same #873 injection
+ * pre-vet — an MCP win still surfaces as an `external-adoption` proposal,
+ * always human-gated, and installs scoped to the requesting agent only.
  */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
@@ -25,7 +35,7 @@ import { registerTool } from './_tool.js';
 
 export function registerOrgOptimizerTools(server: McpServer, agentUrl: string, apiToken: string) {
   registerTool(server, 'rhythm_run_org_optimizer',
-    `Run one full pass of the org self-optimizer loop, server-side: build a fresh org audit snapshot, run the internal generators (scope hygiene, recipe, webhook wiring; delegation/new-agent run with no signals this pass, external discovery is on its own separate schedule), persist proposals deduped against previously-seen gaps, and auto-apply LOW-risk proposals only (HIGH-risk kinds — create-agent, grant/expand-delegation, broaden-scope, webhook-wiring, external-adoption — are NEVER auto-applied; they are left in the review queue).
+    `Run one full pass of the org self-optimizer loop, server-side: build a fresh org audit snapshot, run the internal generators (scope hygiene, recipe, webhook wiring; delegation/new-agent run with no signals this pass; external discovery also runs, grounded on open capability gaps, IN ADDITION to its own separate less-frequent schedule AND the gap-triggered debounced pass every new gap already schedules on its own), persist proposals deduped against previously-seen gaps, and auto-apply LOW-risk proposals only (HIGH-risk kinds — create-agent, grant/expand-delegation, broaden-scope, webhook-wiring, external-adoption — are NEVER auto-applied; they are left in the review queue). External discovery judges a skill fix and an MCP-server fix per gap on equal footing; an MCP win still installs scoped to only the requesting agent, never globally.
 
 Per-run caps (proposals/run, LLM calls/run) and the engine cold-start throttle are enforced server-side — a call during the cold-start window is a documented no-op (skipped: true), not an error.
 

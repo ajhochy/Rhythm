@@ -245,3 +245,62 @@ describe('runner path allowlist (P1b)', () => {
     void idA; // idA is used by the DB seed; suppress unused warning
   });
 });
+
+// ── #1110 — self_improvement runs skip BOTH prefaces entirely ──────────────
+
+describe('#1110 — category:self_improvement skips buildSkillsPreface + buildMemoryPreface', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env.AGENT_SKILLS_ENABLED;
+    delete process.env.AGENT_MEMORY_INJECTION_ENABLED;
+    makeDb();
+    mockCreateSession.mockResolvedValue({ id: 'sdk-session-1' });
+    mockPrompt.mockResolvedValue({
+      info: { sessionID: 'sdk-session-1' },
+      parts: [{ type: 'text', text: 'Done' }],
+    });
+    mockAbortSession.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    teardownDb();
+    vi.restoreAllMocks();
+    delete process.env.AGENT_SKILLS_ENABLED;
+    delete process.env.AGENT_MEMORY_INJECTION_ENABLED;
+  });
+
+  async function freshRun() {
+    const { run } = await import('../services/agent_runner');
+    return run;
+  }
+
+  it('does not call buildSkillsPreface or buildMemoryPreface when category is self_improvement (both injections enabled)', async () => {
+    // Both toggles are ON (the default) — if the self_improvement gate were
+    // missing, both prefaces would normally be built (skill injection is
+    // proven ON by the sibling describe block above).
+    const skillRetrieval = await import('../services/skill_retrieval');
+    const memoryRetrieval = await import('../services/memory_retrieval');
+    const skillsSpy = vi.spyOn(skillRetrieval, 'buildSkillsPreface');
+    const memorySpy = vi.spyOn(memoryRetrieval, 'buildMemoryPreface');
+
+    const run = await freshRun();
+    const result = await run({ prompt: PROMPT, category: 'self_improvement' });
+
+    expect(result.status).toBe('done');
+    expect(skillsSpy).not.toHaveBeenCalled();
+    expect(memorySpy).not.toHaveBeenCalled();
+    // The forwarded prompt is the bare original prompt — no preface prepended.
+    const forwarded = mockPrompt.mock.calls[0][1] as string;
+    expect(forwarded).toBe(PROMPT);
+  });
+
+  it('a normal (non self_improvement) run still calls buildSkillsPreface (regression guard)', async () => {
+    const skillRetrieval = await import('../services/skill_retrieval');
+    const skillsSpy = vi.spyOn(skillRetrieval, 'buildSkillsPreface');
+
+    const run = await freshRun();
+    await run({ prompt: PROMPT });
+
+    expect(skillsSpy).toHaveBeenCalledOnce();
+  });
+});

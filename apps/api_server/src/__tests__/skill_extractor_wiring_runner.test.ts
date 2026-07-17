@@ -9,6 +9,10 @@
  *  • AgentRunner calls queueSkillExtraction once, on the SUCCESS path, with the
  *    recorded rhythm session id — and does not block on it (the run resolves).
  *  • AgentRunner does NOT call it on the error/timeout path.
+ *
+ * #1109 — also mocks harvested_skill_evaluator so scheduleIdleEvaluation is a
+ * spy: proves the SUCCESS path calls the new scheduling function instead of
+ * invoking evaluateHarvestedDrafts directly (the old per-turn hot-path call).
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -44,6 +48,15 @@ const { mockQueue } = vi.hoisted(() => ({ mockQueue: vi.fn() }));
 vi.mock('../services/skill_extractor', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../services/skill_extractor')>();
   return { ...actual, queueSkillExtraction: mockQueue };
+});
+
+// #1109 — harvested_skill_evaluator mock — spy on scheduleIdleEvaluation,
+// keep evaluateHarvestedDrafts real (though it should never be called
+// directly by agent_runner.ts anymore).
+const { mockScheduleIdleEvaluation } = vi.hoisted(() => ({ mockScheduleIdleEvaluation: vi.fn() }));
+vi.mock('../services/harvested_skill_evaluator', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/harvested_skill_evaluator')>();
+  return { ...actual, scheduleIdleEvaluation: mockScheduleIdleEvaluation };
 });
 
 // ── DB helpers ──────────────────────────────────────────────────────────────────
@@ -108,6 +121,28 @@ describe('P2-2 — AgentRunner fires queueSkillExtraction (no await) on success'
 
     expect(result.status).toBe('error');
     expect(mockQueue).not.toHaveBeenCalled();
+
+    delete process.env.AGENT_RUN_TIMEOUT_MS;
+  });
+
+  it('#1109 — invokes scheduleIdleEvaluation (not evaluateHarvestedDrafts directly) on success', async () => {
+    const { run } = await import('../services/agent_runner');
+
+    const result = await run({ prompt: 'hello' });
+
+    expect(result.status).toBe('done');
+    expect(mockScheduleIdleEvaluation).toHaveBeenCalledOnce();
+  });
+
+  it('#1109 — does NOT invoke scheduleIdleEvaluation on the timeout (error) path', async () => {
+    process.env.AGENT_RUN_TIMEOUT_MS = '50';
+    mockPrompt.mockReturnValue(new Promise(() => {}));
+
+    const { run } = await import('../services/agent_runner');
+    const result = await run({ prompt: 'never resolves' });
+
+    expect(result.status).toBe('error');
+    expect(mockScheduleIdleEvaluation).not.toHaveBeenCalled();
 
     delete process.env.AGENT_RUN_TIMEOUT_MS;
   });

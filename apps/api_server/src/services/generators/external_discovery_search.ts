@@ -283,25 +283,85 @@ export const discoverCandidatesFromEcosystem: DiscoverCandidatesFn = async (gaps
   return candidates;
 };
 
+/** A single mcp-registry search hit (the fields the HTTP endpoint returns). */
+interface McpRegistryHit {
+  name: string;
+  maintainer?: string;
+  license?: string;
+  lastUpdated?: string;
+  installs?: number;
+  installCommand?: string;
+}
+
+/**
+ * Render a text summary of an MCP registry hit for the #1114 judge — MCP
+ * candidates have no downloadable SKILL.md body to score, so this composes
+ * the available registry metadata (name/maintainer/license/install command)
+ * into the same purpose-anchored shape renderWouldBeDraft produces, so
+ * candidateBeatsDraft can score it on equal footing with the draft.
+ */
+function renderMcpCandidateSummary(hit: McpRegistryHit): string {
+  const lines = [`# ${hit.name}`, '', 'MCP server candidate.'];
+  if (hit.maintainer) lines.push(`Maintainer: ${hit.maintainer}`);
+  if (hit.license) lines.push(`License: ${hit.license}`);
+  if (hit.installCommand) lines.push(`Install: ${hit.installCommand}`);
+  return lines.join('\n');
+}
+
 /**
  * Search the mcp-registry for connector candidates addressing a gap. The
  * registry is reached via its MCP tools, which are only available inside an
  * agent turn — from this server-side path we query its public HTTP search
  * endpoint. A miss (or no HTTP endpoint configured) degrades to zero MCP
  * candidates; skills.sh remains the primary ecosystem source.
+ *
+ * #1114 — MCP candidates now pass the SAME two gates the skill path already
+ * enforces, so a fix-kind choice between {skill, MCP} is judged on equal
+ * footing and neither kind is a softer target for an attacker:
+ *   1. #873 pre-vet — the registry metadata (name/maintainer/license/install
+ *      command are all attacker-influenceable if the registry itself is
+ *      compromised or a malicious server self-registers) is scanned for
+ *      injection content BEFORE it is ever proposed. The applier re-scans
+ *      nothing further for MCP today (there is no downloadable body to
+ *      re-scan at install time, unlike a skill's SKILL.md), so this pre-vet
+ *      is the only gate — drop on any high-confidence match.
+ *   2. candidateBeatsDraft judge — only a candidate STRICTLY better than the
+ *      would-be bespoke draft is shortlisted, exactly like skills.sh hits.
+ *
+ * `scorer` is an injectable pass-through to candidateBeatsDraft (defaults to
+ * the real opencode-backed judge) — exported and parameterized for the same
+ * reason candidateBeatsDraft itself takes one: a unit test can exercise the
+ * pre-vet/judge gates deterministically, with no live model call.
  */
-async function searchMcpCandidates(gap: OrgAuditGap): Promise<ExternalCandidate[]> {
+export async function searchMcpCandidates(
+  gap: OrgAuditGap,
+  scorer?: typeof scoreSkillBody,
+): Promise<ExternalCandidate[]> {
   const base = process.env.RHYTHM_MCP_REGISTRY_SEARCH_URL;
   if (!base) return []; // no server-side registry endpoint wired — skills-only this run
   const query = buildQuery(gap);
   if (!query) return [];
-  const res = await fetchJson<{ servers?: Array<{ name: string; maintainer?: string; license?: string; lastUpdated?: string; installs?: number; installCommand?: string }> }>(
+  const res = await fetchJson<{ servers?: McpRegistryHit[] }>(
     `${base}?q=${encodeURIComponent(query)}&limit=10`,
   );
   const servers = res?.servers ?? [];
   const out: ExternalCandidate[] = [];
   for (const s of servers.slice(0, MAX_PER_GAP)) {
     if (!s.maintainer || !s.license || !s.lastUpdated || !s.installCommand) continue;
+
+    const summary = renderMcpCandidateSummary(s);
+
+    const preScan = scanContextContent(summary, `external-adoption MCP candidate "${s.name}"`);
+    if (preScan.blocked) {
+      logger.warn(
+        `[external-discovery-search] dropped MCP candidate "${s.name}" for gap ${gap.gapId} — pre-vet injection scan blocked it`,
+      );
+      continue;
+    }
+
+    const wins = scorer ? await candidateBeatsDraft(gap, summary, scorer) : await candidateBeatsDraft(gap, summary);
+    if (!wins) continue;
+
     out.push({
       kind: 'mcp',
       name: s.name,
@@ -315,7 +375,7 @@ async function searchMcpCandidates(gap: OrgAuditGap): Promise<ExternalCandidate[
         license: s.license,
         installCommand: s.installCommand,
       },
-      rationale: `mcp-registry match for capability-gap "${gap.intentTitle ?? gap.gapId}"`,
+      rationale: `mcp-registry match judged better than the bespoke draft for "${gap.intentTitle ?? gap.gapId}"`,
       agentConfigId: gap.agentConfigId,
       sampleSessionId: gap.sampleSessionId,
       categories: gap.intentTags,

@@ -12,7 +12,7 @@
  * no model/network is ever touched.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
@@ -29,7 +29,11 @@ import {
   listDisabledSkillNames,
   readDisabledSkill,
 } from '../services/rhythm_managed_skills';
-import { evaluateHarvestedDrafts } from '../services/harvested_skill_evaluator';
+import {
+  evaluateHarvestedDrafts,
+  scheduleIdleEvaluation,
+  _resetIdleEvaluationForTests,
+} from '../services/harvested_skill_evaluator';
 import type { ScoreCall, ScoreResult, RewriteCall } from '../services/skill_refiner';
 
 function makeDb(): Database.Database {
@@ -707,5 +711,79 @@ describe('evaluateHarvestedDrafts — Unit 5 (#969) rewrite-needed -> refiner wi
     const draft = readDraftSkill('flaky-rewrite-skill');
     expect(draft?.frontmatter.status).toBe('rewrite-needed');
     expect(draft?.body).toBe(`# flaky-rewrite-skill\n\nVague, incomplete procedure.`);
+  });
+});
+
+// ── #1109 — scheduleIdleEvaluation (replaces the per-turn call sites) ───────
+
+describe('#1109 — scheduleIdleEvaluation debounces evaluateHarvestedDrafts off the per-turn hot path', () => {
+  const REAL_IDLE_MS = process.env.RHYTHM_HARVEST_EVAL_IDLE_MS;
+
+  beforeEach(() => {
+    _resetIdleEvaluationForTests();
+    vi.useFakeTimers();
+    process.env.RHYTHM_HARVEST_EVAL_IDLE_MS = '1000';
+  });
+
+  afterEach(() => {
+    _resetIdleEvaluationForTests();
+    vi.useRealTimers();
+    if (REAL_IDLE_MS === undefined) delete process.env.RHYTHM_HARVEST_EVAL_IDLE_MS;
+    else process.env.RHYTHM_HARVEST_EVAL_IDLE_MS = REAL_IDLE_MS;
+  });
+
+  it('does not run the sweep synchronously — it is scheduled, not immediate', () => {
+    const runFn = vi.fn().mockResolvedValue(undefined);
+    scheduleIdleEvaluation(runFn);
+    expect(runFn).not.toHaveBeenCalled();
+  });
+
+  it('runs the sweep exactly once after the idle window elapses', async () => {
+    const runFn = vi.fn().mockResolvedValue(undefined);
+    scheduleIdleEvaluation(runFn);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(runFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces many calls within the idle window into ONE sweep (no per-turn fan-out)', async () => {
+    const runFn = vi.fn().mockResolvedValue(undefined);
+    // Simulates several turns completing back-to-back — this is exactly the
+    // per-turn call pattern #1109 removes from opencode_stream_bridge.ts /
+    // agent_runner.ts.
+    scheduleIdleEvaluation(runFn);
+    scheduleIdleEvaluation(runFn);
+    scheduleIdleEvaluation(runFn);
+    scheduleIdleEvaluation(runFn);
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(runFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('a sweep AFTER a previous one completes schedules again (not permanently coalesced)', async () => {
+    const runFn = vi.fn().mockResolvedValue(undefined);
+    scheduleIdleEvaluation(runFn);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(runFn).toHaveBeenCalledTimes(1);
+
+    scheduleIdleEvaluation(runFn);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(runFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('never throws when the scheduled sweep rejects', async () => {
+    const runFn = vi.fn().mockRejectedValue(new Error('boom'));
+    expect(() => scheduleIdleEvaluation(runFn)).not.toThrow();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(runFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('defaults to the real evaluateHarvestedDrafts when no runFn is injected (production call shape)', async () => {
+    // No draft/DB setup needed — under VITEST with no injected deps,
+    // evaluateHarvestedDrafts() itself no-ops (isTestEnv guard). This proves
+    // the DEFAULT parameter wiring (what agent_runner.ts / opencode_stream_
+    // bridge.ts actually call) reaches the real function without throwing.
+    expect(() => scheduleIdleEvaluation()).not.toThrow();
+    await vi.advanceTimersByTimeAsync(1000);
   });
 });

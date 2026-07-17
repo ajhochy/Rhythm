@@ -3,10 +3,14 @@
  *
  * Foundation store every optimizer generator and the human review queue write
  * to (see docs/ai/decisions/2026-06-29-org-self-optimizer-cron.md §5 for the
- * full design). Local SQLite (agent DB) only — this table is intentionally
- * NOT added to postgres_bootstrap.ts; proposals are local-only and never
- * synced to production, matching the `agent_skills` / `agent_scheduled_tasks`
- * / `agent_webhook_endpoints` precedent.
+ * full design). Dual-engine (proposals-parity fix, #1113 sibling): also
+ * present in postgres_bootstrap.ts. The decision doc's original "local SQLite
+ * only, never synced to production" call predates #1111/#1113, which made
+ * the org-optimizer's own seed run against a Postgres-backed deployment
+ * (gated on the deployment ROLE, not the DB engine — see
+ * org_optimizer_seed.ts) — so the optimizer, and every proposal it writes,
+ * now genuinely runs there too. See AgentOrgProposalsRepository's dual-engine
+ * branch for the read/write paths.
  *
  * Lifecycle/revert mechanics mirror the `agent_skills` sidecar
  * (see models/agent_skill.ts): `before_snapshot_json` plays the role

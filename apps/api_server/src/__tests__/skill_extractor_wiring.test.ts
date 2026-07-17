@@ -26,7 +26,11 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb, getDb } from '../database/db';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
-import { queueSkillExtraction, type DistillFn } from '../services/skill_extractor';
+import {
+  queueSkillExtraction,
+  _resetHarvestGuardForTests,
+  type DistillFn,
+} from '../services/skill_extractor';
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
@@ -74,11 +78,13 @@ function seedRounds(sessionId: string, rounds: number): void {
 describe('P2-2 — queueSkillExtraction (fire-and-forget)', () => {
   beforeEach(() => {
     makeDb();
+    _resetHarvestGuardForTests();
   });
 
   afterEach(() => {
     teardownDb();
     vi.restoreAllMocks();
+    _resetHarvestGuardForTests();
   });
 
   it('is non-blocking: returns before a slow (100ms) distill resolves', async () => {
@@ -161,5 +167,102 @@ describe('P2-2 — queueSkillExtraction (fire-and-forget)', () => {
     expect(() => queueSkillExtraction('sess-no-db', distill)).not.toThrow();
     // Distill must not be reached when the count failed.
     expect(distill).not.toHaveBeenCalled();
+  });
+});
+
+// ── #1109 — per-session guard + global cooldown ─────────────────────────────
+
+describe('#1109 — per-session harvest guard + global cooldown', () => {
+  const REAL_COOLDOWN = process.env.RHYTHM_HARVEST_COOLDOWN_MS;
+
+  beforeEach(() => {
+    makeDb();
+    _resetHarvestGuardForTests();
+    // Tiny cooldown so tests don't have to wait out the real 5-minute default.
+    process.env.RHYTHM_HARVEST_COOLDOWN_MS = '50';
+  });
+
+  afterEach(() => {
+    teardownDb();
+    vi.restoreAllMocks();
+    _resetHarvestGuardForTests();
+    if (REAL_COOLDOWN === undefined) delete process.env.RHYTHM_HARVEST_COOLDOWN_MS;
+    else process.env.RHYTHM_HARVEST_COOLDOWN_MS = REAL_COOLDOWN;
+  });
+
+  it('a second call for the SAME session never calls distill again (lifetime guard)', async () => {
+    seedSession('sess-guard-1');
+    seedRounds('sess-guard-1', 2);
+    const distill = vi.fn<DistillFn>().mockResolvedValue(null);
+
+    queueSkillExtraction('sess-guard-1', distill);
+    expect(distill).toHaveBeenCalledTimes(1);
+
+    // Wait out the cooldown so the SECOND call below is blocked by the
+    // per-session guard specifically, not the (also-active) cooldown.
+    await new Promise((r) => setTimeout(r, 60));
+
+    seedRounds('sess-guard-1', 2); // more rounds accrue on the same session
+    queueSkillExtraction('sess-guard-1', distill);
+    expect(distill).toHaveBeenCalledTimes(1); // still just once — lifetime guard
+  });
+
+  it('the guard is checked before any model call — rapid repeat calls for one session still fire once', () => {
+    seedSession('sess-guard-2');
+    seedRounds('sess-guard-2', 2);
+    const distill = vi.fn<DistillFn>().mockResolvedValue(null);
+
+    queueSkillExtraction('sess-guard-2', distill);
+    queueSkillExtraction('sess-guard-2', distill);
+    queueSkillExtraction('sess-guard-2', distill);
+
+    expect(distill).toHaveBeenCalledTimes(1);
+  });
+
+  it('a session below the round threshold is NOT guarded — crossing it on a later turn still fires once', () => {
+    seedSession('sess-guard-3');
+    seedRounds('sess-guard-3', 1); // below MIN_ROUNDS
+    const distill = vi.fn<DistillFn>().mockResolvedValue(null);
+
+    queueSkillExtraction('sess-guard-3', distill);
+    expect(distill).not.toHaveBeenCalled(); // too few rounds — guard NOT consumed
+
+    seedRounds('sess-guard-3', 1); // now 2 rounds total
+    queueSkillExtraction('sess-guard-3', distill);
+    expect(distill).toHaveBeenCalledTimes(1); // now qualifies — fires exactly once
+  });
+
+  it('cooldown: a DIFFERENT novel session within the cooldown window does not fire', () => {
+    seedSession('sess-cool-a');
+    seedRounds('sess-cool-a', 2);
+    seedSession('sess-cool-b');
+    seedRounds('sess-cool-b', 2);
+    const distillA = vi.fn<DistillFn>().mockResolvedValue(null);
+    const distillB = vi.fn<DistillFn>().mockResolvedValue(null);
+
+    queueSkillExtraction('sess-cool-a', distillA);
+    expect(distillA).toHaveBeenCalledTimes(1);
+
+    // A DIFFERENT, otherwise-eligible session fired immediately after —
+    // the GLOBAL cooldown (not the per-session guard) blocks it.
+    queueSkillExtraction('sess-cool-b', distillB);
+    expect(distillB).not.toHaveBeenCalled();
+  });
+
+  it('cooldown: once the window passes, a different novel session fires exactly once', async () => {
+    seedSession('sess-cool-c');
+    seedRounds('sess-cool-c', 2);
+    seedSession('sess-cool-d');
+    seedRounds('sess-cool-d', 2);
+    const distillC = vi.fn<DistillFn>().mockResolvedValue(null);
+    const distillD = vi.fn<DistillFn>().mockResolvedValue(null);
+
+    queueSkillExtraction('sess-cool-c', distillC);
+    expect(distillC).toHaveBeenCalledTimes(1);
+
+    await new Promise((r) => setTimeout(r, 60)); // past the 50ms test cooldown
+
+    queueSkillExtraction('sess-cool-d', distillD);
+    expect(distillD).toHaveBeenCalledTimes(1);
   });
 });

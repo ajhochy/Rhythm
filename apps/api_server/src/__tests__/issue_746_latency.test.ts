@@ -16,6 +16,7 @@ import { AgentSessionMessagesRepository } from '../repositories/agent_session_me
 import {
   queueSkillExtraction,
   notifyEngineReady,
+  _resetHarvestGuardForTests,
   type DistillFn,
 } from '../services/skill_extractor';
 
@@ -59,13 +60,20 @@ function seedMessages(sessionId: string, rounds: number): void {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('issue #746 — curator throttle (notifyEngineReady + queueSkillExtraction)', () => {
-  beforeEach(() => makeDb());
+  beforeEach(() => {
+    makeDb();
+    // #1109 — this file's tests each expect a fresh session to be able to
+    // fire (they're testing the cold-start throttle, not the per-session
+    // guard / global cooldown), so reset that unrelated module state here too.
+    _resetHarvestGuardForTests();
+  });
   afterEach(() => {
     teardownDb();
     // Reset the module-level _engineReadyAt state between tests by notifying
     // with a very old timestamp (1ms) so the 90s window is in the distant past.
     // We do this by calling notifyEngineReady with a time 200s in the past.
     notifyEngineReady(Date.now() - 200_000);
+    _resetHarvestGuardForTests();
   });
 
   it('defers queueSkillExtraction during cold-start window', () => {

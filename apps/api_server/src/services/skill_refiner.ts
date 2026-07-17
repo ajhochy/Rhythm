@@ -30,11 +30,6 @@ import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { getRelevantSkills } from './skill_retrieval';
 import { applyAndMeasure, type ApplyCandidate, type ApplyOutcome } from './skill_apply';
 import type { AgentSkill } from '../models/agent_skill';
-import {
-  DEFAULT_MODEL_BY_PROVIDER,
-  resolveReliableAuthedFallbackModels,
-  resolveReliableAuthedFallbackModel,
-} from './model_fallback';
 
 /** Mirrors opencode_agent_writer.ts isTestEnv() VERBATIM. */
 function isTestEnv(): boolean {
@@ -108,30 +103,20 @@ function skillText(s: { title: string; description?: string | null; whenToUse?: 
     .join('\n');
 }
 
-type PromptModel = { providerID: string; modelID: string };
-
-async function resolveReliableSkillJudgeModel(
-  opencode: Pick<typeof import('./opencode_engine').opencodeClient, 'listAuthedProviders'>,
-): Promise<PromptModel> {
-  const decision = resolveReliableAuthedFallbackModel(await opencode.listAuthedProviders());
-  if (decision) {
-    logger.info(
-      `[skill-refine] using reliable judge model from #930 fallback chain (${decision.tier.id}: ${decision.providerID}/${decision.modelID})`,
-    );
-    return { providerID: decision.providerID, modelID: decision.modelID };
-  }
-
-  const modelID = DEFAULT_MODEL_BY_PROVIDER.anthropic;
-  logger.warn(
-    `[skill-refine] no authed reliable #930 fallback tier found; using non-OpenRouter default (anthropic/${modelID})`,
-  );
-  return { providerID: 'anthropic', modelID };
-}
+/**
+ * #1110 (cost-002) — task-kind hint shared by every self-improvement LLM call
+ * in this file (judge / scorer / rewriter). All three are cheap, tool-less,
+ * mechanical grading/generation tasks over a skill body — not a judgment call
+ * worth a frontier model — so they deliberately route to 'triage' (a
+ * TASK_KIND_TIER_POLICY 'cheap'-tier kind), not 'judgment' (which resolves to
+ * 'frontier'). AgentRunner's own tiered routing (agent_model_resolver.
+ * resolveTieredModel) picks the cheapest AUTHED route; no modelOverride is
+ * passed here (an explicit override would bypass tiering entirely).
+ */
+const SELF_IMPROVEMENT_TASK_KIND = 'triage';
 
 /** Default (real) judge — guarded; never reached under isTestEnv. */
 const defaultJudge: JudgeCall = async (existing, candidate) => {
-  const { opencodeClient } = await import('./opencode_engine');
-  const model = await resolveReliableSkillJudgeModel(opencodeClient);
   const system =
     'You are grading whether a CANDIDATE revision of an agent skill is an ' +
     'improvement over the EXISTING skill. Reply with ONLY one of: better, ' +
@@ -150,14 +135,18 @@ const defaultJudge: JudgeCall = async (existing, candidate) => {
   // (Gemini-safe), matching the old createSession that passed no tools. A failed
   // run resolves status:'error' → '' → parseJudgeResponse's fail-closed 'equal'
   // (same fail-path as the old "no judge session" / empty-parts branches).
+  // #1110: allowedSkillsJson '[]' denies all skills (no system-prompt skill
+  // listing); taskKind routes to the cheap tier instead of a hardcoded
+  // reliable-fallback model.
   const { run } = await import('./agent_runner');
   const res = await run({
     prompt: `${system}\n\n${user}`,
     sessionName: 'skill-refine-judge',
     category: 'self_improvement',
-    modelOverride: model,
+    taskKind: SELF_IMPROVEMENT_TASK_KIND,
     mcpRole: 'skill-refine-judge',
     allowedMcpsJson: '{}',
+    allowedSkillsJson: '[]',
   });
   _setRefineRunning(false);
   const text = res.status === 'error' ? '' : res.result;
@@ -241,55 +230,44 @@ function buildScoreSystemPrompt(): string {
   );
 }
 
-/** Default (real) scorer — guarded; never reached under isTestEnv. */
+/**
+ * Default (real) scorer — guarded; never reached under isTestEnv.
+ *
+ * #1110 (cost-002): previously fanned out across every reliable authed
+ * fallback provider (#930/#997 chain) — up to N run() calls (each a full
+ * self_improvement session) per single score. That fan-out is the "Scorer
+ * fan-out bounded" acceptance criterion's target: this now makes exactly ONE
+ * run() call at the cheap tier (taskKind) and fails closed (score 0) on an
+ * unparseable/error result, rather than retrying the next provider. A single
+ * cheap-tier judge is an acceptable trade for the cost win — the caller
+ * (harvested_skill_evaluator.ts) already treats a 0 score as "not good enough
+ * yet", never as a crash.
+ */
 const defaultScorer: ScoreCall = async (purpose, body) => {
-  const { opencodeClient } = await import('./opencode_engine');
-  const decisions = resolveReliableAuthedFallbackModels(await opencodeClient.listAuthedProviders());
-  const models: PromptModel[] = decisions.length > 0
-    ? decisions.map((decision) => ({
-        providerID: decision.providerID,
-        modelID: decision.modelID,
-      }))
-    : [await resolveReliableSkillJudgeModel(opencodeClient)];
   const system = buildScoreSystemPrompt();
   const user =
     `PURPOSE:\n${purposeText(purpose)}\n\n` +
     `BODY:\n${(body ?? '').trim() || '(empty)'}\n\n` +
     'Score (0-100) + one-sentence reason:';
-  const failures: string[] = [];
-  // USO B3 (#1030): route each provider-fallback attempt through AgentRunner so
-  // scoring runs become observable self_improvement sessions. The #930/#997
-  // fallback loop is preserved verbatim — one run() per model, modelOverride
-  // pins the exact per-iteration provider/model (run() forwards providerID to
-  // createSession internally for the Gemini function-declaration cap, replacing
-  // the old #884 provider-at-create-time arg), and a non-numeric result still
-  // falls through to the next reliable provider. allowedMcpsJson '{}' → zero
-  // MCP tools (Gemini-safe), matching the old createSession that passed no tools.
+  // USO B3 (#1030): route through AgentRunner so scoring becomes an observable
+  // self_improvement session. #1110: allowedSkillsJson '[]' denies all skills;
+  // taskKind routes to the cheap tier instead of a hardcoded reliable-fallback
+  // model — no modelOverride, no per-provider retry loop.
   const { run } = await import('./agent_runner');
-  for (const model of models) {
-    logger.info(`[skill-refine] scoring with ${model.providerID}/${model.modelID}`);
-    const res = await run({
-      prompt: `${system}\n\n${user}`,
-      sessionName: 'skill-measure-score',
-      category: 'self_improvement',
-      modelOverride: model,
-      mcpRole: 'skill-measure-score',
-      allowedMcpsJson: '{}',
-    });
-    const text = res.status === 'error' ? '' : res.result;
-    if (!/^\s*-?\d+\b/.test(text)) {
-      failures.push(`${model.providerID}: ${text || 'empty scorer response'}`);
-      logger.warn(
-        `[skill-refine] unparseable scorer response from ${model.providerID}/${model.modelID}; trying next reliable provider`,
-      );
-      continue;
-    }
-    return parseScoreResponse(text);
+  const res = await run({
+    prompt: `${system}\n\n${user}`,
+    sessionName: 'skill-measure-score',
+    category: 'self_improvement',
+    taskKind: SELF_IMPROVEMENT_TASK_KIND,
+    mcpRole: 'skill-measure-score',
+    allowedMcpsJson: '{}',
+    allowedSkillsJson: '[]',
+  });
+  const text = res.status === 'error' ? '' : res.result;
+  if (!/^\s*-?\d+\b/.test(text)) {
+    return { score: 0, reason: `unparseable scorer response: ${text || 'empty scorer response'}` };
   }
-  return {
-    score: 0,
-    reason: `all reliable scorer routes failed: ${failures.join('; ') || 'no routes'}`,
-  };
+  return parseScoreResponse(text);
 };
 
 /**
@@ -358,8 +336,6 @@ function buildRewriteSystemPrompt(): string {
 
 /** Default (real) rewriter — guarded; never reached under isTestEnv. */
 const defaultRewrite: RewriteCall = async (purpose, currentBody, reason) => {
-  const { opencodeClient } = await import('./opencode_engine');
-  const model = await resolveReliableSkillJudgeModel(opencodeClient);
   const system = buildRewriteSystemPrompt();
   const user =
     `PURPOSE:\n${purposeText(purpose)}\n\n` +
@@ -372,14 +348,17 @@ const defaultRewrite: RewriteCall = async (purpose, currentBody, reason) => {
   // run (status:'error' → '') or an empty rewrite degrades to the CURRENT body
   // UNCHANGED — same fail-closed path as the old "no rewrite session" / empty
   // response, so a generation failure can never masquerade as an improvement.
+  // #1110: allowedSkillsJson '[]' denies all skills; taskKind routes to the
+  // cheap tier instead of a hardcoded reliable-fallback model.
   const { run } = await import('./agent_runner');
   const res = await run({
     prompt: `${system}\n\n${user}`,
     sessionName: 'skill-refine-rewrite',
     category: 'self_improvement',
-    modelOverride: model,
+    taskKind: 'extraction',
     mcpRole: 'skill-refine-rewrite',
     allowedMcpsJson: '{}',
+    allowedSkillsJson: '[]',
   });
   const text = res.status === 'error' ? '' : res.result;
   return text || currentBody;

@@ -32,6 +32,15 @@ vi.mock('../services/opencode_engine', () => ({
   opencodeSessionMap: sessionMap,
 }));
 
+// #1109 — spy on scheduleIdleEvaluation so the turn-completion path's harvest
+// wiring is verifiable: proves the per-turn call site invokes the new
+// scheduling function instead of evaluateHarvestedDrafts directly.
+const { mockScheduleIdleEvaluation } = vi.hoisted(() => ({ mockScheduleIdleEvaluation: vi.fn() }));
+vi.mock('../services/harvested_skill_evaluator', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/harvested_skill_evaluator')>();
+  return { ...actual, scheduleIdleEvaluation: mockScheduleIdleEvaluation };
+});
+
 import { OpencodeStreamBridge } from '../services/opencode_stream_bridge';
 import {
   _resetForTests as resetRedispatchForTests,
@@ -56,6 +65,7 @@ describe('OpencodeStreamBridge — transcript.append emission', () => {
     sessionMap.clear();
     sessionMap.set(LOCAL_ID, SDK_ID);
     broadcastSpy.mockClear();
+    mockScheduleIdleEvaluation.mockClear();
     for (const spy of Object.values(engineSpies)) spy.mockClear();
     engineSpies.listAuthedProviders.mockResolvedValue(['openai', 'google']);
     engineSpies.abortSession.mockResolvedValue(true);
@@ -120,6 +130,20 @@ describe('OpencodeStreamBridge — transcript.append emission', () => {
     expect(transcriptAppend?.id).toBe(localId);
     expect(transcriptAppend?.role).toBe('output');
     expect(transcriptAppend?.text).toBe('Hello, world!');
+  });
+
+  it('#1109 — on turn completion schedules idle evaluation instead of running it directly', () => {
+    const localId = sessionMap.keys().next().value as string;
+    sessionMap.clear();
+    sessionMap.set(localId, SDK_ID);
+
+    relay({
+      type: 'message.part.delta',
+      properties: { part: { sessionID: SDK_ID }, delta: 'Hello', field: 'text' },
+    });
+    relay({ type: 'session.idle', properties: { sessionID: SDK_ID } });
+
+    expect(mockScheduleIdleEvaluation).toHaveBeenCalledOnce();
   });
 
   it('on session.error with partial text flushes a transcript.append before the error frame', () => {
