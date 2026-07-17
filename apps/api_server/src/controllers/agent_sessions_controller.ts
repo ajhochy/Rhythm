@@ -1690,4 +1690,96 @@ export class AgentSessionsController {
     }
   }
 
+  // ── File / find proxy (OCU-19 #1060) ───────────────────────────────────────
+  //
+  // Proxy the engine's find/file endpoints scoped to the session's directory
+  // (worktree dir when isolated, else the base cwd). Path inputs are resolved
+  // against that directory and REJECTED (400) if they escape it — a
+  // path-traversal guard. Content responses are capped at ~2MB.
+
+  /** Max relayed file-content payload — mirrors the issue's ~2MB cap. */
+  private static readonly FILE_CONTENT_CAP_BYTES = 2 * 1024 * 1024;
+
+  /**
+   * Resolve the session's directory (worktree dir when isolated, else cwd) and
+   * validate that `relPath` stays inside it. Returns the session's directory;
+   * throws AppError(404) for an unknown session or AppError(400) on traversal.
+   */
+  private resolveSessionDir(sessionId: string, relPath?: string): string {
+    const session = repo.findById(sessionId);
+    if (!session) throw AppError.notFound('AgentSession');
+    const dir = session.worktreePath ?? session.cwd;
+    if (relPath !== undefined) {
+      const resolved = path.resolve(dir, relPath);
+      const base = path.resolve(dir);
+      if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+        throw new AppError(400, 'PATH_TRAVERSAL', `path '${relPath}' resolves outside the session directory`);
+      }
+    }
+    return dir;
+  }
+
+  async findText(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const dir = this.resolveSessionDir(req.params.id);
+      const pattern = String(req.query.pattern ?? '');
+      if (!pattern) throw AppError.badRequest('pattern is required');
+      res.json(await opencodeClient.findText(dir, pattern));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async findFiles(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const dir = this.resolveSessionDir(req.params.id);
+      const query = String(req.query.query ?? '');
+      if (!query) throw AppError.badRequest('query is required');
+      const limitRaw = req.query.limit;
+      const limit = limitRaw !== undefined ? Number(limitRaw) : undefined;
+      const typeRaw = req.query.type;
+      const type = typeRaw === 'file' || typeRaw === 'directory' ? typeRaw : undefined;
+      res.json(await opencodeClient.findFiles(dir, query, { limit, type }));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async listFiles(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const relPath = typeof req.query.path === 'string' ? req.query.path : '.';
+      const dir = this.resolveSessionDir(req.params.id, relPath);
+      res.json(await opencodeClient.listFiles(dir, relPath));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async fileContent(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const relPath = typeof req.query.path === 'string' ? req.query.path : '';
+      if (!relPath) throw AppError.badRequest('path is required');
+      const dir = this.resolveSessionDir(req.params.id, relPath);
+      const content = await opencodeClient.readFileContent(dir, relPath);
+      // 2MB cap on the relayed payload (defensive — the engine may return a
+      // large file; a hard cap keeps the api_server response bounded).
+      const size = Buffer.byteLength(JSON.stringify(content ?? null), 'utf8');
+      if (size > AgentSessionsController.FILE_CONTENT_CAP_BYTES) {
+        throw new AppError(413, 'PAYLOAD_TOO_LARGE', `file content exceeds the ${AgentSessionsController.FILE_CONTENT_CAP_BYTES}-byte cap`);
+      }
+      res.json(content);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async fileStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const dir = this.resolveSessionDir(req.params.id);
+      res.json(await opencodeClient.fileStatus(dir));
+    } catch (err) {
+      next(err);
+    }
+  }
+
 }

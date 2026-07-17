@@ -36,6 +36,13 @@ agentSessionsRouter.post('/', controller.create.bind(controller));
 agentSessionsRouter.patch('/:id', controller.update.bind(controller));
 agentSessionsRouter.post('/:id/cancel', controller.cancel.bind(controller));
 agentSessionsRouter.get('/:id/diff', controller.getDiff.bind(controller));
+// OCU-19 (#1060) — file/find proxy scoped to the session directory
+// (worktree dir when isolated). Path-traversal guarded; content capped ~2MB.
+agentSessionsRouter.get('/:id/files/find-text', controller.findText.bind(controller));
+agentSessionsRouter.get('/:id/files/find-files', controller.findFiles.bind(controller));
+agentSessionsRouter.get('/:id/files/list', controller.listFiles.bind(controller));
+agentSessionsRouter.get('/:id/files/content', controller.fileContent.bind(controller));
+agentSessionsRouter.get('/:id/files/status', controller.fileStatus.bind(controller));
 agentSessionsRouter.post(
   '/:id/permission/:permissionId/:decision',
   controller.respondPermission.bind(controller),

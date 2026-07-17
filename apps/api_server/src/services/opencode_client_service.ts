@@ -2021,6 +2021,90 @@ export class OpencodeClientService {
     }
   }
 
+  // ── File / find wrappers (OCU-19 #1060) ───────────────────────────────────
+  //
+  // Proxy the engine's ripgrep/find/file endpoints, all scoped by the session's
+  // `directory`. Direct fetch (SDK doesn't generate these instance routes).
+  // Non-throwing where a [] degradation is safe; readFileContent throws
+  // AppError(502) on engine error so the route surfaces a real failure.
+
+  /** GET /find — ripgrep text search (engine caps results). */
+  async findText(directory: string, pattern: string): Promise<unknown[]> {
+    const qs = `?directory=${encodeURIComponent(directory)}&pattern=${encodeURIComponent(pattern)}`;
+    try {
+      const res = await fetch(`${this.serverUrl}/find${qs}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      logger.error('[OpencodeClientService] findText failed:', err);
+      return [];
+    }
+  }
+
+  /** GET /find/file — fuzzy file/dir search (limit 1-200, optional type filter). */
+  async findFiles(
+    directory: string,
+    query: string,
+    opts?: { limit?: number; type?: 'file' | 'directory'; dirs?: boolean },
+  ): Promise<string[]> {
+    const params = new URLSearchParams({ directory, query });
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    if (opts?.type) params.set('type', opts.type);
+    if (opts?.dirs != null) params.set('dirs', String(opts.dirs));
+    try {
+      const res = await fetch(`${this.serverUrl}/find/file?${params.toString()}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? (data as string[]) : [];
+    } catch (err) {
+      logger.error('[OpencodeClientService] findFiles failed:', err);
+      return [];
+    }
+  }
+
+  /** GET /file — list files/dirs at a path within the session directory. */
+  async listFiles(directory: string, path: string): Promise<unknown[]> {
+    const qs = `?directory=${encodeURIComponent(directory)}&path=${encodeURIComponent(path)}`;
+    try {
+      const res = await fetch(`${this.serverUrl}/file${qs}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      logger.error('[OpencodeClientService] listFiles failed:', err);
+      return [];
+    }
+  }
+
+  /**
+   * GET /file/content — read a file's content (engine flags binary / returns
+   * base64 per its own semantics). Throws AppError on engine error so the route
+   * can 4xx/5xx cleanly rather than silently returning empty.
+   */
+  async readFileContent(directory: string, path: string): Promise<unknown> {
+    const qs = `?directory=${encodeURIComponent(directory)}&path=${encodeURIComponent(path)}`;
+    const res = await fetch(`${this.serverUrl}/file/content${qs}`);
+    if (!res.ok) {
+      throw new AppError(502, 'SDK_ERROR', `readFileContent failed (${res.status}) for ${path}`);
+    }
+    return res.json();
+  }
+
+  /** GET /file/status — git-aware file status for the session directory. */
+  async fileStatus(directory: string): Promise<unknown[]> {
+    const qs = `?directory=${encodeURIComponent(directory)}`;
+    try {
+      const res = await fetch(`${this.serverUrl}/file/status${qs}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      logger.error('[OpencodeClientService] fileStatus failed:', err);
+      return [];
+    }
+  }
+
   /**
    * POST /session/{id}/command — dispatch a slash-command in the session.
    *
