@@ -1,3 +1,5 @@
+import { fetch as undiciFetch, Agent as UndiciAgent } from 'undici';
+
 export class RhythmApiError extends Error {
   constructor(
     public readonly status: number,
@@ -26,19 +28,56 @@ export function apiGet<T>(
   }).then((res) => handleResponse<T>(res));
 }
 
+export interface ApiPostOptions {
+  /**
+   * #1115 — undici's global fetch dispatcher aborts with
+   * "TypeError: fetch failed" (UND_ERR_HEADERS_TIMEOUT) if response HEADERS
+   * don't arrive within its hard-coded 300s default. org-optimizer's
+   * `/agent-org-optimizer/run` holds the request open for a whole
+   * synchronous pass (200-600s observed). Set timeoutMs on that call only —
+   * apiPost backs ~13 other tool calls that should keep failing fast on a
+   * genuine hang, so this is opt-in per-call, not a global override.
+   */
+  timeoutMs?: number;
+}
+
 export function apiPost<T>(
   apiUrl: string,
   apiToken: string,
   path: string,
   body: unknown,
+  opts?: ApiPostOptions,
 ): Promise<T> {
+  const headers = {
+    Authorization: `Bearer ${apiToken}`,
+    'Content-Type': 'application/json',
+  };
+  const requestBody = JSON.stringify(body);
+
+  if (opts?.timeoutMs) {
+    // Node's global `fetch` is backed by its OWN internal, separately
+    // vendored copy of undici (node:internal/deps/undici) — not the
+    // userland `undici` npm package. They are different module instances:
+    // passing an Agent built by the npm package as the global fetch's
+    // `dispatcher` throws at runtime ("invalid onRequestStart method" ->
+    // generic "TypeError: fetch failed"), and the npm package's
+    // setGlobalDispatcher has zero effect on the global fetch either
+    // (verified live against a running server, #1115). The only way to
+    // actually apply a custom-timeout Agent is to route the whole call
+    // through the npm package's OWN fetch, matching implementations
+    // end-to-end.
+    return undiciFetch(`${apiUrl}${path}`, {
+      method: 'POST',
+      headers,
+      body: requestBody,
+      dispatcher: new UndiciAgent({ headersTimeout: opts.timeoutMs, bodyTimeout: opts.timeoutMs }),
+    }).then((res) => handleResponse<T>(res as unknown as Response));
+  }
+
   return fetch(`${apiUrl}${path}`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
+    headers,
+    body: requestBody,
   }).then((res) => handleResponse<T>(res));
 }
 
