@@ -2743,6 +2743,33 @@ export class OpencodeClientService {
   }
 
   /**
+   * #1048 (OCU-07) — DELETE /session/{id}. Removes the engine-side session
+   * (messages, parts, snapshots) so hard-deleting a Rhythm row doesn't leak
+   * engine storage forever. The engine delete is recursive over child sessions,
+   * so one call cleans the whole tree.
+   *
+   * 404-tolerant: an already-gone engine session (envelope error / no data) is
+   * treated as success — hard delete must not fail because the engine record
+   * was cleaned up earlier. Returns true on delete-or-already-gone, false only
+   * when the SDK is not initialized. A thrown transport error propagates so the
+   * caller can decide (the hard-delete path swallows it best-effort).
+   */
+  async deleteSession(sdkId: string, directory?: string): Promise<boolean> {
+    if (!this.client) return false;
+    const raw = await this.client.session.delete({
+      path: { id: sdkId },
+      ...(directory ? { query: { directory } } : {}),
+    });
+    if (raw.error) {
+      // 404 / already-gone surfaces as an envelope error — tolerate it.
+      logger.warn(
+        `[OpencodeClientService] deleteSession: session "${sdkId}" not deleted (already gone?): ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return true;
+  }
+
+  /**
    * #614 — Dispose: kills the opencode subprocess that the SDK spawned and
    * clears the client reference. Safe to call multiple times.
    *

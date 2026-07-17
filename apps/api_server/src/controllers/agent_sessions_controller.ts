@@ -1047,12 +1047,31 @@ export class AgentSessionsController {
    * "clear from history" action — distinct from `remove`, which only flips
    * status to closed. See #598 follow-up; archive lives at #601.
    */
-  destroy(req: Request, res: Response, next: NextFunction): void {
+  async destroy(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
 
       streamBridge.stopStream(session.id);
+
+      // #1048 (OCU-07) — hard delete also removes the engine-side session so
+      // messages/parts/snapshots don't leak forever. Engine delete is recursive
+      // over child sessions, so this one call cleans the whole tree. Best-effort
+      // and 404-tolerant: a failure here must never block clearing the local row
+      // (soft delete / `remove` intentionally does NOT do this). Resolve the SDK
+      // id before deleting the local row (deleteById does not touch it, but the
+      // ordering keeps the read explicit).
+      const sdkSessionId = resolveSdkSessionId(session);
+      if (sdkSessionId) {
+        try {
+          await opencodeClient.deleteSession(sdkSessionId, session.cwd);
+        } catch (err) {
+          logger.warn(
+            `[AgentSessionsController] destroy: engine session delete failed for ${session.id} (${sdkSessionId}) — continuing local delete: ${String(err)}`,
+          );
+        }
+      }
+
       opencodeSessionMap.delete(session.id);
       const changes = repo.deleteById(session.id);
       if (changes === 0) throw AppError.notFound('AgentSession');
