@@ -2078,11 +2078,34 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Deny a pending permission — POST to the server and remove from local state.
-  Future<void> denyPermission(String sessionId, String permissionId) async {
+  ///
+  /// OCU-02 (#1043): [reason] is an optional message shown to the agent
+  /// explaining why the action was denied.
+  Future<void> denyPermission(
+    String sessionId,
+    String permissionId, {
+    String? reason,
+  }) async {
     _removePendingPermission(sessionId, permissionId);
     notifyListeners();
     try {
-      await _repository.respondPermission(sessionId, permissionId, 'deny');
+      await _repository.respondPermission(sessionId, permissionId, 'deny',
+          message: reason);
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// OCU-02 (#1043): approve a pending permission for the remainder of the
+  /// project (server maps 'always' to the engine's `always` reply so the
+  /// same action is not re-asked).
+  Future<void> alwaysAllowPermission(
+      String sessionId, String permissionId) async {
+    _removePendingPermission(sessionId, permissionId);
+    notifyListeners();
+    try {
+      await _repository.respondPermission(sessionId, permissionId, 'always');
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
       notifyListeners();

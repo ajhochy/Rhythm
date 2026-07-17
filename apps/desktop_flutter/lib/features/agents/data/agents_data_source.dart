@@ -267,16 +267,21 @@ class AgentsDataSource {
     );
   }
 
-  /// #608 — respond to a pending permission (accept or deny).
+  /// #608 — respond to a pending permission (accept, deny, or always-allow).
+  ///
+  /// OCU-02 (#1043): [message] is an optional deny reason forwarded to the
+  /// agent when [decision] is 'deny'.
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) async {
+    String decision, {
+    String? message,
+  }) async {
     final response = await _client.post(
       Uri.parse(
           '$_baseUrl/agent-sessions/$sessionId/permission/$permissionId/$decision'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.headers(json: message != null),
+      body: message != null ? jsonEncode({'message': message}) : null,
     );
     if (response.statusCode != 204) {
       assertOk(response);

@@ -47,6 +47,8 @@ class _PermissionCardState extends State<PermissionCard> {
   String? _error;
   Duration _remaining = Duration.zero;
   bool _modalShown = false;
+  bool _showDenyReason = false;
+  final _denyReasonController = TextEditingController();
 
   @override
   void initState() {
@@ -68,6 +70,7 @@ class _PermissionCardState extends State<PermissionCard> {
   @override
   void dispose() {
     _tick?.cancel();
+    _denyReasonController.dispose();
     super.dispose();
   }
 
@@ -75,7 +78,15 @@ class _PermissionCardState extends State<PermissionCard> {
       widget.toolName != null &&
       _destructiveTools.contains(widget.toolName!.toLowerCase());
 
-  Future<void> _respond(String decision, {bool auto = false}) async {
+  /// Reveals the deny-reason field instead of denying immediately. The user
+  /// can still submit with an empty reason (skippable).
+  void _revealDenyReason() {
+    if (_responded) return;
+    setState(() => _showDenyReason = true);
+  }
+
+  Future<void> _respond(String decision,
+      {bool auto = false, String? reason}) async {
     if (_responded) return;
     _responded = true;
     _tick?.cancel();
@@ -85,8 +96,17 @@ class _PermissionCardState extends State<PermissionCard> {
       if (decision == 'accept') {
         await controller.acceptPermission(
             widget.sessionId, widget.permissionId);
+      } else if (decision == 'always') {
+        await controller.alwaysAllowPermission(
+            widget.sessionId, widget.permissionId);
       } else {
-        await controller.denyPermission(widget.sessionId, widget.permissionId);
+        await controller.denyPermission(
+          widget.sessionId,
+          widget.permissionId,
+          reason: (reason != null && reason.trim().isNotEmpty)
+              ? reason.trim()
+              : null,
+        );
       }
       if (!mounted) return;
       setState(() {});
@@ -110,7 +130,7 @@ class _PermissionCardState extends State<PermissionCard> {
       _modalShown = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _responded) return;
-        showDialog<String>(
+        showDialog<Map<String, String?>>(
           context: context,
           barrierDismissible: false,
           builder: (_) => _PermissionModalDialog(
@@ -118,9 +138,9 @@ class _PermissionCardState extends State<PermissionCard> {
             description: widget.description,
             remaining: _remaining,
           ),
-        ).then((decision) {
-          if (decision != null && mounted) {
-            _respond(decision);
+        ).then((result) {
+          if (result != null && mounted) {
+            _respond(result['decision']!, reason: result['reason']);
           }
         });
       });
@@ -190,19 +210,46 @@ class _PermissionCardState extends State<PermissionCard> {
             const SizedBox(height: 6),
             Text(_error!, style: const TextStyle(color: Color(0xFFEF4444))),
           ],
+          if (_showDenyReason) ...[
+            const SizedBox(height: 8),
+            TextField(
+              controller: _denyReasonController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                isDense: true,
+                hintText: 'Reason (optional)',
+              ),
+              style: const TextStyle(fontSize: 12),
+              onSubmitted: (value) => _respond('deny', reason: value),
+            ),
+          ],
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              TextButton(
-                onPressed: () => _respond('deny'),
-                child: const Text('Deny'),
-              ),
-              const SizedBox(width: 6),
-              FilledButton(
-                onPressed: () => _respond('accept'),
-                child: const Text('Accept'),
-              ),
+              if (_showDenyReason)
+                FilledButton(
+                  onPressed: () =>
+                      _respond('deny', reason: _denyReasonController.text),
+                  child: const Text('Submit'),
+                )
+              else ...[
+                TextButton(
+                  onPressed: _revealDenyReason,
+                  child: const Text('Deny'),
+                ),
+                const SizedBox(width: 6),
+                TextButton(
+                  key: const Key('permission_always_allow'),
+                  onPressed: () => _respond('always'),
+                  child: const Text('Always allow'),
+                ),
+                const SizedBox(width: 6),
+                FilledButton(
+                  onPressed: () => _respond('accept'),
+                  child: const Text('Accept'),
+                ),
+              ],
             ],
           ),
         ],
@@ -252,6 +299,8 @@ class _PermissionModalDialog extends StatefulWidget {
 class _PermissionModalDialogState extends State<_PermissionModalDialog> {
   late Duration _remaining;
   Timer? _tick;
+  bool _showDenyReason = false;
+  final _denyReasonController = TextEditingController();
 
   @override
   void initState() {
@@ -262,7 +311,7 @@ class _PermissionModalDialogState extends State<_PermissionModalDialog> {
       final newRemaining = _remaining - const Duration(seconds: 1);
       if (newRemaining.isNegative) {
         _tick?.cancel();
-        Navigator.of(context).pop('deny');
+        Navigator.of(context).pop({'decision': 'deny', 'reason': null});
       } else {
         setState(() => _remaining = newRemaining);
       }
@@ -272,7 +321,16 @@ class _PermissionModalDialogState extends State<_PermissionModalDialog> {
   @override
   void dispose() {
     _tick?.cancel();
+    _denyReasonController.dispose();
     super.dispose();
+  }
+
+  void _pop(String decision, {String? reason}) {
+    Navigator.of(context).pop({
+      'decision': decision,
+      'reason':
+          (reason != null && reason.trim().isNotEmpty) ? reason.trim() : null,
+    });
   }
 
   @override
@@ -302,32 +360,68 @@ class _PermissionModalDialogState extends State<_PermissionModalDialog> {
           ),
         ],
       ),
-      content: widget.description != null
-          ? Text(
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (widget.description != null)
+            Text(
               widget.description!,
               style: TextStyle(
                 fontSize: 13,
                 color: context.rhythm.textSecondary,
                 height: 1.45,
               ),
-            )
-          : null,
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop('deny'),
-          style: TextButton.styleFrom(
-            foregroundColor: context.rhythm.textSecondary,
-          ),
-          child: const Text('Deny'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop('accept'),
-          style: FilledButton.styleFrom(
-            backgroundColor: context.rhythm.accent,
-          ),
-          child: const Text('Accept'),
-        ),
-      ],
+            ),
+          if (_showDenyReason) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _denyReasonController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                isDense: true,
+                hintText: 'Reason (optional)',
+              ),
+              onSubmitted: (value) => _pop('deny', reason: value),
+            ),
+          ],
+        ],
+      ),
+      actions: _showDenyReason
+          ? [
+              FilledButton(
+                onPressed: () =>
+                    _pop('deny', reason: _denyReasonController.text),
+                style: FilledButton.styleFrom(
+                  backgroundColor: context.rhythm.accent,
+                ),
+                child: const Text('Submit'),
+              ),
+            ]
+          : [
+              TextButton(
+                onPressed: () => setState(() => _showDenyReason = true),
+                style: TextButton.styleFrom(
+                  foregroundColor: context.rhythm.textSecondary,
+                ),
+                child: const Text('Deny'),
+              ),
+              TextButton(
+                key: const Key('permission_modal_always_allow'),
+                onPressed: () => _pop('always'),
+                style: TextButton.styleFrom(
+                  foregroundColor: context.rhythm.textSecondary,
+                ),
+                child: const Text('Always allow'),
+              ),
+              FilledButton(
+                onPressed: () => _pop('accept'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: context.rhythm.accent,
+                ),
+                child: const Text('Accept'),
+              ),
+            ],
     );
   }
 }

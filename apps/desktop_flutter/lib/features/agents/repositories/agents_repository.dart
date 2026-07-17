@@ -89,13 +89,15 @@ class AgentsRepository {
   ) =>
       _dataSource.updateSession(id, thinkingBudget: budget);
 
-  /// #608 — respond to a pending permission (accept or deny).
+  /// #608 — respond to a pending permission (accept, deny, or always-allow).
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) =>
-      _dataSource.respondPermission(sessionId, permissionId, decision);
+    String decision, {
+    String? message,
+  }) =>
+      _dataSource.respondPermission(sessionId, permissionId, decision,
+          message: message);
 
   Future<void> replyQuestion(
     String sessionId,
