@@ -18,6 +18,7 @@ import {
   ensureOmlxProviderConfig,
   detectAndUnloadCompetingOllamaModel,
 } from './local_omlx_provider';
+import { resolveWebsearchConfig } from '../config/env';
 
 /**
  * MCP-6 — resolves a FRESH OAuth access token for a curated server's
@@ -516,6 +517,16 @@ export class OpencodeClientService {
   }
 
   /**
+   * OCU-08 (#1049) — whether a websearch provider + key are configured (so the
+   * engine's native websearch tool is enabled for this process). Surfaced in the
+   * capabilities/status payload so the UI can show websearch as available. Reads
+   * the config fresh; never returns the key.
+   */
+  get websearchConfigured(): boolean {
+    return resolveWebsearchConfig() !== null;
+  }
+
+  /**
    * Indirection around `this.status` used where TypeScript's control-flow
    * narrowing would otherwise (incorrectly) hold a property read to a
    * literal type assigned earlier in the same method, across intervening
@@ -709,6 +720,20 @@ export class OpencodeClientService {
           `[OpencodeClientService] RHYTHM_API_BASE bridged to ${process.env.RHYTHM_API_BASE} for engine plugins`,
         );
       }
+      // OCU-08 (#1049) — enable the engine's native websearch tool by exporting
+      // its provider + key env vars onto process.env BEFORE the spawn, so the
+      // engine child inherits them. No-op when unconfigured (no key) → the
+      // engine spawns with zero websearch env delta, exactly as before. The key
+      // is NEVER logged (only the provider name + a masked marker).
+      const websearch = resolveWebsearchConfig();
+      if (websearch) {
+        process.env.OPENCODE_WEBSEARCH_PROVIDER = websearch.provider;
+        process.env[websearch.keyEnvVar] = websearch.apiKey;
+        logger.info(
+          `[OpencodeClientService] websearch tool enabled (provider=${websearch.provider}, key=***)`,
+        );
+      }
+
       const t5 = Date.now();
       const { client, server } = await mod.createOpencode({ port: OPENCODE_ENGINE_PORT });
       logger.info(`[Opencode][timing] createOpencode (engine spawn) took ${Date.now() - t5}ms`);

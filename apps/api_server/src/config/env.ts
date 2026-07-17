@@ -158,6 +158,37 @@ export function resolveApprovalsMode(): ApprovalsMode {
 
 const approvalsMode = resolveApprovalsMode();
 
+/**
+ * OCU-08 (#1049) — engine websearch tool config, resolved FRESH from
+ * process.env at call time (so a test / late config can set it without a
+ * process restart, mirroring resolveApprovalsMode). The engine's native
+ * websearch tool reads `OPENCODE_WEBSEARCH_PROVIDER` (exa|parallel) plus a
+ * provider-specific key env var (`EXA_API_KEY` / `PARALLEL_API_KEY`) — see
+ * apps/opencode_fork/.../tool/websearch.ts. Rhythm reads a single provider +
+ * key pair from its own env and maps it onto the correct engine env var at
+ * spawn time.
+ *
+ * Returns `null` when unconfigured (no key) — the engine then spawns with no
+ * websearch env delta (behaves exactly as before this issue). Never logs the
+ * key.
+ */
+export function resolveWebsearchConfig(): {
+  provider: 'exa' | 'parallel';
+  apiKey: string;
+  /** The engine env var the key must be exported as. */
+  keyEnvVar: 'EXA_API_KEY' | 'PARALLEL_API_KEY';
+} | null {
+  const provider = (process.env.RHYTHM_WEBSEARCH_PROVIDER ?? '').trim().toLowerCase();
+  const apiKey = (process.env.RHYTHM_WEBSEARCH_API_KEY ?? '').trim();
+  if (!apiKey) return null;
+  if (provider !== 'exa' && provider !== 'parallel') return null;
+  return {
+    provider,
+    apiKey,
+    keyEnvVar: provider === 'exa' ? 'EXA_API_KEY' : 'PARALLEL_API_KEY',
+  };
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 4000),

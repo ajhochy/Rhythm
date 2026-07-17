@@ -202,6 +202,9 @@ export function createApp() {
       res.json({
         status: opencodeClient.isReady ? 'ready' : 'unavailable',
         message: opencodeClient.statusMessage,
+        // OCU-08 (#1049) — surface websearch-tool availability so the UI can
+        // show it as configured/not. Never exposes the key itself.
+        websearchConfigured: opencodeClient.websearchConfigured,
       });
     });
   }
