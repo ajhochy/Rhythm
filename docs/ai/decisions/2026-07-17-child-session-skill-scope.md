@@ -1,6 +1,8 @@
 ---
-tags: [decision, rhythm]
 date: 2026-07-17
+repo: Rhythm
+tags: [decision, rhythm]
+index: "[[Rhythm]]"
 ---
 
 # Child (task-spawned) session skill-allowlist semantics

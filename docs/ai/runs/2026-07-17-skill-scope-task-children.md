@@ -2,10 +2,11 @@
 date: 2026-07-17
 repo: Rhythm
 branch: fix/skill-scope-task-children
-pr: (draft — see PR body)
+pr: 1120
 issues: []
 status: verified-draft
 tags: [run, rhythm]
+index: "[[Rhythm]]"
 ---
 
 # Fix first-turn token bloat: scope task-tool child sessions to their profile's skills
