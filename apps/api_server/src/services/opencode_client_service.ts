@@ -1499,7 +1499,11 @@ export class OpencodeClientService {
       logger.warn('[OpencodeClientService] subscribeToGlobalEvents HTTP %s', res.status);
       return null;
     }
-    const body = res.body as unknown as AsyncIterable<Uint8Array>;
+    // res.body is a ReadableStream<Uint8Array>, which is async-iterable at
+    // runtime under Node's fetch (undici). Access the iterator through a
+    // narrow structural type rather than a double widening cast (the #685
+    // anti-duck-typing guard forbids that pattern in this file).
+    const body = res.body as Pick<AsyncIterable<Uint8Array>, typeof Symbol.asyncIterator>;
 
     async function* iterate(): AsyncIterable<
       import('@opencode-ai/sdk').Event & { __directory?: string }

@@ -87,6 +87,10 @@ describe('OPC-#710 — instant new session / auto-title', () => {
   let db: Database.Database;
 
   beforeEach(() => {
+    // OCU-29 (#1070) — this suite drives the REAL per-directory event.subscribe
+    // path with an injected fake SDK client; pin the fallback flag so
+    // streamSession uses /event (not the new consolidated /global/event).
+    process.env.RHYTHM_SSE_GLOBAL = '0';
     broadcasts.length = 0;
     sessionUpdatedCalls.length = 0;
     sessionMap.clear();
@@ -102,6 +106,7 @@ describe('OPC-#710 — instant new session / auto-title', () => {
   afterEach(() => {
     streamBridge.dispose();
     db.close();
+    delete process.env.RHYTHM_SSE_GLOBAL;
   });
 
   // c2: bridge session.updated -> updateName + broadcast

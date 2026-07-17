@@ -510,8 +510,11 @@ export class OpencodeStreamBridge {
 
     // OCU-29 (#1070) — consolidated single-stream mode: one /global/event
     // subscription spans every directory, so per-session/per-directory
-    // subscribes collapse into starting (once) the global stream.
-    if (useGlobalStream()) {
+    // subscribes collapse into starting (once) the global stream. Only take
+    // this path when the engine wrapper actually exposes the global subscribe
+    // (an older engine binary — or a partial test double — that lacks it falls
+    // back to the legacy per-directory subscription below).
+    if (useGlobalStream() && typeof opencodeClient.subscribeToGlobalEvents === 'function') {
       await this.ensureGlobalStream();
       return;
     }
