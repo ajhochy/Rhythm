@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { dirname, join } from 'path';
+import { dirname, join, sep } from 'path';
 import { homedir } from 'os';
 import { logger } from '../utils/logger';
 import { env, resolveMemoryVaultPath } from '../config/env';
@@ -47,6 +47,23 @@ export function rhythmAnthropicPluginPath(): string | null {
 }
 
 /**
+ * #1069 (OCU-28) — resolve the vendored rhythm-telemetry plugin dir, same
+ * dev/packaged dual-layout search as {@link rhythmAnthropicPluginPath}.
+ * Returns null when `RHYTHM_TOOL_TELEMETRY_DISABLED=1` — the plugin is then
+ * never even added to opencode.json's `plugin` array (the plugin file itself
+ * ALSO self-disables via the same env var if somehow already registered from
+ * a prior run — belt and suspenders, see its own doc comment).
+ */
+export function rhythmTelemetryPluginPath(): string | null {
+  if (process.env.RHYTHM_TOOL_TELEMETRY_DISABLED === '1') return null;
+  const candidates = [
+    join(__dirname, '..', '..', 'opencode_plugins', 'rhythm-telemetry'),
+    join(__dirname, '..', 'opencode_plugins', 'rhythm-telemetry'),
+  ];
+  return candidates.find((p) => existsSync(p)) ?? null;
+}
+
+/**
  * Idempotently ensures the required community auth plugins are listed in
  * opencode.json, swapping the legacy npm anthropic plugin for the vendored
  * local one. Preserves unknown user entries. Returns true if the file was
@@ -76,11 +93,20 @@ export function ensureRequiredPlugins(
     ? (parsed.plugin as string[])
     : [];
   const pluginPath = rhythmAnthropicPluginPath();
+  const telemetryPluginPath = rhythmTelemetryPluginPath();
+  // #1069 — if telemetry was toggled off AFTER a prior run already wrote its
+  // path, drop the now-stale entry rather than leaving a disabled-but-still-
+  // loaded plugin behind. Any dir named `rhythm-telemetry` is treated as
+  // "ours" here (the plugin's own doc comment names this exact dir).
+  const isTelemetryEntry = (p: string) => p.includes(`${sep}rhythm-telemetry`) || p === 'rhythm-telemetry';
   const merged = Array.from(
     new Set([
-      ...existing.filter((p) => !LEGACY_PLUGINS.includes(p)),
+      ...existing.filter(
+        (p) => !LEGACY_PLUGINS.includes(p) && (telemetryPluginPath !== null || !isTelemetryEntry(p)),
+      ),
       ...REQUIRED_PLUGINS,
       ...(pluginPath ? [pluginPath] : []),
+      ...(telemetryPluginPath ? [telemetryPluginPath] : []),
     ]),
   );
   const changed =

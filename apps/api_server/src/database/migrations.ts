@@ -2390,4 +2390,29 @@ Your job, in order:
   runOnce('issue_1094_image_gen_capability', () => {
     // Marker only — the additive ALTER above is an idempotent STRUCTURE change.
   });
+
+  // #1069 (OCU-28) — rhythm-telemetry plugin ingestion table. Local SQLite
+  // only (tool.execute hooks only fire against a locally-spawned engine).
+  // CREATE TABLE IF NOT EXISTS is itself an idempotent STRUCTURE change; the
+  // runOnce below is a marker only, kept for migration-coordination audit
+  // trail parity with the other Wave-C/D issues (mirrors #1058's pattern).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tool_events (
+      id TEXT PRIMARY KEY,
+      session_id TEXT,
+      sdk_session_id TEXT NOT NULL,
+      call_id TEXT NOT NULL,
+      tool TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      error_class TEXT,
+      created_at TEXT NOT NULL
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS tool_events_session_idx ON tool_events (session_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS tool_events_sdk_session_idx ON tool_events (sdk_session_id)`);
+  runOnce('issue_1069_tool_events', () => {
+    // Marker only — the CREATE TABLE/INDEX above are idempotent STRUCTURE changes.
+  });
 }
