@@ -19,11 +19,13 @@
  *
  * Status state machine (enforced by AgentOrgProposalsRepository.updateStatusAsync):
  *
- *   proposed  -> approved | rejected | applied
+ *   proposed  -> approved | rejected | applied | failed
  *   approved  -> applied
  *   applied   -> measuring
  *   measuring -> active | reverted
  *   active    -> reverted   (#857 — human-triggered undo of an already-kept proposal)
+ *   failed    -> applied | failed   (#1056 — retryable: a re-approve re-runs
+ *                                    the same apply step)
  *
  * `proposed -> applied` (skipping `approved`) is the auto-apply lane for
  * low-risk, reversible proposals per the maintainer's full-autonomy-with-
@@ -40,7 +42,7 @@ export interface AgentOrgProposal {
    * create-agent|grant-delegation|expand-delegation|broaden-scope|
    * tighten-scope|prune-scope|create-recipe|refine-recipe|refine-skill|
    * consolidate-skill|external-adoption|webhook-wiring|refine-config|
-   * refine-scope|workflow-prompt-fix|refine-task
+   * refine-scope|workflow-prompt-fix|refine-task|publish-skill-to-org
    */
   kind: string;
   /** 'low' | 'high' — from classifyProposalRisk. */
@@ -48,7 +50,7 @@ export interface AgentOrgProposal {
   /** 1 for external-adoption (extra vetting gate); 0 otherwise. */
   external: number;
   /**
-   * proposed|approved|rejected|applied|measuring|active|reverted.
+   * proposed|approved|rejected|applied|measuring|active|reverted|failed.
    * See the state machine documented above.
    */
   status: string;

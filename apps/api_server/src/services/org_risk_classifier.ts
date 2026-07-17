@@ -50,6 +50,12 @@ const HIGH_RISK_KINDS = new Set<string>([
   // agent binding). Always human-gated: a bad schedule/binding edit runs on a
   // cron, so it never auto-applies.
   'refine-task',
+  // #1056 — publish-skill-to-org publishes/unpublishes a skill to the ORG-WIDE
+  // shared library (every machine's engine can pull it). Always human-gated —
+  // org-visible artifacts must never auto-publish. (Already the fail-closed
+  // default below; listed explicitly for the same self-documentation reason
+  // every other human-gated kind is.)
+  'publish-skill-to-org',
 ]);
 
 /** Kinds whose review-queue UI must block Approve until a security/provenance note is present. */
