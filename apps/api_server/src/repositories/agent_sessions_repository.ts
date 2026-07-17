@@ -301,6 +301,22 @@ export class AgentSessionsRepository {
   }
 
   /**
+   * OCU-18 (#1059) — clear the isolated-worktree metadata after the engine
+   * worktree has been removed (the "Remove worktree" Changes-tab action).
+   * The session row itself is untouched — only the badge-driving fields go null.
+   */
+  clearWorktree(id: string): void {
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `UPDATE agent_sessions
+           SET worktree_name = NULL, worktree_path = NULL, worktree_branch = NULL, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(now, id);
+  }
+
+  /**
    * Task D — Update the Anthropic account a session is routed to. Called by
    * the spillover intake when the engine plugin fails over in place.
    */

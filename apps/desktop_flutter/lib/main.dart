@@ -103,6 +103,8 @@ import 'features/session_history/data/session_history_data_source.dart';
 import 'features/session_history/repositories/session_history_repository.dart';
 import 'features/agent_skills/controllers/agent_skills_controller.dart';
 import 'features/agents/data/opencode_skills_data_source.dart';
+import 'features/agent_playbooks/controllers/agent_playbooks_controller.dart';
+import 'features/agent_playbooks/data/agent_playbooks_data_source.dart';
 import 'features/agent_email/controllers/agent_email_controller.dart';
 import 'features/agent_email/data/agent_email_data_source.dart';
 import 'features/agent_email/repositories/agent_email_repository.dart';
@@ -525,6 +527,9 @@ class _RhythmAppContent extends StatelessWidget {
         ),
         ChangeNotifierProvider(
           create: (_) => AgentSkillsController(OpencodeSkillsDataSource()),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AgentPlaybooksController(AgentPlaybooksDataSource()),
         ),
         ChangeNotifierProvider(
           create: (_) => AgentEmailController(

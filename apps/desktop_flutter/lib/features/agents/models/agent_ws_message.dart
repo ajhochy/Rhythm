@@ -57,6 +57,10 @@ abstract class AgentWsMessage {
         return SessionSpilloverMessage.fromJson(json);
       case 'vcs.branch.updated':
         return VcsBranchUpdatedMessage.fromJson(json);
+      case 'worktree.ready':
+        return WorktreeReadyMessage.fromJson(json);
+      case 'worktree.failed':
+        return WorktreeFailedMessage.fromJson(json);
       case 'error':
         return WsErrorMessage.fromJson(json);
       default:
@@ -587,6 +591,36 @@ class VcsBranchUpdatedMessage extends AgentWsMessage {
 
   factory VcsBranchUpdatedMessage.fromJson(Map<String, dynamic> json) {
     return VcsBranchUpdatedMessage(branch: asString(json['branch']));
+  }
+}
+
+/// OCU-18 (#1059) — `worktree.ready` is project-scoped (no sessionID; the
+/// bridge relays it as a bare top-level frame after a worktree finishes
+/// being created).
+class WorktreeReadyMessage extends AgentWsMessage {
+  const WorktreeReadyMessage({required this.name, this.branch});
+
+  final String name;
+  final String? branch;
+
+  factory WorktreeReadyMessage.fromJson(Map<String, dynamic> json) {
+    return WorktreeReadyMessage(
+      name: asString(json['name']) ?? '',
+      branch: asString(json['branch']),
+    );
+  }
+}
+
+/// OCU-18 (#1059) — `worktree.failed` is project-scoped (no sessionID).
+class WorktreeFailedMessage extends AgentWsMessage {
+  const WorktreeFailedMessage({required this.message});
+
+  final String message;
+
+  factory WorktreeFailedMessage.fromJson(Map<String, dynamic> json) {
+    return WorktreeFailedMessage(
+      message: asString(json['message']) ?? 'worktree operation failed',
+    );
   }
 }
 

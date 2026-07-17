@@ -851,6 +851,12 @@ class _TranscriptHeader extends StatelessWidget {
             const SizedBox(width: 6),
             _VcsBranchBadge(session: session),
           ],
+          // OCU-18 (#1059): isolation badge for sessions running in a git
+          // worktree.
+          if (session.isIsolatedWorktree) ...[
+            const SizedBox(width: 6),
+            WorktreeBadge(session: session),
+          ],
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -2375,6 +2381,12 @@ class _InputAreaState extends State<_InputArea> {
             child: SlashCommandPopover(
               inputController: widget.inputController,
               commands: controller.slashCommands,
+              // OCU-11 (#1052): refetch the command catalog whenever the
+              // popover opens so a playbook created since session-select
+              // appears immediately.
+              onOpen: session == null
+                  ? null
+                  : () => controller.refreshSlashCommands(session.id),
               onCommandSelected: (cmd) {
                 widget.inputController.value = TextEditingValue(
                   text: cmd,
@@ -2812,6 +2824,10 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
   List<AnthropicAccount> _anthropicAccounts = [];
   String? _selectedAnthropicAccountId;
 
+  // OCU-18 (#1059): isolated-worktree toggle (default off) + optional name.
+  bool _isolateWorktree = false;
+  final _worktreeNameController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -2893,6 +2909,7 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
     _nameController.dispose();
     _cwdController.dispose();
     _newBranchController.dispose();
+    _worktreeNameController.dispose();
     super.dispose();
   }
 
@@ -2959,6 +2976,10 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
       stash: stashMode,
       createBranch: createBranch,
       anthropicAccountId: _selectedAnthropicAccountId,
+      isolateWorktree: _isolateWorktree,
+      worktreeName: _worktreeNameController.text.trim().isEmpty
+          ? null
+          : _worktreeNameController.text.trim(),
     );
 
     if (!mounted) return;
@@ -3124,6 +3145,47 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
                 ),
               ],
             ),
+
+            // OCU-18 (#1059) — isolated worktree toggle. Default off. When
+            // enabled, the session's edits land in a fresh git worktree
+            // instead of the working directory above.
+            const SizedBox(height: 14),
+            SwitchListTile(
+              key: const ValueKey('isolate-worktree-toggle'),
+              contentPadding: EdgeInsets.zero,
+              value: _isolateWorktree,
+              activeThumbColor: context.rhythm.accent,
+              title: Text(
+                'Run in isolated worktree',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: context.rhythm.textPrimary,
+                ),
+              ),
+              subtitle: Text(
+                'Creates a separate git worktree so edits never touch the '
+                'working directory above.',
+                style: TextStyle(fontSize: 11, color: context.rhythm.textMuted),
+              ),
+              onChanged: (v) => setState(() => _isolateWorktree = v),
+            ),
+            if (_isolateWorktree) ...[
+              const SizedBox(height: 6),
+              TextField(
+                key: const ValueKey('worktree-name-field'),
+                controller: _worktreeNameController,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontFamily: 'Menlo',
+                  color: context.rhythm.textPrimary,
+                ),
+                decoration: _inputDecoration(
+                  context,
+                  hint: 'Worktree name (optional)',
+                ),
+              ),
+            ],
 
             // Branch selector — only shown when the selected project has a
             // vcsRoot and branches have been (or are being) loaded.

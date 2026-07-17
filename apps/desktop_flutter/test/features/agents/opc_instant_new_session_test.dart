@@ -141,6 +141,8 @@ class _StubAgentsRepository implements AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) async {
     createSessionCallCount++;
     lastCreateCwd = cwd;
@@ -193,8 +195,9 @@ class _StubAgentsRepository implements AgentsRepository {
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) async {}
+    String decision, {
+    String? message,
+  }) async {}
 
   @override
   Future<void> replyQuestion(

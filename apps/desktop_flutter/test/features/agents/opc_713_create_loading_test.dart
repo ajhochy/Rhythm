@@ -119,6 +119,8 @@ class _SlowStubAgentsRepository implements AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) async {
     await Future<void>.delayed(delay);
     return _makeSession('new-session');
@@ -167,8 +169,9 @@ class _SlowStubAgentsRepository implements AgentsRepository {
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) async {}
+    String decision, {
+    String? message,
+  }) async {}
 
   @override
   Future<void> replyQuestion(
@@ -397,6 +400,8 @@ class _ThrowingStubRepo implements AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) async {
     if (shouldThrow()) throw Exception('stubbed error');
     return inner.createSession(
@@ -493,9 +498,11 @@ class _ThrowingStubRepo implements AgentsRepository {
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) =>
-      inner.respondPermission(sessionId, permissionId, decision);
+    String decision, {
+    String? message,
+  }) =>
+      inner.respondPermission(sessionId, permissionId, decision,
+          message: message);
 
   @override
   Future<void> replyQuestion(
@@ -524,6 +531,14 @@ class _ThrowingStubRepo implements AgentsRepository {
   @override
   Future<void> unrevertSession(String sessionId) =>
       inner.unrevertSession(sessionId);
+
+  @override
+  Future<void> resetWorktree(String sessionId) =>
+      inner.resetWorktree(sessionId);
+
+  @override
+  Future<AgentSession> removeWorktree(String sessionId) =>
+      inner.removeWorktree(sessionId);
 
   @override
   Future<void> summarizeSession(String sessionId) =>

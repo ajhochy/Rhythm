@@ -55,6 +55,9 @@ agentSessionsRouter.post(
   '/:id/permission/:permissionId/:decision',
   controller.respondPermission.bind(controller),
 );
+// OCU-18 (#1059) — Changes-tab worktree actions, scoped by session id.
+agentSessionsRouter.post('/:id/worktree/reset', controller.resetWorktree.bind(controller));
+agentSessionsRouter.post('/:id/worktree/remove', controller.removeWorktree.bind(controller));
 agentSessionsRouter.post(
   '/:id/question/:callId/:action',
   controller.respondQuestion.bind(controller),

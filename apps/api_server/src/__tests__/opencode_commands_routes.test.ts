@@ -104,6 +104,17 @@ describe('/opencode/commands (OCU-09 #1050)', () => {
     expect(list.find((c) => c.name === 'init')!.managed).toBe(false);
   });
 
+  it('GET / forwards engine argument hints (OCU-11 #1052)', async () => {
+    listCommands.mockResolvedValue([
+      { name: 'init', source: 'command', hints: [] },
+      { name: 'deploy-notes', source: 'command', hints: ['$1', '$2'] },
+    ]);
+    const res = await fetch(`${baseUrl}/opencode/commands`);
+    const list = (await res.json()) as Array<{ name: string; hints: string[] }>;
+    expect(list.find((c) => c.name === 'deploy-notes')!.hints).toEqual(['$1', '$2']);
+    expect(list.find((c) => c.name === 'init')!.hints).toEqual([]);
+  });
+
   it('POST collision with a built-in name → 409', async () => {
     const res = await fetch(`${baseUrl}/opencode/commands`, {
       method: 'POST',

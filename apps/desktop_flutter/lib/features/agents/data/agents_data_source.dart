@@ -192,6 +192,9 @@ class AgentsDataSource {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    // OCU-18 (#1059): run this session in an isolated git worktree.
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions'),
@@ -210,7 +213,33 @@ class AgentsDataSource {
         if (mcpRole != null) 'mcpRole': mcpRole,
         if (anthropicAccountId != null)
           'anthropicAccountId': anthropicAccountId,
+        if (isolateWorktree) 'isolateWorktree': true,
+        if (worktreeName != null) 'worktreeName': worktreeName,
       }),
+    );
+    assertOk(response);
+    return AgentSession.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  /// OCU-18 (#1059) — reset an isolated session's worktree branch via
+  /// `POST /agent-sessions/:id/worktree/reset`.
+  Future<void> resetWorktree(String sessionId) async {
+    final response = await _client.post(
+      Uri.parse('$_baseUrl/agent-sessions/$sessionId/worktree/reset'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+  }
+
+  /// OCU-18 (#1059) — remove an isolated session's git worktree via
+  /// `POST /agent-sessions/:id/worktree/remove`. Returns the updated session
+  /// (worktree fields cleared) so the caller can refresh local state.
+  Future<AgentSession> removeWorktree(String sessionId) async {
+    final response = await _client.post(
+      Uri.parse('$_baseUrl/agent-sessions/$sessionId/worktree/remove'),
+      headers: AuthSessionStore.headers(),
     );
     assertOk(response);
     return AgentSession.fromJson(
@@ -267,16 +296,21 @@ class AgentsDataSource {
     );
   }
 
-  /// #608 — respond to a pending permission (accept or deny).
+  /// #608 — respond to a pending permission (accept, deny, or always-allow).
+  ///
+  /// OCU-02 (#1043): [message] is an optional deny reason forwarded to the
+  /// agent when [decision] is 'deny'.
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) async {
+    String decision, {
+    String? message,
+  }) async {
     final response = await _client.post(
       Uri.parse(
           '$_baseUrl/agent-sessions/$sessionId/permission/$permissionId/$decision'),
-      headers: AuthSessionStore.headers(),
+      headers: AuthSessionStore.headers(json: message != null),
+      body: message != null ? jsonEncode({'message': message}) : null,
     );
     if (response.statusCode != 204) {
       assertOk(response);

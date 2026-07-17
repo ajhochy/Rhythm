@@ -242,6 +242,28 @@ Expected: all pass.
 
 ---
 
+### #1052 (OCU-11) — Subtask playbook renders a child-session TaskChip
+
+**Automated by widget/controller tests:**
+- Argument hint ghost text + popover refresh-on-open + arg passthrough.
+- Test file: `test/features/agents/issue_1052_slash_popover_hints_test.dart`
+
+**Still manual (live SDK) — traced but not automated:**
+- Engine trace confirms a `subtask:true` command's initiating `subtask` part
+  is executed by `handleSubtask` (session/prompt.ts), which internally runs
+  the real `task` tool on a NEW assistant message — i.e. the transcript ends
+  up with an ordinary `tool` part named `task`, which the existing
+  `TaskChip` dispatch (`_buildToolRenderer` in agents_view.dart) already
+  renders. No new rendering code was needed; this item exists to visually
+  confirm that trace holds against a live engine.
+- Steps:
+  1. Create a Playbook (Tools → Playbooks) with "Run as subtask" enabled.
+  2. Run `/your-playbook` in an active session.
+  3. Verify a navigable TaskChip appears in the transcript and tapping it
+     opens the child session transcript.
+
+---
+
 ## 13. Local smoke safety — `RHYTHM_LOCAL_SMOKE` (issue #476)
 
 `AgentTriggerWatcher` polls the **production** `GET /claude-triggers` endpoint

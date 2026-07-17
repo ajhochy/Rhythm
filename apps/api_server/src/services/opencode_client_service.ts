@@ -811,7 +811,7 @@ export class OpencodeClientService {
    * off-limits for a create (built-in / MCP / skill collision → 409).
    */
   async listCommands(): Promise<
-    Array<{ name: string; description?: string; source?: string }>
+    Array<{ name: string; description?: string; source?: string; hints?: string[] }>
   > {
     if (!this.client) return [];
     try {
@@ -821,6 +821,9 @@ export class OpencodeClientService {
         name: c.name,
         description: c.description,
         source: (c as { source?: string }).source,
+        // OCU-11 (#1052): argument hints (e.g. ["$1", "$2"] or ["$ARGUMENTS"])
+        // the engine parses from the command's template.
+        hints: (c as { hints?: string[] }).hints,
       }));
     } catch (err) {
       logger.warn('[OpencodeClientService] listCommands failed:', err);

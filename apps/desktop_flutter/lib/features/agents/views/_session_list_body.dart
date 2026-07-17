@@ -463,11 +463,44 @@ class SessionRow extends StatelessWidget {
                 ),
               ),
             ),
+            if (session.isIsolatedWorktree) ...[
+              const SizedBox(width: 4),
+              WorktreeBadge(session: session),
+            ],
             const SizedBox(width: 6),
             SessionStatusDot(status: session.status, isWorking: isWorking),
             SessionRowMenu(session: session),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WorktreeBadge — OCU-18 (#1059): isolation indicator for a session row.
+// ---------------------------------------------------------------------------
+
+/// Compact icon badge shown on session rows (and the transcript header) for
+/// sessions running in an isolated git worktree. The tooltip carries the
+/// worktree path + branch; non-isolated sessions render nothing (callers
+/// gate on [AgentSession.isIsolatedWorktree] before using this widget).
+class WorktreeBadge extends StatelessWidget {
+  const WorktreeBadge({super.key, required this.session});
+
+  final AgentSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final branch = session.worktreeBranch;
+    final path = session.worktreePath ?? '';
+    return Tooltip(
+      message: branch != null ? '$path ($branch)' : path,
+      child: Icon(
+        Icons.call_split_rounded,
+        key: ValueKey('worktree-badge-${session.id}'),
+        size: 13,
+        color: context.rhythm.accent,
       ),
     );
   }

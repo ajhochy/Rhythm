@@ -42,6 +42,8 @@ class AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) =>
       _dataSource.createSession(
         agentId: agentId,
@@ -53,7 +55,16 @@ class AgentsRepository {
         createBranch: createBranch,
         mcpRole: mcpRole,
         anthropicAccountId: anthropicAccountId,
+        isolateWorktree: isolateWorktree,
+        worktreeName: worktreeName,
       );
+
+  /// OCU-18 (#1059) — Changes-tab worktree actions.
+  Future<void> resetWorktree(String sessionId) =>
+      _dataSource.resetWorktree(sessionId);
+
+  Future<AgentSession> removeWorktree(String sessionId) =>
+      _dataSource.removeWorktree(sessionId);
 
   Future<void> closeSession(String id) => _dataSource.closeSession(id);
 
@@ -89,13 +100,15 @@ class AgentsRepository {
   ) =>
       _dataSource.updateSession(id, thinkingBudget: budget);
 
-  /// #608 — respond to a pending permission (accept or deny).
+  /// #608 — respond to a pending permission (accept, deny, or always-allow).
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) =>
-      _dataSource.respondPermission(sessionId, permissionId, decision);
+    String decision, {
+    String? message,
+  }) =>
+      _dataSource.respondPermission(sessionId, permissionId, decision,
+          message: message);
 
   Future<void> replyQuestion(
     String sessionId,

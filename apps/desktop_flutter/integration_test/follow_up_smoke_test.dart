@@ -148,6 +148,8 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) async {
     final session = AgentSession(
       id: 'sid-${_store.length + 1}',
@@ -213,8 +215,9 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) async {}
+    String decision, {
+    String? message,
+  }) async {}
 
   @override
   Future<void> replyQuestion(
