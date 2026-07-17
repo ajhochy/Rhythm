@@ -22,7 +22,10 @@ const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://localhost:4001';
 const AGENTS_DIR = join(homedir(), '.config', 'opencode', 'agents');
 
 const describeLive = LIVE ? describe : describe.skip;
-const MODEL = { provider: 'openrouter', id: '' };
+const MODEL = {
+  provider: process.env.RHYTHM_LIVE_MODEL_PROVIDER || 'openrouter',
+  id: process.env.RHYTHM_LIVE_MODEL_ID || 'anthropic/claude-haiku-4.5',
+};
 
 let createdAgentIds: string[] = [];
 let createdSessionIds: string[] = [];
@@ -159,7 +162,9 @@ describeLive('live E2E — #1073 permission-key round-trip', () => {
       // The engine must have denied the websearch tool — either via an
       // explicit permission event, or (deny is auto-rejected, no prompt) via
       // the transcript never showing a completed websearch tool call.
-      const messages = await apiJson<unknown[]>(`/agent-sessions/${sess.id}/messages`);
+      const { messages } = await apiJson<{ messages: unknown[] }>(
+        `/agent-sessions/${sess.id}/messages`,
+      );
       const websearchToolCalls = messages.flatMap((m) => {
         const msg = m as Record<string, unknown>;
         const parts = (msg.parts ?? []) as Array<Record<string, unknown>>;

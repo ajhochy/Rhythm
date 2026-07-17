@@ -17,7 +17,9 @@ import { join } from 'path';
 import { execFileSync } from 'child_process';
 
 const RUN = process.env.RHYTHM_LIVE_E2E === '1';
-const ENGINE = process.env.RHYTHM_ENGINE_URL ?? 'http://127.0.0.1:4097';
+// Drive Rhythm's OWN worktree wrapper routes (the #1057 deliverable) on the
+// api_server, not the raw engine experimental API. BASE is the sandbox api.
+const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://127.0.0.1:4098';
 
 (RUN ? describe : describe.skip)('#1057 live — worktree lifecycle', () => {
   let repo: string;
@@ -37,34 +39,39 @@ const ENGINE = process.env.RHYTHM_ENGINE_URL ?? 'http://127.0.0.1:4097';
     if (repo && existsSync(repo)) rmSync(repo, { recursive: true, force: true });
   });
 
-  it('create → list → reset → remove a real worktree', async () => {
-    const q = `?directory=${encodeURIComponent(repo)}`;
-
-    const createRes = await fetch(`${ENGINE}/experimental/worktree${q}`, {
+  it('create → list → reset → remove a real worktree (via Rhythm /opencode/worktrees)', async () => {
+    // CREATE via Rhythm's wrapper route.
+    const createRes = await fetch(`${BASE}/opencode/worktrees`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'e2e-wt' }),
+      body: JSON.stringify({ directory: repo, name: 'e2e-wt' }),
     });
     expect(createRes.status).toBe(200);
-    const created = (await createRes.json()) as { name: string; directory: string };
+    const created = (await createRes.json()) as { directory: string };
+    expect(typeof created.directory).toBe('string');
     expect(existsSync(created.directory)).toBe(true);
 
-    const listRes = await fetch(`${ENGINE}/experimental/worktree${q}`);
+    // LIST via wrapper — returns an array of worktree directory strings.
+    const listRes = await fetch(
+      `${BASE}/opencode/worktrees?directory=${encodeURIComponent(repo)}`,
+    );
     expect(listRes.status).toBe(200);
-    const list = (await listRes.json()) as Array<{ directory: string }>;
-    expect(list.some((w) => w.directory === created.directory)).toBe(true);
+    const list = (await listRes.json()) as string[];
+    expect(list).toContain(created.directory);
 
-    const resetRes = await fetch(`${ENGINE}/experimental/worktree/reset${q}`, {
+    // RESET via wrapper — { directory, worktreeDir }.
+    const resetRes = await fetch(`${BASE}/opencode/worktrees/reset`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ directory: created.directory }),
+      body: JSON.stringify({ directory: repo, worktreeDir: created.directory }),
     });
     expect(resetRes.ok).toBe(true);
 
-    const removeRes = await fetch(`${ENGINE}/experimental/worktree${q}`, {
+    // REMOVE via wrapper — { directory, worktreeDir } → 204.
+    const removeRes = await fetch(`${BASE}/opencode/worktrees`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ directory: created.directory }),
+      body: JSON.stringify({ directory: repo, worktreeDir: created.directory }),
     });
     expect(removeRes.ok).toBe(true);
     expect(existsSync(created.directory)).toBe(false);
