@@ -3,17 +3,19 @@
 ## Current focus
 
 First-turn token bloat fix: scope `task`-tool child sessions to their profile's skills
-(mirror of the #1012 MCP fix, for skills). Draft PR #1120 open, verified, awaiting human smoke + merge.
+(mirror of the #1012 MCP fix, for skills). **Merged to `main` (PR #1120, squash `afd9b0116`);
+release v0.18.46 building** (rebuilds the fork so the `task.ts` change ships to the app).
 
 ## Active branch / PR
 
-- Branch: `fix/skill-scope-task-children` (off `main` @ #1117).
-- PR: [#1120](https://github.com/ajhochy/Rhythm/pull/1120) — draft. No linked issues (direct fix).
-- Prior: Epic #1116 (Self-Improvement Engine) shipped — PR #1117 merged to `main`.
+- Branch: `main` @ `afd9b0116`.
+- PR: [#1120](https://github.com/ajhochy/Rhythm/pull/1120) — **merged** (squash). No linked issues (direct fix).
+- Release: v0.18.46 via `desktop_release.yml` ([run 29606504006](https://github.com/ajhochy/Rhythm/actions/runs/29606504006)), prerelease=false.
+- Prior: Epic #1116 shipped — PR #1117; release v0.18.45.
 
 ## In progress
 
-- CI gate on #1120 → human smoke-test → merge. Fork change ships only on a fork rebuild (release build).
+- Release build v0.18.46 (~10-15 min: flutter build → bundle api_server → rebuild fork → sign → notarize → GitHub Release). Watch to green, then install + smoke.
 
 ## Risks / known issues
 
