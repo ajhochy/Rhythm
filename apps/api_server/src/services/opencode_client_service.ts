@@ -1468,6 +1468,76 @@ export class OpencodeClientService {
   }
 
   /**
+   * OCU-29 (#1070) — subscribe to the engine's single `/global/event` SSE
+   * stream spanning ALL directories. Each frame is an envelope
+   * `{ directory, project?, workspace?, payload: {id, type, properties} }`.
+   * We parse the SSE ourselves (raw fetch) because the generated SDK client
+   * only exposes the per-directory `event.subscribe`. Yields the UNWRAPPED
+   * inner event augmented with `__directory` so the bridge can route by
+   * directory in addition to sessionID. Returns null when the engine is not
+   * reachable.
+   *
+   * The returned object carries an `abort()` to tear the stream down (used by
+   * the heartbeat watchdog to force a resubscribe).
+   */
+  async subscribeToGlobalEvents(): Promise<{
+    stream: AsyncIterable<import('@opencode-ai/sdk').Event & { __directory?: string }>;
+    abort: () => void;
+  } | null> {
+    const controller = new AbortController();
+    let res: Response;
+    try {
+      res = await fetch(`${this.serverUrl}/global/event`, {
+        headers: { accept: 'text/event-stream' },
+        signal: controller.signal,
+      });
+    } catch (err) {
+      logger.error('[OpencodeClientService] subscribeToGlobalEvents failed:', err);
+      return null;
+    }
+    if (!res.ok || !res.body) {
+      logger.warn('[OpencodeClientService] subscribeToGlobalEvents HTTP %s', res.status);
+      return null;
+    }
+    const body = res.body as unknown as AsyncIterable<Uint8Array>;
+
+    async function* iterate(): AsyncIterable<
+      import('@opencode-ai/sdk').Event & { __directory?: string }
+    > {
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for await (const chunk of body) {
+        buffer += decoder.decode(chunk, { stream: true });
+        // SSE frames are separated by a blank line; each `data:` line is JSON.
+        let idx: number;
+        while ((idx = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          const dataLine = frame
+            .split('\n')
+            .find((l) => l.startsWith('data:'));
+          if (!dataLine) continue;
+          const json = dataLine.slice(5).trim();
+          if (!json) continue;
+          let envelope: {
+            directory?: string;
+            payload?: import('@opencode-ai/sdk').Event;
+          };
+          try {
+            envelope = JSON.parse(json);
+          } catch {
+            continue;
+          }
+          if (!envelope.payload) continue;
+          yield { ...envelope.payload, __directory: envelope.directory };
+        }
+      }
+    }
+
+    return { stream: iterate(), abort: () => controller.abort() };
+  }
+
+  /**
    * Get OAuth authorization URL for a provider.
    * Returns the URL, method, and instructions on success.
    * Returns `{ error: string }` on failure so the caller can surface the SDK message.

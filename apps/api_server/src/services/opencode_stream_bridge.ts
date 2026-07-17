@@ -30,6 +30,25 @@ import type { AgentSession, PermissionMode } from '../models/agent_session';
 const QUESTION_RECOVERY_POLL_MS = 1500;
 
 /**
+ * OCU-29 (#1070) — heartbeat watchdog window. The engine emits a synthetic
+ * `server.heartbeat` every 10s on every SSE stream; if NOTHING (event or
+ * heartbeat) arrives for longer than this, the stream is considered dead —
+ * tear it down and resubscribe (which re-runs the recover/reconcile path).
+ */
+const HEARTBEAT_WATCHDOG_MS = 30_000;
+
+/**
+ * OCU-29 (#1070) — fallback flag. Default is the consolidated single
+ * `/global/event` stream. Set RHYTHM_SSE_GLOBAL=0 (or 'false') to revert to the
+ * legacy per-directory `/event` subscriptions for one release while the global
+ * path bakes. Read fresh so a test can flip it without a process restart.
+ */
+function useGlobalStream(): boolean {
+  const raw = (process.env.RHYTHM_SSE_GLOBAL ?? '').trim().toLowerCase();
+  return !(raw === '0' || raw === 'false');
+}
+
+/**
  * Tools implemented by the embedded OpenCode engine. These are governed by
  * OpenCode's own agent permission policy; `skill` is additionally constrained
  * by the session skill allowlist. The MCP dispatch guard must only gate MCP
@@ -178,6 +197,16 @@ export class OpencodeStreamBridge {
   // directory never produce events on that stream. The same process may
   // host sessions across different cwds, so we track multiple streams.
   private streamsByDirectory = new Map<string, DirectoryStream>();
+  // OCU-29 (#1070) — the single consolidated /global/event subscription (when
+  // RHYTHM_SSE_GLOBAL is on). Null until the first session starts it.
+  private globalStream: {
+    abort: () => void;
+    watchdog: ReturnType<typeof setInterval>;
+  } | null = null;
+  /** Epoch ms of the last frame (event OR heartbeat) seen on the global stream. */
+  private lastGlobalActivity = 0;
+  /** Guards against overlapping resubscribes from the watchdog. */
+  private globalResubscribing = false;
   private sessionsRepo = new AgentSessionsRepository();
   private messagesRepo = new AgentSessionMessagesRepository();
   // #818 — best-effort deny-path telemetry sink; see isToolAllowedForSession.
@@ -478,6 +507,15 @@ export class OpencodeStreamBridge {
     logger.info(
       `[OpencodeStreamBridge] streamSession entry session=${localSessionId} sdkSession=${_opencodeSessionId} directory=${directory}`,
     );
+
+    // OCU-29 (#1070) — consolidated single-stream mode: one /global/event
+    // subscription spans every directory, so per-session/per-directory
+    // subscribes collapse into starting (once) the global stream.
+    if (useGlobalStream()) {
+      await this.ensureGlobalStream();
+      return;
+    }
+
     if (this.streamsByDirectory.has(directory)) return;
 
     try {
@@ -526,6 +564,110 @@ export class OpencodeStreamBridge {
         `[OpencodeStreamBridge] Failed to subscribe to ${directory}:`,
         err,
       );
+    }
+  }
+
+  /**
+   * OCU-29 (#1070) — start (idempotently) the single consolidated
+   * /global/event subscription plus its heartbeat watchdog. Safe to call on
+   * every session start; a no-op once the stream is live.
+   */
+  async ensureGlobalStream(): Promise<void> {
+    if (this.globalStream) return;
+    let sub: Awaited<ReturnType<typeof opencodeClient.subscribeToGlobalEvents>>;
+    try {
+      sub = await opencodeClient.subscribeToGlobalEvents();
+    } catch (err) {
+      logger.error('[OpencodeStreamBridge] ensureGlobalStream subscribe threw:', err);
+      return;
+    }
+    if (!sub) {
+      logger.error('[OpencodeStreamBridge] ensureGlobalStream: no global stream available');
+      return;
+    }
+    this.lastGlobalActivity = Date.now();
+    // Watchdog: if no frame (incl. the engine's 10s heartbeat) arrives within
+    // the window, the stream is dead — resubscribe. unref so it never keeps the
+    // process alive.
+    const watchdog = setInterval(() => {
+      if (Date.now() - this.lastGlobalActivity > HEARTBEAT_WATCHDOG_MS) {
+        logger.warn(
+          '[OpencodeStreamBridge] global stream watchdog fired (no activity > %sms) — resubscribing',
+          HEARTBEAT_WATCHDOG_MS,
+        );
+        void this.resubscribeGlobalStream();
+      }
+    }, HEARTBEAT_WATCHDOG_MS / 3);
+    if (typeof watchdog.unref === 'function') watchdog.unref();
+    this.globalStream = { abort: sub.abort, watchdog };
+    this._listenGlobal(sub.stream).catch((err) =>
+      logger.error('[OpencodeStreamBridge] global listener crashed:', err),
+    );
+    logger.info('[OpencodeStreamBridge] subscribed to consolidated /global/event stream');
+  }
+
+  private async _listenGlobal(
+    stream: AsyncIterable<import('@opencode-ai/sdk').Event & { __directory?: string }>,
+  ): Promise<void> {
+    try {
+      for await (const event of stream) {
+        this.lastGlobalActivity = Date.now();
+        // server.heartbeat / server.connected are liveness-only — swallow them
+        // (they carry no session and would otherwise emit a generic `event`).
+        // The SDK Event union doesn't declare these synthetic types, so compare
+        // via a widened view.
+        const evType = (event as { type: string }).type;
+        if (evType === 'server.heartbeat' || evType === 'server.connected') continue;
+        this._relayEvent(event);
+      }
+    } catch (err) {
+      logger.error('[OpencodeStreamBridge] global stream error:', err);
+    } finally {
+      // Stream ended on its own — trigger a resubscribe so a transient drop
+      // self-heals (unless we are shutting down / already resubscribing).
+      if (this.globalStream && !this.globalResubscribing) {
+        void this.resubscribeGlobalStream();
+      }
+    }
+  }
+
+  /**
+   * OCU-29 (#1070) — tear down the current global stream and start a fresh one,
+   * then re-run the recover/reconcile path (OCU-03/#1044 + OCU-04/#1045) so any
+   * event missed during the gap is recovered. Guarded against overlap.
+   */
+  async resubscribeGlobalStream(): Promise<void> {
+    if (this.globalResubscribing) return;
+    this.globalResubscribing = true;
+    try {
+      if (this.globalStream) {
+        try {
+          this.globalStream.abort();
+        } catch {
+          /* best-effort */
+        }
+        clearInterval(this.globalStream.watchdog);
+        this.globalStream = null;
+      }
+      await this.ensureGlobalStream();
+      // Soft dependency on OCU-03/OCU-04 recovery: reconcile stuck statuses and
+      // recover orphaned permission/question asks against every active dir.
+      void this.reconcileSessionStatuses();
+      for (const dir of this.activeDirectories()) {
+        void this.recoverPendingQuestions(dir);
+        void this.recoverPendingPermissions(dir);
+      }
+    } finally {
+      this.globalResubscribing = false;
+    }
+  }
+
+  /** Distinct cwds of currently-active sessions (for recovery scoping). */
+  private activeDirectories(): string[] {
+    try {
+      return [...new Set(this.sessionsRepo.listActive().map((s) => s.cwd).filter(Boolean))];
+    } catch {
+      return [];
     }
   }
 
@@ -1741,6 +1883,16 @@ export class OpencodeStreamBridge {
       entry.abort.abort();
     }
     this.streamsByDirectory.clear();
+    // OCU-29 (#1070) — tear down the consolidated global stream + watchdog.
+    if (this.globalStream) {
+      try {
+        this.globalStream.abort();
+      } catch {
+        /* best-effort */
+      }
+      clearInterval(this.globalStream.watchdog);
+      this.globalStream = null;
+    }
     this.stoppedSessions.clear();
     this.pendingText.clear();
     this.pendingPermissions.clear();
