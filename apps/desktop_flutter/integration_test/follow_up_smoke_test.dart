@@ -251,6 +251,14 @@ class _FakeAgentsRepository implements AgentsRepository {
   }
 
   @override
+  Future<void> resetWorktree(String sessionId) async {}
+
+  @override
+  Future<AgentSession> removeWorktree(String sessionId) async {
+    return _store.firstWhere((s) => s.id == sessionId);
+  }
+
+  @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async => [];
 
   @override
@@ -303,6 +311,54 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   String ptyWsUrl(String ptyId) => 'ws://localhost:4001/ws/pty/$ptyId';
+
+  @override
+  Future<Map<String, dynamic>> getVcs(String sessionId) async => const {};
+
+  @override
+  Future<List<Map<String, dynamic>>> getVcsStatus(String sessionId) async =>
+      const [];
+
+  @override
+  Future<List<Map<String, dynamic>>> getVcsDiff(
+    String sessionId,
+    String mode,
+  ) async =>
+      const [];
+
+  @override
+  Future<String> getVcsDiffRaw(String sessionId) async => '';
+
+  @override
+  Future<void> shellCommand(String sessionId, String command) async {}
+
+  @override
+  Future<void> initProject(String sessionId) async {}
+
+  @override
+  Future<List<String>> findFiles(
+    String sessionId,
+    String query, {
+    int? limit,
+    String? type,
+  }) async =>
+      const [];
+
+  @override
+  Future<List<Map<String, dynamic>>> listSessionFiles(
+    String sessionId, {
+    String path = '.',
+  }) async =>
+      const [];
+
+  @override
+  Future<Map<String, dynamic>> fileContent(
+          String sessionId, String path) async =>
+      const {};
+
+  @override
+  Future<List<Map<String, dynamic>>> filesGitStatus(String sessionId) async =>
+      const [];
 }
 
 class _FakeLocalNotificationService extends LocalNotificationService {
