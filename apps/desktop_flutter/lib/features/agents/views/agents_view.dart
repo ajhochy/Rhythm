@@ -753,6 +753,7 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
                       parts: parts,
                       sessionId: session.id,
                       sessionName: session.name,
+                      isQueued: controller.isMessageQueued(m.id),
                     ),
                     if (showCostFooter)
                       Padding(
@@ -1459,6 +1460,7 @@ class _ChatBubble extends StatelessWidget {
     required this.parts,
     required this.sessionId,
     this.sessionName = '',
+    this.isQueued = false,
   });
 
   final ChatMessage message;
@@ -1468,12 +1470,16 @@ class _ChatBubble extends StatelessWidget {
   /// Display name of the owning session — passed to TaskChip for breadcrumb.
   final String sessionName;
 
+  /// OCU-05 (#1046): the user message was sent while the agent was busy and is
+  /// queued behind the active turn.
+  final bool isQueued;
+
   @override
   Widget build(BuildContext context) {
     final isUser = message.role == 'user';
 
     if (isUser) {
-      return _UserBubble(parts: parts);
+      return _UserBubble(parts: parts, isQueued: isQueued);
     }
 
     // OPC-M3-4: command invocation row — shown for messages with role='command'
@@ -1634,9 +1640,13 @@ class _ChatBubble extends StatelessWidget {
 ///
 /// All file parts are keyed by `part.id` for test assertions.
 class _UserBubble extends StatelessWidget {
-  const _UserBubble({required this.parts});
+  const _UserBubble({required this.parts, this.isQueued = false});
 
   final List<ChatPart> parts;
+
+  /// OCU-05 (#1046): show a subtle "queued" chip when this message was sent
+  /// while the agent was busy and is waiting for the engine to pick it up.
+  final bool isQueued;
 
   @override
   Widget build(BuildContext context) {
@@ -1676,6 +1686,39 @@ class _UserBubble extends StatelessWidget {
                   ),
                 ),
               ),
+            // OCU-05 (#1046): queued indicator — clears when the engine's
+            // message.updated reconciles the optimistic insert.
+            if (isQueued) ...[
+              const SizedBox(height: 4),
+              Container(
+                key: const ValueKey('queued-chip'),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: context.rhythm.surface,
+                  borderRadius: BorderRadius.circular(RhythmRadius.pill),
+                  border: Border.all(color: context.rhythm.borderSubtle),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.schedule,
+                      size: 11,
+                      color: context.rhythm.textMuted,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Queued',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: context.rhythm.textMuted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -3763,13 +3806,20 @@ class _InputAreaTestHarnessState extends State<InputAreaTestHarness> {
 /// parts render as thumbnails or filename chips.
 @visibleForTesting
 class UserBubbleTestHarness extends StatelessWidget {
-  const UserBubbleTestHarness({super.key, required this.parts});
+  const UserBubbleTestHarness({
+    super.key,
+    required this.parts,
+    this.isQueued = false,
+  });
 
   final List<ChatPart> parts;
 
+  /// OCU-05 (#1046): drive the "queued" chip in widget tests.
+  final bool isQueued;
+
   @override
   Widget build(BuildContext context) {
-    return _UserBubble(parts: parts);
+    return _UserBubble(parts: parts, isQueued: isQueued);
   }
 }
 
