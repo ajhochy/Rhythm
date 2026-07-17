@@ -750,6 +750,35 @@ export class OpencodeStreamBridge {
       return;
     }
 
+    // OCU-16 (#1057) — worktree lifecycle events are project-scoped, NOT
+    // session-scoped (they carry no sessionID). Handle them here, BEFORE the
+    // no-session-id generic fallback below, so they surface as typed top-level
+    // WS frames the Flutter client can react to directly.
+    // Cast the event to a loose shape: the generated SDK `Event` union does not
+    // declare the experimental worktree events, so a direct `event.type ===`
+    // comparison narrows `event` to `never`. Read type/properties off the
+    // widened view instead.
+    const wtEvent = event as { type: string; properties?: Record<string, unknown> };
+    if (wtEvent.type === 'worktree.ready') {
+      const wp = (wtEvent.properties ?? {}) as { name?: string; branch?: string };
+      broadcast({
+        v: 1,
+        type: 'worktree.ready',
+        name: wp.name ?? '',
+        ...(wp.branch ? { branch: wp.branch } : {}),
+      });
+      return;
+    }
+    if (wtEvent.type === 'worktree.failed') {
+      const wp = (wtEvent.properties ?? {}) as { message?: string };
+      broadcast({
+        v: 1,
+        type: 'worktree.failed',
+        message: wp.message ?? 'worktree operation failed',
+      });
+      return;
+    }
+
     // If no session mapping found, use the event's sessionID as a fallback key
     const eventId = localSessionId ?? opencodeSessionId;
     if (!eventId) {

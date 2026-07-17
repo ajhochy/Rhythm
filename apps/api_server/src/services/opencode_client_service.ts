@@ -1915,6 +1915,112 @@ export class OpencodeClientService {
     }
   }
 
+  // ── Worktree wrappers (OCU-16 #1057) ──────────────────────────────────────
+  //
+  // The engine exposes experimental worktree lifecycle endpoints scoped by the
+  // project `directory` query param. Direct fetch (mirrors questionAction /
+  // getSessionStatuses) until a typed SDK lands (OCU-27). All non-throwing:
+  // list returns [] and the mutators return null/false on any failure so a
+  // route can surface a clean error without crashing the process.
+
+  /** GET /experimental/worktree — list worktrees for a project directory. */
+  async listWorktrees(
+    directory: string,
+  ): Promise<Array<{ name: string; branch?: string; directory: string }>> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const res = await fetch(`${this.serverUrl}/experimental/worktree${qs}`);
+      if (!res.ok) {
+        logger.warn('[OpencodeClientService] listWorktrees HTTP %s', res.status);
+        return [];
+      }
+      const data = (await res.json()) as Array<{ name: string; branch?: string; directory: string }>;
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      logger.error('[OpencodeClientService] listWorktrees failed:', err);
+      return [];
+    }
+  }
+
+  /**
+   * POST /experimental/worktree — create a worktree in the project directory.
+   * Returns the created worktree Info (name/branch/directory) or throws
+   * AppError(502) on failure so the route surfaces worktree.failed cleanly.
+   */
+  async createWorktree(
+    directory: string,
+    opts?: { name?: string; startCommand?: string },
+  ): Promise<{ name: string; branch?: string; directory: string }> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    const body: Record<string, unknown> = {};
+    if (opts?.name) body.name = opts.name;
+    if (opts?.startCommand) body.startCommand = opts.startCommand;
+    let res: Response;
+    try {
+      res = await fetch(`${this.serverUrl}/experimental/worktree${qs}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      throw new AppError(502, 'SDK_ERROR', `createWorktree threw: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new AppError(502, 'SDK_ERROR', `createWorktree failed (${res.status}): ${detail.slice(0, 300)}`);
+    }
+    return (await res.json()) as { name: string; branch?: string; directory: string };
+  }
+
+  /**
+   * DELETE /experimental/worktree — remove a worktree (forced; deletes branch).
+   * `worktreeDir` is the worktree's own directory (the `directory` field from
+   * listWorktrees), passed in the body per the engine's RemoveInput schema.
+   * Returns true on success, false otherwise (never throws).
+   */
+  async removeWorktree(directory: string, worktreeDir: string): Promise<boolean> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const res = await fetch(`${this.serverUrl}/experimental/worktree${qs}`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ directory: worktreeDir }),
+      });
+      if (!res.ok) {
+        logger.warn('[OpencodeClientService] removeWorktree HTTP %s', res.status);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      logger.error('[OpencodeClientService] removeWorktree failed:', err);
+      return false;
+    }
+  }
+
+  /**
+   * POST /experimental/worktree/reset — reset a worktree branch to the primary
+   * default branch. `worktreeDir` is the worktree's own directory. Returns true
+   * on success, false otherwise (never throws).
+   */
+  async resetWorktree(directory: string, worktreeDir: string): Promise<boolean> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const res = await fetch(`${this.serverUrl}/experimental/worktree/reset${qs}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ directory: worktreeDir }),
+      });
+      if (!res.ok) {
+        logger.warn('[OpencodeClientService] resetWorktree HTTP %s', res.status);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      logger.error('[OpencodeClientService] resetWorktree failed:', err);
+      return false;
+    }
+  }
+
   /**
    * POST /session/{id}/command — dispatch a slash-command in the session.
    *
