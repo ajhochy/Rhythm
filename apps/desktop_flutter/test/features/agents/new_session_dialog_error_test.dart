@@ -168,8 +168,9 @@ class _ErrorAgentsRepository implements AgentsRepository {
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) async {
+    String decision, {
+    String? message,
+  }) async {
     throw UnimplementedError();
   }
 

@@ -213,8 +213,9 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) async {}
+    String decision, {
+    String? message,
+  }) async {}
 
   @override
   Future<void> replyQuestion(

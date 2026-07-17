@@ -167,8 +167,9 @@ class _SlowStubAgentsRepository implements AgentsRepository {
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) async {}
+    String decision, {
+    String? message,
+  }) async {}
 
   @override
   Future<void> replyQuestion(
@@ -493,9 +494,11 @@ class _ThrowingStubRepo implements AgentsRepository {
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) =>
-      inner.respondPermission(sessionId, permissionId, decision);
+    String decision, {
+    String? message,
+  }) =>
+      inner.respondPermission(sessionId, permissionId, decision,
+          message: message);
 
   @override
   Future<void> replyQuestion(
