@@ -42,6 +42,8 @@ class AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) =>
       _dataSource.createSession(
         agentId: agentId,
@@ -53,7 +55,16 @@ class AgentsRepository {
         createBranch: createBranch,
         mcpRole: mcpRole,
         anthropicAccountId: anthropicAccountId,
+        isolateWorktree: isolateWorktree,
+        worktreeName: worktreeName,
       );
+
+  /// OCU-18 (#1059) — Changes-tab worktree actions.
+  Future<void> resetWorktree(String sessionId) =>
+      _dataSource.resetWorktree(sessionId);
+
+  Future<AgentSession> removeWorktree(String sessionId) =>
+      _dataSource.removeWorktree(sessionId);
 
   Future<void> closeSession(String id) => _dataSource.closeSession(id);
 

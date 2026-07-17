@@ -137,6 +137,8 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) async {
     lastCreateAgentId = agentId;
     return _makeSession('new-session', AgentSessionStatus.starting);

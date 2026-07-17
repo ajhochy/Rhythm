@@ -124,6 +124,8 @@ class _ErrorAgentsRepository implements AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) async {
     throw AppError(
       message,
@@ -185,6 +187,16 @@ class _ErrorAgentsRepository implements AgentsRepository {
 
   @override
   Future<void> rejectQuestion(String sessionId, String callId) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> resetWorktree(String sessionId) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<AgentSession> removeWorktree(String sessionId) async {
     throw UnimplementedError();
   }
 

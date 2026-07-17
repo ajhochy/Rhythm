@@ -112,6 +112,7 @@ class _SessionSidePanelState extends State<SessionSidePanel> {
           diffEntries: controller.sessionDiffFor(id),
           isLoading: controller.sessionDiffLoading(id),
           errorMessage: controller.sessionDiffErrorFor(id),
+          session: widget.session,
         );
       case _Tab.terminal:
         // OPC-M1-6 / issue #709 — real Terminal command-runner tab.

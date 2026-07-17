@@ -1168,6 +1168,58 @@ export class AgentSessionsController {
     }
   }
 
+  /**
+   * OCU-18 (#1059) — reset an isolated session's worktree branch back to the
+   * primary default branch. 400 when the session isn't isolated (no
+   * worktreePath). Resolves the project directory the same way `destroy`'s
+   * worktree cleanup does (session.projectId's cwd, falling back to the
+   * worktree path itself for an unlinked project).
+   */
+  async resetWorktree(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      if (!session.worktreePath) {
+        throw AppError.badRequest('Session is not running in an isolated worktree');
+      }
+      const projectDir = session.projectId
+        ? (new ProjectsRepository().findById(session.projectId)?.cwd ?? session.worktreePath)
+        : session.worktreePath;
+      const ok = await opencodeClient.resetWorktree(projectDir, session.worktreePath);
+      if (!ok) return next(new AppError(502, 'WORKTREE_RESET_FAILED', 'engine failed to reset worktree'));
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * OCU-18 (#1059) — remove an isolated session's git worktree. Clears the
+   * worktree metadata from the session row (badge disappears) but does NOT
+   * delete the session itself — that is the separate hard-delete flow (see
+   * `destroy`'s `removeWorktree` flag for the delete-session-and-cleanup path).
+   */
+  async removeWorktree(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      if (!session.worktreePath) {
+        throw AppError.badRequest('Session is not running in an isolated worktree');
+      }
+      const projectDir = session.projectId
+        ? (new ProjectsRepository().findById(session.projectId)?.cwd ?? session.worktreePath)
+        : session.worktreePath;
+      const ok = await opencodeClient.removeWorktree(projectDir, session.worktreePath);
+      if (!ok) return next(new AppError(502, 'WORKTREE_REMOVE_FAILED', 'engine failed to remove worktree'));
+      repo.clearWorktree(session.id);
+      const updated = repo.findById(session.id)!;
+      broadcastSessionUpdated(updated);
+      res.json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async resume(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const session = repo.findById(req.params.id);

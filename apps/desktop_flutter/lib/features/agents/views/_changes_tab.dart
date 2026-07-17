@@ -25,6 +25,7 @@ import 'package:provider/provider.dart';
 import 'package:rhythm_desktop/app/core/ui/tokens/rhythm_theme.dart';
 import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dart';
 import '_tool_renderers/_unified_diff_view.dart';
+import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/chat_models.dart';
 
 // ---------------------------------------------------------------------------
@@ -60,12 +61,19 @@ class ChangesTab extends StatefulWidget {
     required this.diffEntries,
     this.isLoading = false,
     this.errorMessage,
+    this.session,
   });
 
   final String sessionId;
   final List<Map<String, dynamic>> diffEntries;
   final bool isLoading;
   final String? errorMessage;
+
+  /// OCU-18 (#1059): when provided and [AgentSession.isIsolatedWorktree],
+  /// the tab shows Reset/Remove worktree actions. Optional (defaults to
+  /// hidden) so existing callers/tests that only pass a bare id are
+  /// unaffected.
+  final AgentSession? session;
 
   @override
   State<ChangesTab> createState() => _ChangesTabState();
@@ -141,6 +149,8 @@ class _ChangesTabState extends State<ChangesTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (widget.session != null && widget.session!.isIsolatedWorktree)
+          _WorktreeActionsRow(session: widget.session!),
         _ScopeToggleRow(
           scope: _scope,
           onSelect: _selectScope,
@@ -231,6 +241,142 @@ class _ChangesTabState extends State<ChangesTab> {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _WorktreeActionsRow — OCU-18 (#1059)
+// ---------------------------------------------------------------------------
+
+/// Reset/Remove actions for a session running in an isolated git worktree.
+/// Remove is only enabled for an ENDED session (status == closed) — an
+/// active session still needs its worktree to keep running.
+class _WorktreeActionsRow extends StatelessWidget {
+  const _WorktreeActionsRow({required this.session});
+
+  final AgentSession session;
+
+  Future<void> _confirmReset(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reset worktree?'),
+        content: const Text(
+          'Resets the worktree branch back to the primary default branch, '
+          'discarding any uncommitted changes in the worktree.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final controller = context.read<AgentsController>();
+    final ok = await controller.resetWorktree(session.id);
+    if (!context.mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          ok ? 'Worktree reset.' : (controller.error ?? 'Reset failed.'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmRemove(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove worktree?'),
+        content: const Text(
+          'Deletes the isolated git worktree for this session. The session '
+          'itself and its history are kept. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final controller = context.read<AgentsController>();
+    final ok = await controller.removeWorktree(session.id);
+    if (!context.mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          ok ? 'Worktree removed.' : (controller.error ?? 'Remove failed.'),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    final busy = controller.worktreeActionInFlight;
+    // Remove is only available for an ENDED session — an active session
+    // still needs its worktree to keep running.
+    final canRemove = session.status == AgentSessionStatus.closed;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Row(
+        children: [
+          Icon(Icons.call_split_rounded,
+              size: 13, color: context.rhythm.accent),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              session.worktreeBranch ?? 'isolated worktree',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontFamily: 'Menlo',
+                color: context.rhythm.textMuted,
+              ),
+            ),
+          ),
+          TextButton(
+            key: const ValueKey('changes-worktree-reset-button'),
+            onPressed: busy ? null : () => _confirmReset(context),
+            child: const Text('Reset', style: TextStyle(fontSize: 12)),
+          ),
+          Tooltip(
+            message: canRemove
+                ? 'Remove the isolated worktree'
+                : 'End the session before removing its worktree',
+            child: TextButton(
+              key: const ValueKey('changes-worktree-remove-button'),
+              onPressed:
+                  (busy || !canRemove) ? null : () => _confirmRemove(context),
+              style:
+                  TextButton.styleFrom(foregroundColor: context.rhythm.danger),
+              child: const Text('Remove', style: TextStyle(fontSize: 12)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -1839,6 +1839,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    // OCU-18 (#1059): run this session in an isolated git worktree.
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) async {
     _error = null;
     _lastErrorStatus = null;
@@ -1863,6 +1866,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         createBranch: createBranch,
         mcpRole: mcpRole,
         anthropicAccountId: anthropicAccountId,
+        isolateWorktree: isolateWorktree,
+        worktreeName: worktreeName,
       );
       _sessions = [..._sessions, session];
       sessionFirstSeenAt[session.id] = DateTime.now();
@@ -2319,6 +2324,51 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     } catch (e) {
       _archived = [..._archived, session];
       _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // OCU-18 (#1059): Changes-tab isolated-worktree actions
+  // --------------------------------------------------------------------------
+
+  bool _worktreeActionInFlight = false;
+
+  /// True while a reset/remove worktree call is in flight — used to disable
+  /// the Changes-tab actions and avoid a duplicate submit.
+  bool get worktreeActionInFlight => _worktreeActionInFlight;
+
+  /// Reset the session's isolated worktree branch back to the primary
+  /// default branch. Returns true on success.
+  Future<bool> resetWorktree(String sessionId) async {
+    _worktreeActionInFlight = true;
+    notifyListeners();
+    try {
+      await _repository.resetWorktree(sessionId);
+      return true;
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      return false;
+    } finally {
+      _worktreeActionInFlight = false;
+      notifyListeners();
+    }
+  }
+
+  /// Remove the session's isolated git worktree. On success, updates the
+  /// local session row so the worktree badge disappears immediately.
+  Future<bool> removeWorktree(String sessionId) async {
+    _worktreeActionInFlight = true;
+    notifyListeners();
+    try {
+      final updated = await _repository.removeWorktree(sessionId);
+      _sessions = _upsertById(_sessions, updated);
+      return true;
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      return false;
+    } finally {
+      _worktreeActionInFlight = false;
       notifyListeners();
     }
   }
@@ -3165,6 +3215,23 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // branch badge live (e.g. after `git checkout -b`).
       handleVcsBranchUpdatedEvent();
       return; // handleVcsBranchUpdatedEvent's fetch calls notifyListeners().
+    } else if (msg is WorktreeReadyMessage) {
+      // OCU-18 (#1059): project-scoped — surface a toast via the existing
+      // agent-notification mechanism (same "background event completed"
+      // pattern as SessionSpilloverMessage below).
+      _notificationsController.pushAgentNotification(
+        id: DateTime.now().millisecondsSinceEpoch,
+        title: 'Worktree ready',
+        body: msg.branch != null
+            ? '"${msg.name}" is ready on branch ${msg.branch}.'
+            : '"${msg.name}" is ready.',
+      );
+    } else if (msg is WorktreeFailedMessage) {
+      _notificationsController.pushAgentNotification(
+        id: DateTime.now().millisecondsSinceEpoch,
+        title: 'Worktree failed',
+        body: msg.message,
+      );
     } else if (msg is SessionTodoUpdatedMessage) {
       // OPC-M3-5: todo.updated event — replace the session's todo state in-place.
       // State is keyed per session; an update for session B must not affect A.

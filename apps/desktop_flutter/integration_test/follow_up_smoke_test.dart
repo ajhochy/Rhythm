@@ -148,6 +148,8 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) async {
     final session = AgentSession(
       id: 'sid-${_store.length + 1}',

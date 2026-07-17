@@ -12,6 +12,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 
 const createWorktree = vi.fn();
 const removeWorktree = vi.fn().mockResolvedValue(true);
+const resetWorktree = vi.fn().mockResolvedValue(true);
 
 vi.mock('../services/opencode_engine', () => {
   const mockClient = {
@@ -24,6 +25,7 @@ vi.mock('../services/opencode_engine', () => {
     deleteSession: vi.fn().mockResolvedValue(true),
     createWorktree: (...a: unknown[]) => createWorktree(...a),
     removeWorktree: (...a: unknown[]) => removeWorktree(...a),
+    resetWorktree: (...a: unknown[]) => resetWorktree(...a),
   };
   return { opencodeClient: mockClient, opencodeSessionMap: new Map<string, string>() };
 });
@@ -60,6 +62,7 @@ describe('OCU-17 (#1058) isolateWorktree', () => {
     ({ baseUrl, close } = await startTestServer(createApp()));
     createWorktree.mockReset();
     removeWorktree.mockClear();
+    resetWorktree.mockClear();
   });
   afterEach(async () => {
     await close();
@@ -135,6 +138,82 @@ describe('OCU-17 (#1058) isolateWorktree', () => {
       headers: authHeaders,
     });
     expect(delRes.status).toBe(204);
+    expect(removeWorktree).not.toHaveBeenCalled();
+  });
+
+  // ── OCU-18 (#1059) — Changes-tab worktree actions ─────────────────────────
+
+  it('POST .../worktree/reset resets an isolated session\'s worktree', async () => {
+    createWorktree.mockResolvedValue({ name: 'wt-d', branch: 'd', directory: '/repo/.wt/wt-d' });
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: '/repo', name: 'S', isolateWorktree: true }),
+    });
+    const { id } = (await createRes.json()) as { id: string };
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${id}/worktree/reset`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(200);
+    expect(resetWorktree).toHaveBeenCalledWith('/repo/.wt/wt-d', '/repo/.wt/wt-d');
+    // Reset doesn't clear worktree metadata — the session is still isolated.
+    expect(repo.findById(id)?.worktreePath).toBe('/repo/.wt/wt-d');
+  });
+
+  it('POST .../worktree/reset on a non-isolated session → 400', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'S' }),
+    });
+    const { id } = (await createRes.json()) as { id: string };
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${id}/worktree/reset`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(400);
+    expect(resetWorktree).not.toHaveBeenCalled();
+  });
+
+  it('POST .../worktree/remove removes the worktree and clears session metadata (session stays)', async () => {
+    createWorktree.mockResolvedValue({ name: 'wt-e', branch: 'e', directory: '/repo/.wt/wt-e' });
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: '/repo', name: 'S', isolateWorktree: true }),
+    });
+    const { id } = (await createRes.json()) as { id: string };
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${id}/worktree/remove`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(200);
+    expect(removeWorktree).toHaveBeenCalledWith('/repo/.wt/wt-e', '/repo/.wt/wt-e');
+
+    const row = repo.findById(id);
+    expect(row).toBeTruthy();
+    expect(row?.worktreePath).toBeNull();
+    expect(row?.worktreeBranch).toBeNull();
+    expect(row?.worktreeName).toBeNull();
+  });
+
+  it('POST .../worktree/remove on a non-isolated session → 400', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'S' }),
+    });
+    const { id } = (await createRes.json()) as { id: string };
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${id}/worktree/remove`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(400);
     expect(removeWorktree).not.toHaveBeenCalled();
   });
 
