@@ -1815,6 +1815,40 @@ export class OpencodeClientService {
   }
 
   /**
+   * GET /permission — list pending permission requests across all sessions
+   * (OCU-03 #1044). Mirrors {@link listQuestions}: used to rehydrate the
+   * bridge's in-memory pending-permission map after an api_server/engine
+   * restart, so an orphaned permission ask resurfaces as a card. Never throws.
+   */
+  async listPermissions(
+    directory?: string,
+  ): Promise<
+    Array<{
+      id: string;
+      sessionID: string;
+      permission?: string;
+      metadata?: Record<string, unknown>;
+      tool?: { callID?: string; messageID?: string };
+    }>
+  > {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const res = await fetch(`${this.serverUrl}/permission${qs}`);
+      if (!res.ok) return [];
+      return (await res.json()) as Array<{
+        id: string;
+        sessionID: string;
+        permission?: string;
+        metadata?: Record<string, unknown>;
+        tool?: { callID?: string; messageID?: string };
+      }>;
+    } catch (err) {
+      logger.error('[OpencodeClientService] listPermissions failed:', err);
+      return [];
+    }
+  }
+
+  /**
    * POST /session/{id}/command — dispatch a slash-command in the session.
    *
    * Returns null when the SDK returns an error envelope.

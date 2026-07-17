@@ -229,6 +229,82 @@ export class OpencodeStreamBridge {
     this.pendingPermissions.delete(`${localSessionId}:${permissionId}`);
   }
 
+  /**
+   * Register a pending permission and broadcast the `permission.asked` card
+   * frame (OCU-03 #1044). Idempotent: if a permission with this `permissionId`
+   * is already tracked for the session, nothing is broadcast and `false` is
+   * returned. Shared by the live `permission.updated` ask path and the
+   * `GET /permission` recovery poll so a permission surfaced by either path
+   * never double-broadcasts (dedup guarantee for the no-duplicate-cards AC).
+   */
+  private registerPermission(
+    localSessionId: string,
+    entry: PendingPermission,
+  ): boolean {
+    if (this.stoppedSessions.has(localSessionId)) return false;
+    const key = `${localSessionId}:${entry.permissionId}`;
+    if (this.pendingPermissions.has(key)) return false;
+    this.pendingPermissions.set(key, entry);
+    broadcast({
+      v: 1,
+      type: 'permission.asked',
+      sessionId: localSessionId,
+      permissionId: entry.permissionId,
+      toolName: entry.toolName,
+      args: entry.args,
+      summary: entry.summary,
+    });
+    return true;
+  }
+
+  /**
+   * Recover permission requests whose `permission.updated` event never reached
+   * us on the SSE stream (api_server/engine restart while a permission ask was
+   * pending). opencode keeps the tool blocked until the permission is answered,
+   * so a missed ask orphans the turn with no card. We poll GET /permission
+   * (scoped to a directory), reverse-map each pending permission's SDK session
+   * id to a local session, and surface any we are not already tracking.
+   *
+   * Idempotent and safe to call repeatedly; only newly-seen permissions
+   * broadcast (registerPermission dedups against the same requestID delivered
+   * by the live stream).
+   */
+  async recoverPendingPermissions(directory: string): Promise<void> {
+    let pending: Array<{
+      id: string;
+      sessionID: string;
+      permission?: string;
+      metadata?: Record<string, unknown>;
+      tool?: { callID?: string };
+    }>;
+    try {
+      pending = await opencodeClient.listPermissions(directory);
+    } catch {
+      return;
+    }
+    if (!Array.isArray(pending) || pending.length === 0) return;
+
+    for (const p of pending) {
+      if (!p?.id || !p.sessionID) continue;
+      let localSessionId: string | undefined;
+      for (const [localId, sdkId] of opencodeSessionMap.entries()) {
+        if (sdkId === p.sessionID) {
+          localSessionId = localId;
+          break;
+        }
+      }
+      if (!localSessionId) continue;
+      const toolName = p.permission ?? '';
+      this.registerPermission(localSessionId, {
+        permissionId: p.id,
+        toolName,
+        args: (p.metadata as Record<string, unknown>) ?? {},
+        summary: toolName,
+        sdkSessionId: p.sessionID,
+      });
+    }
+  }
+
   // In-memory map of pending questions. Key = `${localSessionId}:${requestId}`.
   // Cleared when opencode emits question.replied/rejected (or on explicit reply).
   private pendingQuestions = new Map<string, PendingQuestion>();
@@ -363,6 +439,8 @@ export class OpencodeStreamBridge {
       // idempotent). Cleared when the stream ends or the session stops.
       const questionPoll = setInterval(() => {
         void this.recoverPendingQuestions(directory);
+        // OCU-03 (#1044) — same recovery for orphaned permission asks.
+        void this.recoverPendingPermissions(directory);
       }, QUESTION_RECOVERY_POLL_MS);
       if (typeof questionPoll.unref === 'function') questionPoll.unref();
       this.streamsByDirectory.set(directory, {
@@ -375,6 +453,12 @@ export class OpencodeStreamBridge {
       this._listen(directory).catch((err) =>
         logger.error('[OpencodeStreamBridge] listener crashed:', err),
       );
+      // OCU-03 (#1044) — immediate rehydration on (re)connect: surface any
+      // permission/question that was already pending before this subscribe
+      // (api_server restart mid-ask) without waiting a full poll cycle. Both
+      // are idempotent, so a card the live stream also redelivers is deduped.
+      void this.recoverPendingQuestions(directory);
+      void this.recoverPendingPermissions(directory);
       logger.info(
         `[OpencodeStreamBridge] Subscribed to events for directory=${directory} (session=${localSessionId})`,
       );
@@ -1375,22 +1459,12 @@ export class OpencodeStreamBridge {
               // Force this to the pending/broadcast path below regardless of
               // permissionMode — a manual-mode or smart-uncertain command must
               // surface an approval ask even under bypassPermissions/acceptEdits.
-              const pending: PendingPermission = {
+              this.registerPermission(localSessionId, {
                 permissionId,
                 toolName,
                 args,
                 summary: `${summary} — ${classification.detail}`,
                 sdkSessionId,
-              };
-              this.pendingPermissions.set(`${localSessionId}:${permissionId}`, pending);
-              broadcast({
-                v: 1,
-                type: 'permission.asked',
-                sessionId: localSessionId,
-                permissionId,
-                toolName,
-                args,
-                summary: pending.summary,
               });
               break;
             }
@@ -1441,23 +1515,15 @@ export class OpencodeStreamBridge {
           break;
         }
 
-        // Default / acceptEdits-but-non-edit path: store in pending map and broadcast.
-        const pending: PendingPermission = {
+        // Default / acceptEdits-but-non-edit path: register + broadcast.
+        // registerPermission dedups against a permissionId already surfaced by
+        // the GET /permission recovery poll (OCU-03 #1044).
+        this.registerPermission(localSessionId, {
           permissionId,
           toolName,
           args,
           summary,
           sdkSessionId,
-        };
-        this.pendingPermissions.set(`${localSessionId}:${permissionId}`, pending);
-        broadcast({
-          v: 1,
-          type: 'permission.asked',
-          sessionId: localSessionId,
-          permissionId,
-          toolName,
-          args,
-          summary,
         });
         break;
       }
