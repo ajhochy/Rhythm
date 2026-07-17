@@ -3,8 +3,9 @@
 ## Current focus
 
 First-turn token bloat fix: scope `task`-tool child sessions to their profile's skills
-(mirror of the #1012 MCP fix, for skills). **Merged to `main` (PR #1120, squash `afd9b0116`);
-release v0.18.46 building** (rebuilds the fork so the `task.ts` change ships to the app).
+(mirror of the #1012 MCP fix, for skills). **SHIPPED** — merged to `main` (PR #1120, squash
+`afd9b0116`); **release v0.18.46 published** (DMG+zip signed+notarized), which rebuilds the fork so
+the `task.ts` change is live in the app. Awaiting user install + smoke.
 
 ## Active branch / PR
 
@@ -15,7 +16,7 @@ release v0.18.46 building** (rebuilds the fork so the `task.ts` change ships to 
 
 ## In progress
 
-- Release build v0.18.46 (~10-15 min: flutter build → bundle api_server → rebuild fork → sign → notarize → GitHub Release). Watch to green, then install + smoke.
+- User install of v0.18.46 + smoke-test the token savings live in the app. (Fork change is only live once this build is installed.)
 
 ## Risks / known issues
 
