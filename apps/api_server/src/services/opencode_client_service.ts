@@ -801,13 +801,27 @@ export class OpencodeClientService {
     }
   }
 
-  /** List all user-defined commands from the SDK (for the slash-command popover). */
-  async listCommands(): Promise<Array<{ name: string; description?: string }>> {
+  /**
+   * List all commands from the engine (for the slash-command popover and the
+   * OCU-09 (#1050) Playbooks CRUD merge). `source` is the engine's own
+   * provenance tag: 'command' (config `commands/*.md` OR a built-in like
+   * init/review), 'mcp' (an MCP-server prompt), or 'skill' (a skill surfaced as
+   * a command). The commands router uses it — combined with the on-disk managed
+   * file check — to flag which rows Rhythm may edit/delete and which names are
+   * off-limits for a create (built-in / MCP / skill collision → 409).
+   */
+  async listCommands(): Promise<
+    Array<{ name: string; description?: string; source?: string }>
+  > {
     if (!this.client) return [];
     try {
       const raw = await this.client.command.list();
       const commands = raw.data ?? [];
-      return commands.map((c) => ({ name: c.name, description: c.description }));
+      return commands.map((c) => ({
+        name: c.name,
+        description: c.description,
+        source: (c as { source?: string }).source,
+      }));
     } catch (err) {
       logger.warn('[OpencodeClientService] listCommands failed:', err);
       return [];
