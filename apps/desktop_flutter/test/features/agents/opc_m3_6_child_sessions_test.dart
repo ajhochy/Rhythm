@@ -89,14 +89,10 @@ class _StubAgentsRepository implements AgentsRepository {
   /// sessions — NOT child sessions; set by tests to verify c5).
   List<AgentSession> _sessions = [];
 
-  /// Child sessions returned by fetchChildSessions.
-  List<Map<String, dynamic>> stagedChildren = const [];
-
   /// Messages returned by fetchChildMessages.
   List<AgentSessionMessage> stagedChildMessages = const [];
 
   /// Track call counts for assertions.
-  int fetchChildSessionsCallCount = 0;
   int fetchChildMessagesCallCount = 0;
   int fetchParentSessionCallCount = 0;
 
@@ -157,17 +153,6 @@ class _StubAgentsRepository implements AgentsRepository {
 
   @override
   Future<void> summarizeSession(String sessionId) async {}
-
-  @override
-  Future<void> dispatchCommand(
-      String sessionId, String command, String args) async {}
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchChildSessions(
-      String parentSessionId) async {
-    fetchChildSessionsCallCount++;
-    return stagedChildren;
-  }
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(

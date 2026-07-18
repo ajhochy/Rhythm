@@ -520,23 +520,6 @@ class AgentsDataSource {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
-  /// OPC-M3-6 — GET /agent-sessions/:id/children
-  ///
-  /// Returns the list of child session summaries (raw JSON maps) for the
-  /// parent session identified by [parentSessionId]. Returns an empty list
-  /// when the session has no active SDK mapping. Each entry is a raw SDK
-  /// Session map: { id, projectID, directory, title, version, time }.
-  Future<List<Map<String, dynamic>>> fetchChildSessions(
-      String parentSessionId) async {
-    final response = await _client.get(
-      Uri.parse('$_baseUrl/agent-sessions/$parentSessionId/children'),
-      headers: AuthSessionStore.headers(),
-    );
-    assertOk(response);
-    final list = jsonDecode(response.body) as List<dynamic>;
-    return list.cast<Map<String, dynamic>>();
-  }
-
   /// OPC-M3-6 — GET /agent-sessions/:id/children/:childSdkId/messages
   ///
   /// Returns the messages for a specific child session as
@@ -604,26 +587,6 @@ class AgentsDataSource {
     return list
         .map((j) => AgentInfo.fromJson(j as Map<String, dynamic>))
         .toList();
-  }
-
-  /// OPC-M3-4 — WS send helper for structured slash-command dispatch.
-  ///
-  /// Sends a `session.command` WS frame instead of `session.input`, so the
-  /// SDK receives the command name + arguments through the structured command
-  /// path rather than as a raw text prompt. This is a WS send, not an HTTP
-  /// call — the [send] method on the data source is used by the controller
-  /// via the WS channel already established for the session.
-  ///
-  /// Note: this method is intentionally a no-op (it delegates to [send] at
-  /// the controller level). Providing it here lets the data source interface
-  /// be complete without the controller needing to know the WS frame shape.
-  Future<void> dispatchCommand(
-    String id,
-    String command,
-    String args,
-  ) async {
-    // The actual dispatch is performed by the controller via _repository.send().
-    // This stub exists for interface completeness and test double compliance.
   }
 
   // --------------------------------------------------------------------------

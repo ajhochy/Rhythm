@@ -58,7 +58,6 @@ vi.mock('../services/opencode_stream_bridge', () => ({
 vi.mock('../services/opencode_engine', () => {
   const mockClient = {
     isReady: true,
-    listProviders: vi.fn().mockResolvedValue([]),
     listModels: vi.fn().mockResolvedValue([]),
     listAuthedProviders: vi.fn().mockResolvedValue([]),
     statusMessage: 'ready',

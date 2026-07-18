@@ -8,7 +8,7 @@
  *
  * Fix required:
  *   1. OpencodeClientService.listCommands() — new method that:
- *      - Returns [] when !this.isReady (mirror guard style of listProviders)
+ *      - Returns [] when !this.isReady (mirror guard style of other list* methods)
  *      - Calls this.client.command.list(), unwraps result with the same
  *        { data, error } envelope pattern used by other methods
  *      - Maps each Command to { name, description } (drop other fields)
@@ -42,7 +42,6 @@ vi.mock('../services/opencode_engine', () => {
     get isReady() { return _ready; },
     // Exposed for per-test override
     set isReady(v: boolean) { _ready = v; },
-    listProviders: vi.fn().mockResolvedValue(['anthropic']),
     listAuthedProviders: vi.fn().mockResolvedValue(['anthropic']),
     statusMessage: 'Opencode SDK ready',
     createSession: vi.fn().mockResolvedValue({ id: 'sdk-session-631' }),

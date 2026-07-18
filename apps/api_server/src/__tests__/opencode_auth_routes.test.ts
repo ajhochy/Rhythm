@@ -9,7 +9,6 @@ vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
     isReady: true,
     listAuthedProviders: vi.fn().mockResolvedValue(['openrouter']),
-    listProviders: vi.fn().mockResolvedValue([]),
     setAuth: vi.fn().mockResolvedValue(true),
     getOAuthUrl: vi.fn(),
     handleOAuthCallback: vi.fn(),
@@ -57,7 +56,7 @@ describe('GET /opencode/auth/', () => {
     vi.clearAllMocks();
   });
 
-  it('returns providers from listAuthedProviders, not listProviders', async () => {
+  it('returns providers from listAuthedProviders', async () => {
     const res = await fetch(`${baseUrl}/opencode/auth/`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { providers: string[]; ready: boolean };

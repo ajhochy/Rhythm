@@ -13,36 +13,6 @@ function makeService(stubClient: Record<string, unknown>): OpencodeClientService
 describe('OpencodeClientService — SDK response unwrap (.data)', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('listProviders unwraps res.data.providers, not res.providers', async () => {
-    const svc = makeService({
-      config: {
-        providers: vi.fn().mockResolvedValue({
-          data: { providers: [{ id: 'anthropic' }, { id: 'openrouter' }] },
-          request: {},
-          response: {},
-        }),
-      },
-    });
-    const out = await svc.listProviders();
-    expect(out).toEqual(['anthropic', 'openrouter']);
-  });
-
-  it('listProviders returns [] when res.data is undefined', async () => {
-    const svc = makeService({
-      config: {
-        providers: vi.fn().mockResolvedValue({ data: undefined, request: {}, response: {} }),
-      },
-    });
-    expect(await svc.listProviders()).toEqual([]);
-  });
-
-  it('listProviders returns [] when the SDK throws', async () => {
-    const svc = makeService({
-      config: { providers: vi.fn().mockRejectedValue(new Error('boom')) },
-    });
-    expect(await svc.listProviders()).toEqual([]);
-  });
-
   it('listModels unwraps res.data.providers[].models', async () => {
     const svc = makeService({
       config: {

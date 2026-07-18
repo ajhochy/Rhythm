@@ -295,12 +295,6 @@ describe('OpencodeClientService', () => {
     expect(service.statusMessage).toContain('not initialized');
   });
 
-  it('returns empty providers when not initialized', async () => {
-    const service = new OpencodeClientService();
-    const providers = await service.listProviders();
-    expect(providers).toEqual([]);
-  });
-
   it('returns empty models when not initialized', async () => {
     const service = new OpencodeClientService();
     const models = await service.listModels('anthropic');

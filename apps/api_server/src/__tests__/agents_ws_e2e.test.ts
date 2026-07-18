@@ -107,7 +107,6 @@ const {
 vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
     isReady: true,
-    listProviders: vi.fn().mockResolvedValue(['openrouter']),
     listAuthedProviders: vi.fn().mockResolvedValue(['openrouter']),
     createSession: (...args: unknown[]) =>
       createSessionSpy(...args) as Promise<{ id: string } | null>,
