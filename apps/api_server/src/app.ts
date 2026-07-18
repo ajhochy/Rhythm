@@ -57,6 +57,7 @@ import gmailSignalsRouter from './routes/gmail_signals_routes';
 import { agentCapabilityStatusRouter } from './routes/agent_capability_status_routes';
 import { agentApprovalsRouter } from './routes/agent_approvals_routes';
 import { systemRouter } from './routes/system_routes';
+import { engraphManagerRouter } from './routes/engraph_manager_routes';
 
 export function createApp() {
   const app = express();
@@ -153,6 +154,10 @@ export function createApp() {
     // memory store. Do NOT mount this router outside the gate or back it with
     // the production base.
     app.use('/agent-memory', agentMemoryRouter);
+    // #1096 WP1 — device-local Engraph backend manager status/action API.
+    // Standalone prefix (not nested under /agent-memory) so it never risks
+    // colliding with that router's `/:id` catch-all route.
+    app.use('/engraph-manager', engraphManagerRouter);
     app.use('/agent-webhooks', agentWebhookRouter);
     app.use('/agent-research', agentResearchRouter);
     app.use('/agent-cookbook', agentCookbookRouter);

@@ -19,6 +19,13 @@ export class EngraphHttpClient implements EngraphClient {
     private readonly baseUrl = process.env.ENGRAPH_MEMORY_URL ?? '',
     private readonly fetchImpl: FetchLike = fetch,
     private readonly timeoutMs = 1_000,
+    /**
+     * #1096 WP1 — bearer token for a Rhythm-managed Engraph service (which
+     * requires API-key auth by default). Optional and additive: omitted
+     * entirely for the pre-existing operator-managed-service contract (#1093/
+     * #1095), which never sent an Authorization header.
+     */
+    private readonly authToken?: string,
   ) {}
 
   async search(query: string, topN: number): Promise<EngraphHit[]> {
@@ -34,7 +41,10 @@ export class EngraphHttpClient implements EngraphClient {
     try {
       const response = await this.fetchImpl(url.toString(), {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...(this.authToken ? { authorization: `Bearer ${this.authToken}` } : {}),
+        },
         body: JSON.stringify({ query, top_n: topN }),
         signal: AbortSignal.timeout(this.timeoutMs),
       });

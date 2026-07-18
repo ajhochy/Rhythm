@@ -83,6 +83,10 @@ async function main() {
   // here so the shutdown handler's `memoryVaultSyncJob?.stop()` stays valid in
   // the 'cloud' role where the job is never started.
   let memoryVaultSyncJob: { stop: () => void } | null = null;
+  // #1096 WP1 — reference to the Engraph manager singleton so the (sync)
+  // shutdown handler can stop its managed child process. Nullable for the
+  // 'cloud' role, where the agent runtime (and this manager) never starts.
+  let engraphManagerRef: { shutdown: () => void } | null = null;
   // Issue #856: watches ~/.local/share/opencode/auth.json and bounces the
   // opencode engine on a genuine credential change (e.g. a Claude account
   // switch), so the engine re-reads fresh tokens instead of 401ing on stale
@@ -124,6 +128,18 @@ async function main() {
     // The */10min cron also keeps the derived index fresh as users edit notes in
     // Obsidian (vault→index re-index pass — #805 AC3/AC4).
     memoryVaultSyncJob = startMemoryVaultSyncJob();
+
+    // #1096 WP1 — if the user previously enabled the device-local Engraph
+    // manager, resume it now. Fire-and-forget: indexing/spawn/health-gating
+    // must never block server startup, and any failure just leaves memory
+    // retrieval on FTS (see engraph_manager.ts / memory_retrieval.ts).
+    try {
+      const { engraphManager } = await import('./services/engraph_manager');
+      engraphManagerRef = engraphManager;
+      engraphManager.ensureStartedIfEnabled();
+    } catch (err) {
+      logger.warn(`[server] Engraph manager startup failed (non-fatal): ${String(err)}`);
+    }
 
     // Agent subsystem: scheduler + memory consolidation seed
     agentSchedulerJob = startAgentSchedulerJob();
@@ -587,6 +603,8 @@ async function main() {
     try { recurrenceJob?.stop(); } catch (_) { /* ignore */ }
     try { syncJob?.stop(); } catch (_) { /* ignore */ }
     try { memoryVaultSyncJob?.stop(); } catch (_) { /* ignore */ }
+    // #1096 WP1 — stop only the exact child process this manager spawned.
+    try { engraphManagerRef?.shutdown(); } catch (_) { /* ignore */ }
     try { agentSchedulerJob?.stop(); } catch (_) { /* ignore */ }
     // #856 — stop the auth.json watcher so a credential write during
     // shutdown can't trigger a bounce of an engine we're about to dispose.

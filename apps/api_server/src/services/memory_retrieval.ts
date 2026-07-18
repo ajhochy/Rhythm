@@ -47,6 +47,7 @@ import type { AgentMemory } from '../repositories/agent_memory_repository';
 import { getAgentMemoryRetrievalMode, resolveEngraphMemoryVaultRoot, resolveMemoryDirPath } from '../config/env';
 import { EngraphHttpClient, mapEngraphFileToSourceId } from './engraph_client';
 import type { EngraphClient } from './engraph_client';
+import { engraphManager } from './engraph_manager';
 
 const DEFAULT_TOP_N = 5;
 
@@ -284,8 +285,18 @@ export async function buildMemoryPreface(
   const enabled = opts.enabled ?? isMemoryInjectionEnabled();
   if (!enabled) return { text: '', memoryIds: [], notePaths: [] };
 
+  // #1096 WP1: when hybrid mode is on, prefer the device-local Engraph
+  // manager's client (loopback, authenticated, health-gated) over the raw
+  // env-var-only client `getRelevantMemoriesSemantic` would otherwise default
+  // to. `getRetrievalClient()` itself falls back to a client whose search()
+  // always resolves [] whenever the manager is disabled/unhealthy, so this is
+  // purely additive: with the manager left off (its default state), behavior
+  // is unchanged from #1093/#1095.
   const retrieve = opts.getRelevant ?? (
-    getAgentMemoryRetrievalMode() === 'hybrid' ? getRelevantMemoriesSemantic : getRelevantMemories
+    getAgentMemoryRetrievalMode() === 'hybrid'
+      ? (q: string, ownerUserId?: number | null, topN?: number) =>
+          getRelevantMemoriesSemantic(q, ownerUserId, topN, undefined, engraphManager.getRetrievalClient())
+      : getRelevantMemories
   );
   let matches: AgentMemory[];
   try {
