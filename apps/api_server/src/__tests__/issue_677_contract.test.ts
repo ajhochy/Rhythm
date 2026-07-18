@@ -19,7 +19,6 @@ import { startTestServer } from './helpers/real_server';
 vi.mock('../services/opencode_engine', () => {
   const mockClient = {
     isReady: true,
-    listProviders: vi.fn().mockResolvedValue([]),
     listAuthedProviders: vi.fn().mockResolvedValue([]),
     statusMessage: 'Opencode SDK ready',
     createSession: vi.fn().mockResolvedValue({ id: 'sdk-session-677' }),

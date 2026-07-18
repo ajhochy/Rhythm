@@ -343,9 +343,12 @@ async function main() {
     // so direct routing to anthropic / google works once the user has
     // authed via the corresponding flow.
     try {
-      const { ensureRequiredPlugins, ensureOrgSkillIndex } = await import(
-        './services/opencode_plugin_config'
-      );
+      const {
+        ensureRequiredPlugins,
+        ensureOrgSkillIndex,
+        ensureManagedDefaults,
+        syncOrgInstructions,
+      } = await import('./services/opencode_plugin_config');
       ensureRequiredPlugins();
       // #1054 — point skills.urls at this org's shared skill index before the
       // engine spawns, preserving any user-added entries (never touches
@@ -354,6 +357,30 @@ async function main() {
       // and is also correct for any future runtime re-ensure once the engine
       // is live. Never throws — a config-write failure must never block boot.
       ensureOrgSkillIndex();
+      // #1071 (OCU-30) — managed small_model/username/reference defaults +
+      // absent-only compaction/tool_output caps. Runs before spawn (like the
+      // two calls above) so the freshly-written keys are present in the very
+      // first config the engine reads. Never throws.
+      await ensureManagedDefaults().catch((err) => {
+        console.warn('[Opencode] Managed defaults update failed (non-fatal):', err);
+      });
+      // #1072 (OCU-31) — org instructions markdown, synced from production
+      // and registered in the engine's `instructions` config. Offline/
+      // unreachable prod falls back to the last cached copy (never blocks
+      // boot). Re-synced daily thereafter — see the setInterval below.
+      await syncOrgInstructions().catch((err) => {
+        console.warn('[Opencode] Org instructions sync failed (non-fatal):', err);
+      });
+      setInterval(
+        () => {
+          syncOrgInstructions()
+            .then(async (changed) => {
+              if (changed) await opencodeClient.reloadConfig();
+            })
+            .catch((err) => console.warn('[Opencode] Daily org instructions sync failed (non-fatal):', err));
+        },
+        24 * 60 * 60 * 1000,
+      ).unref();
       await opencodeClient.reloadSkills();
       // #947 — Rhythm manages ~/.config/opencode/skills as the SOLE skill
       // source. The engine auto-scans that config dir, so no opencode.json
@@ -408,6 +435,17 @@ async function main() {
         logger.info('[server] skill curator cold-start window started');
       } catch (e) {
         logger.warn(`[server] notifyEngineReady failed (non-fatal): ${String(e)}`);
+      }
+
+      // OCU-04 (#1045) — on engine ready, reconcile any DB session left stuck
+      // 'working'/'starting' by an event missed while the engine/api_server was
+      // down. Non-fatal: a reconcile failure must never block boot.
+      try {
+        const { streamBridge } = await import('./services/opencode_stream_bridge');
+        await streamBridge.reconcileSessionStatuses();
+        logger.info('[server] session status resync complete (#1045)');
+      } catch (e) {
+        logger.warn(`[server] session status resync failed (non-fatal): ${String(e)}`);
       }
 
       // Dual-accounts Task B — the Rhythm accounts store is the source of

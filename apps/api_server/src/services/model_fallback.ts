@@ -274,3 +274,25 @@ export function resolveCrossProviderHandoff(
     providerTiers.map((tier) => tier.id),
   );
 }
+
+/**
+ * #1108 — when the fallback cascade is fully exhausted (no further authed
+ * tier available), the finalized error must identify WHICH provider/model/
+ * account was last attempted rather than a bare generic string — otherwise
+ * the user has no actionable lead on which limit was actually reached.
+ * Any argument may be omitted (unknown); omitted fields are simply left out
+ * of the parenthetical rather than rendered as "undefined".
+ */
+export function formatFallbackExhaustedMessage(
+  providerID?: string | null,
+  modelID?: string | null,
+  accountId?: string | null,
+): string {
+  const parts = [
+    providerID ? `provider=${providerID}` : null,
+    modelID ? `model=${modelID}` : null,
+    accountId ? `account=${accountId}` : null,
+  ].filter((v): v is string => v !== null);
+  const detail = parts.length > 0 ? ` (${parts.join(', ')})` : '';
+  return `All configured fallback options are exhausted${detail} — connect another provider or wait for the rate limit to reset.`;
+}

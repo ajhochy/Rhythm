@@ -250,35 +250,80 @@ describe('POST /agent-sessions -> agentId validation (#653) + client.session.cre
 });
 
 // ===========================================================================
-// PATH 5 — Permission response -> top-level SDK permission method
+// PATH 5 — Permission response -> modern POST /permission/:id/reply (OCU-01 #1042)
 // ===========================================================================
-describe('POST /:id/permission/:permissionId/:decision -> client.postSessionIdPermissionsPermissionId', () => {
-  it('forwards an accept to the real SDK permission method and returns 204', async () => {
-    const s = insertSession('PermSession');
+describe('POST /:id/permission/:permissionId/:decision -> replyToPermission (OCU-01 #1042)', () => {
+  it('maps accept→once and returns 204, broadcasting an accept resolution', async () => {
+    const s = insertSession('PermSession', '/tmp/proj');
     sessionMap.set(s.id, 'sdk-perm-1');
+    const reply = vi.spyOn(service.ref, 'replyToPermission').mockResolvedValue(true);
 
     const { status } = await req('POST', `/agent-sessions/${s.id}/permission/perm-42/accept`);
     expect(status).toBe(204);
-
-    const permFn = (fake.ref as any).postSessionIdPermissionsPermissionId;
-    expect(permFn).toHaveBeenCalledTimes(1);
-    // 'accept' maps to the SDK's 'once' response.
-    expect(permFn.mock.calls[0][0]).toMatchObject({
-      path: { id: 'sdk-perm-1', permissionID: 'perm-42' },
-      body: { response: 'once' },
-    });
-    // The resolution was broadcast to connected clients.
+    // requestID, reply, message, directory, sdkSessionId
+    expect(reply).toHaveBeenCalledWith('perm-42', 'once', undefined, '/tmp/proj', 'sdk-perm-1');
     expect(
-      broadcasts.some((b) => b.type === 'permission.resolved' && b.permissionId === 'perm-42'),
+      broadcasts.some(
+        (b) =>
+          b.type === 'permission.resolved' &&
+          b.permissionId === 'perm-42' &&
+          b.decision === 'accept',
+      ),
     ).toBe(true);
   });
 
-  it('rejects an invalid decision with 400', async () => {
-    const s = insertSession('PermBad');
+  it('maps allow→once (Flutter OCU-02 vocabulary)', async () => {
+    const s = insertSession('PermAllow', '/tmp/proj');
+    sessionMap.set(s.id, 'sdk-perm-allow');
+    const reply = vi.spyOn(service.ref, 'replyToPermission').mockResolvedValue(true);
+
+    const { status } = await req('POST', `/agent-sessions/${s.id}/permission/perm-a/allow`);
+    expect(status).toBe(204);
+    expect(reply).toHaveBeenCalledWith('perm-a', 'once', undefined, '/tmp/proj', 'sdk-perm-allow');
+  });
+
+  it('maps always→always for project-level persistence', async () => {
+    const s = insertSession('PermAlways', '/tmp/proj');
+    sessionMap.set(s.id, 'sdk-perm-always');
+    const reply = vi.spyOn(service.ref, 'replyToPermission').mockResolvedValue(true);
+
+    const { status } = await req('POST', `/agent-sessions/${s.id}/permission/perm-b/always`);
+    expect(status).toBe(204);
+    expect(reply).toHaveBeenCalledWith('perm-b', 'always', undefined, '/tmp/proj', 'sdk-perm-always');
+  });
+
+  it('maps deny→reject and passes the feedback message through to the agent', async () => {
+    const s = insertSession('PermDeny', '/tmp/proj');
+    sessionMap.set(s.id, 'sdk-perm-deny');
+    const reply = vi.spyOn(service.ref, 'replyToPermission').mockResolvedValue(true);
+
+    const { status } = await req(
+      'POST',
+      `/agent-sessions/${s.id}/permission/perm-c/deny`,
+      { message: 'not allowed here' },
+    );
+    expect(status).toBe(204);
+    expect(reply).toHaveBeenCalledWith(
+      'perm-c',
+      'reject',
+      'not allowed here',
+      '/tmp/proj',
+      'sdk-perm-deny',
+    );
+    expect(
+      broadcasts.some(
+        (b) => b.type === 'permission.resolved' && b.decision === 'deny',
+      ),
+    ).toBe(true);
+  });
+
+  it('rejects an invalid decision with 400 and never calls the engine', async () => {
+    const s = insertSession('PermBad', '/tmp/proj');
     sessionMap.set(s.id, 'sdk-perm-2');
+    const reply = vi.spyOn(service.ref, 'replyToPermission').mockResolvedValue(true);
     const { status } = await req('POST', `/agent-sessions/${s.id}/permission/perm-1/maybe`);
     expect(status).toBe(400);
-    expect((fake.ref as any).postSessionIdPermissionsPermissionId).not.toHaveBeenCalled();
+    expect(reply).not.toHaveBeenCalled();
   });
 });
 

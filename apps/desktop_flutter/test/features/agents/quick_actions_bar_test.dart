@@ -148,6 +148,8 @@ class _StubAgentsRepository implements AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) async {
     if (createSessionShouldFail) {
       throw Exception('boom');

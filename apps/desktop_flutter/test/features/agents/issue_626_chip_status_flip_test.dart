@@ -114,6 +114,8 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) async =>
       _makeSession('new', AgentSessionStatus.starting);
 
@@ -163,8 +165,9 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) async {}
+    String decision, {
+    String? message,
+  }) async {}
 
   @override
   Future<void> replyQuestion(
@@ -194,20 +197,11 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<void> summarizeSession(String sessionId) async {}
 
   @override
-  Future<void> dispatchCommand(
-      String sessionId, String command, String args) async {}
-
-  @override
   Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async => [];
 
   @override
   Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async =>
       {'recorded': false, 'memoryIds': [], 'notePaths': []};
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchChildSessions(
-          String parentSessionId) async =>
-      [];
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
@@ -234,6 +228,11 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   String ptyWsUrl(String ptyId) => 'ws://localhost:4001/ws/pty/$ptyId';
+
+  // OCU-19..25 (#1060-#1066): vcs/shell/init/files methods added to
+  // AgentsRepository — not exercised by this test file, so fall back.
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeLocalNotificationService extends LocalNotificationService {

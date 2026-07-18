@@ -14,6 +14,7 @@ import '../models/agent_session.dart';
 import '../models/usage_budget.dart';
 import 'agent_badge_identity.dart';
 import '_changes_tab.dart';
+import '_files_tab.dart';
 import '_terminal_tab.dart';
 import '_todo_panel.dart';
 
@@ -36,7 +37,7 @@ class SessionSidePanel extends StatefulWidget {
   State<SessionSidePanel> createState() => _SessionSidePanelState();
 }
 
-enum _Tab { context, changes, terminal }
+enum _Tab { context, changes, terminal, files }
 
 class _SessionSidePanelState extends State<SessionSidePanel> {
   _Tab _selected = _Tab.context;
@@ -111,10 +112,14 @@ class _SessionSidePanelState extends State<SessionSidePanel> {
           diffEntries: controller.sessionDiffFor(id),
           isLoading: controller.sessionDiffLoading(id),
           errorMessage: controller.sessionDiffErrorFor(id),
+          session: widget.session,
         );
       case _Tab.terminal:
         // OPC-M1-6 / issue #709 — real Terminal command-runner tab.
         return TerminalTab(sessionId: widget.session.id);
+      case _Tab.files:
+        // OCU-21 (#1062) — browse + preview the session's project directory.
+        return FilesTab(session: widget.session);
     }
   }
 }
@@ -143,6 +148,7 @@ class _Tabs extends StatelessWidget {
             trailing: ChangesTabBadge(sessionId: sessionId),
           ),
           _tab(context, _Tab.terminal, 'Terminal'),
+          _tab(context, _Tab.files, 'Files'),
           IconButton(
             key: const ValueKey('inspector-collapse-button'),
             icon: const Icon(Icons.chevron_right, size: 18),

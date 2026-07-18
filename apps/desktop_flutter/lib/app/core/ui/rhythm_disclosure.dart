@@ -21,12 +21,19 @@ class RhythmDisclosure extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.rhythm;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colors.surface,
+    // Use a Material (not a bare DecoratedBox) as the background surface: the
+    // ExpansionTile header is a ListTile that paints ink/selection on its
+    // nearest Material ancestor. A DecoratedBox with a background color would
+    // hide those effects and — on newer Flutter — throws a debug assertion
+    // ("ListTile background color or ink splashes may be invisible"), failing
+    // every test that pumps a widget using this disclosure.
+    return Material(
+      color: colors.surface,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(RhythmRadius.lg),
-        border: Border.all(color: colors.borderSubtle),
+        side: BorderSide(color: colors.borderSubtle),
       ),
+      clipBehavior: Clip.antiAlias,
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(

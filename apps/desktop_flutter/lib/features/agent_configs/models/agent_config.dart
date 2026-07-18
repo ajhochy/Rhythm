@@ -28,6 +28,7 @@ class AgentConfig {
     this.ocAgent,
     this.sessionSelectable = true,
     this.defaultAnthropicAccountId,
+    this.corePermissionsJson,
   });
 
   factory AgentConfig.fromJson(Map<String, dynamic> json) {
@@ -41,17 +42,21 @@ class AgentConfig {
       sortOrder: asInt(json['sortOrder']) ?? 0,
       isManager: asBool(json['isManager']) ?? false,
       systemPrompt: asString(json['systemPrompt']),
-      allowedMcps:
-          _parseStringList(json['allowedMcpsJson'] ?? json['allowedMcps']),
-      allowedSkills:
-          _parseStringList(json['allowedSkillsJson'] ?? json['allowedSkills']),
+      allowedMcps: _parseStringList(
+        json['allowedMcpsJson'] ?? json['allowedMcps'],
+      ),
+      allowedSkills: _parseStringList(
+        json['allowedSkillsJson'] ?? json['allowedSkills'],
+      ),
       allowedDelegates: _parseStringList(
-          json['allowedDelegatesJson'] ?? json['allowedDelegates']),
+        json['allowedDelegatesJson'] ?? json['allowedDelegates'],
+      ),
       modelProvider: asString(json['modelProvider']),
       modelId: asString(json['modelId']),
       ocAgent: asString(json['ocAgent']),
       sessionSelectable: asBool(json['sessionSelectable']) ?? true,
       defaultAnthropicAccountId: asString(json['defaultAnthropicAccountId']),
+      corePermissionsJson: asString(json['corePermissionsJson']),
     );
   }
 
@@ -104,6 +109,12 @@ class AgentConfig {
   /// Default Anthropic account id for sessions created with this profile.
   /// Null means use the app-level default account.
   final String? defaultAnthropicAccountId;
+
+  /// Opencode core-tool permission overrides (read/edit/bash/websearch/…) as a
+  /// raw JSON object string — passed through verbatim to/from the API. Null
+  /// means no overrides (engine defaults apply to every key). Kept opaque
+  /// here; the profile sheet parses/builds this map (#1073/#1074).
+  final String? corePermissionsJson;
 
   /// Returns true when this config was created from a preset.
   bool get isPreset => presetId != null;
@@ -167,6 +178,7 @@ class AgentConfig {
         'ocAgent': ocAgent,
         'sessionSelectable': sessionSelectable,
         'defaultAnthropicAccountId': defaultAnthropicAccountId,
+        'corePermissionsJson': corePermissionsJson,
       };
 
   AgentConfig copyWith({
@@ -186,6 +198,7 @@ class AgentConfig {
     Object? ocAgent = _sentinel,
     bool? sessionSelectable,
     Object? defaultAnthropicAccountId = _sentinel,
+    Object? corePermissionsJson = _sentinel,
   }) {
     return AgentConfig(
       id: id,
@@ -220,6 +233,9 @@ class AgentConfig {
       defaultAnthropicAccountId: identical(defaultAnthropicAccountId, _sentinel)
           ? this.defaultAnthropicAccountId
           : defaultAnthropicAccountId as String?,
+      corePermissionsJson: identical(corePermissionsJson, _sentinel)
+          ? this.corePermissionsJson
+          : corePermissionsJson as String?,
     );
   }
 }

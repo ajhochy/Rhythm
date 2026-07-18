@@ -32,7 +32,6 @@ import { SessionsRepository } from '../repositories/sessions_repository';
 vi.mock('../services/opencode_engine', () => {
   const mockClient = {
     isReady: true,
-    listProviders: vi.fn().mockResolvedValue([]),
     listModels: vi.fn().mockImplementation((providerId: string) => {
       const byProvider: Record<string, Array<{ id: string }>> = {
         // Anthropic not authed in this scenario.

@@ -93,8 +93,13 @@ describe('server.ts — #614 shutdown signal contract (opencode orphan preventio
     expect(argvIdx, "process.argv.find for '--parent-pid=' must exist in server.ts").toBeGreaterThan(-1);
     const trackedIdx = source.indexOf('trackedRootPid');
     expect(trackedIdx, 'trackedRootPid variable must be declared').toBeGreaterThan(-1);
-    // trackedRootPid must be declared before the watchdog setInterval
-    const watchdogIdx = source.indexOf('setInterval');
+    // trackedRootPid must be declared before the WATCHDOG's setInterval —
+    // server.ts also runs other independent setInterval-based background
+    // jobs (e.g. #1072's daily org-instructions re-sync) that legitimately
+    // appear earlier in the file, so find the first setInterval AFTER the
+    // trackedRootPid declaration rather than the first occurrence anywhere.
+    const watchdogIdx = source.indexOf('setInterval', trackedIdx);
+    expect(watchdogIdx, "a setInterval must follow trackedRootPid's declaration (the watchdog)").toBeGreaterThan(-1);
     expect(trackedIdx, 'trackedRootPid must be declared before the watchdog setInterval').toBeLessThan(watchdogIdx);
   });
 

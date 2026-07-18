@@ -2303,4 +2303,135 @@ Your job, in order:
           AND (model_id IS NULL OR model_id <> 'claude-haiku-4-5' OR model_tier_hint IS NULL)`,
     ).run();
   });
+
+  // OCU-17 (#1058) — worktree isolation fields on agent_sessions. When a session
+  // is created with isolateWorktree, the engine makes a git worktree first and
+  // the session's cwd becomes the worktree dir; these columns remember the
+  // worktree so the UI/cleanup can act on it later. Additive + nullable, guarded
+  // by a pragma check (STRUCTURE class — no runOnce needed; the runOnce key
+  // 'issue_1058_worktree_fields' is recorded so the migration replay guard and
+  // audit trail can see the migration ran, matching the spine convention).
+  const agentSessionCols1058 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map(
+    (c) => c.name,
+  );
+  if (!agentSessionCols1058.includes('worktree_name')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN worktree_name TEXT`);
+  }
+  if (!agentSessionCols1058.includes('worktree_path')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN worktree_path TEXT`);
+  }
+  if (!agentSessionCols1058.includes('worktree_branch')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN worktree_branch TEXT`);
+  }
+  runOnce('issue_1058_worktree_fields', () => {
+    // Marker only — the additive ALTERs above are idempotent STRUCTURE changes.
+    // This runOnce records that the #1058 worktree-fields migration landed
+    // (agent_sessions is local-SQLite only; postgres_bootstrap.ts is NOT needed
+    // for agent sessions, per the issue's verification note).
+  });
+
+  // #1088 — decouple picker visibility (session_selectable) from schedulability.
+  // `schedulable` is nullable: NULL means "inherit session_selectable" (byte-
+  // identical behavior to before this migration for every existing row), a
+  // 0/1 value is an explicit override so a hidden specialist can be made
+  // directly schedulable without becoming picker-visible. Additive + nullable
+  // STRUCTURE change; agent_configs is local-SQLite only (no postgres_bootstrap
+  // backfill needed).
+  const agentConfigCols1088 = (db.pragma('table_info(agent_configs)') as { name: string }[]).map(
+    (c) => c.name,
+  );
+  if (!agentConfigCols1088.includes('schedulable')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN schedulable INTEGER`);
+  }
+  runOnce('issue_1088_picker_schedule_fields', () => {
+    // Marker only — the additive ALTER above is an idempotent STRUCTURE change.
+  });
+
+  // #1073 (OCU-32) — full permission-key round-trip. `core_permissions_json`
+  // (added by an earlier migration, see the is_manager/core-permissions block
+  // above) ALREADY stores an arbitrary permission-key map — setPermissionValue
+  // in opencode_agent_writer.ts writes ANY key (string action OR a pattern-map
+  // object) into frontmatter generically, not just edit/bash/webfetch. #1073's
+  // net-new work is therefore NOT a new column — it's agent_profile_sync
+  // reading the engine's resolved permission block BACK into
+  // core_permissions_json (see syncOpencodeAgentProfiles). No STRUCTURE
+  // change; this runOnce is a marker only, kept for migration-coordination
+  // parity with the other Wave-C/D issues per the mega-plan §5 convention.
+  runOnce('issue_1073_permissions_json', () => {
+    // Marker only — no schema change; core_permissions_json already existed.
+  });
+
+  // #1094 — OpenAI native image_generation capability, grantable per-profile
+  // and NOT represented as an MCP server / allowedMcpsJson entry. A dedicated
+  // boolean (rather than requiring callers to know the low-level
+  // `core_permissions_json.image_generation` permission-key name) that the
+  // writer projects into `permission.image_generation: allow` frontmatter;
+  // the existing ask/allow/deny approval flow still governs the actual call.
+  // Additive + NOT NULL DEFAULT 0 (opt-in); local SQLite only.
+  //
+  // FORK CAVEAT (verified during implementation, not a Rhythm-side gap): the
+  // vendored engine's session tool-assembly (packages/opencode/src/session)
+  // has no existing mechanism that adds ANY provider-hosted tool (image
+  // generation, web_search, etc.) to a request — grep across that directory
+  // for HOSTED_TOOLS/providerExecuted-request-side wiring found only
+  // RESPONSE-side handling (processor.ts interprets a hosted tool-call IF one
+  // arrives) and the tool implementation itself under packages/core/llm, but
+  // no caller that offers it to the model. Granting this flag is real,
+  // inert-until-then Rhythm-side plumbing; actually OFFERING the tool to the
+  // model needs a follow-up fork change (out of scope here per AGENTS.md —
+  // the fork is edited only for mcp-scope-* issues — and per this issue's own
+  // "if a fork rebuild IS required, SKIP with a note" contingency).
+  const agentConfigCols1094 = (db.pragma('table_info(agent_configs)') as { name: string }[]).map(
+    (c) => c.name,
+  );
+  if (!agentConfigCols1094.includes('image_generation_enabled')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN image_generation_enabled INTEGER NOT NULL DEFAULT 0`);
+  }
+  runOnce('issue_1094_image_gen_capability', () => {
+    // Marker only — the additive ALTER above is an idempotent STRUCTURE change.
+  });
+
+  // #1069 (OCU-28) — rhythm-telemetry plugin ingestion table. Local SQLite
+  // only (tool.execute hooks only fire against a locally-spawned engine).
+  // CREATE TABLE IF NOT EXISTS is itself an idempotent STRUCTURE change; the
+  // runOnce below is a marker only, kept for migration-coordination audit
+  // trail parity with the other Wave-C/D issues (mirrors #1058's pattern).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tool_events (
+      id TEXT PRIMARY KEY,
+      session_id TEXT,
+      sdk_session_id TEXT NOT NULL,
+      call_id TEXT NOT NULL,
+      tool TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      error_class TEXT,
+      created_at TEXT NOT NULL
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS tool_events_session_idx ON tool_events (session_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS tool_events_sdk_session_idx ON tool_events (sdk_session_id)`);
+  runOnce('issue_1069_tool_events', () => {
+    // Marker only — the CREATE TABLE/INDEX above are idempotent STRUCTURE changes.
+  });
+
+  // #1072 (OCU-31) — org_settings: a single org-wide instructions markdown,
+  // hosted on the production API (org_settings_routes.ts, public read /
+  // authed write) and synced to every local machine's opencode `instructions`
+  // config (opencode_plugin_config.ts's `syncOrgInstructions`). Singleton row
+  // keyed by a fixed id ('org_instructions') — see org_settings_repository.ts.
+  // THE ONLY PROD-SCHEMA ISSUE IN THIS BATCH: see postgres_bootstrap.ts for
+  // the matching table (additive only, flagged there for manual review per
+  // AGENTS.md production posture).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS org_settings (
+      id         TEXT PRIMARY KEY,
+      content    TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  runOnce('issue_1072_org_settings', () => {
+    // Marker only — the CREATE TABLE above is an idempotent STRUCTURE change.
+  });
 }

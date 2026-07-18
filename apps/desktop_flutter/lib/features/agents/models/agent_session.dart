@@ -96,6 +96,9 @@ class AgentSession {
     this.anthropicAccountId,
     this.isSystem = false,
     this.category = 'chat',
+    this.worktreeName,
+    this.worktreePath,
+    this.worktreeBranch,
   });
 
   final String id;
@@ -153,6 +156,15 @@ class AgentSession {
   /// which `AgentSessionScope` a session belongs to.
   final String category;
 
+  /// OCU-17/18 (#1058/#1059) — when this session runs in an isolated git
+  /// worktree, its name/directory/branch. All null for a normal session.
+  final String? worktreeName;
+  final String? worktreePath;
+  final String? worktreeBranch;
+
+  /// True when this session is running in an isolated git worktree.
+  bool get isIsolatedWorktree => worktreePath != null;
+
   factory AgentSession.fromJson(Map<String, dynamic> json) {
     // Accept `agent_id` (new) or fall back to `agent_kind` (legacy) for one
     // release, normalising the wire value to the canonical agentId string.
@@ -187,6 +199,9 @@ class AgentSession {
       anthropicAccountId: asString(json['anthropicAccountId']),
       isSystem: json['isSystem'] as bool? ?? false,
       category: asString(json['category']) ?? 'chat',
+      worktreeName: asString(json['worktreeName']),
+      worktreePath: asString(json['worktreePath']),
+      worktreeBranch: asString(json['worktreeBranch']),
     );
   }
 
@@ -215,6 +230,9 @@ class AgentSession {
       if (parentId != null) 'parentSessionId': parentId,
       if (sdkSessionId != null) 'sdkSessionId': sdkSessionId,
       if (anthropicAccountId != null) 'anthropicAccountId': anthropicAccountId,
+      if (worktreeName != null) 'worktreeName': worktreeName,
+      if (worktreePath != null) 'worktreePath': worktreePath,
+      if (worktreeBranch != null) 'worktreeBranch': worktreeBranch,
     };
   }
 
@@ -240,6 +258,9 @@ class AgentSession {
     Object? parentId = _sentinel,
     Object? sdkSessionId = _sentinel,
     Object? anthropicAccountId = _sentinel,
+    Object? worktreeName = _sentinel,
+    Object? worktreePath = _sentinel,
+    Object? worktreeBranch = _sentinel,
   }) {
     return AgentSession(
       id: id ?? this.id,
@@ -281,6 +302,15 @@ class AgentSession {
           : anthropicAccountId as String?,
       isSystem: isSystem,
       category: category,
+      worktreeName: worktreeName == _sentinel
+          ? this.worktreeName
+          : worktreeName as String?,
+      worktreePath: worktreePath == _sentinel
+          ? this.worktreePath
+          : worktreePath as String?,
+      worktreeBranch: worktreeBranch == _sentinel
+          ? this.worktreeBranch
+          : worktreeBranch as String?,
     );
   }
 }

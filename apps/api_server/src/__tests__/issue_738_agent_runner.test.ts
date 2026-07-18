@@ -273,4 +273,34 @@ describe('#738 — AgentRunner', () => {
     delete process.env.AGENT_RUN_TIMEOUT_MS;
     delete process.env.MAX_CONCURRENT_AGENT_RUNS;
   }, 10_000); // extend test timeout to 10s
+
+  // #1099 — default concurrency cap raised 3 → 8. With no env override, a 4th
+  // concurrent run must NOT be capacity-rejected (it would have been under the
+  // old default of 3). Asserts the default rose above the old ceiling.
+  it('accepts a 4th concurrent run when MAX_CONCURRENT_AGENT_RUNS is unset (default 8)', async () => {
+    process.env.AGENT_RUN_TIMEOUT_MS = '200';
+    delete process.env.MAX_CONCURRENT_AGENT_RUNS; // fall back to default (8)
+
+    setDb(new Database(':memory:'));
+    runMigrations(getDb());
+
+    // Hold 3 runs open so their slots stay taken (never resolve during window).
+    const holdResolvers: ((v: null) => void)[] = [];
+    mockPrompt.mockImplementation(
+      () => new Promise<null>((resolve) => holdResolvers.push(resolve)),
+    );
+    const held = [run({ prompt: 'A' }), run({ prompt: 'B' }), run({ prompt: 'C' })];
+    await new Promise<void>((resolve) => setTimeout(resolve, 30)); // let slots acquire
+
+    // 4th run under the OLD default (3) would be capacity-rejected; under the
+    // new default (8) it acquires a slot and instead times out at 200ms.
+    const fourth = await run({ prompt: 'D' });
+    expect(fourth.errorCode).not.toBe('capacity');
+    expect(fourth.error ?? '').not.toMatch(/concurrency cap/i);
+
+    holdResolvers.forEach((r) => r(null)); // release held runs
+    await Promise.all(held);
+
+    delete process.env.AGENT_RUN_TIMEOUT_MS;
+  }, 10_000);
 });

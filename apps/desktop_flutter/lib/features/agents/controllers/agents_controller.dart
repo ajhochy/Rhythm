@@ -208,6 +208,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// user's text renders twice inside the one (reconciled) bubble.
   final Set<String> _clientAuthoredMessageIds = {};
 
+  /// OCU-05 (#1046): message ids sent while the session was already working, so
+  /// the engine queues them. The user bubble shows a subtle "queued" chip until
+  /// the engine's `message.updated` reconciles the optimistic insert (promoting
+  /// its id in [_upsertChatMessage]), at which point the id is cleared.
+  final Set<String> _queuedMessageIds = {};
+
+  /// OCU-05: true while [messageId]'s bubble should show the "queued" chip.
+  bool isMessageQueued(String messageId) =>
+      _queuedMessageIds.contains(messageId);
+
   /// OPC-M1-3: tracks when the most-recent part activity arrived for each
   /// session. Used by [_recomputeStuck] instead of the old PTY output buffer.
   final Map<String, DateTime> _lastPartActivityAt = {};
@@ -272,6 +282,24 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // session id. An absent entry means no fetch has occurred yet.
   final Map<String, Map<String, dynamic>> _sessionMemoryProvenanceBySession =
       {};
+
+  // OCU-22 (#1063): per-session VCS info ({branch}) and working-tree status
+  // (changed-file entries). An absent entry means no fetch has occurred yet;
+  // a null [_vcsInfoBySession] value means the last fetch succeeded but the
+  // directory isn't a git repo (no branch) — the badge stays hidden either way.
+  final Map<String, Map<String, dynamic>?> _vcsInfoBySession = {};
+  final Map<String, List<Map<String, dynamic>>> _vcsStatusBySession = {};
+  final Set<String> _vcsInfoLoading = {};
+
+  // OCU-23 (#1064): per-session, per-mode ('git' | 'branch') VCS diff entries
+  // for the Changes-tab scope toggle. Keyed by '$sessionId:$mode'.
+  final Map<String, List<Map<String, dynamic>>> _vcsDiffByKey = {};
+  final Set<String> _vcsDiffLoading = {};
+  final Map<String, String> _vcsDiffError = {};
+
+  // OCU-25 (#1066): true while a "Prepare project for agents" (session.init)
+  // call is in-flight for the given session id.
+  final Map<String, bool> _sessionInitializing = {};
 
   // OPC-M4-1: Pending file attachments per session.
   // Each entry is a FilePart map with keys: type, mime, filename, url (data URI).
@@ -688,6 +716,203 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // (the CompactionPart is persisted in the session).
     }
   }
+
+  // ── OCU-22 (#1063): VCS branch badge + dirty count ─────────────────────────
+
+  /// `{branch, ...}` for [sessionId], or null when no fetch has completed yet
+  /// OR the directory isn't a git repo (no `branch` key on the response). The
+  /// badge should be hidden in both the "not fetched" and "non-git" cases.
+  Map<String, dynamic>? vcsInfoFor(String sessionId) =>
+      _vcsInfoBySession[sessionId];
+
+  /// Changed-file entries (`{file, additions, deletions, status}`) from the
+  /// last vcs/status fetch for [sessionId]. Empty when clean or not fetched.
+  List<Map<String, dynamic>> vcsStatusFor(String sessionId) =>
+      List.unmodifiable(_vcsStatusBySession[sessionId] ?? const []);
+
+  bool vcsInfoLoading(String sessionId) => _vcsInfoLoading.contains(sessionId);
+
+  /// Fetch (or refresh) the VCS branch + working-tree status for [sessionId].
+  /// Non-fatal on error — a failed fetch just leaves the badge hidden/stale
+  /// rather than surfacing a session-level error.
+  Future<void> fetchVcsInfo(String sessionId) async {
+    if (sessionId.isEmpty) return;
+    if (_vcsInfoLoading.contains(sessionId)) return;
+    _vcsInfoLoading.add(sessionId);
+    try {
+      final results = await Future.wait([
+        _repository.getVcs(sessionId),
+        _repository.getVcsStatus(sessionId),
+      ]);
+      if (_disposed) return;
+      final info = results[0] as Map<String, dynamic>;
+      // No `branch` key → not a git directory; store null so the badge hides.
+      _vcsInfoBySession[sessionId] = info['branch'] != null ? info : null;
+      _vcsStatusBySession[sessionId] =
+          (results[1] as List<Map<String, dynamic>>);
+    } catch (_) {
+      // Leave any prior state as-is; the badge degrades to hidden/stale.
+    } finally {
+      _vcsInfoLoading.remove(sessionId);
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  /// Called when a `vcs.branch.updated` WS frame arrives. The frame is
+  /// project-scoped (no sessionID), so we refresh the currently-selected
+  /// session's badge — that's the only session visibly showing one.
+  void handleVcsBranchUpdatedEvent() {
+    final id = _selectedSessionId;
+    if (id != null) unawaited(fetchVcsInfo(id));
+  }
+
+  /// Test-only: seed VCS info without a server round-trip.
+  @visibleForTesting
+  void setVcsInfoForTest(
+    String sessionId, {
+    Map<String, dynamic>? info,
+    List<Map<String, dynamic>> status = const [],
+  }) {
+    _vcsInfoBySession[sessionId] = info;
+    _vcsStatusBySession[sessionId] = status;
+    notifyListeners();
+  }
+
+  // ── OCU-23 (#1064): Changes-tab scope toggle (vcs/diff) ────────────────────
+
+  String _vcsDiffKey(String sessionId, String mode) => '$sessionId:$mode';
+
+  /// VCS diff entries (`{file, patch, additions, deletions, status}`) for
+  /// [sessionId] in [mode] ('git' = all uncommitted, 'branch' = vs default
+  /// branch). Empty when not yet fetched or clean.
+  List<Map<String, dynamic>> vcsDiffFor(String sessionId, String mode) =>
+      List.unmodifiable(
+        _vcsDiffByKey[_vcsDiffKey(sessionId, mode)] ?? const [],
+      );
+
+  bool vcsDiffLoading(String sessionId, String mode) =>
+      _vcsDiffLoading.contains(_vcsDiffKey(sessionId, mode));
+
+  String? vcsDiffErrorFor(String sessionId, String mode) =>
+      _vcsDiffError[_vcsDiffKey(sessionId, mode)];
+
+  /// Fetch (or refresh) the vcs/diff entries for [sessionId] in [mode].
+  Future<void> fetchVcsDiff(String sessionId, String mode) async {
+    final key = _vcsDiffKey(sessionId, mode);
+    if (_vcsDiffLoading.contains(key)) return;
+    _vcsDiffLoading.add(key);
+    notifyListeners();
+    try {
+      final entries = await _repository.getVcsDiff(sessionId, mode);
+      if (_disposed) return;
+      _vcsDiffByKey[key] = entries;
+      _vcsDiffError.remove(key);
+    } catch (e) {
+      if (_disposed) return;
+      _vcsDiffByKey[key] ??= const [];
+      _vcsDiffError[key] = e.toString();
+    } finally {
+      _vcsDiffLoading.remove(key);
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  /// Fetch the raw unified-diff patch text for [sessionId]'s uncommitted
+  /// working-tree changes (used by the Changes-tab "Export patch" action).
+  Future<String> fetchVcsDiffRaw(String sessionId) =>
+      _repository.getVcsDiffRaw(sessionId);
+
+  // ── OCU-24 (#1065): session.shell quick-run ─────────────────────────────────
+
+  /// Run [command] as a non-interactive shell command inside [sessionId]. The
+  /// engine executes it through the bash tool under the session's normal
+  /// permission mode (plan/deny-all modes ask/deny like any other tool call),
+  /// and the resulting message (with its bash tool part) arrives on the
+  /// normal transcript WS stream — no separate rendering path is needed here.
+  Future<void> runShellCommand(String sessionId, String command) async {
+    try {
+      await _repository.shellCommand(sessionId, command);
+    } catch (e) {
+      if (_disposed) return;
+      _error = e.toString();
+      notifyListeners();
+    }
+  }
+
+  // ── OCU-25 (#1066): "Prepare project for agents" (session.init) ────────────
+
+  bool isInitializingProject(String sessionId) =>
+      _sessionInitializing[sessionId] ?? false;
+
+  /// Run the engine's init flow (analyze the project + generate/update
+  /// AGENTS.md) for [sessionId]. Progress streams through the normal
+  /// transcript like any other turn; this only tracks a short-lived spinner
+  /// for the header action while the POST is in-flight.
+  Future<void> initializeProject(String sessionId) async {
+    _sessionInitializing[sessionId] = true;
+    notifyListeners();
+    try {
+      await _repository.initProject(sessionId);
+    } catch (e) {
+      if (_disposed) return;
+      _error = e.toString();
+    } finally {
+      if (!_disposed) {
+        _sessionInitializing.remove(sessionId);
+        notifyListeners();
+      }
+    }
+  }
+
+  /// Test-only: seed the initializing state for [sessionId] without a server
+  /// round-trip.
+  @visibleForTesting
+  void setInitializingForTest(String sessionId, bool initializing) {
+    if (initializing) {
+      _sessionInitializing[sessionId] = true;
+    } else {
+      _sessionInitializing.remove(sessionId);
+    }
+    notifyListeners();
+  }
+
+  // ── OCU-20 (#1061): @-mention fuzzy file attach ─────────────────────────────
+
+  /// Fuzzy file search scoped to [sessionId]'s directory (worktree dir when
+  /// isolated) for the composer @-mention popover. Not cached — each
+  /// keystroke-debounced call proxies straight to the find-files endpoint.
+  Future<List<String>> searchFiles(
+    String sessionId,
+    String query, {
+    int limit = 20,
+  }) =>
+      _repository.findFiles(sessionId, query, limit: limit, type: 'file');
+
+  /// Fetch a file's content through the worktree-safe content proxy (never
+  /// local file IO — required so isolated-worktree sessions resolve correctly).
+  /// Shape: `{type: 'text'|'binary', content, encoding?, mimeType?}`. Also used
+  /// by the OCU-21 (#1062) Files-tab preview pane.
+  Future<Map<String, dynamic>> fetchFileContent(
+    String sessionId,
+    String path,
+  ) =>
+      _repository.fileContent(sessionId, path);
+
+  // ── OCU-21 (#1062): Inspector Files tab (browse + preview) ──────────────────
+
+  /// List files/dirs at [path] ('.' = session root) within [sessionId]'s
+  /// directory (worktree dir when isolated). Each entry:
+  /// `{name, path, absolute, type: 'file'|'directory', ignored}`.
+  Future<List<Map<String, dynamic>>> listSessionFiles(
+    String sessionId, {
+    String path = '.',
+  }) =>
+      _repository.listSessionFiles(sessionId, path: path);
+
+  /// Git-aware file status for [sessionId]'s directory, used to render
+  /// modified/untracked/staged status dots in the Files tab.
+  Future<List<Map<String, dynamic>>> filesGitStatus(String sessionId) =>
+      _repository.filesGitStatus(sessionId);
 
   // ── OPC-M3-2: revert / unrevert ────────────────────────────────────────────
 
@@ -1614,6 +1839,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    // OCU-18 (#1059): run this session in an isolated git worktree.
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) async {
     _error = null;
     _lastErrorStatus = null;
@@ -1638,6 +1866,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         createBranch: createBranch,
         mcpRole: mcpRole,
         anthropicAccountId: anthropicAccountId,
+        isolateWorktree: isolateWorktree,
+        worktreeName: worktreeName,
       );
       _sessions = [..._sessions, session];
       sessionFirstSeenAt[session.id] = DateTime.now();
@@ -1853,11 +2083,34 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Deny a pending permission — POST to the server and remove from local state.
-  Future<void> denyPermission(String sessionId, String permissionId) async {
+  ///
+  /// OCU-02 (#1043): [reason] is an optional message shown to the agent
+  /// explaining why the action was denied.
+  Future<void> denyPermission(
+    String sessionId,
+    String permissionId, {
+    String? reason,
+  }) async {
     _removePendingPermission(sessionId, permissionId);
     notifyListeners();
     try {
-      await _repository.respondPermission(sessionId, permissionId, 'deny');
+      await _repository.respondPermission(sessionId, permissionId, 'deny',
+          message: reason);
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// OCU-02 (#1043): approve a pending permission for the remainder of the
+  /// project (server maps 'always' to the engine's `always` reply so the
+  /// same action is not re-asked).
+  Future<void> alwaysAllowPermission(
+      String sessionId, String permissionId) async {
+    _removePendingPermission(sessionId, permissionId);
+    notifyListeners();
+    try {
+      await _repository.respondPermission(sessionId, permissionId, 'always');
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
       notifyListeners();
@@ -2075,6 +2328,51 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  // --------------------------------------------------------------------------
+  // OCU-18 (#1059): Changes-tab isolated-worktree actions
+  // --------------------------------------------------------------------------
+
+  bool _worktreeActionInFlight = false;
+
+  /// True while a reset/remove worktree call is in flight — used to disable
+  /// the Changes-tab actions and avoid a duplicate submit.
+  bool get worktreeActionInFlight => _worktreeActionInFlight;
+
+  /// Reset the session's isolated worktree branch back to the primary
+  /// default branch. Returns true on success.
+  Future<bool> resetWorktree(String sessionId) async {
+    _worktreeActionInFlight = true;
+    notifyListeners();
+    try {
+      await _repository.resetWorktree(sessionId);
+      return true;
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      return false;
+    } finally {
+      _worktreeActionInFlight = false;
+      notifyListeners();
+    }
+  }
+
+  /// Remove the session's isolated git worktree. On success, updates the
+  /// local session row so the worktree badge disappears immediately.
+  Future<bool> removeWorktree(String sessionId) async {
+    _worktreeActionInFlight = true;
+    notifyListeners();
+    try {
+      final updated = await _repository.removeWorktree(sessionId);
+      _sessions = _upsertById(_sessions, updated);
+      return true;
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      return false;
+    } finally {
+      _worktreeActionInFlight = false;
+      notifyListeners();
+    }
+  }
+
   /// Load archived sessions on demand (e.g. when the Archived section is expanded).
   /// Caches results in [_archived]; call again to refresh.
   Future<void> loadArchivedSessions() async {
@@ -2162,6 +2460,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // message appears immediately in the single render path.
     final optimisticMsgId =
         'optimistic-input-${DateTime.now().millisecondsSinceEpoch}';
+    // OCU-05 (#1046): if the session was already working, the engine queues this
+    // input behind the active turn — flag the bubble so it renders a "queued"
+    // chip until message.updated reconciles it.
+    if (isWorking(sessionId)) {
+      _queuedMessageIds.add(optimisticMsgId);
+    }
     final optimisticMsg = ChatMessage(
       id: optimisticMsgId,
       sessionId: sessionId,
@@ -2287,14 +2591,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  /// Convenience wrapper used by SessionModelPicker — stages a per-turn
+  /// Convenience wrapper used by UnifiedAgentModelPicker — stages a per-turn
   /// override using the picker's row type. Pass null to clear.
   void setTurnOverride(AgentModelRoute? route) {
     _pendingTurnOverride = route;
     notifyListeners();
   }
 
-  /// Convenience wrapper used by SessionModelPicker — persists the route as
+  /// Convenience wrapper used by UnifiedAgentModelPicker — persists the route as
   /// the session-level default via [updateSession].
   ///
   /// Also sets the pending turn override so the very next [send] still ships
@@ -2411,6 +2715,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     unawaited(fetchMemoryProvenance(id));
     // OPC-M4-4: fetch available agents for the session cwd.
     unawaited(fetchAvailableAgents(id));
+    // OCU-22 (#1063): fetch the branch badge + dirty count for this session.
+    unawaited(fetchVcsInfo(id));
     // OPC-#715: refresh the catalog on every session select so that curation
     // changes made since the last WS-connect fetch (e.g. a newly-curated
     // OpenRouter model) are reflected in the new session's model picker without
@@ -2458,6 +2764,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     } finally {
       _commandsFetchInFlight = false;
     }
+  }
+
+  /// OCU-11 (#1052): force a re-fetch of the slash-command catalog for
+  /// [sessionId], bypassing the [_loadSlashCommands] cache guard. Called when
+  /// the slash popover opens so a playbook created/edited/deleted in the
+  /// Playbooks manager (or another window) shows up without an app restart.
+  Future<void> refreshSlashCommands(String sessionId) async {
+    _commandsBySession.remove(sessionId);
+    await _loadSlashCommands(sessionId);
   }
 
   /// #639 — Re-fetch model routes for the currently-selected session.
@@ -2895,6 +3210,28 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // session so the persisted CompactionPart renders as the divider live.
       handleSessionCompactedEvent(msg.id);
       return; // handleSessionCompactedEvent calls notifyListeners() itself.
+    } else if (msg is VcsBranchUpdatedMessage) {
+      // OCU-22 (#1063): project-scoped frame — refresh the selected session's
+      // branch badge live (e.g. after `git checkout -b`).
+      handleVcsBranchUpdatedEvent();
+      return; // handleVcsBranchUpdatedEvent's fetch calls notifyListeners().
+    } else if (msg is WorktreeReadyMessage) {
+      // OCU-18 (#1059): project-scoped — surface a toast via the existing
+      // agent-notification mechanism (same "background event completed"
+      // pattern as SessionSpilloverMessage below).
+      _notificationsController.pushAgentNotification(
+        id: DateTime.now().millisecondsSinceEpoch,
+        title: 'Worktree ready',
+        body: msg.branch != null
+            ? '"${msg.name}" is ready on branch ${msg.branch}.'
+            : '"${msg.name}" is ready.',
+      );
+    } else if (msg is WorktreeFailedMessage) {
+      _notificationsController.pushAgentNotification(
+        id: DateTime.now().millisecondsSinceEpoch,
+        title: 'Worktree failed',
+        body: msg.message,
+      );
     } else if (msg is SessionTodoUpdatedMessage) {
       // OPC-M3-5: todo.updated event — replace the session's todo state in-place.
       // State is keyed per session; an update for session B must not affect A.
@@ -2994,6 +3331,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     );
     if (optIdx >= 0) {
       final opt = list[optIdx];
+      // OCU-05 (#1046): the engine has now acknowledged this user message —
+      // clear the "queued" chip.
+      _queuedMessageIds.remove(opt.id);
       final optParts = _chatPartsByMessage.remove(opt.id);
       if (optParts != null && !_chatPartsByMessage.containsKey(messageId)) {
         _chatPartsByMessage[messageId] = optParts;

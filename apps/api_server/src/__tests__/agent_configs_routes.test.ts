@@ -323,6 +323,54 @@ describe('POST /agent-configs', () => {
     // Legacy `canResume` field is no longer echoed back (issue #581).
     expect(config.canResume).toBeUndefined();
   });
+
+  // #1088 — schedulable decoupled from sessionSelectable (picker visibility).
+  it('accepts an explicit schedulable override independent of sessionSelectable (#1088)', async () => {
+    const res = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ label: 'Hidden Specialist', sessionSelectable: false, schedulable: true }),
+    });
+    expect(res.status).toBe(201);
+    const config = (await res.json()) as Record<string, unknown>;
+    expect(config.sessionSelectable).toBe(false);
+    expect(config.schedulable).toBe(true);
+  });
+
+  it('schedulable defaults to null (inherits sessionSelectable) when omitted (#1088)', async () => {
+    const res = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ label: 'Default Schedulable' }),
+    });
+    expect(res.status).toBe(201);
+    const config = (await res.json()) as Record<string, unknown>;
+    expect(config.schedulableOverride).toBeNull();
+    expect(config.schedulable).toBe(true); // sessionSelectable defaults true
+  });
+
+  // #1094 — OpenAI native image_generation capability grant.
+  it('creates a config with imageGenerationEnabled granted (#1094)', async () => {
+    const res = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ label: 'Graphic Designer', imageGenerationEnabled: true }),
+    });
+    expect(res.status).toBe(201);
+    const config = (await res.json()) as Record<string, unknown>;
+    expect(config.imageGenerationEnabled).toBe(true);
+  });
+
+  it('imageGenerationEnabled defaults to false (#1094)', async () => {
+    const res = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ label: 'Plain Agent' }),
+    });
+    expect(res.status).toBe(201);
+    const config = (await res.json()) as Record<string, unknown>;
+    expect(config.imageGenerationEnabled).toBe(false);
+  });
 });
 
 describe('PATCH /agent-configs/:id', () => {
@@ -357,6 +405,52 @@ describe('PATCH /agent-configs/:id', () => {
     const updated = (await res.json()) as Record<string, unknown>;
     expect(updated.label).toBe('Updated');
     expect(broadcastAgentConfigsChangedSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('patches schedulable independent of sessionSelectable, and null clears the override (#1088)', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ label: 'Hidden', sessionSelectable: false }),
+    });
+    const created = (await createRes.json()) as Record<string, unknown>;
+
+    const patchRes = await fetch(`${baseUrl}/agent-configs/${created.id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ schedulable: true }),
+    });
+    expect(patchRes.status).toBe(200);
+    const patched = (await patchRes.json()) as Record<string, unknown>;
+    expect(patched.sessionSelectable).toBe(false);
+    expect(patched.schedulable).toBe(true);
+
+    const clearRes = await fetch(`${baseUrl}/agent-configs/${created.id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ schedulable: null }),
+    });
+    const cleared = (await clearRes.json()) as Record<string, unknown>;
+    expect(cleared.schedulableOverride).toBeNull();
+    expect(cleared.schedulable).toBe(false); // falls back to sessionSelectable=false
+  });
+
+  it('patches imageGenerationEnabled (#1094)', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ label: 'Designer' }),
+    });
+    const created = (await createRes.json()) as Record<string, unknown>;
+
+    const res = await fetch(`${baseUrl}/agent-configs/${created.id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ imageGenerationEnabled: true }),
+    });
+    expect(res.status).toBe(200);
+    const updated = (await res.json()) as Record<string, unknown>;
+    expect(updated.imageGenerationEnabled).toBe(true);
   });
 
   it('issue-1014: reloads engine profiles when a delegate roster is patched', async () => {

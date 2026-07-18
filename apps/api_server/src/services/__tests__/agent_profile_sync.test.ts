@@ -36,7 +36,7 @@ function makeDb() {
 function ocAgent(
   name: string,
   mode: 'primary' | 'subagent' = 'subagent',
-  extra: { prompt?: string; model?: string } = {},
+  extra: { prompt?: string; model?: string; permission?: Record<string, unknown> } = {},
 ): SdkAgent {
   return {
     name,
@@ -313,5 +313,75 @@ describe('syncOpencodeAgentProfiles — #900 orphaned agent-file self-heal', () 
     });
 
     await expect(syncOpencodeAgentProfiles([])).resolves.toEqual({ synced: 0 });
+  });
+});
+
+// #1073 (OCU-32) — profile sync reads the engine's resolved permission block
+// back into corePermissionsJson, backfill-only (never clobbers a designer edit).
+describe('syncOpencodeAgentProfiles — permission block sync-back (#1073)', () => {
+  let repo: AgentConfigsRepository;
+
+  beforeEach(() => {
+    setDb(makeDb());
+    repo = new AgentConfigsRepository();
+  });
+
+  it('seeds corePermissionsJson from the engine on first import, including arbitrary keys + pattern maps', async () => {
+    await syncOpencodeAgentProfiles([
+      ocAgent('new-perm-agent', 'primary', {
+        permission: { websearch: 'deny', external_directory: { '/tmp/*': 'allow', '*': 'deny' } },
+      }),
+    ]);
+
+    const created = repo.getById('new-perm-agent')!;
+    expect(JSON.parse(created.corePermissionsJson!)).toEqual({
+      websearch: 'deny',
+      external_directory: { '/tmp/*': 'allow', '*': 'deny' },
+    });
+  });
+
+  it('does not set corePermissionsJson when the engine reports no permission block', async () => {
+    await syncOpencodeAgentProfiles([ocAgent('no-perm-agent', 'primary', {})]);
+    expect(repo.getById('no-perm-agent')!.corePermissionsJson).toBeNull();
+  });
+
+  it('backfills corePermissionsJson on re-sync only when it is currently null', async () => {
+    repo.insert({
+      id: 'backfill-agent',
+      label: 'Backfill Agent',
+      icon: '',
+      isAgent: true,
+      enabled: true,
+      ocAgent: 'backfill-agent',
+      sessionSelectable: true,
+      corePermissionsJson: null,
+      sortOrder: 100,
+    });
+
+    await syncOpencodeAgentProfiles([
+      ocAgent('backfill-agent', 'primary', { permission: { skill: 'allow' } }),
+    ]);
+
+    expect(JSON.parse(repo.getById('backfill-agent')!.corePermissionsJson!)).toEqual({ skill: 'allow' });
+  });
+
+  it('NEVER overwrites a user-set corePermissionsJson on re-sync — even when the engine reports a different block', async () => {
+    repo.insert({
+      id: 'user-owned-perm-agent',
+      label: 'User Owned Perm Agent',
+      icon: '',
+      isAgent: true,
+      enabled: true,
+      ocAgent: 'user-owned-perm-agent',
+      sessionSelectable: true,
+      corePermissionsJson: JSON.stringify({ bash: 'ask' }),
+      sortOrder: 100,
+    });
+
+    await syncOpencodeAgentProfiles([
+      ocAgent('user-owned-perm-agent', 'primary', { permission: { websearch: 'deny' } }),
+    ]);
+
+    expect(JSON.parse(repo.getById('user-owned-perm-agent')!.corePermissionsJson!)).toEqual({ bash: 'ask' });
   });
 });

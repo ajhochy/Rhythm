@@ -13,7 +13,6 @@ vi.mock('../services/opencode_engine', () => {
   const mockClient = {
     isReady: true,
     listAuthedProviders: vi.fn().mockResolvedValue(['anthropic', 'openai', 'google']),
-    listProviders: vi.fn().mockResolvedValue(['anthropic', 'openai', 'google']),
     statusMessage: 'Opencode SDK ready',
   };
   return { opencodeClient: mockClient };
@@ -130,7 +129,7 @@ describe('GET /agents/capabilities', () => {
   });
 
   it('returns false for claude-code when anthropic provider is not connected', async () => {
-    // Re-mock listProviders to exclude anthropic
+    // Re-mock listAuthedProviders to exclude anthropic
     const { opencodeClient } = await import('../services/opencode_engine');
     vi.mocked(opencodeClient.listAuthedProviders).mockResolvedValueOnce(['openai', 'google']);
 

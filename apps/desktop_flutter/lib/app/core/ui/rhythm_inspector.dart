@@ -449,7 +449,13 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
   bool _saving = false;
   bool _updatingCollaborators = false;
 
-  bool get _readOnly => widget.task.sourceType == 'calendar_shadow_event';
+  // Read-only sources are mirrored/synced from an external authority; local
+  // edits to their fields are overwritten by the next sync, so we lock them.
+  static const _readOnlySourceTypes = {'calendar_shadow_event', 'prod_mirror'};
+
+  bool get _readOnly => _readOnlySourceTypes.contains(widget.task.sourceType);
+
+  bool get _isProdMirror => widget.task.sourceType == 'prod_mirror';
 
   @override
   void initState() {
@@ -460,7 +466,8 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
     _scheduledDate = widget.task.scheduledDate;
     _dueDate = widget.task.dueDate;
     _preferredAgent = widget.task.preferredAgent;
-    // Calendar shadow events stay read-only regardless of the default.
+    // Read-only sources (calendar shadow events, prod mirrors) stay read-only
+    // regardless of the default.
     _editing = widget.initialEditMode && !_readOnly;
   }
 
@@ -486,14 +493,18 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
     return _RhythmInspectorShell(
       kicker: _readOnly ? 'TASK INSPECTOR · READ ONLY' : 'TASK INSPECTOR',
       title: _editing ? _titleController.text.trim() : widget.task.title,
-      subtitle: _readOnly
-          ? 'This item is synced from your calendar and shown here for context.'
-          : 'Review context, coordinate with collaborators, and edit the work when needed.',
-      icon: _readOnly
-          ? Icons.event_note_outlined
-          : widget.task.status == TaskStatus.done
-              ? Icons.task_alt
-              : Icons.radio_button_unchecked,
+      subtitle: _isProdMirror
+          ? 'This task mirrors the production system, which is the source of truth. Local edits here are overwritten on the next sync.'
+          : _readOnly
+              ? 'This item is synced from your calendar and shown here for context.'
+              : 'Review context, coordinate with collaborators, and edit the work when needed.',
+      icon: _isProdMirror
+          ? Icons.cloud_sync_outlined
+          : _readOnly
+              ? Icons.event_note_outlined
+              : widget.task.status == TaskStatus.done
+                  ? Icons.task_alt
+                  : Icons.radio_button_unchecked,
       onIconTap: _readOnly || widget.onToggleStatus == null
           ? null
           : () async {
@@ -1347,6 +1358,7 @@ String? _taskSourceLabel(Task task) {
     'calendar_shadow_event' => 'Calendar event',
     'automation_rule' => 'Automation',
     'planning_center_signal' => 'Planning Center',
+    'prod_mirror' => 'Production (read-only)',
     _ => null,
   };
 }

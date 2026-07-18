@@ -124,6 +124,8 @@ class _ErrorAgentsRepository implements AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) async {
     throw AppError(
       message,
@@ -168,8 +170,9 @@ class _ErrorAgentsRepository implements AgentsRepository {
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) async {
+    String decision, {
+    String? message,
+  }) async {
     throw UnimplementedError();
   }
 
@@ -184,6 +187,16 @@ class _ErrorAgentsRepository implements AgentsRepository {
 
   @override
   Future<void> rejectQuestion(String sessionId, String callId) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> resetWorktree(String sessionId) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<AgentSession> removeWorktree(String sessionId) async {
     throw UnimplementedError();
   }
 
@@ -222,20 +235,11 @@ class _ErrorAgentsRepository implements AgentsRepository {
   Future<void> summarizeSession(String sessionId) async {}
 
   @override
-  Future<void> dispatchCommand(
-      String sessionId, String command, String args) async {}
-
-  @override
   Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async => [];
 
   @override
   Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async =>
       {'recorded': false, 'memoryIds': [], 'notePaths': []};
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchChildSessions(
-          String parentSessionId) async =>
-      [];
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
@@ -262,6 +266,54 @@ class _ErrorAgentsRepository implements AgentsRepository {
 
   @override
   String ptyWsUrl(String ptyId) => 'ws://localhost:4001/ws/pty/$ptyId';
+
+  @override
+  Future<Map<String, dynamic>> getVcs(String sessionId) async => const {};
+
+  @override
+  Future<List<Map<String, dynamic>>> getVcsStatus(String sessionId) async =>
+      const [];
+
+  @override
+  Future<List<Map<String, dynamic>>> getVcsDiff(
+    String sessionId,
+    String mode,
+  ) async =>
+      const [];
+
+  @override
+  Future<String> getVcsDiffRaw(String sessionId) async => '';
+
+  @override
+  Future<void> shellCommand(String sessionId, String command) async {}
+
+  @override
+  Future<void> initProject(String sessionId) async {}
+
+  @override
+  Future<List<String>> findFiles(
+    String sessionId,
+    String query, {
+    int? limit,
+    String? type,
+  }) async =>
+      const [];
+
+  @override
+  Future<List<Map<String, dynamic>>> listSessionFiles(
+    String sessionId, {
+    String path = '.',
+  }) async =>
+      const [];
+
+  @override
+  Future<Map<String, dynamic>> fileContent(
+          String sessionId, String path) async =>
+      const {};
+
+  @override
+  Future<List<Map<String, dynamic>>> filesGitStatus(String sessionId) async =>
+      const [];
 }
 
 class _FakeLocalNotificationService extends LocalNotificationService {

@@ -587,6 +587,39 @@ export class AgentSessionsController {
         }
       }
 
+      // OCU-17 (#1058) — isolated worktree. When requested, create a git
+      // worktree in the project dir FIRST, then run the session with the
+      // worktree dir as its cwd so agent edits land in the isolated checkout
+      // instead of the main one. createWorktree throws AppError on failure, so
+      // a non-git dir surfaces a clean 4xx/5xx before any session row exists.
+      let sessionCwd = expandedCwd;
+      let worktreeMeta: { name: string; path: string; branch: string | null } | null = null;
+      const isolateWorktree = body.isolateWorktree === true;
+      if (isolateWorktree) {
+        const worktreeNameRaw = body.worktreeName;
+        if (
+          worktreeNameRaw !== undefined &&
+          worktreeNameRaw !== null &&
+          typeof worktreeNameRaw !== 'string'
+        ) {
+          throw AppError.badRequest('worktreeName must be a string');
+        }
+        if (!opencodeClient.isReady && !(await opencodeClient.ensureReady())) {
+          throw AppError.badRequest(
+            `Opencode engine is not ready (${opencodeClient.statusMessage}) — cannot create a worktree`,
+          );
+        }
+        const created = await opencodeClient.createWorktree(expandedCwd, {
+          name: typeof worktreeNameRaw === 'string' ? worktreeNameRaw : undefined,
+        });
+        sessionCwd = created.directory;
+        worktreeMeta = {
+          name: created.name,
+          path: created.directory,
+          branch: created.branch ?? null,
+        };
+      }
+
       let projectId: string | null = null;
       if (Object.prototype.hasOwnProperty.call(body, 'projectId')) {
         const raw = body.projectId;
@@ -595,7 +628,7 @@ export class AgentSessionsController {
         }
         projectId = (raw as string | null) ?? null;
       } else {
-        const match = new ProjectsRepository().findByCwdPrefix(expandedCwd);
+        const match = new ProjectsRepository().findByCwdPrefix(sessionCwd);
         projectId = match?.id ?? null;
       }
 
@@ -608,7 +641,9 @@ export class AgentSessionsController {
         agentKind: resolvedEngineAgentKind as AgentKind,
         taskId: resolvedTaskId,
         taskTitle: taskTitle != null ? (taskTitle as string) : null,
-        cwd: expandedCwd,
+        // OCU-17 (#1058) — when isolating, cwd is the worktree dir so agent
+        // edits land there; otherwise the requested project dir.
+        cwd: sessionCwd,
         // OPC-#710: name defaults to '' for instant-create sessions.
         name: typeof name === 'string' ? name.trim() : '',
         projectId,
@@ -621,6 +656,12 @@ export class AgentSessionsController {
       };
 
       const session = repo.insert(dto);
+
+      // OCU-17 (#1058) — record the isolated worktree on the row so the payload
+      // carries it and hard-delete can optionally clean it up later.
+      if (worktreeMeta) {
+        repo.setWorktree(session.id, worktreeMeta);
+      }
 
       // #842 (tokens-02) — unscoped sessions are a visible deliberate
       // exception, not a silent default. Flag every unscoped (no mcpRole)
@@ -726,7 +767,9 @@ export class AgentSessionsController {
       // with task title + notes that the user can edit before hitting Enter).
       // The server no longer fabricates "I need help with: ..." prompts.
 
-      res.status(201).json(session);
+      // Re-read so the response payload carries any worktree metadata just
+      // persisted (OCU-17 #1058); falls back to the insert result otherwise.
+      res.status(201).json(worktreeMeta ? (repo.findById(session.id) ?? session) : session);
     } catch (err) {
       next(err);
     }
@@ -883,28 +926,49 @@ export class AgentSessionsController {
       if (!opencodeId) {
         throw AppError.badRequest('Session has no SDK mapping for permission.');
       }
+      // OCU-01 (#1042) — accept allow|always|deny (legacy accept/deny still
+      // honored for older Flutter builds). Map to the engine's modern
+      // once|always|reject reply vocabulary.
       const decision = req.params.decision as string;
-      if (decision !== 'accept' && decision !== 'deny') {
-        throw AppError.badRequest('decision must be accept or deny');
+      const replyMap: Record<string, 'once' | 'always' | 'reject'> = {
+        allow: 'once',
+        accept: 'once',
+        always: 'always',
+        deny: 'reject',
+      };
+      const reply = replyMap[decision];
+      if (!reply) {
+        throw AppError.badRequest('decision must be allow, always, or deny');
       }
       const permissionId = req.params.permissionId;
+      const message =
+        typeof (req.body as Record<string, unknown> | undefined)?.message === 'string'
+          ? ((req.body as Record<string, unknown>).message as string)
+          : undefined;
 
-      // Forward to the SDK.
-      const ok = await opencodeClient.respondPermission(opencodeId, permissionId, decision, session.cwd);
-      // If the SDK doesn't support this endpoint, respond gracefully (204).
-      // The caller can still update their local state.
+      // Forward to the engine's modern /permission/:id/reply endpoint (falls
+      // back to the deprecated per-session route only on a 404).
+      const ok = await opencodeClient.replyToPermission(
+        permissionId,
+        reply,
+        message,
+        session.cwd,
+        opencodeId,
+      );
 
       // Clear the pending permission from the bridge.
       streamBridge.clearPendingPermission(session.id, permissionId);
 
-      // Broadcast resolution so other connected clients update their UI.
+      // Broadcast resolution so other connected clients update their UI. Keep
+      // the legacy accept/deny decision word on the WS frame the Flutter card
+      // still expects (OCU-02 handles the always affordance UI-side).
       const { broadcast } = await import('../services/ws_gateway');
       broadcast({
         v: 1,
         type: 'permission.resolved',
         sessionId: session.id,
         permissionId,
-        decision,
+        decision: reply === 'reject' ? 'deny' : 'accept',
       });
 
       if (!ok) {
@@ -1047,12 +1111,50 @@ export class AgentSessionsController {
    * "clear from history" action — distinct from `remove`, which only flips
    * status to closed. See #598 follow-up; archive lives at #601.
    */
-  destroy(req: Request, res: Response, next: NextFunction): void {
+  async destroy(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
 
       streamBridge.stopStream(session.id);
+
+      // OCU-17 (#1058) — optional worktree cleanup on hard delete. Default is
+      // KEEP the worktree (an explicit ?removeWorktree=true / body flag opts in).
+      // Best-effort: a cleanup failure must never block clearing the local row.
+      const removeWorktreeFlag =
+        (req.query.removeWorktree === 'true') ||
+        ((req.body as Record<string, unknown> | undefined)?.removeWorktree === true);
+      if (removeWorktreeFlag && session.worktreePath) {
+        const projectDir = session.projectId
+          ? (new ProjectsRepository().findById(session.projectId)?.cwd ?? session.worktreePath)
+          : session.worktreePath;
+        try {
+          await opencodeClient.removeWorktree(projectDir, session.worktreePath);
+        } catch (err) {
+          logger.warn(
+            `[AgentSessionsController] destroy: worktree removal failed for ${session.id} — continuing local delete: ${String(err)}`,
+          );
+        }
+      }
+
+      // #1048 (OCU-07) — hard delete also removes the engine-side session so
+      // messages/parts/snapshots don't leak forever. Engine delete is recursive
+      // over child sessions, so this one call cleans the whole tree. Best-effort
+      // and 404-tolerant: a failure here must never block clearing the local row
+      // (soft delete / `remove` intentionally does NOT do this). Resolve the SDK
+      // id before deleting the local row (deleteById does not touch it, but the
+      // ordering keeps the read explicit).
+      const sdkSessionId = resolveSdkSessionId(session);
+      if (sdkSessionId) {
+        try {
+          await opencodeClient.deleteSession(sdkSessionId, session.cwd);
+        } catch (err) {
+          logger.warn(
+            `[AgentSessionsController] destroy: engine session delete failed for ${session.id} (${sdkSessionId}) — continuing local delete: ${String(err)}`,
+          );
+        }
+      }
+
       opencodeSessionMap.delete(session.id);
       const changes = repo.deleteById(session.id);
       if (changes === 0) throw AppError.notFound('AgentSession');
@@ -1061,6 +1163,58 @@ export class AgentSessionsController {
       broadcastSessionRemoved(session.id);
 
       res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * OCU-18 (#1059) — reset an isolated session's worktree branch back to the
+   * primary default branch. 400 when the session isn't isolated (no
+   * worktreePath). Resolves the project directory the same way `destroy`'s
+   * worktree cleanup does (session.projectId's cwd, falling back to the
+   * worktree path itself for an unlinked project).
+   */
+  async resetWorktree(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      if (!session.worktreePath) {
+        throw AppError.badRequest('Session is not running in an isolated worktree');
+      }
+      const projectDir = session.projectId
+        ? (new ProjectsRepository().findById(session.projectId)?.cwd ?? session.worktreePath)
+        : session.worktreePath;
+      const ok = await opencodeClient.resetWorktree(projectDir, session.worktreePath);
+      if (!ok) return next(new AppError(502, 'WORKTREE_RESET_FAILED', 'engine failed to reset worktree'));
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * OCU-18 (#1059) — remove an isolated session's git worktree. Clears the
+   * worktree metadata from the session row (badge disappears) but does NOT
+   * delete the session itself — that is the separate hard-delete flow (see
+   * `destroy`'s `removeWorktree` flag for the delete-session-and-cleanup path).
+   */
+  async removeWorktree(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      if (!session.worktreePath) {
+        throw AppError.badRequest('Session is not running in an isolated worktree');
+      }
+      const projectDir = session.projectId
+        ? (new ProjectsRepository().findById(session.projectId)?.cwd ?? session.worktreePath)
+        : session.worktreePath;
+      const ok = await opencodeClient.removeWorktree(projectDir, session.worktreePath);
+      if (!ok) return next(new AppError(502, 'WORKTREE_REMOVE_FAILED', 'engine failed to remove worktree'));
+      repo.clearWorktree(session.id);
+      const updated = repo.findById(session.id)!;
+      broadcastSessionUpdated(updated);
+      res.json(updated);
     } catch (err) {
       next(err);
     }
@@ -1583,6 +1737,188 @@ export class AgentSessionsController {
       // only text parts, so tool-using sessions rendered as "(empty message)".
       const messages = messagesRepo.listBySessionStructured(session.id, limit);
       res.json({ messages });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // ── File / find proxy (OCU-19 #1060) ───────────────────────────────────────
+  //
+  // Proxy the engine's find/file endpoints scoped to the session's directory
+  // (worktree dir when isolated, else the base cwd). Path inputs are resolved
+  // against that directory and REJECTED (400) if they escape it — a
+  // path-traversal guard. Content responses are capped at ~2MB.
+
+  /** Max relayed file-content payload — mirrors the issue's ~2MB cap. */
+  private static readonly FILE_CONTENT_CAP_BYTES = 2 * 1024 * 1024;
+
+  /**
+   * Resolve the session's directory (worktree dir when isolated, else cwd) and
+   * validate that `relPath` stays inside it. Returns the session's directory;
+   * throws AppError(404) for an unknown session or AppError(400) on traversal.
+   */
+  private resolveSessionDir(sessionId: string, relPath?: string): string {
+    const session = repo.findById(sessionId);
+    if (!session) throw AppError.notFound('AgentSession');
+    const dir = session.worktreePath ?? session.cwd;
+    if (relPath !== undefined) {
+      const resolved = path.resolve(dir, relPath);
+      const base = path.resolve(dir);
+      if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+        throw new AppError(400, 'PATH_TRAVERSAL', `path '${relPath}' resolves outside the session directory`);
+      }
+    }
+    return dir;
+  }
+
+  async findText(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const dir = this.resolveSessionDir(req.params.id);
+      const pattern = String(req.query.pattern ?? '');
+      if (!pattern) throw AppError.badRequest('pattern is required');
+      res.json(await opencodeClient.findText(dir, pattern));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async findFiles(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const dir = this.resolveSessionDir(req.params.id);
+      const query = String(req.query.query ?? '');
+      if (!query) throw AppError.badRequest('query is required');
+      const limitRaw = req.query.limit;
+      const limit = limitRaw !== undefined ? Number(limitRaw) : undefined;
+      const typeRaw = req.query.type;
+      const type = typeRaw === 'file' || typeRaw === 'directory' ? typeRaw : undefined;
+      res.json(await opencodeClient.findFiles(dir, query, { limit, type }));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async listFiles(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const relPath = typeof req.query.path === 'string' ? req.query.path : '.';
+      const dir = this.resolveSessionDir(req.params.id, relPath);
+      res.json(await opencodeClient.listFiles(dir, relPath));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async fileContent(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const relPath = typeof req.query.path === 'string' ? req.query.path : '';
+      if (!relPath) throw AppError.badRequest('path is required');
+      const dir = this.resolveSessionDir(req.params.id, relPath);
+      const content = await opencodeClient.readFileContent(dir, relPath);
+      // 2MB cap on the relayed payload (defensive — the engine may return a
+      // large file; a hard cap keeps the api_server response bounded).
+      const size = Buffer.byteLength(JSON.stringify(content ?? null), 'utf8');
+      if (size > AgentSessionsController.FILE_CONTENT_CAP_BYTES) {
+        throw new AppError(413, 'PAYLOAD_TOO_LARGE', `file content exceeds the ${AgentSessionsController.FILE_CONTENT_CAP_BYTES}-byte cap`);
+      }
+      res.json(content);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async fileStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const dir = this.resolveSessionDir(req.params.id);
+      res.json(await opencodeClient.fileStatus(dir));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // ── VCS proxy (OCU-22 #1063 / OCU-23 #1064) ────────────────────────────────
+
+  async getVcs(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const dir = this.resolveSessionDir(req.params.id);
+      res.json(await opencodeClient.getVcs(dir));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getVcsStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const dir = this.resolveSessionDir(req.params.id);
+      res.json(await opencodeClient.getVcsStatus(dir));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getVcsDiff(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const dir = this.resolveSessionDir(req.params.id);
+      const mode = req.query.mode === 'branch' ? 'branch' : 'git';
+      res.json(await opencodeClient.getVcsDiff(dir, mode));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getVcsDiffRaw(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const dir = this.resolveSessionDir(req.params.id);
+      const raw = await opencodeClient.getVcsDiffRaw(dir);
+      res.type('text/x-diff').send(raw);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // ── session.shell (OCU-24 #1065) ───────────────────────────────────────────
+
+  async shell(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const sdkId = resolveSdkSessionId(session);
+      if (!sdkId) throw AppError.badRequest('session has no engine session id');
+      const command = (req.body as { command?: unknown })?.command;
+      if (typeof command !== 'string' || command.trim() === '') {
+        throw AppError.badRequest('command is required');
+      }
+      // Attribute the shell run to the session's agent (engine name). Falls back
+      // to 'build' — the engine's default agent — when the session is agent-less.
+      const agent = session.agentKind && session.agentKind.trim() !== '' ? session.agentKind : 'build';
+      const result = await opencodeClient.sessionShell(sdkId, command, agent, session.cwd);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // ── session.init (OCU-25 #1066) ────────────────────────────────────────────
+
+  async init(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const sdkId = resolveSdkSessionId(session);
+      if (!sdkId) throw AppError.badRequest('session has no engine session id');
+      const body = (req.body ?? {}) as { providerID?: unknown; modelID?: unknown; messageID?: unknown };
+      // The init flow needs the model that writes AGENTS.md + a message id. Fall
+      // back to the session's persisted provider/model when the caller omits
+      // them; a fresh messageID is generated when absent.
+      const providerID = typeof body.providerID === 'string' ? body.providerID : (session.providerId ?? '');
+      const modelID = typeof body.modelID === 'string' ? body.modelID : (session.modelId ?? '');
+      if (!providerID || !modelID) {
+        throw AppError.badRequest('providerID and modelID are required (session has no persisted model)');
+      }
+      const messageID =
+        typeof body.messageID === 'string' && body.messageID.trim() !== ''
+          ? body.messageID
+          : `msg_${Date.now().toString(36)}`;
+      const ok = await opencodeClient.sessionInit(sdkId, { providerID, modelID, messageID }, session.cwd);
+      res.json({ ok });
     } catch (err) {
       next(err);
     }

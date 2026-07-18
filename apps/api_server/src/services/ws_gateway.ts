@@ -412,6 +412,10 @@ export async function handleInputFrame(
         sessionProviderId,
         sessionModelId,
         perTurnOverride,
+        // #1108 — lets a successful manual per-turn override persist onto
+        // this session row so it survives the NEXT prompt instead of
+        // silently reverting to the stale stored provider/model.
+        sessionId: id,
       });
     } catch (err) {
       console.error(`[ws_gateway] early model resolution for Gemini tool cap failed (non-fatal):`, err);

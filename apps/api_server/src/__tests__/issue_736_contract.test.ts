@@ -31,13 +31,19 @@ import { setDb } from '../database/db';
 // ── Boundary fakes (hoisted) ─────────────────────────────────────────────────
 // broadcast (WS sink) and opencodeClient (SDK) are the true boundaries outside
 // the bridge. We never mock the bridge itself.
-const { broadcastSpy, broadcastSessionUpdatedSpy, respondPermissionSpy, sessionMap } =
-  vi.hoisted(() => ({
-    broadcastSpy: vi.fn(),
-    broadcastSessionUpdatedSpy: vi.fn(),
-    respondPermissionSpy: vi.fn().mockResolvedValue(true),
-    sessionMap: new Map<string, string>(),
-  }));
+const {
+  broadcastSpy,
+  broadcastSessionUpdatedSpy,
+  respondPermissionSpy,
+  replyToPermissionSpy,
+  sessionMap,
+} = vi.hoisted(() => ({
+  broadcastSpy: vi.fn(),
+  broadcastSessionUpdatedSpy: vi.fn(),
+  respondPermissionSpy: vi.fn().mockResolvedValue(true),
+  replyToPermissionSpy: vi.fn().mockResolvedValue(true),
+  sessionMap: new Map<string, string>(),
+}));
 
 vi.mock('../services/ws_gateway', () => ({
   broadcast: broadcastSpy,
@@ -47,6 +53,7 @@ vi.mock('../services/ws_gateway', () => ({
 vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
     respondPermission: respondPermissionSpy,
+    replyToPermission: replyToPermissionSpy,
     listQuestions: vi.fn().mockResolvedValue([]),
   },
   opencodeSessionMap: sessionMap,
@@ -133,6 +140,7 @@ describe('#736 — WS-gateway dispatch backstop', () => {
     broadcastSpy.mockClear();
     broadcastSessionUpdatedSpy.mockClear();
     respondPermissionSpy.mockClear();
+    replyToPermissionSpy.mockClear();
     bridge = new OpencodeStreamBridge();
   });
 
@@ -175,11 +183,20 @@ describe('#736 — WS-gateway dispatch backstop', () => {
     expect(denials.length).toBeGreaterThan(0);
 
     // The disallowed tool must NOT be auto-accepted. If the bridge responds to
-    // the permission at all, it must be a 'deny' (reject) — never 'accept'.
-    const acceptCalls = respondPermissionSpy.mock.calls.filter(
-      (c) => c[2] === 'accept',
+    // the permission at all, it must be a 'deny' (reject) — never an accept
+    // ('once'). The auto-deny path calls the modern replyToPermission(id,
+    // decision, message, dir, sdkSessionId) — decision 'once' means accept.
+    const acceptCalls = replyToPermissionSpy.mock.calls.filter(
+      (c) => c[1] === 'once',
     );
     expect(acceptCalls.length).toBe(0);
+    expect(replyToPermissionSpy).toHaveBeenCalledWith(
+      'perm-1',
+      'reject',
+      expect.stringContaining('rhythm_delete_task'),
+      expect.anything(),
+      SDK_SESSION_ID,
+    );
   });
 
   it('issue-736-c3: blocks an out-of-allowlist tool-call delivered as a message.part.updated tool part', () => {

@@ -203,9 +203,17 @@ describe('bounded multi-tier rate-limit cascade', () => {
         data: { statusCode: 429, isRetryable: true },
       }),
     ).toBe('cascade');
+    // #1108 — the terminal error now names the last-attempted provider/model
+    // (see formatFallbackExhaustedMessage) in addition to the raw deferred
+    // provider error text, so the user has an actionable lead.
     await expect(
       advanceFallbackCascade(SID, { message: 'OpenRouter exhausted' }, cascadeDeps),
-    ).resolves.toEqual({ outcome: 'terminal', error: 'OpenRouter 429' });
+    ).resolves.toEqual({
+      outcome: 'terminal',
+      error:
+        'OpenRouter 429 — All configured fallback options are exhausted ' +
+        '(provider=openrouter, model=openrouter/free) — connect another provider or wait for the rate limit to reset.',
+    });
 
     expect((engine.prompt as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[2]))
       .toEqual([

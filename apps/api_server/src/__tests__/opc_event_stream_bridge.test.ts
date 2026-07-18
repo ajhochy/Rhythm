@@ -112,6 +112,10 @@ describe('event-stream bridge: real SSE { stream } reaches the WS gateway', () =
   let db: Database.Database;
 
   beforeEach(() => {
+    // OCU-29 (#1070) — this suite asserts the LEGACY per-directory subscribe
+    // path (subscribeSpy checks the ?directory= filter). Pin the fallback flag
+    // so streamSession uses per-directory /event, not the new /global/event.
+    process.env.RHYTHM_SSE_GLOBAL = '0';
     broadcasts.length = 0;
     sessionUpdated.length = 0;
     sessionMap.clear();
@@ -130,6 +134,7 @@ describe('event-stream bridge: real SSE { stream } reaches the WS gateway', () =
   afterEach(() => {
     streamBridge.dispose();
     db.close();
+    delete process.env.RHYTHM_SSE_GLOBAL;
   });
 
   it('subscribes with the directory filter and bridges a session A delta to the gateway as id=localA', async () => {

@@ -408,7 +408,7 @@ export function writeAgentProfileFile(config: AgentConfig): void {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
     const path = agentFilePath(config.id);
-    // #1039: session-selectable profiles are written `all` (not `primary`).
+    // #1039/#1088: a SCHEDULABLE profile is written `all` (not `primary`).
     // opencode's mode enum is ["subagent","primary","all"] (agent/agent.ts) and
     // `all` makes the agent usable BOTH as a top-level primary — so AgentRunner
     // can run it headless via `agent: <id>` (a scheduled/background run) — AND as
@@ -416,11 +416,18 @@ export function writeAgentProfileFile(config: AgentConfig): void {
     // schedulable specialist top-level-runnable but is the wrong idiom for one
     // that is ALSO a delegate; `all` covers both roles so promoting a profile to
     // schedulable never removes it as a delegation target. `subagent` (delegation
-    // only) is kept for non-session-selectable profiles — and scheduling one of
-    // those is now blocked at config time (agentSchedulesController), because
-    // opencode won't resolve a subagent-mode agent as a top-level `agent:` target
-    // (throws "Agent not found") → the old silent "model produced no output".
-    const mode = config.sessionSelectable ? 'all' : 'subagent';
+    // only) is kept for non-schedulable profiles — and scheduling one of those is
+    // now blocked at config time (agentSchedulesController), because opencode
+    // won't resolve a subagent-mode agent as a top-level `agent:` target (throws
+    // "Agent not found") → the old silent "model produced no output".
+    //
+    // #1088: `config.schedulable` is picker-INDEPENDENT — it falls back to
+    // `sessionSelectable` when no explicit override is stored (see
+    // agent_configs_repository's rowToModel), so a hidden specialist
+    // (sessionSelectable=false) with an explicit schedulable=true override is
+    // written `all` — top-level-runnable AND delegatable — while remaining
+    // absent from the Flutter picker, which reads sessionSelectable only.
+    const mode = (config.schedulable ?? config.sessionSelectable) ? 'all' : 'subagent';
     const model =
       config.modelProvider && config.modelId
         ? `${config.modelProvider}/${config.modelId}`
@@ -451,6 +458,18 @@ export function writeAgentProfileFile(config: AgentConfig): void {
 
     for (const [permission, action] of Object.entries(parseCorePermissions(config))) {
       fm = setPermissionValue(fm, permission, action);
+    }
+    // #1094 — OpenAI native image_generation grant. A dedicated capability
+    // flag (not an MCP allowlist entry), projected as the same permission-key
+    // mechanism every other tool uses so the existing ask/allow/deny approval
+    // flow applies uniformly. Written AFTER the corePermissionsJson loop so
+    // an explicit `image_generation` entry there (if the profile ever sets
+    // one directly) is not silently clobbered when the flag is also true —
+    // last-match-wins means this only overrides when the flag disagrees.
+    // Absence when false (never writes 'deny') keeps a profile's own explicit
+    // corePermissionsJson override authoritative.
+    if (config.imageGenerationEnabled === true) {
+      fm = setPermissionKey(fm, 'image_generation', 'allow');
     }
     const delegateRoster = parseDelegateRoster(config);
     if (config.isManager === true) {

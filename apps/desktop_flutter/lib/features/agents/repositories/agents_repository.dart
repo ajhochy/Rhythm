@@ -42,6 +42,8 @@ class AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) =>
       _dataSource.createSession(
         agentId: agentId,
@@ -53,7 +55,16 @@ class AgentsRepository {
         createBranch: createBranch,
         mcpRole: mcpRole,
         anthropicAccountId: anthropicAccountId,
+        isolateWorktree: isolateWorktree,
+        worktreeName: worktreeName,
       );
+
+  /// OCU-18 (#1059) — Changes-tab worktree actions.
+  Future<void> resetWorktree(String sessionId) =>
+      _dataSource.resetWorktree(sessionId);
+
+  Future<AgentSession> removeWorktree(String sessionId) =>
+      _dataSource.removeWorktree(sessionId);
 
   Future<void> closeSession(String id) => _dataSource.closeSession(id);
 
@@ -89,13 +100,15 @@ class AgentsRepository {
   ) =>
       _dataSource.updateSession(id, thinkingBudget: budget);
 
-  /// #608 — respond to a pending permission (accept or deny).
+  /// #608 — respond to a pending permission (accept, deny, or always-allow).
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) =>
-      _dataSource.respondPermission(sessionId, permissionId, decision);
+    String decision, {
+    String? message,
+  }) =>
+      _dataSource.respondPermission(sessionId, permissionId, decision,
+          message: message);
 
   Future<void> replyQuestion(
     String sessionId,
@@ -146,11 +159,6 @@ class AgentsRepository {
   Future<Map<String, dynamic>> fetchMemoryProvenance(String id) =>
       _dataSource.fetchMemoryProvenance(id);
 
-  /// OPC-M3-6 — GET /agent-sessions/:id/children — list child sessions.
-  Future<List<Map<String, dynamic>>> fetchChildSessions(
-          String parentSessionId) =>
-      _dataSource.fetchChildSessions(parentSessionId);
-
   /// OPC-M3-6 — GET /agent-sessions/:id/children/:childSdkId/messages
   /// Returns the child session's messages in M1-2 structured shape.
   Future<List<AgentSessionMessage>> fetchChildMessages(
@@ -163,20 +171,63 @@ class AgentsRepository {
   Future<AgentSession> forkSession(String sessionId, String messageId) =>
       _dataSource.forkSession(sessionId, messageId);
 
-  /// OPC-M3-4 — Dispatch a slash command via the WS `session.command` frame.
-  /// This is a no-op at the data-source level (the controller calls [send]
-  /// directly); provided here for interface completeness and test doubles.
-  Future<void> dispatchCommand(
-    String sessionId,
-    String command,
-    String args,
-  ) =>
-      _dataSource.dispatchCommand(sessionId, command, args);
-
   /// OPC-M4-4 — GET /agent-sessions/agents — list available agents for [cwd].
   /// Delegates to [AgentsDataSource.fetchAvailableAgents].
   Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) =>
       _dataSource.fetchAvailableAgents(cwd: cwd);
+
+  // --------------------------------------------------------------------------
+  // VCS (OCU-22 #1063 / OCU-23 #1064)
+  // --------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>> getVcs(String sessionId) =>
+      _dataSource.getVcs(sessionId);
+
+  Future<List<Map<String, dynamic>>> getVcsStatus(String sessionId) =>
+      _dataSource.getVcsStatus(sessionId);
+
+  Future<List<Map<String, dynamic>>> getVcsDiff(
+    String sessionId,
+    String mode,
+  ) =>
+      _dataSource.getVcsDiff(sessionId, mode);
+
+  Future<String> getVcsDiffRaw(String sessionId) =>
+      _dataSource.getVcsDiffRaw(sessionId);
+
+  // --------------------------------------------------------------------------
+  // session.shell / session.init (OCU-24 #1065 / OCU-25 #1066)
+  // --------------------------------------------------------------------------
+
+  Future<void> shellCommand(String sessionId, String command) =>
+      _dataSource.shellCommand(sessionId, command);
+
+  Future<void> initProject(String sessionId) =>
+      _dataSource.initProject(sessionId);
+
+  // --------------------------------------------------------------------------
+  // File / find proxy (OCU-20 #1061 / OCU-21 #1062)
+  // --------------------------------------------------------------------------
+
+  Future<List<String>> findFiles(
+    String sessionId,
+    String query, {
+    int? limit,
+    String? type,
+  }) =>
+      _dataSource.findFiles(sessionId, query, limit: limit, type: type);
+
+  Future<List<Map<String, dynamic>>> listSessionFiles(
+    String sessionId, {
+    String path = '.',
+  }) =>
+      _dataSource.listSessionFiles(sessionId, path: path);
+
+  Future<Map<String, dynamic>> fileContent(String sessionId, String path) =>
+      _dataSource.fileContent(sessionId, path);
+
+  Future<List<Map<String, dynamic>>> filesGitStatus(String sessionId) =>
+      _dataSource.filesGitStatus(sessionId);
 
   // --------------------------------------------------------------------------
   // PTY

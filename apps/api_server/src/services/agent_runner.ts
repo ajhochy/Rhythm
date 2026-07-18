@@ -8,7 +8,7 @@
  *     or a timeout fires
  *  4. Returns { sessionId, result, status }
  *
- * Concurrency cap: MAX_CONCURRENT_AGENT_RUNS (env, default 3)
+ * Concurrency cap: MAX_CONCURRENT_AGENT_RUNS (env, default 8)
  * Per-run timeout:  AGENT_RUN_TIMEOUT_MS      (env, default 600 000 ms)
  *
  * outputTarget (default 'session'):
@@ -34,7 +34,7 @@ import { resolveProfileScope } from './agent_profile_scope';
 // ── Environment caps (read per-call so tests can override via process.env) ────
 
 function getMaxConcurrentRuns(): number {
-  return Number(process.env.MAX_CONCURRENT_AGENT_RUNS ?? 3);
+  return Number(process.env.MAX_CONCURRENT_AGENT_RUNS ?? 8);
 }
 
 function getRunTimeoutMs(): number {

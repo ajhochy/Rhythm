@@ -25,13 +25,19 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 
-const { broadcastSpy, broadcastSessionUpdatedSpy, respondPermissionSpy, sessionMap } =
-  vi.hoisted(() => ({
-    broadcastSpy: vi.fn(),
-    broadcastSessionUpdatedSpy: vi.fn(),
-    respondPermissionSpy: vi.fn().mockResolvedValue(true),
-    sessionMap: new Map<string, string>(),
-  }));
+const {
+  broadcastSpy,
+  broadcastSessionUpdatedSpy,
+  respondPermissionSpy,
+  replyToPermissionSpy,
+  sessionMap,
+} = vi.hoisted(() => ({
+  broadcastSpy: vi.fn(),
+  broadcastSessionUpdatedSpy: vi.fn(),
+  respondPermissionSpy: vi.fn().mockResolvedValue(true),
+  replyToPermissionSpy: vi.fn().mockResolvedValue(true),
+  sessionMap: new Map<string, string>(),
+}));
 
 vi.mock('../services/ws_gateway', () => ({
   broadcast: broadcastSpy,
@@ -41,6 +47,7 @@ vi.mock('../services/ws_gateway', () => ({
 vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
     respondPermission: respondPermissionSpy,
+    replyToPermission: replyToPermissionSpy,
     listQuestions: vi.fn().mockResolvedValue([]),
   },
   opencodeSessionMap: sessionMap,
@@ -113,6 +120,7 @@ describe('issue-818 — denied-tool event log (dispatch guard logging contract)'
     broadcastSpy.mockClear();
     broadcastSessionUpdatedSpy.mockClear();
     respondPermissionSpy.mockClear();
+    replyToPermissionSpy.mockClear();
     bridge = new OpencodeStreamBridge();
   });
 
@@ -365,8 +373,8 @@ describe('issue-818 — denied-tool event log (dispatch guard logging contract)'
     await new Promise((r) => setTimeout(r, 0));
 
     // The guard's own decision must still have denied the tool: no accept call
-    // was made to respondPermission.
-    const acceptCalls = respondPermissionSpy.mock.calls.filter((c) => c[2] === 'accept');
+    // was made to replyToPermission (decision 'once' means accept).
+    const acceptCalls = replyToPermissionSpy.mock.calls.filter((c) => c[1] === 'once');
     expect(acceptCalls.length).toBe(0);
 
     // A denied result must still have been surfaced to the client even though

@@ -106,6 +106,14 @@ export interface AgentSession {
    * migration time (scheduled_task_id NOT NULL → 'scheduled', else 'chat').
    */
   category: SessionCategory;
+  /**
+   * OCU-17 (#1058) — when this session runs in an isolated git worktree, the
+   * worktree's name / directory / branch (so the UI and hard-delete cleanup can
+   * act on it). All null for a normal (non-isolated) session.
+   */
+  worktreeName: string | null;
+  worktreePath: string | null;
+  worktreeBranch: string | null;
 }
 
 export interface UpdateAgentSessionDto {

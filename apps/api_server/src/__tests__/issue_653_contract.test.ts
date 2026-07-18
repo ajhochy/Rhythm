@@ -43,7 +43,6 @@ vi.mock('../services/opencode_engine', () => {
     set isReady(v: boolean) {
       _ready = v;
     },
-    listProviders: vi.fn().mockResolvedValue(['anthropic', 'openai']),
     listAuthedProviders: vi.fn().mockResolvedValue(['anthropic', 'openai']),
     statusMessage: 'Opencode SDK ready',
     createSession: vi.fn().mockResolvedValue({ id: 'sdk-session-653' }),

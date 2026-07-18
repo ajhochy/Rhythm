@@ -36,10 +36,28 @@ agentSessionsRouter.post('/', controller.create.bind(controller));
 agentSessionsRouter.patch('/:id', controller.update.bind(controller));
 agentSessionsRouter.post('/:id/cancel', controller.cancel.bind(controller));
 agentSessionsRouter.get('/:id/diff', controller.getDiff.bind(controller));
+// OCU-19 (#1060) — file/find proxy scoped to the session directory
+// (worktree dir when isolated). Path-traversal guarded; content capped ~2MB.
+agentSessionsRouter.get('/:id/files/find-text', controller.findText.bind(controller));
+agentSessionsRouter.get('/:id/files/find-files', controller.findFiles.bind(controller));
+agentSessionsRouter.get('/:id/files/list', controller.listFiles.bind(controller));
+agentSessionsRouter.get('/:id/files/content', controller.fileContent.bind(controller));
+agentSessionsRouter.get('/:id/files/status', controller.fileStatus.bind(controller));
+// OCU-22 (#1063) / OCU-23 (#1064) — VCS branch/status + branch-diff + raw patch.
+agentSessionsRouter.get('/:id/vcs', controller.getVcs.bind(controller));
+agentSessionsRouter.get('/:id/vcs/status', controller.getVcsStatus.bind(controller));
+agentSessionsRouter.get('/:id/vcs/diff', controller.getVcsDiff.bind(controller));
+agentSessionsRouter.get('/:id/vcs/diff/raw', controller.getVcsDiffRaw.bind(controller));
+// OCU-24 (#1065) — session.shell quick-run. OCU-25 (#1066) — session.init.
+agentSessionsRouter.post('/:id/shell', controller.shell.bind(controller));
+agentSessionsRouter.post('/:id/init', controller.init.bind(controller));
 agentSessionsRouter.post(
   '/:id/permission/:permissionId/:decision',
   controller.respondPermission.bind(controller),
 );
+// OCU-18 (#1059) — Changes-tab worktree actions, scoped by session id.
+agentSessionsRouter.post('/:id/worktree/reset', controller.resetWorktree.bind(controller));
+agentSessionsRouter.post('/:id/worktree/remove', controller.removeWorktree.bind(controller));
 agentSessionsRouter.post(
   '/:id/question/:callId/:action',
   controller.respondQuestion.bind(controller),

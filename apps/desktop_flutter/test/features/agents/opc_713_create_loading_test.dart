@@ -119,6 +119,8 @@ class _SlowStubAgentsRepository implements AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) async {
     await Future<void>.delayed(delay);
     return _makeSession('new-session');
@@ -167,8 +169,9 @@ class _SlowStubAgentsRepository implements AgentsRepository {
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) async {}
+    String decision, {
+    String? message,
+  }) async {}
 
   @override
   Future<void> replyQuestion(
@@ -199,21 +202,12 @@ class _SlowStubAgentsRepository implements AgentsRepository {
   Future<void> summarizeSession(String sessionId) async {}
 
   @override
-  Future<void> dispatchCommand(
-      String sessionId, String command, String args) async {}
-
-  @override
   Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async =>
       const [];
 
   @override
   Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async =>
       const {'recorded': false, 'memoryIds': [], 'notePaths': []};
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchChildSessions(
-          String parentSessionId) async =>
-      const [];
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
@@ -240,6 +234,11 @@ class _SlowStubAgentsRepository implements AgentsRepository {
 
   @override
   String ptyWsUrl(String ptyId) => 'ws://localhost:4001/ws/pty/$ptyId';
+
+  // OCU-19..25 (#1060-#1066): vcs/shell/init/files methods added to
+  // AgentsRepository — not exercised by this test file, so fall back.
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 // ---------------------------------------------------------------------------
@@ -392,6 +391,8 @@ class _ThrowingStubRepo implements AgentsRepository {
     bool createBranch = false,
     String? mcpRole,
     String? anthropicAccountId,
+    bool isolateWorktree = false,
+    String? worktreeName,
   }) async {
     if (shouldThrow()) throw Exception('stubbed error');
     return inner.createSession(
@@ -488,9 +489,11 @@ class _ThrowingStubRepo implements AgentsRepository {
   Future<void> respondPermission(
     String sessionId,
     String permissionId,
-    String decision,
-  ) =>
-      inner.respondPermission(sessionId, permissionId, decision);
+    String decision, {
+    String? message,
+  }) =>
+      inner.respondPermission(sessionId, permissionId, decision,
+          message: message);
 
   @override
   Future<void> replyQuestion(
@@ -521,12 +524,16 @@ class _ThrowingStubRepo implements AgentsRepository {
       inner.unrevertSession(sessionId);
 
   @override
-  Future<void> summarizeSession(String sessionId) =>
-      inner.summarizeSession(sessionId);
+  Future<void> resetWorktree(String sessionId) =>
+      inner.resetWorktree(sessionId);
 
   @override
-  Future<void> dispatchCommand(String sessionId, String command, String args) =>
-      inner.dispatchCommand(sessionId, command, args);
+  Future<AgentSession> removeWorktree(String sessionId) =>
+      inner.removeWorktree(sessionId);
+
+  @override
+  Future<void> summarizeSession(String sessionId) =>
+      inner.summarizeSession(sessionId);
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) =>
@@ -535,11 +542,6 @@ class _ThrowingStubRepo implements AgentsRepository {
   @override
   Future<Map<String, dynamic>> fetchMemoryProvenance(String id) =>
       inner.fetchMemoryProvenance(id);
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchChildSessions(
-          String parentSessionId) =>
-      inner.fetchChildSessions(parentSessionId);
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
@@ -567,4 +569,56 @@ class _ThrowingStubRepo implements AgentsRepository {
 
   @override
   String ptyWsUrl(String ptyId) => inner.ptyWsUrl(ptyId);
+
+  // OCU-19..25 (#1060-#1066): vcs/shell/init/files methods added to
+  // AgentsRepository — delegate to inner like everything else here.
+  @override
+  Future<Map<String, dynamic>> getVcs(String sessionId) =>
+      inner.getVcs(sessionId);
+
+  @override
+  Future<List<Map<String, dynamic>>> getVcsStatus(String sessionId) =>
+      inner.getVcsStatus(sessionId);
+
+  @override
+  Future<List<Map<String, dynamic>>> getVcsDiff(
+    String sessionId,
+    String mode,
+  ) =>
+      inner.getVcsDiff(sessionId, mode);
+
+  @override
+  Future<String> getVcsDiffRaw(String sessionId) =>
+      inner.getVcsDiffRaw(sessionId);
+
+  @override
+  Future<void> shellCommand(String sessionId, String command) =>
+      inner.shellCommand(sessionId, command);
+
+  @override
+  Future<void> initProject(String sessionId) => inner.initProject(sessionId);
+
+  @override
+  Future<List<String>> findFiles(
+    String sessionId,
+    String query, {
+    int? limit,
+    String? type,
+  }) =>
+      inner.findFiles(sessionId, query, limit: limit, type: type);
+
+  @override
+  Future<List<Map<String, dynamic>>> listSessionFiles(
+    String sessionId, {
+    String path = '.',
+  }) =>
+      inner.listSessionFiles(sessionId, path: path);
+
+  @override
+  Future<Map<String, dynamic>> fileContent(String sessionId, String path) =>
+      inner.fileContent(sessionId, path);
+
+  @override
+  Future<List<Map<String, dynamic>>> filesGitStatus(String sessionId) =>
+      inner.filesGitStatus(sessionId);
 }
