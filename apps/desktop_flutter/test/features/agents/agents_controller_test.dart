@@ -175,6 +175,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool clearModel = false,
     bool? fastMode,
     String? anthropicAccountId,
+    String? agentId,
   }) async {
     throw UnimplementedError();
   }

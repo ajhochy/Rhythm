@@ -189,6 +189,7 @@ class _StubAgentsRepository implements AgentsRepository {
     String? permissionMode,
     bool? fastMode,
     String? anthropicAccountId,
+    String? agentId,
   }) async {
     final index = _sessions.indexWhere((s) => s.id == id);
     final updated = _sessions[index].copyWith(name: name);

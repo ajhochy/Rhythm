@@ -186,6 +186,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool clearModel = false,
     bool? fastMode,
     String? anthropicAccountId,
+    String? agentId,
   }) async {
     final idx = _store.indexWhere((s) => s.id == id);
     final s = _store[idx];
@@ -195,6 +196,7 @@ class _FakeAgentsRepository implements AgentsRepository {
           ? PermissionMode.fromWire(permissionMode)
           : s.permissionMode,
       fastMode: fastMode ?? s.fastMode,
+      agentId: agentId ?? s.agentId,
     );
     _store[idx] = updated;
     return updated;

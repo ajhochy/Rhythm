@@ -1436,8 +1436,32 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _selectedAgentBySession.remove(sessionId);
     } else {
       _selectedAgentBySession[sessionId] = agentName;
+      // #1119 — an explicit profile pick must survive an app restart. Prior
+      // to this fix, `agentName` only ever went out per-turn on the WS
+      // `session.input` frame (sendInput, "never persisted" by OPC-M4-4
+      // design) and was never written to the session row, so `agentId`
+      // resolution order step 2 (this session's OWN stored agent, see
+      // selectedAgentFor doc) always fell back to the row's original value
+      // after a restart wiped this in-memory map. Fire-and-forget: a failed
+      // persist only costs cross-restart continuity, not this run's behavior.
+      unawaited(_persistSelectedAgent(sessionId, agentName));
     }
     notifyListeners();
+  }
+
+  /// Writes the explicitly-selected profile onto the session row so restart
+  /// rehydration (selectedAgentFor step 2) picks it up. Non-fatal on failure.
+  Future<void> _persistSelectedAgent(String sessionId, String agentName) async {
+    try {
+      final updated =
+          await _repository.updateSession(sessionId, agentId: agentName);
+      if (_disposed) return;
+      _sessions = [for (final s in _sessions) s.id == sessionId ? updated : s];
+      notifyListeners();
+    } catch (_) {
+      // Non-fatal — the in-memory selection still drives this session for
+      // the rest of the current run.
+    }
   }
 
   /// Fetch available agents for [sessionId] from the server.
