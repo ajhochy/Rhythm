@@ -228,21 +228,12 @@ class _StubAgentsRepository implements AgentsRepository {
   Future<void> summarizeSession(String sessionId) async {}
 
   @override
-  Future<void> dispatchCommand(
-      String sessionId, String command, String args) async {}
-
-  @override
   Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async =>
       const [];
 
   @override
   Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async =>
       const {'recorded': false, 'memoryIds': [], 'notePaths': []};
-
-  @override
-  Future<List<Map<String, dynamic>>> fetchChildSessions(
-          String parentSessionId) async =>
-      const [];
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(

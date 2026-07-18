@@ -831,19 +831,6 @@ export class OpencodeClientService {
     }
   }
 
-  /** List all provider IDs available in the SDK catalog (not auth state). */
-  async listProviders(): Promise<string[]> {
-    if (!this.client) return [];
-    try {
-      const raw = await this.client.config.providers();
-      const providers = raw.data?.providers ?? [];
-      return providers.map((p) => p.id);
-    } catch (err) {
-      logger.error('[OpencodeClientService] listProviders failed:', err);
-      return [];
-    }
-  }
-
   /** Returns provider IDs that are actually authed (per auth.json). */
   async listAuthedProviders(): Promise<string[]> {
     const connected = new Set(this.authStore.listAuthedProviders());

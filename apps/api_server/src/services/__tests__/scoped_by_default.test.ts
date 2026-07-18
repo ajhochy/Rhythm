@@ -42,7 +42,6 @@ vi.mock('../../services/opencode_engine', () => {
   const mockClient = {
     isReady: true,
     statusMessage: 'Opencode SDK ready',
-    listProviders: vi.fn().mockResolvedValue([]),
     listAuthedProviders: vi.fn().mockResolvedValue([]),
     createSession: mockCreateSession,
     ensureReady: vi.fn().mockResolvedValue(true),

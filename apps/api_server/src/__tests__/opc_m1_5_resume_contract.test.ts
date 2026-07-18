@@ -39,7 +39,6 @@ vi.mock('../services/opencode_engine', () => {
     getSessionDiff: vi.fn().mockResolvedValue([]),
     abortSession: vi.fn().mockResolvedValue(true),
     listAuthedProviders: vi.fn().mockResolvedValue(['anthropic']),
-    listProviders: vi.fn().mockResolvedValue(['anthropic']),
     subscribeToEvents: vi.fn().mockResolvedValue(null),
     promptAsync: promptAsyncSpy,
     // getSession will be set per-test via opencodeClient.getSession

@@ -159,11 +159,6 @@ class AgentsRepository {
   Future<Map<String, dynamic>> fetchMemoryProvenance(String id) =>
       _dataSource.fetchMemoryProvenance(id);
 
-  /// OPC-M3-6 — GET /agent-sessions/:id/children — list child sessions.
-  Future<List<Map<String, dynamic>>> fetchChildSessions(
-          String parentSessionId) =>
-      _dataSource.fetchChildSessions(parentSessionId);
-
   /// OPC-M3-6 — GET /agent-sessions/:id/children/:childSdkId/messages
   /// Returns the child session's messages in M1-2 structured shape.
   Future<List<AgentSessionMessage>> fetchChildMessages(
@@ -175,16 +170,6 @@ class AgentsRepository {
   /// message. Returns the new [AgentSession].
   Future<AgentSession> forkSession(String sessionId, String messageId) =>
       _dataSource.forkSession(sessionId, messageId);
-
-  /// OPC-M3-4 — Dispatch a slash command via the WS `session.command` frame.
-  /// This is a no-op at the data-source level (the controller calls [send]
-  /// directly); provided here for interface completeness and test doubles.
-  Future<void> dispatchCommand(
-    String sessionId,
-    String command,
-    String args,
-  ) =>
-      _dataSource.dispatchCommand(sessionId, command, args);
 
   /// OPC-M4-4 — GET /agent-sessions/agents — list available agents for [cwd].
   /// Delegates to [AgentsDataSource.fetchAvailableAgents].

@@ -2591,14 +2591,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  /// Convenience wrapper used by SessionModelPicker — stages a per-turn
+  /// Convenience wrapper used by UnifiedAgentModelPicker — stages a per-turn
   /// override using the picker's row type. Pass null to clear.
   void setTurnOverride(AgentModelRoute? route) {
     _pendingTurnOverride = route;
     notifyListeners();
   }
 
-  /// Convenience wrapper used by SessionModelPicker — persists the route as
+  /// Convenience wrapper used by UnifiedAgentModelPicker — persists the route as
   /// the session-level default via [updateSession].
   ///
   /// Also sets the pending turn override so the very next [send] still ships

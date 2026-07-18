@@ -25,7 +25,6 @@ import { SessionsRepository } from '../repositories/sessions_repository';
 vi.mock('../services/opencode_engine', () => {
   const mockClient = {
     isReady: true,
-    listProviders: vi.fn().mockResolvedValue([]),
     listAuthedProviders: vi.fn().mockResolvedValue([]),
     statusMessage: 'Opencode SDK ready',
     createSession: vi.fn().mockResolvedValue({ id: 'sdk-session-674' }),

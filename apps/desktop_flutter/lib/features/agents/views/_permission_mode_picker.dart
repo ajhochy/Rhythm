@@ -5,7 +5,7 @@ import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 
-/// #611 — Permission mode pill. Form-factor mirrors [SessionModelPicker].
+/// #611 — Permission mode pill. Form-factor mirrors UnifiedAgentModelPicker.
 ///
 /// Renders as a compact pill next to the model picker in the transcript header.
 /// Tapping opens a [PopupMenuButton] listing the four modes with one-line
