@@ -382,4 +382,25 @@ describe('AgentConfigsRepository', () => {
       expect(reverted!.imageGenerationEnabled).toBe(false);
     });
   });
+
+  // #1118 — per-profile reasoning effort / thinking budget.
+  describe('reasoningEffort (#1118)', () => {
+    it('defaults to null', () => {
+      const created = repo.insert({ label: 'No Effort', icon: 'a' });
+      expect(created.reasoningEffort).toBeNull();
+    });
+
+    it('round-trips a value through insert', () => {
+      const created = repo.insert({ label: 'High Effort', icon: 'a', reasoningEffort: 'high' });
+      expect(created.reasoningEffort).toBe('high');
+    });
+
+    it('round-trips through patch, and null clears it back to provider default', () => {
+      const created = repo.insert({ label: 'Toggle Effort', icon: 'a' });
+      const updated = repo.update(created.id, { reasoningEffort: 'low' });
+      expect(updated!.reasoningEffort).toBe('low');
+      const cleared = repo.update(created.id, { reasoningEffort: null });
+      expect(cleared!.reasoningEffort).toBeNull();
+    });
+  });
 });

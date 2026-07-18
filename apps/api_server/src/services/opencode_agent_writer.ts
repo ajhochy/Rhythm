@@ -498,6 +498,15 @@ export function writeAgentProfileFile(config: AgentConfig): void {
     const options: Record<string, unknown> = {};
     if (childMcpAllowlist) options.mcpAllowlist = childMcpAllowlist;
     if (childSkillAllowlist) options.skillAllowlist = childSkillAllowlist;
+    // #1118 — per-profile reasoning effort. session/llm.ts merges
+    // `agent.options` directly into the AI SDK call options (mergeOptions
+    // chain in packages/opencode/src/session/llm.ts), which is exactly where
+    // the engine's own `variants()` table places a selected variant's
+    // `effort` key for Anthropic adaptive models — so `options.effort` here
+    // reaches the request the same way, without requiring a session-level
+    // variant pick. rhythm-anthropic-accounts' transforms.js strips it again
+    // for models that reject it (haiku).
+    if (config.reasoningEffort) options.effort = config.reasoningEffort;
     if (Object.keys(options).length > 0) {
       fm = setFrontmatterKey(fm, 'options', JSON.stringify(options));
     }

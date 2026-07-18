@@ -554,6 +554,53 @@ describe('PATCH /agent-configs/:id', () => {
     expect(res.status).toBe(200);
   });
 
+  it('patches reasoningEffort, GET returns it, and null clears it (#1118)', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ label: 'Deep Thinker' }),
+    });
+    const created = (await createRes.json()) as Record<string, unknown>;
+    expect(created.reasoningEffort).toBeNull();
+
+    const patchRes = await fetch(`${baseUrl}/agent-configs/${created.id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ reasoningEffort: 'high' }),
+    });
+    expect(patchRes.status).toBe(200);
+    const patched = (await patchRes.json()) as Record<string, unknown>;
+    expect(patched.reasoningEffort).toBe('high');
+
+    const getRes = await fetch(`${baseUrl}/agent-configs/${created.id}`, { headers: authHeaders });
+    const fetched = (await getRes.json()) as Record<string, unknown>;
+    expect(fetched.reasoningEffort).toBe('high');
+
+    const clearRes = await fetch(`${baseUrl}/agent-configs/${created.id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ reasoningEffort: null }),
+    });
+    expect(clearRes.status).toBe(200);
+    expect(((await clearRes.json()) as Record<string, unknown>).reasoningEffort).toBeNull();
+  });
+
+  it('returns 400 for an empty-string reasoningEffort (#1118)', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ label: 'Bad Effort' }),
+    });
+    const created = (await createRes.json()) as Record<string, unknown>;
+
+    const res = await fetch(`${baseUrl}/agent-configs/${created.id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ reasoningEffort: '' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   it('patches and clears corePermissionsJson while preserving omitted fields', async () => {
     const createRes = await fetch(`${baseUrl}/agent-configs`, {
       method: 'POST',
