@@ -100,6 +100,31 @@ describe('Projects API', () => {
     expect(project.vcsCheckedAt).toBeTruthy();
   });
 
+  it('POST /projects with a cwd that already has a project returns 400 naming the existing project, and GET /projects still lists it (#1121)', async () => {
+    const dir = tmp('proj-dup-');
+    const firstRes = await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ name: 'Original', cwd: dir }),
+    });
+    expect(firstRes.status).toBe(201);
+    const original = (await firstRes.json()) as ProjectResponse;
+
+    const dupRes = await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ name: 'Duplicate Attempt', cwd: dir }),
+    });
+    expect(dupRes.status).toBe(400);
+    const body = (await dupRes.json()) as { error: { message: string } };
+    expect(body.error.message).toContain('Original');
+
+    const list = (await (
+      await fetch(`${baseUrl}/projects`, { headers: authHeaders })
+    ).json()) as ProjectResponse[];
+    expect(list.find((p) => p.id === original.id)?.name).toBe('Original');
+  });
+
   it('POST /projects rejects a relative path with 400', async () => {
     const res = await fetch(`${baseUrl}/projects`, {
       method: 'POST',

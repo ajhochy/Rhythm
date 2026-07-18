@@ -411,9 +411,28 @@ class _RhythmAppContent extends StatelessWidget {
           },
         ),
         ChangeNotifierProvider(
-          create: (_) => AgentProjectsController(
-            AgentProjectsRepository(AgentProjectsRemoteDataSource()),
-          ),
+          create: (_) {
+            final controller = AgentProjectsController(
+              AgentProjectsRepository(AgentProjectsRemoteDataSource()),
+            );
+            // #1121: load the project list once the local agent server is
+            // ready — previously nothing ever called load(), so the "By
+            // Project" dropdown only ever showed projects created in the
+            // current app session, never ones already in the DB.
+            void onAgentServerChanged() {
+              if (agentServerController.isReady) {
+                agentServerController.removeListener(onAgentServerChanged);
+                controller.load();
+              }
+            }
+
+            if (agentServerController.isReady) {
+              controller.load();
+            } else {
+              agentServerController.addListener(onAgentServerChanged);
+            }
+            return controller;
+          },
         ),
         // #745: AgentConfigsController is created BEFORE AgentsController so
         // that the manager-agent resolver closure can read it via ctx.read().

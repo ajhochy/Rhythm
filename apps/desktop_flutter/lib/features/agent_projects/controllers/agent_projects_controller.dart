@@ -55,10 +55,20 @@ class AgentProjectsController extends ChangeNotifier {
     required String cwd,
     String? icon,
   }) async {
-    final created = await _repository.create(name: name, cwd: cwd, icon: icon);
-    _projects = [created, ..._projects];
-    notifyListeners();
-    return created;
+    try {
+      final created =
+          await _repository.create(name: name, cwd: cwd, icon: icon);
+      _projects = [created, ..._projects];
+      notifyListeners();
+      return created;
+    } catch (e) {
+      // #1121: a duplicate-cwd rejection means the existing project is real
+      // but may be missing from `_projects` (e.g. load() never ran, or ran
+      // before this project existed). Reload so it becomes visible/selectable
+      // in the dropdown instead of leaving a stale or empty list.
+      await load();
+      rethrow;
+    }
   }
 
   Future<AgentProject> update(
