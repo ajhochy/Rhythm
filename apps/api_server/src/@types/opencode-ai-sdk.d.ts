@@ -439,6 +439,24 @@ declare module '@opencode-ai/sdk' {
     priority: string;
   };
 
+  /**
+   * OCU-27 (#1068) — Pty session descriptor, POST/PATCH /pty[/{id}] response.
+   * Verified against the REAL installed @opencode-ai/sdk@1.14.49 package's
+   * generated declarations (node_modules/@opencode-ai/sdk/dist/gen/types.gen.d.ts
+   * `Pty`), not the vendored opencode_fork subtree (which ships unbuilt ESM
+   * TS source with no dist/.d.ts output — not consumable as a type source
+   * without adding it to the build pipeline, which AGENTS.md forbids).
+   */
+  export type Pty = {
+    id: string;
+    title: string;
+    command: string;
+    args: string[];
+    cwd: string;
+    status: 'running' | 'exited';
+    pid: number;
+  };
+
   // ── MCP status types (v1.14.49) ──
 
   export type McpStatusEntry = {
@@ -741,6 +759,37 @@ declare module '@opencode-ai/sdk' {
         SdkEnvelope<Array<SdkAgent>>
       >;
     };
+    /**
+     * OCU-27 (#1068) — PTY session management, `client.pty` in the real
+     * @opencode-ai/sdk@1.14.49 sdk.gen.d.ts (class `Pty`). Body/response
+     * shapes verified against that package's generated types.gen.d.ts
+     * (PtyCreateData/PtyUpdateData/PtyRemoveData). Replaces the prior
+     * `(client as any).pty.*` casts.
+     */
+    pty: {
+      /** POST /pty — create a new PTY session. */
+      create(options?: {
+        body?: {
+          command?: string;
+          args?: string[];
+          cwd?: string;
+          title?: string;
+          env?: Record<string, string>;
+        };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<Pty>>;
+      /** PATCH /pty/{id} — update a PTY session's title and/or size. */
+      update(options: {
+        path: { id: string };
+        body?: { title?: string; size?: { rows: number; cols: number } };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<Pty>>;
+      /** DELETE /pty/{id} — remove a PTY session. */
+      remove(options: {
+        path: { id: string };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<boolean>>;
+    };
   }
 
   /**
@@ -774,4 +823,81 @@ declare module '@opencode-ai/sdk' {
       [key: string]: string | Record<string, string> | undefined;
     };
   };
+}
+
+/**
+ * OCU-27 (#1068) — the `/v2` export of the SAME @opencode-ai/sdk@1.14.49
+ * dependency. The v1 default export (declared above) has no coverage for the
+ * Question API or skill listing, but the real, already-installed v2 build
+ * (node_modules/@opencode-ai/sdk/dist/v2/gen/{sdk,types}.gen.d.ts — verified
+ * against that source, NOT the vendored opencode_fork subtree, which ships
+ * only unbuilt ESM .ts source with no dist output) genuinely covers them.
+ * `question.*` and `app.skills()` below construct the exact same HTTP
+ * requests (same path/method/body) the prior raw-fetch shims used — this is
+ * a client-side typing change only, not a wire-protocol change.
+ *
+ * v2 methods take FLAT parameter objects (not the v1 {path,body,query} split)
+ * per the real client's generated call signatures; the client resolves them
+ * into the right path/body/query internally. Still returns the hey-api
+ * `{ data?, error? }` envelope (ThrowOnError=false default, "fields" mode).
+ *
+ * mcpAllowlist/skillAllowlist and skill.reload/config.reload are NOT declared
+ * here — those only exist in the fork's own regenerated v2 schema (#1067),
+ * which is Rhythm's unpublished engine patch on top of vanilla opencode and
+ * has no consumable (built) form. Those direct-fetch shims stay as-is.
+ */
+declare module '@opencode-ai/sdk/v2/client' {
+  export function createOpencodeClient(config?: { baseUrl?: string }): V2OpencodeClient;
+
+  type V2Envelope<T> = { data?: T; error?: unknown };
+
+  export type QuestionOption = { label: string; value?: string };
+  export type QuestionInfo = {
+    question: string;
+    header: string;
+    options: Array<QuestionOption>;
+    multiple?: boolean;
+    custom?: boolean;
+  };
+  export type QuestionTool = { messageID: string; callID: string };
+  export type QuestionRequest = {
+    id: string;
+    sessionID: string;
+    questions: Array<QuestionInfo>;
+    tool?: QuestionTool;
+  };
+  export type QuestionAnswer = string[];
+
+  export type SkillWithContent = {
+    name: string;
+    description?: string;
+    location: string;
+    content: string;
+  };
+
+  export interface V2OpencodeClient {
+    question: {
+      /** GET /question — list pending question requests across all sessions. */
+      list(params?: {
+        directory?: string;
+      }): Promise<V2Envelope<Array<QuestionRequest>>>;
+      /** POST /question/{requestID}/reply — answer a pending question. */
+      reply(params: {
+        requestID: string;
+        directory?: string;
+        answers?: Array<QuestionAnswer>;
+      }): Promise<V2Envelope<boolean>>;
+      /** POST /question/{requestID}/reject — dismiss a pending question. */
+      reject(params: {
+        requestID: string;
+        directory?: string;
+      }): Promise<V2Envelope<boolean>>;
+    };
+    app: {
+      /** GET /skill — list discovered skills, including full SKILL.md content. */
+      skills(params?: {
+        directory?: string;
+      }): Promise<V2Envelope<Array<SkillWithContent>>>;
+    };
+  }
 }

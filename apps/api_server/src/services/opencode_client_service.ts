@@ -1056,6 +1056,13 @@ export class OpencodeClientService {
    * type only includes `title` (generated before mcp-scope support was added), and
    * the fork's URL is known at this.baseUrl.
    *
+   * OCU-27 (#1068) re-check: confirmed `mcpAllowlist` is still absent from
+   * SessionUpdateData in both the real @opencode-ai/sdk@1.14.49 package's
+   * generated types.gen.d.ts and the vendored opencode_fork's regenerated
+   * types.gen.ts (#1067) — the field is accepted by the fork engine's route
+   * handler but was never added to its published OpenAPI schema. No typed SDK
+   * coverage exists to adopt; this direct-fetch shim stays as-is.
+   *
    * Issue #855: this method takes the SAME `McpRoleConfig` shape createSession()
    * accepts and expands it via the SAME `expandMcpAllowlist` helper — NOT a raw
    * `servers: string[]` that a caller might derive by naively JSON.parsing
@@ -1131,6 +1138,10 @@ export class OpencodeClientService {
    *
    * Passing null clears the restriction (fork stores NULL and reads it back as
    * undefined/unrestricted). Passing [] is an explicit deny-all skill scope.
+   *
+   * OCU-27 (#1068): `skillAllowlist` is likewise absent from the regenerated
+   * SDK's SessionUpdateData — same situation as {@link updateSessionAllowlist}.
+   * Direct-fetch shim stays as-is.
    */
   async updateSessionSkillAllowlist(
     sessionId: string,
@@ -1165,28 +1176,25 @@ export class OpencodeClientService {
    * `allowed_skills_json` names are guaranteed to match what the fork enforces
    * (#775). `content` is stripped — the picker only needs name/description/location.
    *
-   * Uses raw fetch because GET /skill is an experimental instance route the SDK
-   * client does not generate. `directory` is optional; it defaults to the home
-   * dir, which yields the directory-independent canonical set (home + config +
-   * config.skills.paths). Returns [] when the engine is unavailable.
+   * `directory` is optional; it defaults to the home dir, which yields the
+   * directory-independent canonical set (home + config + config.skills.paths).
+   * Returns [] when the engine is unavailable.
+   *
+   * OCU-27 (#1068): GET /skill IS covered by the real, already-installed
+   * @opencode-ai/sdk@1.14.49 v2 export (`client.app.skills()` — verified
+   * against node_modules/@opencode-ai/sdk/dist/v2/gen/types.gen.d.ts
+   * `AppSkillsResponses`) — adopted via {@link v2Client}, same endpoint as
+   * {@link listSkillsWithContent}.
    */
   async listSkills(
     directory?: string,
   ): Promise<Array<{ name: string; description?: string; location: string }>> {
     const dir = directory ?? homedir();
     try {
-      const base = this.serverUrl;
-      const res = await fetch(`${base}/skill?directory=${encodeURIComponent(dir)}`);
-      if (!res.ok) {
-        logger.warn('[OpencodeClientService] listSkills HTTP %s', res.status);
-        return [];
-      }
-      const data = (await res.json()) as Array<{
-        name: string;
-        description?: string;
-        location: string;
-      }>;
-      return data.map((s) => ({ name: s.name, description: s.description, location: s.location }));
+      const client = await this.v2Client();
+      const raw = await client.app.skills({ directory: dir });
+      if (raw.error || !raw.data) return [];
+      return raw.data.map((s) => ({ name: s.name, description: s.description, location: s.location }));
     } catch (err) {
       logger.error('[OpencodeClientService] listSkills failed:', err);
       return [];
@@ -1203,25 +1211,20 @@ export class OpencodeClientService {
    * must read them out of this raw content itself (see skill_frontmatter.ts).
    * Returns [] when the engine is unavailable — same fail-safe posture as
    * {@link listSkills}.
+   *
+   * OCU-27 (#1068): same `client.app.skills()` v2 SDK call as
+   * {@link listSkills} — its response already includes `content` (verified
+   * against `AppSkillsResponses`), so both methods share one typed call.
    */
   async listSkillsWithContent(
     directory?: string,
   ): Promise<Array<{ name: string; description?: string; location: string; content: string }>> {
     const dir = directory ?? homedir();
     try {
-      const base = this.serverUrl;
-      const res = await fetch(`${base}/skill?directory=${encodeURIComponent(dir)}`);
-      if (!res.ok) {
-        logger.warn('[OpencodeClientService] listSkillsWithContent HTTP %s', res.status);
-        return [];
-      }
-      const data = (await res.json()) as Array<{
-        name: string;
-        description?: string;
-        location: string;
-        content?: string;
-      }>;
-      return data.map((s) => ({
+      const client = await this.v2Client();
+      const raw = await client.app.skills({ directory: dir });
+      if (raw.error || !raw.data) return [];
+      return raw.data.map((s) => ({
         name: s.name,
         description: s.description,
         location: s.location,
@@ -1238,6 +1241,9 @@ export class OpencodeClientService {
    * discovery per-instance, so a freshly-written SKILL.md is invisible until
    * this is called). Calls the fork's POST /skill/reload and returns the fresh
    * list. Call after any write into the Rhythm-managed dir.
+   *
+   * OCU-27 (#1068): `/skill/reload` has no SDK coverage (real package or
+   * fork regen) — direct fetch stays.
    */
   async reloadSkills(
     directory?: string,
@@ -1282,6 +1288,8 @@ export class OpencodeClientService {
    * without this a Config Doctor edit to an agent file is invisible to new
    * sessions until the engine restarts. Mirrors reloadSkills: raw fetch (no SDK
    * regen), non-throwing, no-ops when the engine isn't ready.
+   *
+   * OCU-27 (#1068): `/config/reload` has no SDK coverage — direct fetch stays.
    */
   async reloadConfig(directory?: string): Promise<boolean> {
     if (!this.isReady) {
@@ -1774,10 +1782,12 @@ export class OpencodeClientService {
    * ({@link respondToPermission}) is used ONLY as a fallback when the modern
    * route 404s (older engine binary that predates it).
    *
-   * Direct fetch (mirrors {@link questionAction}) until OCU-27 (#1068) lands a
-   * typed SDK for this route. Never throws — returns true on 2xx, false on any
-   * failure (the caller still clears local UI state). `message` is agent-
-   * facing feedback, never logged as a secret.
+   * Direct fetch until a typed SDK adopts this route. Never throws — returns
+   * true on 2xx, false on any failure (the caller still clears local UI
+   * state). `message` is agent-facing feedback, never logged as a secret.
+   *
+   * OCU-27 (#1068): out of scope — not in this issue's named shim list
+   * (unlike the sibling Question API, converted below via {@link v2Client}).
    */
   async replyToPermission(
     requestID: string,
@@ -1824,14 +1834,46 @@ export class OpencodeClientService {
   //
   // opencode answers its `question` tool through POST /question/{id}/reply.
   // The v1 OpencodeClient we hold does NOT expose this route (the Question API
-  // lives in the SDK's v2 namespace), so we call the spawned server's HTTP
-  // endpoint directly — the same routes confirmed live on the running binary.
-  // Without this, a question tool stays status:running forever and the session
-  // hangs. Mirrors respondToPermission: pass `directory` to scope the reply.
+  // lives in the SDK's v2 namespace). Without this, a question tool stays
+  // status:running forever and the session hangs.
+  //
+  // OCU-27 (#1068): the real, already-installed @opencode-ai/sdk@1.14.49 v2
+  // export DOES cover `/question`, `/question/{id}/reply`, and
+  // `/question/{id}/reject` (verified against
+  // node_modules/@opencode-ai/sdk/dist/v2/gen/{sdk,types}.gen.d.ts) — adopted
+  // below via {@link v2Client}. It constructs the exact same HTTP requests
+  // the prior raw-fetch calls used, so this is a client-typing change only.
 
   /** Base URL of the spawned opencode server (falls back to the default port). */
   private get serverUrl(): string {
     return this.server?.url ?? 'http://127.0.0.1:4096';
+  }
+
+  /** Test-only seam (mirrors {@link __setTestClient}) for the v2 SDK client. */
+  private _v2TestClient: import('@opencode-ai/sdk/v2/client').V2OpencodeClient | null = null;
+  __setTestV2Client(client: import('@opencode-ai/sdk/v2/client').V2OpencodeClient): void {
+    this._v2TestClient = client;
+  }
+
+  /**
+   * OCU-27 (#1068) — lazily create a v2 SDK client bound to the SAME running
+   * engine as the v1 client (this.serverUrl). Not cached beyond a test
+   * override — reads this.serverUrl fresh each call so a reloadCredentials()
+   * bounce is picked up, matching every other raw-fetch method in this file.
+   * Dynamic import mirrors {@link initialize}'s Function-wrapped `import()`
+   * (v2 is ESM-only too, same CJS incompatibility).
+   */
+  private async v2Client(): Promise<import('@opencode-ai/sdk/v2/client').V2OpencodeClient> {
+    if (this._v2TestClient) return this._v2TestClient;
+    const dynamicImport = new Function('s', 'return import(s)') as (
+      s: string,
+    ) => Promise<unknown>;
+    const mod = (await dynamicImport('@opencode-ai/sdk/v2/client')) as {
+      createOpencodeClient: (config?: {
+        baseUrl?: string;
+      }) => import('@opencode-ai/sdk/v2/client').V2OpencodeClient;
+    };
+    return mod.createOpencodeClient({ baseUrl: this.serverUrl });
   }
 
   /**
@@ -1845,40 +1887,38 @@ export class OpencodeClientService {
     answers: string[][],
     directory?: string,
   ): Promise<boolean> {
-    return this.questionAction('reply', requestId, { answers }, directory);
-  }
-
-  /** POST /question/{requestID}/reject — dismiss a pending question. */
-  async rejectQuestion(requestId: string, directory?: string): Promise<boolean> {
-    return this.questionAction('reject', requestId, undefined, directory);
-  }
-
-  private async questionAction(
-    action: 'reply' | 'reject',
-    requestId: string,
-    body: Record<string, unknown> | undefined,
-    directory?: string,
-  ): Promise<boolean> {
-    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
-    const url = `${this.serverUrl}/question/${encodeURIComponent(requestId)}/${action}${qs}`;
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body ?? {}),
-      });
-      if (!res.ok) {
+      const client = await this.v2Client();
+      const raw = await client.question.reply({ requestID: requestId, answers, directory });
+      if (raw.error) {
         logger.error(
-          `[OpencodeClientService] question ${action} failed (${res.status}) for ${requestId}`,
+          `[OpencodeClientService] question reply failed for ${requestId}:`,
+          raw.error,
         );
         return false;
       }
       return true;
     } catch (err) {
-      logger.error(
-        `[OpencodeClientService] question ${action} threw for ${requestId}:`,
-        err,
-      );
+      logger.error(`[OpencodeClientService] question reply threw for ${requestId}:`, err);
+      return false;
+    }
+  }
+
+  /** POST /question/{requestID}/reject — dismiss a pending question. */
+  async rejectQuestion(requestId: string, directory?: string): Promise<boolean> {
+    try {
+      const client = await this.v2Client();
+      const raw = await client.question.reject({ requestID: requestId, directory });
+      if (raw.error) {
+        logger.error(
+          `[OpencodeClientService] question reject failed for ${requestId}:`,
+          raw.error,
+        );
+        return false;
+      }
+      return true;
+    } catch (err) {
+      logger.error(`[OpencodeClientService] question reject threw for ${requestId}:`, err);
       return false;
     }
   }
@@ -1898,19 +1938,14 @@ export class OpencodeClientService {
       tool?: { callID?: string };
     }>
   > {
-    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
     try {
-      const res = await fetch(`${this.serverUrl}/question${qs}`);
-      if (!res.ok) return [];
+      const client = await this.v2Client();
+      const raw = await client.question.list({ directory });
+      if (raw.error || !raw.data) return [];
       // GET /question returns the full QuestionRequest list — including the
       // `questions` array used to render the card when a missed `question.asked`
       // is recovered (see OpencodeStreamBridge.recoverPendingQuestions).
-      return (await res.json()) as Array<{
-        id: string;
-        sessionID: string;
-        questions?: unknown[];
-        tool?: { callID?: string };
-      }>;
+      return raw.data;
     } catch (err) {
       logger.error('[OpencodeClientService] listQuestions failed:', err);
       return [];
@@ -1982,8 +2017,9 @@ export class OpencodeClientService {
   // ── Worktree wrappers (OCU-16 #1057) ──────────────────────────────────────
   //
   // The engine exposes experimental worktree lifecycle endpoints scoped by the
-  // project `directory` query param. Direct fetch (mirrors questionAction /
-  // getSessionStatuses) until a typed SDK lands (OCU-27). All non-throwing:
+  // project `directory` query param. Direct fetch (mirrors getSessionStatuses)
+  // — not in OCU-27 (#1068)'s named shim list; no typed SDK coverage checked.
+  // All non-throwing:
   // list returns [] and the mutators return null/false on any failure so a
   // route can surface a clean error without crashing the process.
 
@@ -2240,8 +2276,8 @@ export class OpencodeClientService {
    * POST /session/{id}/shell — run a non-interactive command through the
    * session so the invocation + output land in session history. `agent` is the
    * engine agent name to attribute the run to; `command` is the shell command.
-   * Direct fetch (mirrors questionAction). Returns the created message on
-   * success, or throws AppError on engine error.
+   * Direct fetch — not in OCU-27 (#1068)'s named shim list. Returns the
+   * created message on success, or throws AppError on engine error.
    */
   async sessionShell(
     sdkId: string,
@@ -3162,7 +3198,7 @@ export class OpencodeClientService {
     const client = this.requireClient();
     const body: { cwd: string; command?: string } = { cwd: opts.cwd };
     if (opts.command) body.command = opts.command;
-    const raw = await (client as any).pty.create({ body });
+    const raw = await client.pty.create({ body });
     if (raw.error) {
       throw new AppError(
         502,
@@ -3170,7 +3206,7 @@ export class OpencodeClientService {
         `createPty failed: ${JSON.stringify(raw.error)}`,
       );
     }
-    const d = raw.data as { id: string; pid: number; status: string };
+    const d = raw.data!;
     return { id: d.id, pid: d.pid, status: d.status };
   }
 
@@ -3181,7 +3217,7 @@ export class OpencodeClientService {
    */
   async resizePty(id: string, cols: number, rows: number): Promise<void> {
     const client = this.requireClient();
-    const raw = await (client as any).pty.update({
+    const raw = await client.pty.update({
       path: { id },
       body: { size: { rows, cols } },
     });
@@ -3203,7 +3239,7 @@ export class OpencodeClientService {
   async removePty(id: string): Promise<void> {
     const client = this.requireClient();
     try {
-      await (client as any).pty.remove({ path: { id } });
+      await client.pty.remove({ path: { id } });
     } catch {
       /* best-effort: PTY may already be gone */
     }
