@@ -253,6 +253,12 @@ class ApiServerService {
   /// If port 4001 is already held by a node process whose PPID is 1 (orphaned
   /// from a previous Rhythm quit that didn't clean up), kill it so we can
   /// bind the port on a fresh start.
+  ///
+  /// #1124 — PPID==1 is not a sufficient orphan signal on its own: a process
+  /// backgrounded with `nohup ... &` (a normal way to run a dev sandbox
+  /// server) is also reparented to PPID 1. We therefore never kill a process
+  /// whose command line carries the `--rhythm-sandbox=` marker, and we log
+  /// loudly before killing any :4001 holder this app instance did not start.
   Future<void> _killOrphanIfPresent() async {
     try {
       // Find whatever process (if any) is listening on TCP :4001.
@@ -274,15 +280,37 @@ class ApiServerService {
         final pid = int.tryParse(pidStr);
         if (pid == null || pid <= 0) continue;
 
-        // Check the PPID.
-        final psResult = await Process.run('ps', ['-o', 'ppid=', '-p', '$pid']);
+        // Check the PPID and the full command line together (#1124). A
+        // dev/test server backgrounded with `nohup ... &` is also reparented to
+        // PPID 1, so PPID alone is not enough to prove "our orphan". Read the
+        // command line and refuse to kill an isolated sandbox server, which
+        // marks itself with `--rhythm-sandbox=` (see tools/dev/sandbox.sh).
+        final psResult = await Process.run('ps', [
+          '-o',
+          'ppid=,command=',
+          '-p',
+          '$pid',
+        ]);
         if (psResult.exitCode != 0) continue;
-        final ppid = int.tryParse((psResult.stdout as String).trim());
+        final psLine = (psResult.stdout as String).trim();
+        final ppid = int.tryParse(psLine.split(RegExp(r'\s+')).first);
         if (ppid != 1) continue;
 
-        // It's an orphan — kill it.
+        // Never kill an isolated dev sandbox server, even if it landed on :4001.
+        if (psLine.contains('--rhythm-sandbox=')) {
+          stderr.writeln(
+            '[ApiServerService] :4001 is held by a sandbox server (PID $pid); '
+            'refusing to kill it. Stop the sandbox first or point the app '
+            'elsewhere.',
+          );
+          return;
+        }
+
+        // It's an orphan — kill it. Log loudly: we are about to reclaim a port
+        // held by a process this app instance did not start (#1124).
         stdout.writeln(
-          '[ApiServerService] killed orphan PID $pid to reclaim :4001',
+          '[ApiServerService] killing orphan PID $pid ($psLine) to reclaim '
+          ':4001',
         );
         try {
           Process.killPid(pid, ProcessSignal.sigterm);
