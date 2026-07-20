@@ -123,6 +123,18 @@ function validateBody(body: Record<string, unknown>, requireLabel = true): void 
     throw AppError.badRequest('defaultAnthropicAccountId must be a string or null');
   }
 
+  // #1118 — per-profile reasoning-effort value. Free-form (provider-specific
+  // effort tiers differ, e.g. Anthropic's low/medium/high/xhigh/max vs
+  // OpenAI's minimal/low/medium/high) — validated as a non-empty string or
+  // null rather than a fixed enum, matching modelProvider/modelId/ocAgent.
+  if (
+    body.reasoningEffort !== undefined &&
+    body.reasoningEffort !== null &&
+    !(typeof body.reasoningEffort === 'string' && body.reasoningEffort.trim() !== '')
+  ) {
+    throw AppError.badRequest('reasoningEffort must be a non-empty string or null');
+  }
+
   validateCorePermissionsJson(body.corePermissionsJson);
 
   // Legacy CLI fields (command, canResume, resumeCommand, sessionIdPattern,
@@ -264,6 +276,8 @@ export class AgentConfigsController {
         modelTierHint: typeof body.modelTierHint === 'string' ? body.modelTierHint : null,
         defaultAnthropicAccountId:
           typeof body.defaultAnthropicAccountId === 'string' ? body.defaultAnthropicAccountId : null,
+        // #1118 — per-profile reasoning effort. Null = provider default.
+        reasoningEffort: typeof body.reasoningEffort === 'string' ? body.reasoningEffort : null,
         canResume: false,
         resumeCommand: null,
         sessionIdPattern: null,
@@ -327,6 +341,8 @@ export class AgentConfigsController {
       if (body.imageGenerationEnabled !== undefined) patch.imageGenerationEnabled = Boolean(body.imageGenerationEnabled);
       if (body.modelTierHint !== undefined) patch.modelTierHint = typeof body.modelTierHint === 'string' ? body.modelTierHint : null;
       if (body.defaultAnthropicAccountId !== undefined) patch.defaultAnthropicAccountId = typeof body.defaultAnthropicAccountId === 'string' ? body.defaultAnthropicAccountId : null;
+      // #1118 — `reasoningEffort: null` explicitly clears back to provider default.
+      if (body.reasoningEffort !== undefined) patch.reasoningEffort = typeof body.reasoningEffort === 'string' ? body.reasoningEffort : null;
       // Legacy CLI fields (#581) — accept on the wire for back-compat
       // with old payloads but never propagate to the repository layer.
 

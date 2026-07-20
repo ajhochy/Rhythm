@@ -314,6 +314,66 @@ describe('workflow-orchestrator file projection', () => {
     expect(options.skillAllowlist).toEqual({ skills: ['skill-a'] });
   });
 
+  // #1118 — per-profile reasoning effort projected into options.effort.
+  it('projects reasoningEffort into options.effort when set', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    writeAgentProfileFile({
+      ...agentConfig('effort-agent', 'Effort Agent'),
+      reasoningEffort: 'high',
+    });
+
+    const projected = readFileSync(
+      join(state.home, '.config', 'opencode', 'agents', 'effort-agent.md'),
+      'utf8',
+    );
+    const optionsLine = projected.split('\n').find((l) => l.startsWith('options:'));
+    expect(optionsLine).toBeDefined();
+    const options = JSON.parse(optionsLine!.slice('options: '.length));
+    expect(options.effort).toBe('high');
+  });
+
+  it('omits options.effort (and the options: line) when reasoningEffort is null', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    writeAgentProfileFile({
+      ...agentConfig('no-effort-agent', 'No Effort Agent'),
+      reasoningEffort: null,
+    });
+
+    const projected = readFileSync(
+      join(state.home, '.config', 'opencode', 'agents', 'no-effort-agent.md'),
+      'utf8',
+    );
+    expect(projected.split('\n').some((l) => l.startsWith('options:'))).toBe(false);
+  });
+
+  it('projects reasoningEffort alongside mcpAllowlist into the same options: line', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    writeAgentProfileFile({
+      ...agentConfig('scoped-effort', 'Scoped Effort'),
+      allowedMcpsJson: JSON.stringify(['rhythm']),
+      reasoningEffort: 'medium',
+    });
+
+    const projected = readFileSync(
+      join(state.home, '.config', 'opencode', 'agents', 'scoped-effort.md'),
+      'utf8',
+    );
+    const optionsLine = projected.split('\n').find((l) => l.startsWith('options:'));
+    expect(optionsLine).toBeDefined();
+    const options = JSON.parse(optionsLine!.slice('options: '.length));
+    expect(options.mcpAllowlist).toBeDefined();
+    expect(options.effort).toBe('medium');
+  });
+
   it('omits the options: line entirely when neither allowlist is scoped', () => {
     state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
     process.env.VITEST = 'false';

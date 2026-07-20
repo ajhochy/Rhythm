@@ -2434,4 +2434,27 @@ Your job, in order:
   runOnce('issue_1072_org_settings', () => {
     // Marker only — the CREATE TABLE above is an idempotent STRUCTURE change.
   });
+
+  // #1118 — per-agent-profile reasoning effort / thinking budget. Nullable
+  // free-form string (provider effort tier, e.g. 'low'/'medium'/'high'/'xhigh'
+  // /'max' for Anthropic adaptive models); NULL = provider default (no
+  // restriction), same semantics as allowedMcpsJson: null. Projected by
+  // opencode_agent_writer.ts into the agent-file frontmatter's
+  // `options.effort` — session/llm.ts merges `agent.options` directly into
+  // the AI SDK call options, so this flows through without needing the
+  // engine's `variant` mechanism. Additive + nullable STRUCTURE change; local
+  // SQLite only — mirrors #1088/#1094: this column only feeds the
+  // local-only opencode agent-file writer (gated
+  // `if (env.dbClient === 'postgres') return` — see AGENTS.md "Database"),
+  // which never runs against production Postgres. No postgres_bootstrap
+  // backfill needed.
+  const agentConfigCols1118 = (
+    db.pragma('table_info(agent_configs)') as { name: string }[]
+  ).map((c) => c.name);
+  if (!agentConfigCols1118.includes('reasoning_effort')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN reasoning_effort TEXT`);
+  }
+  runOnce('issue_1118_reasoning_effort', () => {
+    // Marker only — the additive ALTER above is an idempotent STRUCTURE change.
+  });
 }

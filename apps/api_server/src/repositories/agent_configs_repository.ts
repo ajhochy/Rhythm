@@ -80,6 +80,15 @@ export interface AgentConfig {
    * populate it. Writer/controller code treats `undefined` as `false`.
    */
   imageGenerationEnabled?: boolean;
+  /**
+   * #1118 — per-profile reasoning-effort / thinking-budget value (e.g.
+   * 'low'/'medium'/'high'/'xhigh'/'max'), projected by the writer into the
+   * agent frontmatter's `options.effort`. Null = provider default (no
+   * restriction). Optional on the TYPE (like `schedulable`) so pre-#1118
+   * hand-built AgentConfig fixtures still type-check; real repository reads
+   * always populate it.
+   */
+  reasoningEffort?: string | null;
   // Legacy CLI fields — retained on the row but no longer used by the
   // Opencode-based client. Marked optional so consumers do not depend on
   // them. New writes set these to NULL / empty defaults (issue #581).
@@ -124,6 +133,8 @@ export interface AgentConfigInput {
   defaultAnthropicAccountId?: string | null;
   /** #1094 — grant the OpenAI native image_generation tool. Default false. */
   imageGenerationEnabled?: boolean;
+  /** #1118 — per-profile reasoning-effort value. Null/omitted = provider default. */
+  reasoningEffort?: string | null;
   // Legacy fields — accepted on the input shape for back-compat with stale
   // clients, but silently ignored by insert()/update() (issue #581).
   command?: string;
@@ -162,6 +173,7 @@ interface AgentConfigRow {
   default_anthropic_account_id: string | null;
   schedulable: number | null;
   image_generation_enabled: number;
+  reasoning_effort: string | null;
 }
 
 export function slugIdFromLabel(label: string): string {
@@ -217,6 +229,7 @@ function rowToModel(row: AgentConfigRow): AgentConfig {
     modelTierHint: row.model_tier_hint ?? null,
     defaultAnthropicAccountId: row.default_anthropic_account_id ?? null,
     imageGenerationEnabled: (row.image_generation_enabled ?? 0) !== 0,
+    reasoningEffort: row.reasoning_effort ?? null,
   };
 }
 
@@ -265,8 +278,8 @@ export class AgentConfigsRepository {
            resume_command, session_id_pattern, output_marker, preset_id, sort_order,
            model_provider, model_id, oc_agent, session_selectable, model_tier_hint,
            default_anthropic_account_id, schedulable, image_generation_enabled,
-           created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           reasoning_effort, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -297,6 +310,7 @@ export class AgentConfigsRepository {
           ? null
           : config.schedulable ? 1 : 0,
         config.imageGenerationEnabled ? 1 : 0,
+        config.reasoningEffort ?? null,
         now,
         now,
       );
@@ -385,6 +399,10 @@ export class AgentConfigsRepository {
     if (patch.defaultAnthropicAccountId !== undefined) {
       fields.push('default_anthropic_account_id = ?');
       values.push(patch.defaultAnthropicAccountId ?? null);
+    }
+    if (patch.reasoningEffort !== undefined) {
+      fields.push('reasoning_effort = ?');
+      values.push(patch.reasoningEffort ?? null);
     }
     // Legacy CLI fields (command, canResume, resumeCommand, sessionIdPattern,
     // outputMarker) are silently ignored on update so stale clients can't
