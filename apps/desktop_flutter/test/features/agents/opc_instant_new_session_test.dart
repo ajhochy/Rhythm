@@ -171,6 +171,7 @@ class _StubAgentsRepository implements AgentsRepository {
     bool clearModel = false,
     bool? fastMode,
     String? anthropicAccountId,
+    String? agentId,
   }) async =>
       _makeSession(id, '');
 

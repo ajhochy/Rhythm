@@ -844,6 +844,25 @@ export class AgentSessionsController {
         fields.fastMode = body.fastMode;
       }
 
+      // #1119 — persist an explicit mid-session profile switch so it survives
+      // an app restart. Previously the Flutter agent-selector pill only sent
+      // the choice per-turn on the WS `session.input` frame (ws_gateway.ts,
+      // "never persisted" by OPC-M4-4 design) and never wrote it back to the
+      // session row, so a restart's rehydrate always fell back to the row's
+      // original (default) agent_kind. `agentId` here is the already-resolved
+      // engine kind the Flutter picker sends (mirrors resolvedEngineAgentKind
+      // from create/resume) — written as-is via the existing updateAgentKind
+      // helper, same as the resume path (~line 1253). Empty/omitted is a
+      // no-op so callers that don't touch the profile are unaffected.
+      if (body.agentId !== undefined) {
+        if (body.agentId !== null && typeof body.agentId !== 'string') {
+          throw AppError.badRequest('agentId must be a string or null');
+        }
+        if (typeof body.agentId === 'string' && body.agentId.trim() !== '') {
+          repo.updateAgentKind(session.id, body.agentId.trim());
+        }
+      }
+
       // Dual-account follow-up — switch the session's Claude account from the
       // header badge. Rejects null/unknown ids (clearing is not supported);
       // updates the routing file only when the SDK session already exists.

@@ -260,9 +260,13 @@ class AgentsDataSource {
     Object? thinkingBudget = _dssentinel,
     bool? fastMode,
     String? anthropicAccountId,
+    String? agentId,
   }) async {
     final payload = <String, dynamic>{};
     if (name != null) payload['name'] = name;
+    // #1119 — persist an explicit profile switch so it survives an app
+    // restart (see AgentsController.setSelectedAgent).
+    if (agentId != null) payload['agentId'] = agentId;
     if (clearProvider) {
       payload['providerId'] = null;
     } else if (providerId != null) {
