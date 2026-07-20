@@ -176,3 +176,12 @@ layer here, not end-to-end through an actual process restart. Recommend:
 5. Confirm the agent-selector pill shows Coding Workflow (not Secretary/
    default), and that it is styled as "overridden" (accent border) per
    `hasExplicitAgentSelection`.
+
+## Manual UI smoke — 2026-07-20 (PASS)
+Launched the integration branch (smoke/1068-1124-integration) Flutter app pointed
+at the isolated sandbox (`--dart-define=RHYTHM_AGENT_PORT=4098`; log confirmed
+"Reusing existing server at http://localhost:4098", live :4001 untouched).
+Switched a session to a non-default profile, sent a message, quit, relaunched.
+On reopen the session retained the chosen profile (did NOT revert to Secretary).
+Fix verified end-to-end. Also incidentally exercised #1124: the app refused to
+kill/spawn against :4001 and reused the sandbox.
