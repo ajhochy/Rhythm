@@ -742,6 +742,18 @@ class _ByProjectSelector extends StatelessWidget {
               ),
             ),
           ),
+          if (ctrl.status == AgentProjectsLoadStatus.error) ...[
+            const SizedBox(width: 6),
+            Tooltip(
+              message: 'Failed to load projects'
+                  '${ctrl.error != null ? ': ${ctrl.error}' : ''}',
+              child: Icon(
+                Icons.warning_amber_rounded,
+                size: 16,
+                color: context.rhythm.textMuted,
+              ),
+            ),
+          ],
           const SizedBox(width: 6),
           // Add project affordance.
           Tooltip(
