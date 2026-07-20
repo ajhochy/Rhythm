@@ -14,7 +14,7 @@ apps/
 └── electron/          ← Electron wrapper — prototype, NOT shipping
 ```
 
-See `docs/ai/repo-map.md` for the full file-level breakdown and `docs/ai/architecture.md` for data flow.
+See `docs/ai/repo-map.md` for the full file-level breakdown and `docs/ai/architecture.md` for data flow. New to the shorthand (`OPC-Mx-y` tags, local/sdk session IDs, the dual-server split)? Read `docs/ai/CONTEXT.md` first — it decodes it all in one page.
 
 ## Database
 
