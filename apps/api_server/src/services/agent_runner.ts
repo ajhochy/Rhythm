@@ -874,6 +874,18 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         // baseline; subsequent bridge events maintain live status and the
         // completion block below remains authoritative for final idle/error.
         sessRepo.updateStatus(rhythmSessionId, 'working');
+        // Every AgentRunner.run() call is headless (see the promptOpts below —
+        // permissionMode is unconditionally 'bypassPermissions' because
+        // "there's no UI to approve tool perms"). But that value is only ever
+        // passed as a per-prompt SDK option; it was never persisted onto this
+        // session's own permission_mode column. opencode_stream_bridge.ts's
+        // auto-accept gate for permission.asked/permission.updated events
+        // reads sessionsRepo.findById(...).permissionMode, NOT the per-prompt
+        // option — so it saw the DB default ('default') and forwarded a live
+        // approval card to a UI nobody was watching, hanging the run forever
+        // on the very first non-allowlisted tool call (e.g. glob). Persist the
+        // same mode here so the bridge's gate agrees with the engine's.
+        sessRepo.updatePermissionMode(rhythmSessionId, 'bypassPermissions');
       } catch (err) {
         logger.warn(`[AgentRunner] setSdkSessionId failed (non-fatal): ${String(err)}`);
       }
