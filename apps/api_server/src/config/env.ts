@@ -80,11 +80,19 @@ export function resolveMemoryDirPath(): string {
   return sub ? path.join(resolveMemoryVaultPath(), sub) : resolveMemoryVaultPath();
 }
 
-/** Optional #1093 prompt-retrieval augmentation. Unknown values stay on FTS. */
+/**
+ * #1093 prompt-retrieval augmentation, promoted to the DEFAULT lane (step 2 of
+ * the semantic-memory rollout). `hybrid` is now what unset AND unrecognized
+ * values both resolve to — the semantic (Engraph) lane runs by default and
+ * degrades to pure FTS whenever no Engraph backend is configured/healthy (see
+ * `engraphManager.getRetrievalClient()` / `EngraphHttpClient`, both fail-closed
+ * to `[]`), so this is safe with no Engraph installed. Only an explicit `fts`
+ * (trimmed, case-insensitive) opts back out to FTS-only retrieval.
+ */
 export function getAgentMemoryRetrievalMode(): 'fts' | 'hybrid' {
-  return process.env.AGENT_MEMORY_RETRIEVAL_MODE?.trim().toLowerCase() === 'hybrid'
-    ? 'hybrid'
-    : 'fts';
+  return process.env.AGENT_MEMORY_RETRIEVAL_MODE?.trim().toLowerCase() === 'fts'
+    ? 'fts'
+    : 'hybrid';
 }
 
 /**

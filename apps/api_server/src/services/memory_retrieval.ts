@@ -244,8 +244,10 @@ export function fuseMemoryRanks(
 }
 
 /**
- * Opt-in hybrid retrieval. FTS always runs so fresh vault writes remain visible;
- * any failed/untrusted semantic lane returns its original FTS ordering unchanged.
+ * Hybrid retrieval (the DEFAULT prompt-path lane as of step 2; see
+ * `getAgentMemoryRetrievalMode`). FTS always runs so fresh vault writes remain
+ * visible; any failed/untrusted semantic lane returns its original FTS
+ * ordering unchanged.
  */
 export async function getRelevantMemoriesSemantic(
   query: string,
