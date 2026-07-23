@@ -883,6 +883,45 @@ export class OpencodeClientService {
     }
   }
 
+  /**
+   * #1143 — enumerate the FULL live provider catalog (every provider the
+   * engine loaded from opencode.json, including user-defined openai-compatible
+   * ones like glm-mesh), each with its models. This is the same catalog
+   * `opencode models` reads, so a custom provider defined only in opencode.json
+   * — invisible to the hardcoded PROVIDER_TO_AGENT_KIND / ROUTE_FALLBACKS_BY_AGENT
+   * maps — is discoverable here. Returns [] on any failure (never throws).
+   */
+  async listProviders(): Promise<
+    Array<{ id: string; models: Array<{ id: string; name?: string; contextLimit?: number }> }>
+  > {
+    if (!this.client) return [];
+    try {
+      const raw = await this.client.config.providers();
+      const providers = raw.data?.providers ?? [];
+      return providers.map((provider) => {
+        const models = provider.models;
+        let modelList: Array<{ id: string; name?: string; contextLimit?: number }> = [];
+        if (Array.isArray(models)) {
+          modelList = models.map((m) => ({
+            id: m.id,
+            name: m.name,
+            ...(m.limit?.context != null ? { contextLimit: m.limit.context } : {}),
+          }));
+        } else if (models && typeof models === 'object') {
+          modelList = Object.entries(models).map(([id, model]) => ({
+            id: model.id ?? id,
+            name: model.name,
+            ...(model.limit?.context != null ? { contextLimit: model.limit.context } : {}),
+          }));
+        }
+        return { id: provider.id, models: modelList };
+      });
+    } catch (err) {
+      logger.warn(`[OpencodeClientService] listProviders failed (non-fatal): ${String(err)}`);
+      return [];
+    }
+  }
+
   /** Engine's default model for a provider (the `default` map of config.providers()). */
   async getDefaultModel(providerId: string): Promise<string | undefined> {
     if (!this.client) return undefined;

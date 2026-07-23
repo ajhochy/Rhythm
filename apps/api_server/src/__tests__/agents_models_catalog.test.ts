@@ -46,6 +46,14 @@ vi.mock('../services/opencode_engine', () => {
     listAuthedProviders: vi.fn().mockImplementation(() =>
       Promise.resolve(mockAuthedProviders),
     ),
+    // #1143 — the full live provider catalog. Default: only the static
+    // providers (no custom ones) so existing tests are unaffected; the
+    // custom-provider test overrides this to add e.g. glm-mesh.
+    listProviders: vi.fn().mockResolvedValue([
+      { id: 'anthropic', models: [] },
+      { id: 'openai', models: [] },
+      { id: 'openrouter', models: [] },
+    ]),
     statusMessage: 'ready',
     createSession: vi.fn().mockResolvedValue({ id: 'sdk-1' }),
     setAuth: vi.fn().mockResolvedValue(true),
@@ -507,6 +515,102 @@ describe('GET /agents/models/catalog', () => {
       }));
     } finally {
       mockListModels.mockImplementation(original);
+    }
+  });
+
+  it('issue-1139-custom-provider-c1: surfaces a custom opencode.json provider (glm-mesh) as an opencode-kind direct row', async () => {
+    // CONTRACT TEST for #1143 — a provider defined only in opencode.json is in
+    // the engine's live catalog (listProviders) but absent from both static
+    // maps, so it never appeared in the picker. It must now surface as a
+    // generic `opencode`-kind direct row, authorized (config-defined = usable).
+    const { opencodeClient } = await import('../services/opencode_engine');
+    const mockListProviders = vi.mocked(opencodeClient.listProviders);
+    const original = mockListProviders.getMockImplementation()!;
+    try {
+      mockListProviders.mockResolvedValue([
+        { id: 'anthropic', models: [] },
+        { id: 'openai', models: [] },
+        { id: 'openrouter', models: [] },
+        { id: 'glm-mesh', models: [{ id: 'glm-4.6', contextLimit: 131072 }] },
+      ]);
+
+      const res = await fetch(`${baseUrl}/agents/models/catalog`, { headers: authHeaders });
+      expect(res.status).toBe(200);
+      const rows = (await res.json()) as Array<Record<string, unknown>>;
+
+      const glm = rows.find((r) => r.provider === 'glm-mesh' && r.modelId === 'glm-4.6');
+      expect(glm).toBeDefined();
+      expect(glm?.agent).toBe('opencode');
+      expect(glm?.route).toBe('direct');
+      expect(glm?.authorized).toBe(true);
+      expect(glm?.contextLimit).toBe(131072);
+    } finally {
+      mockListProviders.mockImplementation(original);
+    }
+  });
+
+  it('issue-1139-custom-provider-c3: GET /agents/models?agentId=opencode includes the custom provider', async () => {
+    // The per-agent picker endpoint (not just /catalog) must also surface a
+    // custom provider under the generic `opencode` agent kind.
+    const { opencodeClient } = await import('../services/opencode_engine');
+    const mockListProviders = vi.mocked(opencodeClient.listProviders);
+    const original = mockListProviders.getMockImplementation()!;
+    try {
+      mockListProviders.mockResolvedValue([
+        { id: 'glm-mesh', models: [{ id: 'glm-4.6', contextLimit: 131072 }] },
+      ]);
+
+      const res = await fetch(`${baseUrl}/agents/models?agentId=opencode`, { headers: authHeaders });
+      expect(res.status).toBe(200);
+      const rows = (await res.json()) as Array<Record<string, unknown>>;
+      const glm = rows.find((r) => r.providerId === 'glm-mesh' && r.modelId === 'glm-4.6');
+      expect(glm).toBeDefined();
+      expect(glm?.routeKind).toBe('direct');
+    } finally {
+      mockListProviders.mockImplementation(original);
+    }
+  });
+
+  it('issue-1139-custom-provider-c4: a custom provider does NOT leak into a non-opencode agent picker', async () => {
+    // Custom providers map to `opencode` only — asking for claude-code must not
+    // return glm-mesh rows.
+    const { opencodeClient } = await import('../services/opencode_engine');
+    const mockListProviders = vi.mocked(opencodeClient.listProviders);
+    const original = mockListProviders.getMockImplementation()!;
+    try {
+      mockListProviders.mockResolvedValue([
+        { id: 'glm-mesh', models: [{ id: 'glm-4.6', contextLimit: 131072 }] },
+      ]);
+      const res = await fetch(`${baseUrl}/agents/models?agentId=claude-code`, { headers: authHeaders });
+      const rows = (await res.json()) as Array<Record<string, unknown>>;
+      expect(rows.find((r) => r.providerId === 'glm-mesh')).toBeUndefined();
+    } finally {
+      mockListProviders.mockImplementation(original);
+    }
+  });
+
+  it('issue-1139-custom-provider-c2: does not double-emit a provider already in the static maps', async () => {
+    // If listProviders returns a KNOWN provider (anthropic), the custom-merge
+    // must NOT add duplicate rows for it — the static/live-direct loops own it.
+    mockAuthedProviders.push('anthropic');
+    const { opencodeClient } = await import('../services/opencode_engine');
+    const mockListProviders = vi.mocked(opencodeClient.listProviders);
+    const original = mockListProviders.getMockImplementation()!;
+    try {
+      // anthropic reports a model via listProviders too — must not duplicate
+      // the row the live-direct loop already emits from listModels.
+      mockListProviders.mockResolvedValue([
+        { id: 'anthropic', models: [{ id: 'claude-opus-4-7', contextLimit: 200000 }] },
+      ]);
+
+      const res = await fetch(`${baseUrl}/agents/models/catalog`, { headers: authHeaders });
+      const rows = (await res.json()) as Array<Record<string, unknown>>;
+      const dupes = rows.filter(
+        (r) => r.provider === 'anthropic' && r.modelId === 'claude-opus-4-7' && r.route === 'direct',
+      );
+      expect(dupes).toHaveLength(1);
+    } finally {
+      mockListProviders.mockImplementation(original);
     }
   });
 

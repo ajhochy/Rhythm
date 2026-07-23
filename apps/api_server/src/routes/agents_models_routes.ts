@@ -76,6 +76,65 @@ function routeExistsInProviderCatalog(
 }
 
 /**
+ * #1143 — provider IDs the static maps already cover, so the custom-provider
+ * merge doesn't re-emit them. Union of PROVIDER_TO_AGENT_KIND (direct kinds)
+ * and every provider referenced by any ROUTE_FALLBACKS_BY_AGENT route
+ * (catches aggregators like openrouter and any statically-listed provider).
+ */
+function knownStaticProviderIds(): Set<string> {
+  const known = new Set<string>(Object.keys(PROVIDER_TO_AGENT_KIND));
+  for (const routes of Object.values(ROUTE_FALLBACKS_BY_AGENT)) {
+    for (const route of routes) known.add(route.providerID);
+  }
+  for (const agg of AGGREGATOR_PROVIDERS) known.add(agg);
+  return known;
+}
+
+/**
+ * #1143 — build catalog rows for CUSTOM providers (in the engine's live
+ * catalog but not in the static maps), as generic `opencode`-kind direct
+ * entries. `existingKeys` is the `<provider>\0<model>` set already emitted so a
+ * provider that IS statically known never double-emits. Never throws.
+ */
+async function buildCustomProviderEntries(
+  existingKeys: Set<string>,
+  contextLimitByKey?: Map<string, number>,
+): Promise<CatalogEntry[]> {
+  const known = knownStaticProviderIds();
+  // Degrade gracefully: a listProviders failure must never empty the whole
+  // catalog (the file's contract) — it just means zero custom entries.
+  let providers: Awaited<ReturnType<typeof opencodeClient.listProviders>> = [];
+  try {
+    providers = (await opencodeClient.listProviders?.()) ?? [];
+  } catch {
+    return [];
+  }
+  const entries: CatalogEntry[] = [];
+  for (const provider of providers) {
+    if (known.has(provider.id)) continue;
+    for (const model of provider.models) {
+      const key = `${provider.id}\0${model.id}`;
+      if (existingKeys.has(key)) continue;
+      existingKeys.add(key);
+      if (contextLimitByKey && model.contextLimit != null) {
+        contextLimitByKey.set(`${provider.id}/${model.id}`, model.contextLimit);
+      }
+      entries.push({
+        agent: PROVIDER_TO_AGENT_KIND[provider.id] ?? 'opencode',
+        providerID: provider.id,
+        modelID: model.id,
+        route: 'direct',
+        // Config-defined provider: usable by construction (its key is in
+        // opencode.json), exactly how `opencode models` treats it.
+        authorized: true,
+        authProvider: provider.id,
+      });
+    }
+  }
+  return entries;
+}
+
+/**
  * GET /agents/models?agentId=<id>
  *
  * Returns the catalogue of (providerId, modelId, routeKind) rows for the
@@ -244,7 +303,18 @@ agentsModelsRouter.get('/catalog', async (_req: Request, res: Response) => {
       }
     }
 
-    const allModels = [...filtered, ...liveDirectEntries, ...curatedEntries];
+    // #1143 — merge CUSTOM providers the static maps don't know about. A
+    // user-defined openai-compatible provider in opencode.json (e.g. glm-mesh)
+    // is in the engine's live catalog but absent from PROVIDER_TO_AGENT_KIND /
+    // ROUTE_FALLBACKS_BY_AGENT, so neither loop above ever emits it. Enumerate
+    // the live provider catalog and add any provider that is NOT already a
+    // known static provider and NOT an aggregator as generic `opencode`-kind
+    // direct rows, so it appears in the picker just like `opencode models`
+    // shows it. It is config-defined (its key lives in opencode.json), so it is
+    // authorized/usable by construction — same treatment the engine gives it.
+    const customProviderEntries = await buildCustomProviderEntries(existingDirectKeys, contextLimitByKey);
+
+    const allModels = [...filtered, ...liveDirectEntries, ...curatedEntries, ...customProviderEntries];
     const response = allModels.map((entry) => {
       const contextLimit = contextLimitByKey.get(`${entry.authProvider}/${entry.modelID}`);
       return {
@@ -387,6 +457,30 @@ agentsModelsRouter.get('/', async (req: Request, res: Response) => {
             routeKind: 'aggregator',
             aggregatorVia: via,
             label: `${modelId} · via ${via}`,
+          });
+        }
+      }
+    }
+
+    // #1143 — custom providers (opencode.json-defined, absent from the static
+    // maps) map to the generic `opencode` agent kind, so append their models
+    // when the picker asks for that agent. Emitted as direct rows, mirroring
+    // the /catalog merge. Config-defined ⇒ usable, so no authed-set gate.
+    if (agentId === 'opencode') {
+      const known = knownStaticProviderIds();
+      const existingKeys = new Set(rows.map((r) => `${r.providerId}\0${r.modelId}`));
+      const liveProviders = await opencodeClient.listProviders?.().catch(() => []) ?? [];
+      for (const provider of liveProviders) {
+        if (known.has(provider.id)) continue;
+        for (const model of provider.models) {
+          const key = `${provider.id}\0${model.id}`;
+          if (existingKeys.has(key)) continue;
+          existingKeys.add(key);
+          rows.push({
+            providerId: provider.id,
+            modelId: model.id,
+            routeKind: 'direct',
+            label: `${model.id} · direct`,
           });
         }
       }
