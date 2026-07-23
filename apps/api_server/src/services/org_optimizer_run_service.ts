@@ -75,6 +75,7 @@ import { generateWebhookWiringProposals } from './generators/webhook_wiring_gene
 import { generateDelegationProposals } from './generators/delegation_generator';
 import { generateWorkflowSignalProposals, generateDiagnosisProposals } from './generators/workflow_signal_generator';
 import { generateRefineSkillProposals } from './generators/refine_skill_generator';
+import { generateRunQualityProposals } from './generators/run_quality_generator';
 import { runExternalDiscoveryGenerator } from './generators/external_discovery_generator';
 import { discoverCandidatesFromEcosystem } from './generators/external_discovery_search';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
@@ -294,6 +295,19 @@ export async function runOrgOptimizer(
         await generateRefineSkillProposals(taggedSnapshot, {
           proposalsRepo: cappedRepo,
           maxDrafts: maxLlmCallsPerRun,
+        });
+      },
+      async () => {
+        // Run-QUALITY lane (#865 scorecard as a proposal signal). Adapts the
+        // per-agent quality rollup (escalation rate / repeated-mistake
+        // clusters) into the SAME #971 diagnosable failure signals and reuses
+        // generateDiagnosisProposals — so it emits the identical human-gated
+        // refine-config / refine-scope / workflow-prompt-fix / refine-task
+        // proposal INPUTS through the SAME capped, dedup-aware repo (the #830
+        // per-run cap + dedup cover it) and the SAME registered appliers. No
+        // new kind, applier, apply path, or budget. Never throws.
+        await generateRunQualityProposals(taggedSnapshot, {
+          diagnosis: { proposalsRepo: cappedRepo, configsRepo, maxDiagnoseCalls: maxLlmCallsPerRun },
         });
       },
     ];
