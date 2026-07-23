@@ -486,5 +486,136 @@ describe('workflow-orchestrator file projection', () => {
       const options = JSON.parse(optionsLine!.slice('options: '.length));
       expect(JSON.stringify(options.mcpAllowlist)).not.toContain('image_generation');
     });
+   });
+});
+
+// #1138 — corePermissionsJson shape defensiveness + stale-key pruning.
+describe('#1138: corePermissions projection is defensive and self-healing', () => {
+  const agentsDirFor = () => join(state.home, '.config', 'opencode', 'agents');
+  const readProjected = (id: string): string =>
+    readFileSync(join(agentsDirFor(), `${id}.md`), 'utf8');
+
+  it('skips a malformed indexed-list corePermissions shape instead of projecting garbage', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    // The exact corruption #1138 describes: an indexed list of rule objects,
+    // one of which has "permission": "*" (a bare * is YAML alias syntax).
+    writeAgentProfileFile({
+      ...agentConfig('garbage-perms', 'Garbage Perms'),
+      corePermissionsJson: JSON.stringify({
+        '0': { permission: 'read', pattern: '*', action: 'allow' },
+        '1': { permission: '*', pattern: 'git push*', action: 'ask' },
+      }),
+    });
+
+    const projected = readProjected('garbage-perms');
+    // None of the numbered garbage keys leak into frontmatter.
+    expect(projected).not.toMatch(/^\s*"?0"?:/m);
+    expect(projected).not.toMatch(/^\s*"?1"?:/m);
+    // The invalid bare-* alias line must never be emitted.
+    expect(projected).not.toMatch(/"permission":\s*\*/);
+    expect(projected).not.toContain('"permission": read');
+    // With every entry skipped, no permission block is written at all.
+    expect(projected).not.toMatch(/^permission:/m);
+  });
+
+  it('still projects a valid flat-map corePermissions shape', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    writeAgentProfileFile({
+      ...agentConfig('good-perms', 'Good Perms'),
+      corePermissionsJson: JSON.stringify({
+        read: 'allow',
+        bash: { '*': 'allow', 'git push*': 'ask' },
+      }),
+    });
+
+    const projected = readProjected('good-perms');
+    expect(projected).toMatch(/permission:\n(?:  .+\n| {4}.+\n)*  read: allow\n/);
+    expect(projected).toMatch(/ {4}"\*": allow\n/);
+    expect(projected).toMatch(/ {4}"git push\*": ask\n/);
+  });
+
+  it('skips only the bad entries, keeping the valid ones in a mixed payload', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    writeAgentProfileFile({
+      ...agentConfig('mixed-perms', 'Mixed Perms'),
+      corePermissionsJson: JSON.stringify({
+        read: 'allow', // valid
+        edit: 'banana', // invalid action → skipped
+        '0': { permission: 'x', pattern: '*', action: 'allow' }, // garbage → skipped
+      }),
+    });
+
+    const projected = readProjected('mixed-perms');
+    expect(projected).toMatch(/  read: allow\n/);
+    expect(projected).not.toContain('edit: banana');
+    expect(projected).not.toMatch(/^\s*"?0"?:/m);
+  });
+
+  it('prunes stale permission keys on re-write so a corrected config converges', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    // 1st write: profile grants read + edit.
+    writeAgentProfileFile({
+      ...agentConfig('converge-perms', 'Converge Perms'),
+      corePermissionsJson: JSON.stringify({ read: 'allow', edit: 'ask' }),
+    });
+    expect(readProjected('converge-perms')).toContain('edit: ask');
+
+    // 2nd write: config corrected to read-only. The stale `edit` key must be
+    // PRUNED, not left behind (the merge path used to only upsert).
+    writeAgentProfileFile({
+      ...agentConfig('converge-perms', 'Converge Perms'),
+      corePermissionsJson: JSON.stringify({ read: 'allow' }),
+    });
+    const projected = readProjected('converge-perms');
+    expect(projected).toContain('read: allow');
+    expect(projected).not.toContain('edit: ask');
+    expect(projected).not.toContain('edit:');
+  });
+
+  it('drops the empty permission header when every key is pruned', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    writeAgentProfileFile({
+      ...agentConfig('empties-perms', 'Empties Perms'),
+      corePermissionsJson: JSON.stringify({ read: 'allow' }),
+    });
+    expect(readProjected('empties-perms')).toMatch(/^permission:/m);
+
+    // Config clears all permissions → block must disappear entirely.
+    writeAgentProfileFile({
+      ...agentConfig('empties-perms', 'Empties Perms'),
+      corePermissionsJson: null,
+    });
+    const projected = readProjected('empties-perms');
+    expect(projected).not.toMatch(/^permission:/m);
+    expect(projected).not.toContain('read: allow');
+  });
+
+  it('does not prune writer-injected keys (workflow-orchestrator write)', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    // workflow-orchestrator gets an injected `write: allow` not present in
+    // corePermissionsJson; a re-write must not prune it.
+    writeAgentProfileFile(workflowOrchestratorConfig());
+    expect(readProjected('workflow-orchestrator')).toContain('write: allow');
+    writeAgentProfileFile(workflowOrchestratorConfig());
+    expect(readProjected('workflow-orchestrator')).toContain('write: allow');
   });
 });
+
