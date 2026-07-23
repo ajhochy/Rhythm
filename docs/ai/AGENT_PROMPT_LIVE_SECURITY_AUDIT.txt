@@ -1,0 +1,282 @@
+AGENT SECURITY AUDIT PROMPT — COPY & PASTE
+
+Session Name: Live Security Audit — DuneSlide/GitLost/Engraph/Rogue Profiles
+
+Agent: claude-code (or equivalent with file/code access)
+
+================================================================================
+
+Task: Live Security Audit — Rhythm Production API
+
+You are auditing the LIVE Rhythm API build against four 2026 AI security disclosures. 
+Do NOT use sandbox. Inspect the production codebase and API directly.
+
+PART 1: DuneSlide Sandbox Escape (CVE-2026-50548/50549)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DuneSlide is a Cursor prompt-injection-to-RCE flaw. Two variants:
+1. Unvalidated `working_directory` param on run_terminal_cmd lets a write escape sandbox
+2. Symlink real-path check fails open (trusts the link, doesn't fail closed)
+
+YOUR TASK:
+- Find EVERY MCP tool that accepts `working_directory`, `cwd`, `directory`, or file path params
+- For each tool, answer:
+  * Is the path validated BEFORE use? (not after)
+  * Does validation fail-closed (reject invalid, not log-warn)?
+  * Is there a symlink real-path check using fs.realpath() or path.resolve()?
+  * Does the check FAIL if symlink escapes (throw error, not log-warn)?
+  * Are there tests proving the guard works?
+
+COMMANDS TO RUN:
+```
+cd /Users/ajhochhalter/Documents/Rhythm/apps/api_server
+grep -r "working_directory\|cwd\|directory" src/ --include="*.ts" | grep -v test | head -30
+
+grep -r "symlink\|realpath" src/ --include="*.ts"
+
+grep -r "path.resolve\|fs.realpath" src/ --include="*.ts"
+
+cd /Users/ajhochhalter/Documents/Rhythm/apps/mcp_server
+find src -name "*.ts" -exec grep -l "working_directory\|cwd\|directory" {} \;
+```
+
+REPORT FOR EACH TOOL FOUND:
+- Tool name
+- Parameter names that accept paths
+- Path validation logic (yes/no, describe if yes)
+- Symlink-safe (yes/no)
+- Tests exist (yes/no)
+- Risk: HIGH / MEDIUM / LOW
+
+SUMMARY: If ANY tool has working_directory with no validation → mark this phase HIGH RISK
+
+---
+
+PART 2: GitLost Prompt Injection (Noma Security, GitHub Agentic Workflows)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GitLost: Indirect prompt injection via untrusted content (public issue/comment).
+Agent with write capability on shared resource can leak private data.
+Attack: Inject instruction via word "additionally" to reframe task.
+
+YOUR TASK:
+- Map EVERY path where untrusted external content flows into an agent prompt
+- For each path, answer:
+  * What's the untrusted source? (GitHub issue, email, web fetch, MCP response, user paste?)
+  * What can the agent DO after seeing this input?
+  * Can it write back to the same source? (HIGH RISK: YES)
+  * Can it write to a shared/public resource? (HIGH RISK: YES)
+  * Is there a context scanner checking for injection?
+
+COMMANDS TO RUN:
+```
+cd /Users/ajhochhalter/Documents/Rhythm/apps/api_server
+
+# Find agent invocations and context assembly
+grep -r "agent.*prompt\|promptAsync\|createPrompt" src/services/agent_runner.ts | head -20
+
+# Find write endpoints
+grep -r "res\.json\|res\.send" src/controllers/ | grep -v test | grep -v "// " | head -30
+
+# Find GitHub/email/web integrations
+find src/integrations -name "*.ts" | head -10
+
+# Find injection detection
+ls -la src/security/ | grep -i injection
+cat src/security/injection_patterns.ts 2>/dev/null || echo "File not found"
+
+# Find context scanning
+grep -r "context.*scan\|injection.*detect\|adversarial" src/security/ --include="*.ts" | head -20
+```
+
+TRACE ONE EXAMPLE END-TO-END:
+- Pick one integration (e.g., GitHub, email, web)
+- Find the controller that accepts input from it
+- Trace what happens next: is input sanitized? Is it injected into agent prompt?
+- If injected: what can the agent write? Back to GitHub? Back to email? To shared resource?
+
+REPORT:
+- List 3–5 untrusted input sources
+- For each source: agent write capability (none / private / public shared)
+- If ANY source allows agent to write to public resource fed by untrusted input → mark this phase HIGH RISK
+
+---
+
+PART 3: Engraph Semantic Memory Latency
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Engraph memory latency is currently 1–12s p95 vs ≤1s needed for prompt budget.
+1s timeout makes feature inert. Needs memory-scoped query (p95 ≤1s) before prod use.
+
+YOUR TASK:
+- Find Engraph integration in the codebase
+- Measure: Is latency checked? Is there a timeout gate?
+- Check: Is feature disabled in production (env flag or hard gate)?
+- Check issue #1093: Is it still marked BLOCKED on latency?
+
+COMMANDS TO RUN:
+```
+cd /Users/ajhochhalter/Documents/Rhythm/apps/api_server
+
+# Find Engraph integration
+find src -name "*engraph*" -type f
+
+# Check latency/timeout config
+grep -r "ENGRAPH\|latency\|timeout" src/services/ --include="*.ts" | grep -i engraph | head -20
+
+# Check if feature is gated
+grep -r "ENGRAPH_ENABLED\|engraph.*enabled\|engraph.*disabled" src --include="*.ts"
+
+# Check for memory-scoped paths
+grep -r "memory.*scoped\|session.*memory\|agent.*memory" src/services/ --include="*.ts" | grep -v test | head -10
+```
+
+QUERY LIVE API:
+```
+# Check if Engraph is advertised as available
+curl http://localhost:4001/agent-capabilities | jq '.engraph_available'
+
+# If available, check config
+grep -i "ENGRAPH" .env .env.local .env.production 2>/dev/null
+```
+
+REPORT:
+- Is Engraph integration present? (yes/no)
+- Measured p95 latency: [X ms] (from logs, or "not measured")
+- Timeout gate present? (yes/no), value: [X ms]
+- Feature enabled in production? (yes/no)
+- Issue #1093 status: (BLOCKED / RESOLVED / N/A)
+- Risk: LOW (gated or disabled) / MEDIUM (p95 > 1s, not gated) / HIGH (inert but no timeout)
+
+---
+
+PART 4: Rogue Agent Profile
+━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"Rhythm Setup Agent v2" (UUID 1dd5f2e3) was disabled during org audit.
+It uses gemini-2.5-pro with a self-granting prompt.
+Verify: disabled state persists, no workaround re-enables it.
+
+YOUR TASK:
+- Query live API for all agent profiles
+- Search for UUID 1dd5f2e3 or name "Setup Agent v2"
+- If found: check enabled flag, hidden flag, re-enable logic
+- Verify it cannot be accidentally or intentionally re-enabled
+
+COMMANDS TO RUN:
+```
+# Query live API
+curl http://localhost:4001/agent-configs | jq '.[] | {id, name, enabled, model}'
+
+# Search for Setup Agent v2
+curl http://localhost:4001/agent-configs | jq '.[] | select(.id == "1dd5f2e3" or .name | contains("Setup Agent v2"))'
+
+# If found, inspect it fully
+curl http://localhost:4001/agent-configs/1dd5f2e3 | jq '.'
+
+# Check code for disable/re-enable logic
+cd /Users/ajhochhalter/Documents/Rhythm/apps/api_server
+grep -r "1dd5f2e3\|Setup Agent v2\|hidden_during_audit" src --include="*.ts" | head -20
+
+grep -r "disabled\|enabled" src/services/agent_profile_sync.ts src/repositories/agent_config.ts 2>/dev/null | head -20
+```
+
+REPORT:
+- Profile found in live API? (yes/no)
+- If yes:
+  * Enabled flag: (true / false)
+  * Hidden flag: (true / false / not present)
+  * Model: (should be gemini-2.5-pro if not modified)
+  * Can be re-enabled via API? (yes/no)
+  * Can be re-enabled via database edit? (yes/no)
+- If no:
+  * Profile was deleted (safe) OR profile never existed (needs investigation)
+- Risk: LOW (disabled + hidden + locked) / MEDIUM (disabled but can be re-enabled) / HIGH (enabled)
+
+---
+
+END OF AUDIT
+
+Write your findings into a report file at:
+docs/ai/runs/2026-07-20-live-security-audit.md
+
+Use this markdown template:
+
+---
+
+# Live Security Audit — 2026-07-20
+
+## Executive Summary
+- DuneSlide: [PASS / FAIL / MEDIUM]
+- GitLost: [PASS / FAIL / MEDIUM]
+- Engraph: [PASS / FAIL / MEDIUM]
+- Rogue Profile: [PASS / FAIL / MEDIUM]
+
+## Findings
+
+### Phase 1: DuneSlide Sandbox Escape
+**Status:** [PASS / FAIL / MEDIUM]
+
+Tools with directory params:
+1. [tool name] — validation: [yes/no], symlink-safe: [yes/no], tested: [yes/no]
+2. ...
+
+**Risk Assessment:** [description]
+**Remediation Required:** [yes/no], details: [if needed]
+
+### Phase 2: GitLost Prompt Injection
+**Status:** [PASS / FAIL / MEDIUM]
+
+Untrusted → Agent Write paths:
+1. [source] → [agent action] — risk: [high/medium/low]
+2. ...
+
+**Risk Assessment:** [description]
+**Remediation Required:** [yes/no], details: [if needed]
+
+### Phase 3: Engraph Latency
+**Status:** [PASS / FAIL / MEDIUM]
+
+- Measured p95 latency: [X ms]
+- Timeout gate: [yes/no], value: [X ms]
+- Feature enabled in prod: [yes/no]
+- Issue #1093 status: [BLOCKED / RESOLVED / N/A]
+
+**Risk Assessment:** [description]
+**Remediation Required:** [yes/no], details: [if needed]
+
+### Phase 4: Rogue Profile (UUID 1dd5f2e3)
+**Status:** [PASS / FAIL / MEDIUM]
+
+- Profile found: [yes/no]
+- Enabled: [yes/no]
+- Hidden from picker: [yes/no]
+- Can be re-enabled: [yes/no]
+
+**Risk Assessment:** [description]
+**Remediation Required:** [yes/no], details: [if needed]
+
+## Overall Risk Rating
+[LOW / MEDIUM / HIGH / CRITICAL]
+
+## Recommendations
+1. [HIGH] ...
+2. [MEDIUM] ...
+3. [LOW] ...
+
+## Checklist
+- [ ] All MCP tools inspected
+- [ ] All injection paths traced
+- [ ] Engraph latency measured
+- [ ] Rogue profile status confirmed
+- [ ] Report completed before run end
+
+---
+
+If you find HIGH or CRITICAL risk findings:
+- DO NOT patch on the fly
+- Document the exact finding (file path, code snippet, CWE reference)
+- File a GitHub issue with the finding + severity
+- STOP the audit and await AJ's direction before proceeding
+
+Good luck!
