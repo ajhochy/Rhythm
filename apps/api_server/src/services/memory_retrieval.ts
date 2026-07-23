@@ -44,7 +44,12 @@
 
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import type { AgentMemory } from '../repositories/agent_memory_repository';
-import { getAgentMemoryRetrievalMode, resolveEngraphMemoryVaultRoot, resolveMemoryDirPath } from '../config/env';
+import {
+  getAgentMemoryRetrievalMode,
+  getSemanticSearchBudgetMs,
+  resolveEngraphMemoryVaultRoot,
+  resolveMemoryDirPath,
+} from '../config/env';
 import { EngraphHttpClient, mapEngraphFileToSourceId } from './engraph_client';
 import type { EngraphClient } from './engraph_client';
 import { engraphManager } from './engraph_manager';
@@ -78,10 +83,10 @@ const STOPWORDS = new Set([
  * straight to FTS5 MATCH / plainto_tsquery, both of which AND all bare tokens
  * together — so feeding a whole natural-language prompt almost never matches a
  * short stored fact (every token would have to appear in the fact). We instead
- * probe each significant token separately and union the hits (see
- * getRelevantMemories), preserving the shared owner-scoped FTS path without
- * re-implementing scoring or touching the shared repository (which the on-demand
- * `rhythm_search_memory` tool also uses).
+ * probe every significant token concurrently and SCORE each memory by how many
+ * distinct probes returned it (see getRelevantMemories), preserving the shared
+ * owner-scoped FTS path without re-implementing full-text search or touching the
+ * shared repository (which the on-demand `rhythm_search_memory` tool also uses).
  */
 export function extractQueryTokens(query: string): string[] {
   const seen = new Set<string>();
@@ -122,6 +127,31 @@ export function isMemoryInjectionEnabled(): boolean {
  *   `ownerUserId` is null/undefined this keeps ONLY null-owner (instance-global)
  *   rows, so a null owner can NEVER pull a user-owned fact.
  *
+ * RANKING (why): FTS5 MATCH / plainto_tsquery AND all bare tokens together, so
+ * feeding the whole prompt as one query rarely matches a short stored fact.
+ * We instead probe every significant token (extractQueryTokens, capped at
+ * MAX_QUERY_TOKENS) and run the probes CONCURRENTLY via Promise.all — probing
+ * is I/O bound and independent per token, so fanning out keeps total latency
+ * close to the slowest single probe instead of growing linearly with prompt
+ * length. Each probe still has its own try/catch: one failing probe (e.g. a
+ * transient FTS error) must not abort the others or the whole retrieval.
+ *
+ * A memory is scored by the number of DISTINCT probes that returned it — more
+ * matched tokens is a strong relevance signal an early-exit union can't see.
+ * Rank order is: match count (desc), then the best (lowest) index the memory
+ * held within any single probe's results (asc — a probe's own ranking is
+ * itself a relevance signal), then first-seen order across probes (asc, for a
+ * fully deterministic tie-break).
+ *
+ * JUNK SUPPRESSION: a memory that only shares ONE word with the prompt is easy
+ * to hit by coincidence (e.g. a common noun) and crowds out genuinely relevant
+ * facts. So once ANY memory in the result set matched 2+ distinct probes, every
+ * memory that matched only 1 probe is dropped entirely — a preface with one
+ * strong match beats five single-word coincidences. When nothing cleared 2
+ * matches (including the common case of a single-significant-token prompt, or
+ * the raw-query fallback below, where every hit is definitionally a 1-probe
+ * match), single-probe matches are kept so recall isn't lost.
+ *
  * `repo` is injectable for testing (defaults to a real AgentMemoryRepository).
  */
 export async function getRelevantMemories(
@@ -139,31 +169,61 @@ export async function getRelevantMemories(
   const ownerArg = ownerUserId == null ? undefined : ownerUserId;
   const wanted = ownerUserId == null ? null : ownerUserId;
 
-  // FTS5 MATCH / plainto_tsquery AND all bare tokens, so a full prompt rarely
-  // matches a short fact. Probe each significant token and union the hits,
-  // preserving first-seen (rank) order across probes. Fall back to the raw query
-  // when tokenization yields nothing (e.g. all-stopword / non-latin input).
+  // Probe each significant token. Fall back to the raw query when tokenization
+  // yields nothing (e.g. all-stopword / non-latin input) — that fallback is
+  // itself a single probe, so it naturally skips junk suppression below.
   const tokens = extractQueryTokens(query);
   const probes = tokens.length > 0 ? tokens : [query];
 
-  const byId = new Map<string, AgentMemory>();
-  for (const probe of probes) {
-    if (byId.size >= topN) break;
-    let rows: AgentMemory[];
-    try {
-      rows = await repo.searchAsync(probe, ownerArg, topN);
-    } catch {
-      continue; // one probe failing must not abort the rest
-    }
-    for (const m of rows) {
+  // Run every probe concurrently; a rejected probe resolves to `null` instead
+  // of throwing so the rest of the fan-out is unaffected.
+  const probeResults = await Promise.all(
+    probes.map(async (probe): Promise<AgentMemory[] | null> => {
+      try {
+        return await repo.searchAsync(probe, ownerArg, topN);
+      } catch {
+        return null; // one probe failing must not abort the rest
+      }
+    }),
+  );
+
+  interface ScoredEntry {
+    memory: AgentMemory;
+    matchCount: number;
+    bestIndex: number;
+    firstSeen: number;
+  }
+  const byId = new Map<string, ScoredEntry>();
+  let firstSeen = 0;
+
+  for (const rows of probeResults) {
+    if (!rows) continue;
+    for (let index = 0; index < rows.length; index += 1) {
+      const m = rows[index];
       // Defense in depth: enforce exact owner match (incl. null-owner-only when
       // no owner is known) regardless of the repo SQL filter.
       if (m.ownerUserId !== wanted) continue;
-      if (!byId.has(m.id)) byId.set(m.id, m);
+      const existing = byId.get(m.id);
+      if (existing) {
+        existing.matchCount += 1;
+        if (index < existing.bestIndex) existing.bestIndex = index;
+      } else {
+        byId.set(m.id, { memory: m, matchCount: 1, bestIndex: index, firstSeen: firstSeen++ });
+      }
     }
   }
 
-  return Array.from(byId.values()).slice(0, topN);
+  const entries = Array.from(byId.values());
+  const hasMultiTokenMatch = entries.some((e) => e.matchCount >= 2);
+  const ranked = hasMultiTokenMatch ? entries.filter((e) => e.matchCount >= 2) : entries;
+
+  ranked.sort((a, b) => (
+    b.matchCount - a.matchCount
+    || a.bestIndex - b.bestIndex
+    || a.firstSeen - b.firstSeen
+  ));
+
+  return ranked.slice(0, topN).map((e) => e.memory);
 }
 
 /** Deterministic rank-only fusion; raw FTS and Engraph scores are incomparable. */
@@ -189,15 +249,21 @@ export function fuseMemoryRanks(
 }
 
 /**
- * Opt-in hybrid retrieval. FTS always runs so fresh vault writes remain visible;
- * any failed/untrusted semantic lane returns its original FTS ordering unchanged.
+ * Hybrid retrieval (the DEFAULT prompt-path lane as of step 2; see
+ * `getAgentMemoryRetrievalMode`). FTS always runs so fresh vault writes remain
+ * visible; any failed/untrusted semantic lane returns its original FTS
+ * ordering unchanged.
  */
 export async function getRelevantMemoriesSemantic(
   query: string,
   ownerUserId?: number | null,
   topN: number = DEFAULT_TOP_N,
   repo: MemoryRepository = new AgentMemoryRepository(),
-  engraph: EngraphClient = new EngraphHttpClient(),
+  // Step 3: bound the prompt-path search timeout to the configurable budget
+  // (default 500ms) instead of EngraphHttpClient's own 1000ms default, so a
+  // hung/slow Engraph service can never delay a first agent response by more
+  // than the budget.
+  engraph: EngraphClient = new EngraphHttpClient(undefined, undefined, getSemanticSearchBudgetMs()),
 ): Promise<AgentMemory[]> {
   const ftsPromise = getRelevantMemories(query, ownerUserId, topN, repo);
   const hitsPromise = engraph.search(query, topN).catch(() => []);

@@ -49,7 +49,7 @@ import { homedir } from 'os';
 import net from 'net';
 import path from 'path';
 import { logger } from '../utils/logger';
-import { resolveMemoryDirPath } from '../config/env';
+import { getSemanticSearchBudgetMs, resolveMemoryDirPath } from '../config/env';
 import { EngraphHttpClient, type EngraphClient } from './engraph_client';
 import {
   EngraphManagerConfigStore,
@@ -417,8 +417,13 @@ export class EngraphManager {
    * always wins either way.
    */
   getRetrievalClient(): EngraphClient {
-    if (!this.ready || !this.port || !this.apiKey) return new EngraphHttpClient();
-    return new EngraphHttpClient(`http://127.0.0.1:${this.port}`, this.fetchImpl, 1_000, this.apiKey);
+    // Step 3: both the managed client and the fallback client use the
+    // configurable prompt-path budget (getSemanticSearchBudgetMs(), default
+    // 500ms) as their search timeout. This is the steady-state budget, kept
+    // separate from HEALTH_CHECK_BUDGET_MS/startup/index timeouts above.
+    const budgetMs = getSemanticSearchBudgetMs();
+    if (!this.ready || !this.port || !this.apiKey) return new EngraphHttpClient(undefined, undefined, budgetMs);
+    return new EngraphHttpClient(`http://127.0.0.1:${this.port}`, this.fetchImpl, budgetMs, this.apiKey);
   }
 
   // -- lifecycle internals ---------------------------------------------------

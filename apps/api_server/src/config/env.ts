@@ -80,11 +80,19 @@ export function resolveMemoryDirPath(): string {
   return sub ? path.join(resolveMemoryVaultPath(), sub) : resolveMemoryVaultPath();
 }
 
-/** Optional #1093 prompt-retrieval augmentation. Unknown values stay on FTS. */
+/**
+ * #1093 prompt-retrieval augmentation, promoted to the DEFAULT lane (step 2 of
+ * the semantic-memory rollout). `hybrid` is now what unset AND unrecognized
+ * values both resolve to — the semantic (Engraph) lane runs by default and
+ * degrades to pure FTS whenever no Engraph backend is configured/healthy (see
+ * `engraphManager.getRetrievalClient()` / `EngraphHttpClient`, both fail-closed
+ * to `[]`), so this is safe with no Engraph installed. Only an explicit `fts`
+ * (trimmed, case-insensitive) opts back out to FTS-only retrieval.
+ */
 export function getAgentMemoryRetrievalMode(): 'fts' | 'hybrid' {
-  return process.env.AGENT_MEMORY_RETRIEVAL_MODE?.trim().toLowerCase() === 'hybrid'
-    ? 'hybrid'
-    : 'fts';
+  return process.env.AGENT_MEMORY_RETRIEVAL_MODE?.trim().toLowerCase() === 'fts'
+    ? 'fts'
+    : 'hybrid';
 }
 
 /**
@@ -94,6 +102,31 @@ export function getAgentMemoryRetrievalMode(): 'fts' | 'hybrid' {
  */
 export function resolveEngraphMemoryVaultRoot(): string {
   return expandHome(process.env.ENGRAPH_MEMORY_VAULT_ROOT ?? resolveMemoryDirPath());
+}
+
+/**
+ * Step 3 of the semantic-memory rollout (steps 1-2 made hybrid retrieval the
+ * default): a configurable prompt-path latency budget for the Engraph
+ * semantic search, resolved FRESH from process.env at call time (mirrors
+ * `getAgentMemoryRetrievalMode`'s "read live" convention). This bounds how
+ * long a slow/hung Engraph service can delay a user's FIRST prompt response —
+ * the semantic search runs in parallel with FTS on the prompt path
+ * (`getRelevantMemoriesSemantic`), so this budget is used as the search
+ * timeout at both prompt-path `EngraphHttpClient` construction sites
+ * (`EngraphManager.getRetrievalClient()` and the default `engraph` param of
+ * `getRelevantMemoriesSemantic`). Override via AGENT_MEMORY_SEMANTIC_BUDGET_MS
+ * (must be a positive integer; anything else, including unset/empty/zero/
+ * negative/non-numeric, falls back to the 500ms default). This is a separate,
+ * steady-state budget from the manager's own health-check/startup/index
+ * lifecycle timeouts (HEALTH_CHECK_BUDGET_MS etc. in engraph_manager.ts),
+ * which are unaffected.
+ */
+export function getSemanticSearchBudgetMs(): number {
+  const raw = process.env.AGENT_MEMORY_SEMANTIC_BUDGET_MS;
+  if (raw === undefined) return 500;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) return 500;
+  return parsed;
 }
 
 /**

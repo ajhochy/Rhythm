@@ -131,18 +131,18 @@ describe('hybrid memory retrieval', () => {
       .resolves.toEqual([first, second]);
   });
 
-  it('uses FTS by default and only enables the HTTP lane for explicit hybrid mode', async () => {
+  it('uses hybrid by default and only disables the HTTP lane for explicit fts mode', async () => {
     const semantic = memory({ id: 'semantic', sourceId: 'fact/semantic.md', content: 'semantic only' });
     const ftsSpy = vi.spyOn(AgentMemoryRepository.prototype, 'searchAsync').mockResolvedValue([]);
     vi.spyOn(AgentMemoryRepository.prototype, 'findBySourceIdsAsync').mockResolvedValue([semantic]);
     const engraphSpy = vi.spyOn(EngraphHttpClient.prototype, 'search').mockResolvedValue([{ file: 'fact/semantic.md' }]);
 
-    await expect(buildMemoryPreface('query', 1)).resolves.toMatchObject({ text: '' });
-    expect(engraphSpy).not.toHaveBeenCalled();
+    await expect(buildMemoryPreface('query', 1)).resolves.toMatchObject({ memoryIds: ['semantic'] });
+    expect(engraphSpy).toHaveBeenCalledOnce();
     expect(ftsSpy).toHaveBeenCalled();
 
-    process.env.AGENT_MEMORY_RETRIEVAL_MODE = 'hybrid';
-    await expect(buildMemoryPreface('query', 1)).resolves.toMatchObject({ memoryIds: ['semantic'] });
+    process.env.AGENT_MEMORY_RETRIEVAL_MODE = 'fts';
+    await expect(buildMemoryPreface('query', 1)).resolves.toMatchObject({ text: '' });
     expect(engraphSpy).toHaveBeenCalledOnce();
   });
 
