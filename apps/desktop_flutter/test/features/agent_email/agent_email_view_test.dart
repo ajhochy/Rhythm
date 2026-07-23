@@ -70,6 +70,7 @@ class _StubAgentsRepository implements AgentsRepository {
 
   // Track createSession calls for assertions.
   String? lastMcpRole;
+  String? lastCwd;
 
   @override
   Stream<AgentWsMessage> get messages => _msgCtrl.stream;
@@ -97,12 +98,11 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async {
+  getSession(String id) async {
     final now = DateTime.now();
     return (
       session: AgentSession(
@@ -133,6 +133,7 @@ class _StubAgentsRepository implements AgentsRepository {
     String? worktreeName,
   }) async {
     lastMcpRole = mcpRole;
+    lastCwd = cwd;
     final now = DateTime.now();
     return AgentSession(
       id: 'test-session-id',
@@ -164,7 +165,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-      : super(NotificationsRepository(NotificationsDataSource()));
+    : super(NotificationsRepository(NotificationsDataSource()));
 }
 
 class _FakeEmailDataSource extends AgentEmailDataSource {
@@ -198,9 +199,7 @@ Future<Widget> _buildApp({
       ChangeNotifierProvider<AgentEmailController>.value(
         value: emailController,
       ),
-      ChangeNotifierProvider<AgentsController>.value(
-        value: agentsController,
-      ),
+      ChangeNotifierProvider<AgentsController>.value(value: agentsController),
     ],
     child: const MaterialApp(home: AgentEmailView()),
   );
@@ -264,8 +263,9 @@ void main() {
       emailController.dispose();
     });
 
-    testWidgets('renders empty state when signals list is empty',
-        (tester) async {
+    testWidgets('renders empty state when signals list is empty', (
+      tester,
+    ) async {
       final dataSource = _FakeEmailDataSource([]);
       final emailController = AgentEmailController(
         AgentEmailRepository(dataSource),
@@ -314,93 +314,103 @@ void main() {
     });
 
     testWidgets(
-        'tapping launch button calls createSession with mcpRole email-assistant',
-        (tester) async {
-      final dataSource = _FakeEmailDataSource([]);
-      final emailController = AgentEmailController(
-        AgentEmailRepository(dataSource),
-      );
+      'tapping launch button calls createSession with mcpRole email-assistant',
+      (tester) async {
+        final dataSource = _FakeEmailDataSource([]);
+        final emailController = AgentEmailController(
+          AgentEmailRepository(dataSource),
+        );
 
-      await tester.pumpWidget(
-        await _buildApp(
-          emailController: emailController,
-          agentsController: agentsController,
-        ),
-      );
-      await tester.pump();
+        await tester.pumpWidget(
+          await _buildApp(
+            emailController: emailController,
+            agentsController: agentsController,
+          ),
+        );
+        await tester.pump();
 
-      await tester.tap(
-        find.byKey(const ValueKey('launch-email-assistant-btn')),
-      );
-      await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('launch-email-assistant-btn')),
+        );
+        await tester.pumpAndSettle();
 
-      expect(
-        stubRepo.lastMcpRole,
-        equals('email-assistant'),
-        reason: 'createSession must be called with mcpRole email-assistant',
-      );
+        expect(
+          stubRepo.lastMcpRole,
+          equals('email-assistant'),
+          reason: 'createSession must be called with mcpRole email-assistant',
+        );
+        expect(
+          stubRepo.lastCwd,
+          isNotEmpty,
+          reason:
+              'createSession must be called with a non-empty cwd (#1153: '
+              'empty cwd triggers the "cwd is required" 400 banner)',
+        );
 
-      emailController.dispose();
-    });
-
-    testWidgets(
-        'tapping launch button selects the new session via selectSession',
-        (tester) async {
-      final dataSource = _FakeEmailDataSource([]);
-      final emailController = AgentEmailController(
-        AgentEmailRepository(dataSource),
-      );
-
-      await tester.pumpWidget(
-        await _buildApp(
-          emailController: emailController,
-          agentsController: agentsController,
-        ),
-      );
-      await tester.pump();
-
-      await tester.tap(
-        find.byKey(const ValueKey('launch-email-assistant-btn')),
-      );
-      await tester.pumpAndSettle();
-
-      expect(
-        agentsController.selectedSessionId,
-        equals('test-session-id'),
-        reason: 'selectSession must be called with the new session id',
-      );
-
-      emailController.dispose();
-    });
+        emailController.dispose();
+      },
+    );
 
     testWidgets(
-        'tapping launch button stages a composer draft for the new session',
-        (tester) async {
-      final dataSource = _FakeEmailDataSource([]);
-      final emailController = AgentEmailController(
-        AgentEmailRepository(dataSource),
-      );
+      'tapping launch button selects the new session via selectSession',
+      (tester) async {
+        final dataSource = _FakeEmailDataSource([]);
+        final emailController = AgentEmailController(
+          AgentEmailRepository(dataSource),
+        );
 
-      await tester.pumpWidget(
-        await _buildApp(
-          emailController: emailController,
-          agentsController: agentsController,
-        ),
-      );
-      await tester.pump();
+        await tester.pumpWidget(
+          await _buildApp(
+            emailController: emailController,
+            agentsController: agentsController,
+          ),
+        );
+        await tester.pump();
 
-      await tester.tap(
-        find.byKey(const ValueKey('launch-email-assistant-btn')),
-      );
-      await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('launch-email-assistant-btn')),
+        );
+        await tester.pumpAndSettle();
 
-      expect(
-        agentsController.hasComposerDraft('test-session-id'),
-        isTrue,
-        reason: 'setComposerDraft must be called for the new session',
-      );
+        expect(
+          agentsController.selectedSessionId,
+          equals('test-session-id'),
+          reason: 'selectSession must be called with the new session id',
+        );
 
-      emailController.dispose();
-    });
+        emailController.dispose();
+      },
+    );
+
+    testWidgets(
+      'tapping launch button stages a composer draft for the new session',
+      (tester) async {
+        final dataSource = _FakeEmailDataSource([]);
+        final emailController = AgentEmailController(
+          AgentEmailRepository(dataSource),
+        );
+
+        await tester.pumpWidget(
+          await _buildApp(
+            emailController: emailController,
+            agentsController: agentsController,
+          ),
+        );
+        await tester.pump();
+
+        await tester.tap(
+          find.byKey(const ValueKey('launch-email-assistant-btn')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          agentsController.hasComposerDraft('test-session-id'),
+          isTrue,
+          reason: 'setComposerDraft must be called for the new session',
+        );
+
+        emailController.dispose();
+      },
+    );
   });
 }

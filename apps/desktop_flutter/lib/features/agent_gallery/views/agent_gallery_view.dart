@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -26,7 +28,11 @@ class _AgentGalleryViewState extends State<AgentGalleryView> {
   Future<void> _launchDesigner(BuildContext context) async {
     final agentsController = context.read<AgentsController>();
     final session = await agentsController.createSession(
-      cwd: '',
+      // A staff-facing helper session isn't tied to a code checkout, but the
+      // engine requires a non-empty working dir — default to HOME, matching
+      // the normal chat launchers (agents_view.dart, quick_actions_bar.dart).
+      // '' → 400 "cwd is required" (the #863 smoke bug).
+      cwd: Platform.environment['HOME'] ?? '/',
       name: 'Graphic Designer',
       mcpRole: 'graphic-designer',
     );
@@ -34,9 +40,7 @@ class _AgentGalleryViewState extends State<AgentGalleryView> {
     if (session == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            agentsController.error ?? 'Failed to create session.',
-          ),
+          content: Text(agentsController.error ?? 'Failed to create session.'),
         ),
       );
       return;
@@ -173,10 +177,7 @@ class _AgentGalleryViewState extends State<AgentGalleryView> {
             const SizedBox(height: RhythmSpacing.xs),
             Text(
               'Launch the designer to create your first design',
-              style: TextStyle(
-                color: context.rhythm.textMuted,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: context.rhythm.textMuted, fontSize: 13),
             ),
           ],
         ),
@@ -250,9 +251,8 @@ class _DesignCard extends StatelessWidget {
                   ? Image.network(
                       design.thumbnailUrl!,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _ThumbnailPlaceholder(
-                        rhythm: rhythm,
-                      ),
+                      errorBuilder: (_, __, ___) =>
+                          _ThumbnailPlaceholder(rhythm: rhythm),
                     )
                   : _ThumbnailPlaceholder(rhythm: rhythm),
             ),
@@ -312,11 +312,7 @@ class _ThumbnailPlaceholder extends StatelessWidget {
     return Container(
       color: rhythm.surfaceMuted,
       child: Center(
-        child: Icon(
-          Icons.image_outlined,
-          color: rhythm.textMuted,
-          size: 32,
-        ),
+        child: Icon(Icons.image_outlined, color: rhythm.textMuted, size: 32),
       ),
     );
   }

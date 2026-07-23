@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -26,7 +28,11 @@ class _AgentEmailViewState extends State<AgentEmailView> {
   Future<void> _launchEmailAssistant(BuildContext context) async {
     final agentsController = context.read<AgentsController>();
     final session = await agentsController.createSession(
-      cwd: '',
+      // A staff-facing helper session isn't tied to a code checkout, but the
+      // engine requires a non-empty working dir — default to HOME, matching
+      // the normal chat launchers (agents_view.dart, quick_actions_bar.dart).
+      // '' → 400 "cwd is required" (the #863 smoke bug).
+      cwd: Platform.environment['HOME'] ?? '/',
       name: 'Email Assistant',
       mcpRole: 'email-assistant',
     );
@@ -236,8 +242,9 @@ class _SignalTile extends StatelessWidget {
                   signal.subject,
                   style: TextStyle(
                     color: rhythm.textPrimary,
-                    fontWeight:
-                        signal.isUnread ? FontWeight.w600 : FontWeight.normal,
+                    fontWeight: signal.isUnread
+                        ? FontWeight.w600
+                        : FontWeight.normal,
                     fontSize: 13,
                   ),
                   overflow: TextOverflow.ellipsis,
