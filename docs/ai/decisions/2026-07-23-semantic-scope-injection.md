@@ -4,11 +4,18 @@ repo: rhythm
 branch: claude/agent-skill-injection-semantic-0s6iv4
 pr:
 issues:
-status: proposed
+status: parked
 tags: [decision, rhythm]
 ---
 
 # Semantic prompt-scoped capability injection for agents
+
+> **PARKED (2026-07-23).** Cost/benefit review: real surfaces are already
+> 2.9K–15K tokens per role; the cheap wins are scope-by-default for unscoped
+> sessions (#842), leaning on the existing deferred dispatcher for fat servers,
+> and tightening inherit-all role files. Revisit the semantic scorer only as a
+> drop-in replacement inside `skill_retrieval.ts` if paraphrase misses persist
+> after those. Effort redirected to semantic *memory* retrieval instead.
 
 ## Context
 
