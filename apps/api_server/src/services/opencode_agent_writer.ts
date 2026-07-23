@@ -371,15 +371,105 @@ function permissionBlockLines(key: string, value: object): string[] {
   return [`  ${key}:`, ...Object.entries(value).map(([pattern, action]) => `    ${JSON.stringify(pattern)}: ${action}`)];
 }
 
-function parseCorePermissions(config: AgentConfig): Record<string, unknown> {
+/**
+ * #1138 — remove every `permission:` sub-key NOT in `keep` from the existing
+ * frontmatter, so a corrected/reduced config converges instead of accumulating
+ * stale (or garbage) keys. A sub-key line is `  <key>:` at exactly two spaces of
+ * indent; its nested pattern lines (deeper indent) are removed with it. If the
+ * block ends up empty, the bare `permission:` header is dropped too. Never
+ * touches any other (non-permission) top-level frontmatter. No-op when there is
+ * no permission block.
+ */
+function pruneStalePermissionKeys(fm: string, keep: Set<string>): string {
+  const lines = fm.split('\n');
+  const permissionIndex = lines.findIndex((line) => /^permission:\s*$/.test(line));
+  if (permissionIndex === -1) return fm;
+
+  let blockEnd = lines.length;
+  for (let i = permissionIndex + 1; i < lines.length; i += 1) {
+    if (/^\S/.test(lines[i])) {
+      blockEnd = i;
+      break;
+    }
+  }
+
+  const kept: string[] = [];
+  let i = permissionIndex + 1;
+  while (i < blockEnd) {
+    const m = lines[i].match(/^  (\S[^:]*):/);
+    if (m) {
+      const key = m[1];
+      // Collect this sub-key line plus its deeper-indented pattern lines.
+      let j = i + 1;
+      while (j < blockEnd && /^ {4}/.test(lines[j])) j += 1;
+      if (keep.has(key)) kept.push(...lines.slice(i, j));
+      i = j;
+    } else {
+      // A non-conforming line inside the block (blank, comment) — keep verbatim.
+      kept.push(lines[i]);
+      i += 1;
+    }
+  }
+
+  const hasRealEntry = kept.some((l) => /^  \S/.test(l));
+  const replacement = hasRealEntry ? ['permission:', ...kept] : [];
+  lines.splice(permissionIndex, blockEnd - permissionIndex, ...replacement);
+  return lines.join('\n');
+}
+
+/** The three actions opencode's permission schema accepts (permission.ts). */
+const VALID_PERMISSION_ACTIONS = new Set(['allow', 'ask', 'deny']);
+
+/**
+ * A corePermissions ENTRY value is projectable iff it is either a plain action
+ * string ('allow'|'ask'|'deny') or a flat {pattern: action} map whose every
+ * value is such an action. This is the exact shape the engine's `permission:`
+ * frontmatter block expects (and the same contract the REST validator in
+ * agent_configs_controller.ts enforces on write). #1138: the old Tool
+ * Permissions panel could persist an INDEXED-LIST shape
+ * ({"0":{permission,pattern,action},...}) whose values are objects of
+ * NON-action values; projecting those verbatim produced numbered garbage
+ * frontmatter keys and a bare `"permission": *` line that is invalid YAML.
+ */
+function isProjectablePermissionValue(value: unknown): value is string | Record<string, string> {
+  if (typeof value === 'string') return VALID_PERMISSION_ACTIONS.has(value);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.entries(value as Record<string, unknown>).every(
+    ([pattern, action]) =>
+      pattern.trim().length > 0 && typeof action === 'string' && VALID_PERMISSION_ACTIONS.has(action),
+  );
+}
+
+/**
+ * Parse a profile's corePermissionsJson into the flat map the projector loops
+ * over. #1138: fail-SOFT per entry — an entry whose value doesn't match the
+ * {permissionName: action | {pattern: action}} shape is logged and SKIPPED
+ * rather than projected as raw garbage that can break the whole file's YAML.
+ * (Malformed JSON, or a non-object top level, still yields {} as before.)
+ */
+function parseCorePermissions(config: AgentConfig): Record<string, string | Record<string, string>> {
   if (!config.corePermissionsJson) return {};
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(config.corePermissionsJson) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+    parsed = JSON.parse(config.corePermissionsJson);
   } catch (err) {
     logger.warn(`[OpencodeAgentWriter] invalid corePermissionsJson for "${config.id}": ${String(err)}`);
     return {};
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+  const clean: Record<string, string | Record<string, string>> = {};
+  for (const [permission, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (permission.trim() && isProjectablePermissionValue(value)) {
+      clean[permission] = value;
+    } else {
+      logger.warn(
+        `[OpencodeAgentWriter] skipping malformed corePermissions entry "${permission}" for "${config.id}" ` +
+          `(not an action string or {pattern: action} map)`,
+      );
+    }
+  }
+  return clean;
 }
 
 /**
@@ -436,6 +526,8 @@ export function writeAgentProfileFile(config: AgentConfig): void {
     let fm: string;
     let body: string;
 
+    const corePermissions = parseCorePermissions(config);
+
     if (existsSync(path)) {
       // Merge: preserve unmanaged frontmatter + keep body when no new prompt.
       const [existingFm, existingBody] = splitFrontmatter(readFileSync(path, 'utf8'));
@@ -449,6 +541,20 @@ export function writeAgentProfileFile(config: AgentConfig): void {
       body = config.systemPrompt && config.systemPrompt.trim() !== ''
         ? config.systemPrompt
         : existingBody;
+
+      // #1138 — the merge path used to only UPSERT permission keys, never
+      // remove ones no longer in the config, so a file once polluted with
+      // stale/garbage keys never converged even after the config was corrected.
+      // Prune every existing `permission:` sub-key that this projection will
+      // NOT re-write — i.e. not in the current corePermissions and not one of
+      // the writer-injected keys (image_generation / task / write) appended
+      // below. Those injected keys are conditional, so a profile that stops
+      // being a manager (task) or loses image_generation also sheds them.
+      const keep = new Set<string>(Object.keys(corePermissions));
+      if (config.imageGenerationEnabled === true) keep.add('image_generation');
+      if (config.isManager === true) keep.add('task');
+      if (config.id === 'workflow-orchestrator') keep.add('write');
+      fm = pruneStalePermissionKeys(fm, keep);
     } else {
       // Fresh file authored from the profile.
       fm = `description: ${config.label}\nmode: ${mode}`;
@@ -456,7 +562,7 @@ export function writeAgentProfileFile(config: AgentConfig): void {
       body = config.systemPrompt ?? '';
     }
 
-    for (const [permission, action] of Object.entries(parseCorePermissions(config))) {
+    for (const [permission, action] of Object.entries(corePermissions)) {
       fm = setPermissionValue(fm, permission, action);
     }
     // #1094 — OpenAI native image_generation grant. A dedicated capability
