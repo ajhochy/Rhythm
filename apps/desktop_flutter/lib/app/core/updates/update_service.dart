@@ -134,10 +134,28 @@ class _VersionParts {
   factory _VersionParts.parse(String raw) {
     final prerelease = raw.contains('-');
     final numericPart = raw.split('-').first;
-    final numbers = numericPart
+    var numbers = numericPart
         .split('.')
         .map((part) => int.tryParse(part) ?? 0)
         .toList(growable: false);
+
+    // Rhythm's release tags/build-names historically omitted the leading
+    // major-version component: "18.43" / "beta.18.43" always meant "0.18.43"
+    // (the project has only ever shipped the 0.x line) — the explicit
+    // "0.18.NN" form only started with v0.18.43. `_compareVersions` below
+    // pads a shorter number list with zeros at the END, which is correct for
+    // a missing trailing patch but wrong here, where the OLDER scheme is
+    // missing its LEADING major: "18.43" parsed to [18, 43], which reads as
+    // a far *larger* version than "0.18.48"'s [0, 18, 48] (18 > 0 in the
+    // first slot) — every current "0.18.x" release lost the comparison to
+    // any older "18.x"-numbered release still in the last-10-releases
+    // window, so the update checker offered a stale beta instead of the
+    // true latest. Left-pad any version shorter than 3 components so both
+    // schemes compare on equal footing.
+    if (numbers.length < 3) {
+      numbers = [for (var i = 0; i < 3 - numbers.length; i++) 0, ...numbers];
+    }
+
     return _VersionParts(numbers: numbers, isPrerelease: prerelease);
   }
 }
