@@ -229,6 +229,26 @@ describe('#738 — AgentRunner', () => {
     expect(recorded?.category).toBe('chat');
   });
 
+  // ── dev-dashboard-refresh incident (2026-07-22): a scheduled/headless run
+  // hung on a live "Allow?" card for `glob` even though the prompt() call was
+  // given permissionMode: 'bypassPermissions'. Root cause: that value was
+  // only ever a per-prompt SDK option — it was never persisted onto the
+  // session row, and opencode_stream_bridge.ts's auto-accept gate reads the
+  // session's own `permission_mode` column (DB default: 'default'), not the
+  // per-prompt option. Assert the actual observable fix: the recorded
+  // session's persisted permissionMode, not just that some function fired.
+
+  it('persists permissionMode=bypassPermissions on the session row so the stream bridge auto-accepts tool asks', async () => {
+    setDb(new Database(':memory:'));
+    runMigrations(getDb());
+    mockPrompt.mockResolvedValue(makePromptResponse('Done'));
+
+    const result = await run({ prompt: 'Run the daily morning briefing' });
+
+    const recorded = new AgentSessionsRepository().findById(result.sessionId);
+    expect(recorded?.permissionMode).toBe('bypassPermissions');
+  });
+
   // ── F. Concurrency cap rejects (N+1)th run ────────────────────────────────
 
   it('rejects the (N+1)th run when concurrency cap is reached', async () => {
