@@ -41,21 +41,21 @@ final _realReleasesResponse = jsonEncode([
 ]);
 
 Map<String, dynamic> _release(String tag, {required bool prerelease}) => {
-      'draft': false,
-      'prerelease': prerelease,
-      'tag_name': tag,
-      'name': 'Rhythm $tag',
-      'html_url': 'https://github.com/ajhochy/Rhythm/releases/tag/$tag',
-      'published_at': '2026-07-20T00:00:00Z',
-      'body': 'notes',
-      'assets': [
-        {
-          'name': 'Rhythm-macOS.dmg',
-          'browser_download_url':
-              'https://github.com/ajhochy/Rhythm/releases/download/$tag/Rhythm-macOS.dmg',
-        },
-      ],
-    };
+  'draft': false,
+  'prerelease': prerelease,
+  'tag_name': tag,
+  'name': 'Rhythm $tag',
+  'html_url': 'https://github.com/ajhochy/Rhythm/releases/tag/$tag',
+  'published_at': '2026-07-20T00:00:00Z',
+  'body': 'notes',
+  'assets': [
+    {
+      'name': 'Rhythm-macOS.dmg',
+      'browser_download_url':
+          'https://github.com/ajhochy/Rhythm/releases/download/$tag/Rhythm-macOS.dmg',
+    },
+  ],
+};
 
 class _StubClient extends http.BaseClient {
   _StubClient(this.body);
@@ -92,20 +92,29 @@ void main() {
   }
 
   group('UpdateService version-scheme comparison (old 2-part vs new 3-part)', () {
-    test('an old-scheme install (beta.18.42) is offered the true latest, not a stale beta', () async {
-      final offered = await latestOfferedVersion('beta.18.42');
-      expect(offered, '0.18.48');
-    });
+    test(
+      'an old-scheme install (beta.18.42) is offered the true latest, not a stale beta',
+      () async {
+        final offered = await latestOfferedVersion('beta.18.42');
+        expect(offered, '0.18.48');
+      },
+    );
 
-    test('an old-scheme install (18.42, no "beta." prefix) is offered the true latest', () async {
-      final offered = await latestOfferedVersion('18.42');
-      expect(offered, '0.18.48');
-    });
+    test(
+      'an old-scheme install (18.42, no "beta." prefix) is offered the true latest',
+      () async {
+        final offered = await latestOfferedVersion('18.42');
+        expect(offered, '0.18.48');
+      },
+    );
 
-    test('a new-scheme install one patch behind is offered the true latest', () async {
-      final offered = await latestOfferedVersion('0.18.47');
-      expect(offered, '0.18.48');
-    });
+    test(
+      'a new-scheme install one patch behind is offered the true latest',
+      () async {
+        final offered = await latestOfferedVersion('0.18.47');
+        expect(offered, '0.18.48');
+      },
+    );
 
     test('an up-to-date new-scheme install is offered nothing', () async {
       final service = UpdateService(client: _StubClient(_realReleasesResponse));
@@ -120,12 +129,15 @@ void main() {
       expect(update, isNull);
     });
 
-    test('an old-scheme install genuinely ahead of every listed release is offered nothing', () async {
-      // 18.50 means "0.18.50" under this project's historical numbering —
-      // ahead of every release in the canned list (max real patch is 48), so
-      // this must NOT produce a false-positive "update available".
-      final offered = await latestOfferedVersion('18.50');
-      expect(offered, isNull);
-    });
+    test(
+      'an old-scheme install genuinely ahead of every listed release is offered nothing',
+      () async {
+        // 18.50 means "0.18.50" under this project's historical numbering —
+        // ahead of every release in the canned list (max real patch is 48), so
+        // this must NOT produce a false-positive "update available".
+        final offered = await latestOfferedVersion('18.50');
+        expect(offered, isNull);
+      },
+    );
   });
 }
