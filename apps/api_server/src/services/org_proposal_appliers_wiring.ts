@@ -822,6 +822,72 @@ const refineScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => {
   return { measurable: true, beforeSnapshotJson };
 };
 
+// ── broaden-scope (#1139) ──
+// The workflow_signal_generator's missing-scope lane emits a HIGH-risk
+// broaden-scope proposal with a FLAT change_json ({agentConfigId, field, add})
+// — NOT the nested {scopePatch:{...}} shape refine-scope uses — so it cannot be
+// aliased to refineScopeApplier verbatim (extractScopePatch reads change.scopePatch
+// and would find nothing). This validator/applier reads that flat shape and reuses
+// the exact same apply mechanics (computeScopeList add + agentConfigFieldPatch +
+// writeAgentProfileFile) and the same {agentConfigId, field, priorValue} snapshot,
+// so the refine-scope revert branch (isConfigFieldSnapshot in org_proposal_apply.ts)
+// and the scope measure path (isAgentConfigScopeChange in org_proposal_measure.ts)
+// both cover it for free. Fail-closed: refuses a payload missing agentConfigId /
+// a valid scope field / a non-empty add, and drift-guards the target at apply time.
+
+/** Extract a well-formed broaden-scope FLAT patch ({agentConfigId, field, add}), or null. */
+function extractBroadenScopePatch(
+  change: Record<string, unknown> | null,
+): { agentConfigId: string; field: ScopePatch['field']; add: string[] } | null {
+  if (!change) return null;
+  if (typeof change.agentConfigId !== 'string' || !change.agentConfigId.trim()) return null;
+  if (typeof change.field !== 'string' || !(SCOPE_PATCH_FIELDS as readonly string[]).includes(change.field)) {
+    return null;
+  }
+  const add = Array.isArray(change.add)
+    ? change.add.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    : [];
+  if (add.length === 0) return null;
+  return { agentConfigId: change.agentConfigId, field: change.field as ScopePatch['field'], add };
+}
+
+function validateBroadenScope(proposal: AgentOrgProposal): ProposalValidationResult {
+  const patch = extractBroadenScopePatch(parseChange(proposal.changeJson));
+  if (!patch) {
+    return {
+      valid: false,
+      reason:
+        "broaden-scope requires a change_json {agentConfigId, field: 'allowedMcpsJson'|'allowedSkillsJson', add: [<name>, ...]} with at least one name to add",
+    };
+  }
+  if (!new AgentConfigsRepository().getById(patch.agentConfigId)) {
+    return { valid: false, reason: `broaden-scope target agent_config '${patch.agentConfigId}' no longer exists` };
+  }
+  return { valid: true };
+}
+
+const broadenScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => {
+  const patch = extractBroadenScopePatch(parseChange(proposal.changeJson));
+  if (!patch) throw AppError.badRequest('broaden-scope change_json is missing its {agentConfigId, field, add} at apply time');
+  const configsRepo = new AgentConfigsRepository();
+  const config = configsRepo.getById(patch.agentConfigId);
+  if (!config) throw AppError.badRequest(`broaden-scope target '${patch.agentConfigId}' no longer exists`);
+
+  const priorValue = readAgentConfigField(config, patch.field);
+  const beforeSnapshotJson = JSON.stringify({
+    agentConfigId: patch.agentConfigId,
+    field: patch.field,
+    priorValue,
+  });
+
+  const nextJson = computeScopeList(priorValue, { add: patch.add });
+  configsRepo.update(patch.agentConfigId, agentConfigFieldPatch(patch.field, nextJson));
+  const updated = configsRepo.getById(patch.agentConfigId);
+  if (updated) writeAgentProfileFile(updated);
+
+  return { measurable: true, beforeSnapshotJson };
+};
+
 // ── workflow-prompt-fix ──
 function validateWorkflowPromptFix(proposal: AgentOrgProposal): ProposalValidationResult {
   const change = parseChange(proposal.changeJson);
@@ -1145,6 +1211,13 @@ export function registerAllProposalAppliers(registry: AppliersRegistry = {
     registry.registerProposalApplier('refine-config', refineConfigApplier);
     registry.registerProposalValidator('refine-scope', validateRefineScope);
     registry.registerProposalApplier('refine-scope', refineScopeApplier);
+    // #1139 — broaden-scope (missing-scope workflow signal): HIGH-risk, human-
+    // gated grant of a denied MCP/skill. Reads the FLAT {agentConfigId, field, add}
+    // the workflow_signal_generator emits (distinct from refine-scope's nested
+    // scopePatch), so it cannot alias refineScopeApplier — but shares its snapshot
+    // shape, so revert/measure are already covered.
+    registry.registerProposalValidator('broaden-scope', validateBroadenScope);
+    registry.registerProposalApplier('broaden-scope', broadenScopeApplier);
     registry.registerProposalValidator('workflow-prompt-fix', validateWorkflowPromptFix);
     registry.registerProposalApplier('workflow-prompt-fix', workflowPromptFixApplier);
     registry.registerProposalValidator('refine-skill', validateRefineSkill);
@@ -1167,6 +1240,6 @@ export function registerAllProposalAppliers(registry: AppliersRegistry = {
   }
 
   logger.info(
-    '[org-proposal-appliers-wiring] registered appliers for: create-agent, grant-delegation, expand-delegation, external-adoption, webhook-wiring, create-recipe, refine-config, refine-scope, workflow-prompt-fix, refine-skill, refine-task, publish-skill-to-org',
+    '[org-proposal-appliers-wiring] registered appliers for: create-agent, grant-delegation, expand-delegation, external-adoption, webhook-wiring, create-recipe, refine-config, refine-scope, broaden-scope, workflow-prompt-fix, refine-skill, refine-task, publish-skill-to-org',
   );
 }
