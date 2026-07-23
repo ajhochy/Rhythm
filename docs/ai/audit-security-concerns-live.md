@@ -228,7 +228,7 @@ curl "$RHYTHM_PROD_URL/agent-capabilities" | jq '.engraph_available'
 grep -i "engraph\|memory.*query\|retrieval" /path/to/api_server.log | tail -20
 
 # Check config
-grep -i "ENGRAPH" .env .env.local 2>/dev/null || echo "Not in local env"
+grep -i "ENGRAPH" .env.local .env.example 2>/dev/null || echo "Not in local env"
 ```
 
 ### Phase 4 (Rogue Profile): Profile audit
