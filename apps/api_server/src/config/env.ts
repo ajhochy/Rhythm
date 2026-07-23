@@ -105,6 +105,31 @@ export function resolveEngraphMemoryVaultRoot(): string {
 }
 
 /**
+ * Step 3 of the semantic-memory rollout (steps 1-2 made hybrid retrieval the
+ * default): a configurable prompt-path latency budget for the Engraph
+ * semantic search, resolved FRESH from process.env at call time (mirrors
+ * `getAgentMemoryRetrievalMode`'s "read live" convention). This bounds how
+ * long a slow/hung Engraph service can delay a user's FIRST prompt response —
+ * the semantic search runs in parallel with FTS on the prompt path
+ * (`getRelevantMemoriesSemantic`), so this budget is used as the search
+ * timeout at both prompt-path `EngraphHttpClient` construction sites
+ * (`EngraphManager.getRetrievalClient()` and the default `engraph` param of
+ * `getRelevantMemoriesSemantic`). Override via AGENT_MEMORY_SEMANTIC_BUDGET_MS
+ * (must be a positive integer; anything else, including unset/empty/zero/
+ * negative/non-numeric, falls back to the 500ms default). This is a separate,
+ * steady-state budget from the manager's own health-check/startup/index
+ * lifecycle timeouts (HEALTH_CHECK_BUDGET_MS etc. in engraph_manager.ts),
+ * which are unaffected.
+ */
+export function getSemanticSearchBudgetMs(): number {
+  const raw = process.env.AGENT_MEMORY_SEMANTIC_BUDGET_MS;
+  if (raw === undefined) return 500;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) return 500;
+  return parsed;
+}
+
+/**
  * Google Cloud project ID used to enable the native Google Gemini provider in
  * the embedded opencode engine. The `opencode-gemini-auth` plugin only
  * registers the `google` provider for Google **Workspace** accounts when

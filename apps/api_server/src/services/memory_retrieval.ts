@@ -44,7 +44,12 @@
 
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import type { AgentMemory } from '../repositories/agent_memory_repository';
-import { getAgentMemoryRetrievalMode, resolveEngraphMemoryVaultRoot, resolveMemoryDirPath } from '../config/env';
+import {
+  getAgentMemoryRetrievalMode,
+  getSemanticSearchBudgetMs,
+  resolveEngraphMemoryVaultRoot,
+  resolveMemoryDirPath,
+} from '../config/env';
 import { EngraphHttpClient, mapEngraphFileToSourceId } from './engraph_client';
 import type { EngraphClient } from './engraph_client';
 import { engraphManager } from './engraph_manager';
@@ -254,7 +259,11 @@ export async function getRelevantMemoriesSemantic(
   ownerUserId?: number | null,
   topN: number = DEFAULT_TOP_N,
   repo: MemoryRepository = new AgentMemoryRepository(),
-  engraph: EngraphClient = new EngraphHttpClient(),
+  // Step 3: bound the prompt-path search timeout to the configurable budget
+  // (default 500ms) instead of EngraphHttpClient's own 1000ms default, so a
+  // hung/slow Engraph service can never delay a first agent response by more
+  // than the budget.
+  engraph: EngraphClient = new EngraphHttpClient(undefined, undefined, getSemanticSearchBudgetMs()),
 ): Promise<AgentMemory[]> {
   const ftsPromise = getRelevantMemories(query, ownerUserId, topN, repo);
   const hitsPromise = engraph.search(query, topN).catch(() => []);

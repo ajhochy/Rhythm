@@ -356,6 +356,39 @@ describe('EngraphManager — process ownership + command construction', () => {
     await expect(manager.getRetrievalClient().search('q', 5)).resolves.toEqual([]);
   });
 
+  describe('getRetrievalClient() prompt-path latency budget (step 3)', () => {
+    const originalBudgetEnv = process.env.AGENT_MEMORY_SEMANTIC_BUDGET_MS;
+    afterEach(() => {
+      if (originalBudgetEnv === undefined) delete process.env.AGENT_MEMORY_SEMANTIC_BUDGET_MS;
+      else process.env.AGENT_MEMORY_SEMANTIC_BUDGET_MS = originalBudgetEnv;
+    });
+
+    it('constructs the not-ready fallback client with the env-configured budget', () => {
+      process.env.AGENT_MEMORY_SEMANTIC_BUDGET_MS = '250';
+      const { manager } = makeManager();
+      const client = manager.getRetrievalClient();
+      expect((client as unknown as { timeoutMs: number }).timeoutMs).toBe(250);
+    });
+
+    it('constructs the managed (ready) client with the env-configured budget', async () => {
+      process.env.AGENT_MEMORY_SEMANTIC_BUDGET_MS = '250';
+      const { manager, configStore } = makeManager();
+      configStore.write({ enabled: true, executablePath: process.execPath });
+      const result = await manager.enable();
+      expect(result.ok).toBe(true);
+
+      const client = manager.getRetrievalClient();
+      expect((client as unknown as { timeoutMs: number }).timeoutMs).toBe(250);
+    });
+
+    it('falls back to the 500ms default when the env override is invalid', () => {
+      process.env.AGENT_MEMORY_SEMANTIC_BUDGET_MS = 'garbage';
+      const { manager } = makeManager();
+      const client = manager.getRetrievalClient();
+      expect((client as unknown as { timeoutMs: number }).timeoutMs).toBe(500);
+    });
+  });
+
   it('checkHealthNow() fails closed on a non-2xx (e.g. auth-rejected) response', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response('{"error":"unauthorized"}', { status: 401 }));
     const { manager, configStore } = makeManager({ fetchImpl });
