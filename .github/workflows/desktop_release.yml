@@ -141,6 +141,26 @@ jobs:
           test -d "$DEST/node_modules"
           test -f "$DEST/node_modules/better-sqlite3/package.json"
 
+      - name: Bundle MCP role files into app (#1154)
+        working-directory: apps/desktop_flutter
+        run: |
+          # Sibling of Resources/api_server. ApiServerService points
+          # MCP_ROLES_DIR at this path (see _findServer's bundled branch) so
+          # POST /agent-sessions {mcpRole:"secretary"} resolves in the shipped
+          # .app the same way it does in dev against the repo-root .mcp-roles/.
+          APP="build/macos/Build/Products/Release/Rhythm.app"
+          DEST="$APP/Contents/Resources/.mcp-roles"
+          mkdir -p "$DEST"
+          cp -r ../../.mcp-roles/. "$DEST/"
+
+      - name: Verify bundled MCP role files payload
+        working-directory: apps/desktop_flutter
+        run: |
+          DEST="build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/.mcp-roles"
+          test -f "$DEST/secretary.mcp.json"
+          test -f "$DEST/email-assistant.mcp.json"
+          test -f "$DEST/graphic-designer.mcp.json"
+
       - name: Bundle Node runtime into app (#1023)
         working-directory: apps/desktop_flutter
         shell: bash
