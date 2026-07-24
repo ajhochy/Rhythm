@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { registerGoogleTools } from '../google.js';
+import { __resetTaintForTest } from '../../taint.js';
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<{
   content: Array<{ type: 'text'; text: string }>;
@@ -25,6 +26,7 @@ function makeStubServer(): { server: unknown; tools: Map<string, RegisteredTool>
 
 const API_URL = 'http://x';
 const API_TOKEN = 'tok';
+const AGENT_URL = 'http://agent';
 
 function makeFetchOk(body: unknown) {
   return vi.fn().mockResolvedValue({
@@ -45,6 +47,7 @@ function makeFetch409() {
 describe('registerGoogleTools — rhythm_list_calendar_events', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
+    __resetTaintForTest();
   });
 
   it('(a) GETs /integrations/google/calendar/events with calendarId=primary by default', async () => {
@@ -53,7 +56,7 @@ describe('registerGoogleTools — rhythm_list_calendar_events', () => {
 
     const { server, tools } = makeStubServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerGoogleTools(server as any, API_URL, API_TOKEN);
+    registerGoogleTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
     await tools.get('rhythm_list_calendar_events')!.handler({});
 
@@ -69,7 +72,7 @@ describe('registerGoogleTools — rhythm_list_calendar_events', () => {
 
     const { server, tools } = makeStubServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerGoogleTools(server as any, API_URL, API_TOKEN);
+    registerGoogleTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
     await tools.get('rhythm_list_calendar_events')!.handler({ calendar_id: 'work@example.com' });
 
@@ -85,7 +88,7 @@ describe('registerGoogleTools — rhythm_list_calendar_events', () => {
 
     const { server, tools } = makeStubServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerGoogleTools(server as any, API_URL, API_TOKEN);
+    registerGoogleTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
     const res = await tools.get('rhythm_list_calendar_events')!.handler({});
 
@@ -99,7 +102,7 @@ describe('registerGoogleTools — rhythm_list_calendar_events', () => {
 
     const { server, tools } = makeStubServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerGoogleTools(server as any, API_URL, API_TOKEN);
+    registerGoogleTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
     const res = await tools.get('rhythm_list_calendar_events')!.handler({});
 
@@ -118,7 +121,7 @@ describe('registerGoogleTools — rhythm_list_calendar_events', () => {
 
     const { server, tools } = makeStubServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerGoogleTools(server as any, API_URL, API_TOKEN);
+    registerGoogleTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
     const res = await tools.get('rhythm_list_calendar_events')!.handler({});
 
@@ -130,6 +133,7 @@ describe('registerGoogleTools — rhythm_list_calendar_events', () => {
 describe('registerGoogleTools — rhythm_search_gmail', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
+    __resetTaintForTest();
   });
 
   it('(a) GETs /integrations/google/gmail/search with encoded query', async () => {
@@ -138,7 +142,7 @@ describe('registerGoogleTools — rhythm_search_gmail', () => {
 
     const { server, tools } = makeStubServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerGoogleTools(server as any, API_URL, API_TOKEN);
+    registerGoogleTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
     await tools.get('rhythm_search_gmail')!.handler({ query: 'from:boss is:unread' });
 
@@ -154,7 +158,7 @@ describe('registerGoogleTools — rhythm_search_gmail', () => {
 
     const { server, tools } = makeStubServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerGoogleTools(server as any, API_URL, API_TOKEN);
+    registerGoogleTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
     const res = await tools.get('rhythm_search_gmail')!.handler({ query: 'test' });
 

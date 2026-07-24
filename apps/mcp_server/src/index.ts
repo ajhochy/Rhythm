@@ -46,13 +46,17 @@ registerPingTool(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerTaskTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerProjectTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerRhythmTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
-registerMessageTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+// #1134 — send/create-thread need RHYTHM_AGENT_URL to verify approval ids
+// against /agent-approvals when the session is tainted by untrusted content.
+registerMessageTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN, RHYTHM_AGENT_URL);
 registerFacilityTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerDashboardTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerClaudeTriggerTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerAutomationTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerNotificationTools(server, RHYTHM_AGENT_URL);
-registerGoogleTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+// #1134 — rhythm_send_email needs RHYTHM_AGENT_URL to verify approval ids
+// against /agent-approvals when the session is tainted by untrusted content.
+registerGoogleTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN, RHYTHM_AGENT_URL);
 registerPcoTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerAgentScheduleTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerAgentDelegationTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
