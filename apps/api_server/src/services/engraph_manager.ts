@@ -133,6 +133,7 @@ export function isExecutableFile(candidate: string): boolean {
 /** Check PATH + known Homebrew locations. Never bundles/auto-installs. */
 export function discoverEngraphCandidates(
   pathEnv: string = process.env.PATH ?? '',
+  commonLocations: readonly string[] = COMMON_BINARY_LOCATIONS,
 ): EngraphBinaryCandidate[] {
   const found: EngraphBinaryCandidate[] = [];
   const seen = new Set<string>();
@@ -144,7 +145,7 @@ export function discoverEngraphCandidates(
       seen.add(candidate);
     }
   }
-  for (const candidate of COMMON_BINARY_LOCATIONS) {
+  for (const candidate of commonLocations) {
     if (!seen.has(candidate) && isExecutableFile(candidate)) {
       found.push({ path: candidate, source: 'homebrew' });
       seen.add(candidate);
