@@ -65,7 +65,57 @@ const Map<String, String> _kMimeByExtension = {
   'mp4': 'video/mp4',
   'mp3': 'audio/mpeg',
   'wav': 'audio/wav',
+  // Office documents (issue #1137) — classify to their real MIME instead of
+  // falling through to octet-stream. These are NOT sent as `data:` FileParts
+  // (providers reject the MIME as unsupported media); see
+  // [isSkillReadableBinaryMime] — the attach path routes them to a `file:`
+  // reference instead so the engine's Read tool + docx/xlsx/pptx skill can
+  // read the real bytes.
+  'docx':
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'doc': 'application/msword',
+  'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'xls': 'application/vnd.ms-excel',
+  'pptx':
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'ppt': 'application/vnd.ms-powerpoint',
 };
+
+/// Office document MIME types (issue #1137). The model can't take these as a
+/// native `data:` FilePart (media type rejected), but the engine's `file:`
+/// FilePart branch runs the Read tool (which bypasses the cwd check for
+/// FileParts) and the docx/xlsx/pptx skill extracts the text from there.
+const Set<String> _kSkillReadableBinaryMimes = {
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-powerpoint',
+};
+
+/// True when [mime] is a binary type the model can't read as a `data:`
+/// FilePart, but that a skill (docx/xlsx/pptx) can read once the engine Reads
+/// it from a real path. Attach these as a `file:` reference, not a data URI.
+bool isSkillReadableBinaryMime(String mime) =>
+    _kSkillReadableBinaryMimes.contains(mime);
+
+/// Builds a `file:`-source FilePart map pointing at [absolutePath] (issue
+/// #1137). The engine's prompt pipeline branches on the FilePart URL
+/// protocol: `file:` runs the Read tool against the real path — the only
+/// path that reaches the docx/xlsx/pptx skill — while `data:` is handed to
+/// the model as a media part and rejected for Office MIME types.
+Map<String, dynamic> buildFileRefAttachment({
+  required String mime,
+  required String filename,
+  required String absolutePath,
+}) =>
+    {
+      'type': 'file',
+      'mime': mime,
+      'filename': filename,
+      'url': Uri.file(absolutePath).toString(),
+    };
 
 /// MIME from a bare extension (no dot, any case). Returns octet-stream when
 /// unknown.
