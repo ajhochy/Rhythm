@@ -150,6 +150,27 @@ describe('POST /agent-sessions — C1 mcpRole gating', () => {
     expect(typeof mcpRoleConfig?.allowedToolsJson).toBe('string');
   });
 
+  // ── (a2) #1154 regression — secretary/email-assistant/graphic-designer ────
+  // resolve via MCP_ROLES_DIR the same way church-admin does above. #1154's
+  // bug was that the shipped .app never set MCP_ROLES_DIR at all (fixed in
+  // ApiServerService.buildApiServerEnvironment); the server-side resolution
+  // exercised here was already correct given a correct env var, which is
+  // exactly what this suite pins down.
+  it.each(['secretary', 'email-assistant', 'graphic-designer'])(
+    'C1-a2: known mcpRole %s resolves via MCP_ROLES_DIR (no "Unknown mcpRole" 400)',
+    async (role) => {
+      const res = await fetch(`${baseUrl}/agent-sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...BASE_PAYLOAD, mcpRole: role }),
+      });
+
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.mcpRole).toBe(role);
+    },
+  );
+
   // ── (b) Unknown role → 400, no session created ────────────────────────────
 
   it('C1-b: unknown mcpRole → HTTP 400 and no session created', async () => {

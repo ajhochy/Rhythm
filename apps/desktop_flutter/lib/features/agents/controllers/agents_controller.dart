@@ -143,10 +143,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // manager-preamble routing; this one is a pure user preference for the
     // default new-session profile.
     String? Function()? configuredDefaultAgentResolver,
-  })  : _modelsDataSource = modelsDataSource ?? AgentModelsDataSource(),
-        _commandsDataSource = CommandsDataSource(),
-        _managerAgentNameResolver = managerAgentNameResolver,
-        _configuredDefaultAgentResolver = configuredDefaultAgentResolver;
+  }) : _modelsDataSource = modelsDataSource ?? AgentModelsDataSource(),
+       _commandsDataSource = CommandsDataSource(),
+       _managerAgentNameResolver = managerAgentNameResolver,
+       _configuredDefaultAgentResolver = configuredDefaultAgentResolver;
 
   final AgentsRepository _repository;
   final AgentModelsDataSource _modelsDataSource;
@@ -573,10 +573,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       final cache = cacheRaw is num
           ? cacheRaw.toInt()
           : (cacheRaw is Map
-              ? ((cacheRaw['read'] as num? ?? 0) +
-                      (cacheRaw['write'] as num? ?? 0))
-                  .toInt()
-              : 0);
+                ? ((cacheRaw['read'] as num? ?? 0) +
+                          (cacheRaw['write'] as num? ?? 0))
+                      .toInt()
+                : 0);
       final total = asInt(t['input']) + cache;
       if (total > 0) return total;
     }
@@ -885,8 +885,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     String sessionId,
     String query, {
     int limit = 20,
-  }) =>
-      _repository.findFiles(sessionId, query, limit: limit, type: 'file');
+  }) => _repository.findFiles(sessionId, query, limit: limit, type: 'file');
 
   /// Fetch a file's content through the worktree-safe content proxy (never
   /// local file IO — required so isolated-worktree sessions resolve correctly).
@@ -895,8 +894,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   Future<Map<String, dynamic>> fetchFileContent(
     String sessionId,
     String path,
-  ) =>
-      _repository.fileContent(sessionId, path);
+  ) => _repository.fileContent(sessionId, path);
 
   // ── OCU-21 (#1062): Inspector Files tab (browse + preview) ──────────────────
 
@@ -906,8 +904,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   Future<List<Map<String, dynamic>>> listSessionFiles(
     String sessionId, {
     String path = '.',
-  }) =>
-      _repository.listSessionFiles(sessionId, path: path);
+  }) => _repository.listSessionFiles(sessionId, path: path);
 
   /// Git-aware file status for [sessionId]'s directory, used to render
   /// modified/untracked/staged status dots in the Files tab.
@@ -1138,8 +1135,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // view with its locally persisted transcript — not rebuild the child's
     // transcript through the engine child-fetch pipeline. Only when no local
     // row exists (engine-ephemeral child) fall back to the SDK fetch below.
-    final localChild =
-        _sessions.where((s) => s.sdkSessionId == childSdkId).firstOrNull;
+    final localChild = _sessions
+        .where((s) => s.sdkSessionId == childSdkId)
+        .firstOrNull;
     if (localChild != null) {
       _childStack.clear();
       await selectSession(localChild.id);
@@ -1453,8 +1451,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// rehydration (selectedAgentFor step 2) picks it up. Non-fatal on failure.
   Future<void> _persistSelectedAgent(String sessionId, String agentName) async {
     try {
-      final updated =
-          await _repository.updateSession(sessionId, agentId: agentName);
+      final updated = await _repository.updateSession(
+        sessionId,
+        agentId: agentName,
+      );
       if (_disposed) return;
       _sessions = [for (final s in _sessions) s.id == sessionId ? updated : s];
       notifyListeners();
@@ -1471,9 +1471,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// selector treats as "show built-ins only" with a hard-coded build/plan pair).
   Future<void> fetchAvailableAgents(String sessionId) async {
     try {
-      final cwd = (_sessions.firstWhereOrNull((s) => s.id == sessionId) ??
-              _resumable.firstWhereOrNull((s) => s.id == sessionId))
-          ?.cwd;
+      final cwd =
+          (_sessions.firstWhereOrNull((s) => s.id == sessionId) ??
+                  _resumable.firstWhereOrNull((s) => s.id == sessionId))
+              ?.cwd;
       final agents = await _repository.fetchAvailableAgents(cwd: cwd);
       if (_disposed) return;
       _availableAgentsBySession[sessionId] = agents;
@@ -1638,8 +1639,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _panelCollapsed = prefs.getBool(_inspectorCollapsedKey) ?? true;
       final storedWidth = prefs.getDouble(_inspectorWidthKey);
       if (storedWidth != null) {
-        _panelWidth =
-            storedWidth.clamp(_kMinPanelWidth, _kMaxPanelWidth).toDouble();
+        _panelWidth = storedWidth
+            .clamp(_kMinPanelWidth, _kMaxPanelWidth)
+            .toDouble();
       }
       notifyListeners();
     } catch (_) {
@@ -1901,7 +1903,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     } catch (e) {
       _creating = false;
       if (e is AppError) {
-        _error = e.message;
+        _error = _friendlyCreateSessionError(e);
         _lastErrorStatus = e.statusCode;
       } else {
         _error = e.toString();
@@ -1909,6 +1911,19 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       return null;
     }
+  }
+
+  /// #1154 — Defense-in-depth: a session-create 400 body is a server-side
+  /// validation string (e.g. `Unknown mcpRole: "secretary"`), not user-facing
+  /// copy. The real fix is making mcpRole resolution work in the bundled app
+  /// (see `MCP_ROLES_DIR` wiring in `ApiServerService`); this guard just
+  /// ensures that raw string never reaches the footer if resolution ever
+  /// fails again (unknown role, corrupt role file, etc).
+  static String _friendlyCreateSessionError(AppError e) {
+    if (e.message.contains('mcpRole')) {
+      return "Couldn't start this assistant. Please try again.";
+    }
+    return e.message;
   }
 
   /// Picks the default agent for `createSession` callers that haven't chosen
@@ -2118,8 +2133,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _removePendingPermission(sessionId, permissionId);
     notifyListeners();
     try {
-      await _repository.respondPermission(sessionId, permissionId, 'deny',
-          message: reason);
+      await _repository.respondPermission(
+        sessionId,
+        permissionId,
+        'deny',
+        message: reason,
+      );
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
       notifyListeners();
@@ -2130,7 +2149,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// project (server maps 'always' to the engine's `always` reply so the
   /// same action is not re-asked).
   Future<void> alwaysAllowPermission(
-      String sessionId, String permissionId) async {
+    String sessionId,
+    String permissionId,
+  ) async {
     _removePendingPermission(sessionId, permissionId);
     notifyListeners();
     try {
@@ -2310,7 +2331,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// Optimistically moves the row to [_archived]; the server's WS `session.updated`
   /// broadcast will confirm the change without a reload.
   Future<void> archiveSession(String id) async {
-    final session = _sessions.firstWhereOrNull((s) => s.id == id) ??
+    final session =
+        _sessions.firstWhereOrNull((s) => s.id == id) ??
         _resumable.firstWhereOrNull((s) => s.id == id);
     if (session == null) return;
     _sessions = _sessions.where((s) => s.id != id).toList();
@@ -2555,8 +2577,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
             currentName.isEmpty || currentName == 'New session';
         if (needsFallback) {
           final rawText = data.trim();
-          final fallbackTitle =
-              rawText.length > 40 ? '${rawText.substring(0, 40)}…' : rawText;
+          final fallbackTitle = rawText.length > 40
+              ? '${rawText.substring(0, 40)}…'
+              : rawText;
           if (fallbackTitle.isNotEmpty) {
             _sessions = [
               for (final s in _sessions)
@@ -2811,7 +2834,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _loadModelRoutes(String sessionId) async {
-    final session = _sessions.firstWhereOrNull((s) => s.id == sessionId) ??
+    final session =
+        _sessions.firstWhereOrNull((s) => s.id == sessionId) ??
         _resumable.firstWhereOrNull((s) => s.id == sessionId);
     if (session == null) return;
     final routes = await _modelsDataSource.fetchRoutes(session.agentId);
@@ -2865,16 +2889,19 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// If a trigger with the same `taskId` is already pending it is ignored so
   /// that a failed DELETE does not create duplicate bubbles.
   Future<void> handleIncomingTrigger(Map<String, dynamic> trigger) async {
-    final taskId = trigger['taskId'] as String? ??
+    final taskId =
+        trigger['taskId'] as String? ??
         trigger['task_id'] as String? ??
         trigger['id']?.toString();
-    final taskTitle = trigger['taskTitle'] as String? ??
+    final taskTitle =
+        trigger['taskTitle'] as String? ??
         trigger['task_title'] as String? ??
         trigger['title'] as String? ??
         '';
     // Issue #653: capture taskNotes so the bubble can prefill the composer
     // with task title + notes when the user clicks Open chat.
-    final taskNotes = trigger['taskNotes'] as String? ??
+    final taskNotes =
+        trigger['taskNotes'] as String? ??
         trigger['task_notes'] as String? ??
         trigger['notes'] as String?;
 
@@ -2957,8 +2984,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       if (existingParts == null || existingParts.isEmpty) {
         final rawParts = row.parts;
         if (rawParts != null && rawParts.isNotEmpty) {
-          _chatPartsByMessage[msgId] =
-              rawParts.map((p) => ChatPart.fromJson(msgId, p)).toList();
+          _chatPartsByMessage[msgId] = rawParts
+              .map((p) => ChatPart.fromJson(msgId, p))
+              .toList();
         } else if (row.rawText.isNotEmpty) {
           // Legacy shim: synthesise a single text part from rawText.
           _chatPartsByMessage[msgId] = [
@@ -3478,8 +3506,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Issue #606 — fire desktop notifications for all armed messages in a session.
   void _fireArmedNotifications(String sessionId) {
     final prefix = '$sessionId:';
-    final armed =
-        _notifyOnCompletion.where((k) => k.startsWith(prefix)).toList();
+    final armed = _notifyOnCompletion
+        .where((k) => k.startsWith(prefix))
+        .toList();
     if (armed.isEmpty) return;
     for (final key in armed) {
       _notifyOnCompletion.remove(key);
@@ -3504,7 +3533,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// path so behavior stays consistent.
   @visibleForTesting
   bool shouldNotifyAsk(String sessionId) {
-    final viewingThisAsk = _lifecycleState == AppLifecycleState.resumed &&
+    final viewingThisAsk =
+        _lifecycleState == AppLifecycleState.resumed &&
         _selectedSessionId == sessionId;
     return !viewingThisAsk;
   }
@@ -3514,7 +3544,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   int _askNotificationId(String dedupeKey) => dedupeKey.hashCode & 0x7FFFFFFF;
 
   String _sessionDisplayName(String sessionId) {
-    final s = _sessions.firstWhereOrNull((x) => x.id == sessionId) ??
+    final s =
+        _sessions.firstWhereOrNull((x) => x.id == sessionId) ??
         _resumable.firstWhereOrNull((x) => x.id == sessionId);
     final name = s?.name.trim() ?? '';
     return name.isNotEmpty ? name : 'Agent session';
@@ -3595,7 +3626,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       final firstSeen = sessionFirstSeenAt[s.id];
       if (firstSeen == null) continue;
       // Has parts arrived?
-      final hasParts = (_chatMessagesBySession[s.id]?.isNotEmpty == true) ||
+      final hasParts =
+          (_chatMessagesBySession[s.id]?.isNotEmpty == true) ||
           (_lastPartActivityAt.containsKey(s.id));
       if (hasParts) continue;
       if (now.difference(firstSeen) > stuckThreshold) {

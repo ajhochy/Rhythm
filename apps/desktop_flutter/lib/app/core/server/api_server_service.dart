@@ -35,12 +35,18 @@ typedef AgentServerStartResult = ({
 ///      non-empty explicit value for that key, in which case the explicit
 ///      env var wins (keeps `export MEMORY_VAULT_PATH=...` dev overrides
 ///      working).
+///   4. Overlay `MCP_ROLES_DIR` (#1154) with the same explicit-override
+///      precedence — [mcpRolesDir] is the bundle-relative `.mcp-roles`
+///      location computed by [ApiServerService] when running from the
+///      shipped `.app` (null in dev, where the server's own `__dirname`
+///      -relative default already resolves the repo-root `.mcp-roles/`).
 Map<String, String> buildApiServerEnvironment({
   required Map<String, String> baseEnv,
   required String port,
   required String dbPath,
   String? memoryVaultPath,
   String? memoryVaultSubdir,
+  String? mcpRolesDir,
 }) {
   final env = <String, String>{
     ...baseEnv,
@@ -56,6 +62,9 @@ Map<String, String> buildApiServerEnvironment({
       !baseEnv.containsKey('MEMORY_VAULT_SUBDIR')) {
     env['MEMORY_VAULT_SUBDIR'] = memoryVaultSubdir;
   }
+  if (mcpRolesDir != null && !baseEnv.containsKey('MCP_ROLES_DIR')) {
+    env['MCP_ROLES_DIR'] = mcpRolesDir;
+  }
 
   return env;
 }
@@ -63,8 +72,8 @@ Map<String, String> buildApiServerEnvironment({
 /// Manages the lifecycle of the local Node.js API server process.
 class ApiServerService {
   ApiServerService({String? memoryVaultPath, String? memoryVaultSubdir})
-      : _memoryVaultPath = memoryVaultPath,
-        _memoryVaultSubdir = memoryVaultSubdir;
+    : _memoryVaultPath = memoryVaultPath,
+      _memoryVaultSubdir = memoryVaultSubdir;
 
   Process? _process;
 
@@ -108,8 +117,9 @@ class ApiServerService {
   }
 
   void _appendStderr(String line) {
-    final trimmed =
-        line.endsWith('\n') ? line.substring(0, line.length - 1) : line;
+    final trimmed = line.endsWith('\n')
+        ? line.substring(0, line.length - 1)
+        : line;
     final capped = trimmed.length > _stderrBufferMaxLineChars
         ? trimmed.substring(0, _stderrBufferMaxLineChars)
         : trimmed;
@@ -201,6 +211,7 @@ class ApiServerService {
           dbPath: dbPath,
           memoryVaultPath: _memoryVaultPath,
           memoryVaultSubdir: _memoryVaultSubdir,
+          mcpRolesDir: serverInfo.mcpRolesDir,
         ),
       );
     } catch (e) {
@@ -349,7 +360,7 @@ class ApiServerService {
   /// Result of [_findNodeWithAbi]: the resolved node path and an optional
   /// rich failure message (e.g. a copy-paste rebuild command).
   Future<({String? nodePath, String? failureMessage})>
-      _findNodeWithAbi() async {
+  _findNodeWithAbi() async {
     // #1023: Prefer the Node runtime bundled inside the app. When present, its
     // ABI matches the bundled better_sqlite3.node by construction — both are
     // built from the SAME pinned Node in the release workflow — so no ABI
@@ -462,10 +473,10 @@ class ApiServerService {
     for (final candidate in candidates) {
       if (!File(candidate).existsSync()) continue;
       try {
-        final result = await Process.run(
-          candidate,
-          ['-e', "process.stdout.write(process.versions.modules)"],
-        );
+        final result = await Process.run(candidate, [
+          '-e',
+          "process.stdout.write(process.versions.modules)",
+        ]);
         if (result.exitCode == 0) {
           final abiStr = (result.stdout as String).trim();
           final abi = int.tryParse(abiStr);
@@ -488,6 +499,9 @@ class ApiServerService {
         executable: nodePath,
         args: [bundledScript],
         workingDir: '$resourcesDir/api_server',
+        // #1154 — Sibling of Resources/api_server, Resources/mcp_server,
+        // Resources/opencode_bin: bundled by the release workflow.
+        mcpRolesDir: '$resourcesDir/.mcp-roles',
       );
     }
 
@@ -608,9 +622,15 @@ class _ServerInfo {
   final List<String> args;
   final String workingDir;
 
+  /// #1154 — Bundle-relative `.mcp-roles` dir to inject as `MCP_ROLES_DIR`.
+  /// Null in dev: the server's own `__dirname`-relative default already
+  /// finds the repo-root `.mcp-roles/`.
+  final String? mcpRolesDir;
+
   const _ServerInfo({
     required this.executable,
     required this.args,
     required this.workingDir,
+    this.mcpRolesDir,
   });
 }
