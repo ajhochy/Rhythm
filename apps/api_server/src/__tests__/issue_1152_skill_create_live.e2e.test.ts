@@ -99,7 +99,9 @@ describeLive('issue #1152 live acceptance contract', () => {
         allowedSkillsJson: JSON.stringify([]),
       }),
     });
-    expect(createConfig.status).toBe(200);
+    // POST /agent-configs is a resource-creation route → 201 Created (see
+    // AgentConfigsController.create's `res.status(201).json(config)`).
+    expect(createConfig.status).toBe(201);
     const config = (await createConfig.json()) as AgentConfigResponse;
     configId = config.id;
 
