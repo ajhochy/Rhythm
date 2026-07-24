@@ -7,6 +7,9 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
+import { mkdtempSync, mkdirSync, symlinkSync, rmSync, realpathSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { startTestServer } from './helpers/real_server';
@@ -96,6 +99,61 @@ describe('/opencode/worktrees (OCU-16 #1057)', () => {
     });
     expect(res.status).toBe(200);
     expect(resetWorktree).toHaveBeenCalledWith('/repo', '/repo/.wt/wt-2');
+  });
+
+  // #1133 — worktreeDir must be validated as actually inside `directory`
+  // (realpath-canonicalized) before proxying to the engine's destructive
+  // remove/reset endpoints; a symlink living inside `directory` must not be
+  // able to point the engine at an arbitrary outside directory.
+  describe('worktreeDir containment (#1133)', () => {
+    let directory: string;
+    let outside: string;
+    let escapeLink: string;
+
+    beforeEach(() => {
+      directory = realpathSync(mkdtempSync(join(tmpdir(), 'wt-routes-dir-')));
+      outside = realpathSync(mkdtempSync(join(tmpdir(), 'wt-routes-outside-')));
+      escapeLink = join(directory, 'escape');
+      symlinkSync(outside, escapeLink);
+    });
+
+    afterEach(() => {
+      rmSync(directory, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    });
+
+    it('DELETE / rejects a worktreeDir reached via an in-root symlink pointing outside', async () => {
+      const res = await fetch(`${baseUrl}/opencode/worktrees`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ directory, worktreeDir: escapeLink }),
+      });
+      expect(res.status).toBe(400);
+      expect(removeWorktree).not.toHaveBeenCalled();
+    });
+
+    it('POST /reset rejects a worktreeDir reached via an in-root symlink pointing outside', async () => {
+      const res = await fetch(`${baseUrl}/opencode/worktrees/reset`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ directory, worktreeDir: escapeLink }),
+      });
+      expect(res.status).toBe(400);
+      expect(resetWorktree).not.toHaveBeenCalled();
+    });
+
+    it('DELETE / allows a legitimate worktreeDir inside directory (no false lockout)', async () => {
+      const legit = join(directory, '.wt', 'wt-real');
+      mkdirSync(legit, { recursive: true });
+      removeWorktree.mockResolvedValue(true);
+      const res = await fetch(`${baseUrl}/opencode/worktrees`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ directory, worktreeDir: legit }),
+      });
+      expect(res.status).toBe(204);
+      expect(removeWorktree).toHaveBeenCalledWith(directory, legit);
+    });
   });
 });
 
