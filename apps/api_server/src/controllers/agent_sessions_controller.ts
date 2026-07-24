@@ -3,6 +3,7 @@ import path from 'path';
 import { readFileSync, existsSync } from 'fs';
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
+import { containsReal } from '../utils/path_containment';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
@@ -1782,8 +1783,10 @@ export class AgentSessionsController {
     const dir = session.worktreePath ?? session.cwd;
     if (relPath !== undefined) {
       const resolved = path.resolve(dir, relPath);
-      const base = path.resolve(dir);
-      if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+      // containsReal canonicalizes both sides with realpath (fail-closed) so a
+      // symlink living inside `dir` can't pass this check while pointing
+      // outside it — see #1133.
+      if (!containsReal(dir, resolved)) {
         throw new AppError(400, 'PATH_TRAVERSAL', `path '${relPath}' resolves outside the session directory`);
       }
     }
