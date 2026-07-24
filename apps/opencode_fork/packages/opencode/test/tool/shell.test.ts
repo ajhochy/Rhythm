@@ -3,6 +3,7 @@ import { Cause, Effect, Exit, Layer } from "effect"
 import type * as Scope from "effect/Scope"
 import os from "os"
 import path from "path"
+import fsPromises from "fs/promises"
 import { Config } from "@/config/config"
 import { Shell } from "../../src/shell/shell"
 import { ShellTool } from "../../src/tool/shell"
@@ -788,6 +789,62 @@ describe("tool.shell permissions", () => {
           const extDirReq = requests.find((r) => r.permission === "external_directory")
           expect(extDirReq).toBeDefined()
           expect(extDirReq!.patterns).toContain(glob(path.join(os.tmpdir(), "*")))
+        }),
+      )
+    }),
+  )
+
+  each("asks for external_directory permission when workdir is an in-root symlink pointing outside project", () =>
+    Effect.gen(function* () {
+      const outerTmp = yield* tmpdirScoped()
+      const tmp = yield* tmpdirScoped()
+      const escapeDir = path.join(tmp, "escape")
+      yield* Effect.promise(() => fsPromises.symlink(outerTmp, escapeDir))
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          const err = new Error("stop after permission")
+          const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+          expect(
+            yield* fail(
+              {
+                command: "echo ok",
+                workdir: escapeDir,
+                description: "Echo from symlinked-escape dir",
+              },
+              capture(requests, err),
+            ),
+          ).toMatchObject({ message: err.message })
+          const extDirReq = requests.find((r) => r.permission === "external_directory")
+          expect(extDirReq).toBeDefined()
+        }),
+      )
+    }),
+  )
+
+  each("asks for external_directory permission when file arg is reached via an in-root symlink to outside", () =>
+    Effect.gen(function* () {
+      const outerTmp = yield* tmpdirScoped()
+      yield* Effect.promise(() => Bun.write(path.join(outerTmp, "outside.txt"), "x"))
+      const tmp = yield* tmpdirScoped()
+      yield* Effect.promise(() => fsPromises.symlink(outerTmp, path.join(tmp, "escape")))
+      yield* runIn(
+        tmp,
+        Effect.gen(function* () {
+          const err = new Error("stop after permission")
+          const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+          const filepath = path.join(tmp, "escape", "outside.txt")
+          expect(
+            yield* fail(
+              {
+                command: `cat ${filepath}`,
+                description: "Read via symlink escape",
+              },
+              capture(requests, err),
+            ),
+          ).toMatchObject({ message: err.message })
+          const extDirReq = requests.find((r) => r.permission === "external_directory")
+          expect(extDirReq).toBeDefined()
         }),
       )
     }),

@@ -87,7 +87,10 @@ function normalizedTarget(target?: string) {
 }
 
 function containsReferencePath(referencePath: string, target: string) {
-  return AppFileSystem.contains(normalizedTarget(referencePath) ?? referencePath, target)
+  // containsReal canonicalizes both sides with realpath before comparing, so a
+  // symlink can't satisfy this (otherwise lexical) check on its raw path while
+  // actually resolving outside the reference cache directory.
+  return AppFileSystem.containsReal(normalizedTarget(referencePath) ?? referencePath, target)
 }
 
 export function resolve(input: {
