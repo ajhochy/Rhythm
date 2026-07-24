@@ -1728,18 +1728,40 @@ export class OpencodeStreamBridge {
         // Consult the session's permission_mode to decide whether to
         // auto-respond or forward to the user.
         let permissionMode: PermissionMode = 'default';
+        let dbSession: ReturnType<AgentSessionsRepository['findById']> | undefined;
         try {
-          const dbSession = this.sessionsRepo.findById(localSessionId);
+          dbSession = this.sessionsRepo.findById(localSessionId);
           permissionMode = (dbSession?.permissionMode ?? 'default') as PermissionMode;
         } catch (err) {
           logger.error('[OpencodeStreamBridge] Failed to load session for permission mode:', err);
         }
 
+        // #1156 — Delegated subagent/child sessions (spawned via the engine's
+        // `task` tool) get a local row via upsertChildSession with
+        // permission_mode left NULL (-> 'default'), and there is no Flutter UI
+        // watching a headless child to answer a forwarded permission.asked —
+        // the write hung indefinitely. A row is "headless" when it has a
+        // non-null parentSessionId (delegated child — the sole writer of that
+        // column is upsertChildSession) or when no row resolves at all (the
+        // create-vs-permission race: the child row hasn't been upserted yet).
+        // An interactive/UI session ALWAYS resolves to a row with
+        // parentSessionId===NULL (POST /agent-sessions never sets it), so this
+        // never widens auto-accept for a real interactive prompt (c5 guard).
+        // ponytail: heuristic keyed on parent-id-presence, not a full
+        // isHeadless field — cheapest signal that already distinguishes every
+        // known case; revisit if a headless session type ever gets a null
+        // parent id.
+        // plan-mode auto-deny must stay authoritative over the new headless
+        // auto-accept — a child explicitly placed in plan mode must not run.
+        // Computed first so `isHeadless` below can defer to it.
+        const shouldAutoDeny = permissionMode === 'plan';
+        const isHeadless = !shouldAutoDeny && (!dbSession || dbSession.parentSessionId != null);
+
         const editTools = new Set(['write', 'edit', 'patch']);
         const shouldAutoAccept =
           permissionMode === 'bypassPermissions' ||
-          (permissionMode === 'acceptEdits' && editTools.has(toolName.toLowerCase()));
-        const shouldAutoDeny = permissionMode === 'plan';
+          (permissionMode === 'acceptEdits' && editTools.has(toolName.toLowerCase())) ||
+          isHeadless;
 
         if (shouldAutoAccept || shouldAutoDeny) {
           const decision = shouldAutoAccept ? 'accept' : 'deny';
