@@ -70,6 +70,7 @@ class _StubAgentsRepository implements AgentsRepository {
   final StreamController<bool> _connCtrl = StreamController<bool>.broadcast();
 
   String? lastMcpRole;
+  String? lastCwd;
 
   @override
   Stream<AgentWsMessage> get messages => _msgCtrl.stream;
@@ -97,12 +98,11 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async {
+  getSession(String id) async {
     final now = DateTime.now();
     return (
       session: AgentSession(
@@ -133,6 +133,7 @@ class _StubAgentsRepository implements AgentsRepository {
     String? worktreeName,
   }) async {
     lastMcpRole = mcpRole;
+    lastCwd = cwd;
     final now = DateTime.now();
     return AgentSession(
       id: 'test-session-id',
@@ -164,7 +165,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-      : super(NotificationsRepository(NotificationsDataSource()));
+    : super(NotificationsRepository(NotificationsDataSource()));
 }
 
 class _FakeGalleryDataSource extends AgentGalleryDataSource {
@@ -197,9 +198,7 @@ Future<Widget> _buildApp({
       ChangeNotifierProvider<AgentGalleryController>.value(
         value: galleryController,
       ),
-      ChangeNotifierProvider<AgentsController>.value(
-        value: agentsController,
-      ),
+      ChangeNotifierProvider<AgentsController>.value(value: agentsController),
     ],
     child: const MaterialApp(home: AgentGalleryView()),
   );
@@ -266,8 +265,9 @@ void main() {
       galleryController.dispose();
     });
 
-    testWidgets('renders empty state when designs list is empty',
-        (tester) async {
+    testWidgets('renders empty state when designs list is empty', (
+      tester,
+    ) async {
       final dataSource = _FakeGalleryDataSource([]);
       final galleryController = AgentGalleryController(
         AgentGalleryRepository(dataSource),
@@ -315,8 +315,9 @@ void main() {
       galleryController.dispose();
     });
 
-    testWidgets('"Open in Canva" link renders for design with canvaUrl',
-        (tester) async {
+    testWidgets('"Open in Canva" link renders for design with canvaUrl', (
+      tester,
+    ) async {
       await tester.binding.setSurfaceSize(const Size(1200, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -347,87 +348,97 @@ void main() {
     });
 
     testWidgets(
-        'tapping launch button calls createSession with mcpRole graphic-designer',
-        (tester) async {
-      final dataSource = _FakeGalleryDataSource([]);
-      final galleryController = AgentGalleryController(
-        AgentGalleryRepository(dataSource),
-      );
+      'tapping launch button calls createSession with mcpRole graphic-designer',
+      (tester) async {
+        final dataSource = _FakeGalleryDataSource([]);
+        final galleryController = AgentGalleryController(
+          AgentGalleryRepository(dataSource),
+        );
 
-      await tester.pumpWidget(
-        await _buildApp(
-          galleryController: galleryController,
-          agentsController: agentsController,
-        ),
-      );
-      await tester.pump();
+        await tester.pumpWidget(
+          await _buildApp(
+            galleryController: galleryController,
+            agentsController: agentsController,
+          ),
+        );
+        await tester.pump();
 
-      await tester.tap(find.byKey(const ValueKey('launch-designer-btn')));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('launch-designer-btn')));
+        await tester.pumpAndSettle();
 
-      expect(
-        stubRepo.lastMcpRole,
-        equals('graphic-designer'),
-        reason: 'createSession must be called with mcpRole graphic-designer',
-      );
+        expect(
+          stubRepo.lastMcpRole,
+          equals('graphic-designer'),
+          reason: 'createSession must be called with mcpRole graphic-designer',
+        );
+        expect(
+          stubRepo.lastCwd,
+          isNotEmpty,
+          reason:
+              'createSession must be called with a non-empty cwd (#1153: '
+              'empty cwd triggers the "cwd is required" 400 banner)',
+        );
 
-      galleryController.dispose();
-    });
-
-    testWidgets(
-        'tapping launch button selects the new session via selectSession',
-        (tester) async {
-      final dataSource = _FakeGalleryDataSource([]);
-      final galleryController = AgentGalleryController(
-        AgentGalleryRepository(dataSource),
-      );
-
-      await tester.pumpWidget(
-        await _buildApp(
-          galleryController: galleryController,
-          agentsController: agentsController,
-        ),
-      );
-      await tester.pump();
-
-      await tester.tap(find.byKey(const ValueKey('launch-designer-btn')));
-      await tester.pumpAndSettle();
-
-      expect(
-        agentsController.selectedSessionId,
-        equals('test-session-id'),
-        reason: 'selectSession must be called with the new session id',
-      );
-
-      galleryController.dispose();
-    });
+        galleryController.dispose();
+      },
+    );
 
     testWidgets(
-        'tapping launch button stages a composer draft for the new session',
-        (tester) async {
-      final dataSource = _FakeGalleryDataSource([]);
-      final galleryController = AgentGalleryController(
-        AgentGalleryRepository(dataSource),
-      );
+      'tapping launch button selects the new session via selectSession',
+      (tester) async {
+        final dataSource = _FakeGalleryDataSource([]);
+        final galleryController = AgentGalleryController(
+          AgentGalleryRepository(dataSource),
+        );
 
-      await tester.pumpWidget(
-        await _buildApp(
-          galleryController: galleryController,
-          agentsController: agentsController,
-        ),
-      );
-      await tester.pump();
+        await tester.pumpWidget(
+          await _buildApp(
+            galleryController: galleryController,
+            agentsController: agentsController,
+          ),
+        );
+        await tester.pump();
 
-      await tester.tap(find.byKey(const ValueKey('launch-designer-btn')));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('launch-designer-btn')));
+        await tester.pumpAndSettle();
 
-      expect(
-        agentsController.hasComposerDraft('test-session-id'),
-        isTrue,
-        reason: 'setComposerDraft must be called for the new session',
-      );
+        expect(
+          agentsController.selectedSessionId,
+          equals('test-session-id'),
+          reason: 'selectSession must be called with the new session id',
+        );
 
-      galleryController.dispose();
-    });
+        galleryController.dispose();
+      },
+    );
+
+    testWidgets(
+      'tapping launch button stages a composer draft for the new session',
+      (tester) async {
+        final dataSource = _FakeGalleryDataSource([]);
+        final galleryController = AgentGalleryController(
+          AgentGalleryRepository(dataSource),
+        );
+
+        await tester.pumpWidget(
+          await _buildApp(
+            galleryController: galleryController,
+            agentsController: agentsController,
+          ),
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const ValueKey('launch-designer-btn')));
+        await tester.pumpAndSettle();
+
+        expect(
+          agentsController.hasComposerDraft('test-session-id'),
+          isTrue,
+          reason: 'setComposerDraft must be called for the new session',
+        );
+
+        galleryController.dispose();
+      },
+    );
   });
 }
