@@ -29,8 +29,10 @@ import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { normalizeDerivedAllowedMcps } from './mcp_name_alignment';
 import {
+  deleteAgentProfileFile,
   isAgentProfileFileMissing,
   isProjectableAgentConfig,
+  isProjectableAgentConfigIgnoringEnabled,
   writeAgentProfileFile,
 } from './opencode_agent_writer';
 
@@ -801,6 +803,24 @@ export async function syncOpencodeAgentProfiles(
     }
   } catch (err) {
     logger.warn(`[AgentProfileSync] #900 orphaned-profile self-heal pass failed (non-fatal): ${String(err)}`);
+  }
+
+  // #1135 — belt-and-braces: delete a stale ~/.config/opencode/agents/<id>.md
+  // left over for a row that is now DISABLED. The PATCH path
+  // (syncAgentProfileFileForState) deletes on the enable→false transition
+  // going forward, but this reconcile pass catches rows already stale on disk
+  // (disabled before this fix shipped, or disabled by a path that bypassed the
+  // PATCH controller). deleteAgentProfileFile is idempotent and no-ops (its
+  // own postgres/test gate, plus a no-op when the file doesn't exist) so it's
+  // safe to call for every disabled row on every sync.
+  try {
+    for (const config of repo.list()) {
+      if (config.enabled) continue;
+      if (!isProjectableAgentConfigIgnoringEnabled(config)) continue;
+      deleteAgentProfileFile(config.id);
+    }
+  } catch (err) {
+    logger.warn(`[AgentProfileSync] #1135 stale-file reconcile pass failed (non-fatal): ${String(err)}`);
   }
 
   // #883 — reconcile the secretary row's is_manager / allowed_delegates_json

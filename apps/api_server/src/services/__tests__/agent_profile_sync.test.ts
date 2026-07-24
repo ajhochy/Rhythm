@@ -16,13 +16,28 @@
  * refresh on every sync.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { existsSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../database/migrations';
 import { setDb } from '../../database/db';
 import { AgentConfigsRepository } from '../../repositories/agent_configs_repository';
 import { syncOpencodeAgentProfiles } from '../agent_profile_sync';
 import type { SdkAgent } from '@opencode-ai/sdk';
+
+// #1135 — the delete-stale-on-disable reconcile pass (below) needs a real,
+// writable-but-throwaway HOME so it can observe an actual on-disk .md being
+// removed. Every other describe block in this file never touches the
+// filesystem (isTestEnv() keeps opencode_agent_writer's writes gated off by
+// default), so redirecting os.homedir() here is safe for the rest of the file.
+const homeState = vi.hoisted(() => ({ home: '' }));
+vi.mock('os', () => {
+  const homedir = () => homeState.home;
+  return { default: { homedir }, homedir };
+});
+import { writeAgentProfileFile } from '../opencode_agent_writer';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -383,5 +398,78 @@ describe('syncOpencodeAgentProfiles — permission block sync-back (#1073)', () 
     ]);
 
     expect(JSON.parse(repo.getById('user-owned-perm-agent')!.corePermissionsJson!)).toEqual({ bash: 'ask' });
+  });
+});
+
+// #1135 — belt-and-braces reconcile: a row that is now DISABLED must have its
+// stale ~/.config/opencode/agents/<id>.md deleted at every sync, catching rows
+// left stale on disk (disabled before this fix shipped, or by a path that
+// bypassed the PATCH controller's state-aware write). Needs the real
+// VITEST=false / mocked-homedir harness (see opencode_agent_writer_projection.test.ts)
+// since opencode_agent_writer's write/delete paths gate off under vitest by default.
+describe('syncOpencodeAgentProfiles — #1135 delete-stale-on-disable reconcile', () => {
+  let repo: AgentConfigsRepository;
+  const originalVitest = process.env.VITEST;
+  const originalNodeEnv = process.env.NODE_ENV;
+
+  beforeEach(() => {
+    setDb(makeDb());
+    repo = new AgentConfigsRepository();
+    homeState.home = join('/tmp', `rhythm-agent-sync-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+  });
+
+  afterEach(() => {
+    process.env.VITEST = originalVitest;
+    process.env.NODE_ENV = originalNodeEnv;
+    if (homeState.home) rmSync(homeState.home, { recursive: true, force: true });
+    homeState.home = '';
+  });
+
+  const projectedPath = (id: string) =>
+    join(homeState.home, '.config', 'opencode', 'agents', `${id}.md`);
+
+  it('deletes the on-disk .md of a disabled projectable row', async () => {
+    repo.insert({
+      id: 'stale-disabled-agent',
+      label: 'Stale Disabled Agent',
+      icon: '',
+      isAgent: true,
+      enabled: true,
+      ocAgent: 'stale-disabled-agent',
+      sessionSelectable: true,
+      sortOrder: 100,
+    });
+    writeAgentProfileFile(repo.getById('stale-disabled-agent')!);
+    expect(existsSync(projectedPath('stale-disabled-agent'))).toBe(true);
+
+    // Disabled directly at the DB layer (not via the PATCH state-aware call)
+    // — the exact "file left stale by a path other than the PATCH controller"
+    // scenario this reconcile pass exists to catch.
+    repo.update('stale-disabled-agent', { enabled: false });
+
+    await syncOpencodeAgentProfiles([]);
+
+    expect(existsSync(projectedPath('stale-disabled-agent'))).toBe(false);
+  });
+
+  it("leaves an enabled row's file intact", async () => {
+    repo.insert({
+      id: 'still-enabled-agent',
+      label: 'Still Enabled Agent',
+      icon: '',
+      isAgent: true,
+      enabled: true,
+      ocAgent: 'still-enabled-agent',
+      sessionSelectable: true,
+      sortOrder: 100,
+    });
+    writeAgentProfileFile(repo.getById('still-enabled-agent')!);
+    expect(existsSync(projectedPath('still-enabled-agent'))).toBe(true);
+
+    await syncOpencodeAgentProfiles([]);
+
+    expect(existsSync(projectedPath('still-enabled-agent'))).toBe(true);
   });
 });

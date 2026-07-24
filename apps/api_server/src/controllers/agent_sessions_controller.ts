@@ -13,6 +13,7 @@ import type { AgentKind, CreateAgentSessionDto, PermissionMode, SessionScope } f
 import { PERMISSION_MODES, SESSION_SCOPES } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
 import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
+import { isReservedAgentConfigId } from '../services/opencode_agent_writer';
 import { estimateToolSurface } from '../services/tool_surface_estimator';
 import { streamBridge } from '../services/opencode_stream_bridge';
 import { anthropicAccountsService } from '../services/anthropic_accounts_service';
@@ -211,11 +212,27 @@ export class AgentSessionsController {
         res.json({ agents: [] });
         return;
       }
-      const agents = await opencodeClient.listAgents(directory);
+      const rawAgents = await opencodeClient.listAgents(directory);
+      // #1135 — a disabled DB profile must not be listed (or invokable) even
+      // if the running engine still has its stale .md cached for the rest of
+      // this reload cycle. Fail-open: keep Rhythm's own built-ins
+      // (isReservedAgentConfigId) and any engine agent with no matching DB
+      // row at all (not Rhythm-managed) — reject only an agent whose id or
+      // ocAgent matches a DISABLED agent_configs row.
+      const disabledEngineNames = new Set<string>();
+      for (const c of new AgentConfigsRepository().list()) {
+        if (c.enabled) continue;
+        disabledEngineNames.add(c.id);
+        if (c.ocAgent) disabledEngineNames.add(c.ocAgent);
+      }
+      const agents = rawAgents.filter(
+        (a) => !a.name || isReservedAgentConfigId(a.name) || !disabledEngineNames.has(a.name),
+      );
       // Mirror the engine's agent registry into agent_configs so every opencode
-      // agent also exists as an Agent Profile. Reuse the list we just fetched
-      // (no second engine hit). Fire-and-forget: the picker response must not
-      // wait on the upsert. Idempotent + non-throwing.
+      // agent also exists as an Agent Profile. Reuse the filtered list so the
+      // mirror never re-touches a disabled row's projection. Fire-and-forget:
+      // the picker response must not wait on the upsert. Idempotent +
+      // non-throwing.
       void syncOpencodeAgentProfiles(agents).catch(() => {});
       res.json({ agents });
     } catch (err) {
