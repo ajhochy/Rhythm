@@ -266,6 +266,19 @@ export function isAgentProfileFileMissing(config: AgentConfig): boolean {
  */
 export function isProjectableAgentConfig(config: AgentConfig): boolean {
   if (!config.enabled) return false;
+  return isProjectableAgentConfigIgnoringEnabled(config);
+}
+
+/**
+ * Same eligibility check as `isProjectableAgentConfig`, minus the `enabled`
+ * gate — i.e. "would this row be a real opencode agent if it were enabled?"
+ * #1135: used to find a DISABLED row that should still have its stale
+ * `.md` deleted (both the state-aware PATCH writer and the sync's
+ * delete-stale-on-disable reconcile pass need this "disabled but otherwise
+ * projectable" question, as distinct from "should we write it" which is
+ * always false once disabled).
+ */
+export function isProjectableAgentConfigIgnoringEnabled(config: AgentConfig): boolean {
   if (!config.isAgent) return false;
   if (CLI_MODEL_PRESETS.has(config.id)) return false;
   if ((config.presetId ?? '') !== '' && CLI_MODEL_PRESETS.has(config.presetId!)) {
@@ -647,4 +660,22 @@ export function deleteAgentProfileFile(id: string): void {
   } catch (err) {
     logger.warn(`[OpencodeAgentWriter] delete failed for "${id}": ${String(err)}`);
   }
+}
+
+/**
+ * State-aware save for the PATCH path — #1135 (CWE-284/CWE-672): a profile
+ * flipped to `enabled: false` must have its projected `.md` DELETED, not left
+ * on disk. `writeAgentProfileFile` alone can't do this: it early-returns via
+ * `shouldWriteAgentFile` the moment `enabled` is false, so it never reaches
+ * the code that would remove the existing file — a disabled profile's old
+ * model/prompt/permissions stayed live and loadable by the engine
+ * indefinitely. Call this instead of `writeAgentProfileFile` anywhere a saved
+ * profile's `enabled` state may have just changed.
+ */
+export function syncAgentProfileFileForState(config: AgentConfig): void {
+  if (!config.enabled && isProjectableAgentConfigIgnoringEnabled(config)) {
+    deleteAgentProfileFile(config.id);
+    return;
+  }
+  writeAgentProfileFile(config);
 }

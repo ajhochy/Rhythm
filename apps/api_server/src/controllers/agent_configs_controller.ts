@@ -6,6 +6,7 @@ import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 import {
   writeAgentProfileFile,
   deleteAgentProfileFile,
+  syncAgentProfileFileForState,
   isReservedAgentConfigId,
 } from '../services/opencode_agent_writer';
 import {
@@ -348,8 +349,10 @@ export class AgentConfigsController {
 
       const updated = repo.update(req.params.id, patch);
       if (!updated) throw AppError.notFound('AgentConfig');
-      // Re-project the updated profile to its opencode agent file. Non-fatal.
-      writeAgentProfileFile(updated);
+      // Re-project the updated profile to its opencode agent file — or delete
+      // it when the profile just became disabled (#1135: a disabled profile's
+      // stale .md must not remain live/loadable by the engine). Non-fatal.
+      syncAgentProfileFileForState(updated);
       // The engine caches agent profiles (including task permission rules) for
       // its lifetime (#1015, #1014). Best-effort reload covers every edit —
       // system prompt, scope, model, AND the delegate roster — so the next

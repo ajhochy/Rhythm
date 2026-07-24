@@ -23,7 +23,7 @@ vi.mock('../opencode_engine', () => ({
   opencodeSessionMap: new Map<string, string>(),
 }));
 
-import { writeAgentProfileFile } from '../opencode_agent_writer';
+import { writeAgentProfileFile, syncAgentProfileFileForState } from '../opencode_agent_writer';
 
 const originalVitest = process.env.VITEST;
 const originalNodeEnv = process.env.NODE_ENV;
@@ -226,6 +226,37 @@ describe('workflow-orchestrator file projection', () => {
     expect(() =>
       readFileSync(join(agentsDir, 'disabled-researcher.md'), 'utf8'),
     ).toThrow();
+  });
+
+  // #1135 — PATCH must delete (not merely skip re-writing) a profile's
+  // projected .md when it is disabled, so a disabled profile's stale
+  // model/prompt/permissions can never be loaded by the running engine.
+  it('#1135: syncAgentProfileFileForState deletes an existing projection when the profile becomes disabled, and fires reloadConfig', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    const agentsDir = join(state.home, '.config', 'opencode', 'agents');
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    const enabled = agentConfig('togglable-researcher', 'Togglable Researcher');
+    syncAgentProfileFileForState(enabled);
+    expect(readFileSync(join(agentsDir, 'togglable-researcher.md'), 'utf8')).toBeTruthy();
+    mockReloadConfig.mockClear();
+
+    syncAgentProfileFileForState({ ...enabled, enabled: false });
+
+    expect(() => readFileSync(join(agentsDir, 'togglable-researcher.md'), 'utf8')).toThrow();
+    expect(mockReloadConfig).toHaveBeenCalledOnce();
+  });
+
+  it('#1135: syncAgentProfileFileForState still writes (unchanged behavior) for an enabled projectable profile', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    const agentsDir = join(state.home, '.config', 'opencode', 'agents');
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    syncAgentProfileFileForState(agentConfig('still-enabled', 'Still Enabled'));
+
+    expect(readFileSync(join(agentsDir, 'still-enabled.md'), 'utf8')).toBeTruthy();
   });
 
   it('projects core bash/read permissions for Theological-Researcher', () => {
