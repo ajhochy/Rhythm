@@ -194,40 +194,71 @@ describeLive('live E2E — #1156 delegated subagent permission gate', () => {
           'await manager turn idle',
         );
 
-        // Resolve the delegated child session id.
-        const children = await poll(
+        // Resolve the delegated child's LOCAL session id.
+        //
+        // NOTE (repair attempt 1 — see docs/ai/runs/2026-07-24-1156-*.md):
+        // GET /:id/children returns raw opencode SDK `Session[]` objects
+        // (opencode_client_service.listChildren → client.session.children) —
+        // their `.id` is the SDK session id, NOT a local `agent_sessions` row
+        // id. `GET /agent-sessions/:id` (getOne) looks a row up ONLY via
+        // `repo.findById`, which is keyed on the LOCAL id — passing the SDK id
+        // 404s (confirmed: agent_sessions_controller.ts getOne ~L371-374 vs
+        // getChildren ~L1442-1467). That was a TEST bug, not a product gap:
+        // the fix under test (`isHeadless`) operates on the LOCAL child row
+        // that `upsertChildSession` creates (opencode_stream_bridge.ts
+        // ~L1441-1461), which is exactly the row this discovery now finds.
+        //
+        // The child row IS a normal local `agent_sessions` row (category
+        // defaults to 'chat', is_system defaults to 0 — migrations.ts
+        // #747/#1028), so it shows up in the default GET /agent-sessions
+        // listing. Find it by `parentSessionId === session.id` — the same
+        // discriminator the gate fix itself keys on — which also gives an id
+        // addressable by every normal per-session route (getOne, messages)
+        // and matches the WS frame `sessionId` the bridge broadcasts for it.
+        const childSession = await poll(
           async () => {
-            const kids = await apiJson<Array<{ id: string }>>(
-              `/agent-sessions/${session.id}/children`,
-            );
-            if (kids.length === 0) throw new Error('no child session yet');
-            return kids;
+            const { sessions } = await apiJson<{
+              sessions: Array<{ id: string; parentSessionId: string | null; status: string }>;
+            }>('/agent-sessions?scope=chats');
+            const child = sessions.find((s) => s.parentSessionId === session.id);
+            if (!child) throw new Error('no local child row yet (upsertChildSession race)');
+            return child;
           },
           30_000,
           500,
-          'await delegated child session',
+          'await delegated child local row',
         );
-        const childSessionId = children[0].id;
 
         // PASS criterion 1: the child session did not end in 'error' (the
         // hang manifested as the child stalling / erroring on the first
         // non-allowlisted tool call).
         const childState = await apiJson<{ session: { status: string } }>(
-          `/agent-sessions/${childSessionId}`,
+          `/agent-sessions/${childSession.id}`,
         );
         expect(childState.session.status).not.toBe('error');
 
         // PASS criterion 2: the child's glob tool call reached 'completed' —
-        // proof the permission gate did not block it.
-        const { messages: childMessages } = await apiJson<{ messages: Array<Record<string, unknown>> }>(
-          `/agent-sessions/${childSessionId}/messages?limit=500`,
-        );
-        const globCalls = childMessages.flatMap((m) => {
-          const parts = (m.parts ?? []) as Array<Record<string, unknown>>;
-          return parts.filter((p) => p.type === 'tool' && String(p.tool ?? '') === 'glob');
-        });
-        const completedGlobCalls = globCalls.filter(
-          (p) => (p.state as Record<string, unknown> | undefined)?.status === 'completed',
+        // proof the permission gate did not block it. Poll (the child's own
+        // turn may still be wrapping up even after the manager's task-tool
+        // call returns).
+        const completedGlobCalls = await poll(
+          async () => {
+            const { messages: childMessages } = await apiJson<{
+              messages: Array<Record<string, unknown>>;
+            }>(`/agent-sessions/${childSession.id}/messages?limit=500`);
+            const globCalls = childMessages.flatMap((m) => {
+              const parts = (m.parts ?? []) as Array<Record<string, unknown>>;
+              return parts.filter((p) => p.type === 'tool' && String(p.tool ?? '') === 'glob');
+            });
+            const completed = globCalls.filter(
+              (p) => (p.state as Record<string, unknown> | undefined)?.status === 'completed',
+            );
+            if (completed.length === 0) throw new Error('no completed glob tool call yet');
+            return completed;
+          },
+          60_000,
+          1000,
+          'await child glob tool call completion',
         );
         expect(
           completedGlobCalls.length,
@@ -237,7 +268,7 @@ describeLive('live E2E — #1156 delegated subagent permission gate', () => {
         // PASS criterion 3 (the issue's stated gate): NO permission.asked
         // frame was ever broadcast for the child session — the headless
         // auto-accept must have resolved it without forwarding to a UI.
-        const childFrames = framesBySession.get(childSessionId) ?? [];
+        const childFrames = framesBySession.get(childSession.id) ?? [];
         const forwardedAsks = childFrames.filter((f) => f.type === 'permission.asked');
         expect(
           forwardedAsks.length,
