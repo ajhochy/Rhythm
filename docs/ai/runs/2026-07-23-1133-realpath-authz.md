@@ -4,8 +4,64 @@ repo: Rhythm
 branch: fix/1133-realpath-authz
 pr: (pending)
 issues: [1133]
-status: implemented-pending-live-run
+status: repaired-pending-live-rerun
 tags: [run, rhythm, security]
+---
+
+## Repair 1 (verification-gate failure on the integration branch)
+
+**Failure:** `live_e2e_1133_symlink_escape.test.ts` Test 2's CONTROL case failed
+— creating a legit worktree via `POST /opencode/worktrees` then deleting it via
+`DELETE {directory, worktreeDir: created.directory}` got a non-2xx. Escape
+rejections (symlink + garbage worktreeDir) still passed.
+
+**Root cause:** `requireContainedWorktreeDir` required `worktreeDir` to be
+realpath-contained inside `directory`. Traced the fork's actual worktree
+creation (`apps/opencode_fork/packages/opencode/src/worktree/index.ts`
+`makeWorktreeInfo`): `root = Global.Path.data/worktree/<projectId>`, a global
+app-data location, **never** nested under the project's `directory`. The
+containment predicate was categorically wrong — it would reject every real
+worktree the engine ever creates, not just malicious ones.
+
+**Fix:** Replaced the containment check with
+`requireRegisteredWorktreeDir(directory, worktreeDir)` in
+`opencode_worktrees_routes.ts` — validates `worktreeDir` (canonicalized with
+realpath) against `opencodeClient.listWorktrees(directory)` (the engine's own
+authoritative worktree list for that project), canonicalizing each returned
+entry the same way before comparing. A symlink escape or arbitrary path never
+appears in that list → still rejected (400). A genuine engine worktree always
+appears in it, regardless of where it physically lives → accepted. No
+weakening of the escape-rejection paths — same canonicalize/fail-closed
+primitive, applied to the correct predicate.
+
+**Files changed (this repair):**
+- `apps/api_server/src/routes/opencode_worktrees_routes.ts` — swapped
+  `requireContainedWorktreeDir` (`containsReal`) for
+  `requireRegisteredWorktreeDir` (`canonicalize` + `listWorktrees` lookup).
+- `apps/api_server/src/__tests__/opencode_worktrees_routes.test.ts` —
+  existing DELETE/reset happy-path tests now mock `listWorktrees` to return
+  the target entry (previously unmocked since the route never called it).
+  Containment describe block rewritten: escape/garbage-path rejection cases
+  kept (now asserting "not in the registered list" instead of "not
+  contained"), plus two NEW cases proving a worktree living **outside**
+  `directory` — mirroring the real `Global.Path.data/worktree/<projectId>`
+  shape — is accepted for both DELETE and POST /reset.
+
+**Unit results:**
+- `npm run build` (tsc): **clean**.
+- `npx vitest run src/__tests__/path_containment.test.ts src/__tests__/opencode_worktrees_routes.test.ts src/__tests__/issue_1060_file_find_proxy.test.ts src/__tests__/issue_1058_isolate_worktree.test.ts` — **37 pass, 0 fail** (was 35; +2 new tests, all others green).
+- `npx vitest run src/__tests__/agent_sessions*` — **56 pass, 0 fail** (unaffected, resolveSessionDir untouched by this repair).
+- Live test (`live_e2e_1133_symlink_escape.test.ts`) confirmed to still self-skip without `RHYTHM_LIVE_E2E=1` (2 skipped, 0 run) — **not run against the sandbox** per the gate's constraint (no sandbox runs this pass; the gate re-runs it after re-merge).
+- `detect_changes({scope:"all"})`: risk **LOW**, 3 changed symbols, 2 changed files (`opencode_worktrees_routes.ts` + its test), 0 affected processes — diff confined to the two files touched.
+
+**What the gate should expect on re-run:** Test 1 (file-proxy symlink escape)
+unaffected, still 400 with no canary bytes. Test 2: escape-rejection
+assertions still 400/no-mutation; the CONTROL case (`DELETE` of the
+just-created legit worktree) should now return `removeRes.ok === true`
+because the route validates against the real `listWorktrees(directory)`
+result instead of a containment check the real worktree path was never going
+to satisfy.
+
 ---
 
 # #1133 — canonicalize filesystem paths before containment authorization (CWE-59/CWE-22)

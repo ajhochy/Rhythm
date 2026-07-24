@@ -16,7 +16,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { AppError } from '../errors/app_error';
 import { opencodeClient } from '../services/opencode_engine';
-import { containsReal } from '../utils/path_containment';
+import { canonicalize } from '../utils/path_containment';
 
 export const opencodeWorktreesRouter = Router();
 
@@ -28,16 +28,42 @@ function requireDirectory(value: unknown): string {
 }
 
 /**
- * Validate that `worktreeDir` is actually inside `directory`'s worktree tree
- * before proxying to the engine's remove/reset endpoints (which perform
- * destructive filesystem operations). Canonicalizes both with realpath
- * (fail-closed) so a symlink can't be used to point the engine at a directory
- * outside the project — see #1133.
+ * Validate that `worktreeDir` is an ACTUAL worktree the engine created for
+ * `directory` before proxying to the engine's destructive remove/reset
+ * endpoints — see #1133.
+ *
+ * NOTE: engine-created worktrees do NOT live inside `directory` — the fork
+ * creates them under a global app-data root keyed by project id
+ * (`Global.Path.data/worktree/<projectId>/<name>`, see
+ * apps/opencode_fork/packages/opencode/src/worktree/index.ts
+ * `makeWorktreeInfo`). A "worktreeDir must be inside directory" containment
+ * check (the first attempt at this fix) is the WRONG predicate — it rejects
+ * every genuine worktree. Validate instead against the engine's own
+ * authoritative worktree list for `directory` (GET /experimental/worktree),
+ * which is exactly what the UI already fetches to populate `worktreeDir` in
+ * the first place. Canonicalizing (realpath, fail-closed) both sides before
+ * comparing still rejects a symlink/garbage path — it just won't match any
+ * registered entry.
  */
-function requireContainedWorktreeDir(directory: string, worktreeDir: unknown): string {
+async function requireRegisteredWorktreeDir(directory: string, worktreeDir: unknown): Promise<string> {
   const dir = requireDirectory(worktreeDir);
-  if (!containsReal(directory, dir)) {
-    throw new AppError(400, 'PATH_TRAVERSAL', `worktreeDir '${dir}' is not inside directory '${directory}'`);
+  let canonicalTarget: string;
+  try {
+    canonicalTarget = canonicalize(dir);
+  } catch {
+    throw new AppError(400, 'PATH_TRAVERSAL', `worktreeDir '${dir}' could not be resolved`);
+  }
+
+  const worktrees = await opencodeClient.listWorktrees(directory);
+  const registered = worktrees.some((wt) => {
+    try {
+      return canonicalize(wt.directory) === canonicalTarget;
+    } catch {
+      return false;
+    }
+  });
+  if (!registered) {
+    throw new AppError(400, 'PATH_TRAVERSAL', `worktreeDir '${dir}' is not a registered worktree of '${directory}'`);
   }
   return dir;
 }
@@ -69,7 +95,7 @@ opencodeWorktreesRouter.delete('/', async (req: Request, res: Response, next: Ne
   try {
     const body = req.body as { directory?: unknown; worktreeDir?: unknown };
     const directory = requireDirectory(body.directory);
-    const worktreeDir = requireContainedWorktreeDir(directory, body.worktreeDir);
+    const worktreeDir = await requireRegisteredWorktreeDir(directory, body.worktreeDir);
     const ok = await opencodeClient.removeWorktree(directory, worktreeDir);
     if (!ok) return next(new AppError(502, 'WORKTREE_REMOVE_FAILED', 'engine failed to remove worktree'));
     res.status(204).end();
@@ -82,7 +108,7 @@ opencodeWorktreesRouter.post('/reset', async (req: Request, res: Response, next:
   try {
     const body = req.body as { directory?: unknown; worktreeDir?: unknown };
     const directory = requireDirectory(body.directory);
-    const worktreeDir = requireContainedWorktreeDir(directory, body.worktreeDir);
+    const worktreeDir = await requireRegisteredWorktreeDir(directory, body.worktreeDir);
     const ok = await opencodeClient.resetWorktree(directory, worktreeDir);
     if (!ok) return next(new AppError(502, 'WORKTREE_RESET_FAILED', 'engine failed to reset worktree'));
     res.json({ ok: true });
