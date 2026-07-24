@@ -32,16 +32,29 @@ function requireDirectory(value: unknown): string {
  * `directory` before proxying to the engine's destructive remove/reset
  * endpoints — see #1133.
  *
- * NOTE: engine-created worktrees do NOT live inside `directory` — the fork
+ * NOTE 1: engine-created worktrees do NOT live inside `directory` — the fork
  * creates them under a global app-data root keyed by project id
  * (`Global.Path.data/worktree/<projectId>/<name>`, see
  * apps/opencode_fork/packages/opencode/src/worktree/index.ts
  * `makeWorktreeInfo`). A "worktreeDir must be inside directory" containment
  * check (the first attempt at this fix) is the WRONG predicate — it rejects
- * every genuine worktree. Validate instead against the engine's own
- * authoritative worktree list for `directory` (GET /experimental/worktree),
- * which is exactly what the UI already fetches to populate `worktreeDir` in
- * the first place. Canonicalizing (realpath, fail-closed) both sides before
+ * every genuine worktree.
+ *
+ * NOTE 2: `opencodeClient.listWorktrees(directory)` resolves to `string[]`
+ * (a list of directory paths) — NOT `{name,branch,directory}` objects (the
+ * second attempt at this fix compared against `.directory` on each entry,
+ * which is `undefined` on a plain string, so EVERY worktreeDir — legit or
+ * not — failed to match. Verified against the real engine via curl: `GET
+ * /experimental/worktree` returns `project.sandboxes(projectId)`, a plain
+ * string array; see the `opencodeClient.listWorktrees` doc comment).
+ *
+ * Validate against this list (the engine's own authoritative source of
+ * truth for `directory`, already populated synchronously by the time
+ * `POST /opencode/worktrees` returns — see `Worktree.Service.create` →
+ * `setup()` → `addSandbox`, awaited before the response is sent; only the
+ * *canonical* duplicate entry is added later via the forked `boot()`, so no
+ * registration-lag window exists for the raw form `create()` just
+ * returned). Canonicalizing (realpath, fail-closed) both sides before
  * comparing still rejects a symlink/garbage path — it just won't match any
  * registered entry.
  */
@@ -55,9 +68,9 @@ async function requireRegisteredWorktreeDir(directory: string, worktreeDir: unkn
   }
 
   const worktrees = await opencodeClient.listWorktrees(directory);
-  const registered = worktrees.some((wt) => {
+  const registered = worktrees.some((entry) => {
     try {
-      return canonicalize(wt.directory) === canonicalTarget;
+      return canonicalize(entry) === canonicalTarget;
     } catch {
       return false;
     }

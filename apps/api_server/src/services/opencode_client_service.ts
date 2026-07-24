@@ -2062,10 +2062,19 @@ export class OpencodeClientService {
   // list returns [] and the mutators return null/false on any failure so a
   // route can surface a clean error without crashing the process.
 
-  /** GET /experimental/worktree — list worktrees for a project directory. */
-  async listWorktrees(
-    directory: string,
-  ): Promise<Array<{ name: string; branch?: string; directory: string }>> {
+  /**
+   * GET /experimental/worktree — list worktrees for a project directory.
+   *
+   * #1133 correction: this endpoint returns `project.sandboxes(projectId)` on
+   * the engine (apps/opencode_fork/.../handlers/experimental.ts `worktree`
+   * handler) — a plain array of directory-path STRINGS, not
+   * `{name,branch,directory}` objects (verified against the real running
+   * engine; the previous `{name,branch,directory}` type annotation here was
+   * an unchecked cast that never matched the actual JSON — the OCU-16 live
+   * test (`live_e2e_1057_worktree.test.ts`) already correctly treats the
+   * response as `string[]`).
+   */
+  async listWorktrees(directory: string): Promise<string[]> {
     const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
     try {
       const res = await fetch(`${this.serverUrl}/experimental/worktree${qs}`);
@@ -2073,8 +2082,8 @@ export class OpencodeClientService {
         logger.warn('[OpencodeClientService] listWorktrees HTTP %s', res.status);
         return [];
       }
-      const data = (await res.json()) as Array<{ name: string; branch?: string; directory: string }>;
-      return Array.isArray(data) ? data : [];
+      const data = (await res.json()) as unknown[];
+      return Array.isArray(data) ? data.filter((item): item is string => typeof item === 'string') : [];
     } catch (err) {
       logger.error('[OpencodeClientService] listWorktrees failed:', err);
       return [];

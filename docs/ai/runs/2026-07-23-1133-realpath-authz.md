@@ -4,8 +4,87 @@ repo: Rhythm
 branch: fix/1133-realpath-authz
 pr: (pending)
 issues: [1133]
-status: repaired-pending-live-rerun
+status: verified-live-2of2
 tags: [run, rhythm, security]
+---
+
+## Repair 2 (final — live-verified against the real sandbox)
+
+**Failure (unchanged after Repair 1):** gate re-ran the live test against the
+integration branch — escape rejections still passed, but the CONTROL case
+(create a worktree → immediately delete it) still failed deterministically,
+2/2 runs.
+
+**Debugging (sandbox brought up in this worktree, per instructions):**
+`tools/dev/sandbox.sh up`, then reproduced by hand with curl — created a real
+git repo, `POST /opencode/worktrees {directory, name}`, captured the create
+response, then hit both `GET /opencode/worktrees?directory=...` (api_server)
+and `GET http://127.0.0.1:4097/experimental/worktree?directory=...` (raw
+engine) directly:
+
+```
+CREATE → directory: "/var/folders/.../rhythm-dev-sandbox/home/.local/share/opencode/worktree/<projectId>/e2e-1133-legit"
+
+GET (both api_server and raw engine) →
+[
+  "/var/folders/.../worktree/<projectId>/e2e-1133-legit",
+  "/private/var/folders/.../worktree/<projectId>/e2e-1133-legit"
+]
+```
+
+**Root cause (exact):** `GET /experimental/worktree` on the fork does **not**
+call `Worktree.Service.list()` (git-worktree-based) — it returns
+`project.sandboxes(ctx.project.id)`
+(`apps/opencode_fork/.../handlers/experimental.ts:101-104`), a **plain array
+of directory-path strings**. `opencodeClient.listWorktrees()`
+(`opencode_client_service.ts`) had an unchecked type cast claiming
+`Array<{name,branch,directory}>` — never true. Repair 1's
+`requireRegisteredWorktreeDir` did `canonicalize(entry.directory)`; on a
+plain string `.directory` is `undefined`, `canonicalize(undefined)` throws,
+every entry silently failed to match → every worktreeDir, including the one
+that was just created, was rejected. Confirmed this is a shape bug, **not**
+registration lag: `Worktree.Service.create()`'s `setup()` awaits
+`project.addSandbox()` synchronously before `create()` returns (before
+`boot()` is forked), so the raw form is already present the instant the HTTP
+response comes back — both the raw and canonical (`/private/var`) duplicate
+were already present in my manual repro with no artificial delay.
+
+**Fix:**
+- `opencode_client_service.ts` — corrected `listWorktrees`'s return type to
+  `string[]`, matching the real engine response (verified: the pre-existing
+  `live_e2e_1057_worktree.test.ts` already treated it this way — the wrong
+  type in the wrapper was pre-existing, unrelated to #1133, just never
+  surfaced until this guard tried to read `.directory` off it).
+- `opencode_worktrees_routes.ts` — `requireRegisteredWorktreeDir` now
+  canonicalizes each list *entry* directly (a string) instead of
+  `entry.directory`.
+- `opencode_worktrees_routes.test.ts` — all `listWorktrees.mockResolvedValue`
+  calls updated to plain string arrays; added a regression case for a raw
+  (symlinked) worktreeDir matching a differently-spelled but equally-real
+  canonical list entry.
+
+**Live verification (sandbox rebuilt from this branch, `RHYTHM_LIVE_E2E=1
+RHYTHM_LIVE_URL=http://127.0.0.1:4098`), run twice for determinism:**
+
+```
+Test Files  1 passed (1)
+     Tests  2 passed (2)
+```
+(both runs identical — escape-rejection assertions unaffected, CONTROL case now passes)
+
+**Unit results:** `npm run build` (tsc) clean; targeted vitest (path_containment,
+opencode_worktrees_routes, issue_1060_file_find_proxy, issue_1058_isolate_worktree)
+**38 pass, 0 fail** (+1 net new regression test); `agent_sessions*` **56 pass,
+0 fail** (unaffected). `detect_changes({scope:"all"})`: risk **LOW**, 3 files
+touched, 0 affected processes — `listWorktrees` has no other consumers
+(Flutter/other server code) confirmed via grep, so the type correction has no
+wider blast radius.
+
+**Sandbox:** brought up, curl-debugged, rebuilt + live-tested, then
+`tools/dev/sandbox.sh down` — confirmed both :4098 and :4097 listeners empty
+via `tools/dev/sandbox.sh status` after teardown. Manual curl repro repo
+(`/tmp/e2e-1133-repo-*`) cleaned up.
+
 ---
 
 ## Repair 1 (verification-gate failure on the integration branch)
