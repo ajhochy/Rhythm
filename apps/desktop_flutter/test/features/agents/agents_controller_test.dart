@@ -35,9 +35,9 @@ class _FakeApiServerService extends ApiServerService {
 /// spinning up a real server process.
 class _FakeAgentServerController extends AgentServerController {
   _FakeAgentServerController({required bool ready, required bool anyAgent})
-    : _ready = ready,
-      _anyAgent = anyAgent,
-      super(_FakeApiServerService());
+      : _ready = ready,
+        _anyAgent = anyAgent,
+        super(_FakeApiServerService());
 
   final bool _ready;
   final bool _anyAgent;
@@ -66,8 +66,8 @@ class _FakeAgentServerController extends AgentServerController {
 
 class _FakeAgentsRepository implements AgentsRepository {
   _FakeAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -115,11 +115,12 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => sessionsToReturn;
+  }) async =>
+      sessionsToReturn;
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async {
+      getSession(String id) async {
     final session = _makeSession(id, AgentSessionStatus.idle);
     return (session: session, messages: <AgentSessionMessage>[]);
   }
@@ -249,17 +250,18 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async => {
-    'recorded': false,
-    'memoryIds': [],
-    'notePaths': [],
-  };
+        'recorded': false,
+        'memoryIds': [],
+        'notePaths': [],
+      };
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
     String parentSessionId,
     String childSdkId, {
     String? cwd,
-  }) async => [];
+  }) async =>
+      [];
 
   @override
   Future<AgentSession> forkSession(String sessionId, String messageId) async {
@@ -310,7 +312,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 
   final List<({String title, String body})> pushed = [];
 
@@ -443,7 +445,8 @@ void main() {
   // --------------------------------------------------------------------------
 
   group('createSession error sanitization (#1154)', () {
-    test('a raw "Unknown mcpRole" 400 from the server never reaches '
+    test(
+        'a raw "Unknown mcpRole" 400 from the server never reaches '
         'controller.error verbatim', () async {
       fakeRepo.createSessionError = AppError.badRequest(
         'Unknown mcpRole: "secretary"',
@@ -459,7 +462,8 @@ void main() {
       expect(controller.error, isNot(contains('Unknown mcpRole')));
     });
 
-    test('other AppError session-create failures are shown verbatim '
+    test(
+        'other AppError session-create failures are shown verbatim '
         '(no regression for existing 4xx UX)', () async {
       fakeRepo.createSessionError = AppError.badRequest('agent not configured');
 
@@ -571,7 +575,8 @@ void main() {
     // into the chats scope on a live WS insert (create or update).
     // ------------------------------------------------------------------------
 
-    test('#1090 SessionCreatedMessage excludes a self_improvement background '
+    test(
+        '#1090 SessionCreatedMessage excludes a self_improvement background '
         'session from the chats scope', () async {
       expect(controller.scope, AgentSessionScope.chats);
 
@@ -590,7 +595,8 @@ void main() {
       expect(controller.sessions, isEmpty);
     });
 
-    test('#1090 SessionUpdatedMessage excludes a self_improvement background '
+    test(
+        '#1090 SessionUpdatedMessage excludes a self_improvement background '
         'session from the chats scope', () async {
       expect(controller.scope, AgentSessionScope.chats);
 
@@ -611,7 +617,8 @@ void main() {
       expect(controller.archived, isEmpty);
     });
 
-    test('#1090 an interactive chat session still appears immediately via '
+    test(
+        '#1090 an interactive chat session still appears immediately via '
         'SessionCreatedMessage and SessionUpdatedMessage', () async {
       fakeRepo.emit(
         SessionCreatedMessage(
@@ -652,7 +659,8 @@ void main() {
       },
     );
 
-    test('#1090 a refresh does not change which sessions belong to chats '
+    test(
+        '#1090 a refresh does not change which sessions belong to chats '
         '(no refresh-only divergence)', () async {
       // Live WS insert: an interactive chat session and a background session
       // arrive over the same shared channel. The background session must be
@@ -910,7 +918,8 @@ void main() {
       expect(spill.toAccountId, 'personal');
     });
 
-    test('SessionSpilloverMessage updates the session account and pushes a '
+    test(
+        'SessionSpilloverMessage updates the session account and pushes a '
         'notification', () async {
       final notifications = _FakeNotificationsController();
       final localController = AgentsController(

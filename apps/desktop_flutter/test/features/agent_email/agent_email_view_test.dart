@@ -98,11 +98,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async {
+      getSession(String id) async {
     final now = DateTime.now();
     return (
       session: AgentSession(
@@ -165,7 +166,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 }
 
 class _FakeEmailDataSource extends AgentEmailDataSource {
@@ -342,8 +343,7 @@ void main() {
         expect(
           stubRepo.lastCwd,
           isNotEmpty,
-          reason:
-              'createSession must be called with a non-empty cwd (#1153: '
+          reason: 'createSession must be called with a non-empty cwd (#1153: '
               'empty cwd triggers the "cwd is required" 400 banner)',
         );
 

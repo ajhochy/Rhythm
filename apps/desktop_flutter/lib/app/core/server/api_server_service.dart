@@ -72,8 +72,8 @@ Map<String, String> buildApiServerEnvironment({
 /// Manages the lifecycle of the local Node.js API server process.
 class ApiServerService {
   ApiServerService({String? memoryVaultPath, String? memoryVaultSubdir})
-    : _memoryVaultPath = memoryVaultPath,
-      _memoryVaultSubdir = memoryVaultSubdir;
+      : _memoryVaultPath = memoryVaultPath,
+        _memoryVaultSubdir = memoryVaultSubdir;
 
   Process? _process;
 
@@ -117,9 +117,8 @@ class ApiServerService {
   }
 
   void _appendStderr(String line) {
-    final trimmed = line.endsWith('\n')
-        ? line.substring(0, line.length - 1)
-        : line;
+    final trimmed =
+        line.endsWith('\n') ? line.substring(0, line.length - 1) : line;
     final capped = trimmed.length > _stderrBufferMaxLineChars
         ? trimmed.substring(0, _stderrBufferMaxLineChars)
         : trimmed;
@@ -360,7 +359,7 @@ class ApiServerService {
   /// Result of [_findNodeWithAbi]: the resolved node path and an optional
   /// rich failure message (e.g. a copy-paste rebuild command).
   Future<({String? nodePath, String? failureMessage})>
-  _findNodeWithAbi() async {
+      _findNodeWithAbi() async {
     // #1023: Prefer the Node runtime bundled inside the app. When present, its
     // ABI matches the bundled better_sqlite3.node by construction — both are
     // built from the SAME pinned Node in the release workflow — so no ABI
