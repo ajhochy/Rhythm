@@ -34,7 +34,7 @@ describe('discoverEngraphCandidates', () => {
     const binDir = join(dir, 'bin');
     mkdirSync(binDir);
     writeExecutable(join(binDir, 'engraph'));
-    const found = discoverEngraphCandidates(binDir);
+    const found = discoverEngraphCandidates(binDir, []);
     expect(found).toEqual([{ path: join(binDir, 'engraph'), source: 'path' }]);
   });
 
@@ -42,11 +42,11 @@ describe('discoverEngraphCandidates', () => {
     const binDir = join(dir, 'bin');
     mkdirSync(binDir);
     writeFileSync(join(binDir, 'engraph'), 'not executable');
-    expect(discoverEngraphCandidates(binDir)).toEqual([]);
+    expect(discoverEngraphCandidates(binDir, [])).toEqual([]);
   });
 
   it('returns no candidates when PATH is empty and Homebrew locations are absent', () => {
-    expect(discoverEngraphCandidates('')).toEqual([]);
+    expect(discoverEngraphCandidates('', [])).toEqual([]);
   });
 });
 
