@@ -133,6 +133,14 @@ describe('#792 agent_skills dual-DB schema parity', () => {
     expect(workflow).toContain('skill_schema_parity.test.ts');
   });
 
+  it('resolves the bundled SQLite module path in the fresh-package DB probe', () => {
+    const workflow = readFileSync(
+      join(__dirname, '..', '..', '..', '..', '.github', 'workflows', 'desktop_release.yml'),
+      'utf8',
+    );
+    expect(workflow).toContain('require("path").resolve(process.env.BUNDLED_API_SERVER');
+  });
+
   it('guards every creative-platform MCP tool in the bundled release', () => {
     const workflow = readFileSync(
       join(__dirname, '..', '..', '..', '..', '.github', 'workflows', 'desktop_release.yml'),

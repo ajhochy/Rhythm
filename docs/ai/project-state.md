@@ -40,3 +40,12 @@ HEAD `6a24e56aa`; manual visual smoke testing remains before merge.
 ## Next step
 
 Run the manual visual smoke. Do not merge without human review.
+
+## Recent coding-agent runs
+
+### 2026-07-25 — desktop-release-bundled-sqlite-probe
+- Files modified: `.github/workflows/desktop_release.yml` resolves the fresh-package better-sqlite3 module path; `apps/api_server/src/__tests__/skill_schema_parity.test.ts` guards that resolution.
+- Checks run: targeted Vitest failed first on the missing resolution guard, then passed (9/9); `ai-workflow checks --level issue` passed (Flutter analyze/format, api_server TypeScript).
+- Decisions made: use `path.resolve` immediately before Node `require()` so the workflow probe receives an absolute filesystem module path.
+- Deviations from spec: none.
+- Concerns: the macOS packaged smoke runs only in GitHub Actions; its next Desktop Release run is the authoritative behavioral verification.
