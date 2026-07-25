@@ -67,18 +67,23 @@ with exact live evidence and production review notes.
 - 2026-07-25 — #1175 approval/taint/listener hardening
   (`codex/1175-approval-taint-listener`): IPv4-loopback-only `AGENT_LOCAL`,
   non-exportable signed human approvals, exhaustive scan→taint→fence ingress,
-  and exact payload-bound authorization for all 23 consequential mixed-role
-  mutations. Relevant API/MCP/Flutter/build/live gates pass; slice GitNexus is
-  LOW with zero affected flows. See
-  `docs/ai/runs/2026-07-25-1175-approval-taint-listener.md`.
+  and exact payload-bound authorization for all 41 consequential mutations.
+  The corrective registry audit now classifies all 75 registered Rhythm tools,
+  expands wildcard grants, and enforces MCP/API source parity. Relevant
+  API/MCP/Flutter/build/live gates pass; slice GitNexus is LOW with zero
+  affected flows. See
+  `docs/ai/runs/2026-07-25-1175-approval-taint-listener.md` and
+  `docs/ai/runs/2026-07-25-1175-wildcard-security-correction.md`.
 - 2026-07-25 — #1175 pairing/tool authorization c18/c19
   (`codex/1175-pairing-tool-auth`): public host-bound one-time-code pairing,
   Device-only replacement/revocation, explicit policy for all ten mobile tool
   mounts, personal owner isolation, verified workspace-admin global mutations,
   and server-derived proposal actors implemented. Focused static/behavioral
-  checks and rebuilt-fork isolated live HTTP smoke pass; aggregate-only
-  c11/c15/c17/c20/c21/c23 contracts remain with their parallel workstreams.
-  See `docs/ai/runs/2026-07-25-1175-pairing-tool-authorization.md`.
+  checks and rebuilt-fork isolated live HTTP smoke pass; independent review
+  rejected the aggregate head pending cross-user ownership, desktop-human
+  administration, OAuth account admission, and same-endpoint replacement
+  corrections. See
+  `docs/ai/runs/2026-07-25-1175-pairing-tool-authorization.md`.
 - 2026-07-25 — #1175 delegation/Activity hardening
   (`codex/delegation-activity-1175`): locked execution gates, durable
   exactly-once wake reconciliation/restart pagination, per-user Activity

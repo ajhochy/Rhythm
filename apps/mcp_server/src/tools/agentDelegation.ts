@@ -149,18 +149,49 @@ export function registerAgentDelegationTools(
         .describe(
           "Optional manager context to prepend to the delegated prompt.",
         ),
+      approval_id: z
+        .string()
+        .optional()
+        .describe(
+          "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+        ),
     },
-    async ({ targetAgentConfigId, prompt, callerSessionId, context }) => {
+    async (
+      {
+        targetAgentConfigId,
+        prompt,
+        callerSessionId,
+        context,
+        approval_id,
+      },
+      extra,
+    ) => {
+      const payload = {
+        targetAgentConfigId,
+        prompt,
+        callerSessionId,
+        ...(context !== undefined && { context }),
+      };
+      const gate = await authorizeOutboundAction({
+        agentUrl: apiUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: typeof approval_id === "string" ? approval_id : undefined,
+        action: "delegation.start-async",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: "text" as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
       try {
         const result = await postAsyncDelegation(
           apiUrl,
           apiToken,
-          {
-            targetAgentConfigId,
-            prompt,
-            callerSessionId,
-            context,
-          },
+          payload,
           fetchImpl,
         );
         return toolResult(JSON.stringify(result, null, 2));

@@ -234,16 +234,43 @@ At least one of content/kind/tags must be provided; omitted fields are left unch
         .array(z.string())
         .optional()
         .describe("New tags (replaces the existing tag list)."),
+      approval_id: z
+        .string()
+        .optional()
+        .describe(
+          "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+        ),
     },
-    async ({
-      id,
-      ...patch
-    }: {
-      id: string;
-      content?: string;
-      kind?: string;
-      tags?: string[];
-    }) => {
+    async (
+      {
+        id,
+        approval_id,
+        ...patch
+      }: {
+        id: string;
+        content?: string;
+        kind?: string;
+        tags?: string[];
+        approval_id?: string;
+      },
+      extra,
+    ) => {
+      const payload = { id, ...patch };
+      const gate = await authorizeOutboundAction({
+        agentUrl: apiUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: "memory.update",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: "text" as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
       try {
         const result = await apiPatch(
           apiUrl,

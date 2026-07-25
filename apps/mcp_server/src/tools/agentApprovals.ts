@@ -15,7 +15,7 @@ export function registerAgentApprovalTools(
   registerTool(
     server,
     "rhythm_request_approval",
-    "Request human approval before taking an irreversible, high-stakes action. After external content was read, security_action and security_payload are REQUIRED and must exactly match the eventual email, message, calendar, or Planning Center write. Security-bound requests never auto-approve. If status is pending, stop until a human approves it.",
+    "Request human approval before taking an irreversible or consequential action. After external content was read, security_action and security_payload are REQUIRED and must exactly match the eventual protected mutation. Security-bound requests never auto-approve. If status is pending, stop until a human approves it.",
     {
       action: z
         .string()

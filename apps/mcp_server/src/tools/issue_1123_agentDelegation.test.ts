@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { registerAgentDelegationTools } from './agentDelegation';
+import { RHYTHM_SECURITY_CONTEXT_META_KEY } from '../security/security_context.js';
 
-type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
+type ToolHandler = (args: Record<string, unknown>, extra?: unknown) => Promise<unknown>;
 
 class FakeServer {
   registered = new Map<string, ToolHandler>();
@@ -33,11 +34,31 @@ describe('issue #1123 — rhythm_delegate_async MCP tool', () => {
     expect(server.registered.get('rhythm_delegate')).toBeDefined();
     const handler = server.registered.get('rhythm_delegate_async');
     expect(handler).toBeDefined();
-    const result = await handler!({
-      targetAgentConfigId: 'specialist',
-      prompt: 'Work in the background.',
-      callerSessionId: 'parent',
-    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ allowed: true, consumed: false }),
+      })),
+    );
+    const result = await handler!(
+      {
+        targetAgentConfigId: 'specialist',
+        prompt: 'Work in the background.',
+        callerSessionId: 'parent',
+      },
+      {
+        _meta: {
+          [RHYTHM_SECURITY_CONTEXT_META_KEY]: {
+            sdkSessionId: 'sdk-delegation-test',
+            turnId: 'turn-delegation-test',
+            agentName: 'manager',
+            toolCallId: 'call-delegation-test',
+          },
+        },
+      },
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:4198/agent-delegation/delegate-async',

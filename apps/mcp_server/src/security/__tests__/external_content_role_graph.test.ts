@@ -45,7 +45,20 @@ const externalReads = new Map<string, string>([
   ["rhythm_list_memories", "memory.list"],
   ["rhythm_get_research_job", "research.job"],
   ["rhythm_list_automations", "automation.list"],
+  ["rhythm_get_automation", "automation.get"],
+  ["rhythm_preview_automation", "automation.preview"],
+  ["rhythm_list_automation_triggers", "automation-catalog.triggers"],
+  ["rhythm_list_automation_actions", "automation-catalog.actions"],
+  ["rhythm_list_automation_providers", "automation-catalog.providers"],
   ["rhythm_list_sessions", "agent-session.list"],
+  [
+    "rhythm_list_agent_profile_permissions",
+    "agent-profile.permissions.list",
+  ],
+  ["rhythm_get_agent_profile_permissions", "agent-profile.permissions.get"],
+  ["rhythm_verify_pco_staffing", "feedback.pco-staffing"],
+  ["rhythm_verify_email_sent", "feedback.email-sent"],
+  ["rhythm_verify_task_complete", "feedback.task-complete"],
   ["rhythm_pco_list_service_types", "pco.service-types"],
   ["rhythm_pco_list_plans", "pco.plans"],
   ["rhythm_pco_get_plan_items", "pco.plan-items"],
@@ -142,21 +155,102 @@ const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
       "rhythm_delegate",
       { action: "delegation.start", sourceFile: "agentDelegation.ts" },
     ],
+    [
+      "rhythm_delegate_async",
+      { action: "delegation.start-async", sourceFile: "agentDelegation.ts" },
+    ],
+    [
+      "rhythm_notify",
+      { action: "notification.send", sourceFile: "notifications.ts" },
+    ],
+    [
+      "rhythm_create_scheduled_task",
+      { action: "scheduled-task.create", sourceFile: "agentSchedule.ts" },
+    ],
+    [
+      "rhythm_cancel_scheduled_task",
+      { action: "scheduled-task.cancel", sourceFile: "agentSchedule.ts" },
+    ],
+    [
+      "rhythm_trigger_now",
+      { action: "scheduled-task.trigger", sourceFile: "agentSchedule.ts" },
+    ],
+    [
+      "rhythm_update_memory",
+      { action: "memory.update", sourceFile: "agentMemory.ts" },
+    ],
+    [
+      "rhythm_delete_rhythm",
+      { action: "rhythm.delete", sourceFile: "rhythms.ts" },
+    ],
+    [
+      "rhythm_add_rhythm_step",
+      { action: "rhythm-step.create", sourceFile: "rhythms.ts" },
+    ],
+    [
+      "rhythm_delete_rhythm_step",
+      { action: "rhythm-step.delete", sourceFile: "rhythms.ts" },
+    ],
+    [
+      "rhythm_create_project_template",
+      { action: "project-template.create", sourceFile: "projects.ts" },
+    ],
+    [
+      "rhythm_add_project_step",
+      { action: "project-template-step.create", sourceFile: "projects.ts" },
+    ],
+    [
+      "rhythm_update_project_step",
+      { action: "project-step.update", sourceFile: "projects.ts" },
+    ],
+    [
+      "rhythm_create_automation",
+      { action: "automation.create", sourceFile: "automations.ts" },
+    ],
+    [
+      "rhythm_update_automation",
+      { action: "automation.update", sourceFile: "automations.ts" },
+    ],
+    [
+      "rhythm_delete_automation",
+      { action: "automation.delete", sourceFile: "automations.ts" },
+    ],
+    [
+      "rhythm_resync_automation",
+      { action: "automation.resync", sourceFile: "automations.ts" },
+    ],
+    [
+      "rhythm_create_agent_profile",
+      { action: "agent-profile.create", sourceFile: "agentProfiles.ts" },
+    ],
+    [
+      "rhythm_update_agent_profile_permissions",
+      {
+        action: "agent-profile.permissions.update",
+        sourceFile: "agentProfiles.ts",
+      },
+    ],
   ],
 );
 
 const approvalRequestTool = "rhythm_request_approval";
 
 function toolBlock(source: string, tool: string): string {
-  const toolIndex = source.search(
-    new RegExp(`registerTool\\([\\s\\S]{0,120}['"]${tool}['"]`),
-  );
+  const match = new RegExp(
+    `(?:registerTool\\(\\s*server\\s*,|server\\.tool\\()\\s*['"]${tool}['"]`,
+  ).exec(source);
+  const toolIndex = match?.index ?? -1;
   expect(
     toolIndex,
-    `${tool} must have a static registerTool block`,
+    `${tool} must have a static tool registration block`,
   ).toBeGreaterThanOrEqual(0);
-  const next = source.indexOf("registerTool(", toolIndex + 20);
-  return source.slice(toolIndex, next < 0 ? undefined : next);
+  const remainder = source.slice(toolIndex + (match?.[0].length ?? 1));
+  const nextRelative = remainder.search(/(?:registerTool\(|server\.tool\()/);
+  const next =
+    nextRelative < 0
+      ? undefined
+      : toolIndex + (match?.[0].length ?? 1) + nextRelative;
+  return source.slice(toolIndex, next);
 }
 
 function loadRoles(): RoleFile[] {
@@ -170,6 +264,30 @@ function loadRoles(): RoleFile[] {
 
 function rhythmTools(role: RoleFile): string[] {
   return role.mcpServers?.rhythm?.allowedTools ?? [];
+}
+
+function registeredRhythmTools(): Map<string, string> {
+  const registered = new Map<string, string>();
+  const registration =
+    /(?:registerTool\(\s*server\s*,|server\.tool\()\s*["'](rhythm_[a-z0-9_]+)["']/g;
+  for (const name of readdirSync(toolsDir)) {
+    if (
+      !name.endsWith(".ts") ||
+      name.endsWith(".test.ts") ||
+      name.startsWith("_")
+    ) {
+      continue;
+    }
+    const source = readFileSync(join(toolsDir, name), "utf8");
+    for (const match of source.matchAll(registration)) {
+      expect(
+        registered.has(match[1]),
+        `${match[1]} must be registered exactly once`,
+      ).toBe(false);
+      registered.set(match[1], name);
+    }
+  }
+  return registered;
 }
 
 function makeStubServer(): {
@@ -210,6 +328,7 @@ describe("#1175 external-content role graph", () => {
 
   it("enumerates every external-read/consequential-write intersection", () => {
     const roles = loadRoles();
+    const registered = registeredRhythmTools();
     const securityActions = new Set<string>(SECURITY_ACTIONS);
     const apiSecuritySource = readFileSync(
       join(
@@ -234,23 +353,42 @@ describe("#1175 external-content role graph", () => {
       ]),
     );
 
-    for (const legacyTool of unavailableLegacyTools) {
-      const registered = readdirSync(toolsDir)
-        .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
-        .some((name) =>
-          new RegExp(
-            `registerTool\\([\\s\\S]{0,120}['"]${legacyTool}['"]`,
-          ).test(readFileSync(join(toolsDir, name), "utf8")),
-        );
+    for (const [tool, sourceFile] of registered) {
+      const classifications = [
+        externalReads.has(tool),
+        trustedNonUserReads.has(tool),
+        protectedWrites.has(tool),
+        tool === approvalRequestTool,
+      ].filter(Boolean);
       expect(
-        registered,
+        classifications,
+        `${sourceFile}:${tool} must have exactly one security classification`,
+      ).toHaveLength(1);
+    }
+    for (const tool of [
+      ...externalReads.keys(),
+      ...trustedNonUserReads,
+      ...protectedWrites.keys(),
+      approvalRequestTool,
+    ]) {
+      expect(
+        registered.has(tool),
+        `${tool} is classified but is not in the actual tool registry`,
+      ).toBe(true);
+    }
+
+    for (const legacyTool of unavailableLegacyTools) {
+      expect(
+        registered.has(legacyTool),
         `${legacyTool} is classified as unavailable legacy config only`,
       ).toBe(false);
     }
 
     for (const role of roles) {
-      const tools = rhythmTools(role);
-      if (tools.includes("*")) continue;
+      const configuredTools = rhythmTools(role);
+      const tools = configuredTools.includes("*")
+        ? [...registered.keys()]
+        : configuredTools;
       const reads = tools.filter((tool) => externalReads.has(tool));
       const writes = tools.filter((tool) => protectedWrites.has(tool));
 
@@ -259,8 +397,8 @@ describe("#1175 external-content role graph", () => {
           externalReads.has(tool),
           trustedNonUserReads.has(tool),
           protectedWrites.has(tool),
-          unavailableLegacyTools.has(tool),
           tool === approvalRequestTool,
+          !registered.has(tool) && unavailableLegacyTools.has(tool),
         ].filter(Boolean);
         expect(
           classifications,
@@ -313,6 +451,17 @@ describe("#1175 external-content role graph", () => {
         ).toBeUndefined();
       }
     }
+
+    const dev = roles.find((role) => role.role === "dev");
+    expect(dev).toBeDefined();
+    expect(rhythmTools(dev!)).toContain("*");
+    expect([...registered.keys()].some((tool) => externalReads.has(tool))).toBe(
+      true,
+    );
+    expect([...registered.keys()].some((tool) => protectedWrites.has(tool))).toBe(
+      true,
+    );
+    expect(registered.has(approvalRequestTool)).toBe(true);
 
     const secretary = roles.find((role) => role.role === "secretary");
     expect(secretary).toBeDefined();
@@ -367,7 +516,17 @@ describe("#1175 external-content role graph", () => {
       rhythm_list_memories: "agentMemory.ts",
       rhythm_get_research_job: "agentResearch.ts",
       rhythm_list_automations: "automations.ts",
+      rhythm_get_automation: "automations.ts",
+      rhythm_preview_automation: "automations.ts",
+      rhythm_list_automation_triggers: "automations.ts",
+      rhythm_list_automation_actions: "automations.ts",
+      rhythm_list_automation_providers: "automations.ts",
       rhythm_list_sessions: "agentSessions.ts",
+      rhythm_list_agent_profile_permissions: "agentProfiles.ts",
+      rhythm_get_agent_profile_permissions: "agentProfiles.ts",
+      rhythm_verify_pco_staffing: "feedbackSensors.ts",
+      rhythm_verify_email_sent: "feedbackSensors.ts",
+      rhythm_verify_task_complete: "feedbackSensors.ts",
       rhythm_pco_list_service_types: "pco.ts",
       rhythm_pco_list_plans: "pco.ts",
       rhythm_pco_get_plan_items: "pco.ts",
@@ -378,6 +537,17 @@ describe("#1175 external-content role graph", () => {
       expect(source, `${tool} is missing centralized ingress`).toContain(
         "scanContextContentAndRecordExternalContentTaint",
       );
+      const block = toolBlock(source, tool);
+      expect(
+        block,
+        `${tool} must route its own result through the centralized ingress helper`,
+      ).toMatch(
+        /scanContextContentAndRecordExternalContentTaint|externalResult|protectedVerdict/,
+      );
+      expect(
+        block,
+        `${tool} must report its declared provenance source`,
+      ).toMatch(new RegExp(`["']${externalReads.get(tool)}["']`));
     }
 
     const boundary = readFileSync(
@@ -391,8 +561,23 @@ describe("#1175 external-content role graph", () => {
       ),
       "utf8",
     );
+    const apiController = readFileSync(
+      join(
+        repoRoot,
+        "apps",
+        "api_server",
+        "src",
+        "controllers",
+        "external_content_security_controller.ts",
+      ),
+      "utf8",
+    );
     for (const source of externalReads.values()) {
       expect(boundary).toMatch(new RegExp(`["']${source}["']`));
+      expect(
+        apiController,
+        `${source} must be accepted by the API taint endpoint`,
+      ).toMatch(new RegExp(`["']${source}["']`));
     }
     expect(boundary).toMatch(
       /scanContextContent[\s\S]+await recordExternalContentTaint[\s\S]+untrustedContext/,

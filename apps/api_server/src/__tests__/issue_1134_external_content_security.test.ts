@@ -21,31 +21,28 @@ import {
   signHumanApprovalDecision,
   type HumanApprovalTestCredentials,
 } from "./helpers/human_approval_test_credentials";
+import type { SecurityAction } from "../services/external_content_security_service";
 
-type SecurityAction =
-  | "email.send"
-  | "message.send"
-  | "message-thread.create"
-  | "calendar.create"
-  | "calendar.update"
-  | "pco.plan-item.update"
-  | "pco.person.assign"
-  | "pco.scheduled-person.update"
-  | "trigger.clear"
-  | "task.create"
-  | "task.update"
-  | "task.complete"
-  | "task.delete"
-  | "rhythm.create"
-  | "rhythm.update"
-  | "project-instance.create"
-  | "facility-reservation.create"
-  | "memory.remember"
-  | "memory.forget"
-  | "research.start"
-  | "research.update"
-  | "org-optimizer.run"
-  | "delegation.start";
+const CORRECTIVE_SECURITY_ACTIONS = [
+  "delegation.start-async",
+  "notification.send",
+  "scheduled-task.create",
+  "scheduled-task.cancel",
+  "scheduled-task.trigger",
+  "memory.update",
+  "rhythm.delete",
+  "rhythm-step.create",
+  "rhythm-step.delete",
+  "project-template.create",
+  "project-template-step.create",
+  "project-step.update",
+  "automation.create",
+  "automation.update",
+  "automation.delete",
+  "automation.resync",
+  "agent-profile.create",
+  "agent-profile.permissions.update",
+] as const satisfies readonly SecurityAction[];
 
 interface TrustedContext {
   sdkSessionId: string;
@@ -468,5 +465,55 @@ describe("#1134 external-content security boundary", () => {
         )
       ).status,
     ).toBe(200);
+  });
+
+  it("#1175 c21: every wildcard-discovered mutation accepts only its exact signed payload", async () => {
+    for (const [index, action] of CORRECTIVE_SECURITY_ACTIONS.entries()) {
+      expect(
+        (
+          await taint(
+            {
+              ...readContext,
+              turnId: `turn-corrective-read-${index}`,
+              toolCallId: `call-corrective-read-${index}`,
+            },
+            [],
+            "automation.list",
+          )
+        ).status,
+      ).toBe(201);
+      const payload = { target: `reviewed-${action}`, sequence: index };
+      const created = await requestBoundApproval(action, payload, {
+        ...actionContext,
+        turnId: `turn-corrective-write-${index}`,
+        toolCallId: `call-corrective-write-${index}`,
+      });
+      expect(created.status).toBe(201);
+      const approval = (await created.json()) as PendingApproval;
+      expect((await approve(approval)).status).toBe(200);
+      expect(
+        (
+          await consume(
+            approval.id,
+            action,
+            { ...payload, target: `substituted-${action}` },
+            {
+              ...actionContext,
+              turnId: `turn-corrective-write-${index}`,
+              toolCallId: `call-corrective-write-${index}`,
+            },
+          )
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await consume(approval.id, action, payload, {
+            ...actionContext,
+            turnId: `turn-corrective-write-${index}`,
+            toolCallId: `call-corrective-write-${index}`,
+          })
+        ).status,
+      ).toBe(200);
+    }
   });
 });

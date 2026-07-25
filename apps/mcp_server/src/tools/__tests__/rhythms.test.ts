@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { registerRhythmTools } from '../rhythms.js';
+import { RHYTHM_SECURITY_CONTEXT_META_KEY } from '../../security/security_context.js';
 
-type ToolHandler = (args: Record<string, unknown>) => Promise<{
+type ToolHandler = (args: Record<string, unknown>, extra?: unknown) => Promise<{
   content: Array<{ type: 'text'; text: string }>;
   isError?: true;
 }>;
@@ -25,13 +26,38 @@ function makeStubServer(): { server: unknown; tools: Map<string, RegisteredTool>
 
 const API_URL = 'http://x';
 const API_TOKEN = 'tok';
+const SECURITY_EXTRA = {
+  _meta: {
+    [RHYTHM_SECURITY_CONTEXT_META_KEY]: {
+      sdkSessionId: 'sdk-rhythms-test',
+      turnId: 'turn-rhythms-test',
+      agentName: 'church-admin',
+      toolCallId: 'call-rhythms-test',
+    },
+  },
+};
 
 function makeFetchOk(body: unknown) {
-  return vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    json: async () => body,
+  return vi.fn(async (input: string | URL) => {
+    if (String(input).endsWith('/agent-approvals/consume')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ allowed: true, consumed: false }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => body,
+    };
   });
+}
+
+function apiCalls(mockFetch: ReturnType<typeof vi.fn>) {
+  return mockFetch.mock.calls.filter(
+    ([input]) => !String(input).endsWith('/agent-approvals/consume'),
+  );
 }
 
 describe('registerRhythmTools', () => {
@@ -49,16 +75,19 @@ describe('registerRhythmTools', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerRhythmTools(server as any, API_URL, API_TOKEN);
 
-      const res = await tools.get('rhythm_add_rhythm_step')!.handler({
-        rhythm_id: 'r1',
-        title: 'Plan upcoming Sunday',
-        day_of_week: 'Monday',
-        sort_order: 0,
-      });
+      const res = await tools.get('rhythm_add_rhythm_step')!.handler(
+        {
+          rhythm_id: 'r1',
+          title: 'Plan upcoming Sunday',
+          day_of_week: 'Monday',
+          sort_order: 0,
+        },
+        SECURITY_EXTRA,
+      );
 
-      expect(mockFetch).toHaveBeenCalledOnce();
+      expect(apiCalls(mockFetch)).toHaveLength(1);
 
-      const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const [url, init] = apiCalls(mockFetch)[0] as [string, RequestInit];
       expect(url).toBe(`${API_URL}/recurring-rules/r1/steps`);
       expect(init.method).toBe('POST');
 
@@ -69,10 +98,19 @@ describe('registerRhythmTools', () => {
     });
 
     it('(b) returns isError: true with "Rhythm API error 500" when fetch returns ok: false / status 500', async () => {
-      const mockFetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 500,
-        json: async () => ({ error: 'boom' }),
+      const mockFetch = vi.fn(async (input: string | URL) => {
+        if (String(input).endsWith('/agent-approvals/consume')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ allowed: true, consumed: false }),
+          };
+        }
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ error: 'boom' }),
+        };
       });
       vi.stubGlobal('fetch', mockFetch);
 
@@ -80,11 +118,14 @@ describe('registerRhythmTools', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerRhythmTools(server as any, API_URL, API_TOKEN);
 
-      const res = await tools.get('rhythm_add_rhythm_step')!.handler({
-        rhythm_id: 'r1',
-        title: 'Plan upcoming Sunday',
-        sort_order: 0,
-      });
+      const res = await tools.get('rhythm_add_rhythm_step')!.handler(
+        {
+          rhythm_id: 'r1',
+          title: 'Plan upcoming Sunday',
+          sort_order: 0,
+        },
+        SECURITY_EXTRA,
+      );
 
       expect(res.isError).toBe(true);
       expect(res.content[0].text).toContain('Rhythm API error 500');
@@ -99,14 +140,17 @@ describe('registerRhythmTools', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerRhythmTools(server as any, API_URL, API_TOKEN);
 
-      await tools.get('rhythm_add_rhythm_step')!.handler({
-        rhythm_id: 'r2',
-        title: 'Review notes',
-        sort_order: 1,
-      });
+      await tools.get('rhythm_add_rhythm_step')!.handler(
+        {
+          rhythm_id: 'r2',
+          title: 'Review notes',
+          sort_order: 1,
+        },
+        SECURITY_EXTRA,
+      );
 
-      expect(mockFetch).toHaveBeenCalledOnce();
-      const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(apiCalls(mockFetch)).toHaveLength(1);
+      const [, init] = apiCalls(mockFetch)[0] as [string, RequestInit];
       const parsedBody = JSON.parse(init.body as string);
       expect(Object.keys(parsedBody)).not.toContain('day_of_week');
     });
@@ -120,19 +164,27 @@ describe('registerRhythmTools', () => {
         { id: 'step-c', title: 'Step C', assigneeId: null, dayOfWeek: 3, dayOfMonth: null, month: null },
       ];
 
-      const mockFetch = vi.fn()
-        // First call: GET /recurring-rules/r1
-        .mockResolvedValueOnce({
+      const mockFetch = vi.fn(async (input: string | URL, init?: RequestInit) => {
+        if (String(input).endsWith('/agent-approvals/consume')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ allowed: true, consumed: false }),
+          };
+        }
+        if ((init?.method ?? 'GET') === 'GET') {
+          return {
           ok: true,
           status: 200,
           json: async () => ({ id: 'r1', steps: existingSteps }),
-        })
-        // Second call: PATCH /recurring-rules/r1
-        .mockResolvedValueOnce({
+          };
+        }
+        return {
           ok: true,
           status: 200,
           json: async () => ({ id: 'r1', steps: [existingSteps[0], existingSteps[2]] }),
-        });
+        };
+      });
 
       vi.stubGlobal('fetch', mockFetch);
 
@@ -140,19 +192,22 @@ describe('registerRhythmTools', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerRhythmTools(server as any, API_URL, API_TOKEN);
 
-      const res = await tools.get('rhythm_delete_rhythm_step')!.handler({
-        rhythm_id: 'r1',
-        step_id: 'step-b',
-      });
+      const res = await tools.get('rhythm_delete_rhythm_step')!.handler(
+        {
+          rhythm_id: 'r1',
+          step_id: 'step-b',
+        },
+        SECURITY_EXTRA,
+      );
 
-      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(apiCalls(mockFetch)).toHaveLength(2);
 
       // Verify GET call
-      const [getUrl] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const [getUrl] = apiCalls(mockFetch)[0] as [string, RequestInit];
       expect(getUrl).toBe(`${API_URL}/recurring-rules/r1`);
 
       // Verify PATCH call
-      const [patchUrl, patchInit] = mockFetch.mock.calls[1] as [string, RequestInit];
+      const [patchUrl, patchInit] = apiCalls(mockFetch)[1] as [string, RequestInit];
       expect(patchUrl).toBe(`${API_URL}/recurring-rules/r1`);
       expect(patchInit.method).toBe('PATCH');
 

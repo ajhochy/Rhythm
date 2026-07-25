@@ -17,7 +17,10 @@ import {
   toolError,
 } from "../api_client.js";
 import { registerTool } from "./_tool.js";
-import { scanContextContentAndRecordExternalContentTaint } from "../security/external_content_boundary.js";
+import {
+  authorizeOutboundAction,
+  scanContextContentAndRecordExternalContentTaint,
+} from "../security/external_content_boundary.js";
 import { trustedSecurityContext } from "../security/security_context.js";
 
 export function registerAgentScheduleTools(
@@ -99,14 +102,36 @@ modelProvider + modelId optionally override the bound profile's model for this t
         .describe(
           'Override the profile model id for this task (e.g. "claude-opus-4-1"). Set together with modelProvider.',
         ),
+      approval_id: z
+        .string()
+        .optional()
+        .describe(
+          "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+        ),
     },
-    async (args: Record<string, unknown>) => {
+    async (args: Record<string, unknown>, extra) => {
+      const { approval_id, ...payload } = args;
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: typeof approval_id === "string" ? approval_id : undefined,
+        action: "scheduled-task.create",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: "text" as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
       try {
         const result = await apiPost(
           apiUrl,
           apiToken,
           "/agent-schedules",
-          args,
+          payload,
         );
         return toolResult(JSON.stringify(result, null, 2));
       } catch (err) {
@@ -154,14 +179,43 @@ modelProvider + modelId optionally override the bound profile's model for this t
         .describe(
           "Set to true to re-enable a previously disabled task. Default: false (disable).",
         ),
+      approval_id: z
+        .string()
+        .optional()
+        .describe(
+          "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+        ),
     },
-    async ({ id, enabled = false }: { id: string; enabled?: boolean }) => {
+    async (
+      {
+        id,
+        enabled = false,
+        approval_id,
+      }: { id: string; enabled?: boolean; approval_id?: string },
+      extra,
+    ) => {
+      const payload = { id, enabled };
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: "scheduled-task.cancel",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: "text" as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
       try {
         const result = await apiPatch(
           apiUrl,
           apiToken,
           `/agent-schedules/${id}`,
-          { enabled },
+          { enabled: payload.enabled },
         );
         return toolResult(JSON.stringify(result, null, 2));
       } catch (err) {
@@ -174,8 +228,32 @@ modelProvider + modelId optionally override the bound profile's model for this t
     server,
     "rhythm_trigger_now",
     "Force a scheduled task to fire immediately regardless of its next_run_at time.",
-    { id: z.string().describe("The scheduled task UUID.") },
-    async ({ id }: { id: string }) => {
+    {
+      id: z.string().describe("The scheduled task UUID."),
+      approval_id: z
+        .string()
+        .optional()
+        .describe(
+          "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+        ),
+    },
+    async ({ id, approval_id }: { id: string; approval_id?: string }, extra) => {
+      const payload = { id };
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: "scheduled-task.trigger",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: "text" as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
       try {
         const result = await apiPost(
           apiUrl,

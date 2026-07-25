@@ -27,6 +27,24 @@ export const SECURITY_ACTIONS = [
   "research.update",
   "org-optimizer.run",
   "delegation.start",
+  "delegation.start-async",
+  "notification.send",
+  "scheduled-task.create",
+  "scheduled-task.cancel",
+  "scheduled-task.trigger",
+  "memory.update",
+  "rhythm.delete",
+  "rhythm-step.create",
+  "rhythm-step.delete",
+  "project-template.create",
+  "project-template-step.create",
+  "project-step.update",
+  "automation.create",
+  "automation.update",
+  "automation.delete",
+  "automation.resync",
+  "agent-profile.create",
+  "agent-profile.permissions.update",
 ] as const;
 
 export type SecurityAction = (typeof SECURITY_ACTIONS)[number];
@@ -49,7 +67,17 @@ export type ExternalContentSource =
   | "memory.list"
   | "research.job"
   | "automation.list"
+  | "automation.get"
+  | "automation.preview"
+  | "automation-catalog.triggers"
+  | "automation-catalog.actions"
+  | "automation-catalog.providers"
   | "agent-session.list"
+  | "agent-profile.permissions.list"
+  | "agent-profile.permissions.get"
+  | "feedback.pco-staffing"
+  | "feedback.email-sent"
+  | "feedback.task-complete"
   | "pco.service-types"
   | "pco.plans"
   | "pco.plan-items"

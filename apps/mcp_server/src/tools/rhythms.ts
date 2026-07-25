@@ -277,8 +277,29 @@ export function registerRhythmTools(
     "Permanently delete a recurring rule.",
     {
       id: z.string().describe("Rhythm ID to delete."),
+      approval_id: z
+        .string()
+        .optional()
+        .describe(
+          "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+        ),
     },
-    async ({ id }: { id: string }) => {
+    async ({ id, approval_id }: { id: string; approval_id?: string }, extra) => {
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: "rhythm.delete",
+        payload: { id },
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: "text" as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
       try {
         await apiDelete(apiUrl, apiToken, `/recurring-rules/${id}`);
         return toolResult(`Rhythm ${id} deleted.`);
@@ -323,28 +344,55 @@ export function registerRhythmTools(
         .describe(
           "0-based insertion index in the steps array. Defaults to append.",
         ),
+      approval_id: z
+        .string()
+        .optional()
+        .describe(
+          "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+        ),
     },
-    async ({
-      rhythm_id,
-      title,
-      day_of_week,
-      day_of_month,
-      month,
-      sort_order,
-    }: {
-      rhythm_id: string;
-      title: string;
-      day_of_week?: string;
-      day_of_month?: number;
-      month?: number;
-      sort_order?: number;
-    }) => {
+    async (
+      {
+        rhythm_id,
+        title,
+        day_of_week,
+        day_of_month,
+        month,
+        sort_order,
+        approval_id,
+      }: {
+        rhythm_id: string;
+        title: string;
+        day_of_week?: string;
+        day_of_month?: number;
+        month?: number;
+        sort_order?: number;
+        approval_id?: string;
+      },
+      extra,
+    ) => {
+      const body: Record<string, unknown> = { title: decodeHtml(title) };
+      if (day_of_week !== undefined) body.day_of_week = day_of_week;
+      if (day_of_month !== undefined) body.day_of_month = day_of_month;
+      if (month !== undefined) body.month = month;
+      if (sort_order !== undefined) body.sort_order = sort_order;
+      const payload = { rhythmId: rhythm_id, ...body };
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: "rhythm-step.create",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: "text" as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
       try {
-        const body: Record<string, unknown> = { title: decodeHtml(title) };
-        if (day_of_week !== undefined) body.day_of_week = day_of_week;
-        if (day_of_month !== undefined) body.day_of_month = day_of_month;
-        if (month !== undefined) body.month = month;
-        if (sort_order !== undefined) body.sort_order = sort_order;
         const result = await apiPost(
           apiUrl,
           apiToken,
@@ -365,8 +413,36 @@ export function registerRhythmTools(
     {
       rhythm_id: z.string().describe("Rhythm (recurring rule) ID."),
       step_id: z.string().describe("Step ID to remove from the rhythm."),
+      approval_id: z
+        .string()
+        .optional()
+        .describe(
+          "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+        ),
     },
-    async ({ rhythm_id, step_id }: { rhythm_id: string; step_id: string }) => {
+    async (
+      {
+        rhythm_id,
+        step_id,
+        approval_id,
+      }: { rhythm_id: string; step_id: string; approval_id?: string },
+      extra,
+    ) => {
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: "rhythm-step.delete",
+        payload: { rhythmId: rhythm_id, stepId: step_id },
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: "text" as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
       try {
         const rhythm = await apiGet<{
           id: string;

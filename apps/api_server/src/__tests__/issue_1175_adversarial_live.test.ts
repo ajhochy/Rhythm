@@ -423,6 +423,99 @@ runLive('#1175 AGENT_LOCAL primary listener', () => {
       consumed: true,
     });
 
+    const correctiveContext = {
+      ...context,
+      turnId: 'turn-live-automation-read',
+      toolCallId: 'call-live-automation',
+    };
+    const correctiveTaint = await fetch(
+      `${baseUrl}/agent-approvals/external-content/taint`,
+      {
+        method: 'POST',
+        headers: internalHeaders,
+        body: JSON.stringify({
+          context: correctiveContext,
+          source: 'automation.preview',
+          contentDigest: 'b'.repeat(64),
+          blocked: false,
+          diagnostics: [],
+        }),
+      },
+    );
+    expect(correctiveTaint.status, output).toBe(201);
+
+    const correctivePayload = { id: 'automation-live-reviewed' };
+    const correctiveCreated = await fetch(`${baseUrl}/agent-approvals`, {
+      method: 'POST',
+      headers: internalHeaders,
+      body: JSON.stringify({
+        action: 'Delete reviewed automation',
+        security: {
+          context: correctiveContext,
+          action: 'automation.delete',
+          payload: correctivePayload,
+        },
+      }),
+    });
+    expect(correctiveCreated.status).toBe(201);
+    const correctiveApproval = (await correctiveCreated.json()) as {
+      id: string;
+      decisionNonce: string;
+      payloadDigest: string | null;
+    };
+    const correctiveSignature = signHumanApprovalDecision(
+      credentials,
+      correctiveApproval,
+      'approved',
+    );
+    expect(
+      (
+        await fetch(
+          `${baseUrl}/agent-approvals/${correctiveApproval.id}`,
+          {
+            method: 'PATCH',
+            headers: humanHeaders,
+            body: JSON.stringify({
+              status: 'approved',
+              signature: correctiveSignature,
+            }),
+          },
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await fetch(`${baseUrl}/agent-approvals/consume`, {
+          method: 'POST',
+          headers: internalHeaders,
+          body: JSON.stringify({
+            context: correctiveContext,
+            approvalId: correctiveApproval.id,
+            action: 'automation.delete',
+            payload: { id: 'automation-substitution' },
+          }),
+        })
+      ).status,
+    ).toBe(403);
+    const correctiveConsumed = await fetch(
+      `${baseUrl}/agent-approvals/consume`,
+      {
+        method: 'POST',
+        headers: internalHeaders,
+        body: JSON.stringify({
+          context: correctiveContext,
+          approvalId: correctiveApproval.id,
+          action: 'automation.delete',
+          payload: correctivePayload,
+        }),
+      },
+    );
+    expect(correctiveConsumed.status).toBe(200);
+    expect(await correctiveConsumed.json()).toMatchObject({
+      allowed: true,
+      consumed: true,
+    });
+
     await stopChild(child);
     expect(listenersOnProtectedPorts()).toEqual(protectedBefore);
   });

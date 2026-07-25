@@ -2,6 +2,11 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { toolResult, toolError } from '../api_client.js';
 import { registerTool } from './_tool.js';
+import {
+  authorizeOutboundAction,
+  scanContextContentAndRecordExternalContentTaint,
+} from '../security/external_content_boundary.js';
+import { trustedSecurityContext } from '../security/security_context.js';
 
 /**
  * #911 — lets an agent (specifically the "Rhythm Setup" interview agent, but
@@ -22,29 +27,45 @@ export function registerAgentProfileTools(server: McpServer, agentUrl: string) {
       allowedSkills: z.array(z.string()).optional().describe('Skill names this profile should have access to. Omit for unrestricted access.'),
       modelProvider: z.string().optional().describe('e.g. "anthropic", "google". Omit to use the instance default.'),
       modelId: z.string().optional().describe('e.g. "claude-sonnet-4-5". Omit to use the instance default.'),
+      approval_id: z.string().optional().describe('Approval id returned by rhythm_request_approval — required after reading untrusted content.'),
     },
-    async ({ label, systemPrompt, allowedMcps, allowedSkills, modelProvider, modelId }: {
+    async ({ label, systemPrompt, allowedMcps, allowedSkills, modelProvider, modelId, approval_id }: {
       label: string;
       systemPrompt?: string;
       allowedMcps?: string[];
       allowedSkills?: string[];
       modelProvider?: string;
       modelId?: string;
-    }) => {
+      approval_id?: string;
+    }, extra) => {
+      const payload: Record<string, unknown> = {
+        label,
+        isAgent: true,
+        enabled: true,
+      };
+      if (systemPrompt !== undefined) payload.systemPrompt = systemPrompt;
+      if (allowedMcps !== undefined) payload.allowedMcpsJson = JSON.stringify(allowedMcps);
+      if (allowedSkills !== undefined) payload.allowedSkillsJson = JSON.stringify(allowedSkills);
+      if (modelProvider !== undefined) payload.modelProvider = modelProvider;
+      if (modelId !== undefined) payload.modelId = modelId;
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: 'agent-profile.create',
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [{ type: 'text' as const, text: gate.refusalMessage as string }],
+          isError: true as const,
+        };
+      }
       try {
         const res = await fetch(`${agentUrl}/agent-configs`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            label,
-            isAgent: true,
-            enabled: true,
-            systemPrompt,
-            allowedMcpsJson: allowedMcps ? JSON.stringify(allowedMcps) : undefined,
-            allowedSkillsJson: allowedSkills ? JSON.stringify(allowedSkills) : undefined,
-            modelProvider,
-            modelId,
-          }),
+          body: JSON.stringify(payload),
         });
         if (!res.ok) {
           const err = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -63,12 +84,21 @@ export function registerAgentProfileTools(server: McpServer, agentUrl: string) {
     'rhythm_list_agent_profile_permissions',
     'List Rhythm agent profiles with only their permission-related fields. Use for config repair audits; does not expose prompts or secrets.',
     {},
-    async () => {
+    async (_args, extra) => {
       try {
         const res = await fetch(`${agentUrl}/agent-configs`);
         if (!res.ok) throw new Error(`Rhythm agent server returned ${res.status}: ${res.statusText}`);
         const profiles = (await res.json()) as Array<Record<string, unknown>>;
-        return toolResult(JSON.stringify(profiles.map(permissionSummary), null, 2));
+        const ingress = await scanContextContentAndRecordExternalContentTaint({
+          agentUrl,
+          context: trustedSecurityContext(extra),
+          source: 'agent-profile.permissions.list',
+          label: 'user-authored agent profile permissions',
+          rawContent: JSON.stringify(profiles.map(permissionSummary), null, 2),
+        });
+        return ingress.blocked
+          ? { content: [{ type: 'text' as const, text: ingress.text }], isError: true as const }
+          : toolResult(ingress.text);
       } catch (err) {
         return toolError(err);
       }
@@ -80,11 +110,20 @@ export function registerAgentProfileTools(server: McpServer, agentUrl: string) {
     'rhythm_get_agent_profile_permissions',
     'Get one Rhythm agent profile permission summary by id. Returns only permission-related fields.',
     { id: z.string().describe('Agent profile id, e.g. "config-doctor".') },
-    async ({ id }: { id: string }) => {
+    async ({ id }: { id: string }, extra) => {
       try {
         const res = await fetch(`${agentUrl}/agent-configs/${encodeURIComponent(id)}`);
         if (!res.ok) throw new Error(`Rhythm agent server returned ${res.status}: ${res.statusText}`);
-        return toolResult(JSON.stringify(permissionSummary(await res.json() as Record<string, unknown>), null, 2));
+        const ingress = await scanContextContentAndRecordExternalContentTaint({
+          agentUrl,
+          context: trustedSecurityContext(extra),
+          source: 'agent-profile.permissions.get',
+          label: 'user-authored agent profile permissions',
+          rawContent: JSON.stringify(permissionSummary(await res.json() as Record<string, unknown>), null, 2),
+        });
+        return ingress.blocked
+          ? { content: [{ type: 'text' as const, text: ingress.text }], isError: true as const }
+          : toolResult(ingress.text);
       } catch (err) {
         return toolError(err);
       }
@@ -100,18 +139,33 @@ export function registerAgentProfileTools(server: McpServer, agentUrl: string) {
       allowedMcpsJson: z.string().nullable().optional().describe('JSON MCP allowlist string or null. Do not put core tools like bash/read here.'),
       allowedSkillsJson: z.string().nullable().optional().describe('JSON skill allowlist string or null.'),
       corePermissionsJson: z.string().nullable().optional().describe('JSON opencode core permission object string or null, e.g. {"bash":"ask"}.'),
+      approval_id: z.string().optional().describe('Approval id returned by rhythm_request_approval — required after reading untrusted content.'),
     },
-    async ({ id, allowedMcpsJson, allowedSkillsJson, corePermissionsJson }: {
+    async ({ id, allowedMcpsJson, allowedSkillsJson, corePermissionsJson, approval_id }: {
       id: string;
       allowedMcpsJson?: string | null;
       allowedSkillsJson?: string | null;
       corePermissionsJson?: string | null;
-    }) => {
+      approval_id?: string;
+    }, extra) => {
       try {
         const patch = Object.fromEntries(
           Object.entries({ allowedMcpsJson, allowedSkillsJson, corePermissionsJson })
             .filter(([, value]) => value !== undefined),
         );
+        const gate = await authorizeOutboundAction({
+          agentUrl,
+          context: trustedSecurityContext(extra),
+          approvalId: approval_id,
+          action: 'agent-profile.permissions.update',
+          payload: { id, ...patch },
+        });
+        if (!gate.allowed) {
+          return {
+            content: [{ type: 'text' as const, text: gate.refusalMessage as string }],
+            isError: true as const,
+          };
+        }
         const res = await fetch(`${agentUrl}/agent-configs/${encodeURIComponent(id)}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },

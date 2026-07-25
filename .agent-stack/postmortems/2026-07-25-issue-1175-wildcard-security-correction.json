@@ -1,0 +1,50 @@
+{
+  "run_id": "2026-07-25-issue-1175-wildcard-security-correction",
+  "issue": 1175,
+  "date": "2026-07-25",
+  "smoke_result": "pass",
+  "verification_claimed": "in_progress",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1175-c21",
+      "text": "Wildcard and explicit role grants cannot expose an unclassified read or consequential mutation.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "C2",
+      "notes": "The first graph skipped allowedTools wildcard and therefore omitted 18 mutations plus 10 reads. The corrected graph parses all 75 registered tools, expands wildcard, and enforces one complete classification per tool."
+    }
+  ],
+  "process_issues": [
+    {
+      "category": "C2",
+      "summary": "The original acceptance graph enumerated configured non-wildcard grants instead of the actual registry.",
+      "repair": "Parse the registry first, expand wildcard grants to that inventory, and assert MCP/API source and action parity."
+    },
+    {
+      "category": "C4",
+      "summary": "MCP and API ingress-source allowlists drifted independently.",
+      "repair": "The exhaustive graph now asserts every declared MCP source literal is accepted by the API taint controller."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "corrected",
+    "expected_chain": [
+      "failure-triage",
+      "coding-agent",
+      "verification-gate",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "failure-triage",
+      "coding-agent",
+      "verification-gate",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "failure_output": "The first expanded API contract returned 400 for automation.list because the API source allowlist was stale.",
+  "overall_category": "C2",
+  "suggested_follow_up": "Keep inventory assertions registry-derived; never exempt wildcard grants or maintain an unchecked API-side source/action mirror."
+}

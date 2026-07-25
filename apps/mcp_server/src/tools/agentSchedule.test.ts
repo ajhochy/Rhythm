@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { registerAgentScheduleTools } from './agentSchedule.js';
+import { RHYTHM_SECURITY_CONTEXT_META_KEY } from '../security/security_context.js';
 
 const API_URL = 'http://rhythm.test';
 const API_TOKEN = 'test-token';
@@ -23,11 +24,16 @@ describe('rhythm_create_scheduled_task agent profile binding', () => {
   });
 
   it('issue-0-c1: MCP create forwards agentConfigId', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ id: 'scheduled-1' }), {
-        status: 201,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+    const fetchMock = vi.fn(async (input: string | URL) =>
+      String(input).endsWith('/agent-approvals/consume')
+        ? new Response(JSON.stringify({ allowed: true, consumed: false }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        : new Response(JSON.stringify({ id: 'scheduled-1' }), {
+            status: 201,
+            headers: { 'Content-Type': 'application/json' },
+          }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -42,10 +48,21 @@ describe('rhythm_create_scheduled_task agent profile binding', () => {
           scheduledTime: '09:00',
           agentConfigId: 'AI-Trend-Researcher',
         },
+        _meta: {
+          [RHYTHM_SECURITY_CONTEXT_META_KEY]: {
+            sdkSessionId: 'sdk-schedule-test',
+            turnId: 'turn-schedule-test',
+            agentName: 'daily-briefing',
+            toolCallId: 'call-schedule-test',
+          },
+        },
       });
 
-      expect(fetchMock).toHaveBeenCalledOnce();
-      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      const apiCalls = fetchMock.mock.calls.filter(
+        ([input]) => !String(input).endsWith('/agent-approvals/consume'),
+      );
+      expect(apiCalls).toHaveLength(1);
+      const init = apiCalls[0][1] as RequestInit;
       expect(JSON.parse(String(init.body))).toMatchObject({
         agentConfigId: 'AI-Trend-Researcher',
       });

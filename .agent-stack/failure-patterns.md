@@ -355,3 +355,19 @@
 - **Root cause**: No product failure; the built API stayed IPv4-loopback-only, rejected forged approval, accepted and atomically consumed one exact signed decision, and preserved every protected foreign listener.
 - **Suggested fix**: Retain the live listener/signed-approval probes and include one signed desktop approval interaction in the aggregate device matrix.
 - See `.agent-stack/postmortems/2026-07-25-issue-1175-approval-taint-listener.json`.
+
+## 2026-07-25 — Issue #1175 corrective — wildcard skipped the real registry
+
+- **Result**: audit FAIL→fixed in-run; final built smoke PASS
+  (`divergence=true`).
+- **Category**: C2 — wrong contract boundary; C4 — duplicated source inventory.
+- **Criteria affected**: issue-1175-c21.
+- **Root cause**: the first role graph iterated explicit role allowlists and
+  skipped `allowedTools: ["*"]`, so it never treated the registered tool
+  inventory as the security boundary. MCP and API source allowlists could also
+  drift without a parity assertion.
+- **Suggested fix**: parse registered tools first, expand wildcard roles, force
+  exactly one classification per tool, and assert every MCP ingress/action is
+  accepted by the API.
+- See
+  `.agent-stack/postmortems/2026-07-25-issue-1175-wildcard-security-correction.json`.

@@ -140,7 +140,10 @@ describe("#804 memory MCP tools resolve to the local agent server", () => {
     const handler = server.registered.get("rhythm_update_memory");
     expect(handler).toBeDefined();
 
-    await handler!({ id: "mem-1", content: "edited content" });
+    await handler!(
+      { id: "mem-1", content: "edited content" },
+      SECURITY_EXTRA,
+    );
 
     expect(calls).toHaveLength(1);
     expect(calls[0]).toBe(`${LOCAL}/agent-memory/mem-1`);

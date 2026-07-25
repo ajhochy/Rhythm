@@ -62,19 +62,48 @@ export function registerProjectTools(
     {
       name: z.string().describe("Template name."),
       description: z.string().optional().describe("Optional description."),
+      approval_id: z
+        .string()
+        .optional()
+        .describe(
+          "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+        ),
     },
-    async ({ name, description }: { name: string; description?: string }) => {
+    async (
+      {
+        name,
+        description,
+        approval_id,
+      }: { name: string; description?: string; approval_id?: string },
+      extra,
+    ) => {
+      const payload = {
+        name: decodeHtml(name),
+        ...(description !== undefined && {
+          description: decodeHtml(description),
+        }),
+      };
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: "project-template.create",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: "text" as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
       try {
         const template = await apiPost<unknown>(
           apiUrl,
           apiToken,
           "/project-templates",
-          {
-            name: decodeHtml(name),
-            ...(description !== undefined && {
-              description: decodeHtml(description),
-            }),
-          },
+          payload,
         );
         return toolResult(JSON.stringify(template, null, 2));
       } catch (err) {
@@ -105,33 +134,60 @@ export function registerProjectTools(
         .int()
         .optional()
         .describe("Display order (0-based)."),
+      approval_id: z
+        .string()
+        .optional()
+        .describe(
+          "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+        ),
     },
-    async ({
-      template_id,
-      title,
-      offset_days,
-      offset_description,
-      sort_order,
-    }: {
-      template_id: string;
-      title: string;
-      offset_days: number;
-      offset_description?: string;
-      sort_order?: number;
-    }) => {
+    async (
+      {
+        template_id,
+        title,
+        offset_days,
+        offset_description,
+        sort_order,
+        approval_id,
+      }: {
+        template_id: string;
+        title: string;
+        offset_days: number;
+        offset_description?: string;
+        sort_order?: number;
+        approval_id?: string;
+      },
+      extra,
+    ) => {
+      const body = {
+        title: decodeHtml(title),
+        offsetDays: offset_days,
+        ...(offset_description !== undefined && {
+          offsetDescription: decodeHtml(offset_description),
+        }),
+        ...(sort_order !== undefined && { sortOrder: sort_order }),
+      };
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: "project-template-step.create",
+        payload: { templateId: template_id, ...body },
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: "text" as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
       try {
         const step = await apiPost<unknown>(
           apiUrl,
           apiToken,
           `/project-templates/${template_id}/steps`,
-          {
-            title: decodeHtml(title),
-            offsetDays: offset_days,
-            ...(offset_description !== undefined && {
-              offsetDescription: decodeHtml(offset_description),
-            }),
-            ...(sort_order !== undefined && { sortOrder: sort_order }),
-          },
+          body,
         );
         return toolResult(JSON.stringify(step, null, 2));
       } catch (err) {
@@ -268,22 +324,49 @@ export function registerProjectTools(
         .nullable()
         .optional()
         .describe("Notes about the step, or null to clear."),
+      approval_id: z
+        .string()
+        .optional()
+        .describe(
+          "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+        ),
     },
-    async ({
-      instance_id,
-      step_id,
-      status,
-      notes,
-    }: {
-      instance_id: string;
-      step_id: string;
-      status?: string;
-      notes?: string | null;
-    }) => {
+    async (
+      {
+        instance_id,
+        step_id,
+        status,
+        notes,
+        approval_id,
+      }: {
+        instance_id: string;
+        step_id: string;
+        status?: string;
+        notes?: string | null;
+        approval_id?: string;
+      },
+      extra,
+    ) => {
+      const body: Record<string, unknown> = {};
+      if (status !== undefined) body.status = status;
+      if (notes !== undefined) body.notes = notes;
+      const payload = { instanceId: instance_id, stepId: step_id, ...body };
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: "project-step.update",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: "text" as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
       try {
-        const body: Record<string, unknown> = {};
-        if (status !== undefined) body.status = status;
-        if (notes !== undefined) body.notes = notes;
         const step = await apiPatch<unknown>(
           apiUrl,
           apiToken,

@@ -107,11 +107,19 @@ describe("registerAutomationTools", () => {
     vi.unstubAllGlobals();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        status: 201,
-        json: async () => ({ taintId: "test-taint" }),
-      })),
+      vi.fn(async (input: string | URL) =>
+        String(input).endsWith("/agent-approvals/consume")
+          ? {
+              ok: true,
+              status: 200,
+              json: async () => ({ allowed: true, consumed: false }),
+            }
+          : {
+              ok: true,
+              status: 201,
+              json: async () => ({ taintId: "test-taint" }),
+            },
+      ),
     );
     vi.mocked(apiGet).mockReset();
     vi.mocked(apiPost).mockReset();
@@ -184,7 +192,9 @@ describe("registerAutomationTools", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerAutomationTools(server as any, API_URL, API_TOKEN);
       vi.mocked(apiGet).mockResolvedValueOnce({ id: "abc-123" });
-      await tools.get("rhythm_get_automation")!.handler({ id: "abc-123" });
+      await tools
+        .get("rhythm_get_automation")!
+        .handler({ id: "abc-123" }, SECURITY_EXTRA);
       expect(apiGet).toHaveBeenCalledWith(
         API_URL,
         API_TOKEN,
@@ -199,17 +209,20 @@ describe("registerAutomationTools", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerAutomationTools(server as any, API_URL, API_TOKEN);
       vi.mocked(apiPost).mockResolvedValueOnce({ id: "new" });
-      await tools.get("rhythm_create_automation")!.handler({
-        name: "A &amp; B",
-        source: "planning_center",
-        trigger_key: "planning_center.plan_upcoming",
-        trigger_config: { lookaheadDays: 7 },
-        action_type: "create_task",
-        action_config: { title: "Prep" },
-        conditions: [{ field: "foo", operator: "equals", value: "bar" }],
-        enabled: true,
-        source_account_id: "acct-1",
-      });
+      await tools.get("rhythm_create_automation")!.handler(
+        {
+          name: "A &amp; B",
+          source: "planning_center",
+          trigger_key: "planning_center.plan_upcoming",
+          trigger_config: { lookaheadDays: 7 },
+          action_type: "create_task",
+          action_config: { title: "Prep" },
+          conditions: [{ field: "foo", operator: "equals", value: "bar" }],
+          enabled: true,
+          source_account_id: "acct-1",
+        },
+        SECURITY_EXTRA,
+      );
       expect(apiPost).toHaveBeenCalledWith(
         API_URL,
         API_TOKEN,
@@ -233,12 +246,15 @@ describe("registerAutomationTools", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerAutomationTools(server as any, API_URL, API_TOKEN);
       vi.mocked(apiPost).mockResolvedValueOnce({ id: "new" });
-      await tools.get("rhythm_create_automation")!.handler({
-        name: "X",
-        source: "rhythm",
-        trigger_key: "rhythm.task_created",
-        action_type: "send_notification",
-      });
+      await tools.get("rhythm_create_automation")!.handler(
+        {
+          name: "X",
+          source: "rhythm",
+          trigger_key: "rhythm.task_created",
+          action_type: "send_notification",
+        },
+        SECURITY_EXTRA,
+      );
       const body = vi.mocked(apiPost).mock.calls[0][3] as Record<
         string,
         unknown
@@ -255,11 +271,14 @@ describe("registerAutomationTools", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerAutomationTools(server as any, API_URL, API_TOKEN);
       vi.mocked(apiPatch).mockResolvedValueOnce({ id: "abc-123" });
-      await tools.get("rhythm_update_automation")!.handler({
-        id: "abc-123",
-        name: "New &amp; Improved",
-        enabled: false,
-      });
+      await tools.get("rhythm_update_automation")!.handler(
+        {
+          id: "abc-123",
+          name: "New &amp; Improved",
+          enabled: false,
+        },
+        SECURITY_EXTRA,
+      );
       expect(apiPatch).toHaveBeenCalledWith(
         API_URL,
         API_TOKEN,
@@ -276,11 +295,14 @@ describe("registerAutomationTools", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerAutomationTools(server as any, API_URL, API_TOKEN);
       vi.mocked(apiPatch).mockResolvedValueOnce({ id: "abc-123" });
-      await tools.get("rhythm_update_automation")!.handler({
-        id: "abc-123",
-        trigger_config: null,
-        source_account_id: null,
-      });
+      await tools.get("rhythm_update_automation")!.handler(
+        {
+          id: "abc-123",
+          trigger_config: null,
+          source_account_id: null,
+        },
+        SECURITY_EXTRA,
+      );
       expect(apiPatch).toHaveBeenCalledWith(
         API_URL,
         API_TOKEN,
@@ -301,7 +323,7 @@ describe("registerAutomationTools", () => {
       vi.mocked(apiDelete).mockResolvedValueOnce(undefined);
       const res = await tools
         .get("rhythm_delete_automation")!
-        .handler({ id: "abc-123" });
+        .handler({ id: "abc-123" }, SECURITY_EXTRA);
       expect(apiDelete).toHaveBeenCalledWith(
         API_URL,
         API_TOKEN,
@@ -317,7 +339,9 @@ describe("registerAutomationTools", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerAutomationTools(server as any, API_URL, API_TOKEN);
       vi.mocked(apiGet).mockResolvedValueOnce({});
-      await tools.get("rhythm_preview_automation")!.handler({ id: "abc-123" });
+      await tools
+        .get("rhythm_preview_automation")!
+        .handler({ id: "abc-123" }, SECURITY_EXTRA);
       expect(apiGet).toHaveBeenCalledWith(
         API_URL,
         API_TOKEN,
@@ -332,7 +356,9 @@ describe("registerAutomationTools", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerAutomationTools(server as any, API_URL, API_TOKEN);
       vi.mocked(apiPost).mockResolvedValueOnce({});
-      await tools.get("rhythm_resync_automation")!.handler({ id: "abc-123" });
+      await tools
+        .get("rhythm_resync_automation")!
+        .handler({ id: "abc-123" }, SECURITY_EXTRA);
       expect(apiPost).toHaveBeenCalledWith(
         API_URL,
         API_TOKEN,
@@ -348,7 +374,9 @@ describe("registerAutomationTools", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerAutomationTools(server as any, API_URL, API_TOKEN);
       vi.mocked(apiGet).mockResolvedValueOnce([]);
-      await tools.get("rhythm_list_automation_triggers")!.handler({});
+      await tools
+        .get("rhythm_list_automation_triggers")!
+        .handler({}, SECURITY_EXTRA);
       expect(apiGet).toHaveBeenCalledWith(
         API_URL,
         API_TOKEN,
@@ -361,7 +389,9 @@ describe("registerAutomationTools", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerAutomationTools(server as any, API_URL, API_TOKEN);
       vi.mocked(apiGet).mockResolvedValueOnce([]);
-      await tools.get("rhythm_list_automation_actions")!.handler({});
+      await tools
+        .get("rhythm_list_automation_actions")!
+        .handler({}, SECURITY_EXTRA);
       expect(apiGet).toHaveBeenCalledWith(
         API_URL,
         API_TOKEN,
@@ -374,7 +404,9 @@ describe("registerAutomationTools", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerAutomationTools(server as any, API_URL, API_TOKEN);
       vi.mocked(apiGet).mockResolvedValueOnce([]);
-      await tools.get("rhythm_list_automation_providers")!.handler({});
+      await tools
+        .get("rhythm_list_automation_providers")!
+        .handler({}, SECURITY_EXTRA);
       expect(apiGet).toHaveBeenCalledWith(
         API_URL,
         API_TOKEN,
