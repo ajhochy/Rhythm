@@ -336,6 +336,16 @@ async function main() {
       logger.warn(`[server] org-optimizer seed failed (non-fatal): ${String(err)}`);
     }
 
+    // Gallery is a first-run surface: seed its backing profile instead of
+    // depending on a hand-authored file from one developer machine.
+    try {
+      const { seedCreativeMediaProfile } = await import('./services/creative_media_seed');
+      const r = seedCreativeMediaProfile();
+      logger.info(`[server] creative-media seed: created=${r.created}`);
+    } catch (err) {
+      logger.warn(`[server] creative-media seed failed (non-fatal): ${String(err)}`);
+    }
+
     // #794 + #795 — Crash recovery for the auto-apply self-improvement loop. A
     // revision applied before a crash leaves its sidecar row at
     // `status='measuring'`; if the process died before the measure step ran,
