@@ -67,14 +67,17 @@ async function poll<T>(
 async function createReaderAgent(): Promise<string> {
   const catalog = await apiJson<
     Array<{
-      providerId: string;
+      provider: string;
       modelId: string;
       authorized: boolean;
     }>
   >('/agents/models/catalog');
-  const model = catalog.find((item) => item.authorized && item.providerId && item.modelId);
+  const authorized = catalog.filter((item) => item.authorized && item.provider && item.modelId);
+  const model =
+    authorized.find((item) => item.provider === 'openai' && item.modelId === 'gpt-5.4-mini') ??
+    authorized[0];
   if (!model) throw new Error('PRECONDITION: sandbox has no authorized model for the 50-reader live gate');
-  readerModel = { providerID: model.providerId, modelID: model.modelId };
+  readerModel = { providerID: model.provider, modelID: model.modelId };
 
   const profile = await apiJson<{ id: string }>('/agent-configs', {
     method: 'POST',
@@ -83,7 +86,7 @@ async function createReaderAgent(): Promise<string> {
       isAgent: true,
       enabled: true,
       sessionSelectable: true,
-      modelProvider: model.providerId,
+      modelProvider: model.provider,
       modelId: model.modelId,
       allowedMcpsJson: '[]',
       allowedSkillsJson: '[]',
@@ -152,9 +155,13 @@ afterEach(async () => {
 describeLive('live E2E — #1164 50-reader swarm', () => {
   beforeAll(async () => {
     assertLiveE2EIsolation();
-    expect(new URL(ENGINE_BASE).port, 'live gate must use sandbox engine :4097, never app engine :4096').toBe(
-      '4097',
-    );
+    const apiPort = new URL(BASE).port;
+    const enginePort = new URL(ENGINE_BASE).port;
+    expect(apiPort, 'live gate must use an explicit sandbox API port').not.toBe('');
+    expect(enginePort, 'live gate must use an explicit sandbox engine port').not.toBe('');
+    expect(apiPort, 'live gate must never use the installed app API :4001').not.toBe('4001');
+    expect(enginePort, 'live gate must never use the installed app engine :4096').not.toBe('4096');
+    expect(enginePort, 'sandbox API and engine ports must remain distinct').not.toBe(apiPort);
     expect((await apiJson<{ status: string }>('/opencode/health')).status).toBe('ready');
     expect((await engineJson<{ healthy: boolean }>('/global/health')).healthy).toBe(true);
   });

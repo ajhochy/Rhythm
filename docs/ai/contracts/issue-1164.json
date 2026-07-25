@@ -80,7 +80,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/live_e2e_1164_fifty_reader_swarm.test.ts",
       "test_id": "issue-1164-c10: 50 real reader sessions enter model execution and return output",
-      "status": "pending"
+      "status": "pass"
     }
   ],
   "stack": "typescript",

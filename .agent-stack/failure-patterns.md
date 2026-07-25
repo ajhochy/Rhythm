@@ -277,3 +277,11 @@
 - **Criteria affected**: issue-1123-c1 through issue-1123-c6
 - **Root cause**: no product failure; the first live-test lineage assertion mixed local database session IDs with the engine SDK identities returned by `/children`, then passed after failure triage corrected the identity domain.
 - **Suggested fix**: live contracts crossing local and engine session surfaces should declare the identity domain of every endpoint before asserting lineage.
+
+## 2026-07-24 — Issue 1164 — real 50-reader scheduler swarm
+
+- **Result**: smoke PASS (verification correctly remained incomplete until the live run)
+- **Category**: none — no correctness divergence; process: sandbox-exec-lifetime, live-fixture-drift, api-test-shared-state
+- **Criteria affected**: c1 and c10 passed live; c2-c9 retained focused deterministic contract evidence.
+- **Root cause**: the product scheduler was sound, while the first launcher cell reaped its sandbox child, the live fixture used a stale catalog shape/model, and the parallel API merge gate exposed shared-state/timeout flakes.
+- **Suggested fix**: keep sandbox guardian sessions active, intersect live model selection with the running engine, and retain the serialized 15s-budget API merge gate.
