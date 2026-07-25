@@ -1,13 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentConfig } from '../../repositories/agent_configs_repository';
 
-const matter: (text: string) => { data: Record<string, unknown> } = createRequire(
-  join(process.cwd(), '..', 'opencode_fork', 'packages', 'opencode', 'package.json'),
-)('gray-matter');
+function parsePermissionYaml(text: string): Record<string, string> {
+  const block = text.match(/^permission:\n((?:  .*\n?)*)/m)?.[1] ?? '';
+  const permissions: Record<string, string> = {};
+
+  for (const line of block.trimEnd().split('\n')) {
+    const match = line.match(/^  (?:"([^"]+)"|([a-z_]+)): (allow|ask|deny)$/);
+    if (!match) throw new Error(`Invalid permission YAML: ${line}`);
+    permissions[match[1] ?? match[2]] = match[3];
+  }
+
+  return permissions;
+}
 
 const state = vi.hoisted(() => ({ home: '' }));
 const { mockReloadConfig } = vi.hoisted(() => ({ mockReloadConfig: vi.fn() }));
@@ -590,7 +598,7 @@ describe('#1138: corePermissions projection is defensive and self-healing', () =
 
     expect(first).toContain('  "*": allow');
     expect(first).toContain('  read: ask');
-    expect(matter(first).data.permission).toEqual({ '*': 'allow', read: 'ask' });
+    expect(parsePermissionYaml(first)).toEqual({ '*': 'allow', read: 'ask' });
 
     writeAgentProfileFile(config);
     expect(readProjected('research')).toBe(first);

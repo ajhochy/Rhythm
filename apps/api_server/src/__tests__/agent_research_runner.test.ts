@@ -14,16 +14,18 @@ import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { recoverStaleResearchJobs } from '../controllers/agentResearchController';
 import { env } from '../config/env';
+import { UsersRepository } from '../repositories/users_repository';
+import { SessionsRepository } from '../repositories/sessions_repository';
 
 describe('Deep Research direct AgentRunner execution', () => {
   let db: Database.Database;
   let baseUrl: string;
   let close: () => Promise<void>;
   let vault: string;
+  let authHeaders: Record<string, string>;
   const researchModel = env.researchModel;
 
   beforeEach(async () => {
-    process.env.AGENT_LOCAL = 'true';
     vault = mkdtempSync(path.join(tmpdir(), 'research-runner-vault-'));
     process.env.MEMORY_VAULT_PATH = vault;
     env.researchModel = null;
@@ -31,6 +33,9 @@ describe('Deep Research direct AgentRunner execution', () => {
     db.pragma('foreign_keys = ON');
     runMigrations(db);
     setDb(db);
+    const user = new UsersRepository().create({ name: 'Researcher', email: 'researcher@example.com' });
+    const session = await new SessionsRepository().createAsync(user.id);
+    authHeaders = { Authorization: `Bearer ${session.token}` };
     runAgent.mockResolvedValue({ sessionId: 'research-session-1', status: 'done', result: '# Research report\n\nUseful findings.' });
     ({ baseUrl, close } = await startTestServer(createApp()));
   });
@@ -38,7 +43,6 @@ describe('Deep Research direct AgentRunner execution', () => {
   afterEach(async () => {
     await close();
     rmSync(vault, { recursive: true, force: true });
-    delete process.env.AGENT_LOCAL;
     delete process.env.MEMORY_VAULT_PATH;
     env.researchModel = researchModel;
     vi.clearAllMocks();
@@ -47,12 +51,12 @@ describe('Deep Research direct AgentRunner execution', () => {
   it('preserves the prompt, runs the research profile, persists its session and writes report/vault output without a trigger row', async () => {
     const query = 'Compare contemplative prayer and lectio divina';
     const response = await fetch(`${baseUrl}/agent-research`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }),
+      method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ query }),
     });
     expect(response.status).toBe(201);
     const created = await response.json() as { id: string; status: string };
     expect(created.status).toBe('pending');
-    const listed = await (await fetch(`${baseUrl}/agent-research`)).json() as Array<{ id: string }>;
+    const listed = await (await fetch(`${baseUrl}/agent-research`, { headers: authHeaders })).json() as Array<{ id: string }>;
     expect(listed.map((entry) => entry.id)).toContain(created.id);
 
     await vi.waitFor(() => expect(runAgent).toHaveBeenCalledOnce());
@@ -77,7 +81,7 @@ describe('Deep Research direct AgentRunner execution', () => {
   it('forwards the configured research model override to the runner', async () => {
     env.researchModel = { providerID: 'openrouter', modelID: 'openrouter/free' };
     const response = await fetch(`${baseUrl}/agent-research`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: 'Override case' }),
+      method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: 'Override case' }),
     });
     expect(response.status).toBe(201);
     await vi.waitFor(() => expect(runAgent).toHaveBeenCalledOnce());
@@ -90,14 +94,14 @@ describe('Deep Research direct AgentRunner execution', () => {
   it('marks runner failures retryable and the retry endpoint dispatches the same direct runner path', async () => {
     runAgent.mockResolvedValueOnce({ sessionId: 'failed-session', status: 'error', result: '', error: 'provider unavailable' });
     const create = await fetch(`${baseUrl}/agent-research`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: 'Failure case' }),
+      method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: 'Failure case' }),
     });
     const job = await create.json() as { id: string };
     await vi.waitFor(() => expect(db.prepare('SELECT status FROM agent_research_jobs WHERE id = ?').get(job.id)).toEqual({ status: 'error' }));
     expect(db.prepare('SELECT error FROM agent_research_jobs WHERE id = ?').get(job.id)).toEqual({ error: 'provider unavailable' });
 
     runAgent.mockResolvedValueOnce({ sessionId: 'retry-session', status: 'done', result: 'Recovered report.' });
-    const retry = await fetch(`${baseUrl}/agent-research/${job.id}/retry`, { method: 'POST' });
+    const retry = await fetch(`${baseUrl}/agent-research/${job.id}/retry`, { method: 'POST', headers: authHeaders });
     expect(retry.status).toBe(202);
     await vi.waitFor(() => expect(db.prepare('SELECT status FROM agent_research_jobs WHERE id = ?').get(job.id)).toEqual({ status: 'done' }));
     expect(runAgent).toHaveBeenCalledTimes(2);
@@ -117,7 +121,7 @@ describe('Deep Research direct AgentRunner execution', () => {
       (id, query, status, sources_json, research_type, title, agent_profile_id, origin, created_at, updated_at)
       VALUES ('specialist', 'Daily trends', 'error', '[]', 'ai-trends', 'Daily trends', 'AI-Trend-Researcher', 'specialist-run', ?, ?)`)
       .run(new Date().toISOString(), new Date().toISOString());
-    const retry = await fetch(`${baseUrl}/agent-research/specialist/retry`, { method: 'POST' });
+    const retry = await fetch(`${baseUrl}/agent-research/specialist/retry`, { method: 'POST', headers: authHeaders });
     expect(retry.status).toBe(400);
   });
 });
