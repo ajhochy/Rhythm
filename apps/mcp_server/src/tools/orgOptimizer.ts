@@ -28,10 +28,12 @@
  * pre-vet — an MCP win still surfaces as an `external-adoption` proposal,
  * always human-gated, and installs scoped to the requesting agent only.
  */
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
-import { apiPost, toolResult, toolError } from '../api_client.js';
-import { registerTool } from './_tool.js';
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { apiPost, toolResult, toolError } from "../api_client.js";
+import { registerTool } from "./_tool.js";
+import { authorizeOutboundAction } from "../security/external_content_boundary.js";
+import { trustedSecurityContext } from "../security/security_context.js";
 
 /**
  * #1115 — a full pass (with external discovery) can run 200-600s, but
@@ -43,8 +45,14 @@ import { registerTool } from './_tool.js';
  */
 export const ORG_OPTIMIZER_RUN_TIMEOUT_MS = 900_000;
 
-export function registerOrgOptimizerTools(server: McpServer, agentUrl: string, apiToken: string) {
-  registerTool(server, 'rhythm_run_org_optimizer',
+export function registerOrgOptimizerTools(
+  server: McpServer,
+  agentUrl: string,
+  apiToken: string,
+) {
+  registerTool(
+    server,
+    "rhythm_run_org_optimizer",
     `Run one full pass of the org self-optimizer loop, server-side: build a fresh org audit snapshot, run the internal generators (scope hygiene, recipe, webhook wiring; delegation/new-agent run with no signals this pass; external discovery also runs, grounded on open capability gaps, IN ADDITION to its own separate less-frequent schedule AND the gap-triggered debounced pass every new gap already schedules on its own), persist proposals deduped against previously-seen gaps, and auto-apply LOW-risk proposals only (HIGH-risk kinds — create-agent, grant/expand-delegation, broaden-scope, webhook-wiring, external-adoption — are NEVER auto-applied; they are left in the review queue). External discovery judges a skill fix and an MCP-server fix per gap on equal footing; an MCP win still installs scoped to only the requesting agent, never globally.
 
 Per-run caps (proposals/run, LLM calls/run) and the engine cold-start throttle are enforced server-side — a call during the cold-start window is a documented no-op (skipped: true), not an error.
@@ -53,16 +61,52 @@ Returns a run summary: proposalsCreated, capped, byKind, byRisk (low/high), and 
 
 Call this once per scheduled audit run — it is idempotent for unchanged gaps (re-running produces no duplicate proposals).`,
     {
-      maxProposalsPerRun: z.number().optional().describe('Override the default per-run proposal cap (default 20).'),
-      maxLlmCallsPerRun: z.number().optional().describe('Override the default per-run LLM-call cap (default 40).'),
+      maxProposalsPerRun: z
+        .number()
+        .optional()
+        .describe("Override the default per-run proposal cap (default 20)."),
+      maxLlmCallsPerRun: z
+        .number()
+        .optional()
+        .describe("Override the default per-run LLM-call cap (default 40)."),
+      approval_id: z
+        .string()
+        .optional()
+        .describe(
+          "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+        ),
     },
-    async (args: Record<string, unknown>) => {
+    async (args: Record<string, unknown>, extra) => {
+      const { approval_id, ...payload } = args;
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: typeof approval_id === "string" ? approval_id : undefined,
+        action: "org-optimizer.run",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: "text" as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
       try {
-        const result = await apiPost(agentUrl, apiToken, '/agent-org-optimizer/run', args, {
-          timeoutMs: ORG_OPTIMIZER_RUN_TIMEOUT_MS,
-        });
+        const result = await apiPost(
+          agentUrl,
+          apiToken,
+          "/agent-org-optimizer/run",
+          payload,
+          {
+            timeoutMs: ORG_OPTIMIZER_RUN_TIMEOUT_MS,
+          },
+        );
         return toolResult(JSON.stringify(result, null, 2));
-      } catch (err) { return toolError(err); }
+      } catch (err) {
+        return toolError(err);
+      }
     },
   );
 }

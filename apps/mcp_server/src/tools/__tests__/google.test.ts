@@ -67,10 +67,11 @@ describe('registerGoogleTools — rhythm_list_calendar_events', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     registerGoogleTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
-    await tools.get('rhythm_list_calendar_events')!.handler({});
+    await tools.get('rhythm_list_calendar_events')!.handler({}, EXTRA);
 
-    expect(mockFetch).toHaveBeenCalledOnce();
-    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const [url, init] = mockFetch.mock.calls.find(([candidate]) =>
+      String(candidate).includes('/integrations/google/calendar/events')) as [string, RequestInit];
     expect(url).toBe(`${API_URL}/integrations/google/calendar/events?calendarId=primary`);
     expect((init.headers as Record<string, string>)['Authorization']).toBe(`Bearer ${API_TOKEN}`);
   });
@@ -83,10 +84,11 @@ describe('registerGoogleTools — rhythm_list_calendar_events', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     registerGoogleTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
-    await tools.get('rhythm_list_calendar_events')!.handler({ calendar_id: 'work@example.com' });
+    await tools.get('rhythm_list_calendar_events')!.handler({ calendar_id: 'work@example.com' }, EXTRA);
 
-    expect(mockFetch).toHaveBeenCalledOnce();
-    const [url] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const [url] = mockFetch.mock.calls.find(([candidate]) =>
+      String(candidate).includes('/integrations/google/calendar/events')) as [string, RequestInit];
     expect(url).toContain('calendarId=work%40example.com');
   });
 
@@ -99,7 +101,7 @@ describe('registerGoogleTools — rhythm_list_calendar_events', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     registerGoogleTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
-    const res = await tools.get('rhythm_list_calendar_events')!.handler({});
+    const res = await tools.get('rhythm_list_calendar_events')!.handler({}, EXTRA);
 
     expect(res.isError).toBeUndefined();
     expect(res.content[0].text).toContain('Staff Meeting');

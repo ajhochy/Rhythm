@@ -8,6 +8,10 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	</array>
 	<!-- NOTE: the relaxations the bundled opencode binary needs
 	     (disable-library-validation + allow-jit + allow-unsigned-executable-memory)
 	     live in opencode.entitlements, applied ONLY to that binary in

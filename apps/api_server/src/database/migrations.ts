@@ -2250,6 +2250,10 @@ The Step 2 / Runbook B helpers live in \`~/.config/opencode/tools/\` (\`classify
   addAgentApprovalColumn('bound_agent', 'TEXT');
   addAgentApprovalColumn('expires_at', 'TEXT');
   addAgentApprovalColumn('consumed_at', 'TEXT');
+  // #1175 — one-time nonce signed by the human UI's non-exportable P-256 key.
+  // Existing pending rows intentionally receive no backfill: they fail closed
+  // and must be re-requested after upgrade rather than becoming unsigned.
+  addAgentApprovalColumn('decision_nonce', 'TEXT');
 
   // The current row is the active session taint epoch. Every external read
   // rotates taint_id, invalidating approvals created before newer untrusted

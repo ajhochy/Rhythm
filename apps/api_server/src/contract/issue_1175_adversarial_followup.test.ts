@@ -306,7 +306,9 @@ describe('issue #1175 adversarial follow-up acceptance contract', () => {
     const google = repoSource('apps/mcp_server/src/tools/google.ts');
     const churchAdmin = JSON.parse(
       repoSource('.mcp-roles/church-admin.mcp.json'),
-    ) as { allowedTools?: string[] };
+    ) as {
+      mcpServers?: { rhythm?: { allowedTools?: string[] } };
+    };
 
     expect(boundary).toMatch(/message(?:\.|-)?thread/i);
     expect(boundary).toMatch(/calendar(?:\.events)?/i);
@@ -317,7 +319,7 @@ describe('issue #1175 adversarial follow-up acceptance contract', () => {
     expect(google).toMatch(
       /rhythm_list_calendar_events[\s\S]*scanContextContent[\s\S]*recordExternalContentTaint[\s\S]*untrustedContext/,
     );
-    expect(churchAdmin.allowedTools).toEqual(
+    expect(churchAdmin.mcpServers?.rhythm?.allowedTools).toEqual(
       expect.arrayContaining([
         'rhythm_list_message_threads',
         'rhythm_list_calendar_events',

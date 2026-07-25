@@ -2,8 +2,14 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { apiGet, apiPost, toolResult, toolError, decodeHtml } from '../api_client.js';
 import { registerTool } from './_tool.js';
-import { authorizeOutboundAction } from '../security/external_content_boundary.js';
+import {
+  authorizeOutboundAction,
+  scanContextContentAndRecordExternalContentTaint,
+} from '../security/external_content_boundary.js';
 import { trustedSecurityContext } from '../security/security_context.js';
+// The centralized ingress calls scanContextContent, then
+// recordExternalContentTaint, then untrustedContext; raw message text never
+// reaches toolResult before that sequence succeeds.
 
 export function registerMessageTools(server: McpServer, apiUrl: string, apiToken: string, agentUrl: string) {
   registerTool(server, 'rhythm_list_message_threads',
@@ -12,14 +18,23 @@ export function registerMessageTools(server: McpServer, apiUrl: string, apiToken
       unread_only: z.boolean().optional().describe('If true, return only threads with unread messages.'),
       task_id: z.string().optional().describe('Filter to threads linked to this task ID.'),
     },
-    async ({ unread_only, task_id }: { unread_only?: boolean; task_id?: string }) => {
+    async ({ unread_only, task_id }: { unread_only?: boolean; task_id?: string }, extra) => {
       try {
         const params = new URLSearchParams();
         if (task_id) params.set('task_id', task_id);
         if (unread_only) params.set('unread_only', 'true');
         const qs = params.toString();
         const threads = await apiGet<unknown[]>(apiUrl, apiToken, `/message-threads${qs ? `?${qs}` : ''}`);
-        return toolResult(JSON.stringify(threads, null, 2));
+        const ingress = await scanContextContentAndRecordExternalContentTaint({
+          agentUrl,
+          context: trustedSecurityContext(extra),
+          source: 'message-thread.list',
+          label: 'shared message threads',
+          rawContent: JSON.stringify(threads, null, 2),
+        });
+        return ingress.blocked
+          ? { content: [{ type: 'text' as const, text: ingress.text }], isError: true as const }
+          : toolResult(ingress.text);
       } catch (err) {
         return toolError(err);
       }
@@ -94,7 +109,7 @@ export function registerMessageTools(server: McpServer, apiUrl: string, apiToken
   registerTool(server, 'rhythm_get_task_thread',
     'Find the message thread linked to a specific task. Returns the thread object or null.',
     { task_id: z.string().describe('The task ID to look up.') },
-    async ({ task_id }: { task_id: string }) => {
+    async ({ task_id }: { task_id: string }, extra) => {
       try {
         const threads = await apiGet<unknown[]>(
           apiUrl,
@@ -102,7 +117,16 @@ export function registerMessageTools(server: McpServer, apiUrl: string, apiToken
           `/message-threads?task_id=${encodeURIComponent(task_id)}`,
         );
         const thread = Array.isArray(threads) && threads.length > 0 ? threads[0] : null;
-        return toolResult(JSON.stringify(thread, null, 2));
+        const ingress = await scanContextContentAndRecordExternalContentTaint({
+          agentUrl,
+          context: trustedSecurityContext(extra),
+          source: 'message-thread.task',
+          label: 'task-linked message thread',
+          rawContent: JSON.stringify(thread, null, 2),
+        });
+        return ingress.blocked
+          ? { content: [{ type: 'text' as const, text: ingress.text }], isError: true as const }
+          : toolResult(ingress.text);
       } catch (err) {
         return toolError(err);
       }

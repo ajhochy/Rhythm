@@ -346,3 +346,12 @@
   compact headers, status labels, and every scroll-reachable action.
 - See
   `.agent-stack/postmortems/2026-07-25-issue-1171-final-corrective.json`.
+
+## 2026-07-25 — Issue #1175 — approval/taint/listener smoke PASS
+
+- **Result**: smoke PASS (verification remained in progress; no divergence)
+- **Category**: none
+- **Criteria affected**: issue-1175-c17, issue-1175-c20, and issue-1175-c21 passed against the real built API
+- **Root cause**: No product failure; the built API stayed IPv4-loopback-only, rejected forged approval, accepted and atomically consumed one exact signed decision, and preserved every protected foreign listener.
+- **Suggested fix**: Retain the live listener/signed-approval probes and include one signed desktop approval interaction in the aggregate device matrix.
+- See `.agent-stack/postmortems/2026-07-25-issue-1175-approval-taint-listener.json`.

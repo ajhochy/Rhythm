@@ -6,6 +6,8 @@ import { opencodeClient } from './services/opencode_engine';
 import { managedChromeService } from './services/managed_chrome_service';
 import { MobilePtyProxy } from './services/mobile_pty_proxy';
 import { runAdvisoryCheck, formatStartupWarning } from './security/security_advisories';
+import { env } from './config/env';
+import { validateHumanApprovalConfiguration } from './security/human_approval_security';
 
 // #1039 Cause B — Node's built-in fetch (undici) aborts any request whose
 // response HEADERS haven't arrived within ~300s (UND_ERR_HEADERS_TIMEOUT).
@@ -57,6 +59,28 @@ async function main() {
   ]);
 
   const port = Number(process.env.PORT ?? 4000);
+  // #1175 — AGENT_LOCAL bypass is safe only behind an explicit IPv4 loopback
+  // bind. The config resolver already refuses a non-loopback override; this
+  // startup assertion keeps that invariant adjacent to the actual listen().
+  const apiBindHost = env.agentLocal ? '127.0.0.1' : env.apiBindHost;
+  if (env.agentLocal && apiBindHost !== '127.0.0.1') {
+    throw new Error(
+      'Refusing AGENT_LOCAL startup on a non-loopback primary API bind',
+    );
+  }
+  try {
+    // Direct API development may run without a Flutter parent. Keep the API
+    // healthy in that case, but leave approval GET/PATCH fail-closed with 503.
+    // The shipping Flutter launcher refuses to start without both values.
+    validateHumanApprovalConfiguration({
+      capabilitySha256: env.humanApprovalCapabilitySha256,
+      publicKey: env.humanApprovalPublicKey,
+    });
+  } catch (error) {
+    logger.warn(
+      `[server] human approval verification unavailable; approval decisions are disabled: ${String(error)}`,
+    );
+  }
 
   // #877 — supply-chain advisory scan. stdlib-only (no network request),
   // reads the already-resolved package-lock.json; a warning here is the
@@ -83,7 +107,6 @@ async function main() {
   // and never attaches the WS gateway. The DEFAULT ('all') preserves today's
   // behavior. `agentSchedulerJob`/`wss` stay declared (nullable / no-op WSS)
   // so the single shutdown handler below remains valid in every role.
-  const { env } = await import('./config/env');
   let agentSchedulerJob: { stop: () => void } | null = null;
   // Issue #770 WI6: the Memory-Vault mirror-sync writes into agent_memory, so it
   // is an agent-execution surface and is gated with the rest. Declared nullable
@@ -648,8 +671,8 @@ async function main() {
 
   }
 
-  httpServer.listen(port, () => {
-    logger.info(`Rhythm API listening on port ${port}`);
+  httpServer.listen(port, apiBindHost, () => {
+    logger.info(`Rhythm API listening on ${apiBindHost}:${port}`);
   });
   if (mobileGatewayServer) {
     const mobileGatewayPort = mobileGatewayListenPort();

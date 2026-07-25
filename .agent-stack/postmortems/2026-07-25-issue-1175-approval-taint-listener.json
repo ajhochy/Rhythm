@@ -1,0 +1,82 @@
+{
+  "run_id": "2026-07-25-issue-1175-approval-taint-listener",
+  "issue": 1175,
+  "date": "2026-07-25",
+  "smoke_result": "pass",
+  "verification_claimed": "unknown",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1175-c17",
+      "text": "AGENT_LOCAL auth bypass is structurally confined to loopback: the primary API binds 127.0.0.1, refuses a non-loopback override, and a live IPv4/IPv6 check proves non-loopback interfaces cannot reach it.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The real built API accepted /health on 127.0.0.1, refused ::1 and the machine non-loopback IPv4 address, rejected API_BIND_HOST=0.0.0.0 with AGENT_LOCAL=true, and left listeners on 4001/4096/4097/4098 byte-for-byte unchanged."
+    },
+    {
+      "criterion_id": "issue-1175-c20",
+      "text": "Approval listing requires a UI-held Keychain capability whose raw value is never exposed to the API child/model shell, and every decision additionally carries a one-time nonce-bound signature from a non-exportable Secure Enclave/Keychain private key.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The real built local API rejected a forged decision, listed the pending row only with bearer plus raw app capability, accepted the exact P-256 nonce/payload-digest signature, derived actor user:<id>, and atomically consumed the signed approval. A native macOS debug build also compiled the non-exportable signer bridge."
+    },
+    {
+      "criterion_id": "issue-1175-c21",
+      "text": "All external or user-authored reads, including message threads and calendar events, are scanned, fenced, and durably tainted fail-closed; every role combining those reads with consequential writes remains payload-bound to real human approval.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The real built local API persisted calendar.events taint, created an exact calendar.create binding, and allowed one matching consume only after the signed human decision. The MCP graph also drove malicious message, calendar, task, and facility reads; denied task update/delete and reservation writes without approval; rejected a substituted payload; accepted exact approved payloads; and exhaustively proved all 23 consequential mixed-role tools map to MCP/API SecurityActions and per-tool payload authorization."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    ".mcp-roles/church-admin.mcp.json",
+    ".mcp-roles/secretary.mcp.json",
+    "apps/api_server/src/__tests__/human_approval_signature.test.ts",
+    "apps/api_server/src/__tests__/issue_1134_external_content_security.test.ts",
+    "apps/api_server/src/__tests__/issue_1175_adversarial_live.test.ts",
+    "apps/api_server/src/config/env.ts",
+    "apps/api_server/src/controllers/agent_approvals_controller.ts",
+    "apps/api_server/src/controllers/external_content_security_controller.ts",
+    "apps/api_server/src/database/migrations.ts",
+    "apps/api_server/src/repositories/agent_approvals_repository.ts",
+    "apps/api_server/src/routes/agent_approvals_routes.ts",
+    "apps/api_server/src/security/human_approval_security.ts",
+    "apps/api_server/src/server.ts",
+    "apps/api_server/src/services/external_content_security_service.ts",
+    "apps/desktop_flutter/lib/app/core/auth/auth_session_service.dart",
+    "apps/desktop_flutter/lib/app/core/server/api_server_service.dart",
+    "apps/desktop_flutter/lib/features/notifications/data/agent_approvals_data_source.dart",
+    "apps/desktop_flutter/lib/features/notifications/data/human_approval_signer.dart",
+    "apps/desktop_flutter/macos/Runner/HumanApprovalSigner.swift",
+    "apps/mcp_server/src/security/external_content_boundary.ts",
+    "apps/mcp_server/src/security/__tests__/external_content_role_graph.test.ts",
+    "apps/mcp_server/src/tools/dashboard.ts",
+    "apps/mcp_server/src/tools/google.ts",
+    "apps/mcp_server/src/tools/messages.ts",
+    "apps/mcp_server/src/tools/pco.ts"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Retain the real built listener and signed approval probes, and include one signed desktop interaction in the aggregate device matrix for the native Keychain channel."
+}

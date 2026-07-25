@@ -11,7 +11,8 @@
         "rhythm_get_dashboard",
         "rhythm_list_scheduled_tasks",
         "rhythm_search_memory",
-        "rhythm_remember_memory"
+        "rhythm_remember_memory",
+        "rhythm_request_approval"
       ]
     },
     "mcp-registry": {

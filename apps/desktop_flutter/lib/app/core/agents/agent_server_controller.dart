@@ -92,6 +92,9 @@ class AgentServerController extends ChangeNotifier {
             'technical details below.';
       case AgentServerFailureReason.lostConnection:
         return 'The agent server stopped responding. Click Restart to bring it back.';
+      case AgentServerFailureReason.approvalCredentialsUnavailable:
+        return 'Rhythm could not unlock its human-approval identity in Keychain. '
+            'Unlock your Mac and click Restart.';
       case null:
         return null;
     }

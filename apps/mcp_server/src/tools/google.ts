@@ -2,11 +2,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { apiGet, apiPost, apiPatch, toolResult, toolError, RhythmApiError } from '../api_client.js';
 import { registerTool } from './_tool.js';
-import { untrustedContext } from '../untrusted_context.js';
-import { scanContextContent } from '../security/context_scanner.js';
 import {
   authorizeOutboundAction,
-  recordExternalContentTaint,
+  scanContextContentAndRecordExternalContentTaint,
 } from '../security/external_content_boundary.js';
 import { trustedSecurityContext } from '../security/security_context.js';
 
@@ -29,12 +27,23 @@ export function registerGoogleTools(server: McpServer, apiUrl: string, apiToken:
       calendar_id: z.string().optional().describe("Calendar id; defaults to 'primary'."),
       max: z.number().optional().describe('Max events to return.'),
     },
-    async ({ calendar_id = 'primary', max }: { calendar_id?: string; max?: number }) => {
+    async ({ calendar_id = 'primary', max }: { calendar_id?: string; max?: number }, extra) => {
       try {
         const qs = new URLSearchParams({ calendarId: calendar_id });
         if (max) qs.set('max', String(max));
         const events = await apiGet<unknown>(apiUrl, apiToken, `/integrations/google/calendar/events?${qs.toString()}`);
-        return toolResult(JSON.stringify(events, null, 2));
+        const ingress = await scanContextContentAndRecordExternalContentTaint({
+          agentUrl,
+          context: trustedSecurityContext(extra),
+          source: 'calendar.events',
+          label: 'Google Calendar events',
+          rawContent: JSON.stringify(events, null, 2),
+        });
+        // Central sequence: scanContextContent -> recordExternalContentTaint
+        // -> untrustedContext. ingress.text is never raw Calendar content.
+        return ingress.blocked
+          ? { content: [{ type: 'text' as const, text: ingress.text }], isError: true as const }
+          : toolResult(ingress.text);
       } catch (err) { return handleErr(err); }
     },
   );
@@ -48,17 +57,29 @@ export function registerGoogleTools(server: McpServer, apiUrl: string, apiToken:
       calendar_id: z.string().optional().describe("Calendar id; defaults to 'primary'."),
       location: z.string().optional(),
       description: z.string().optional(),
+      approval_id: z.string().optional().describe('Approval id returned by rhythm_request_approval — required if this session has read untrusted external content.'),
     },
-    async (args: { summary: string; start: string; end: string; calendar_id?: string; location?: string; description?: string }) => {
+    async (args: { summary: string; start: string; end: string; calendar_id?: string; location?: string; description?: string; approval_id?: string }, extra) => {
+      const payload = {
+        calendarId: args.calendar_id ?? 'primary',
+        summary: args.summary,
+        start: args.start,
+        end: args.end,
+        ...(args.location !== undefined && { location: args.location }),
+        ...(args.description !== undefined && { description: args.description }),
+      };
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: args.approval_id,
+        action: 'calendar.create',
+        payload,
+      });
+      if (!gate.allowed) {
+        return { content: [{ type: 'text' as const, text: gate.refusalMessage as string }], isError: true as const };
+      }
       try {
-        const event = await apiPost<unknown>(apiUrl, apiToken, '/integrations/google/calendar/events', {
-          calendarId: args.calendar_id ?? 'primary',
-          summary: args.summary,
-          start: args.start,
-          end: args.end,
-          location: args.location,
-          description: args.description,
-        });
+        const event = await apiPost<unknown>(apiUrl, apiToken, '/integrations/google/calendar/events', payload);
         return toolResult(JSON.stringify(event, null, 2));
       } catch (err) { return handleErr(err); }
     },
@@ -74,16 +95,30 @@ export function registerGoogleTools(server: McpServer, apiUrl: string, apiToken:
       end: z.string().optional().describe('New end ISO 8601.'),
       location: z.string().optional(),
       description: z.string().optional(),
+      approval_id: z.string().optional().describe('Approval id returned by rhythm_request_approval — required if this session has read untrusted external content.'),
     },
-    async (args: { id: string; calendar_id?: string; summary?: string; start?: string; end?: string; location?: string; description?: string }) => {
+    async (args: { id: string; calendar_id?: string; summary?: string; start?: string; end?: string; location?: string; description?: string; approval_id?: string }, extra) => {
+      const payload: Record<string, unknown> = {
+        id: args.id,
+        calendarId: args.calendar_id ?? 'primary',
+      };
+      if (args.summary !== undefined) payload.summary = args.summary;
+      if (args.start !== undefined) payload.start = args.start;
+      if (args.end !== undefined) payload.end = args.end;
+      if (args.location !== undefined) payload.location = args.location;
+      if (args.description !== undefined) payload.description = args.description;
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: args.approval_id,
+        action: 'calendar.update',
+        payload,
+      });
+      if (!gate.allowed) {
+        return { content: [{ type: 'text' as const, text: gate.refusalMessage as string }], isError: true as const };
+      }
       try {
-        const patch: Record<string, unknown> = {};
-        if (args.calendar_id) patch.calendarId = args.calendar_id;
-        if (args.summary !== undefined) patch.summary = args.summary;
-        if (args.start !== undefined) patch.start = args.start;
-        if (args.end !== undefined) patch.end = args.end;
-        if (args.location !== undefined) patch.location = args.location;
-        if (args.description !== undefined) patch.description = args.description;
+        const { id: _id, ...patch } = payload;
         const event = await apiPatch<unknown>(apiUrl, apiToken, `/integrations/google/calendar/events/${args.id}`, patch);
         return toolResult(JSON.stringify(event, null, 2));
       } catch (err) { return handleErr(err); }
@@ -97,23 +132,16 @@ export function registerGoogleTools(server: McpServer, apiUrl: string, apiToken:
       try {
         const res = await apiGet<unknown>(apiUrl, apiToken, `/integrations/google/gmail/search?q=${encodeURIComponent(query)}`);
         const raw = JSON.stringify(res, null, 2);
-        const scan = scanContextContent(raw, 'gmail search results');
-        const context = trustedSecurityContext(extra);
-        if (!context) {
-          throw new Error('trusted Rhythm session/turn metadata is unavailable; Gmail content was not loaded');
-        }
-        await recordExternalContentTaint({
+        const ingress = await scanContextContentAndRecordExternalContentTaint({
           agentUrl,
-          context,
+          context: trustedSecurityContext(extra),
           source: 'gmail.search',
+          label: 'gmail search results',
           rawContent: raw,
-          blocked: scan.blocked,
-          matches: scan.matches,
         });
-        if (scan.blocked) {
-          return { content: [{ type: 'text' as const, text: scan.warning as string }], isError: true as const };
-        }
-        return toolResult(untrustedContext(raw, 'gmail search results'));
+        return ingress.blocked
+          ? { content: [{ type: 'text' as const, text: ingress.text }], isError: true as const }
+          : toolResult(ingress.text);
       } catch (err) { return handleErr(err); }
     },
   );
@@ -125,23 +153,16 @@ export function registerGoogleTools(server: McpServer, apiUrl: string, apiToken:
       try {
         const res = await apiGet<unknown>(apiUrl, apiToken, `/integrations/google/gmail/messages/${encodeURIComponent(id)}`);
         const raw = JSON.stringify(res, null, 2);
-        const scan = scanContextContent(raw, 'gmail message');
-        const context = trustedSecurityContext(extra);
-        if (!context) {
-          throw new Error('trusted Rhythm session/turn metadata is unavailable; Gmail content was not loaded');
-        }
-        await recordExternalContentTaint({
+        const ingress = await scanContextContentAndRecordExternalContentTaint({
           agentUrl,
-          context,
+          context: trustedSecurityContext(extra),
           source: 'gmail.message',
+          label: 'gmail message',
           rawContent: raw,
-          blocked: scan.blocked,
-          matches: scan.matches,
         });
-        if (scan.blocked) {
-          return { content: [{ type: 'text' as const, text: scan.warning as string }], isError: true as const };
-        }
-        return toolResult(untrustedContext(raw, 'gmail message'));
+        return ingress.blocked
+          ? { content: [{ type: 'text' as const, text: ingress.text }], isError: true as const }
+          : toolResult(ingress.text);
       } catch (err) { return handleErr(err); }
     },
   );

@@ -11,9 +11,12 @@ class _FakeAgentApprovalsDataSource implements AgentApprovalsDataSource {
   Future<List<AgentApproval>> listPending() async => pending;
 
   @override
-  Future<void> decide(String id, {required bool approve}) async {
-    decided.add('$id:${approve ? 'approved' : 'rejected'}');
-    pending = pending.where((a) => a.id != id).toList();
+  Future<void> decide(
+    AgentApproval approval, {
+    required bool approve,
+  }) async {
+    decided.add('${approval.id}:${approve ? 'approved' : 'rejected'}');
+    pending = pending.where((a) => a.id != approval.id).toList();
   }
 }
 
@@ -24,6 +27,8 @@ AgentApproval _approval(String id) => AgentApproval(
       consequence: 'Jane gets an email immediately',
       status: 'pending',
       createdAt: DateTime.now(),
+      decisionNonce: 'nonce-$id',
+      payloadDigest: null,
     );
 
 void main() {

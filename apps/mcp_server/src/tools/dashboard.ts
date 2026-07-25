@@ -1,5 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { apiGet, toolResult, toolError } from '../api_client.js';
+import { scanContextContentAndRecordExternalContentTaint } from '../security/external_content_boundary.js';
+import { trustedSecurityContext } from '../security/security_context.js';
 
 interface PastDeadlineTaskSummary {
   id: string;
@@ -63,7 +65,12 @@ interface DashboardSummary {
   messages: DashboardMessageSummary;
 }
 
-export function registerDashboardTools(server: McpServer, apiUrl: string, apiToken: string) {
+export function registerDashboardTools(
+  server: McpServer,
+  apiUrl: string,
+  apiToken: string,
+  agentUrl = process.env.RHYTHM_AGENT_URL ?? 'http://127.0.0.1:4001',
+) {
   server.tool(
     'rhythm_get_dashboard',
     'Get a summary snapshot of open tasks, active rhythms, active projects, and recent message threads. ' +
@@ -79,7 +86,7 @@ export function registerDashboardTools(server: McpServer, apiUrl: string, apiTok
     'Project on-deck steps include scheduledDate (when step is planned) and dueDate (step hard deadline). ' +
     'Useful for giving Claude context at the start of a session.',
     {},
-    async () => {
+    async (_args, extra) => {
       try {
         const summary = await apiGet<DashboardSummary>(apiUrl, apiToken, '/dashboard/summary');
 
@@ -135,7 +142,17 @@ export function registerDashboardTools(server: McpServer, apiUrl: string, apiTok
           })),
         };
 
-        return toolResult(JSON.stringify(dashboard, null, 2));
+        const raw = JSON.stringify(dashboard, null, 2);
+        const ingress = await scanContextContentAndRecordExternalContentTaint({
+          agentUrl,
+          context: trustedSecurityContext(extra),
+          source: 'dashboard.message-preview',
+          label: 'dashboard including shared message previews',
+          rawContent: raw,
+        });
+        return ingress.blocked
+          ? { content: [{ type: 'text' as const, text: ingress.text }], isError: true as const }
+          : toolResult(ingress.text);
       } catch (err) {
         return toolError(err);
       }

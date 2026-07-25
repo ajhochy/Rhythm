@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../../../features/notifications/data/human_approval_signer.dart';
+
 /// Distinct failure modes for [ApiServerService.start].
 enum AgentServerFailureReason {
   nodeNotFound,
@@ -11,6 +13,7 @@ enum AgentServerFailureReason {
   spawnThrew,
   healthCheckTimeout,
   lostConnection,
+  approvalCredentialsUnavailable,
 }
 
 /// Result of attempting to start the local agent server.
@@ -47,12 +50,20 @@ Map<String, String> buildApiServerEnvironment({
   String? memoryVaultPath,
   String? memoryVaultSubdir,
   String? mcpRolesDir,
+  required String humanApprovalCapabilitySha256,
+  required String humanApprovalPublicKey,
 }) {
   final env = <String, String>{
-    ...baseEnv,
+    ...Map<String, String>.fromEntries(
+      baseEnv.entries.where(
+        (entry) => !entry.key.startsWith('HUMAN_APPROVAL_'),
+      ),
+    ),
     'PORT': port,
     'DB_PATH': dbPath,
     'AGENT_LOCAL': 'true',
+    'HUMAN_APPROVAL_CAPABILITY_SHA256': humanApprovalCapabilitySha256,
+    'HUMAN_APPROVAL_PUBLIC_KEY': humanApprovalPublicKey,
   };
 
   if (memoryVaultPath != null && !baseEnv.containsKey('MEMORY_VAULT_PATH')) {
@@ -71,9 +82,13 @@ Map<String, String> buildApiServerEnvironment({
 
 /// Manages the lifecycle of the local Node.js API server process.
 class ApiServerService {
-  ApiServerService({String? memoryVaultPath, String? memoryVaultSubdir})
-      : _memoryVaultPath = memoryVaultPath,
-        _memoryVaultSubdir = memoryVaultSubdir;
+  ApiServerService({
+    String? memoryVaultPath,
+    String? memoryVaultSubdir,
+    HumanApprovalSigner? humanApprovalSigner,
+  })  : _memoryVaultPath = memoryVaultPath,
+        _memoryVaultSubdir = memoryVaultSubdir,
+        _humanApprovalSigner = humanApprovalSigner ?? HumanApprovalSigner();
 
   Process? _process;
 
@@ -83,6 +98,7 @@ class ApiServerService {
   /// e.g. in unrelated call sites/tests that construct this service bare).
   final String? _memoryVaultPath;
   final String? _memoryVaultSubdir;
+  final HumanApprovalSigner _humanApprovalSigner;
 
   /// Rolling buffer of recent stderr lines from the spawned server process.
   /// Capped at 20 lines x 200 chars (~4 KB) to bound memory.
@@ -151,6 +167,21 @@ class ApiServerService {
   /// specific failure mode encountered.
   Future<AgentServerStartResult> start() async {
     _stderrBuffer.clear();
+    late final String humanApprovalCapabilitySha256;
+    late final String humanApprovalPublicKey;
+    try {
+      humanApprovalCapabilitySha256 =
+          await _humanApprovalSigner.capabilitySha256();
+      humanApprovalPublicKey = await _humanApprovalSigner.publicKey();
+    } catch (error) {
+      return (
+        ok: false,
+        reason: AgentServerFailureReason.approvalCredentialsUnavailable,
+        stderrTail: error.toString(),
+        failureMessage:
+            'Rhythm could not unlock its human-approval Keychain identity.',
+      );
+    }
 
     // #614 — Startup orphan self-heal: if port 4001 is already held by a node
     // process whose parent PID is 1 (orphaned from a previous Rhythm quit),
@@ -211,6 +242,8 @@ class ApiServerService {
           memoryVaultPath: _memoryVaultPath,
           memoryVaultSubdir: _memoryVaultSubdir,
           mcpRolesDir: serverInfo.mcpRolesDir,
+          humanApprovalCapabilitySha256: humanApprovalCapabilitySha256,
+          humanApprovalPublicKey: humanApprovalPublicKey,
         ),
       );
     } catch (e) {

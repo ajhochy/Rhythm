@@ -43,7 +43,8 @@
         "rhythm_get_dashboard",
         "rhythm_remember",
         "rhythm_search_context",
-        "rhythm_list_memories"
+        "rhythm_list_memories",
+        "rhythm_request_approval"
       ]
     }
   },

@@ -64,6 +64,13 @@ with exact live evidence and production review notes.
 
 ## Recent coding-agent runs
 
+- 2026-07-25 — #1175 approval/taint/listener hardening
+  (`codex/1175-approval-taint-listener`): IPv4-loopback-only `AGENT_LOCAL`,
+  non-exportable signed human approvals, exhaustive scan→taint→fence ingress,
+  and exact payload-bound authorization for all 23 consequential mixed-role
+  mutations. Relevant API/MCP/Flutter/build/live gates pass; slice GitNexus is
+  LOW with zero affected flows. See
+  `docs/ai/runs/2026-07-25-1175-approval-taint-listener.md`.
 - 2026-07-25 — #1175 pairing/tool authorization c18/c19
   (`codex/1175-pairing-tool-auth`): public host-bound one-time-code pairing,
   Device-only replacement/revocation, explicit policy for all ten mobile tool

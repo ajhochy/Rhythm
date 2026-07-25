@@ -42,7 +42,8 @@
         "rhythm_remember",
         "rhythm_search_context",
         "rhythm_list_memories",
-        "rhythm_forget"
+        "rhythm_forget",
+        "rhythm_request_approval"
       ]
     }
   },

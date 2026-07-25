@@ -1,5 +1,6 @@
 import os from 'os';
 import path from 'path';
+import { isIP } from 'node:net';
 
 export type DbClient = 'sqlite' | 'postgres';
 
@@ -144,6 +145,57 @@ export const GEMINI_CODE_ASSIST_PROJECT_ID =
   'rhythm-491406';
 
 const dbClientValue = (process.env.DB_CLIENT ?? 'sqlite').trim().toLowerCase();
+const agentLocal = process.env.AGENT_LOCAL === 'true';
+
+function validBindHostname(value: string): boolean {
+  if (value.length === 0 || value.length > 253) return false;
+  if (value === 'localhost') return true;
+  return value.split('.').every(
+    (label) =>
+      label.length > 0 &&
+      label.length <= 63 &&
+      /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label),
+  );
+}
+
+/**
+ * #1175 — resolve the primary API listener host.
+ *
+ * AGENT_LOCAL disables authentication on internal execution routes, so it is
+ * structurally coupled to an IPv4-loopback-only listener. `localhost` is not
+ * accepted in that mode because resolver order can select IPv6 or a
+ * machine-managed address. Non-local deployments preserve the historical
+ * wildcard listener unless API_BIND_HOST is explicitly configured.
+ */
+export function resolveApiBindHost(options: {
+  agentLocal?: boolean;
+  configuredHost?: string;
+} = {}): string {
+  const local = options.agentLocal ?? process.env.AGENT_LOCAL === 'true';
+  const configured = (
+    options.configuredHost ?? process.env.API_BIND_HOST ?? ''
+  ).trim();
+
+  if (local) {
+    if (configured !== '' && configured !== '127.0.0.1') {
+      throw new Error(
+        'AGENT_LOCAL requires API_BIND_HOST=127.0.0.1; refusing a non-loopback primary API listener',
+      );
+    }
+    return '127.0.0.1';
+  }
+
+  const host = configured || '0.0.0.0';
+  if (
+    host.includes('/') ||
+    host.includes('\\') ||
+    /\s/.test(host) ||
+    (!validBindHostname(host) && isIP(host) === 0)
+  ) {
+    throw new Error(`Invalid API_BIND_HOST "${host}"`);
+  }
+  return host;
+}
 
 function parseDbClient(value: string): DbClient {
   if (value === 'sqlite' || value === 'postgres') {
@@ -296,7 +348,20 @@ export const env = {
   })(),
   resendApiKey: process.env.RESEND_API_KEY ?? '',
   emailFromAddress: process.env.EMAIL_FROM_ADDRESS ?? 'Rhythm <onboarding@resend.dev>',
-  agentLocal: process.env.AGENT_LOCAL === 'true',
+  agentLocal,
+  /**
+   * #1175 — primary API listener host. AGENT_LOCAL is always pinned to
+   * 127.0.0.1 and refuses any broader override; authenticated deployments keep
+   * the historical 0.0.0.0 default unless API_BIND_HOST is set.
+   */
+  apiBindHost: resolveApiBindHost({ agentLocal }),
+  /**
+   * #1175 — public verification material only. Flutter keeps the raw human
+   * approval capability and P-256 private key in the signed app's Keychain.
+   */
+  humanApprovalCapabilitySha256:
+    process.env.HUMAN_APPROVAL_CAPABILITY_SHA256 ?? '',
+  humanApprovalPublicKey: process.env.HUMAN_APPROVAL_PUBLIC_KEY ?? '',
   /**
    * P3-2: instance-wide toggle for injecting retrieved skills into the agent
    * prompt preface. Default ON. Only the explicit strings 'false' or '0'

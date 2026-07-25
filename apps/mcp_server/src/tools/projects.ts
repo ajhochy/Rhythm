@@ -1,37 +1,81 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
-import { apiGet, apiPost, apiPatch, toolResult, toolError, decodeHtml } from '../api_client.js';
-import { registerTool } from './_tool.js';
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import {
+  apiGet,
+  apiPost,
+  apiPatch,
+  toolResult,
+  toolError,
+  decodeHtml,
+} from "../api_client.js";
+import { registerTool } from "./_tool.js";
+import {
+  authorizeOutboundAction,
+  scanContextContentAndRecordExternalContentTaint,
+} from "../security/external_content_boundary.js";
+import { trustedSecurityContext } from "../security/security_context.js";
 
-export function registerProjectTools(server: McpServer, apiUrl: string, apiToken: string) {
-  registerTool(server, 'rhythm_list_project_templates',
-    'List all project templates, including their steps. ' +
-    'Fields returned per step: id, title, offsetDays, offsetDescription, sortOrder. ' +
-    'Steps do not carry date fields at the template level — dates are computed when a template is instantiated ' +
-    'from anchorDate + offsetDays.',
+export function registerProjectTools(
+  server: McpServer,
+  apiUrl: string,
+  apiToken: string,
+  agentUrl = process.env.RHYTHM_AGENT_URL ?? "http://127.0.0.1:4001",
+) {
+  registerTool(
+    server,
+    "rhythm_list_project_templates",
+    "List all project templates, including their steps. " +
+      "Fields returned per step: id, title, offsetDays, offsetDescription, sortOrder. " +
+      "Steps do not carry date fields at the template level — dates are computed when a template is instantiated " +
+      "from anchorDate + offsetDays.",
     {},
-    async () => {
+    async (_args, extra) => {
       try {
-        const templates = await apiGet<unknown[]>(apiUrl, apiToken, '/project-templates');
-        return toolResult(JSON.stringify(templates, null, 2));
+        const templates = await apiGet<unknown[]>(
+          apiUrl,
+          apiToken,
+          "/project-templates",
+        );
+        const ingress = await scanContextContentAndRecordExternalContentTaint({
+          agentUrl,
+          context: trustedSecurityContext(extra),
+          source: "project-template.list",
+          label: "user-authored project templates",
+          rawContent: JSON.stringify(templates, null, 2),
+        });
+        return ingress.blocked
+          ? {
+              content: [{ type: "text" as const, text: ingress.text }],
+              isError: true as const,
+            }
+          : toolResult(ingress.text);
       } catch (err) {
         return toolError(err);
       }
     },
   );
 
-  registerTool(server, 'rhythm_create_project_template',
+  registerTool(
+    server,
+    "rhythm_create_project_template",
     'Create a new project template (e.g. "Sunday Service Prep").',
     {
-      name: z.string().describe('Template name.'),
-      description: z.string().optional().describe('Optional description.'),
+      name: z.string().describe("Template name."),
+      description: z.string().optional().describe("Optional description."),
     },
     async ({ name, description }: { name: string; description?: string }) => {
       try {
-        const template = await apiPost<unknown>(apiUrl, apiToken, '/project-templates', {
-          name: decodeHtml(name),
-          ...(description !== undefined && { description: decodeHtml(description) }),
-        });
+        const template = await apiPost<unknown>(
+          apiUrl,
+          apiToken,
+          "/project-templates",
+          {
+            name: decodeHtml(name),
+            ...(description !== undefined && {
+              description: decodeHtml(description),
+            }),
+          },
+        );
         return toolResult(JSON.stringify(template, null, 2));
       } catch (err) {
         return toolError(err);
@@ -39,23 +83,56 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
     },
   );
 
-  registerTool(server, 'rhythm_add_project_step',
-    'Add a step to a project template.',
+  registerTool(
+    server,
+    "rhythm_add_project_step",
+    "Add a step to a project template.",
     {
-      template_id: z.string().describe('Project template ID.'),
-      title: z.string().describe('Step title.'),
-      offset_days: z.number().int().describe('Days relative to anchor date (negative = before, positive = after).'),
-      offset_description: z.string().optional().describe('Human-readable timing label (e.g. "2 weeks before").'),
-      sort_order: z.number().int().optional().describe('Display order (0-based).'),
+      template_id: z.string().describe("Project template ID."),
+      title: z.string().describe("Step title."),
+      offset_days: z
+        .number()
+        .int()
+        .describe(
+          "Days relative to anchor date (negative = before, positive = after).",
+        ),
+      offset_description: z
+        .string()
+        .optional()
+        .describe('Human-readable timing label (e.g. "2 weeks before").'),
+      sort_order: z
+        .number()
+        .int()
+        .optional()
+        .describe("Display order (0-based)."),
     },
-    async ({ template_id, title, offset_days, offset_description, sort_order }: { template_id: string; title: string; offset_days: number; offset_description?: string; sort_order?: number }) => {
+    async ({
+      template_id,
+      title,
+      offset_days,
+      offset_description,
+      sort_order,
+    }: {
+      template_id: string;
+      title: string;
+      offset_days: number;
+      offset_description?: string;
+      sort_order?: number;
+    }) => {
       try {
-        const step = await apiPost<unknown>(apiUrl, apiToken, `/project-templates/${template_id}/steps`, {
-          title: decodeHtml(title),
-          offsetDays: offset_days,
-          ...(offset_description !== undefined && { offsetDescription: decodeHtml(offset_description) }),
-          ...(sort_order !== undefined && { sortOrder: sort_order }),
-        });
+        const step = await apiPost<unknown>(
+          apiUrl,
+          apiToken,
+          `/project-templates/${template_id}/steps`,
+          {
+            title: decodeHtml(title),
+            offsetDays: offset_days,
+            ...(offset_description !== undefined && {
+              offsetDescription: decodeHtml(offset_description),
+            }),
+            ...(sort_order !== undefined && { sortOrder: sort_order }),
+          },
+        );
         return toolResult(JSON.stringify(step, null, 2));
       } catch (err) {
         return toolError(err);
@@ -63,23 +140,68 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
     },
   );
 
-  registerTool(server, 'rhythm_create_project_instance',
-    'Instantiate a template as an active project with an anchor date. ' +
-    'Each step in the returned instance includes: ' +
-    'scheduledDate (when the step is planned to be done; anchorDate + offsetDays; drives overdue state) and ' +
-    'dueDate (hard external deadline for the step; drives past-deadline state).',
+  registerTool(
+    server,
+    "rhythm_create_project_instance",
+    "Instantiate a template as an active project with an anchor date. " +
+      "Each step in the returned instance includes: " +
+      "scheduledDate (when the step is planned to be done; anchorDate + offsetDays; drives overdue state) and " +
+      "dueDate (hard external deadline for the step; drives past-deadline state).",
     {
-      template_id: z.string().describe('Project template ID to instantiate.'),
-      anchor_date: z.string().describe('Key event date in YYYY-MM-DD format.'),
-      name: z.string().optional().describe('Custom name for this instance (defaults to template name).'),
+      template_id: z.string().describe("Project template ID to instantiate."),
+      anchor_date: z.string().describe("Key event date in YYYY-MM-DD format."),
+      name: z
+        .string()
+        .optional()
+        .describe("Custom name for this instance (defaults to template name)."),
+      approval_id: z
+        .string()
+        .optional()
+        .describe(
+          "Approval id returned by rhythm_request_approval — required after reading untrusted content.",
+        ),
     },
-    async ({ template_id, anchor_date, name }: { template_id: string; anchor_date: string; name?: string }) => {
+    async (
+      {
+        template_id,
+        anchor_date,
+        name,
+        approval_id,
+      }: {
+        template_id: string;
+        anchor_date: string;
+        name?: string;
+        approval_id?: string;
+      },
+      extra,
+    ) => {
+      const payload = {
+        templateId: template_id,
+        anchorDate: anchor_date,
+        ...(name !== undefined && { name: decodeHtml(name) }),
+      };
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: "project-instance.create",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: "text" as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
       try {
-        const instance = await apiPost<unknown>(apiUrl, apiToken, '/project-instances', {
-          templateId: template_id,
-          anchorDate: anchor_date,
-          ...(name !== undefined && { name: decodeHtml(name) }),
-        });
+        const instance = await apiPost<unknown>(
+          apiUrl,
+          apiToken,
+          "/project-instances",
+          payload,
+        );
         return toolResult(JSON.stringify(instance, null, 2));
       } catch (err) {
         return toolError(err);
@@ -87,42 +209,87 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
     },
   );
 
-  registerTool(server, 'rhythm_list_project_instances',
-    'List active projects with step progress. Defaults to active projects. ' +
-    'Fields returned per step: id, title, status, notes, ' +
-    'scheduledDate (when the step is planned to be done; drives overdue state), ' +
-    'dueDate (hard external deadline for the step; drives past-deadline state).',
+  registerTool(
+    server,
+    "rhythm_list_project_instances",
+    "List active projects with step progress. Defaults to active projects. " +
+      "Fields returned per step: id, title, status, notes, " +
+      "scheduledDate (when the step is planned to be done; drives overdue state), " +
+      "dueDate (hard external deadline for the step; drives past-deadline state).",
     {
-      status: z.enum(['active', 'completed', 'all']).optional().describe("Filter by status. Defaults to 'active'."),
+      status: z
+        .enum(["active", "completed", "all"])
+        .optional()
+        .describe("Filter by status. Defaults to 'active'."),
     },
-    async ({ status = 'active' }: { status?: string }) => {
+    async ({ status = "active" }: { status?: string }, extra) => {
       try {
-        const qs = status !== 'all' ? `?status=${status}` : '';
-        const instances = await apiGet<unknown[]>(apiUrl, apiToken, `/project-instances${qs}`);
-        return toolResult(JSON.stringify(instances, null, 2));
+        const qs = status !== "all" ? `?status=${status}` : "";
+        const instances = await apiGet<unknown[]>(
+          apiUrl,
+          apiToken,
+          `/project-instances${qs}`,
+        );
+        const ingress = await scanContextContentAndRecordExternalContentTaint({
+          agentUrl,
+          context: trustedSecurityContext(extra),
+          source: "project-instance.list",
+          label: "user-authored project instances",
+          rawContent: JSON.stringify(instances, null, 2),
+        });
+        return ingress.blocked
+          ? {
+              content: [{ type: "text" as const, text: ingress.text }],
+              isError: true as const,
+            }
+          : toolResult(ingress.text);
       } catch (err) {
         return toolError(err);
       }
     },
   );
 
-  registerTool(server, 'rhythm_update_project_step',
-    'Mark a project step as done or update its notes. ' +
-    'Fields returned: id, title, status, notes, ' +
-    'scheduledDate (when the step is planned to be done; drives overdue state), ' +
-    'dueDate (hard external deadline for the step; drives past-deadline state).',
+  registerTool(
+    server,
+    "rhythm_update_project_step",
+    "Mark a project step as done or update its notes. " +
+      "Fields returned: id, title, status, notes, " +
+      "scheduledDate (when the step is planned to be done; drives overdue state), " +
+      "dueDate (hard external deadline for the step; drives past-deadline state).",
     {
-      instance_id: z.string().describe('Project instance ID.'),
-      step_id: z.string().describe('Step ID within the instance.'),
-      status: z.enum(['open', 'done']).optional().describe('New status for the step.'),
-      notes: z.string().nullable().optional().describe('Notes about the step, or null to clear.'),
+      instance_id: z.string().describe("Project instance ID."),
+      step_id: z.string().describe("Step ID within the instance."),
+      status: z
+        .enum(["open", "done"])
+        .optional()
+        .describe("New status for the step."),
+      notes: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Notes about the step, or null to clear."),
     },
-    async ({ instance_id, step_id, status, notes }: { instance_id: string; step_id: string; status?: string; notes?: string | null }) => {
+    async ({
+      instance_id,
+      step_id,
+      status,
+      notes,
+    }: {
+      instance_id: string;
+      step_id: string;
+      status?: string;
+      notes?: string | null;
+    }) => {
       try {
         const body: Record<string, unknown> = {};
         if (status !== undefined) body.status = status;
         if (notes !== undefined) body.notes = notes;
-        const step = await apiPatch<unknown>(apiUrl, apiToken, `/project-instances/${instance_id}/steps/${step_id}`, body);
+        const step = await apiPatch<unknown>(
+          apiUrl,
+          apiToken,
+          `/project-instances/${instance_id}/steps/${step_id}`,
+          body,
+        );
         return toolResult(JSON.stringify(step, null, 2));
       } catch (err) {
         return toolError(err);

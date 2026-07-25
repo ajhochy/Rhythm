@@ -19,6 +19,17 @@ import { runMigrations } from '../database/migrations';
 import { setDb, getDb } from '../database/db';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
+import {
+  installHumanApprovalTestCredentials,
+  signHumanApprovalDecision,
+  type HumanApprovalTestCredentials,
+} from './helpers/human_approval_test_credentials';
+
+interface PendingApproval {
+  id: string;
+  decisionNonce: string;
+  payloadDigest: string | null;
+}
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -31,6 +42,7 @@ describe('#895 — /agent-approvals', () => {
   let baseUrl: string;
   let authHeader: Record<string, string>;
   let closeServer: () => Promise<void>;
+  let approvalCredentials: HumanApprovalTestCredentials;
 
   beforeEach(async () => {
     setDb(makeDb());
@@ -39,7 +51,11 @@ describe('#895 — /agent-approvals', () => {
     const sessionsRepo = new SessionsRepository();
     const user = usersRepo.create({ name: 'Test', email: 'test@example.com' });
     const session = await sessionsRepo.createAsync(user.id);
-    authHeader = { Authorization: `Bearer ${session.token}` };
+    approvalCredentials = installHumanApprovalTestCredentials();
+    authHeader = {
+      Authorization: `Bearer ${session.token}`,
+      ...approvalCredentials.capabilityHeader,
+    };
 
     ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
   });
@@ -73,12 +89,19 @@ describe('#895 — /agent-approvals', () => {
       method: 'POST',
       headers: { ...authHeader, 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'Send reminder email' }),
-    }).then((r) => r.json()) as { id: string };
+    }).then((r) => r.json()) as PendingApproval;
 
     await fetch(`${baseUrl}/agent-approvals/${created.id}`, {
       method: 'PATCH',
       headers: { ...authHeader, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'approved', actor: 'aj@example.com' }),
+      body: JSON.stringify({
+        status: 'approved',
+        signature: signHumanApprovalDecision(
+          approvalCredentials,
+          created,
+          'approved',
+        ),
+      }),
     });
 
     const pendingOnly = await fetch(`${baseUrl}/agent-approvals`, { headers: authHeader });
@@ -88,7 +111,7 @@ describe('#895 — /agent-approvals', () => {
     const allBody = (await all.json()) as Record<string, unknown>[];
     expect(allBody).toHaveLength(1);
     expect(allBody[0].status).toBe('approved');
-    expect(allBody[0].actor).toBe('aj@example.com');
+    expect(allBody[0].actor).toBe('user:1');
     expect(typeof allBody[0].decidedAt).toBe('string');
   });
 
@@ -97,12 +120,19 @@ describe('#895 — /agent-approvals', () => {
       method: 'POST',
       headers: { ...authHeader, 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'Update PCO plan item' }),
-    }).then((r) => r.json()) as { id: string };
+    }).then((r) => r.json()) as PendingApproval;
 
     const res = await fetch(`${baseUrl}/agent-approvals/${created.id}`, {
       method: 'PATCH',
       headers: { ...authHeader, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'rejected', actor: 'aj@example.com' }),
+      body: JSON.stringify({
+        status: 'rejected',
+        signature: signHumanApprovalDecision(
+          approvalCredentials,
+          created,
+          'rejected',
+        ),
+      }),
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -114,18 +144,32 @@ describe('#895 — /agent-approvals', () => {
       method: 'POST',
       headers: { ...authHeader, 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'Send email' }),
-    }).then((r) => r.json()) as { id: string };
+    }).then((r) => r.json()) as PendingApproval;
 
     await fetch(`${baseUrl}/agent-approvals/${created.id}`, {
       method: 'PATCH',
       headers: { ...authHeader, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'approved' }),
+      body: JSON.stringify({
+        status: 'approved',
+        signature: signHumanApprovalDecision(
+          approvalCredentials,
+          created,
+          'approved',
+        ),
+      }),
     });
 
     const second = await fetch(`${baseUrl}/agent-approvals/${created.id}`, {
       method: 'PATCH',
       headers: { ...authHeader, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'rejected' }),
+      body: JSON.stringify({
+        status: 'rejected',
+        signature: signHumanApprovalDecision(
+          approvalCredentials,
+          created,
+          'rejected',
+        ),
+      }),
     });
     expect(second.status).toBe(404);
   });

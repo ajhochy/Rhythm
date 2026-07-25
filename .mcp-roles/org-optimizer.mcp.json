@@ -16,7 +16,8 @@
         "rhythm_list_memories",
         "rhythm_search_memory",
         "rhythm_remember_memory",
-        "rhythm_run_org_optimizer"
+        "rhythm_run_org_optimizer",
+        "rhythm_request_approval"
       ]
     }
   },

@@ -26,7 +26,8 @@
         "rhythm_forget_memory",
         "rhythm_start_research",
         "rhythm_get_research_job",
-        "rhythm_update_research_job"
+        "rhythm_update_research_job",
+        "rhythm_request_approval"
       ]
     },
     "nfl_mcp": {

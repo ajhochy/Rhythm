@@ -4,37 +4,6 @@
   "description": "Worship Planning \u2014 Plans Sunday services from the Obsidian worship database + PCO. Handles song selection, liturgy, PCO scheduling, song-usage sync, and monthly council reports.",
   "agentConfigId": "fd538791-71b0-437a-a7da-7c9192c723d0",
   "mcpServers": {
-    "pco-services": {
-      "inherit": true,
-      "allowedTools": [
-        "get_service_types",
-        "get_plans",
-        "get_plan_items",
-        "get_plan_team_members",
-        "get_needed_positions",
-        "get_person_blockouts",
-        "get_person_plan_schedule",
-        "search_people",
-        "get_songs",
-        "get_song",
-        "find_song_by_title",
-        "find_songs_by_tags",
-        "get_all_arrangements_for_song",
-        "get_arrangement_for_song",
-        "get_keys_for_arrangement_of_song",
-        "get_teams",
-        "get_team_members",
-        "get_team_positions",
-        "get_item_assignments",
-        "schedule_person_to_plan",
-        "assign_person_to_item",
-        "update_plan_item",
-        "add_song_to_plan",
-        "update_plan",
-        "update_scheduled_person",
-        "assign_tags_to_song"
-      ]
-    },
     "obsidian": {
       "inherit": true,
       "allowedTools": [
@@ -68,15 +37,15 @@
         "rhythm_get_dashboard",
         "rhythm_remember",
         "rhythm_search_context",
-        "rhythm_list_memories"
-      ]
-    },
-    "calendar": {
-      "inherit": true,
-      "allowedTools": [
-        "list_events",
-        "get_event",
-        "list_calendars"
+        "rhythm_list_memories",
+        "rhythm_pco_list_service_types",
+        "rhythm_pco_list_plans",
+        "rhythm_pco_get_plan_items",
+        "rhythm_pco_list_needed_positions",
+        "rhythm_pco_update_plan_item",
+        "rhythm_pco_assign_person",
+        "rhythm_pco_update_scheduled_person",
+        "rhythm_request_approval"
       ]
     }
   },
