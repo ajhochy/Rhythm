@@ -2,50 +2,45 @@
 
 ## Current focus
 
-Creative-platform integration is complete. Draft PR #1179 is fully green at
-HEAD `6a24e56aa`; manual visual smoke testing remains before merge.
+Desktop release `v0.18.51` is published after the bundled-server smoke fix
+merged in PR #1184 and the full release workflow completed successfully.
 
 ## Active branch / PR
 
-- Branch: `feature/creative-platform-integration`.
-- HEAD: `6a24e56aa`.
-- Draft PR: [#1179](https://github.com/ajhochy/Rhythm/pull/1179).
-- The branch was pushed, the draft PR is open, and all latest CI checks pass.
+- Main fix: [PR #1184](https://github.com/ajhochy/Rhythm/pull/1184), merged as
+  `0c12bdab4` and tagged `v0.18.51`.
+- Follow-up branch: `codex/fix-desktop-release-sqlite-smoke`.
+- The follow-up contains only the regression guard and project-memory update;
+  its draft PR is not open yet.
 
 ## In progress
 
-- No implementation work remains from the verified integration scope.
-- Pending: manual visual smoke before merge.
+- Open the follow-up draft PR for the static regression guard and run record.
+- No release implementation work remains.
 
 ## Risks / known issues
 
-- Manual visual smoke is still required before merge.
-- No automated or product blockers are known.
+- No known release blocker remains.
+- GitHub emitted a non-blocking warning that several actions still target
+  deprecated Node.js 20 metadata while the runner forces Node.js 24.
 
 ## Test status
 
-- Automated gate and latest GitHub CI: **PASS** at `6a24e56aa`.
-- Automated verification is green: API 3240 passed/52 skipped; MCP 98 passed/1
-  skipped with 81 runtime tools; Flutter 979 passed, format clean, and analyze
-  exited 0 with 273 infos.
-- Latest GitHub checks: Server passed in 3m39s, Desktop passed in 5m57s, and MCP
-  typecheck/build passed in 22s.
-- Live checks passed for generic research (2/2 completed with nonempty reports
-  and matching vault notes), Gallery ComfyUI MCP→API PNG, and unified
-  generic/AI-Trend/Theological indexing, deduplication, and restart fixtures.
-- Packaging, release, and schema gates passed. GitNexus reported medium branch
-  impact and low risk for the final focused changes.
-- Full evidence: `docs/ai/runs/2026-07-25-creative-platform-final-verification.md`.
+- Desktop Release run
+  [30178638700](https://github.com/ajhochy/Rhythm/actions/runs/30178638700):
+  **PASS** at `d36c108c1` in 13m57s.
+- Universal macOS build, bundled server and memory smoke, fork/MCP/skill
+  persistence checks, packaging, signing, notarization, artifact upload, and
+  release publication all passed.
+- Local targeted parity guard: 9/9 passed after first proving the new assertion
+  fails against the old relative-path workflow.
+- `ai-workflow checks --level issue` and `--level pr`: passed.
+- API build and `actionlint`: passed.
+- GitNexus: 3 changed files, 0 affected processes, LOW risk.
+- Full evidence:
+  `docs/ai/runs/2026-07-25-desktop-release-bundled-sqlite-smoke.md`.
 
 ## Next step
 
-Run the manual visual smoke. Do not merge without human review.
-
-## Recent coding-agent runs
-
-### 2026-07-25 — desktop-release-bundled-sqlite-probe
-- Files modified: `.github/workflows/desktop_release.yml` resolves the fresh-package better-sqlite3 module path; `apps/api_server/src/__tests__/skill_schema_parity.test.ts` guards that resolution.
-- Checks run: targeted Vitest failed first on the missing resolution guard, then passed (9/9); `ai-workflow checks --level issue` passed (Flutter analyze/format, api_server TypeScript).
-- Decisions made: use `path.resolve` immediately before Node `require()` so the workflow probe receives an absolute filesystem module path.
-- Deviations from spec: none.
-- Concerns: the macOS packaged smoke runs only in GitHub Actions; its next Desktop Release run is the authoritative behavioral verification.
+Open the follow-up draft PR, then leave merge to human review. The release
+itself is already published.
