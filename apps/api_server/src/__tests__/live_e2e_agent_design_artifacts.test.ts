@@ -24,7 +24,7 @@ describeLive('live E2E — Gallery artifacts', () => {
     writeFileSync(artifact, 'live-gallery-png');
     const created = await fetch(`${base}/agent-designs`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Live Gallery Artifact', localPath: artifact }),
+      body: JSON.stringify({ title: 'Live Gallery Artifact', provider: 'built-in', localPath: artifact }),
     });
     expect(created.status).toBe(201);
     const design = (await created.json()) as { id: string; artifactType: string };

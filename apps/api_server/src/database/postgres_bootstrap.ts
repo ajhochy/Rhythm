@@ -620,11 +620,14 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_agent_cookbook_created_at ON agent_cookbook(created_at)`,
   );
 
-  // D1 — agent_designs: records of Canva designs produced by Gallery agent sessions.
+  // D1 — agent_designs: provider-neutral finished creative-media artifacts.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_designs (
       id TEXT PRIMARY KEY,
       title TEXT,
+      provider TEXT,
+      artifact_url TEXT,
+      project_url TEXT,
       canva_url TEXT,
       artifact_type TEXT,
       file_path TEXT,
@@ -635,6 +638,11 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   `);
   await pool.query(`ALTER TABLE agent_designs ADD COLUMN IF NOT EXISTS artifact_type TEXT`);
   await pool.query(`ALTER TABLE agent_designs ADD COLUMN IF NOT EXISTS file_path TEXT`);
+  await pool.query(`ALTER TABLE agent_designs ADD COLUMN IF NOT EXISTS provider TEXT`);
+  await pool.query(`ALTER TABLE agent_designs ADD COLUMN IF NOT EXISTS artifact_url TEXT`);
+  await pool.query(`ALTER TABLE agent_designs ADD COLUMN IF NOT EXISTS project_url TEXT`);
+  await pool.query(`UPDATE agent_designs SET project_url = canva_url, provider = COALESCE(provider, 'canva') WHERE canva_url IS NOT NULL AND project_url IS NULL`);
+  await pool.query(`UPDATE agent_designs SET provider = 'local' WHERE file_path IS NOT NULL AND provider IS NULL`);
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_agent_designs_created_at ON agent_designs(created_at)`,
   );

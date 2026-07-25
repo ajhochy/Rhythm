@@ -3,8 +3,8 @@
 /// Asserts:
 ///   1. Design grid renders titles from a fake controller.
 ///   2. Empty-state widget renders when designs list is empty.
-///   3. "Launch designer" button is present.
-///   4. "Open in Canva" link is present for a design with a canvaUrl.
+///   3. "Launch Creative Media" button is present.
+///   4. Provider-neutral deliverable/project actions render independently.
 ///   5. Tapping the button launches the creative-media agent without an MCP role.
 ///   6. Tapping the button calls selectSession on the returned session.
 ///   7. Tapping the button stages a composer draft for the new session.
@@ -187,12 +187,18 @@ class _FakeGalleryDataSource extends AgentGalleryDataSource {
 AgentDesign _makeDesign(
   String id,
   String title, {
+  String provider = 'built-in',
+  String? artifactUrl,
+  String? projectUrl,
   String? canvaUrl,
   String? artifactType,
 }) =>
     AgentDesign(
       id: id,
       title: title,
+      provider: provider,
+      artifactUrl: artifactUrl,
+      projectUrl: projectUrl ?? canvaUrl,
       canvaUrl: canvaUrl,
       artifactType: artifactType,
       createdAt: DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
@@ -300,7 +306,7 @@ void main() {
       galleryController.dispose();
     });
 
-    testWidgets('"Launch designer" button is present', (tester) async {
+    testWidgets('"Launch Creative Media" button is present', (tester) async {
       final dataSource = _FakeGalleryDataSource([]);
       final galleryController = AgentGalleryController(
         AgentGalleryRepository(dataSource),
@@ -324,14 +330,18 @@ void main() {
       galleryController.dispose();
     });
 
-    testWidgets('"Open in Canva" link renders for design with canvaUrl', (
+    testWidgets('shows provider badge and separate deliverable/project actions',
+        (
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(1200, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
       final designs = [
-        _makeDesign('d1', 'Alpha Design', canvaUrl: 'https://canva.com/d/1'),
+        _makeDesign('d1', 'Alpha Design',
+            provider: 'comfyui',
+            artifactUrl: 'https://example.test/d1.png',
+            projectUrl: 'https://example.test/workflow'),
       ];
       final dataSource = _FakeGalleryDataSource(designs);
       final galleryController = AgentGalleryController(
@@ -348,15 +358,38 @@ void main() {
       await tester.pump();
 
       expect(
-        find.text('Open in Canva'),
+        find.text('Comfyui'),
         findsOneWidget,
-        reason: '"Open in Canva" link should render for design with canvaUrl',
       );
+      expect(find.text('Open deliverable'), findsOneWidget);
+      expect(find.text('Open project'), findsOneWidget);
 
       galleryController.dispose();
     });
 
-    testWidgets('renders safe local artifact cards for image, PDF, video, and SVG', (
+    testWidgets('renders legacy Canva rows as a Canva project', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final galleryController = AgentGalleryController(
+        AgentGalleryRepository(_FakeGalleryDataSource([
+          _makeDesign('legacy', 'Legacy Canva',
+              provider: 'canva',
+              canvaUrl: 'https://www.canva.com/design/legacy'),
+        ])),
+      );
+      await galleryController.loadDesigns();
+      await tester.pumpWidget(await _buildApp(
+          galleryController: galleryController,
+          agentsController: agentsController));
+      await tester.pump();
+      expect(find.text('Canva'), findsOneWidget);
+      expect(find.text('Open project'), findsOneWidget);
+      expect(find.text('Open deliverable'), findsNothing);
+      galleryController.dispose();
+    });
+
+    testWidgets(
+        'renders safe local artifact cards for image, PDF, video, and SVG', (
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(1200, 900));
@@ -379,10 +412,7 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(find.text('Open PNG'), findsOneWidget);
-      expect(find.text('Open PDF'), findsOneWidget);
-      expect(find.text('Open MP4'), findsOneWidget);
-      expect(find.text('Open SVG'), findsOneWidget);
+      expect(find.text('Open deliverable'), findsNWidgets(4));
       galleryController.dispose();
     });
 

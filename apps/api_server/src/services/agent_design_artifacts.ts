@@ -2,7 +2,21 @@ import { existsSync, realpathSync, statSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 import { containsReal } from '../utils/path_containment';
 
-const allowedExtensions = new Set(['.png', '.jpg', '.jpeg', '.svg', '.mp4', '.pdf']);
+const allowedExtensions = new Set([
+  '.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.tif', '.tiff', '.exr',
+  '.pdf', '.pptx', '.docx', '.xlsx', '.csv', '.mp4', '.mov', '.webm',
+  '.glb', '.gltf', '.obj',
+]);
+
+export interface ValidatedAgentDesignInput {
+  title: string;
+  provider: string;
+  artifactType: string;
+  localPath?: string;
+  artifactUrl?: string;
+  projectUrl?: string;
+  sessionId?: string;
+}
 
 export function artifactTypeForPath(filePath: string): string | null {
   const extension = extname(filePath).toLowerCase();
@@ -11,6 +25,66 @@ export function artifactTypeForPath(filePath: string): string | null {
 
 export function isArtifactType(value: string): boolean {
   return allowedExtensions.has(`.${value.toLowerCase()}`);
+}
+
+function normalizeHttpsUrl(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${field} must be an HTTPS URL`);
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'https:' || url.username || url.password) throw new Error();
+    return url.toString();
+  } catch {
+    throw new Error(`${field} must be an HTTPS URL`);
+  }
+}
+
+function normalizeProvider(value: unknown): string {
+  if (typeof value !== 'string') throw new Error('Provider is required');
+  const provider = value.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(provider)) {
+    throw new Error('Provider must be a non-empty normalized ID');
+  }
+  return provider;
+}
+
+/** The sole validation boundary for direct API and MCP-created artifact records. */
+export function validateAgentDesignInput(input: Record<string, unknown>): ValidatedAgentDesignInput {
+  const title = typeof input.title === 'string' ? input.title.trim() : '';
+  if (!title) throw new Error('Title is required');
+  const provider = normalizeProvider(input.provider);
+  const localPath = typeof input.localPath === 'string' && input.localPath.trim() ? input.localPath : undefined;
+  const artifactUrl = typeof input.artifactUrl === 'string' && input.artifactUrl.trim()
+    ? normalizeHttpsUrl(input.artifactUrl, 'Artifact URL') : undefined;
+  if (Boolean(localPath) === Boolean(artifactUrl)) {
+    throw new Error('Provide exactly one finished deliverable locator: localPath or artifactUrl');
+  }
+  if (input.thumbnailUrl !== undefined) {
+    throw new Error('Remote thumbnails are not supported; use the authenticated artifact API for local previews');
+  }
+  const projectUrlValue = input.projectUrl ?? input.canvaUrl;
+  const projectUrl = projectUrlValue === undefined ? undefined : normalizeHttpsUrl(projectUrlValue, 'Project URL');
+  if (input.projectUrl !== undefined && input.canvaUrl !== undefined && input.projectUrl !== input.canvaUrl) {
+    throw new Error('Provide one project URL');
+  }
+
+  const localArtifact = localPath
+    ? resolveLocalArtifact(localPath, input.userApprovedPath === true)
+    : undefined;
+  const remoteType = artifactUrl ? artifactTypeForPath(new URL(artifactUrl).pathname) : undefined;
+  if (artifactUrl && !remoteType) throw new Error('Unsupported finished artifact URL type');
+  const artifactType = localArtifact?.artifactType ?? remoteType!;
+  if (typeof input.artifactType === 'string' && input.artifactType.toLowerCase() !== artifactType) {
+    throw new Error('Artifact type does not match the finished deliverable');
+  }
+  return {
+    title,
+    provider,
+    artifactType,
+    localPath: localArtifact?.path,
+    artifactUrl,
+    projectUrl,
+    sessionId: typeof input.sessionId === 'string' ? input.sessionId : undefined,
+  };
 }
 
 export function resolveLocalArtifact(filePath: string, userApprovedPath = false): { path: string; artifactType: string } {

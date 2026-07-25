@@ -52,11 +52,13 @@ current state.
 
 ## Test status
 
-- Phase 3: API artifact tests 9/9, API and MCP builds clean, MCP focused test
-  passed, and a sandbox E2E created/listed/served a synthetic local PNG.
-- Flutter SDK is unavailable in this environment, so Gallery widget test and
-  analyzer are pending a Flutter-equipped machine.
-- Full detail: `docs/ai/runs/2026-07-24-creative-platform-phase3-gallery-artifacts.md`.
+- Provider-neutral Creative Media artifacts are complete locally: API/MCP and
+  Flutter support named providers, finished deliverables, separate projects,
+  additive SQLite/Postgres backfills, and legacy Canva compatibility.
+- Node 22 API full suite (3238 passed, 52 skipped), MCP full suite (98 passed,
+  1 skipped), Flutter full suite (979 passed), and sandbox API/MCP artifact
+  E2E all pass. Flutter analyze exits 0 with 273 pre-existing infos.
+- Full detail: `docs/ai/runs/2026-07-24-creative-media-artifacts.md`.
 - Researcher: Node 22 build and focused tests pass. Sandbox E2E reached the
   projected `research` agent (no `Agent not found`) but OpenRouter free stopped
   on an upstream Darkbloom tool-schema 502 before producing a report.

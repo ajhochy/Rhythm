@@ -4,7 +4,6 @@ import { toolError, toolResult } from '../api_client.js';
 import { registerTool } from './_tool.js';
 
 const capability = z.enum(['blender', 'comfyui', 'comfyui-model-pack', 'openmontage', 'obsidian', 'document-tools', 'media-tools']);
-const artifactType = z.enum(['png', 'jpg', 'jpeg', 'svg', 'mp4', 'pdf']);
 
 export function registerCreativePlatformTools(server: McpServer, agentUrl: string): void {
   const request = async (path: string, init?: RequestInit) => {
@@ -31,9 +30,8 @@ export function registerCreativePlatformTools(server: McpServer, agentUrl: strin
   registerTool(server, 'rhythm_verify_creative_capability', 'Re-check one creative capability after installation or local service startup.', { id: capability }, async ({ id }: { id: string }) => {
     try { return toolResult(JSON.stringify(await request(`/${id}/verify`, { method: 'POST' }), null, 2)); } catch (error) { return toolError(error); }
   });
-  registerTool(server, 'rhythm_record_design', 'Record a completed local artifact or Canva design in Rhythm Gallery. Local paths must be in ~/Downloads/Rhythm Studio unless the user explicitly approved another path.', { title: z.string().min(1), provider: z.enum(['local', 'canva']), artifactType: artifactType.optional(), localPath: z.string().optional(), canvaUrl: z.string().url().optional(), thumbnailUrl: z.string().url().optional(), sessionId: z.string().optional(), userApprovedPath: z.boolean().optional() }, async (input: { title: string; provider: 'local' | 'canva'; artifactType?: string; localPath?: string; canvaUrl?: string; thumbnailUrl?: string; sessionId?: string; userApprovedPath?: boolean }) => {
+  registerTool(server, 'rhythm_record_design', 'Record a finished Creative Media artifact. Provide exactly one deliverable locator (localPath or HTTPS artifactUrl); optional HTTPS projectUrl is for the editable source. The API validates providers, titles, locations, and formats.', { title: z.string(), provider: z.string(), artifactType: z.string().optional(), localPath: z.string().optional(), artifactUrl: z.string().optional(), projectUrl: z.string().optional(), canvaUrl: z.string().optional(), sessionId: z.string().optional(), userApprovedPath: z.boolean().optional() }, async (input: Record<string, unknown>) => {
     try {
-      if ((input.provider === 'local') !== Boolean(input.localPath) || (input.provider === 'canva') !== Boolean(input.canvaUrl)) throw new Error('provider must match exactly one localPath or canvaUrl');
       return toolResult(JSON.stringify(await recordDesign(input), null, 2));
     } catch (error) { return toolError(error); }
   });

@@ -1609,12 +1609,15 @@ export function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_cookbook_created_at ON agent_cookbook(created_at);
   `);
 
-  // D1 — agent_designs: records of Canva designs produced by Gallery agent sessions.
+  // D1 — agent_designs: provider-neutral finished creative-media artifacts.
   // session_id is a nullable logical FK to agent_sessions.id (not enforced at SQLite level).
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_designs (
       id TEXT PRIMARY KEY,
       title TEXT,
+      provider TEXT,
+      artifact_url TEXT,
+      project_url TEXT,
       canva_url TEXT,
       artifact_type TEXT,
       file_path TEXT,
@@ -1627,6 +1630,11 @@ export function runMigrations(db: Database.Database): void {
   const agentDesignCols = (db.pragma('table_info(agent_designs)') as { name: string }[]).map((c) => c.name);
   if (!agentDesignCols.includes('artifact_type')) db.exec(`ALTER TABLE agent_designs ADD COLUMN artifact_type TEXT`);
   if (!agentDesignCols.includes('file_path')) db.exec(`ALTER TABLE agent_designs ADD COLUMN file_path TEXT`);
+  if (!agentDesignCols.includes('provider')) db.exec(`ALTER TABLE agent_designs ADD COLUMN provider TEXT`);
+  if (!agentDesignCols.includes('artifact_url')) db.exec(`ALTER TABLE agent_designs ADD COLUMN artifact_url TEXT`);
+  if (!agentDesignCols.includes('project_url')) db.exec(`ALTER TABLE agent_designs ADD COLUMN project_url TEXT`);
+  db.exec(`UPDATE agent_designs SET project_url = canva_url, provider = COALESCE(provider, 'canva') WHERE canva_url IS NOT NULL AND project_url IS NULL`);
+  db.exec(`UPDATE agent_designs SET provider = 'local' WHERE file_path IS NOT NULL AND provider IS NULL`);
 
   // ── Agent Config Profile Extensions ──────────────────────────────────────
   // Add manager/specialist profile columns to agent_configs (additive).
