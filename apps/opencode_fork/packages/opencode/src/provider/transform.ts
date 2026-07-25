@@ -1373,6 +1373,38 @@ export function schema(model: Provider.Model, schema: JSONSchema7): JSONSchema7 
     }
   }
 
+  if (["@ai-sdk/anthropic", "@ai-sdk/google-vertex/anthropic"].includes(model.api.npm)) {
+    const combiners = ["anyOf", "oneOf", "allOf"] as const
+    const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+      typeof value === "object" && value !== null && !Array.isArray(value)
+
+    const sanitizeAnthropic = (value: unknown, root = false): unknown => {
+      if (Array.isArray(value)) return value.map((item) => sanitizeAnthropic(item))
+      if (!isPlainObject(value)) return value
+
+      const result = Object.fromEntries(
+        Object.entries(value).map(([key, item]) => [key, sanitizeAnthropic(item)]),
+      )
+      const keys = Object.keys(result)
+      const soleCombiner = keys.length === 1 ? combiners.find((key) => key === keys[0]) : undefined
+      const branches = soleCombiner ? result[soleCombiner] : undefined
+      if (Array.isArray(branches) && branches.length === 1) {
+        return sanitizeAnthropic(branches[0], root)
+      }
+
+      // Anthropic rejects every irreducible top-level combiner before the
+      // request reaches the model. Preserve nested unions, which it supports,
+      // but degrade an unsafe tool root to a permissive object so the whole
+      // agent turn is not lost.
+      if (root && combiners.some((key) => Array.isArray(result[key]))) {
+        return { type: "object" }
+      }
+      return result
+    }
+
+    schema = sanitizeAnthropic(schema, true) as JSONSchema7
+  }
+
   // Convert integer enums to string enums for Google/Gemini
   if (model.providerID === "google" || model.api.id.includes("gemini")) {
     const isPlainObject = (node: unknown): node is Record<string, any> =>

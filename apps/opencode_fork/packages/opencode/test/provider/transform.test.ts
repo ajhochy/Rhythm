@@ -532,6 +532,92 @@ describe("ProviderTransform.schema - gemini array items", () => {
   })
 })
 
+describe("ProviderTransform.schema - Anthropic top-level combiners (#1157)", () => {
+  const model = (npm: "@ai-sdk/anthropic" | "@ai-sdk/google-vertex/anthropic") =>
+    ({
+      providerID: npm === "@ai-sdk/anthropic" ? "anthropic" : "vertex-anthropic",
+      api: {
+        id: "claude-sonnet-4-6",
+        npm,
+      },
+    }) as any
+
+  test.each(["@ai-sdk/anthropic", "@ai-sdk/google-vertex/anthropic"] as const)(
+    "issue-1157-c1: sanitizes both Anthropic SDK package variants (%s)",
+    (npm) => {
+      expect(
+        ProviderTransform.schema(model(npm), {
+          anyOf: [{ type: "object", properties: { query: { type: "string" } }, required: ["query"] }],
+        }),
+      ).toEqual({
+        type: "object",
+        properties: { query: { type: "string" } },
+        required: ["query"],
+      })
+    },
+  )
+
+  test("issue-1157-c2: recursively unwraps single-element only-key combiners", () => {
+    const result = ProviderTransform.schema(model("@ai-sdk/anthropic"), {
+      anyOf: [
+        {
+          type: "object",
+          properties: {
+            filters: {
+              oneOf: [
+                {
+                  type: "object",
+                  properties: {
+                    range: {
+                      allOf: [{ type: "object", properties: { start: { type: "number" } } }],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    }) as any
+
+    expect(result).toEqual({
+      type: "object",
+      properties: {
+        filters: {
+          type: "object",
+          properties: {
+            range: {
+              type: "object",
+              properties: { start: { type: "number" } },
+            },
+          },
+        },
+      },
+    })
+  })
+
+  test.each(["anyOf", "oneOf", "allOf"] as const)(
+    "issue-1157-c3: replaces irreducible top-level %s with a safe object schema",
+    (combiner) => {
+      expect(
+        ProviderTransform.schema(model("@ai-sdk/anthropic"), {
+          [combiner]: [{ type: "string" }, { type: "number" }],
+        }),
+      ).toEqual({ type: "object" })
+    },
+  )
+
+  test("leaves non-Anthropic schemas unchanged", () => {
+    const schema = { anyOf: [{ type: "string" }, { type: "number" }] } as any
+    expect(
+      ProviderTransform.schema(
+        { providerID: "openai", api: { id: "gpt-5", npm: "@ai-sdk/openai" } } as any,
+        schema,
+      ),
+    ).toBe(schema)
+  })
+})
+
 describe("ProviderTransform.schema - gemini nested array items", () => {
   const geminiModel = {
     providerID: "google",
