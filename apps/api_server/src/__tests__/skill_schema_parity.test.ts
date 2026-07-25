@@ -132,4 +132,26 @@ describe('#792 agent_skills dual-DB schema parity', () => {
     );
     expect(workflow).toContain('skill_schema_parity.test.ts');
   });
+
+  it('guards every creative-platform MCP tool in the bundled release', () => {
+    const workflow = readFileSync(
+      join(__dirname, '..', '..', '..', '..', '.github', 'workflows', 'desktop_release.yml'),
+      'utf8',
+    );
+    for (const guard of [
+      '9a2d3e4f-5b6c-4d7e-8f9a-1b2c3d4e5f6a',
+      'registerCreativePlatformTools(server',
+      'registerSetupReadinessTool(server',
+      'registerOrgOptimizerTools(server',
+      'rhythm_list_creative_capabilities',
+      'rhythm_install_creative_capability',
+      'rhythm_creative_capability_status',
+      'rhythm_verify_creative_capability',
+      'rhythm_record_design',
+      'rhythm_get_setup_readiness',
+      'rhythm_run_external_discovery',
+    ]) {
+      expect(workflow).toContain(guard);
+    }
+  });
 });

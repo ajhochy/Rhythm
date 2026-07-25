@@ -69,7 +69,9 @@ In Claude, ask: *"Call rhythm_ping to check the connection."*
 
 Expected response: Rhythm API status and the email address your token authenticates as.
 
-## Available tools
+## Available tools (68 total)
+
+Rhythm exposes 68 tools; this table lists the core and creative-platform tools.
 
 | Tool | Description |
 |------|-------------|
@@ -107,6 +109,13 @@ Expected response: Rhythm API status and the email address your token authentica
 | `rhythm_list_automation_triggers` | Catalog: trigger types + configSchema for connected sources |
 | `rhythm_list_automation_actions` | Catalog: action types + configSchema |
 | `rhythm_list_automation_providers` | Catalog: provider sources connected for the user |
+| `rhythm_list_creative_capabilities` | List local creative capability install and health status |
+| `rhythm_install_creative_capability` | Start an approval-gated local creative capability install |
+| `rhythm_creative_capability_status` | Get one local creative capability's status |
+| `rhythm_verify_creative_capability` | Re-check a creative capability after install or startup |
+| `rhythm_record_design` | Record a local artifact or Canva design in Rhythm Gallery |
+| `rhythm_get_setup_readiness` | Read the informational local setup readiness summary |
+| `rhythm_run_external_discovery` | Run the bounded, approval-gated external discovery pass |
 
 ### Automations
 

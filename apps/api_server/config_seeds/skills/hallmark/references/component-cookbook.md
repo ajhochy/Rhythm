@@ -7,8 +7,6 @@ The same macrostructure (e.g., Bento Grid) can be built from many different comb
 **Diversification rule:** within a single page, no two sections should use the same archetype. A Bento Grid might pair *Bento feature block* with *Inline form CTA* with *Logo wall (hairline)*. The next page Hallmark builds should pick different archetypes from the same categories.
 
 ---
-
-
 ---
 
 ## Archetype index — load ONLY the picks you need
@@ -261,5 +259,3 @@ Below 60 rem the archetype must still feel like itself — same hierarchy, same 
 - Disable any scroll-linked animation below 40 rem (mobile scroll has its own physics; layered animations fight it).
 - Image `loading="lazy"` always below the fold; **never on the LCP element regardless of viewport.**
 - Auto-play video respects `data-saver` (`navigator.connection.saveData`) — replaces with poster when set.
-
-

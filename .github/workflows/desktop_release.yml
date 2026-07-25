@@ -118,7 +118,7 @@ jobs:
           # Config seed assets (config-doctor tools + customize-rhythm skill) —
           # seeded to ~/.config/opencode/ at boot by config_seeds_seeder.ts,
           # resolved at runtime as a sibling of dist/.
-           cp -r ../api_server/config_seeds "$DEST/"
+          cp -r ../api_server/config_seeds "$DEST/"
           cp -r ../api_server/resources "$DEST/"
           cp ../api_server/package.json "$DEST/"
           cp ../api_server/package-lock.json "$DEST/"
@@ -154,7 +154,7 @@ jobs:
           test -f "$DEST/node_modules/better-sqlite3/package.json"
           test -f "$DEST/config_seeds/skills/customize-rhythm/SKILL.md"
           test -f "$DEST/config_seeds/tools/classify.cjs"
-           test -f "$DEST/config_seeds/tools/node_modules/js-yaml/package.json"
+          test -f "$DEST/config_seeds/tools/node_modules/js-yaml/package.json"
           test -f "$DEST/resources/openmontage-mcp/openmontage_mcp_server.py"
 
       - name: Bundle MCP role files into app (#1154)
@@ -173,11 +173,11 @@ jobs:
         working-directory: apps/desktop_flutter
         run: |
           DEST="build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/.mcp-roles"
-           test -f "$DEST/secretary.mcp.json"
-           test -f "$DEST/email-assistant.mcp.json"
-           test -f "$DEST/graphic-designer.mcp.json"
-           test -f "$DEST/org-optimizer.mcp.json"
-           test -f "$DEST/org-external-discovery.mcp.json"
+          test -f "$DEST/secretary.mcp.json"
+          test -f "$DEST/email-assistant.mcp.json"
+          test -f "$DEST/graphic-designer.mcp.json"
+          test -f "$DEST/org-optimizer.mcp.json"
+          test -f "$DEST/org-external-discovery.mcp.json"
 
       - name: Bundle Node runtime into app (#1023)
         working-directory: apps/desktop_flutter
@@ -254,12 +254,19 @@ jobs:
         run: |
           DEST="build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/mcp_server"
           test -f "$DEST/dist/index.js"
-           test -f "$DEST/package.json"
-           test -d "$DEST/node_modules"
-           test -f "$DEST/node_modules/@modelcontextprotocol/sdk/package.json"
-           grep -q 'rhythm_run_org_optimizer' "$DEST/dist/tools/orgOptimizer.js"
-           grep -q 'rhythm_run_external_discovery' "$DEST/dist/tools/orgOptimizer.js"
-           grep -q 'registerFeedbackSensorTools' "$DEST/dist/index.js"
+          test -f "$DEST/package.json"
+          test -d "$DEST/node_modules"
+          test -f "$DEST/node_modules/@modelcontextprotocol/sdk/package.json"
+          grep -q 'registerCreativePlatformTools(server' "$DEST/dist/index.js"
+          grep -q 'registerSetupReadinessTool(server' "$DEST/dist/index.js"
+          grep -q 'registerOrgOptimizerTools(server' "$DEST/dist/index.js"
+          grep -q 'rhythm_list_creative_capabilities' "$DEST/dist/tools/creativePlatform.js"
+          grep -q 'rhythm_install_creative_capability' "$DEST/dist/tools/creativePlatform.js"
+          grep -q 'rhythm_creative_capability_status' "$DEST/dist/tools/creativePlatform.js"
+          grep -q 'rhythm_verify_creative_capability' "$DEST/dist/tools/creativePlatform.js"
+          grep -q 'rhythm_record_design' "$DEST/dist/tools/creativePlatform.js"
+          grep -q 'rhythm_get_setup_readiness' "$DEST/dist/tools/setupReadiness.js"
+          grep -q 'rhythm_run_external_discovery' "$DEST/dist/tools/orgOptimizer.js"
 
       - name: Smoke-test bundled CLI server
         shell: bash
@@ -352,7 +359,7 @@ jobs:
             if SMOKE_DB="$SMOKE_DB" BUNDLED_API_SERVER="$APP/Contents/Resources/api_server" "$BUNDLED_NODE" -e '
               const Database = require(process.env.BUNDLED_API_SERVER + "/node_modules/better-sqlite3");
               const db = new Database(process.env.SMOKE_DB, { readonly: true });
-              const profiles = db.prepare("SELECT COUNT(*) AS n FROM agent_configs WHERE id IN (?, ?)").get("8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f", "9a2d3e4f-5b6c-4d7e-8f9a-1b2c3d4e5f").n;
+              const profiles = db.prepare("SELECT COUNT(*) AS n FROM agent_configs WHERE id IN (?, ?)").get("8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f", "9a2d3e4f-5b6c-4d7e-8f9a-1b2c3d4e5f6a").n;
               const tasks = db.prepare("SELECT name, COUNT(*) AS n FROM agent_scheduled_tasks WHERE enabled = 1 AND name IN (?, ?) GROUP BY name").all("Org Self-Optimizer", "Org External Discovery");
               db.close();
               if (profiles !== 2 || tasks.length !== 2 || tasks.some((task) => task.n !== 1)) process.exit(1);
