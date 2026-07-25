@@ -1,0 +1,22 @@
+{
+  "cli": { "version": ">= 16.17.0", "appVersionSource": "remote" },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": { "EXPO_APP_VARIANT": "development" }
+    },
+    "development-simulator": {
+      "extends": "development",
+      "ios": { "simulator": true }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": { "EXPO_APP_VARIANT": "production" }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": { "EXPO_APP_VARIANT": "production" }
+    }
+  }
+}
