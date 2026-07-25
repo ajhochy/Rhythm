@@ -2,12 +2,14 @@ import { readFileSync } from 'node:fs';
 import {
   mkdtempSync,
   mkdirSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import Database from 'better-sqlite3';
 import {
@@ -407,6 +409,99 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
       ).toBeNull();
     }
   });
+
+  it('issue-1137-c9: prompt file parts are canonicalized or rejected before forwarding', async () => {
+    const proxyModule = await loadProxyModule();
+    expect(proxyModule, 'mobile_opencode_proxy.ts must exist').not.toBeNull();
+    if (!proxyModule) return;
+
+    const boundary = mkdtempSync(join(tmpdir(), 'issue-1137-mobile-files-'));
+    const projectRoot = join(boundary, 'project');
+    const outsideRoot = join(boundary, 'outside');
+    mkdirSync(projectRoot);
+    mkdirSync(outsideRoot);
+    const inside = join(projectRoot, 'inside.txt');
+    const outside = join(outsideRoot, 'secret.txt');
+    writeFileSync(inside, 'inside');
+    writeFileSync(outside, 'outside');
+    symlinkSync(outsideRoot, join(projectRoot, 'escape'));
+    const calls: Array<{ url: string; body: unknown }> = [];
+    const proxy = new proxyModule.MobileOpenCodeProxy({
+      baseUrl: 'http://127.0.0.1:4897',
+      fetchFn: async (input: string | URL | Request, init?: RequestInit) => {
+        calls.push({
+          url: String(input),
+          body: JSON.parse(String(init?.body)),
+        });
+        return new Response('{}', {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      },
+    });
+    const project = { id: 'project-1137', root: projectRoot };
+    const forwardFile = (
+      path: '/session/safe/message' | '/session/safe/prompt_async',
+      fileUrl: string,
+    ) => proxy.forward({
+      method: 'POST',
+      path,
+      query: new URLSearchParams(),
+      body: {
+        parts: [
+          { type: 'text', text: 'inspect this attachment' },
+          {
+            type: 'file',
+            mime: 'application/octet-stream',
+            filename: 'fixture.bin',
+            url: fileUrl,
+          },
+        ],
+      },
+      project,
+    });
+
+    try {
+      for (const rejectedUrl of [
+        pathToFileURL('/etc/passwd').href,
+        pathToFileURL(outside).href,
+        pathToFileURL(join(projectRoot, 'escape', 'secret.txt')).href,
+        'file://remote-host/etc/passwd',
+        'http://127.0.0.1/private/local-file',
+        'data:text/plain;base64,%%%%',
+        'data:text/plain,%FF',
+        'not-a-url',
+      ]) {
+        await expect(forwardFile('/session/safe/message', rejectedUrl))
+          .rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
+      }
+      expect(calls).toEqual([]);
+
+      await forwardFile('/session/safe/message', pathToFileURL(inside).href);
+      await forwardFile(
+        '/session/safe/prompt_async',
+        'data:application/octet-stream;base64,AP9SSFlUSE0=',
+      );
+
+      expect(calls).toHaveLength(2);
+      expect(calls[0].body).toMatchObject({
+        parts: [
+          { type: 'text' },
+          { type: 'file', url: pathToFileURL(realpathSync(inside)).href },
+        ],
+      });
+      expect(calls[1].body).toMatchObject({
+        parts: [
+          { type: 'text' },
+          {
+            type: 'file',
+            url: 'data:application/octet-stream;base64,AP9SSFlUSE0=',
+          },
+        ],
+      });
+    } finally {
+      rmSync(boundary, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('issue #1169 mobile OpenCode proxy HTTP boundary', () => {
@@ -414,6 +509,7 @@ describe('issue #1169 mobile OpenCode proxy HTTP boundary', () => {
   let baseUrl: string;
   let closeServer: () => Promise<void>;
   let boundary: string;
+  let projectRoot: string;
   let projectId: string;
   let userToken: string;
   let deviceToken: string;
@@ -425,7 +521,7 @@ describe('issue #1169 mobile OpenCode proxy HTTP boundary', () => {
     setDb(db);
 
     boundary = mkdtempSync(join(tmpdir(), 'issue-1169-http-'));
-    const projectRoot = join(boundary, 'project');
+    projectRoot = join(boundary, 'project');
     mkdirSync(projectRoot);
     projectId = new ProjectsRepository().insert({
       name: 'Issue 1169',
@@ -552,6 +648,51 @@ describe('issue #1169 mobile OpenCode proxy HTTP boundary', () => {
       workspaceOverride.status,
       headerOverride.status,
     ]).toEqual([403, 403, 403]);
+  });
+
+  it('issue-1137-c8: mobile gateway cannot route desktop-local file content or expose resolvedPath', async () => {
+    const response = await fetch(
+      `${baseUrl}/mobile-gateway/agent-sessions/private/files/content?path=secret.txt`,
+      { headers: proxyHeaders() },
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(404);
+    expect(body).not.toContain('resolvedPath');
+    expect(body).not.toContain(boundary);
+  });
+
+  it('issue-1137-c9: HTTP rejects an outside prompt file before the engine boundary', async () => {
+    const outside = join(boundary, 'outside.txt');
+    writeFileSync(outside, 'outside');
+    expect(outside.startsWith(projectRoot)).toBe(false);
+
+    const response = await fetch(
+      `${baseUrl}/mobile-gateway/opencode/session/issue-1137/message`,
+      {
+        method: 'POST',
+        headers: proxyHeaders(),
+        body: JSON.stringify({
+          parts: [
+            { type: 'text', text: 'inspect this attachment' },
+            {
+              type: 'file',
+              mime: 'text/plain',
+              filename: 'outside.txt',
+              url: pathToFileURL(outside).href,
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: {
+        code: 'FORBIDDEN',
+        message: 'Project path is outside the selected project',
+      },
+    });
   });
 
   it('issue-1169-c9: rejected proxy requests never log device tokens query values or bodies', async () => {

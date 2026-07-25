@@ -102,6 +102,34 @@ describe("attachmentMime", () => {
     const file = new File([Uint8Array.of(0, 255, 1, 2)], "blob.bin", { type: "application/octet-stream" })
     expect(await attachmentMime(file)).toBe("application/octet-stream")
   })
+
+  test("issue-1137-c4: delayed binary bytes beyond the 4 KiB prefix remain binary", async () => {
+    const bytes = new Uint8Array(4097)
+    bytes.fill(0x41, 0, 4096)
+    bytes[4096] = 0
+    const file = new File([bytes], "delayed.rhythmfixture")
+
+    expect(await attachmentMime(file)).toBe("application/octet-stream")
+  })
+
+  test.each([
+    { byte: 0x00, label: "NUL", type: "" },
+    { byte: 0xff, label: "invalid UTF-8", type: "" },
+    { byte: 0x00, label: "NUL", type: "text/plain" },
+    { byte: 0xff, label: "invalid UTF-8", type: "text/plain" },
+    { byte: 0x00, label: "NUL", type: "application/json" },
+    { byte: 0xff, label: "invalid UTF-8", type: "application/json" },
+  ])(
+    "issue-1137-c10: delayed $label overrides browser MIME '$type'",
+    async ({ byte, type }) => {
+      const bytes = new Uint8Array(4097)
+      bytes.fill(0x41, 0, 4096)
+      bytes[4096] = byte
+      const file = new File([bytes], "delayed.txt", { type })
+
+      expect(await attachmentMime(file)).toBe("application/octet-stream")
+    },
+  )
 })
 
 describe("pasteMode", () => {

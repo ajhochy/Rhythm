@@ -26,6 +26,82 @@
         "apps/api_server/src/__tests__/live_e2e_1137_any_file_reader_discovery.test.ts :: native/browser live binary + surfaced reader + symlink rejection"
       ],
       "status": "pass"
+     },
+    {
+      "criterion_id": "issue-1137-c3",
+      "text": "The actual native/path attachment producer must flow through buildRequestParts into prompt reader discovery for an unknown binary format without a test handcrafting the MIME.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/prompt.test.ts",
+      "test_id": "issue-1137-c3: native path producer shape reaches reader discovery without a handcrafted MIME",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1137-c4",
+      "text": "A binary byte occurring beyond the first 4 KiB must classify the attachment as binary in browser and Flutter desktop attachment paths.",
+      "mode": "ui",
+      "test_file": "apps/opencode_fork/packages/app/src/components/prompt-input/attachments.test.ts",
+      "test_id": "issue-1137-c4: delayed binary bytes beyond the 4 KiB prefix remain binary",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1137-c5",
+      "text": "The live behavioral gate must assert native-path and browser-data attachment reader discovery independently, with traversal/symlink rejection occurring before either prompt.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1137_any_file_reader_discovery.test.ts",
+      "test_id": "native and browser attachment legs each persist their own reader-discovery evidence",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1137-c6",
+      "text": "Browser data attachment materialization must create a private 0600 temporary file and remove it with the session.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/prompt.test.ts",
+      "test_id": "issue-1137-c6: materialized browser attachment is private and session-scoped",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1137-c7",
+      "text": "Reader discovery must hide permission-denied skill and MCP candidates while surfacing an exact allowlisted MCP reader candidate.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/prompt.test.ts",
+      "test_id": "issue-1137-c7: discovery respects session allowlists and surfaces the exact MCP reader",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1137-c8",
+      "text": "The mobile gateway must not expose the desktop-local /agent-sessions file-content response or its absolute resolvedPath field.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy.test.ts",
+      "test_id": "issue-1137-c8: mobile gateway cannot route agent-sessions file content or resolvedPath",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1137-c9",
+      "text": "Mobile prompt and prompt_async file parts must be validated before engine forwarding: only real file paths contained by the server-resolved registered project (including symlink containment) and valid browser data URLs are accepted.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy.test.ts",
+      "test_id": "issue-1137-c9: prompt file parts are canonicalized or rejected before forwarding",
+      "supporting_tests": [
+        "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy.test.ts :: HTTP rejects an outside prompt file before the engine boundary",
+        "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy_live.test.ts :: real engine receives contained file and data URLs only after outside and symlink attempts leave the session empty"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1137-c10",
+      "text": "Every non-image/non-PDF browser attachment must be classified from its complete bytes with fatal UTF-8 decoding and control-byte checks, even when the browser declares a text MIME.",
+      "mode": "ui",
+      "test_file": "apps/opencode_fork/packages/app/src/components/prompt-input/attachments.test.ts",
+      "test_id": "issue-1137-c10: delayed binary bytes override empty text and misleading MIME declarations",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1137-c11",
+      "text": "A valid minimal DOCX attached through the live API and real fork engine must be read using the existing document skill/reader, with the known document marker appearing in the assistant result.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1137_any_file_reader_discovery.test.ts",
+      "test_id": "extracts a known marker from a valid DOCX through the existing document reader",
+      "status": "pass"
     }
   ],
   "stack": "dart/typescript",

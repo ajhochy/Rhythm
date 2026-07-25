@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { relative } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { AppError } from '../errors/app_error';
 import { logger } from '../utils/logger';
@@ -29,6 +30,11 @@ const SCOPED_PATH_QUERY_OPERATIONS = new Set([
   'file.list',
   'file.read',
   'session.list',
+]);
+
+const PROMPT_FILE_PART_OPERATIONS = new Set([
+  'session.prompt',
+  'session.prompt_async',
 ]);
 
 export const MOBILE_OPENCODE_REQUEST_BODY_LIMIT_BYTES = 512 * 1024;
@@ -158,6 +164,98 @@ function stripRootFields(value: unknown): unknown {
       .filter(([field]) => !ROOT_FIELDS.has(field.toLowerCase()))
       .map(([field, child]) => [field, stripRootFields(child)]),
   );
+}
+
+function invalidPromptFileUrl(): AppError {
+  return AppError.forbidden('Project path is outside the selected project');
+}
+
+function validDataUrl(value: string): boolean {
+  const comma = value.indexOf(',');
+  if (comma < 'data:'.length) return false;
+
+  const metadata = value.slice('data:'.length, comma);
+  const payload = value.slice(comma + 1);
+  if (/[\u0000-\u001f\u007f]/.test(metadata + payload)) return false;
+
+  const parameters = metadata.split(';');
+  const base64 = parameters.at(-1)?.toLowerCase() === 'base64';
+  if (base64) {
+    return payload.length % 4 === 0 &&
+      /^[A-Za-z0-9+/]*={0,2}$/.test(payload);
+  }
+  try {
+    decodeURIComponent(payload);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function sanitizePromptFileUrl(
+  value: unknown,
+  project: MobileProjectScope,
+): string {
+  if (typeof value !== 'string') throw invalidPromptFileUrl();
+
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw invalidPromptFileUrl();
+  }
+
+  if (url.protocol === 'data:') {
+    if (!validDataUrl(value)) throw invalidPromptFileUrl();
+    return value;
+  }
+  if (url.protocol !== 'file:') throw invalidPromptFileUrl();
+
+  let nativePath: string;
+  try {
+    nativePath = fileURLToPath(url);
+  } catch {
+    throw invalidPromptFileUrl();
+  }
+  const canonicalPath = resolveMobileProjectPath(project, nativePath);
+  return pathToFileURL(canonicalPath).href;
+}
+
+function sanitizeRequestBody(
+  value: unknown,
+  operationId: string,
+  project: MobileProjectScope,
+): unknown {
+  const stripped = stripRootFields(value);
+  if (
+    !PROMPT_FILE_PART_OPERATIONS.has(operationId) ||
+    typeof stripped !== 'object' ||
+    stripped === null ||
+    Array.isArray(stripped)
+  ) {
+    return stripped;
+  }
+
+  const body = stripped as Record<string, unknown>;
+  if (!Array.isArray(body.parts)) return body;
+  return {
+    ...body,
+    parts: body.parts.map((part) => {
+      if (
+        typeof part !== 'object' ||
+        part === null ||
+        Array.isArray(part) ||
+        (part as Record<string, unknown>).type !== 'file'
+      ) {
+        return part;
+      }
+      const file = part as Record<string, unknown>;
+      return {
+        ...file,
+        url: sanitizePromptFileUrl(file.url, project),
+      };
+    }),
+  };
 }
 
 function scopedQuery(
@@ -298,7 +396,11 @@ export class MobileOpenCodeProxy {
     }
     const sanitizedBody = !acceptsBody || input.body === undefined
       ? undefined
-      : stripRootFields(input.body);
+      : sanitizeRequestBody(
+        input.body,
+        operation.operationId,
+        input.project,
+      );
     const encodedBody = sanitizedBody === undefined
       ? undefined
       : JSON.stringify(sanitizedBody);

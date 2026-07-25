@@ -15,6 +15,7 @@
  *   npx vitest run src/__tests__/live_e2e_1137_any_file_reader_discovery.test.ts
  */
 import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -70,6 +71,44 @@ async function openWs(): Promise<WebSocket> {
     ws.once('error', reject);
   });
   return ws;
+}
+
+function createMinimalDocx(root: string, marker: string): string {
+  const source = resolve(root, 'docx-source');
+  const output = resolve(root, 'reader-proof.docx');
+  mkdirSync(resolve(source, '_rels'), { recursive: true });
+  mkdirSync(resolve(source, 'word'), { recursive: true });
+  writeFileSync(
+    resolve(source, '[Content_Types].xml'),
+    [
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">',
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>',
+      '<Default Extension="xml" ContentType="application/xml"/>',
+      '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>',
+      '</Types>',
+    ].join(''),
+  );
+  writeFileSync(
+    resolve(source, '_rels/.rels'),
+    [
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>',
+      '</Relationships>',
+    ].join(''),
+  );
+  writeFileSync(
+    resolve(source, 'word/document.xml'),
+    [
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">',
+      `<w:body><w:p><w:r><w:t>${marker}</w:t></w:r></w:p><w:sectPr/></w:body>`,
+      '</w:document>',
+    ].join(''),
+  );
+  execFileSync('zip', ['-q', '-r', output, '.'], { cwd: source });
+  return output;
 }
 
 afterEach(async () => {
@@ -200,5 +239,96 @@ describeLive('live E2E — #1137 arbitrary file reader discovery', () => {
       }
     },
     90_000,
+  );
+
+  it(
+    'extracts a known marker from a valid DOCX through the existing document reader',
+    async () => {
+      const suffix = randomUUID().slice(0, 8);
+      const marker = `DOCX_READER_PROOF_${randomUUID().replaceAll('-', '')}`;
+      const cwd = mkdtempSync(join(tmpdir(), 'rhythm-live-1137-docx-'));
+      scratchDirs.push(cwd);
+      const docx = createMinimalDocx(cwd, marker);
+      const agentId = `live1137docx${suffix}`;
+      const agent = await apiJson<{ id: string }>('/agent-configs', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: agentId,
+          label: `Live 1137 DOCX reader ${suffix}`,
+          isAgent: true,
+          modelProvider: process.env.RHYTHM_LIVE_MODEL_PROVIDER || 'google',
+          modelId: process.env.RHYTHM_LIVE_MODEL_ID || 'gemini-2.5-pro',
+          allowedSkillsJson: JSON.stringify(['document-creation']),
+          corePermissionsJson: JSON.stringify({
+            bash: 'allow',
+            read: 'allow',
+            skill: 'allow',
+          }),
+          systemPrompt: [
+            'When a DOCX is attached, invoke the installed document-creation skill.',
+            'Use its existing scripts/read_office_docs.py reader with its pinned Python environment.',
+            'Do not inspect ZIP/XML directly and do not guess.',
+            'Reply with only the exact text extracted by that reader.',
+          ].join(' '),
+        }),
+      });
+      createdAgentIds.push(agent.id);
+      const session = await apiJson<{ id: string }>('/agent-sessions', {
+        method: 'POST',
+        body: JSON.stringify({
+          agentId,
+          name: `Live 1137 DOCX ${suffix}`,
+          cwd,
+        }),
+      });
+      createdSessionIds.push(session.id);
+
+      const ws = await openWs();
+      try {
+        ws.send(
+          JSON.stringify({
+            v: 1,
+            type: 'session.input',
+            id: session.id,
+            parts: [
+              {
+                type: 'text',
+                text: 'Use the existing document skill and reader to extract this DOCX. Return only its exact body text.',
+              },
+              {
+                type: 'file',
+                mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                filename: 'reader-proof.docx',
+                url: pathToFileURL(docx).href,
+              },
+            ],
+          }),
+        );
+
+        const proof = await poll(async () => {
+          const snapshot = await apiJson<{
+            messages: Array<{
+              role?: string;
+              rawText?: string;
+              parts?: unknown[];
+            }>;
+          }>(`/agent-sessions/${session.id}`);
+          const output = snapshot.messages.filter((message) =>
+            message.role === 'output'
+          );
+          if (!output.some((message) => message.rawText?.includes(marker))) {
+            throw new Error('assistant has not returned the extracted DOCX marker');
+          }
+          return JSON.stringify(output);
+        }, 120_000);
+
+        expect(proof).toContain(marker);
+        expect(proof).toContain('document-creation');
+        expect(proof).toContain('read_office_docs.py');
+      } finally {
+        ws.close();
+      }
+    },
+    150_000,
   );
 });

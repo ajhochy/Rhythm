@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 import {
   mkdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
@@ -30,12 +32,19 @@ function gatewayHeaders(
 
 describeLive('live E2E — issue #1169 mobile OpenCode proxy', () => {
   it('issue-1169-c8: live sandbox proxies health session and file behavior while rejecting upgrade', async () => {
+    const apiAddress = new URL(baseUrl);
+    const engineAddress = new URL(engineUrl);
     if (
-      baseUrl !== 'http://127.0.0.1:4898' ||
-      engineUrl !== 'http://127.0.0.1:4897'
+      apiAddress.hostname !== '127.0.0.1' ||
+      engineAddress.hostname !== '127.0.0.1' ||
+      !apiAddress.port ||
+      !engineAddress.port ||
+      apiAddress.port === engineAddress.port ||
+      ['4001', '4096', '4097', '4098'].includes(apiAddress.port) ||
+      ['4001', '4096', '4097', '4098'].includes(engineAddress.port)
     ) {
       throw new Error(
-        'Issue #1169 live test requires sandbox API 127.0.0.1:4898 and engine 127.0.0.1:4897',
+        'Issue #1169 live test requires unique non-production loopback API and engine ports',
       );
     }
     if (
@@ -62,10 +71,15 @@ describeLive('live E2E — issue #1169 mobile OpenCode proxy', () => {
     const projectId = randomUUID();
     const boundary = join(sandboxDir, `issue-1169-${runId}`);
     const projectRoot = join(boundary, 'project');
+    const outsideRoot = join(boundary, 'outside');
     const fileName = 'mobile-proxy-proof.txt';
     const marker = `MOBILE-PROXY-${runId}`;
+    const dataMarker = `MOBILE-DATA-${runId}`;
     mkdirSync(projectRoot, { recursive: true });
+    mkdirSync(outsideRoot, { recursive: true });
     writeFileSync(join(projectRoot, fileName), marker);
+    writeFileSync(join(outsideRoot, 'secret.txt'), 'outside');
+    symlinkSync(outsideRoot, join(projectRoot, 'escape'));
 
     let userId: number | null = null;
     let deviceId: string | null = null;
@@ -159,6 +173,73 @@ describeLive('live E2E — issue #1169 mobile OpenCode proxy', () => {
       const session = (await created.json()) as { id: string };
       expect(session.id).toBeTruthy();
       engineSessionId = session.id;
+
+      const prompt = (path: 'message' | 'prompt_async', fileUrl: string) =>
+        fetch(
+          `${baseUrl}/mobile-gateway/opencode/session/${encodeURIComponent(session.id)}/${path}`,
+          {
+            method: 'POST',
+            headers: gatewayHeaders(paired.deviceToken, projectId, true),
+            body: JSON.stringify({
+              noReply: true,
+              parts: [
+                { type: 'text', text: 'Read the attached text exactly.' },
+                {
+                  type: 'file',
+                  mime: 'text/plain',
+                  filename: 'proof.txt',
+                  url: fileUrl,
+                },
+              ],
+            }),
+          },
+        );
+
+      for (const rejectedUrl of [
+        pathToFileURL('/etc/passwd').href,
+        pathToFileURL(join(outsideRoot, 'secret.txt')).href,
+        pathToFileURL(join(projectRoot, 'escape', 'secret.txt')).href,
+        'file://remote-host/etc/passwd',
+        'http://127.0.0.1/private/local-file',
+        'not-a-url',
+      ]) {
+        const rejected = await prompt('message', rejectedUrl);
+        expect(rejected.status, rejectedUrl).toBe(403);
+        expect(await rejected.json()).toMatchObject({
+          error: { code: 'FORBIDDEN' },
+        });
+      }
+      const emptyMessages = await fetch(
+        `${baseUrl}/mobile-gateway/opencode/session/${encodeURIComponent(session.id)}/message`,
+        { headers: gatewayHeaders(paired.deviceToken, projectId) },
+      );
+      expect(emptyMessages.status).toBe(200);
+      expect(await emptyMessages.json()).toEqual([]);
+
+      const containedPrompt = await prompt(
+        'message',
+        pathToFileURL(join(projectRoot, fileName)).href,
+      );
+      expect(containedPrompt.status).toBe(200);
+      expect(JSON.stringify(await containedPrompt.json())).toContain(marker);
+
+      const dataPrompt = await prompt(
+        'prompt_async',
+        `data:text/plain;base64,${Buffer.from(dataMarker).toString('base64')}`,
+      );
+      expect(dataPrompt.status).toBe(204);
+      let dataTranscript = '';
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        const dataPersisted = await fetch(
+          `${baseUrl}/mobile-gateway/opencode/session/${encodeURIComponent(session.id)}/message`,
+          { headers: gatewayHeaders(paired.deviceToken, projectId) },
+        );
+        expect(dataPersisted.status).toBe(200);
+        dataTranscript = JSON.stringify(await dataPersisted.json());
+        if (dataTranscript.includes(dataMarker)) break;
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+      }
+      expect(dataTranscript).toContain(dataMarker);
 
       const file = await fetch(
         `${baseUrl}/mobile-gateway/opencode/file/content?path=${encodeURIComponent(fileName)}`,

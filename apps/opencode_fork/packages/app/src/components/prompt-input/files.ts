@@ -42,6 +42,11 @@ function textMime(type: string) {
 
 function textBytes(bytes: Uint8Array) {
   if (bytes.length === 0) return true
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+  } catch {
+    return false
+  }
   let count = 0
   for (const byte of bytes) {
     if (byte === 0) return false
@@ -59,8 +64,10 @@ export async function attachmentMime(file: File) {
   const fallback = IMAGE_EXTS.get(suffix) ?? (suffix === "pdf" ? "application/pdf" : undefined)
   if ((!type || type === "application/octet-stream") && fallback) return fallback
 
-  if (textMime(type)) return "text/plain"
-  const bytes = new Uint8Array(await file.slice(0, SAMPLE).arrayBuffer())
-  if (!textBytes(bytes)) return type || "application/octet-stream"
+  // The whole file is encoded immediately after classification, so inspect
+  // all bytes here as well. A short prefix can be valid text while a later
+  // NUL/control byte makes the attachment binary.
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  if (!textBytes(bytes)) return textMime(type) ? "application/octet-stream" : type || "application/octet-stream"
   return "text/plain"
 }

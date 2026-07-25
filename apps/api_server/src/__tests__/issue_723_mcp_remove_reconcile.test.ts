@@ -80,6 +80,13 @@ function makeService(engineStatus: McpStatus): OpencodeClientService {
       connect: vi.fn().mockResolvedValue({ data: true }),
     },
   };
+  svc.__setTestV2Client({
+    app: {
+      config: {
+        reload: vi.fn().mockResolvedValue({ data: true }),
+      },
+    },
+  } as never);
   return svc;
 }
 
