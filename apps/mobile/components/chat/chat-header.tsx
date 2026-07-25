@@ -94,7 +94,7 @@ export function ChatHeader({
           <Pressable onPress={onOpenSessionMenu} style={({ pressed }) => [styles.headerSessionAnchor, pressed && styles.headerSessionAnchorPressed]}>
             <View style={styles.headerSessionContent}>
               <View style={styles.headerSessionTextWrap}>
-                <Text numberOfLines={1} variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}> 
+                <Text numberOfLines={1} variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}>
                   {selectedSession?.title || 'Untitled chat'}
                 </Text>
                 <NativeText accessibilityLabel={usageLabel} numberOfLines={1} style={[styles.headerUsage, { color: palette.muted }]}>
@@ -131,7 +131,7 @@ export function ChatHeader({
                 },
               ]}
             >
-              <View style={[styles.sessionPickerHeader, { borderBottomColor: palette.border }]}> 
+              <View style={[styles.sessionPickerHeader, { borderBottomColor: palette.border }]}>
                 <Text variant="titleMedium" style={{ color: palette.text }}>Chats</Text>
                 <Pressable onPress={onCloseMenu} style={({ pressed }) => [styles.sessionPickerCloseButton, pressed && styles.sessionPickerCloseButtonPressed]}>
                   <NativeText style={[styles.sessionPickerCloseLabel, { color: palette.tint }]}>Close</NativeText>
@@ -155,11 +155,11 @@ export function ChatHeader({
                         },
                       ]}>
                       <View style={styles.sessionPickerItemRow}>
-                        <View style={[styles.sessionPickerItemIcon, { backgroundColor: `${(isSelected ? palette.tint : palette.muted)}14` }]}> 
+                        <View style={[styles.sessionPickerItemIcon, { backgroundColor: `${(isSelected ? palette.tint : palette.muted)}14` }]}>
                           <MaterialCommunityIcons name={isSelected ? 'check-circle' : 'message-outline'} size={18} color={isSelected ? palette.tint : palette.muted} />
                         </View>
                         <View style={styles.sessionPickerItemTextWrap}>
-                          <NativeText style={[styles.sessionPickerItemTitle, { color: palette.text, fontWeight: isSelected ? '700' : '600' }]}> 
+                          <NativeText style={[styles.sessionPickerItemTitle, { color: palette.text, fontWeight: isSelected ? '700' : '600' }]}>
                             {session.title || 'Untitled chat'}
                           </NativeText>
                           <NativeText style={[styles.sessionPickerItemSubtitle, { color: palette.muted }]}>

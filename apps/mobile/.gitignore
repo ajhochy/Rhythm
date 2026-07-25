@@ -58,7 +58,7 @@ credentials.json
 .env.*
 # Allow explicitly committed safe env file
 #.env.commit
- 
+
 # Local config (may contain tokens/secrets)
 config.json
 # Google Play / service account JSONs

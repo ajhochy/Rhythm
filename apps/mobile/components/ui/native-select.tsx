@@ -99,8 +99,8 @@ export function NativeSelect<T extends string>({
         <Modal animationType="fade" transparent visible={visible} onRequestClose={close}>
           <View style={styles.overlay}>
             <Pressable style={styles.backdrop} onPress={close} />
-            <View style={[styles.sheet, { backgroundColor: palette.surface, borderColor: palette.border }]}> 
-              <View style={[styles.sheetHeader, { borderBottomColor: palette.border }]}> 
+            <View style={[styles.sheet, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+              <View style={[styles.sheetHeader, { borderBottomColor: palette.border }]}>
                 <Text numberOfLines={1} style={[styles.sheetTitle, { color: palette.text }]}>
                   {title || 'Choose an option'}
                 </Text>

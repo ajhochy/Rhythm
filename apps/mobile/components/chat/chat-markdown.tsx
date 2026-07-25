@@ -107,7 +107,7 @@ export function MarkdownText({ text, color, mutedColor }: { text: string; color:
       blocks.push(
       <View key={`b-${blocks.length}`} style={styles.markdownBulletRow}>
           <Text style={{ color }}>{'\u2022'}</Text>
-          <Text variant="bodyLarge" style={[styles.markdownBulletText, { color, lineHeight: 26, flexShrink: 1, minWidth: 0 }]}> 
+          <Text variant="bodyLarge" style={[styles.markdownBulletText, { color, lineHeight: 26, flexShrink: 1, minWidth: 0 }]}>
             {renderInlineMarkdown(bullet[1], color, mutedColor)}
           </Text>
         </View>,

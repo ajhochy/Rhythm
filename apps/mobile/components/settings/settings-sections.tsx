@@ -401,7 +401,7 @@ export function VoiceSection({
   ];
 
   return (
-    <Card mode="contained" style={[styles.card, { backgroundColor: palette.surface }]}> 
+    <Card mode="contained" style={[styles.card, { backgroundColor: palette.surface }]}>
       <Card.Content style={styles.section}>
         <Text variant="titleLarge" style={[styles.title, { color: palette.text }]}>Voice</Text>
         <List.Section style={styles.infoListSection}>

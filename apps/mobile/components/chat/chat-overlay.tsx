@@ -55,12 +55,12 @@ export function ConversationOverlay({
   const connectionEmoji = connectionStatus === 'error' ? '⚠️' : connectionStatus === 'connecting' ? '🔄' : undefined;
 
   return (
-    <View style={[styles.voiceOverlay, { backgroundColor: overlayBackground, paddingTop: insetsTop + 14 }]}> 
+    <View style={[styles.voiceOverlay, { backgroundColor: overlayBackground, paddingTop: insetsTop + 14 }]}>
       <View style={styles.voiceOverlayContent}>
         <View style={styles.voiceOverlayHeader}>
           <View style={styles.voiceOverlayHeaderCopy}>
             <Text variant="labelLarge" style={[styles.voiceOverlayEyebrow, { color: overlayMuted }]}>Conversation mode</Text>
-            <Text numberOfLines={1} variant="headlineMedium" style={[styles.voiceOverlayTitle, { color: overlayText }]}> 
+            <Text numberOfLines={1} variant="headlineMedium" style={[styles.voiceOverlayTitle, { color: overlayText }]}>
               {sessionTitle}
             </Text>
           </View>
@@ -68,7 +68,7 @@ export function ConversationOverlay({
         </View>
 
         <View style={styles.voiceOverlayCenter}>
-          <Animated.View style={[styles.voiceOrbShell, { borderColor: orbRing, opacity: orbOpacity, transform: [{ scale: orbScale }] }]}> 
+          <Animated.View style={[styles.voiceOrbShell, { borderColor: orbRing, opacity: orbOpacity, transform: [{ scale: orbScale }] }]}>
             <View style={styles.voiceOrbCore}>
               <View style={[styles.voiceOrbBlobTop, { backgroundColor: '#D7F3F0' }]} />
               <View style={[styles.voiceOrbBlobBottom, { backgroundColor: electric }]} />
@@ -77,7 +77,7 @@ export function ConversationOverlay({
           </Animated.View>
 
           <View style={styles.voiceOverlayMeta}>
-            <Text variant="headlineSmall" style={[styles.voiceOverlayPhaseTitle, { color: overlayText }]}> 
+            <Text variant="headlineSmall" style={[styles.voiceOverlayPhaseTitle, { color: overlayText }]}>
               {phaseLabel}
             </Text>
           </View>

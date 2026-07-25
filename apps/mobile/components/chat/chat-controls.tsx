@@ -113,8 +113,8 @@ export function TopTab({ active, label, onPress }: { active: boolean; label: str
 
   return (
     <Pressable accessibilityRole="tab" style={styles.topTab} onPress={onPress}>
-      <View style={[styles.topTabInner, active && { borderBottomColor: palette.tint, borderBottomWidth: 2 }]}> 
-        <Text style={[styles.topTabLabel, { color: active ? palette.text : palette.muted, fontWeight: active ? '700' : '500' }]}> 
+      <View style={[styles.topTabInner, active && { borderBottomColor: palette.tint, borderBottomWidth: 2 }]}>
+        <Text style={[styles.topTabLabel, { color: active ? palette.text : palette.muted, fontWeight: active ? '700' : '500' }]}>
           {label}
         </Text>
       </View>

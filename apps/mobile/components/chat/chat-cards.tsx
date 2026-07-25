@@ -37,7 +37,7 @@ export function PendingInteractionsCard({
   const palette = Colors[colorScheme];
 
   return (
-    <Card mode="contained" style={[styles.sectionCard, { backgroundColor: palette.surface }]}> 
+    <Card mode="contained" style={[styles.sectionCard, { backgroundColor: palette.surface }]}>
       <Card.Content style={styles.pendingInteractionsContent}>
         <View style={styles.waitingNoticeHeader}>
           <MaterialCommunityIcons name="message-alert-outline" size={18} color={palette.warning} />
@@ -172,8 +172,8 @@ export function SessionDiffCard({ diff, expanded, onPress }: { diff: FileDiff; e
               {diffBlocks.length === 0 ? <Text variant="bodySmall" style={{ color: palette.muted }}>No line changes available.</Text> : diffBlocks.map((block, blockIndex) => {
                 if (block.type === 'collapsed') {
                   return (
-                    <View key={`${diff.file}-collapsed-${blockIndex}`} style={[styles.diffCollapsedRow, { backgroundColor: palette.background, borderColor: palette.border }]}> 
-                      <Text variant="bodySmall" style={[styles.code, { color: palette.muted }]}> 
+                    <View key={`${diff.file}-collapsed-${blockIndex}`} style={[styles.diffCollapsedRow, { backgroundColor: palette.background, borderColor: palette.border }]}>
+                      <Text variant="bodySmall" style={[styles.code, { color: palette.muted }]}>
                         ... {block.hiddenCount} unchanged line{block.hiddenCount === 1 ? '' : 's'}
                         {block.startLine && block.endLine ? ` (${block.startLine}-${block.endLine})` : ''}
                       </Text>
@@ -193,16 +193,16 @@ export function SessionDiffCard({ diff, expanded, onPress }: { diff: FileDiff; e
                           borderLeftColor: tone.accentColor,
                         },
                       ]}>
-                      <Text variant="labelSmall" style={[styles.diffLineNumber, { color: palette.muted }]}> 
+                      <Text variant="labelSmall" style={[styles.diffLineNumber, { color: palette.muted }]}>
                         {line.leftNumber ?? ''}
                       </Text>
-                      <Text variant="labelSmall" style={[styles.diffLineNumber, { color: palette.muted }]}> 
+                      <Text variant="labelSmall" style={[styles.diffLineNumber, { color: palette.muted }]}>
                         {line.rightNumber ?? ''}
                       </Text>
-                      <Text style={[styles.diffMarker, { color: tone.accentColor || palette.muted }]}> 
+                      <Text style={[styles.diffMarker, { color: tone.accentColor || palette.muted }]}>
                         {line.kind === 'added' ? '+' : line.kind === 'removed' ? '-' : ' '}
                       </Text>
-                      <Text variant="bodySmall" style={[styles.code, styles.diffLineText, { color: palette.text }]}> 
+                      <Text variant="bodySmall" style={[styles.code, styles.diffLineText, { color: palette.text }]}>
                         {line.text || ' '}
                       </Text>
                     </View>
@@ -287,7 +287,7 @@ export function TranscriptMessage({
             <Text variant="labelMedium" style={{ color: isUser ? palette.onBubbleUser : palette.muted }}>{isUser ? 'You' : 'OpenCode'}</Text>
             <View style={styles.messageMetaRight}>
               {copied ? (
-                <View style={[styles.copiedPill, { backgroundColor: isUser ? `${palette.onBubbleUser}20` : `${palette.tint}18` }]}> 
+                <View style={[styles.copiedPill, { backgroundColor: isUser ? `${palette.onBubbleUser}20` : `${palette.tint}18` }]}>
                   <MaterialCommunityIcons name="check" size={12} color={isUser ? palette.onBubbleUser : palette.tint} />
                   <Text variant="labelSmall" style={{ color: isUser ? palette.onBubbleUser : palette.tint }}>Copied</Text>
                 </View>
@@ -319,7 +319,7 @@ export function TranscriptMessage({
           {!isUser && detailSummary.length > 0 ? (
             <View style={styles.summaryRow}>
               {detailSummary.map((item) => (
-                <Chip key={item} compact mode="flat" style={[styles.summaryChip, { backgroundColor: palette.background }]}> 
+                <Chip key={item} compact mode="flat" style={[styles.summaryChip, { backgroundColor: palette.background }]}>
                   {item}
                 </Chip>
               ))}
@@ -344,7 +344,7 @@ function PermissionRequestCard({
   const palette = Colors[colorScheme];
 
   return (
-    <Card mode="contained" style={[styles.requestCard, compact && styles.requestCardCompact, { backgroundColor: palette.background }]}> 
+    <Card mode="contained" style={[styles.requestCard, compact && styles.requestCardCompact, { backgroundColor: palette.background }]}>
       <Card.Content style={styles.requestCardContent}>
         <Text variant="labelLarge" style={{ color: palette.warning }}>Permission request</Text>
         <Text variant="titleMedium" style={{ color: palette.text }}>{getPermissionTitle(request)}</Text>

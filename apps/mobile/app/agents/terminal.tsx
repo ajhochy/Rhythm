@@ -196,7 +196,7 @@ export default function AgentTerminalScreen() {
                   onPress={() => setTerminalMenuVisible(true)}
                   style={({ pressed }) => [styles.headerSelector, pressed && styles.headerSelectorPressed]}>
                   <View style={styles.headerCopy}>
-                    <Text numberOfLines={1} variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}> 
+                    <Text numberOfLines={1} variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}>
                       {activeTerminal?.title || activeTerminal?.command || 'Select terminal'}
                     </Text>
                     <Text numberOfLines={1} variant="bodySmall" style={{ color: palette.muted }}>
@@ -293,14 +293,14 @@ export default function AgentTerminalScreen() {
         ) : null}
 
         <ScrollView ref={outputRef} style={styles.output} contentContainerStyle={styles.outputContent} nestedScrollEnabled>
-          <Text testID="terminal-output" selectable style={[styles.outputText, { color: activeTerminalId ? palette.text : palette.muted }]}> 
+          <Text testID="terminal-output" selectable style={[styles.outputText, { color: activeTerminalId ? palette.text : palette.muted }]}>
             {activeTerminalId ? terminalOutput || 'Connected. Waiting for output...' : 'Open or create a terminal to begin.'}
           </Text>
         </ScrollView>
 
         <Surface style={[styles.composer, { backgroundColor: palette.surface, borderTopColor: palette.border, paddingBottom: Math.max(insets.bottom, 12) }]} elevation={4}>
           <View style={styles.composerRow}>
-            <View style={[styles.inputShell, { backgroundColor: palette.background, borderColor: palette.border }]}> 
+            <View style={[styles.inputShell, { backgroundColor: palette.background, borderColor: palette.border }]}>
               <TextInput
                 testID="terminal-line-input"
                 mode="flat"
