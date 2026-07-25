@@ -24,6 +24,33 @@ export interface WsMessage {
 const clients = new Set<WebSocket>();
 let attached = false;
 
+function isLoopbackAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  if (address === '::1') return true;
+  const normalized = address.toLowerCase().startsWith('::ffff:')
+    ? address.slice('::ffff:'.length)
+    : address;
+  const octets = normalized.split('.');
+  return (
+    octets.length === 4 &&
+    octets.every((part) => /^\d{1,3}$/.test(part)) &&
+    Number(octets[0]) === 127 &&
+    octets.every((part) => Number(part) <= 255)
+  );
+}
+
+function rejectRemoteLegacyUpgrade(
+  socket: import('node:stream').Duplex,
+): void {
+  if (socket.destroyed) return;
+  socket.end(
+    'HTTP/1.1 403 Forbidden\r\n' +
+      'Connection: close\r\n' +
+      'Content-Length: 0\r\n' +
+      'Cache-Control: no-store\r\n\r\n',
+  );
+}
+
 export interface MobileUpgradeHandler {
   handleUpgrade(
     request: http.IncomingMessage,
@@ -94,13 +121,25 @@ export function attachWsGateway(
     } catch {
       /* default pathname */
     }
-    if (pathname === '/ws/agents') {
+    const legacyAgentSocket = pathname === '/ws/agents';
+    const legacyPtyMatch = pathname.match(/^\/ws\/pty\/([^/]+)$/);
+    if (
+      (legacyAgentSocket || legacyPtyMatch) &&
+      !isLoopbackAddress(
+        (socket as import('node:stream').Duplex & {
+          remoteAddress?: string;
+        }).remoteAddress,
+      )
+    ) {
+      rejectRemoteLegacyUpgrade(socket);
+      return;
+    }
+    if (legacyAgentSocket) {
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
       return;
     }
-    const m = pathname.match(/^\/ws\/pty\/([^/]+)$/);
-    if (m) {
-      const ptyId = decodeURIComponent(m[1]);
+    if (legacyPtyMatch) {
+      const ptyId = decodeURIComponent(legacyPtyMatch[1]);
       ptyWss.handleUpgrade(req, socket, head, (ws) => bridgePty(ws, ptyEngineUrl(ptyId)));
       return;
     }

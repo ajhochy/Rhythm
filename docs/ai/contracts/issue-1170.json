@@ -24,6 +24,9 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts",
       "test_id": "issue-1170-c3: disconnect and overload paths abort upstream work and release bounded state",
+      "additional_test_ids": [
+        "issue-1170-c3: fatal SSE frame and buffer overflow abort once, report the error, and release all state"
+      ],
       "status": "pass"
     },
     {
@@ -31,12 +34,12 @@
       "text": "Sandboxed live test observes a real SSE event and PTY input/output round trip",
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy_live.test.ts",
-      "test_id": "issue-1170-c4: live sandbox emits a real scoped SSE event and preserves PTY text and binary round trips",
+      "test_id": "issue-1170-c4: live sandbox emits real global and session-scoped SSE and propagates PTY data and closure",
       "status": "pass"
     },
     {
       "criterion_id": "issue-1170-c5",
-      "text": "Tests use only `tools/dev/sandbox.sh` on 4098/4097; never direct server startup",
+      "text": "Tests use only `tools/dev/sandbox.sh` on isolated ports (defaults 4098/4097; distinct ports for parallel runs); never direct server startup",
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy_live.test.ts",
       "test_id": "issue-1170-c5: live harness refuses installed-app ports and requires sandbox attestation",
@@ -47,7 +50,7 @@
       "text": "GitNexus impact/detect-changes and independent review pass",
       "mode": "manual",
       "status": "pending",
-      "reason": "GitNexus evidence and an independent reviewer verdict are workflow artifacts rather than executable product behavior."
+      "reason": "Impact and detect-changes are complete (corrective slice LOW: 9 files, 19 symbols, 0 processes); an independent corrective reviewer verdict remains."
     }
   ],
   "stack": "typescript",

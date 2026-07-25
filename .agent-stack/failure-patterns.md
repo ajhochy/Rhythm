@@ -286,3 +286,12 @@
 - **Criteria affected**: c1 and c10 passed live; c2-c9 retained focused deterministic contract evidence.
 - **Root cause**: the product scheduler was sound, while the first launcher cell reaped its sandbox child, the live fixture used a stale catalog shape/model, and the parallel API merge gate exposed shared-state/timeout flakes.
 - **Suggested fix**: keep sandbox guardian sessions active, intersect live model selection with the running engine, and retain the serialized 15s-budget API merge gate.
+
+## 2026-07-25 — Issue #1170 — mobile realtime proxy corrective smoke PASS
+
+- **Result**: smoke PASS (verification had correctly reported FAIL before corrective implementation; no correctness divergence).
+- **Category**: none for product behavior; process issues were worktree-dependency-isolation and sandbox-exec-lifetime.
+- **Criteria affected**: c2, c4, and c5 passed live; c1 and c3 passed strengthened direct integration contracts; c6 remains pending independent corrective re-review.
+- **Root cause**: product behavior passed after fatal SSE errors were made terminal, real engine session event shapes were recognized, and legacy unauthenticated WebSockets were restricted by the actual socket address; the live harness first needed ignored fork dependencies and a guardian process.
+- **Suggested fix**: add deterministic dependency bootstrap and a foreground/guardian mode to `tools/dev/sandbox.sh`.
+- See `.agent-stack/postmortems/2026-07-25-issue-1170.json`.

@@ -1,4 +1,6 @@
 import { EventEmitter } from 'node:events';
+import { createServer } from 'node:http';
+import { networkInterfaces } from 'node:os';
 import { PassThrough } from 'node:stream';
 
 import Database from 'better-sqlite3';
@@ -16,6 +18,7 @@ import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { resetMobileGatewayRuntimeForTest } from '../services/mobile_gateway_runtime';
 import { MobileOpenCodeProxy } from '../services/mobile_opencode_proxy';
+import { attachWsGateway } from '../services/ws_gateway';
 import { startTestServer } from './helpers/real_server';
 
 type SseModule = {
@@ -83,6 +86,43 @@ function rawUpgradeRequest(input: {
         : {}),
     },
   };
+}
+
+function nonLoopbackIpv4(): string {
+  for (const addresses of Object.values(networkInterfaces())) {
+    for (const address of addresses ?? []) {
+      if (address.family === 'IPv4' && !address.internal) {
+        return address.address;
+      }
+    }
+  }
+  throw new Error(
+    'A non-loopback IPv4 interface is required to verify the gateway boundary',
+  );
+}
+
+function rejectedUpgradeStatus(
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url, { headers });
+    const timer = setTimeout(() => {
+      ws.terminate();
+      reject(new Error('Timed out waiting for WebSocket rejection'));
+    }, 2_000);
+    ws.once('unexpected-response', (_request, response) => {
+      clearTimeout(timer);
+      response.resume();
+      resolve(response.statusCode ?? 0);
+    });
+    ws.once('open', () => {
+      clearTimeout(timer);
+      ws.close();
+      reject(new Error('Remote legacy WebSocket unexpectedly opened'));
+    });
+    ws.once('error', () => undefined);
+  });
 }
 
 describe('issue #1170 mobile realtime proxy contract', () => {
@@ -345,6 +385,142 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     pendingProxy.close();
   });
 
+  it('issue-1170-c3: fatal SSE frame and buffer overflow abort once, report the error, and release all state', async () => {
+    const sseModule = await loadSseModule();
+    expect(sseModule).not.toBeNull();
+    if (!sseModule) return;
+
+    const oversized = new TextEncoder().encode(
+      `data: ${JSON.stringify({
+        directory: '/sandbox/project',
+        payload: {
+          id: 'evt-oversized',
+          type: 'session.updated',
+          properties: { padding: 'x'.repeat(1_024) },
+        },
+      })}\n\n`,
+    );
+    const scenarios = [
+      {
+        maxFrameBytes: 2_048,
+        maxBufferedBytes: 256,
+        code: 'UPSTREAM_STREAM_TOO_LARGE',
+      },
+      {
+        maxFrameBytes: 128,
+        maxBufferedBytes: 2_048,
+        code: 'UPSTREAM_EVENT_TOO_LARGE',
+      },
+    ];
+    for (const scenario of scenarios) {
+      let upstreamSignal: AbortSignal | undefined;
+      const fetchFn = vi.fn(async (
+        _url: string | URL | Request,
+        init?: RequestInit,
+      ) => {
+        upstreamSignal = init?.signal ?? undefined;
+        return new Response(new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(oversized);
+            controller.close();
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        });
+      });
+      const proxy = new sseModule.MobileSseProxy({
+        fetchFn,
+        maxFrameBytes: scenario.maxFrameBytes,
+        maxBufferedBytes: scenario.maxBufferedBytes,
+        reconnectBaseMs: 1,
+        reconnectMaxMs: 2,
+      });
+      const request = new EventEmitter();
+      const response = responseSink();
+      let output = '';
+      response.on('data', (chunk) => {
+        output += chunk.toString();
+      });
+
+      const streaming = proxy.stream({
+        request,
+        response,
+        project: { id: 'project-contract', root: '/sandbox/project' },
+        isDeviceActive: () => true,
+      });
+      const result = await Promise.race([
+        streaming.then(() => 'closed'),
+        new Promise<'timeout'>((resolve) =>
+          setTimeout(() => resolve('timeout'), 100)),
+      ]);
+      if (result === 'timeout') request.emit('close');
+      await streaming;
+
+      expect(result).toBe('closed');
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      expect(upstreamSignal?.aborted).toBe(true);
+      expect(output).toContain('"type":"gateway.error"');
+      expect(output).toContain(`"code":"${scenario.code}"`);
+      expect(request.listenerCount('close')).toBe(0);
+      expect(response.listenerCount('close')).toBe(0);
+      expect(response.writableEnded).toBe(true);
+    }
+  });
+
+  it('issue-1170-c1: legacy WebSockets accept actual loopback sockets but reject remote sockets before routing', async () => {
+    const server = createServer((_request, response) => response.end());
+    const wss = attachWsGateway(server);
+    await new Promise<void>((resolve) => {
+      server.listen(0, '0.0.0.0', resolve);
+    });
+    const address = server.address();
+    expect(address).not.toBeNull();
+    expect(typeof address).not.toBe('string');
+    if (!address || typeof address === 'string') return;
+
+    let loopback: WebSocket | null = null;
+    try {
+      loopback = await new Promise<WebSocket>((resolve, reject) => {
+        const ws = new WebSocket(
+          `ws://127.0.0.1:${address.port}/ws/agents`,
+          {
+            headers: {
+              Host: 'malicious.example',
+              'X-Forwarded-For': '203.0.113.10',
+            },
+          },
+        );
+        ws.once('open', () => resolve(ws));
+        ws.once('error', reject);
+      });
+      expect(loopback.readyState).toBe(WebSocket.OPEN);
+
+      const remoteHost = nonLoopbackIpv4();
+      const spoofedHeaders = {
+        Host: '127.0.0.1',
+        'X-Forwarded-For': '127.0.0.1',
+      };
+      expect(await rejectedUpgradeStatus(
+        `ws://${remoteHost}:${address.port}/ws/agents`,
+        spoofedHeaders,
+      )).toBe(403);
+      expect(await rejectedUpgradeStatus(
+        `ws://${remoteHost}:${address.port}/ws/pty/pty-contract`,
+        spoofedHeaders,
+      )).toBe(403);
+    } finally {
+      if (loopback) {
+        await new Promise<void>((resolve) => {
+          loopback!.once('close', () => resolve());
+          loopback!.close();
+        });
+      }
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it('roadmap: SSE reconnects, forwards heartbeats, filters projects, and dedupes bounded event IDs', async () => {
     const sseModule = await loadSseModule();
     expect(sseModule).not.toBeNull();
@@ -410,6 +586,50 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     expect(output).toContain('id: evt-2');
     expect(request.listenerCount('close')).toBe(0);
     expect(response.listenerCount('close')).toBe(0);
+  });
+
+  it('issue-1170-c4: session-scoped SSE accepts the real session.updated info.id shape', async () => {
+    const sseModule = await loadSseModule();
+    expect(sseModule).not.toBeNull();
+    if (!sseModule) return;
+
+    const frames = [
+      'data: {"directory":"/sandbox/project","payload":{"id":"evt-other","type":"session.updated","properties":{"info":{"id":"ses-other"}}}}',
+      '',
+      'data: {"directory":"/sandbox/project","payload":{"id":"evt-target","type":"session.updated","properties":{"info":{"id":"ses-target"}}}}',
+      '',
+      '',
+    ].join('\n');
+    const proxy = new sseModule.MobileSseProxy({
+      fetchFn: vi.fn(async () =>
+        new Response(new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(frames));
+          },
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        })),
+    });
+    const request = new EventEmitter();
+    const response = responseSink();
+    let output = '';
+    response.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    const streaming = proxy.stream({
+      request,
+      response,
+      project: { id: 'project-contract', root: '/sandbox/project' },
+      sessionId: 'ses-target',
+      isDeviceActive: () => true,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    request.emit('close');
+    await streaming;
+    expect(output).toContain('evt-target');
+    expect(output).not.toContain('evt-other');
   });
 
   it('roadmap: PTY bridge preserves text/binary frames, ticket scope, close codes, and active revocation', async () => {

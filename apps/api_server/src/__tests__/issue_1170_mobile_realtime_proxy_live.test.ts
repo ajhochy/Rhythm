@@ -143,7 +143,7 @@ describeLive('live E2E — issue #1170 mobile realtime proxy', () => {
     expect(dbPath).not.toContain('/Library/Application Support/Rhythm/');
   });
 
-  it('issue-1170-c4: live sandbox emits a real scoped SSE event and preserves PTY text and binary round trips', async () => {
+  it('issue-1170-c4: live sandbox emits real global and session-scoped SSE and propagates PTY data and closure', async () => {
     const db = new Database(dbPath);
     const runId = randomUUID();
     const userToken = randomUUID();
@@ -158,6 +158,7 @@ describeLive('live E2E — issue #1170 mobile realtime proxy', () => {
     let sessionId: string | null = null;
     let ptyId: string | null = null;
     let ptySocket: WebSocket | null = null;
+    let sessionSseAbort: AbortController | null = null;
     try {
       userId = Number(db.prepare(
         `INSERT INTO users (name, email, google_sub)
@@ -256,6 +257,41 @@ describeLive('live E2E — issue #1170 mobile realtime proxy', () => {
       expect(JSON.stringify(event)).toContain(sessionId);
       sseAbort.abort();
 
+      sessionSseAbort = new AbortController();
+      const sessionSseResponse = await fetch(
+        `${baseUrl}/mobile-gateway/sessions/${encodeURIComponent(sessionId)}/events`,
+        {
+          headers: gatewayHeaders(deviceToken, projectId),
+          signal: sessionSseAbort.signal,
+        },
+      );
+      expect(sessionSseResponse.status).toBe(200);
+      let markSessionSseConnected!: () => void;
+      const sessionSseConnected = new Promise<void>((resolveConnected) => {
+        markSessionSseConnected = resolveConnected;
+      });
+      const sessionUpdatedEvent = readSseEvent(
+        sessionSseResponse,
+        'session.updated',
+        markSessionSseConnected,
+      );
+      await sessionSseConnected;
+      const updatedTitle = `Issue 1170 scoped ${runId}`;
+      const updated = await fetch(
+        `${baseUrl}/mobile-gateway/opencode/session/${encodeURIComponent(sessionId)}`,
+        {
+          method: 'PATCH',
+          headers: gatewayHeaders(deviceToken, projectId, true),
+          body: JSON.stringify({ title: updatedTitle }),
+        },
+      );
+      expect(updated.status).toBe(200);
+      const scopedEvent = await sessionUpdatedEvent;
+      expect(JSON.stringify(scopedEvent)).toContain(sessionId);
+      expect(JSON.stringify(scopedEvent)).toContain(updatedTitle);
+      sessionSseAbort.abort();
+      sessionSseAbort = null;
+
       const createdPty = await fetch(
         `${baseUrl}/mobile-gateway/opencode/pty`,
         {
@@ -310,8 +346,17 @@ describeLive('live E2E — issue #1170 mobile realtime proxy', () => {
         frame.data.toString().includes(binaryMarker.toString().trim()),
       )).toBe(true);
 
-      ptySocket.close();
-      ptySocket = null;
+      const ptyClosed = new Promise<{ code: number; reason: string }>(
+        (resolveClose, rejectClose) => {
+          const timer = setTimeout(() => {
+            rejectClose(new Error('PTY upstream close propagation timeout'));
+          }, 10_000);
+          ptySocket!.once('close', (code, reason) => {
+            clearTimeout(timer);
+            resolveClose({ code, reason: reason.toString() });
+          });
+        },
+      );
       const deletePty = await fetch(
         `${baseUrl}/mobile-gateway/opencode/pty/${encodeURIComponent(ptyId)}`,
         {
@@ -321,6 +366,10 @@ describeLive('live E2E — issue #1170 mobile realtime proxy', () => {
       );
       expect(deletePty.status).toBe(200);
       ptyId = null;
+      const propagatedClose = await ptyClosed;
+      expect(propagatedClose.code).not.toBe(1006);
+      expect(ptySocket.readyState).toBe(WebSocket.CLOSED);
+      ptySocket = null;
       const deleteSession = await fetch(
         `${baseUrl}/mobile-gateway/opencode/session/${encodeURIComponent(sessionId)}`,
         {
@@ -351,6 +400,7 @@ describeLive('live E2E — issue #1170 mobile realtime proxy', () => {
         gatewayHeaders(deviceToken, projectId),
       )).toBe(401);
     } finally {
+      sessionSseAbort?.abort();
       ptySocket?.close();
       if (ptyId && deviceToken) {
         await fetch(

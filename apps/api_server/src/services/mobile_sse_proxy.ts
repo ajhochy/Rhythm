@@ -65,6 +65,14 @@ function abortError(error: unknown): boolean {
   );
 }
 
+function fatalStreamError(error: unknown): error is AppError {
+  return error instanceof AppError && (
+    error.code === 'UPSTREAM_STREAM_TOO_LARGE' ||
+    error.code === 'UPSTREAM_EVENT_TOO_LARGE' ||
+    error.code === 'STREAM_BACKPRESSURE'
+  );
+}
+
 function streamEventType(value: unknown): string | null {
   if (typeof value !== 'object' || value === null) return null;
   const record = value as Record<string, unknown>;
@@ -127,6 +135,26 @@ function matchesSession(value: unknown, sessionId: string): boolean {
   if (isCommonServerEvent(value)) return true;
   const ids = new Set<string>();
   collectSessionIds(value, ids);
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    streamEventType(value)?.startsWith('session.')
+  ) {
+    const record = value as Record<string, unknown>;
+    const payload =
+      typeof record.payload === 'object' && record.payload !== null
+        ? record.payload as Record<string, unknown>
+        : record;
+    const properties =
+      typeof payload.properties === 'object' && payload.properties !== null
+        ? payload.properties as Record<string, unknown>
+        : null;
+    const info =
+      typeof properties?.info === 'object' && properties.info !== null
+        ? properties.info as Record<string, unknown>
+        : null;
+    if (typeof info?.id === 'string') ids.add(info.id);
+  }
   return ids.has(sessionId);
 }
 
@@ -291,6 +319,29 @@ export class MobileSseProxy {
           if (delivered) reconnectMs = this.reconnectBaseMs;
         } catch (error) {
           if (closed || controller.signal.aborted) break;
+          if (fatalStreamError(error)) {
+            const encoded =
+              'event: gateway.error\n' +
+              `data: ${JSON.stringify({
+                type: 'gateway.error',
+                properties: { code: error.code },
+              })}\n\n`;
+            if (
+              !input.response.writableEnded &&
+              input.response.writableLength +
+                Buffer.byteLength(encoded, 'utf8') <=
+                this.maxBufferedBytes
+            ) {
+              try {
+                input.response.write(encoded);
+              } catch {
+                // The downstream socket is already unusable; cleanup below
+                // still aborts the upstream and releases retained state.
+              }
+            }
+            close();
+            break;
+          }
           if (!abortError(error)) {
             // Deliberately omit error details: upstream errors and URLs can
             // include local paths or connection-ticket material.
