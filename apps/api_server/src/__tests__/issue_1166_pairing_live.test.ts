@@ -7,6 +7,8 @@ const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
 const describeLive = LIVE ? describe : describe.skip;
 const baseUrl = (process.env.RHYTHM_LIVE_URL ?? '').replace(/\/$/, '');
 const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? '';
+const humanCapability =
+  process.env.RHYTHM_LIVE_HUMAN_CAPABILITY ?? '';
 
 function bearer(token: string): Record<string, string> {
   return {
@@ -15,12 +17,23 @@ function bearer(token: string): Record<string, string> {
   };
 }
 
+function pairingHeaders(token: string): Record<string, string> {
+  return {
+    ...bearer(token),
+    'X-Rhythm-Human-Approval': humanCapability,
+  };
+}
+
 describeLive('live E2E — issue #1166 pairing security', () => {
   it('issue-1166-c4: live sandbox enforces pairing and device credential security', async () => {
     if (baseUrl !== 'http://127.0.0.1:4098') {
       throw new Error('RHYTHM_LIVE_URL must be the isolated sandbox API on 127.0.0.1:4098');
     }
-    if (process.env.RHYTHM_LIVE_E2E_ISOLATED !== '1' || !dbPath.startsWith('/')) {
+    if (
+      process.env.RHYTHM_LIVE_E2E_ISOLATED !== '1' ||
+      !dbPath.startsWith('/') ||
+      humanCapability.length < 24
+    ) {
       throw new Error('Live pairing test requires an attested isolated absolute DB path');
     }
     if (dbPath.includes('/Library/Application Support/Rhythm/')) {
@@ -73,9 +86,22 @@ describeLive('live E2E — issue #1166 pairing security', () => {
         200,
       ]);
 
+      const deniedPairingCode = await fetch(
+        `${baseUrl}/mobile-gateway/pairing-codes`,
+        {
+          method: 'POST',
+          headers: bearer(aliceToken),
+          body: JSON.stringify({}),
+        },
+      );
+      expect(deniedPairingCode.status).toBe(403);
+      expect(await deniedPairingCode.json()).toMatchObject({
+        error: { code: 'FORBIDDEN' },
+      });
+
       const codeResponse = await fetch(`${baseUrl}/mobile-gateway/pairing-codes`, {
         method: 'POST',
-        headers: bearer(aliceToken),
+        headers: pairingHeaders(aliceToken),
         body: JSON.stringify({ userId: bobId }),
       });
       expect(codeResponse.status).toBe(201);
@@ -127,7 +153,7 @@ describeLive('live E2E — issue #1166 pairing security', () => {
       expect(firstAtRest.token_verifier).toMatch(/^[a-f0-9]{64}$/);
       expect(JSON.stringify(firstAtRest)).not.toContain(first.deviceToken);
       const listed = await fetch(`${baseUrl}/mobile-gateway/devices?userId=${bobId}`, {
-        headers: bearer(aliceToken),
+        headers: pairingHeaders(aliceToken),
       });
       expect(listed.status).toBe(200);
       const listedDevices = (await listed.json()) as Array<Record<string, unknown>>;
@@ -151,7 +177,7 @@ describeLive('live E2E — issue #1166 pairing security', () => {
 
       const expiringCodeResponse = await fetch(`${baseUrl}/mobile-gateway/pairing-codes`, {
         method: 'POST',
-        headers: bearer(aliceToken),
+        headers: pairingHeaders(aliceToken),
         body: JSON.stringify({}),
       });
       const expiringCode = (await expiringCodeResponse.json()) as {
@@ -179,7 +205,7 @@ describeLive('live E2E — issue #1166 pairing security', () => {
         `${baseUrl}/mobile-gateway/pairing-codes`,
         {
           method: 'POST',
-          headers: bearer(aliceToken),
+          headers: pairingHeaders(aliceToken),
           body: JSON.stringify({}),
         },
       );

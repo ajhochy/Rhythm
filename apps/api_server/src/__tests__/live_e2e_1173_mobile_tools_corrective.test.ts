@@ -9,11 +9,14 @@ const describeLive = LIVE ? describe : describe.skip;
 const baseUrl = (process.env.RHYTHM_LIVE_URL ?? '').replace(/\/$/, '');
 const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? '';
 const sandboxDir = process.env.RHYTHM_SANDBOX_DIR ?? '';
+const humanCapability =
+  process.env.RHYTHM_LIVE_HUMAN_CAPABILITY ?? '';
 
 function cloudHeaders(token: string): Record<string, string> {
   return {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
+    'X-Rhythm-Human-Approval': humanCapability,
   };
 }
 
@@ -45,7 +48,8 @@ describeLive('live E2E — issue #1173 mobile Tools corrective', () => {
       !sandboxDir.startsWith('/') ||
       !dbPath.startsWith('/') ||
       resolve(dbPath) !== resolve(sandboxDir, 'rhythm.db') ||
-      dbPath.includes('/Library/Application Support/Rhythm/')
+      dbPath.includes('/Library/Application Support/Rhythm/') ||
+      humanCapability.length < 24
     ) {
       throw new Error(
         'Issue #1173 live test requires an attested isolated sandbox database',

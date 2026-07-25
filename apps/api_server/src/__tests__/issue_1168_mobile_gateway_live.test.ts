@@ -16,11 +16,20 @@ const baseUrl = (process.env.RHYTHM_LIVE_URL ?? '').replace(/\/$/, '');
 const engineUrl = (process.env.RHYTHM_LIVE_ENGINE_URL ?? '').replace(/\/$/, '');
 const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? '';
 const sandboxDir = process.env.RHYTHM_SANDBOX_DIR ?? '';
+const humanCapability =
+  process.env.RHYTHM_LIVE_HUMAN_CAPABILITY ?? '';
 
 function bearer(token: string): Record<string, string> {
   return {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
+  };
+}
+
+function pairingHeaders(token: string): Record<string, string> {
+  return {
+    ...bearer(token),
+    'X-Rhythm-Human-Approval': humanCapability,
   };
 }
 
@@ -37,7 +46,8 @@ describeLive('live E2E — issue #1168 mobile gateway security', () => {
     if (
       process.env.RHYTHM_LIVE_E2E_ISOLATED !== '1' ||
       !sandboxDir.startsWith('/') ||
-      !dbPath.startsWith('/')
+      !dbPath.startsWith('/') ||
+      humanCapability.length < 24
     ) {
       throw new Error('Issue #1168 live test requires an attested absolute sandbox and DB path');
     }
@@ -102,9 +112,22 @@ describeLive('live E2E — issue #1168 mobile gateway security', () => {
       });
       expect(unauthenticated.status).toBe(401);
 
+      const deniedPairingCode = await fetch(
+        `${baseUrl}/mobile-gateway/pairing-codes`,
+        {
+          method: 'POST',
+          headers: bearer(userToken),
+          body: JSON.stringify({}),
+        },
+      );
+      expect(deniedPairingCode.status).toBe(403);
+      expect(await deniedPairingCode.json()).toMatchObject({
+        error: { code: 'FORBIDDEN' },
+      });
+
       const codeResponse = await fetch(`${baseUrl}/mobile-gateway/pairing-codes`, {
         method: 'POST',
-        headers: bearer(userToken),
+        headers: pairingHeaders(userToken),
         body: JSON.stringify({}),
       });
       expect(codeResponse.status).toBe(201);
@@ -161,7 +184,7 @@ describeLive('live E2E — issue #1168 mobile gateway security', () => {
         `${baseUrl}/mobile-gateway/devices/${paired.deviceId}`,
         {
           method: 'DELETE',
-          headers: bearer(userToken),
+          headers: pairingHeaders(userToken),
         },
       );
       expect(revoke.status).toBe(204);

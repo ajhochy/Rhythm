@@ -11,6 +11,8 @@ const baseUrl = (process.env.RHYTHM_LIVE_URL ?? '').replace(/\/$/, '');
 const engineUrl = (process.env.RHYTHM_LIVE_ENGINE_URL ?? '').replace(/\/$/, '');
 const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? process.env.DB_PATH ?? '';
 const sandboxDir = process.env.RHYTHM_SANDBOX_DIR ?? '';
+const humanCapability =
+  process.env.RHYTHM_LIVE_HUMAN_CAPABILITY ?? '';
 
 describeLive('live E2E — issue #1172 agent activity', () => {
   it('issue-1172-c9 / issue-1175-c10: live sandbox returns only the paired user activity without duplicate pages', async () => {
@@ -27,7 +29,8 @@ describeLive('live E2E — issue #1172 agent activity', () => {
       !sandboxDir.startsWith('/') ||
       !dbPath.startsWith('/') ||
       resolve(dbPath) !== resolve(sandboxDir, 'rhythm.db') ||
-      dbPath.includes('/Library/Application Support/Rhythm/')
+      dbPath.includes('/Library/Application Support/Rhythm/') ||
+      humanCapability.length < 24
     ) {
       throw new Error(
         'Issue #1172 live test requires an attested absolute sandbox database',
@@ -344,6 +347,7 @@ describeLive('live E2E — issue #1172 agent activity', () => {
           headers: {
             Authorization: `Bearer ${userToken}`,
             'Content-Type': 'application/json',
+            'X-Rhythm-Human-Approval': humanCapability,
           },
           body: '{}',
         },

@@ -18,6 +18,8 @@ const baseUrl = (process.env.RHYTHM_LIVE_URL ?? '').replace(/\/$/, '');
 const engineUrl = (process.env.RHYTHM_LIVE_ENGINE_URL ?? '').replace(/\/$/, '');
 const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? '';
 const sandboxDir = process.env.RHYTHM_SANDBOX_DIR ?? '';
+const humanCapability =
+  process.env.RHYTHM_LIVE_HUMAN_CAPABILITY ?? '';
 const fixturePort = 56174;
 const providerId = 'e2e-anthropic-1174';
 const modelId = 'claude-parity-fixture';
@@ -150,7 +152,8 @@ describeLive('live E2E — issue #1174 mobile OpenCode parity', () => {
     if (
       process.env.RHYTHM_LIVE_E2E_ISOLATED !== '1' ||
       !sandboxDir.startsWith('/') ||
-      !dbPath.startsWith('/')
+      !dbPath.startsWith('/') ||
+      humanCapability.length < 24
     ) {
       throw new Error(
         'Issue #1174 live test requires an attested absolute sandbox and DB path',
@@ -240,6 +243,7 @@ describeLive('live E2E — issue #1174 mobile OpenCode parity', () => {
           headers: {
             Authorization: `Bearer ${userToken}`,
             'Content-Type': 'application/json',
+            'X-Rhythm-Human-Approval': humanCapability,
           },
           body: '{}',
         },

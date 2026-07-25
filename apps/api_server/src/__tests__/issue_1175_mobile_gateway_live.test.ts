@@ -17,6 +17,8 @@ const engineUrl = (process.env.RHYTHM_LIVE_ENGINE_URL ?? '').replace(/\/$/, '');
 const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? '';
 const sandboxDir = process.env.RHYTHM_SANDBOX_DIR ?? '';
 const secretMarker = process.env.RHYTHM_LIVE_SECRET_MARKER ?? '';
+const humanCapability =
+  process.env.RHYTHM_LIVE_HUMAN_CAPABILITY ?? '';
 
 function gatewayHeaders(
   deviceToken: string,
@@ -59,7 +61,8 @@ describeLive('live E2E — issue #1175 paired gateway isolation', () => {
       process.env.RHYTHM_LIVE_E2E_ISOLATED !== '1' ||
       !sandboxDir.startsWith('/') ||
       !dbPath.startsWith('/') ||
-      secretMarker.length < 16
+      secretMarker.length < 16 ||
+      humanCapability.length < 24
     ) {
       throw new Error(
         'Issue #1175 live test requires an attested absolute sandbox, DB path, and secret marker',
@@ -157,6 +160,7 @@ describeLive('live E2E — issue #1175 paired gateway isolation', () => {
           headers: {
             Authorization: `Bearer ${userToken}`,
             'Content-Type': 'application/json',
+            'X-Rhythm-Human-Approval': humanCapability,
           },
           body: '{}',
         },
@@ -164,15 +168,14 @@ describeLive('live E2E — issue #1175 paired gateway isolation', () => {
       expect(pairingCodeResponse.status).toBe(201);
       const pairingCode = (await pairingCodeResponse.json()) as {
         pairingCode: string;
+        hostId: string;
       };
       const pairResponse = await fetch(`${baseUrl}/mobile-gateway/pair`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${userToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pairingCode: pairingCode.pairingCode,
+          hostId: pairingCode.hostId,
           deviceName: 'Issue 1175 Live iPhone',
         }),
       });

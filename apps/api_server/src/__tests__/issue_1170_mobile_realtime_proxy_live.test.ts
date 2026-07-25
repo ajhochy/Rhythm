@@ -15,6 +15,8 @@ const baseUrl = (process.env.RHYTHM_LIVE_URL ?? '').replace(/\/$/, '');
 const engineUrl = (process.env.RHYTHM_LIVE_ENGINE_URL ?? '').replace(/\/$/, '');
 const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? '';
 const sandboxDir = process.env.RHYTHM_SANDBOX_DIR ?? '';
+const humanCapability =
+  process.env.RHYTHM_LIVE_HUMAN_CAPABILITY ?? '';
 
 function gatewayHeaders(
   deviceToken: string,
@@ -139,6 +141,7 @@ describeLive('live E2E — issue #1170 mobile realtime proxy', () => {
     expect(api.port).not.toBe('4001');
     expect(engine.port).not.toBe('4096');
     expect(api.port).not.toBe(engine.port);
+    expect(humanCapability.length).toBeGreaterThanOrEqual(24);
     expect(resolve(dbPath)).toBe(resolve(sandboxDir, 'rhythm.db'));
     expect(dbPath).not.toContain('/Library/Application Support/Rhythm/');
   });
@@ -195,6 +198,7 @@ describeLive('live E2E — issue #1170 mobile realtime proxy', () => {
           headers: {
             Authorization: `Bearer ${userToken}`,
             'Content-Type': 'application/json',
+            'X-Rhythm-Human-Approval': humanCapability,
           },
           body: '{}',
         },
