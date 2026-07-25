@@ -1,0 +1,65 @@
+{
+  "issue": 1175,
+  "generated": "2026-07-25",
+  "criteria": [
+    {
+      "criterion_id": "issue-1175-c1",
+      "text": "GitNexus compare-to-main impact is captured and contains only expected mobile, gateway, engine, and explicitly linked issue flows.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c1: bounded GitNexus aggregate scope",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1175-c2",
+      "text": "Independent whole-branch security and quality review has no unresolved Critical or Important findings.",
+      "mode": "security",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c2: independent review closure",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1175-c3",
+      "text": "Full API, Flutter, mobile, contract, browser E2E, accessibility, security, and secret-scan gates pass with exact commands recorded.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c3: cumulative automated gates",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1175-c4",
+      "text": "Real gateway and engine behavior passes through tools/dev/sandbox.sh on API 4098 and engine 4097 while listeners 4001 and 4096 remain untouched.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c4: isolated real sandbox",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1175-c5",
+      "text": "A signed development build runs on a physical iPhone and verifies pairing, isolation failures, chat/SSE/PTY, approvals, every Tool, revocation, and background recovery.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c5: signed physical-device matrix",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1175-c6",
+      "text": "A production iOS build and TestFlight submission complete through secure credential tooling without exposing or committing credentials.",
+      "mode": "security",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c6: production build and TestFlight",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1175-c7",
+      "text": "Exact evidence is recorded in docs/ai/runs and PR #1165 remains draft, open, unmerged, and updated for human approval.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c7: durable log and draft PR posture",
+      "status": "red"
+    }
+  ],
+  "stack": "typescript/react-native/flutter/ios",
+  "evidence_file": "docs/ai/evidence/issue-1175-release.json",
+  "not_tested": []
+}
