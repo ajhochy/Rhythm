@@ -4,7 +4,7 @@ repo: Rhythm
 branch: codex/1161-1162-profile-fixes
 pr: null
 issues: [1162]
-status: partial
+status: complete
 tags: [run, Rhythm]
 index: "[[Rhythm]]"
 ---
@@ -23,9 +23,9 @@ index: "[[Rhythm]]"
 - Writer/profile-sync suite — 108 passed across 7 files.
 - `node_modules/.bin/tsc --noEmit` — exit 0.
 - `ai-workflow checks --level issue` — exit 0.
+- `RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4298 DB_PATH=/tmp/rhythm-dev-sandbox-1161-1162/rhythm.db RHYTHM_SANDBOX_HOME=/tmp/rhythm-dev-sandbox-1161-1162/home npx vitest run src/__tests__/live_e2e_1161_cookbook_bound_profile.test.ts src/__tests__/live_e2e_1162_permission_shape_transition.test.ts` — PASS, 2/2 live tests. The real engine registry parsed all permission shape transitions and preserved configured model/options.
 
 ## Notes
 
 - GitNexus reports `writeAgentProfileFile` MEDIUM blast radius: 26 total / 14 direct upstream impacts across profile patch and skill-distillation flows. The implementation remains inside its private permission-subtree helpers.
-- The live behavioral command was not run because another workflow owns sandbox ports 4097/4098. Contract criterion `issue-1162-c4` remains `pending`.
-- No server or sandbox was started or stopped.
+- The branch-built sandbox used API `:4298` and engine `:4297`; the unrelated workflow on `:4098`/`:4097` was not touched.

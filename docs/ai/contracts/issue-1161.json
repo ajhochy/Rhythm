@@ -32,7 +32,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/live_e2e_1161_cookbook_bound_profile.test.ts",
       "test_id": "issue-1161-c4: bound and unbound cookbook runs use their observable live profile identities",
-      "status": "pending"
+      "status": "pass"
     }
   ],
   "stack": "typescript",

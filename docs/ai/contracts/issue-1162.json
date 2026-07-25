@@ -32,7 +32,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/live_e2e_1162_permission_shape_transition.test.ts",
       "test_id": "issue-1162-c4: live registry parses every permission shape transition and preserves model/options",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1162-c5",
