@@ -16,6 +16,7 @@ import {
 } from './fixtures.mjs';
 import { createSessionHelpers } from './session-helpers.mjs';
 import { createStateStore, getNow } from './state.mjs';
+import { createRhythmToolsRoutes } from './rhythm-tools-routes.mjs';
 
 const port = Number.parseInt(process.env.FAKE_OPENCODE_PORT || '4096', 10);
 const scenarioName = process.env.FAKE_OPENCODE_SCENARIO || 'happy-path';
@@ -89,6 +90,8 @@ function readJson(req) {
     req.on('error', reject);
   });
 }
+
+const handleRhythmTools = createRhythmToolsRoutes({ readJson, sendJson });
 
 function getSession(sessionId) {
   return helpers.getSession(sessionId);
@@ -171,6 +174,10 @@ const server = http.createServer(async (req, res) => {
         'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
       });
       res.end();
+      return;
+    }
+
+    if (await handleRhythmTools({ req, res, pathname, requestUrl })) {
       return;
     }
 

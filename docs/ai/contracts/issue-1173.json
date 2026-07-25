@@ -1,0 +1,104 @@
+{
+  "issue": 1173,
+  "generated": "2026-07-25",
+  "criteria": [
+    {
+      "criterion_id": "issue-1173-c1",
+      "text": "A typed Rhythm tools service routes production-owned Email and Gallery through Rhythm Cloud and all paired-Mac tools through the authenticated mobile gateway without exposing either credential.",
+      "mode": "security",
+      "test_file": "apps/mobile/tests/issue-1173-tools-service.test.mjs",
+      "test_id": "issue-1173-c1: tool transports stay origin and credential isolated",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1173-c2",
+      "text": "Brain supports list, search, detail, create, edit, and confirmed delete using secret-free read-only offline cache.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-core.spec.mjs",
+      "test_id": "issue-1173-c2: Brain CRUD search and offline cache",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1173-c3",
+      "text": "Research supports create, progress/status, detail/report, retry, and delete with safe summaries.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-core.spec.mjs",
+      "test_id": "issue-1173-c3: Research lifecycle",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1173-c4",
+      "text": "Scheduled Jobs supports create, edit, enable/disable, confirmed run-now, run status, and confirmed delete.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-core.spec.mjs",
+      "test_id": "issue-1173-c4: Scheduled Job lifecycle and confirmations",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1173-c5",
+      "text": "Webhooks supports create, copy URL, rotate/revoke, and confirmed delete while secrets are displayed exactly once and are never persisted.",
+      "mode": "security",
+      "test_file": "apps/mobile/tests/issue-1173-tools-service.test.mjs",
+      "test_id": "issue-1173-c5: webhook secrets remain one-time and uncached",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1173-c6",
+      "text": "Profiles supports prompt, model, delegation, and permission-scope edits; preserves null-versus-empty scope semantics; and waits for server projection confirmation before refresh.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-admin.spec.mjs",
+      "test_id": "issue-1173-c6: Profile edits preserve scope and projection ordering",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1173-c7",
+      "text": "Cookbook supports recipe CRUD and confirmed run with useful execution feedback.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-admin.spec.mjs",
+      "test_id": "issue-1173-c7: Cookbook CRUD and confirmed execution",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1173-c8",
+      "text": "Review Queue exposes proposal details and approve/reject actions with high-risk approval confirmation, while Report Card renders run-quality summaries.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-admin.spec.mjs",
+      "test_id": "issue-1173-c8: Review Queue risk controls and Report Card",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1173-c9",
+      "text": "Email and Gallery remain usable through production Rhythm Cloud while the paired Mac is offline, use least-privilege summaries, and never cache full email bodies or OAuth data.",
+      "mode": "security",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-integrations.spec.mjs",
+      "test_id": "issue-1173-c9: cloud tools survive paired host outage without sensitive caching",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1173-c10",
+      "text": "Skills, Playbooks, MCP, and Providers/Models expose approved metadata and lifecycle operations, compatibility-feature gating, OAuth handoff, and destructive confirmations by reusing existing provider services.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-integrations.spec.mjs",
+      "test_id": "issue-1173-c10: paired integrations lifecycle and feature gating",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1173-c11",
+      "text": "Every dedicated tool screen handles loading, empty, secret-free offline cache, forbidden, expired-auth, and retryable server error with accessible Dynamic Type and dark-mode-safe UI.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/issue-1173-tools-service.test.mjs",
+      "test_id": "issue-1173-c11: every screen declares resilient accessible states",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1173-c12",
+      "text": "Contract, fake-server, E2E, lint, typecheck, accessibility, and independent security/quality reviews pass.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-navigation.spec.mjs",
+      "test_id": "issue-1173-c12: all fourteen tools are navigable and reviewed",
+      "status": "red"
+    }
+  ],
+  "stack": "typescript/react-native",
+  "not_tested": []
+}

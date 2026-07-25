@@ -4,33 +4,27 @@ import { Appbar, Avatar, Card, Text } from 'react-native-paper';
 
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import {
+  TOOL_SCREEN_MANIFEST,
+  type ToolScreenId,
+} from '@/providers/services/rhythm-tools-service';
 
-const TOOL_GROUPS = [
-  {
-    title: 'Knowledge',
-    description: 'Brain, Research, Profiles, Cookbook, and Skills',
-    icon: 'brain',
-    route: '/tools/brain',
-  },
-  {
-    title: 'Automation',
-    description: 'Scheduled Jobs, Webhooks, and Playbooks',
-    icon: 'calendar-clock',
-    route: '/tools/schedules',
-  },
-  {
-    title: 'Operations',
-    description: 'Review Queue, Report Card, Email, and Gallery',
-    icon: 'clipboard-check-outline',
-    route: '/tools/review',
-  },
-  {
-    title: 'Connections',
-    description: 'MCP Servers and Providers',
-    icon: 'connection',
-    route: '/tools/mcp',
-  },
-] as const;
+const TOOL_COPY: Record<ToolScreenId, { description: string; icon: string }> = {
+  brain: { description: 'Search and maintain agent memory', icon: 'brain' },
+  research: { description: 'Start, follow, and review deep research', icon: 'book-search-outline' },
+  schedules: { description: 'Create jobs and run them on demand', icon: 'calendar-clock' },
+  webhooks: { description: 'Secure inbound automation endpoints', icon: 'webhook' },
+  profiles: { description: 'Agent prompts, models, scope, and delegation', icon: 'account-cog-outline' },
+  cookbook: { description: 'Reusable, profile-bound agent recipes', icon: 'book-open-variant' },
+  review: { description: 'Approve or reject optimizer proposals', icon: 'clipboard-check-outline' },
+  'report-card': { description: 'Completion, escalation, and quality trends', icon: 'chart-box-outline' },
+  email: { description: 'Cloud email signals, even while Mac is offline', icon: 'email-outline' },
+  gallery: { description: 'Cloud design previews and generated assets', icon: 'image-multiple-outline' },
+  skills: { description: 'View and author approved agent skills', icon: 'lightning-bolt-outline' },
+  playbooks: { description: 'Manage reusable slash-command workflows', icon: 'script-text-outline' },
+  mcp: { description: 'Connect and inspect MCP servers', icon: 'connection' },
+  models: { description: 'Providers, authentication, and model availability', icon: 'cpu-64-bit' },
+};
 
 export default function ToolsScreen() {
   const router = useRouter();
@@ -54,21 +48,25 @@ export default function ToolsScreen() {
           Work with Rhythm’s knowledge, automation, operations, and connection
           tools through your paired Mac.
         </Text>
-        {TOOL_GROUPS.map((group) => (
+        {TOOL_SCREEN_MANIFEST.map((tool) => {
+          const copy = TOOL_COPY[tool.id];
+          return (
           <Card
-            accessibilityLabel={`${group.title}. ${group.description}`}
-            key={group.title}
+            accessibilityLabel={`${tool.title}. ${copy.description}`}
+            accessibilityRole="button"
+            key={tool.id}
             mode="outlined"
-            onPress={() => router.push(group.route as never)}
+            onPress={() => router.push(tool.route as never)}
             style={[styles.card, { borderColor: palette.border }]}>
             <Card.Title
-              left={(props) => <Avatar.Icon {...props} icon={group.icon} />}
-              subtitle={group.description}
+              left={(props) => <Avatar.Icon {...props} icon={copy.icon} />}
+              subtitle={copy.description}
               subtitleNumberOfLines={3}
-              title={group.title}
+              title={tool.title}
             />
           </Card>
-        ))}
+          );
+        })}
       </ScrollView>
     </View>
   );

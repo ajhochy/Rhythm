@@ -20,6 +20,7 @@ import {
 } from '../services/mobile_project_scope';
 import { MobileOpenCodeProxy } from '../services/mobile_opencode_proxy';
 import { MobileSseProxy } from '../services/mobile_sse_proxy';
+import { createMobileToolsRouter } from './mobile_tools_routes';
 
 export function createMobileGatewayRouter(): Router {
   const router = Router();
@@ -153,6 +154,11 @@ export function createMobileGatewayRouter(): Router {
     (req, res, next) => {
       void streamEvents(req.params.id)(req, res, next);
     },
+  );
+  router.use(
+    '/tools',
+    requireMobileDevice(getPairingService),
+    createMobileToolsRouter(),
   );
   router.all(
     '/opencode/*',

@@ -13,6 +13,7 @@ import { OpencodeProvider } from '@/providers/opencode-provider';
 import { PairedHostProvider } from '@/providers/paired-host-provider';
 import { RhythmAccountProvider } from '@/providers/rhythm-account-provider';
 import { AgentChatProvider } from '@/providers/agent-chat-provider';
+import { AppRhythmToolsProvider } from '@/providers/rhythm-tools-provider';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -42,24 +43,26 @@ export default function RootLayout() {
       <RhythmAccountProvider>
         <PairedHostProvider>
           <OpencodeProvider>
-            <AgentChatProvider>
-              <PaperProvider theme={paperTheme}>
-                <ThemeProvider
-                  value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-                  <Stack>
-                    <Stack.Screen
-                      name="(tabs)"
-                      options={{ headerShown: false }}
-                    />
-                    <Stack.Screen
-                      name="pair"
-                      options={{ headerShown: false }}
-                    />
-                  </Stack>
-                  <StatusBar style="auto" />
-                </ThemeProvider>
-              </PaperProvider>
-            </AgentChatProvider>
+            <AppRhythmToolsProvider>
+              <AgentChatProvider>
+                <PaperProvider theme={paperTheme}>
+                  <ThemeProvider
+                    value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                    <Stack>
+                      <Stack.Screen
+                        name="(tabs)"
+                        options={{ headerShown: false }}
+                      />
+                      <Stack.Screen
+                        name="pair"
+                        options={{ headerShown: false }}
+                      />
+                    </Stack>
+                    <StatusBar style="auto" />
+                  </ThemeProvider>
+                </PaperProvider>
+              </AgentChatProvider>
+            </AppRhythmToolsProvider>
           </OpencodeProvider>
         </PairedHostProvider>
       </RhythmAccountProvider>

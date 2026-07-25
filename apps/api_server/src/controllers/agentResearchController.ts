@@ -76,6 +76,98 @@ async function findJobById(id: string): Promise<ResearchJob | null> {
   return row ? rowToModel(row as Record<string, unknown>) : null;
 }
 
+function requireOwnedJob(job: ResearchJob, req: Request): void {
+  const userId = req.auth?.user.id;
+  if (userId !== undefined && job.requestedByUserId !== userId) {
+    throw AppError.notFound('ResearchJob');
+  }
+}
+
+function buildResearchPrompt(query: string, id: string): string {
+  return `You are running a Deep Research pipeline for query: "${query}"
+
+Job ID: ${id}
+
+Steps:
+1. Plan 3-5 authoritative sources to read for this query.
+2. For each source, fetch the URL and extract the key information.
+3. Synthesize all sources into a comprehensive, cited report.
+4. Call rhythm_update_research_job to update status at each step:
+   - After planning: status='gathering', sources=[url1, url2, ...]
+   - After reading: status='reading'
+   - After synthesis: status='done', report=<final markdown report>
+   If anything fails: status='error', error=<message>
+
+Be thorough. Cite sources. Write in markdown. Keep the report under 2000 words.`;
+}
+
+async function enqueueResearchTrigger(
+  job: Pick<ResearchJob, 'id' | 'query' | 'requestedByUserId'>,
+): Promise<void> {
+  const now = new Date().toISOString();
+  const prompt = buildResearchPrompt(job.query, job.id);
+  if (env.dbClient === 'postgres') {
+    await getPostgresPool().query(
+      `INSERT INTO pending_claude_triggers
+         (task_id, triggered_by_user_id, prompt, created_at)
+       VALUES (NULL, $1, $2, $3)`,
+      [job.requestedByUserId, prompt, now],
+    );
+    return;
+  }
+  getDb().prepare(
+    `INSERT INTO pending_claude_triggers
+       (task_id, triggered_by_user_id, prompt, created_at)
+     VALUES (NULL, ?, ?, ?)`,
+  ).run(job.requestedByUserId, prompt, now);
+}
+
+async function resetResearchJob(job: ResearchJob): Promise<ResearchJob> {
+  const now = new Date().toISOString();
+  if (env.dbClient === 'postgres') {
+    await getPostgresPool().query(
+      `UPDATE agent_research_jobs
+       SET status = 'pending', sources_json = '[]', report = NULL,
+           error = NULL, updated_at = $1
+       WHERE id = $2`,
+      [now, job.id],
+    );
+  } else {
+    getDb().prepare(
+      `UPDATE agent_research_jobs
+       SET status = 'pending', sources_json = '[]', report = NULL,
+           error = NULL, updated_at = ?
+       WHERE id = ?`,
+    ).run(now, job.id);
+  }
+  return (await findJobById(job.id))!;
+}
+
+async function removeResearchJob(job: ResearchJob): Promise<void> {
+  const triggerPattern = `%Job ID: ${job.id}%`;
+  if (env.dbClient === 'postgres') {
+    await getPostgresPool().query(
+      `DELETE FROM pending_claude_triggers
+       WHERE task_id IS NULL AND prompt LIKE $1`,
+      [triggerPattern],
+    );
+    await getPostgresPool().query(
+      'DELETE FROM agent_research_jobs WHERE id = $1',
+      [job.id],
+    );
+    return;
+  }
+  getDb().transaction(() => {
+    getDb().prepare(
+      `DELETE FROM pending_claude_triggers
+       WHERE task_id IS NULL AND prompt LIKE ?`,
+    ).run(triggerPattern);
+    getDb().prepare(
+      'DELETE FROM agent_research_jobs WHERE id = ?',
+    ).run(job.id);
+  })();
+}
+
 export class AgentResearchController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
@@ -99,6 +191,7 @@ export class AgentResearchController {
     try {
       const job = await findJobById(req.params.id);
       if (!job) throw AppError.notFound('ResearchJob');
+      requireOwnedJob(job, req);
       res.json(job);
     } catch (err) { next(err); }
   }
@@ -116,41 +209,36 @@ export class AgentResearchController {
         report: null, error: null, requestedByUserId: userId,
       });
 
-      // Insert a pending trigger so the agent starts the research pipeline
-      const prompt = `You are running a Deep Research pipeline for query: "${query}"
-
-Job ID: ${id}
-
-Steps:
-1. Plan 3-5 authoritative sources to read for this query.
-2. For each source, fetch the URL and extract the key information.
-3. Synthesize all sources into a comprehensive, cited report.
-4. Call rhythm_update_research_job to update status at each step:
-   - After planning: status='gathering', sources=[url1, url2, ...]
-   - After reading: status='reading'
-   - After synthesis: status='done', report=<final markdown report>
-   If anything fails: status='error', error=<message>
-
-Be thorough. Cite sources. Write in markdown. Keep the report under 2000 words.`;
-
-      const now = new Date().toISOString();
-      if (env.dbClient === 'postgres') {
-        await getPostgresPool().query(
-          `INSERT INTO pending_claude_triggers
-             (task_id, triggered_by_user_id, prompt, created_at)
-           VALUES (NULL, $1, $2, $3)`,
-          [userId, prompt, now],
-        );
-      } else {
-        getDb().prepare(
-          `INSERT INTO pending_claude_triggers
-             (task_id, triggered_by_user_id, prompt, created_at)
-           VALUES (NULL, ?, ?, ?)`,
-        ).run(userId, prompt, now);
-      }
+      // Insert a pending trigger so the agent starts the research pipeline.
+      await enqueueResearchTrigger(job);
 
       logger.info(`[Research] Created job ${id} for query: "${query}"`);
       res.status(201).json(job);
+    } catch (err) { next(err); }
+  }
+
+  async retry(req: Request, res: Response, next: NextFunction) {
+    try {
+      const job = await findJobById(req.params.id);
+      if (!job) throw AppError.notFound('ResearchJob');
+      requireOwnedJob(job, req);
+      if (job.status !== 'error') {
+        throw AppError.conflict('Only failed research jobs can be retried');
+      }
+      const reset = await resetResearchJob(job);
+      await enqueueResearchTrigger(reset);
+      logger.info(`[Research] Retrying job ${job.id}`);
+      res.json(reset);
+    } catch (err) { next(err); }
+  }
+
+  async remove(req: Request, res: Response, next: NextFunction) {
+    try {
+      const job = await findJobById(req.params.id);
+      if (!job) throw AppError.notFound('ResearchJob');
+      requireOwnedJob(job, req);
+      await removeResearchJob(job);
+      res.status(204).end();
     } catch (err) { next(err); }
   }
 
