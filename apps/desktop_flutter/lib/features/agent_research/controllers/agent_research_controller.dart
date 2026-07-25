@@ -25,7 +25,10 @@ class AgentResearchController extends ChangeNotifier {
       _jobs.where((j) => j.isActive).toList();
 
   List<AgentResearchJob> get completedJobs =>
-      _jobs.where((j) => j.isComplete).toList();
+      _jobs.where((j) => j.status == 'done').toList();
+
+  List<AgentResearchJob> get failedJobs =>
+      _jobs.where((j) => j.status == 'error').toList();
 
   // --------------------------------------------------------------------------
   // Load
@@ -61,6 +64,19 @@ class AgentResearchController extends ChangeNotifier {
       notifyListeners();
       return null;
     }
+  }
+
+  Future<void> retry(String id) async {
+    try {
+      final job = await _repository.retry(id);
+      _jobs = _jobs
+          .map((existing) => existing.id == id ? job : existing)
+          .toList();
+      _error = null;
+    } catch (e) {
+      _error = e.toString();
+    }
+    notifyListeners();
   }
 
   // --------------------------------------------------------------------------

@@ -1494,6 +1494,7 @@ export function runMigrations(db: Database.Database): void {
       sources_json TEXT NOT NULL DEFAULT '[]',   -- JSON array of URLs fetched
       report TEXT,                               -- final synthesized report
       error TEXT,
+      agent_session_id TEXT,
       requested_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1501,6 +1502,10 @@ export function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_status
       ON agent_research_jobs(status);
   `);
+  const researchCols = (db.pragma('table_info(agent_research_jobs)') as { name: string }[]).map((c) => c.name);
+  if (!researchCols.includes('agent_session_id')) {
+    db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN agent_session_id TEXT`);
+  }
 
   // Extend pending_claude_triggers with scheduler context columns (additive).
   // These are all nullable — existing human-triggered rows have NULL here.

@@ -583,11 +583,13 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       sources_json TEXT NOT NULL DEFAULT '[]',
       report TEXT,
       error TEXT,
+      agent_session_id TEXT,
       requested_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS agent_session_id TEXT`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_status ON agent_research_jobs(status)`);
 
   // B1 — agent_cookbook: reusable recipe/skill library for the agent scheduler.

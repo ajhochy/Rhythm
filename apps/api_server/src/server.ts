@@ -65,6 +65,13 @@ async function main() {
 
   await initDb();
   logger.info('Database initialized');
+  try {
+    const { recoverStaleResearchJobs } = await import('./controllers/agentResearchController');
+    const recovered = await recoverStaleResearchJobs();
+    if (recovered) logger.warn(`[server] marked ${recovered} interrupted research job(s) retryable`);
+  } catch (err) {
+    logger.warn(`[server] research-job recovery failed (non-fatal): ${String(err)}`);
+  }
 
   const recurrenceJob = startRecurrenceGenerationJob();
   const syncJob = startSyncOrchestratorJob();
