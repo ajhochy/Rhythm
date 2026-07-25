@@ -143,7 +143,7 @@ The Workspace tab provides lifecycle operations:
 - permanently delete a session after confirmation
 - archive a session without deleting it
 - restore or permanently delete sessions shown by the experimental archived-session list
-- share a session and copy its URL, or unshare it
+- keep transcript sharing inside Rhythm; OpenCode public share/unshare is unavailable because it uploads session data externally
 
 Session list behavior:
 
@@ -456,7 +456,8 @@ Any reimplementation should preserve these functional outcomes:
 - workspace-first session scoping
 - remembered last session per project
 - transcript + diff + server-owned todo + permission surfaces
-- session delete, archive/restore, rename, fork, revert/unrevert, and share/unshare support
+- session delete, archive/restore, rename, fork, and revert/unrevert support
+- explicit denial of OpenCode public share/unshare until Rhythm provides a privacy-scoped sharing surface
 - slash command discovery and execution
 - workspace file search/view/status plus conflict-checked full-file VCS patch save
 - experimental worktree management and archived-session listing

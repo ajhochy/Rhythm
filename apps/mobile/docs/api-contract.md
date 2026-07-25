@@ -40,7 +40,8 @@ The generated `@opencode-ai/sdk/v2/client` surface is used for all OpenCode requ
 - agent and command listing
 - session list/status/create/delete/update
 - session messages, diff, todos, prompt, abort, summarize, and command
-- session fork, share/unshare, and revert/unrevert
+- session fork and revert/unrevert
+- explicit gateway denial for OpenCode public share/unshare
 - session archive/restore and experimental archived-session listing
 - permission and question list/reply operations
 - global event streaming
@@ -136,7 +137,6 @@ Fields consumed by the UI include:
 - `title`
 - `summary`
 - `time.created` and `time.updated`
-- `share.url`
 - `revert`
 
 ### Create, Rename, And Delete
@@ -161,9 +161,12 @@ Archive and restore use regular `session.update()` with `time.archived` set to `
 
 The returned session is required. The app refreshes sessions and opens the fork.
 
-### Share And Unshare
+### Transcript Sharing
 
-`session.share()` and `session.unshare()` must return the updated session. Workspace copies `share.url` after a newly shared session returns one.
+`session.share()` and `session.unshare()` are intentionally not forwarded. The
+upstream implementation uploads transcript data outside Rhythm, so mobile
+exposes no public-share action. A future sharing feature must use a
+privacy-scoped in-Rhythm service.
 
 ### Revert And Unrevert
 

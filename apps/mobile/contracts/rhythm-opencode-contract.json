@@ -979,8 +979,8 @@
       "tags": [
         "session"
       ],
-      "classification": "surfaced",
-      "reason": "Chats can create a public session share after confirmation."
+      "classification": "intentionally-omitted",
+      "reason": "External OpenCode sharing uploads transcript data outside Rhythm; sharing must use a future in-Rhythm privacy-scoped surface."
     },
     {
       "method": "POST",
@@ -1045,8 +1045,8 @@
       "tags": [
         "session"
       ],
-      "classification": "surfaced",
-      "reason": "Chats can revoke a public share after confirmation."
+      "classification": "intentionally-omitted",
+      "reason": "External OpenCode sharing uploads transcript data outside Rhythm; sharing must use a future in-Rhythm privacy-scoped surface."
     },
     {
       "method": "PATCH",

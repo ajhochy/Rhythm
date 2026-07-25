@@ -9,6 +9,7 @@ function env(name: string) {
 const appVariant = env('EXPO_APP_VARIANT') ?? 'production';
 const isDevelopmentVariant = appVariant === 'development';
 const isE2EMode = env('EXPO_PUBLIC_E2E_MODE') === '1';
+const allowLocalHttp = isDevelopmentVariant || isE2EMode;
 const e2eServerUrl = env('EXPO_PUBLIC_E2E_SERVER_URL');
 const googleMobileRedirectUri = env('EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI');
 const googleRedirectScheme = googleMobileRedirectUri?.match(/^([a-z][a-z0-9+.-]*):/i)?.[1];
@@ -24,7 +25,11 @@ const iosBundleIdentifier = isDevelopmentVariant
 
 const withCleartextTraffic = (config: ExpoConfig) => withAndroidManifest(config, (config) => {
   const application = config.modResults.manifest.application?.[0];
-  if (application) application.$['android:usesCleartextTraffic'] = 'true';
+  if (application) {
+    application.$['android:usesCleartextTraffic'] = allowLocalHttp
+      ? 'true'
+      : 'false';
+  }
   return config;
 });
 
@@ -59,9 +64,15 @@ const config: ExpoConfig = {
     buildNumber: '1',
     supportsTablet: false,
     infoPlist: {
-      NSAppTransportSecurity: {
-        NSAllowsArbitraryLoads: true,
-      },
+      ...(allowLocalHttp
+        ? {
+            NSAppTransportSecurity: {
+              // Development and E2E clients pair to a Mac by LAN/Tailscale IP,
+              // not only localhost. Production emits no ATS bypass at all.
+              NSAllowsArbitraryLoads: true,
+            },
+          }
+        : {}),
     },
   },
   plugins: [

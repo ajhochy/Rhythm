@@ -91,6 +91,31 @@ npx vitest run src/__tests__/live_e2e_1082_skill_revert.test.ts
 Recon evidence and observed timing are recorded in
 `docs/ai/runs/2026-07-16-1082-skill-revert-ondisk-snapshot.md`.
 
+### Live paired OpenCode gateway isolation (#1175)
+
+`src/__tests__/issue_1175_mobile_gateway_live.test.ts` pairs a real temporary
+device against an isolated api_server + fork engine, registers two temporary
+Git projects, and proves cross-project ID denial, response shaping, reload
+scope, external-share denial, raw-diff normalization, and opaque worktree
+resolution. It requires unique loopback ports, a copied/temporary SQLite DB,
+a temporary home, and an explicit secret marker:
+
+```bash
+RHYTHM_LIVE_E2E=1 \
+RHYTHM_LIVE_E2E_ISOLATED=1 \
+RHYTHM_LIVE_URL=http://127.0.0.1:54175 \
+RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:55175 \
+RHYTHM_LIVE_DB_PATH=/tmp/<isolated-run>/rhythm.db \
+RHYTHM_SANDBOX_DIR=/tmp/<isolated-run> \
+RHYTHM_LIVE_SECRET_MARKER=<unique-noncredential-sentinel> \
+npx vitest run src/__tests__/issue_1175_mobile_gateway_live.test.ts \
+  --no-file-parallelism
+```
+
+Build the fork and api_server first and point the server process at the fork
+with `RHYTHM_OPENCODE_BIN_DIR`. Recon evidence is recorded in
+`docs/testing/results/recon-issue-1175-paired-gateway.md`.
+
 ### api_server (Node.js/TypeScript)
 ```bash
 cd apps/api_server

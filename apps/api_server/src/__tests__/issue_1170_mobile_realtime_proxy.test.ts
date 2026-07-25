@@ -677,15 +677,26 @@ describe('issue #1170 mobile realtime proxy contract', () => {
       '',
     ].join('\n');
     const proxy = new sseModule.MobileSseProxy({
-      fetchFn: vi.fn(async () =>
-        new Response(new ReadableStream<Uint8Array>({
+      fetchFn: vi.fn(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/session') {
+          return new Response(JSON.stringify([{
+            id: 'ses-target',
+            directory: '/sandbox/project',
+          }]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response(new ReadableStream<Uint8Array>({
           start(controller) {
             controller.enqueue(new TextEncoder().encode(frames));
           },
         }), {
           status: 200,
           headers: { 'Content-Type': 'text/event-stream' },
-        })),
+        });
+      }),
     });
     const request = new EventEmitter();
     const response = responseSink();
@@ -791,15 +802,27 @@ describe('issue #1170 mobile realtime proxy contract', () => {
 
   it('roadmap: PTY ticket issuance reuses the engine connect-ticket guard without leaking it', async () => {
     const upstream = vi.fn(async (
-      _input: string | URL | Request,
+      input: string | URL | Request,
       init?: RequestInit,
-    ) => new Response(JSON.stringify({
-      ticket: 'engine-issued-ticket',
-      expires_in: 30,
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    }));
+    ) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/pty' && init?.method === 'GET') {
+        return new Response(JSON.stringify([{
+          id: 'pty-contract',
+          cwd: '/sandbox/project',
+        }]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({
+        ticket: 'engine-issued-ticket',
+        expires_in: 30,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
     const proxy = new MobileOpenCodeProxy({
       baseUrl: 'http://127.0.0.1:4897',
       fetchFn: upstream,
@@ -811,10 +834,10 @@ describe('issue #1170 mobile realtime proxy contract', () => {
       project: { id: 'project-contract', root: '/sandbox/project' },
     });
     expect(result.status).toBe(200);
-    expect(upstream).toHaveBeenCalledTimes(1);
-    const headers = new Headers(upstream.mock.calls[0][1]?.headers);
+    expect(upstream).toHaveBeenCalledTimes(2);
+    const headers = new Headers(upstream.mock.calls[1][1]?.headers);
     expect(headers.get('x-opencode-ticket')).toBe('1');
     expect(headers.get('authorization')).toBeNull();
-    expect(String(upstream.mock.calls[0][0])).not.toContain('Device');
+    expect(String(upstream.mock.calls[1][0])).not.toContain('Device');
   });
 });

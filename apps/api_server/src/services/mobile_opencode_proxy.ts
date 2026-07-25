@@ -10,6 +10,13 @@ import {
   type MobileProjectScope,
 } from './mobile_project_scope';
 import { MOBILE_OPENCODE_OPERATION_MANIFEST } from './mobile_opencode_operations.generated';
+import {
+  authorizeMobileOpenCodeOperation,
+  resolveMobileWorktreeReference,
+  shapeMobileOpenCodeResponse,
+  shapeMobileOpenCodeTextResponse,
+  type MobileOpenCodeJsonFetcher,
+} from './mobile_opencode_security';
 
 export { MOBILE_OPENCODE_OPERATION_MANIFEST };
 export type { MobileOpenCodeOperation } from './mobile_opencode_proxy_types';
@@ -221,11 +228,18 @@ function sanitizePromptFileUrl(
   return pathToFileURL(canonicalPath).href;
 }
 
-function sanitizeRequestBody(
+function sanitizeRequestBodyBeforeScope(
   value: unknown,
   operationId: string,
   project: MobileProjectScope,
 ): unknown {
+  if (
+    operationId === 'worktree.remove' ||
+    operationId === 'worktree.reset'
+  ) {
+    return value;
+  }
+
   const stripped = stripRootFields(value);
   if (
     !PROMPT_FILE_PART_OPERATIONS.has(operationId) ||
@@ -256,6 +270,45 @@ function sanitizeRequestBody(
       };
     }),
   };
+}
+
+async function sanitizeRequestBody(
+  value: unknown,
+  operationId: string,
+  project: MobileProjectScope,
+  fetchJson: MobileOpenCodeJsonFetcher,
+): Promise<unknown> {
+  if (
+    operationId === 'worktree.remove' ||
+    operationId === 'worktree.reset'
+  ) {
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      Array.isArray(value)
+    ) {
+      throw AppError.badRequest('Invalid worktree request');
+    }
+    const body = value as Record<string, unknown>;
+    const directory = await resolveMobileWorktreeReference(
+      body.directory,
+      project,
+      fetchJson,
+    );
+    const stripped = stripRootFields(body);
+    if (
+      typeof stripped !== 'object' ||
+      stripped === null ||
+      Array.isArray(stripped)
+    ) {
+      throw AppError.badRequest('Invalid worktree request');
+    }
+    return {
+      ...stripped,
+      directory,
+    };
+  }
+  return sanitizeRequestBodyBeforeScope(value, operationId, project);
 }
 
 function scopedQuery(
@@ -394,20 +447,81 @@ export class MobileOpenCodeProxy {
         'OpenCode request exceeded the mobile gateway limit',
       );
     }
-    const sanitizedBody = !acceptsBody || input.body === undefined
-      ? undefined
-      : sanitizeRequestBody(
+    if (acceptsBody && input.body !== undefined) {
+      // Reject invalid file URLs and strip caller roots before any owner
+      // preflight performs network I/O. Worktree refs are resolved later
+      // because their authoritative map comes from the selected project.
+      sanitizeRequestBodyBeforeScope(
         input.body,
         operation.operationId,
         input.project,
       );
-    const encodedBody = sanitizedBody === undefined
-      ? undefined
-      : JSON.stringify(sanitizedBody);
-
+    }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
+      const fetchJson: MobileOpenCodeJsonFetcher = async (path) => {
+        const scoped = new URLSearchParams({ directory: input.project.root });
+        const response = await this.fetchFn(
+          `${this.baseUrl}${path}?${scoped.toString()}`,
+          {
+            method: 'GET',
+            redirect: 'error',
+            signal: controller.signal,
+            headers: { Accept: 'application/json' },
+          },
+        );
+        if (!response.ok) {
+          await response.body?.cancel();
+          throw new AppError(
+            502,
+            'OPENCODE_SCOPE_CHECK_FAILED',
+            'OpenCode could not validate the selected mobile resource',
+          );
+        }
+        const body = await readBoundedBody(
+          response,
+          this.responseBodyLimitBytes,
+        );
+        try {
+          return JSON.parse(Buffer.from(body).toString('utf8'));
+        } catch {
+          throw new AppError(
+            502,
+            'OPENCODE_SCOPE_CHECK_FAILED',
+            'OpenCode returned an invalid mobile resource response',
+          );
+        }
+      };
+      await authorizeMobileOpenCodeOperation(
+        operation,
+        input.path,
+        input.project,
+        fetchJson,
+        input.query,
+        input.body,
+      );
+      const sanitizedBody = !acceptsBody || input.body === undefined
+        ? undefined
+        : await sanitizeRequestBody(
+          input.body,
+          operation.operationId,
+          input.project,
+          fetchJson,
+        );
+      const encodedBody = sanitizedBody === undefined
+        ? undefined
+        : JSON.stringify(sanitizedBody);
+      if (
+        encodedBody !== undefined &&
+        Buffer.byteLength(encodedBody, 'utf8') > this.requestBodyLimitBytes
+      ) {
+        throw new AppError(
+          413,
+          'REQUEST_TOO_LARGE',
+          'OpenCode request exceeded the mobile gateway limit',
+        );
+      }
       const response = await this.fetchFn(url, {
         method: operation.method,
         redirect: 'error',
@@ -428,10 +542,71 @@ export class MobileOpenCodeProxy {
         await response.body?.cancel();
         return normalizedUpstreamError(response.status);
       }
+      const contentType =
+        response.headers.get('content-type') ?? undefined;
+      const body = await readBoundedBody(
+        response,
+        this.responseBodyLimitBytes,
+      );
+      if (
+        body.byteLength > 0 &&
+        contentType?.toLowerCase().includes('application/json')
+      ) {
+        let value: unknown;
+        try {
+          value = JSON.parse(Buffer.from(body).toString('utf8'));
+        } catch {
+          throw new AppError(
+            502,
+            'OPENCODE_INVALID_RESPONSE',
+            'OpenCode returned an invalid mobile response',
+          );
+        }
+        const safeValue = await shapeMobileOpenCodeResponse(
+          operation,
+          value,
+          input.project,
+          fetchJson,
+          input.path,
+        );
+        const safeBody = Buffer.from(JSON.stringify(safeValue));
+        if (safeBody.byteLength > this.responseBodyLimitBytes) {
+          throw new AppError(
+            502,
+            'UPSTREAM_RESPONSE_TOO_LARGE',
+            'OpenCode response exceeded the mobile gateway limit',
+          );
+        }
+        return {
+          status: response.status,
+          contentType,
+          body: safeBody,
+        };
+      }
+      if (body.byteLength > 0) {
+        const safeText = shapeMobileOpenCodeTextResponse(
+          operation,
+          Buffer.from(body).toString('utf8'),
+          input.project,
+        );
+        const safeBody = Buffer.from(safeText);
+        if (safeBody.byteLength > this.responseBodyLimitBytes) {
+          throw new AppError(
+            502,
+            'UPSTREAM_RESPONSE_TOO_LARGE',
+            'OpenCode response exceeded the mobile gateway limit',
+          );
+        }
+        return {
+          status: response.status,
+          contentType,
+          body: safeBody,
+        };
+      }
       return {
         status: response.status,
-        contentType: response.headers.get('content-type') ?? undefined,
-        body: await readBoundedBody(response, this.responseBodyLimitBytes),
+        contentType,
+        body,
       };
     } catch (error) {
       if (error instanceof AppError) throw error;

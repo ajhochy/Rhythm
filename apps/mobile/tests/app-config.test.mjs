@@ -17,10 +17,20 @@ assert.equal(production.scheme, 'rhythmagents');
 assert.equal(production.owner, 'ajhochys-team');
 assert.equal(production.ios.bundleIdentifier, 'org.visaliacrc.rhythm.agents');
 assert.equal(production.extra.eas.projectId, 'bd873c89-2fe2-45db-805c-ab819e582e5c');
+assert.equal(
+  production.ios.infoPlist?.NSAppTransportSecurity,
+  undefined,
+  'production must not emit an ATS bypass',
+);
 
 const development = resolvedConfig('development');
 assert.equal(development.name, 'Rhythm Agents Dev');
 assert.equal(development.ios.bundleIdentifier, 'org.visaliacrc.rhythm.agents.dev');
+assert.equal(
+  development.ios.infoPlist.NSAppTransportSecurity.NSAllowsArbitraryLoads,
+  true,
+  'development must allow HTTP pairing to a Mac LAN/Tailscale IP',
+);
 
 const oauthConfigured = resolvedConfig('development', {
   EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI:
@@ -57,6 +67,7 @@ const expectedFoundation =
   'npm run test:fake-server:self && ' +
   'npm run test:acceptance:1167 && ' +
   'npm run test:security:1174 && ' +
+  'npm run test:security:1175 && ' +
   'npm run test:e2e:web';
 assert.equal(
   pkgForFoundation.scripts['verify:foundation'],
@@ -82,6 +93,20 @@ assert.match(
   pkgForFoundation.scripts['test:ci:static'],
   /npm run test:app-config/,
   'static gate must execute the app configuration contract tests',
+);
+assert.match(
+  pkgForFoundation.scripts['test:ci:static'],
+  /npm run test:security:1175/,
+  'static gate must execute the paired gateway security review tests',
+);
+const appConfigSource = await readFile(
+  new URL('../app.config.ts', import.meta.url),
+  'utf8',
+);
+assert.match(
+  appConfigSource,
+  /android:usesCleartextTraffic'\]\s*=\s*allowLocalHttp\s*\?\s*'true'\s*:\s*'false'/,
+  'Android cleartext traffic must be explicit and limited to development/E2E variants',
 );
 
 console.log('app config tests passed');

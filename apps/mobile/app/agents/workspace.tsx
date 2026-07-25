@@ -1,4 +1,3 @@
-import * as Clipboard from 'expo-clipboard';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
@@ -56,8 +55,6 @@ export default function AgentWorkspaceScreen() {
     archiveSession,
     restoreSession,
     refreshArchivedSessions,
-    shareSession,
-    unshareSession,
     searchWorkspaceFiles,
     listWorkspaceDirectory,
     searchWorkspaceText,
@@ -277,38 +274,6 @@ export default function AgentWorkspaceScreen() {
     confirmDestructive('Delete session?', message, 'Delete', () => void handleDelete(session.id));
   }
 
-  async function handleShare(session: Session) {
-    setUpdatingSessionId(session.id);
-    try {
-      if (session.share?.url) {
-        await unshareSession(session.id);
-      } else {
-        const shared = await shareSession(session.id);
-        if (shared.share?.url) await Clipboard.setStringAsync(shared.share.url);
-      }
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not update session sharing.');
-    } finally {
-      setUpdatingSessionId(undefined);
-    }
-  }
-
-  function confirmShare(session: Session) {
-    if (session.share?.url) {
-      void handleShare(session);
-      return;
-    }
-    const message = 'Anyone with the generated link may be able to view this session.';
-    if (Platform.OS === 'web') {
-      if (globalThis.confirm(`Share session publicly?\n\n${message}`)) void handleShare(session);
-      return;
-    }
-    Alert.alert('Share session publicly?', message, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Share', onPress: () => void handleShare(session) },
-    ]);
-  }
-
   function renderSessionItem(session: Session, index: number, total: number) {
     return (
       <View key={session.id}>
@@ -336,7 +301,6 @@ export default function AgentWorkspaceScreen() {
                 onDismiss={() => setSessionActionId(undefined)}
                 anchor={<IconButton icon="dots-vertical" accessibilityLabel={`Actions for ${session.title || 'Untitled chat'}`} onPress={() => setSessionActionId(session.id)} />}>
                 <Menu.Item title="Rename" leadingIcon="pencil" onPress={() => { setSessionActionId(undefined); setRenamingSessionId(session.id); setRenameValue(session.title || ''); }} />
-                <Menu.Item title={session.share?.url ? 'Unshare' : 'Share'} leadingIcon="share-variant" onPress={() => { setSessionActionId(undefined); confirmShare(session); }} />
                 <Menu.Item title="Archive" leadingIcon="archive-outline" disabled={updatingSessionId === session.id} onPress={() => { setSessionActionId(undefined); void handleArchive(session.id); }} />
                 <Menu.Item title="Delete" leadingIcon="delete-outline" titleStyle={{ color: palette.danger }} onPress={() => { setSessionActionId(undefined); confirmDelete(session); }} />
               </Menu>

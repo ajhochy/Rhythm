@@ -1,15 +1,10 @@
-import type { OpencodeClient } from '@opencode-ai/sdk/v2/client';
-
 import type {
   McpResource,
   Skills,
   ToolIds,
   ToolList,
 } from '@/lib/opencode/types';
-import {
-  requestOpenCodeRoute,
-  type OpencodeConnectionSettings,
-} from '@/lib/opencode/client';
+import type { ScopedOpencodeClient } from '@/lib/opencode/client';
 
 function requireData<T>(data: T | undefined, operation: string): T {
   if (data === undefined) {
@@ -57,39 +52,39 @@ export function redactConfigForInspection(value: unknown, key = ''): SafeConfigV
   return String(value);
 }
 
-export async function listOpenCodeSkills(client: OpencodeClient) {
+export async function listOpenCodeSkills(client: ScopedOpencodeClient) {
   return requireData((await client.app.skills()).data, 'skill list request');
 }
 
-export async function reloadOpenCodeSkills(settings: OpencodeConnectionSettings) {
+export async function reloadOpenCodeSkills(client: ScopedOpencodeClient) {
   return requireData(
-    await requestOpenCodeRoute<Skills | undefined>(settings, '/skill/reload', { method: 'POST' }),
+    (await client.app.skills.reload()).data,
     'skill reload request',
   );
 }
 
-export async function reloadOpenCodeConfig(settings: OpencodeConnectionSettings) {
+export async function reloadOpenCodeConfig(client: ScopedOpencodeClient) {
   return requireData(
-    await requestOpenCodeRoute<boolean | undefined>(settings, '/config/reload', { method: 'POST' }),
+    (await client.app.config.reload()).data,
     'config reload request',
   );
 }
 
-export async function getSafeGlobalConfig(client: OpencodeClient) {
+export async function getSafeGlobalConfig(client: ScopedOpencodeClient) {
   const config = requireData((await client.global.config.get()).data, 'global config request');
   return redactConfigForInspection(config);
 }
 
-export async function listOpenCodeResources(client: OpencodeClient) {
+export async function listOpenCodeResources(client: ScopedOpencodeClient) {
   return requireData((await client.experimental.resource.list()).data, 'MCP resource list request');
 }
 
-export async function listOpenCodeToolIds(client: OpencodeClient) {
+export async function listOpenCodeToolIds(client: ScopedOpencodeClient) {
   return requireData((await client.tool.ids()).data, 'tool ID list request');
 }
 
 export async function listOpenCodeToolSchemas(
-  client: OpencodeClient,
+  client: ScopedOpencodeClient,
   provider: string,
   model: string,
 ) {
@@ -100,7 +95,7 @@ export async function listOpenCodeToolSchemas(
 }
 
 export async function loadOpenCodeInspection(
-  client: OpencodeClient,
+  client: ScopedOpencodeClient,
   provider?: string,
   model?: string,
 ): Promise<OpenCodeInspection> {

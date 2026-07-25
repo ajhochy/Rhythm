@@ -563,7 +563,8 @@ The context includes active/archived session lifecycle, commands, workspace edit
 ### Responsibility
 
 - aggregate workspace/session API fetches in small helpers
-- expose delete, rename, fork, share/unshare, revert/unrevert, command-list, and command-execution calls
+- expose delete, rename, fork, revert/unrevert, command-list, and command-execution calls
+- intentionally omit OpenCode public share/unshare because it uploads transcripts outside Rhythm
 
 ## `providers/services/capabilities-service.ts`
 

@@ -40,7 +40,17 @@ type ClientMetadata = {
   gateway: boolean;
 };
 
+type ReloadableApp = OpencodeClient['app'] & {
+  skills: OpencodeClient['app']['skills'] & {
+    reload: () => ReturnType<OpencodeClient['app']['skills']>;
+  };
+  config: {
+    reload: () => Promise<{ data?: boolean }>;
+  };
+};
+
 export type ScopedOpencodeClient = OpencodeClient & {
+  app: ReloadableApp;
   __opencode: ClientMetadata;
 };
 
@@ -251,23 +261,57 @@ export function buildClient(
   const baseUrl = gateway
     ? new URL(gateway.client.origin()).origin
     : normalizedServerUrl.origin;
+  const transportFetch = gateway
+    ? createMobileGatewayFetch(gateway)
+    : createScopedFetch(
+        normalizedServerUrl.origin,
+        normalizedServerUrl.pathPrefix,
+        directory,
+      );
+  const client = createOpencodeClient({
+    baseUrl,
+    fetch: transportFetch,
+    headers,
+    responseStyle: 'fields',
+    throwOnError: true,
+  });
+  const reload = async <T,>(path: string): Promise<{ data?: T }> => {
+    const response = await transportFetch(`${baseUrl}${path}`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      throw new Error(`OpenCode request failed (${response.status}).`);
+    }
+    const text = await response.text();
+    return {
+      data: (text ? JSON.parse(text) : undefined) as T | undefined,
+    };
+  };
+  const skills = Object.assign(client.app.skills.bind(client.app), {
+    reload: () =>
+      reload<Awaited<ReturnType<OpencodeClient['app']['skills']>>['data']>(
+        '/skill/reload',
+      ),
+  });
+  Object.defineProperties(client.app, {
+    skills: {
+      configurable: true,
+      enumerable: true,
+      value: skills,
+    },
+    config: {
+      configurable: true,
+      enumerable: true,
+      value: {
+        reload: () => reload<boolean>('/config/reload'),
+      },
+    },
+  });
 
   return Object.assign(
-    createOpencodeClient({
-      baseUrl,
-      fetch: gateway
-        ? createMobileGatewayFetch(gateway)
-        : createScopedFetch(
-            normalizedServerUrl.origin,
-            normalizedServerUrl.pathPrefix,
-            directory,
-          ),
-      headers,
-      responseStyle: 'fields',
-      throwOnError: true,
-    }),
+    client,
     { __opencode: { directory, gateway: Boolean(gateway) } },
-  );
+  ) as ScopedOpencodeClient;
 }
 
 export async function requestOpenCodeRoute<T>(

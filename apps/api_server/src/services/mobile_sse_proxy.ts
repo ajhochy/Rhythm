@@ -3,6 +3,12 @@ import type { Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { OPENCODE_ENGINE_PORT } from './opencode_client_service';
 import type { MobileProjectScope } from './mobile_project_scope';
+import {
+  mobileSseEventBelongsToProject,
+  mobileSessionBelongsToProject,
+  shapeMobileSseEvent,
+  type MobileOpenCodeJsonFetcher,
+} from './mobile_opencode_security';
 
 type FetchFn = (
   input: string | URL | globalThis.Request,
@@ -218,6 +224,58 @@ async function waitForDrain(
   });
 }
 
+async function boundedJson(
+  response: globalThis.Response,
+  maxBytes: number,
+): Promise<unknown> {
+  const declared = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel();
+    throw new AppError(
+      502,
+      'UPSTREAM_RESPONSE_TOO_LARGE',
+      'OpenCode scope response exceeded the mobile gateway limit',
+    );
+  }
+  if (!response.body) return null;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) {
+        await reader.cancel();
+        throw new AppError(
+          502,
+          'UPSTREAM_RESPONSE_TOO_LARGE',
+          'OpenCode scope response exceeded the mobile gateway limit',
+        );
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw new AppError(
+      502,
+      'OPENCODE_SCOPE_CHECK_FAILED',
+      'OpenCode returned an invalid mobile resource response',
+    );
+  }
+}
+
 /**
  * Authenticated, project-scoped bridge from OpenCode SSE to a mobile client.
  * The bridge reconnects its upstream stream in-place so the caller keeps one
@@ -256,6 +314,39 @@ export class MobileSseProxy {
       !/^[A-Za-z0-9_-]{1,256}$/.test(input.sessionId)
     ) {
       throw AppError.badRequest('Invalid session id');
+    }
+    if (input.sessionId) {
+      const fetchJson: MobileOpenCodeJsonFetcher = async (path) => {
+        const query = new URLSearchParams({
+          directory: input.project.root,
+        });
+        const response = await this.fetchFn(
+          `${this.baseUrl}${path}?${query.toString()}`,
+          {
+            headers: { Accept: 'application/json' },
+            method: 'GET',
+            redirect: 'error',
+          },
+        );
+        if (!response.ok) {
+          await response.body?.cancel();
+          throw new AppError(
+            502,
+            'OPENCODE_SCOPE_CHECK_FAILED',
+            'OpenCode could not validate the selected mobile resource',
+          );
+        }
+        return boundedJson(response, this.maxBufferedBytes);
+      };
+      if (
+        !await mobileSessionBelongsToProject(
+          input.sessionId,
+          input.project,
+          fetchJson,
+        )
+      ) {
+        throw AppError.notFound('Mobile OpenCode resource');
+      }
     }
 
     input.response.statusCode = 200;
@@ -408,9 +499,17 @@ export class MobileSseProxy {
           } catch {
             continue;
           }
-          const matches = input.sessionId
-            ? matchesSession(parsed, input.sessionId)
-            : matchesProject(parsed, input.project);
+          const matches =
+            mobileSseEventBelongsToProject(
+              parsed,
+              input.project,
+              input.sessionId,
+            ) &&
+            (
+              input.sessionId
+                ? matchesSession(parsed, input.sessionId)
+                : matchesProject(parsed, input.project)
+            );
           if (!matches) continue;
 
           const id = frame.id || streamEventId(parsed);
@@ -422,15 +521,10 @@ export class MobileSseProxy {
               seen.delete(seenOrder.shift()!);
             }
           }
-          const mobilePayload =
-            typeof parsed === 'object' &&
-            parsed !== null &&
-            'directory' in parsed
-              ? {
-                  ...(parsed as Record<string, unknown>),
-                  directory: input.project.id,
-                }
-              : parsed;
+          const mobilePayload = shapeMobileSseEvent(
+            parsed,
+            input.project,
+          );
           const encoded = `${
             id ? `id: ${id}\n` : ''
           }event: message\ndata: ${JSON.stringify(mobilePayload)}\n\n`;

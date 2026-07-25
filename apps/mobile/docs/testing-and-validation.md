@@ -163,7 +163,8 @@ The following important behaviors are present in code but are not obviously cove
 - speech recognition failures and permission edge cases
 - TTS playback behavior
 - notification initialization and background monitoring
-- session fork, revert/unrevert, and share/unshare
+- session fork and revert/unrevert
+- gateway denial and UI omission for external OpenCode public share/unshare
 - attachment upload behavior
 - attachment capability rejection and the 10 MB local-file limit
 - workspace patch conflict UI and worktree reset/remove

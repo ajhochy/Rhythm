@@ -239,14 +239,6 @@ export async function forkSession(client: OpencodeClient, sessionId: string, mes
   return (await client.session.fork({ sessionID: sessionId, messageID: messageId })).data;
 }
 
-export async function shareSession(client: OpencodeClient, sessionId: string) {
-  return (await client.session.share({ sessionID: sessionId })).data;
-}
-
-export async function unshareSession(client: OpencodeClient, sessionId: string) {
-  return (await client.session.unshare({ sessionID: sessionId })).data;
-}
-
 export async function revertSession(client: OpencodeClient, sessionId: string, messageId: string, partId?: string) {
   return (await client.session.revert({ sessionID: sessionId, messageID: messageId, partID: partId })).data;
 }

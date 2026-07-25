@@ -287,7 +287,8 @@ The app currently uses these logical server capabilities:
 - session list
 - session status
 - session create
-- session delete / update title / fork / share / unshare / revert / unrevert
+- session delete / update title / fork / revert / unrevert
+- external OpenCode share / unshare is intentionally absent from provider state
 - session archive/restore and experimental archived-session list
 - session messages
 - session diff

@@ -42,7 +42,7 @@ operations**, and **63 operations with no mobile call**.
 
 | Surface | Current capabilities |
 | --- | --- |
-| Chat | Sessions, prompt streaming, abort, commands, transcript, diff, todos, permissions, questions, fork/revert/share, title generation |
+| Chat | Sessions, prompt streaming, abort, commands, transcript, diff, todos, permissions, questions, fork/revert, title generation |
 | Workspace | Projects, session archive/restore/delete/rename, filename search, file read/edit, file status, VCS branch, worktrees |
 | Terminal | Shell discovery, PTY list/create/connect/input/terminate |
 | Settings | Connection, provider credentials and OAuth, models/agents/defaults, MCP configuration and OAuth, diagnostics |
@@ -128,8 +128,8 @@ operations**, and **63 operations with no mobile call**.
 | POST | `/session/{sessionID}/fork` | `session.fork` | Fork at an optional message | Chat/workspace fork | UI |
 | POST | `/session/{sessionID}/abort` | `session.abort` | Abort active generation | Chat stop button | UI |
 | POST | `/session/{sessionID}/init` | `session.init` | Analyze project and create `AGENTS.md` | None | Missing |
-| POST | `/session/{sessionID}/share` | `session.share` | Create public share | Workspace share action | UI |
-| DELETE | `/session/{sessionID}/share` | `session.unshare` | Remove public share | Workspace unshare action | UI |
+| POST | `/session/{sessionID}/share` | `session.share` | External transcript upload | Intentionally omitted for privacy; future sharing must stay inside Rhythm | Denied |
+| DELETE | `/session/{sessionID}/share` | `session.unshare` | External transcript upload control | Intentionally omitted with the external share surface | Denied |
 | POST | `/session/{sessionID}/summarize` | `session.summarize` | Generate session title/summary | Chat title generation | UI |
 | POST | `/session/{sessionID}/prompt_async` | `session.prompt_async` | Submit prompt asynchronously | Primary chat send path | UI |
 | POST | `/session/{sessionID}/command` | `session.command` | Execute slash command | Chat command execution | UI |

@@ -128,9 +128,7 @@ import {
   initializeSession as svcInitializeSession,
   revertSession as svcRevertSession,
   runSessionShell as svcRunSessionShell,
-  shareSession as svcShareSession,
   unrevertSession as svcUnrevertSession,
-  unshareSession as svcUnshareSession,
   updateSessionTitle as svcUpdateSessionTitle,
   updateSessionPart as svcUpdateSessionPart,
   restoreSession as svcRestoreSession,
@@ -833,30 +831,6 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     return forked;
   }, [client, isCurrentClient, openSession, refreshSessions]);
 
-  const shareSession = useCallback(async (sessionId: string) => {
-    const shared = await svcShareSession(client, sessionId);
-    if (!shared) {
-      throw new Error('OpenCode did not return the shared session.');
-    }
-    if (!isCurrentClient(client)) {
-      throw new Error('The active project changed before sharing finished.');
-    }
-    await refreshSessions(true);
-    return shared;
-  }, [client, isCurrentClient, refreshSessions]);
-
-  const unshareSession = useCallback(async (sessionId: string) => {
-    const unshared = await svcUnshareSession(client, sessionId);
-    if (!unshared) {
-      throw new Error('OpenCode did not return the session.');
-    }
-    if (!isCurrentClient(client)) {
-      throw new Error('The active project changed before unsharing finished.');
-    }
-    await refreshSessions(true);
-    return unshared;
-  }, [client, isCurrentClient, refreshSessions]);
-
   const revertSession = useCallback(async (sessionId: string, messageId: string) => {
     await svcRevertSession(client, sessionId, messageId);
     await Promise.all([refreshSessions(true), refreshMessages(sessionId, true), refreshSessionDiff(sessionId, true)]);
@@ -1104,18 +1078,15 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     [client],
   );
 
-  const reloadOpenCodeSkills = useCallback(async () => svcReloadOpenCodeSkills({
-    ...settings,
-    directory: activeProjectPath || settings.directory,
-  }), [activeProjectPath, settings]);
+  const reloadOpenCodeSkills = useCallback(
+    async () => svcReloadOpenCodeSkills(client),
+    [client],
+  );
 
   const reloadOpenCodeConfig = useCallback(async () => {
-    await svcReloadOpenCodeConfig({
-      ...settings,
-      directory: activeProjectPath || settings.directory,
-    });
+    await svcReloadOpenCodeConfig(client);
     await refreshChatCapabilities();
-  }, [activeProjectPath, refreshChatCapabilities, settings]);
+  }, [client, refreshChatCapabilities]);
 
   const refreshTerminals = useCallback(async () => {
     const [nextTerminals, nextShells] = await Promise.all([listTerminals(client), listShells(client)]);
@@ -2863,8 +2834,6 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       refreshArchivedSessions,
       renameSession,
       forkSession,
-      shareSession,
-      unshareSession,
       revertSession,
       unrevertSession,
       getSessionChildren,
@@ -2943,8 +2912,6 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       deleteSession,
       renameSession,
       forkSession,
-      shareSession,
-      unshareSession,
       revertSession,
       unrevertSession,
       getSessionChildren,

@@ -278,7 +278,7 @@ User interactions are converted to provider actions such as:
 - `abortSession`
 - `replyToPermission`
 - `replyToQuestion` and `rejectQuestion`
-- `deleteSession`, `renameSession`, `forkSession`, `revertSession`, and share actions
+- `deleteSession`, `renameSession`, `forkSession`, and `revertSession`
 - `executeCommand`
 - workspace search/read and diagnostics refresh actions
 - workspace patch save, archive/restore, worktree, MCP, and terminal actions
@@ -350,7 +350,7 @@ Responsibilities:
 - select active project
 - create/open sessions
 - rename and permanently delete sessions
-- share/unshare sessions and copy a newly created share URL
+- keep external OpenCode public share/unshare out of the client and gateway
 - archive active sessions; restore or permanently delete sessions from the experimental archived list
 - search, read, and edit text workspace files; saving re-reads for conflicts and applies a full-file VCS patch
 - create, list, reset, and remove worktrees through experimental endpoints

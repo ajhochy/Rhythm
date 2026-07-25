@@ -139,15 +139,36 @@ function hasOwnField(value: unknown, field: string): boolean {
 }
 
 function rejectCallerRootOverrides(req: Request): void {
-  const hasOverride = (value: unknown): boolean =>
+  const opaqueWorktreeDirectory =
+    typeof req.body === 'object' &&
+    req.body !== null &&
+    typeof (req.body as Record<string, unknown>).directory === 'string' &&
+    /^rhythm-worktree:\/\/[A-Za-z0-9_-]{24}\/[^/\s]+$/.test(
+      (req.body as Record<string, unknown>).directory as string,
+    ) &&
+    (
+      (
+        req.method === 'POST' &&
+        /\/opencode\/experimental\/worktree\/reset$/.test(req.path)
+      ) ||
+      (
+        req.method === 'DELETE' &&
+        /\/opencode\/experimental\/worktree$/.test(req.path)
+      )
+    );
+  const hasOverride = (
+    value: unknown,
+    allowOpaqueDirectory = false,
+  ): boolean =>
     typeof value === 'object' &&
     value !== null &&
     Object.keys(value).some((field) =>
-      ROOT_OVERRIDE_FIELDS.has(field.toLowerCase()));
+      ROOT_OVERRIDE_FIELDS.has(field.toLowerCase()) &&
+      !(allowOpaqueDirectory && field === 'directory'));
   if (
     req.header('X-Rhythm-Project-Root') !== undefined ||
     req.header('X-Rhythm-Root') !== undefined ||
-    hasOverride(req.body) ||
+    hasOverride(req.body, opaqueWorktreeDirectory) ||
     hasOverride(req.query)
   ) {
     throw AppError.forbidden(
