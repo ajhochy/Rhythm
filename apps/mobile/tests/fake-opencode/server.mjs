@@ -263,12 +263,13 @@ const server = http.createServer(async (req, res) => {
       const deviceToken = authorization.startsWith('Device ')
         ? authorization.slice('Device '.length)
         : '';
-      const deviceAuthorized = [...state.mobileDevices.values()].some(
+      const authenticatedDevice = [...state.mobileDevices.values()].find(
         (device) =>
           !device.revoked &&
           device.gatewayHost === gatewayHost &&
           device.token === deviceToken,
       );
+      const deviceAuthorized = Boolean(authenticatedDevice);
       state.mobileEvents.push({
         method: req.method,
         gatewayHost,
@@ -281,10 +282,6 @@ const server = http.createServer(async (req, res) => {
         req.method === 'GET' &&
         gatewayPath === '/mobile-gateway/health'
       ) {
-        if (!bearerAuthorized && !deviceAuthorized) {
-          sendJson(res, 401, { error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } });
-          return;
-        }
         sendJson(res, 200, {
           status: 'ready',
           hostId: gatewayHost.startsWith('other-') ? 'host-2' : 'host-1',
@@ -294,13 +291,24 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (req.method === 'POST' && gatewayPath === '/mobile-gateway/pair') {
-        if (!bearerAuthorized) {
-          sendJson(res, 401, { error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } });
+        if (authorization || req.headers.cookie) {
+          sendJson(res, 400, {
+            error: {
+              code: 'PAIRING_AUTH_FORBIDDEN',
+              message: 'Pairing must use only the one-time code',
+            },
+          });
           return;
         }
         const body = await readJson(req);
+        const expectedHostId = gatewayHost.startsWith('other-')
+          ? 'host-2'
+          : 'host-1';
         if (
-          body?.userId !== 7 ||
+          body?.hostId !== expectedHostId ||
+          Object.hasOwn(body ?? {}, 'userId') ||
+          typeof body?.deviceName !== 'string' ||
+          body.deviceName.trim() === '' ||
           !['a'.repeat(43), 'b'.repeat(43)].includes(body?.pairingCode)
         ) {
           sendJson(res, 403, { error: { code: 'PAIRING_CODE_INVALID', message: 'Invalid code' } });
@@ -318,6 +326,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 201, {
           deviceId,
           hostId: device.hostId,
+          userId: 7,
           deviceToken: device.token,
           ...mobileCompatibility,
         });
@@ -328,13 +337,19 @@ const server = http.createServer(async (req, res) => {
         /^\/mobile-gateway\/devices\/([^/]+)$/,
       );
       if (req.method === 'DELETE' && mobileDelete) {
-        if (!bearerAuthorized) {
+        if (!bearerAuthorized && !authenticatedDevice) {
           sendJson(res, 401, { error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } });
           return;
         }
         const deviceId = decodeURIComponent(mobileDelete[1]);
         const device = state.mobileDevices.get(deviceId);
-        if (!device || device.gatewayHost !== gatewayHost) {
+        if (
+          !device ||
+          device.gatewayHost !== gatewayHost ||
+          (authenticatedDevice &&
+            !bearerAuthorized &&
+            authenticatedDevice.deviceId !== deviceId)
+        ) {
           notFound(res);
           return;
         }
