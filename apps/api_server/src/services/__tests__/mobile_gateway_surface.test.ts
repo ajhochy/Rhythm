@@ -15,6 +15,19 @@ describe('issue-1171: dedicated mobile gateway listener', () => {
       res.json({ revoked: req.params.id });
     });
     router.post('/project', (_req, res) => res.json({ selected: true }));
+    router.get('/projects', (_req, res) => {
+      res.json({ projects: [{ id: 'project-1', name: 'Project' }] });
+    });
+    router.get('/agent-activity', (_req, res) => {
+      res.json({ items: [], nextCursor: null });
+    });
+    router.get('/events', (_req, res) => res.json({ stream: 'global' }));
+    router.get('/sessions/:id/events', (req, res) => {
+      res.json({ stream: req.params.id });
+    });
+    router.all('/tools/*', (req, res) => {
+      res.json({ tool: req.path });
+    });
     router.all('/opencode/*', (req, res) => {
       res.json({ forwarded: req.path });
     });
@@ -39,7 +52,12 @@ describe('issue-1171: dedicated mobile gateway listener', () => {
         ['POST', '/mobile-gateway/pair', 201],
         ['DELETE', '/mobile-gateway/devices/device-1', 200],
         ['POST', '/mobile-gateway/project', 200],
+        ['GET', '/mobile-gateway/projects', 200],
+        ['GET', '/mobile-gateway/agent-activity?source=research', 200],
+        ['GET', '/mobile-gateway/events', 200],
+        ['GET', '/mobile-gateway/sessions/session-1/events', 200],
         ['GET', '/mobile-gateway/opencode/session', 200],
+        ['GET', '/mobile-gateway/tools/agent-memory', 200],
       ] as const) {
         const response = await fetch(`${baseUrl}${path}`, { method });
         expect(response.status, `${method} ${path}`).toBe(expectedStatus);

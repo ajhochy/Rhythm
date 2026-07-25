@@ -14,6 +14,7 @@ import { MobilePairingService } from '../services/mobile_pairing_service';
 import { getMobilePairingService } from '../services/mobile_gateway_runtime';
 import { TailscaleServeService } from '../services/tailscale_serve_service';
 import {
+  listMobileProjects,
   mobileProjectResponse,
   requireMobileProject,
   requireMobileProjectScope,
@@ -105,6 +106,17 @@ export function createMobileGatewayRouter(): Router {
     (req, res, next) => {
       try {
         res.json(mobileProjectResponse(req));
+      } catch (error) {
+        next(error instanceof AppError ? error : AppError.internal());
+      }
+    },
+  );
+  router.get(
+    '/projects',
+    requireMobileDevice(getPairingService),
+    (_req, res, next) => {
+      try {
+        res.json({ projects: listMobileProjects() });
       } catch (error) {
         next(error instanceof AppError ? error : AppError.internal());
       }

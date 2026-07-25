@@ -17,7 +17,11 @@
  */
 
 import type { FetchFn, PairedMacClientOptions } from './types';
-import { executeRequest } from './request-helper';
+import { normalizeProviderError } from './api-error';
+import {
+  executeAuthenticatedFetch,
+  executeRequest,
+} from './request-helper';
 
 export class PairedMacClient {
   private readonly baseUrl: string;
@@ -26,6 +30,34 @@ export class PairedMacClient {
   constructor({ baseUrl, getDeviceToken }: PairedMacClientOptions) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.getDeviceToken = getDeviceToken;
+  }
+
+  /** Safe origin for generated clients; never contains device credentials. */
+  origin(): string {
+    return this.baseUrl;
+  }
+
+  /**
+   * Authenticated fetch that preserves the raw Response for generated SDK and
+   * SSE consumers. The device token is resolved for every request and is never
+   * returned to the caller or cached by this client.
+   */
+  fetchResponse(
+    path: string,
+    init: Omit<RequestInit, 'headers'> & {
+      headers?: Record<string, string>;
+    },
+    fetchFn: FetchFn = fetch,
+  ): Promise<Response> {
+    return executeAuthenticatedFetch({
+      source: 'paired-mac',
+      baseUrl: this.baseUrl,
+      getAuthHeader: async (token) => `Device ${token}`,
+      getToken: this.getDeviceToken,
+      path,
+      init,
+      fetchFn,
+    });
   }
 
   /**
@@ -113,5 +145,33 @@ export class PairedMacClient {
     if (options.cursor) url.searchParams.set('cursor', options.cursor);
 
     return url.toString();
+  }
+
+  /**
+   * Resolve the short-lived in-memory headers required by React Native's
+   * WebSocket constructor. Device credentials are never placed in the URL or
+   * persisted; callers discard this object after opening the socket.
+   */
+  async ptyConnection(
+    ptyId: string,
+    projectId: string,
+    options: { ticket?: string; cursor?: string } = {},
+  ): Promise<{
+    url: string;
+    headers: Record<string, string>;
+  }> {
+    let token: string;
+    try {
+      token = await this.getDeviceToken();
+    } catch {
+      throw normalizeProviderError('paired-mac');
+    }
+    return {
+      url: this.ptyUrl(ptyId, options),
+      headers: {
+        Authorization: `Device ${token}`,
+        'X-Rhythm-Project-ID': projectId,
+      },
+    };
   }
 }

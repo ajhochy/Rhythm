@@ -658,6 +658,8 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     expect(output).not.toContain('evt-wrong');
     expect(output.match(/id: evt-1/g)).toHaveLength(1);
     expect(output).toContain('id: evt-2');
+    expect(output).toContain('"directory":"project-contract"');
+    expect(output).not.toContain('/sandbox/project');
     expect(request.listenerCount('close')).toBe(0);
     expect(response.listenerCount('close')).toBe(0);
   });
@@ -704,6 +706,8 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     await streaming;
     expect(output).toContain('evt-target');
     expect(output).not.toContain('evt-other');
+    expect(output).toContain('"directory":"project-contract"');
+    expect(output).not.toContain('/sandbox/project');
   });
 
   it('roadmap: PTY bridge preserves text/binary frames, ticket scope, close codes, and active revocation', async () => {

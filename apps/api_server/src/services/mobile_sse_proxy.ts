@@ -422,9 +422,18 @@ export class MobileSseProxy {
               seen.delete(seenOrder.shift()!);
             }
           }
+          const mobilePayload =
+            typeof parsed === 'object' &&
+            parsed !== null &&
+            'directory' in parsed
+              ? {
+                  ...(parsed as Record<string, unknown>),
+                  directory: input.project.id,
+                }
+              : parsed;
           const encoded = `${
             id ? `id: ${id}\n` : ''
-          }event: message\ndata: ${JSON.stringify(parsed)}\n\n`;
+          }event: message\ndata: ${JSON.stringify(mobilePayload)}\n\n`;
           if (
             Buffer.byteLength(encoded, 'utf8') > this.maxFrameBytes ||
             input.response.writableLength > this.maxBufferedBytes

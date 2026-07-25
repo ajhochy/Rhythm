@@ -104,7 +104,9 @@ import {
 } from '@/providers/opencode-provider-types';
 import { useConversationKeepAwake } from '@/providers/use-conversation-keep-awake';
 import { useConversationScreenDim } from '@/providers/use-conversation-screen-dim';
+import { usePairedHost } from '@/providers/paired-host-provider';
 import { useOpencodePersistence } from '@/providers/use-opencode-persistence';
+import { listMobileGatewayProjects } from '@/providers/services/mobile-gateway-service';
 import {
   loadWorkspaceCatalog as svcLoadWorkspaceCatalog,
   archiveSession as svcArchiveSession,
@@ -176,7 +178,20 @@ export type {
 const OpencodeContext = createContext<OpencodeContextValue | null>(null);
 const ANSI_CSI_PATTERN = new RegExp('\\u001b\\[[0-?]*[ -/]*[@-~]', 'gi');
 
+function authenticatedWebSocket(
+  url: string,
+  headers: Record<string, string>,
+): WebSocket {
+  const Constructor = WebSocket as unknown as new (
+    socketUrl: string,
+    protocols: string[],
+    options: { headers: Record<string, string> },
+  ) => WebSocket;
+  return new Constructor(url, [], { headers });
+}
+
 export function OpencodeProvider({ children }: PropsWithChildren) {
+  const pairedHost = usePairedHost();
   const [settings, setSettings] = useState<OpencodeConnectionSettings>(defaultConnectionSettings);
   const [connection, setConnection] = useState<ConnectionState>({
     status: 'idle',
@@ -242,7 +257,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const serverGenerationRef = useRef(0);
   const clientGenerationRef = useRef(new WeakMap<object, number>());
   const catalogGenerationRef = useRef(new WeakMap<object, number>());
-  const initialConnectStartedRef = useRef(false);
+  const connectionTargetRef = useRef('');
   const bootstrapPromiseRef = useRef<Promise<string | undefined> | null>(null);
   const bootstrapTokenRef = useRef<object | undefined>(undefined);
   const conversationPhaseRef = useRef<ConversationPhase>('off');
@@ -287,9 +302,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     const entries = new Map<string, OpencodeProject>();
 
     serverProjects.forEach((project) => {
+      const displayName = (project as Project & { name?: string }).name;
       entries.set(project.worktree, {
         id: project.id,
-        label: getProjectLabel(project.worktree),
+        label: displayName?.trim() || getProjectLabel(project.worktree),
         path: project.worktree,
         source: 'server',
         updatedAt: project.time.initialized || project.time.created,
@@ -313,10 +329,45 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     () => projects.find((project) => project.path === activeProjectPath),
     [activeProjectPath, projects],
   );
+  const registeredGatewayProjectIds = useMemo(
+    () =>
+      new Set(
+        serverProjects
+          .filter(
+            (project) =>
+              project.id.trim().length > 0 &&
+              project.id === project.worktree,
+          )
+          .map((project) => project.id),
+      ),
+    [serverProjects],
+  );
 
+  const buildScopedClient = useCallback(
+    (projectId: string) => {
+      if (!pairedHost.client) {
+        return buildClient({ ...settings, directory: projectId });
+      }
+      const registeredProjectId = registeredGatewayProjectIds.has(projectId)
+        ? projectId
+        : '';
+      return buildClient(
+        { ...settings, directory: registeredProjectId },
+        { client: pairedHost.client, projectId: registeredProjectId },
+      );
+    },
+    [pairedHost.client, registeredGatewayProjectIds, settings],
+  );
   const client = useMemo(
-    () => buildClient({ ...settings, directory: activeProjectPath || '' }),
-    [activeProjectPath, settings],
+    () => {
+      if (pairedHost.client) {
+        return buildScopedClient(activeProjectPath ?? '');
+      }
+      return activeProjectPath
+        ? buildScopedClient(activeProjectPath)
+        : buildClient({ ...settings, directory: '' });
+    },
+    [activeProjectPath, buildScopedClient, pairedHost.client, settings],
   );
   const catalogClient = useMemo(() => buildClient({ ...settings, directory: '' }), [settings]);
   if (!clientGenerationRef.current.has(client)) {
@@ -378,7 +429,39 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       }
 
       try {
-        const result = await svcLoadWorkspaceCatalog(catalogClient);
+        const result: WorkspaceCatalog = pairedHost.client
+          ? await listMobileGatewayProjects(pairedHost.client).then(
+              (mobileProjects) => {
+                const now = Date.now();
+                const serverProjects = mobileProjects.map(
+                  (project, index) =>
+                    ({
+                      id: project.id,
+                      name: project.name,
+                      icon: project.icon,
+                      worktree: project.id,
+                      vcs: 'git',
+                      time: {
+                        created: now - index,
+                        initialized: now - index,
+                      },
+                    }) as unknown as Project,
+                );
+                const selected = activeProjectPathRef.current;
+                const currentProjectPath =
+                  selected &&
+                  serverProjects.some(
+                    (project) => project.worktree === selected,
+                  )
+                    ? selected
+                    : serverProjects[0]?.worktree;
+                return {
+                  currentProjectPath,
+                  serverProjects,
+                };
+              },
+            )
+          : await svcLoadWorkspaceCatalog(catalogClient);
         if (!isCurrentCatalogClient(catalogClient)) {
           return result;
         }
@@ -401,7 +484,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         }
       }
     },
-    [catalogClient, clearProjectState, isCurrentCatalogClient],
+    [
+      catalogClient,
+      clearProjectState,
+      isCurrentCatalogClient,
+      pairedHost.client,
+    ],
   );
 
   const refreshWorkspaceCatalog = useCallback(
@@ -888,11 +976,25 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     if (!isCurrentClient(client) || generation !== terminalOpenGenerationRef.current) {
       throw new Error('Terminal connection was superseded.');
     }
-    const socket = new WebSocket(getTerminalWebSocketUrl(
-      { serverUrl: settings.serverUrl, directory: activeProjectPath || '' },
-      ptyId,
-      { ticket: token.ticket, cursor: terminalCursorByIdRef.current[ptyId] },
-    ));
+    const terminalOptions = {
+      ticket: token.ticket,
+      cursor: terminalCursorByIdRef.current[ptyId],
+    };
+    const socket = pairedHost.client && activeProjectPath
+      ? await pairedHost.client
+          .ptyConnection(ptyId, activeProjectPath, terminalOptions)
+          .then(
+            ({ url, headers }) =>
+              authenticatedWebSocket(url, headers),
+          )
+      : new WebSocket(getTerminalWebSocketUrl(
+          {
+            serverUrl: settings.serverUrl,
+            directory: activeProjectPath || '',
+          },
+          ptyId,
+          terminalOptions,
+        ));
     terminalSocketRef.current = socket;
     let opened = false;
     const connected = new Promise<void>((resolve, reject) => {
@@ -943,7 +1045,14 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       }
     };
     await connected;
-  }, [activeProjectPath, activeTerminalId, client, isCurrentClient, settings.serverUrl]);
+  }, [
+    activeProjectPath,
+    activeTerminalId,
+    client,
+    isCurrentClient,
+    pairedHost.client,
+    settings.serverUrl,
+  ]);
 
   const createTerminal = useCallback(async (command?: string, title?: string) => {
     const terminal = await svcCreateTerminal(client, { command: command?.trim() || undefined, title: title?.trim() || undefined });
@@ -1093,6 +1202,13 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   }, [clearProjectState]);
 
   const connect = useCallback(async () => {
+    if (!pairedHost.client && Platform.OS !== 'web') {
+      setConnection({
+        status: 'idle',
+        message: 'Pair this iPhone with your Mac to use Rhythm Agents.',
+      });
+      return;
+    }
     if (!isValidServerUrl(settingsRef.current.serverUrl)) {
       setConnection({
         status: 'error',
@@ -1104,7 +1220,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
     setConnection({
       status: 'connecting',
-      message: `Connecting to ${getNormalizedServerUrl(settingsRef.current.serverUrl)}...`,
+      message: pairedHost.client
+        ? 'Connecting securely to your paired Mac…'
+        : `Connecting to ${getNormalizedServerUrl(settingsRef.current.serverUrl)}...`,
     });
 
     try {
@@ -1116,7 +1234,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
       setConnection({
         status: 'connected',
-        message: `Connected to ${getNormalizedServerUrl(settingsRef.current.serverUrl)}`,
+        message: pairedHost.client
+          ? 'Connected securely to your paired Mac.'
+          : `Connected to ${getNormalizedServerUrl(settingsRef.current.serverUrl)}`,
         checkedAt: Date.now(),
         projectDirectory,
       });
@@ -1150,19 +1270,50 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       setAvailableModels([]);
       setAvailableAgents([]);
     }
-  }, [activeProjectPath, catalogClient, isCurrentCatalogClient, loadWorkspaceCatalog]);
+  }, [
+    activeProjectPath,
+    catalogClient,
+    isCurrentCatalogClient,
+    loadWorkspaceCatalog,
+    pairedHost.client,
+  ]);
 
   const ensureActiveSessionRef = useRef(ensureActiveSession);
   ensureActiveSessionRef.current = ensureActiveSession;
 
   useEffect(() => {
-    if (!isHydrated || initialConnectStartedRef.current) {
-      return;
-    }
-
-    initialConnectStartedRef.current = true;
+    if (!isHydrated) return;
+    const target = pairedHost.client && pairedHost.host
+      ? `paired:${pairedHost.host.rhythmUserId}:${pairedHost.host.hostId}:${pairedHost.host.deviceId}`
+      : Platform.OS === 'web'
+        ? `direct:${settings.serverUrl}:${settings.username}:${settings.password}`
+        : 'native:unpaired';
+    if (connectionTargetRef.current === target) return;
+    connectionTargetRef.current = target;
+    scopeGenerationRef.current += 1;
+    serverGenerationRef.current += 1;
+    catalogGenerationRef.current.set(
+      catalogClient,
+      serverGenerationRef.current,
+    );
+    activeProjectPathRef.current = undefined;
+    setActiveProjectPath(undefined);
+    clearProjectState();
+    setServerProjects([]);
+    setCurrentProjectPath(undefined);
+    setServerRootPath(undefined);
     void connect();
-  }, [connect, isHydrated]);
+  }, [
+    clearProjectState,
+    catalogClient,
+    connect,
+    isHydrated,
+    pairedHost.client,
+    pairedHost.host,
+    settings.password,
+    settings.serverUrl,
+    settings.username,
+  ]);
 
   useEffect(() => {
     if (connection.status !== 'connected' || !activeProjectPath) return;
@@ -2212,7 +2363,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         setEventStreamStatus(retryAttempt === 0 ? 'connecting' : 'error');
 
         try {
-          const subscription = await catalogClient.global.event({ signal: abortController.signal, sseMaxRetryAttempts: 1 });
+          const eventClient = pairedHost.client ? client : catalogClient;
+          const subscription = await eventClient.global.event({ signal: abortController.signal, sseMaxRetryAttempts: 1 });
           setEventStreamStatus('connected');
           await Promise.all([
             refreshSessions(true),
@@ -2254,7 +2406,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       mounted = false;
       activeAbortController?.abort();
     };
-  }, [activeProjectPath, catalogClient, connection.status, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, scheduleSessionRefresh]);
+  }, [activeProjectPath, catalogClient, client, connection.status, pairedHost.client, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, scheduleSessionRefresh]);
 
   useEffect(
     () => () => {
@@ -2460,6 +2612,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     () => ({
       isHydrated,
       settings,
+      buildScopedClient,
       updateSettings,
       connection,
       projects,
@@ -2650,6 +2803,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       sessions,
       serverProjects,
       settings,
+      buildScopedClient,
       setProviderAuth,
       removeProvider,
       startProviderOAuth,

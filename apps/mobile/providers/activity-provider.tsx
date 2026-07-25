@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import {
   createContext,
   useCallback,
@@ -19,6 +20,8 @@ import {
   type ActivityPage,
   type ActivityTransport,
 } from '@/providers/services/activity-service';
+import { usePairedHost } from '@/providers/paired-host-provider';
+import { useRhythmAccount } from '@/providers/rhythm-account-provider';
 
 const ACTIVITY_CACHE_PREFIX = 'rhythm.agent-activity.read-cache.v1';
 
@@ -102,6 +105,11 @@ export function ActivityProvider({
   useEffect(() => {
     mountedRef.current = true;
     const generation = ++generationRef.current;
+    itemsRef.current = [];
+    setItems([]);
+    setNextCursor(null);
+    setError(null);
+    setRequestErrorState(null);
     setLoading(true);
     void AsyncStorage.getItem(storageKey)
       .then((raw) => {
@@ -224,6 +232,68 @@ export function ActivityProvider({
     <ActivityContext.Provider value={value}>
       {children}
     </ActivityContext.Provider>
+  );
+}
+
+function e2eActivityTransport(baseUrl: string): ActivityTransport {
+  return {
+    async request<T>(
+      path: string,
+      init: Omit<RequestInit, 'headers'> & {
+        headers?: Record<string, string>;
+      },
+    ): Promise<T> {
+      const response = await fetch(`${baseUrl.replace(/\/$/, '')}${path}`, init);
+      if (!response.ok) {
+        const error = new Error(
+          `Activity request failed (${response.status})`,
+        ) as Error & { status: number };
+        error.status = response.status;
+        throw error;
+      }
+      return (await response.json()) as T;
+    },
+  };
+}
+
+export function AppActivityProvider({ children }: PropsWithChildren) {
+  const account = useRhythmAccount();
+  const pairedHost = usePairedHost();
+  const e2eServerUrl =
+    Constants.expoConfig?.extra?.e2eMode === true &&
+    typeof Constants.expoConfig?.extra?.e2eServerUrl === 'string'
+      ? Constants.expoConfig.extra.e2eServerUrl
+      : null;
+  const transport = useMemo<ActivityTransport | null>(
+    () =>
+      pairedHost.client ??
+      (e2eServerUrl ? e2eActivityTransport(e2eServerUrl) : null),
+    [e2eServerUrl, pairedHost.client],
+  );
+  const availability: ActivityAvailability = e2eServerUrl
+    ? 'connected'
+    : account.state === 'expired'
+      ? 'expired-auth'
+      : pairedHost.state === 'accountMismatch'
+        ? 'forbidden'
+        : pairedHost.state === 'connected'
+          ? 'connected'
+          : 'offline';
+  const cacheScope =
+    account.user && pairedHost.host
+      ? `${account.user.id}:${pairedHost.host.hostId}:${pairedHost.host.deviceId}`
+      : e2eServerUrl
+        ? 'e2e-user'
+        : 'signed-out';
+
+  return (
+    <ActivityProvider
+      availability={availability}
+      cacheScope={cacheScope}
+      key={cacheScope}
+      transport={transport}>
+      {children}
+    </ActivityProvider>
   );
 }
 

@@ -633,6 +633,67 @@ function assertIsApiError(err, label) {
 }
 
 // ---------------------------------------------------------------------------
+// SECTION 21: Raw paired transport resolves credentials per request
+// ---------------------------------------------------------------------------
+
+{
+  const tokens = ['device-token-one', 'device-token-two'];
+  const captures = [];
+  const client = new PairedMacClient({
+    baseUrl: 'https://mac.tailscale.example.com',
+    getDeviceToken: async () => tokens.shift(),
+  });
+  const rawFetch = async (url, init) => {
+    captures.push({
+      url,
+      authorization: new Headers(init.headers).get('Authorization'),
+      project: new Headers(init.headers).get('X-Rhythm-Project-ID'),
+    });
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  const first = await client.fetchResponse(
+    '/mobile-gateway/opencode/session',
+    { method: 'GET', headers: { 'X-Rhythm-Project-ID': 'project-one' } },
+    rawFetch,
+  );
+  await client.fetchResponse(
+    '/mobile-gateway/events',
+    { method: 'GET', headers: { 'X-Rhythm-Project-ID': 'project-two' } },
+    rawFetch,
+  );
+
+  assert.deepEqual(await first.json(), { ok: true });
+  assert.deepEqual(captures, [
+    {
+      url: 'https://mac.tailscale.example.com/mobile-gateway/opencode/session',
+      authorization: 'Device device-token-one',
+      project: 'project-one',
+    },
+    {
+      url: 'https://mac.tailscale.example.com/mobile-gateway/events',
+      authorization: 'Device device-token-two',
+      project: 'project-two',
+    },
+  ]);
+
+  const pty = await new PairedMacClient({
+    baseUrl: 'https://mac.tailscale.example.com',
+    getDeviceToken: async () => 'pty-device-secret',
+  }).ptyConnection('pty-one', 'project-one', {
+    ticket: 'single-use-ticket',
+  });
+  assert.equal(pty.headers.Authorization, 'Device pty-device-secret');
+  assert.equal(pty.headers['X-Rhythm-Project-ID'], 'project-one');
+  assert.equal(pty.url.includes('pty-device-secret'), false);
+  assert.equal(pty.url.includes('single-use-ticket'), true);
+  console.log('  ✓ Raw paired fetch and PTY auth resolve uncached credentials');
+}
+
+// ---------------------------------------------------------------------------
 // Done
 // ---------------------------------------------------------------------------
 

@@ -19,6 +19,7 @@ import {
   type PairedHostState,
 } from '@/lib/pairing/paired-host-store';
 import { RHYTHM_SESSION_SECURE_KEY } from '@/lib/auth/rhythm-session-store';
+import type { PairedMacClient } from '@/lib/transport/paired-mac-client';
 import { useRhythmAccount } from '@/providers/rhythm-account-provider';
 
 const e2eCredentials = new Map<string, string>([
@@ -28,6 +29,7 @@ const e2eCredentials = new Map<string, string>([
 export interface PairedHostContextValue {
   state: PairedHostState;
   host: PairedHost | null;
+  client: PairedMacClient | null;
   message: string;
   pair: (
     payload: string,
@@ -83,15 +85,23 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
   const [snapshot, setSnapshot] = useState<PairedHostSnapshot>(() =>
     store.snapshot(),
   );
+  const [client, setClient] = useState<PairedMacClient | null>(null);
   const mountedRef = useRef(true);
 
-  const apply = useCallback((next: PairedHostSnapshot) => {
-    if (mountedRef.current) setSnapshot(next);
-    return next;
-  }, []);
+  const apply = useCallback(
+    (next: PairedHostSnapshot) => {
+      if (mountedRef.current) {
+        setSnapshot(next);
+        setClient(store.client());
+      }
+      return next;
+    },
+    [store],
+  );
 
   useEffect(() => {
     mountedRef.current = true;
+    setClient(null);
     store.setAccountUserId(account.user?.id ?? null);
     void store.restore().then(apply);
     return () => {
@@ -118,6 +128,7 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
         state: 'pairing',
         message: 'Pairing securely with your Mac…',
       });
+      setClient(null);
       try {
         return apply(
           await store.pair(payload, {
@@ -164,13 +175,14 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
   const value = useMemo<PairedHostContextValue>(
     () => ({
       ...snapshot,
+      client,
       pair,
       refresh,
       revoke,
       forget,
       supports: (feature) => store.supports(feature),
     }),
-    [forget, pair, refresh, revoke, snapshot, store],
+    [client, forget, pair, refresh, revoke, snapshot, store],
   );
 
   return (

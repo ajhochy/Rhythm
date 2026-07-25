@@ -8,6 +8,8 @@ import {
 import { encode as encodeBase64 } from 'base-64';
 import Constants from 'expo-constants';
 
+import type { PairedMacClient } from '@/lib/transport/paired-mac-client';
+
 export type PendingPermissionRequest = PermissionRequest;
 export type PendingQuestionRequest = QuestionRequest;
 export type PendingQuestionAnswer = QuestionAnswer;
@@ -35,6 +37,7 @@ type NormalizedServerUrl = {
 
 type ClientMetadata = {
   directory?: string;
+  gateway: boolean;
 };
 
 export type ScopedOpencodeClient = OpencodeClient & {
@@ -106,6 +109,93 @@ function createScopedFetch(baseUrl: string, pathPrefix: string, directory?: stri
   };
 }
 
+const GATEWAY_ROOT_QUERY_FIELDS = new Set([
+  'cwd',
+  'directory',
+  'root',
+  'workspace',
+  'workspaceid',
+  'worktreedir',
+]);
+
+export interface MobileGatewayClientScope {
+  client: PairedMacClient;
+  projectId: string;
+}
+
+function headersRecord(value?: HeadersInit): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!value) return result;
+  new Headers(value).forEach((headerValue, name) => {
+    result[name] = headerValue;
+  });
+  return result;
+}
+
+function createMobileGatewayFetch(scope: MobileGatewayClientScope) {
+  const baseUrl = new URL(scope.client.origin()).origin;
+  const projectId = scope.projectId.trim();
+
+  return async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (!projectId) {
+      throw new Error('Select a registered Rhythm project before connecting.');
+    }
+    const request =
+      typeof Request !== 'undefined' && input instanceof Request
+        ? input
+        : null;
+    const currentUrl =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+    const parsed = new URL(currentUrl, baseUrl);
+    if (parsed.origin !== baseUrl) {
+      throw new Error('The paired gateway refused a cross-origin request.');
+    }
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (GATEWAY_ROOT_QUERY_FIELDS.has(key.toLowerCase())) {
+        parsed.searchParams.delete(key);
+      }
+    }
+
+    const sdkPath = parsed.pathname;
+    const gatewayPath =
+      sdkPath === '/event' || sdkPath === '/global/event'
+        ? '/mobile-gateway/events'
+        : `/mobile-gateway/opencode${sdkPath}`;
+    const headers: Record<string, string> = {
+      ...headersRecord(request?.headers),
+      ...headersRecord(init?.headers),
+      'X-Rhythm-Project-ID': projectId,
+    };
+    delete headers.authorization;
+
+    const method = init?.method ?? request?.method ?? 'GET';
+    let body = init?.body;
+    if (
+      body === undefined &&
+      request &&
+      method !== 'GET' &&
+      method !== 'HEAD'
+    ) {
+      body = await request.clone().text();
+    }
+
+    return scope.client.fetchResponse(
+      `${gatewayPath}${parsed.search}`,
+      {
+        ...init,
+        body,
+        headers,
+        method,
+        signal: init?.signal ?? request?.signal,
+      },
+    );
+  };
+}
+
 function getConnectionErrorMessage(error: unknown, serverUrl: string) {
   const normalized = normalizeServerUrl(serverUrl);
   if (!normalized.valid) {
@@ -149,20 +239,34 @@ function getRequestHeaders(settings: OpencodeConnectionSettings) {
     : undefined;
 }
 
-export function buildClient(settings: OpencodeConnectionSettings): ScopedOpencodeClient {
+export function buildClient(
+  settings: OpencodeConnectionSettings,
+  gateway?: MobileGatewayClientScope,
+): ScopedOpencodeClient {
   const normalizedServerUrl = normalizeServerUrl(settings.serverUrl);
-  const headers = getRequestHeaders(settings);
-  const directory = settings.directory.trim() || undefined;
+  const headers = gateway ? undefined : getRequestHeaders(settings);
+  const directory = gateway
+    ? gateway.projectId.trim() || undefined
+    : settings.directory.trim() || undefined;
+  const baseUrl = gateway
+    ? new URL(gateway.client.origin()).origin
+    : normalizedServerUrl.origin;
 
   return Object.assign(
     createOpencodeClient({
-      baseUrl: normalizedServerUrl.origin,
-      fetch: createScopedFetch(normalizedServerUrl.origin, normalizedServerUrl.pathPrefix, directory),
+      baseUrl,
+      fetch: gateway
+        ? createMobileGatewayFetch(gateway)
+        : createScopedFetch(
+            normalizedServerUrl.origin,
+            normalizedServerUrl.pathPrefix,
+            directory,
+          ),
       headers,
       responseStyle: 'fields',
       throwOnError: true,
     }),
-    { __opencode: { directory } },
+    { __opencode: { directory, gateway: Boolean(gateway) } },
   );
 }
 

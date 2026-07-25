@@ -384,6 +384,13 @@ async function main() {
   const mobilePtyProxy = env.agentExecutionEnabled
     ? new MobilePtyProxy()
     : undefined;
+  if (mobileGatewayServer && mobilePtyProxy) {
+    mobileGatewayServer.on('upgrade', (request, socket, head) => {
+      if (!mobilePtyProxy.handleUpgrade(request, socket, head)) {
+        socket.destroy();
+      }
+    });
+  }
   // WS gateway is an agent-execution surface (#755). In the 'cloud' role we
   // create a no-op WSS so `wss.close()` in the shutdown handler is still valid,
   // but never attach the upgrade/connection handlers.

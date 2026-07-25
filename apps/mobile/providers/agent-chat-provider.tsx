@@ -10,8 +10,9 @@ import {
   type PropsWithChildren,
 } from 'react';
 
-import { buildClient } from '@/lib/opencode/client';
 import { useOpencode } from '@/providers/opencode-provider';
+import { usePairedHost } from '@/providers/paired-host-provider';
+import { useRhythmAccount } from '@/providers/rhythm-account-provider';
 import {
   assertOnlineMutation,
   sanitizeOfflineChatCache,
@@ -27,6 +28,12 @@ import {
 } from '@/providers/services/session-service';
 
 const OFFLINE_CHAT_CACHE_KEY = 'rhythm.agent-chat.read-cache.v1';
+
+function chatCacheKey(scope: string): string {
+  const safeScope =
+    scope.trim().replace(/[^a-zA-Z0-9._-]/g, '_') || 'signed-out';
+  return `${OFFLINE_CHAT_CACHE_KEY}.${safeScope}`;
+}
 
 interface AgentChatContextValue {
   sessions: ProjectSessionCatalogEntry[];
@@ -82,13 +89,15 @@ function parseOfflineCache(raw: string | null): ProjectSessionCatalogEntry[] {
 
 export function AgentChatProvider({ children }: PropsWithChildren) {
   const opencode = useOpencode();
+  const account = useRhythmAccount();
+  const pairedHost = usePairedHost();
   const {
     activeProjectPath,
+    buildScopedClient,
     connection,
     eventStreamStatus,
     projects,
     refreshCurrentSession,
-    settings,
   } = opencode;
   const [sessions, setSessions] = useState<ProjectSessionCatalogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -98,6 +107,11 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
   const refreshGenerationRef = useRef(0);
   const previousStreamStatusRef = useRef(eventStreamStatus);
   const isOnline = connection.status === 'connected';
+  const storageKey = chatCacheKey(
+    account.user && pairedHost.host
+      ? `${account.user.id}:${pairedHost.host.hostId}:${pairedHost.host.deviceId}`
+      : 'signed-out',
+  );
   const projectPaths = useMemo(
     () => projects.map((project) => project.path),
     [projects],
@@ -106,7 +120,12 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     mountedRef.current = true;
-    void AsyncStorage.getItem(OFFLINE_CHAT_CACHE_KEY)
+    refreshGenerationRef.current += 1;
+    setSessions([]);
+    setIsOfflineCache(false);
+    setError(null);
+    setIsLoading(true);
+    void AsyncStorage.getItem(storageKey)
       .then((raw) => {
         if (!mountedRef.current) return;
         const cached = parseOfflineCache(raw);
@@ -122,7 +141,7 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
       mountedRef.current = false;
       refreshGenerationRef.current += 1;
     };
-  }, [isOnline]);
+  }, [isOnline, storageKey]);
 
   const refresh = useCallback(async () => {
     if (!isOnline) {
@@ -134,7 +153,7 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
     setError(null);
     try {
       const next = await listSessionsAcrossProjects(
-        settings,
+        buildScopedClient,
         projectPaths,
       );
       if (!mountedRef.current || generation !== refreshGenerationRef.current) {
@@ -144,7 +163,7 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
       setSessions(safe);
       setIsOfflineCache(false);
       await AsyncStorage.setItem(
-        OFFLINE_CHAT_CACHE_KEY,
+        storageKey,
         JSON.stringify(safe),
       );
     } catch (reason) {
@@ -153,7 +172,7 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
       }
       setError(safeError(reason));
       const cached = parseOfflineCache(
-        await AsyncStorage.getItem(OFFLINE_CHAT_CACHE_KEY),
+        await AsyncStorage.getItem(storageKey),
       );
       if (cached.length > 0) {
         setSessions(cached);
@@ -164,7 +183,12 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
         setIsLoading(false);
       }
     }
-  }, [isOnline, projectPaths, settings]);
+  }, [
+    buildScopedClient,
+    isOnline,
+    projectPaths,
+    storageKey,
+  ]);
 
   useEffect(() => {
     if (isOnline && projectPaths.length > 0) void refresh();
@@ -189,9 +213,8 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
   ]);
 
   const scopedClient = useCallback(
-    (projectId: string) =>
-      buildClient({ ...settings, directory: projectId }),
-    [settings],
+    (projectId: string) => buildScopedClient(projectId),
+    [buildScopedClient],
   );
 
   const afterMutation = useCallback(async (projectId: string) => {

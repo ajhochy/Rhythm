@@ -13,6 +13,7 @@ import { OpencodeProvider } from '@/providers/opencode-provider';
 import { PairedHostProvider } from '@/providers/paired-host-provider';
 import { RhythmAccountProvider } from '@/providers/rhythm-account-provider';
 import { AgentChatProvider } from '@/providers/agent-chat-provider';
+import { AppActivityProvider } from '@/providers/activity-provider';
 import { AppRhythmToolsProvider } from '@/providers/rhythm-tools-provider';
 
 export const unstable_settings = {
@@ -44,24 +45,26 @@ export default function RootLayout() {
         <PairedHostProvider>
           <OpencodeProvider>
             <AppRhythmToolsProvider>
-              <AgentChatProvider>
-                <PaperProvider theme={paperTheme}>
-                  <ThemeProvider
-                    value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-                    <Stack>
-                      <Stack.Screen
-                        name="(tabs)"
-                        options={{ headerShown: false }}
-                      />
-                      <Stack.Screen
-                        name="pair"
-                        options={{ headerShown: false }}
-                      />
-                    </Stack>
-                    <StatusBar style="auto" />
-                  </ThemeProvider>
-                </PaperProvider>
-              </AgentChatProvider>
+              <AppActivityProvider>
+                <AgentChatProvider>
+                  <PaperProvider theme={paperTheme}>
+                    <ThemeProvider
+                      value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                      <Stack>
+                        <Stack.Screen
+                          name="(tabs)"
+                          options={{ headerShown: false }}
+                        />
+                        <Stack.Screen
+                          name="pair"
+                          options={{ headerShown: false }}
+                        />
+                      </Stack>
+                      <StatusBar style="auto" />
+                    </ThemeProvider>
+                  </PaperProvider>
+                </AgentChatProvider>
+              </AppActivityProvider>
             </AppRhythmToolsProvider>
           </OpencodeProvider>
         </PairedHostProvider>

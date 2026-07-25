@@ -4,6 +4,17 @@ function isPhoneGatewayRoute(method: string, path: string): boolean {
   if (method === 'GET' && path === '/mobile-gateway/health') return true;
   if (method === 'POST' && path === '/mobile-gateway/pair') return true;
   if (method === 'POST' && path === '/mobile-gateway/project') return true;
+  if (method === 'GET' && path === '/mobile-gateway/projects') return true;
+  if (method === 'GET' && path === '/mobile-gateway/agent-activity') {
+    return true;
+  }
+  if (method === 'GET' && path === '/mobile-gateway/events') return true;
+  if (
+    method === 'GET' &&
+    /^\/mobile-gateway\/sessions\/[^/]+\/events$/.test(path)
+  ) {
+    return true;
+  }
   if (
     method === 'DELETE' &&
     /^\/mobile-gateway\/devices\/[^/]+$/.test(path)
@@ -12,7 +23,10 @@ function isPhoneGatewayRoute(method: string, path: string): boolean {
   }
   return (
     ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method) &&
-    path.startsWith('/mobile-gateway/opencode/')
+    (
+      path.startsWith('/mobile-gateway/opencode/') ||
+      path.startsWith('/mobile-gateway/tools/')
+    )
   );
 }
 

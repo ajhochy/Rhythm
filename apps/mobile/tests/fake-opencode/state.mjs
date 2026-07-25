@@ -29,7 +29,7 @@ export function createState(scenario) {
     nextWorktreeId: 1,
     nextEventId: 1,
     nextMobileDeviceId: 1,
-    sseClients: new Set(),
+    sseClients: new Map(),
     completionTimers: new Set(),
     workspaceTaskCompleted: false,
     sessions: [],
@@ -86,7 +86,7 @@ export function createStateStore(initialScenario) {
       return state;
     },
     resetState(nextScenario) {
-      for (const client of state.sseClients) {
+      for (const client of state.sseClients.keys()) {
         client.end();
       }
       for (const timer of state.completionTimers) {

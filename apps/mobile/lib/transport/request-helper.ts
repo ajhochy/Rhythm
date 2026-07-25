@@ -43,6 +43,14 @@ export interface ExecuteRequestOptions {
   fetchFn: FetchFn;
 }
 
+export type ExecuteAuthenticatedFetchOptions = Omit<
+  ExecuteRequestOptions,
+  'getAuthHeader'
+> & {
+  /** Formats the token without allowing callers to read or persist it. */
+  getAuthHeader: (token: string) => Promise<string>;
+};
+
 export type ExecutePublicRequestOptions = Omit<
   ExecuteRequestOptions,
   'getAuthHeader' | 'getToken'
@@ -97,6 +105,48 @@ export async function executePublicRequest<T = unknown>({
       message: 'The server returned a non-JSON response.',
       retryable: false,
     });
+  }
+}
+
+/**
+ * Perform an authenticated request without consuming the response body.
+ * Generated SDK clients need the original Response so they can handle JSON,
+ * streaming SSE, and operation-specific errors themselves.
+ */
+export async function executeAuthenticatedFetch({
+  source,
+  baseUrl,
+  getAuthHeader,
+  getToken,
+  path,
+  init,
+  fetchFn,
+}: ExecuteAuthenticatedFetchOptions): Promise<Response> {
+  let authHeader: string;
+  try {
+    authHeader = await getAuthHeader(await getToken());
+  } catch {
+    throw normalizeProviderError(source);
+  }
+
+  const callerHeaders = init.headers ?? {};
+  const hasBody = init.body !== undefined && init.body !== null;
+  const hasContentType = Object.keys(callerHeaders).some(
+    (key) => key.toLowerCase() === 'content-type',
+  );
+  const headers: Record<string, string> = {
+    ...(hasBody && !hasContentType
+      ? { 'Content-Type': 'application/json' }
+      : {}),
+    ...callerHeaders,
+    Authorization: authHeader,
+  };
+  const url = `${baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
+
+  try {
+    return await fetchFn(url, { ...init, headers });
+  } catch {
+    throw normalizeNetworkError(source);
   }
 }
 

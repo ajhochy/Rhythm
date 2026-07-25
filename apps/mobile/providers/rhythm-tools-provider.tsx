@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -20,6 +21,8 @@ import {
   type ToolScreenId,
   type ToolTransport,
 } from '@/providers/services/rhythm-tools-service';
+import { usePairedHost } from '@/providers/paired-host-provider';
+import { useRhythmAccount } from '@/providers/rhythm-account-provider';
 
 const TOOLS_CACHE_PREFIX = 'rhythm.tools.read-cache.v1';
 
@@ -308,6 +311,13 @@ export function RhythmToolsProvider({
   >({});
   const generation = useRef<Partial<Record<ToolScreenId, number>>>({});
 
+  useEffect(() => {
+    for (const tool of Object.keys(generation.current) as ToolScreenId[]) {
+      generation.current[tool] = (generation.current[tool] ?? 0) + 1;
+    }
+    setStates({});
+  }, [cacheScope]);
+
   const availabilityFor = useCallback(
     (tool: ToolScreenId): ToolsAvailability =>
       originFor(tool) === 'cloud'
@@ -465,21 +475,57 @@ function e2eTransport(baseUrl: string): ToolTransport {
 }
 
 export function AppRhythmToolsProvider({ children }: PropsWithChildren) {
+  const account = useRhythmAccount();
+  const pairedHost = usePairedHost();
   const e2eMode = Boolean(Constants.expoConfig?.extra?.e2eMode);
   const e2eServerUrl =
     typeof Constants.expoConfig?.extra?.e2eServerUrl === 'string'
       ? Constants.expoConfig.extra.e2eServerUrl
       : null;
   const service = useMemo(() => {
-    if (!e2eMode || !e2eServerUrl) return null;
-    const transport = e2eTransport(e2eServerUrl);
-    return new RhythmToolsService({ cloud: transport, paired: transport });
-  }, [e2eMode, e2eServerUrl]);
+    if (e2eMode && e2eServerUrl) {
+      const transport = e2eTransport(e2eServerUrl);
+      return new RhythmToolsService({ cloud: transport, paired: transport });
+    }
+    const unavailable: ToolTransport = {
+      async request(): Promise<never> {
+        throw new Error('This service is unavailable.');
+      },
+    };
+    return new RhythmToolsService({
+      cloud: account.client,
+      paired: pairedHost.client ?? unavailable,
+    });
+  }, [
+    account.client,
+    e2eMode,
+    e2eServerUrl,
+    pairedHost.client,
+  ]);
+  const cacheScope =
+    account.user && pairedHost.host
+      ? `${account.user.id}:${pairedHost.host.hostId}:${pairedHost.host.deviceId}`
+      : e2eMode
+        ? 'e2e-user'
+        : 'signed-out';
+  const cloudAvailability: ToolsAvailability =
+    e2eMode || account.state === 'signedIn' || account.state === 'refreshing'
+      ? 'connected'
+      : account.state === 'offline'
+        ? 'offline'
+        : 'expired-auth';
+  const pairedAvailability: ToolsAvailability = e2eMode
+    ? 'connected'
+    : pairedHost.state === 'connected'
+      ? 'connected'
+      : pairedHost.state === 'accountMismatch'
+        ? 'forbidden'
+        : 'offline';
   return (
     <RhythmToolsProvider
-      cacheScope={e2eMode ? 'e2e-user' : 'signed-out'}
-      cloudAvailability={service ? 'connected' : 'expired-auth'}
-      pairedAvailability={service ? 'connected' : 'offline'}
+      cacheScope={cacheScope}
+      cloudAvailability={cloudAvailability}
+      pairedAvailability={pairedAvailability}
       service={service}>
       {children}
     </RhythmToolsProvider>

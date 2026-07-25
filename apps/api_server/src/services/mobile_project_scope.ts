@@ -17,6 +17,16 @@ export interface MobileProjectScope {
 }
 
 export type MobileProjectsReader = Pick<ProjectsRepository, 'findById'>;
+export type MobileProjectsCatalogReader = Pick<
+  ProjectsRepository,
+  'findById' | 'list'
+>;
+
+export interface MobileProjectCatalogItem {
+  id: string;
+  name: string;
+  icon: string | null;
+}
 
 declare global {
   namespace Express {
@@ -56,6 +66,30 @@ export function resolveMobileProject(
   } catch {
     throw unavailableProject();
   }
+}
+
+/**
+ * Return only opaque, display-safe metadata for active registered projects
+ * whose current canonical roots are still usable. Filesystem roots, VCS roots,
+ * and other desktop-only details must never cross the phone gateway.
+ */
+export function listMobileProjects(
+  projects: MobileProjectsCatalogReader = new ProjectsRepository(),
+): MobileProjectCatalogItem[] {
+  const catalog: MobileProjectCatalogItem[] = [];
+  for (const project of projects.list()) {
+    try {
+      resolveMobileProject(project.id, projects);
+      catalog.push({
+        id: project.id,
+        name: project.name,
+        icon: project.icon,
+      });
+    } catch {
+      // Stale/missing roots are unavailable through every mobile surface.
+    }
+  }
+  return catalog;
 }
 
 /**

@@ -20,6 +20,7 @@ import type {
 } from '@/lib/opencode/types';
 import type {
   OpencodeConnectionSettings,
+  ScopedOpencodeClient,
   PendingQuestionAnswer,
   PendingQuestionRequest,
   PendingPermissionRequest,
@@ -91,6 +92,7 @@ export type WorkspaceCatalog = {
 export type OpencodeContextValue = {
   isHydrated: boolean;
   settings: OpencodeConnectionSettings;
+  buildScopedClient: (projectId: string) => ScopedOpencodeClient;
   updateSettings: (patch: Partial<OpencodeConnectionSettings>) => void;
   connection: ConnectionState;
   projects: OpencodeProject[];

@@ -55,7 +55,7 @@ function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-opencode-directory, x-opencode-ticket',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Rhythm-Project-ID, x-opencode-directory, x-opencode-ticket',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   });
   res.end(JSON.stringify(payload));
@@ -106,11 +106,11 @@ function emitEvent(event) {
     return;
   }
 
-  const payload = `data: ${JSON.stringify({
-    directory: state.project.worktree,
-    payload: { id: `event-${state.nextEventId++}`, ...event },
-  })}\n\n`;
-  for (const client of state.sseClients) {
+  for (const [client, directory] of state.sseClients) {
+    const payload = `data: ${JSON.stringify({
+      directory,
+      payload: { id: `event-${state.nextEventId++}`, ...event },
+    })}\n\n`;
     client.write(payload);
   }
 }
@@ -130,7 +130,7 @@ const {
   summarizePrompt,
 } = helpers;
 
-function handleSse(req, res) {
+function handleSse(req, res, directory = state.project.worktree) {
   if (state.scenario === 'stream-disconnect') {
     res.writeHead(503, {
       'Content-Type': 'text/plain',
@@ -148,10 +148,10 @@ function handleSse(req, res) {
   });
   res.flushHeaders();
   res.write(`data: ${JSON.stringify({
-    directory: state.project.worktree,
+    directory,
     payload: { id: `event-${state.nextEventId++}`, type: 'server.connected', properties: {} },
   })}\n\n`);
-  state.sseClients.add(res);
+  state.sseClients.set(res, directory);
   req.on('close', () => {
     state.sseClients.delete(res);
   });
@@ -160,7 +160,7 @@ function handleSse(req, res) {
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url || '/', `http://${req.headers.host || `127.0.0.1:${port}`}`);
   const incomingPathname = requestUrl.pathname;
-  const pathname = basePath && incomingPathname.startsWith(`${basePath}/`)
+  let pathname = basePath && incomingPathname.startsWith(`${basePath}/`)
     ? incomingPathname.slice(basePath.length)
     : incomingPathname === basePath
       ? '/'
@@ -170,7 +170,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-opencode-directory, x-opencode-ticket',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Rhythm-Project-ID, x-opencode-directory, x-opencode-ticket',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
       });
       res.end();
@@ -251,6 +251,8 @@ const server = http.createServer(async (req, res) => {
         method: req.method,
         gatewayHost,
         path: gatewayPath,
+        projectId: req.headers['x-rhythm-project-id'] ?? null,
+        queryKeys: [...requestUrl.searchParams.keys()].sort(),
       });
 
       if (
@@ -324,14 +326,110 @@ const server = http.createServer(async (req, res) => {
         device.revoked = true;
         res.writeHead(204, {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Rhythm-Project-ID',
         });
         res.end();
         return;
       }
 
-      notFound(res);
-      return;
+      if (!deviceAuthorized) {
+        sendJson(res, 401, {
+          error: { code: 'UNAUTHORIZED', message: 'Unauthorized' },
+        });
+        return;
+      }
+
+      if (
+        req.method === 'GET' &&
+        gatewayPath === '/mobile-gateway/projects'
+      ) {
+        sendJson(res, 200, {
+          projects: [
+            { id: state.project.id, name: 'Demo project', icon: null },
+          ],
+        });
+        return;
+      }
+
+      if (
+        req.method === 'GET' &&
+        gatewayPath === '/mobile-gateway/agent-activity'
+      ) {
+        sendJson(res, 200, {
+          items: [
+            {
+              id: 'activity-paired-1',
+              source: 'human',
+              status: 'completed',
+              title: 'Paired agent completed a task',
+              summary: 'Delivered through the authenticated Mac gateway.',
+              occurredAt: new Date().toISOString(),
+              startedAt: null,
+              completedAt: new Date().toISOString(),
+              sessionId: null,
+              resultUrl: null,
+              profileId: null,
+              projectId: state.project.id,
+            },
+          ],
+          nextCursor: null,
+        });
+        return;
+      }
+
+      const projectId = req.headers['x-rhythm-project-id'];
+      const requiresProject =
+        gatewayPath === '/mobile-gateway/events' ||
+        gatewayPath.startsWith('/mobile-gateway/opencode/');
+      if (requiresProject && projectId !== state.project.id) {
+        sendJson(res, 403, {
+          error: {
+            code: 'MOBILE_PROJECT_SCOPE_REQUIRED',
+            message: 'Project scope required',
+          },
+        });
+        return;
+      }
+      if (
+        requiresProject &&
+        ['directory', 'cwd', 'root', 'workspace', 'worktreeDir'].some((key) =>
+          requestUrl.searchParams.has(key))
+      ) {
+        sendJson(res, 400, {
+          error: {
+            code: 'FILESYSTEM_SCOPE_FORBIDDEN',
+            message: 'Filesystem scope is forbidden',
+          },
+        });
+        return;
+      }
+
+      if (
+        req.method === 'GET' &&
+        gatewayPath === '/mobile-gateway/events'
+      ) {
+        handleSse(req, res, state.project.id);
+        return;
+      }
+
+      if (
+        await handleRhythmTools({
+          req,
+          res,
+          pathname: gatewayPath,
+          requestUrl,
+        })
+      ) {
+        return;
+      }
+
+      if (gatewayPath.startsWith('/mobile-gateway/opencode/')) {
+        pathname =
+          gatewayPath.slice('/mobile-gateway/opencode'.length) || '/';
+      } else {
+        notFound(res);
+        return;
+      }
     }
 
     if (req.method === 'GET' && pathname === '/path') {

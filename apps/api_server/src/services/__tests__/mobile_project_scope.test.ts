@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { Project } from '../../models/project';
 import {
+  listMobileProjects,
   resolveMobileProject,
   resolveMobileProjectPath,
 } from '../mobile_project_scope';
@@ -89,5 +90,51 @@ describe('mobile project scope', () => {
         findById: () => ({ ...project, archivedAt: new Date().toISOString() }),
       }))
       .toThrowError(expect.objectContaining({ statusCode: 404 }));
+  });
+
+  it('returns only display-safe metadata for usable active projects', () => {
+    const active: Project = {
+      id: 'active-project',
+      name: 'Active project',
+      cwd: root,
+      icon: 'music-note',
+      vcsRoot: outside,
+      vcsBranch: 'secret-branch',
+      vcsDirty: true,
+      vcsCheckedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      archivedAt: null,
+    };
+    const archived: Project = {
+      ...active,
+      id: 'archived-project',
+      name: 'Archived project',
+      archivedAt: new Date().toISOString(),
+    };
+    const missing: Project = {
+      ...active,
+      id: 'missing-project',
+      name: 'Missing project',
+      cwd: join(boundary, 'missing'),
+    };
+    const rows = new Map(
+      [active, archived, missing].map((project) => [project.id, project]),
+    );
+
+    const catalog = listMobileProjects({
+      list: () => [active, archived, missing],
+      findById: (id: string) => rows.get(id) ?? null,
+    });
+
+    expect(catalog).toEqual([
+      {
+        id: active.id,
+        name: active.name,
+        icon: active.icon,
+      },
+    ]);
+    expect(JSON.stringify(catalog)).not.toContain(root);
+    expect(JSON.stringify(catalog)).not.toContain(outside);
+    expect(JSON.stringify(catalog)).not.toContain('secret-branch');
   });
 });

@@ -49,6 +49,8 @@ export interface RhythmAccountContextValue {
   state: RhythmAccountState;
   /** Authenticated user data; null when not signed in. */
   user: RhythmUser | null;
+  /** Token-bearing transport; resolves the current SecureStore token per call. */
+  client: RhythmCloudClient;
   error: RhythmAccountError | undefined;
   /**
    * Exchange a Google auth code for a Rhythm Cloud session.
@@ -110,12 +112,12 @@ export function RhythmAccountProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<RhythmUser | null>(e2eUser);
   const [error, setError] = useState<RhythmAccountError>();
   const operationRef = useRef(0);
+  const [client] = useState<RhythmCloudClient>(() => buildCloudClient());
 
   // Stable store instance — created once per provider mount
-  const [store] = useState<RhythmSessionStore>(() => {
-    const client = buildCloudClient();
-    return new RhythmSessionStore({ client });
-  });
+  const [store] = useState<RhythmSessionStore>(
+    () => new RhythmSessionStore({ client }),
+  );
 
   const applyResult = useCallback((result: RhythmSessionResult) => {
     setState(result.state);
@@ -184,7 +186,8 @@ export function RhythmAccountProvider({ children }: PropsWithChildren) {
   }, [applyResult, store]);
 
   return (
-    <RhythmAccountContext.Provider value={{ state, user, error, signIn, signOut, refresh }}>
+    <RhythmAccountContext.Provider
+      value={{ state, user, client, error, signIn, signOut, refresh }}>
       {children}
     </RhythmAccountContext.Provider>
   );

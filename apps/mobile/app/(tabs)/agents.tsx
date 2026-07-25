@@ -3,14 +3,16 @@ import { StyleSheet, View } from 'react-native';
 import { Appbar, SegmentedButtons } from 'react-native-paper';
 
 import { ChatList } from '@/components/chat/chat-list';
-import { ToolScreenState } from '@/components/tools/tool-screen-state';
+import { ActivityFeed } from '@/components/agents/activity-feed';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useActivity } from '@/providers/activity-provider';
 
 export default function AgentsScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
   const [section, setSection] = useState<'chats' | 'activity'>('chats');
+  const activity = useActivity();
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}>
@@ -35,10 +37,20 @@ export default function AgentsScreen() {
       {section === 'chats' ? (
         <ChatList />
       ) : (
-        <ToolScreenState
-          state="loading"
-          title="Loading activity"
-          message="Connecting securely to your paired Mac."
+        <ActivityFeed
+          error={activity.error}
+          errorState={activity.errorState}
+          hasMore={activity.hasMore}
+          items={activity.items}
+          loading={activity.loading}
+          offline={activity.offline}
+          onLoadMore={() => {
+            void activity.loadMore();
+          }}
+          onRefresh={() => {
+            void activity.refresh();
+          }}
+          refreshing={activity.refreshing}
         />
       )}
     </View>

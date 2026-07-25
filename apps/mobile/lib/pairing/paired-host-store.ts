@@ -291,6 +291,30 @@ export class PairedHostStore {
     );
   }
 
+  /**
+   * Build a token-bearing transport for the current account/host scope.
+   * Credentials are resolved from SecureStore per request by PairedMacClient;
+   * this method never reads, returns, or caches the device token.
+   */
+  client(): PairedMacClient | null {
+    const host = this.host;
+    if (
+      !host ||
+      this.accountUserId === null ||
+      host.rhythmUserId !== this.accountUserId
+    ) {
+      return null;
+    }
+    return new PairedMacClient({
+      baseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
+      getDeviceToken: async () => {
+        const token = await this.getCredential(PAIRED_DEVICE_SECURE_KEY);
+        if (!token) throw new Error('Paired-device credential unavailable');
+        return token;
+      },
+    });
+  }
+
   private apply(
     state: PairedHostState,
     message: string,

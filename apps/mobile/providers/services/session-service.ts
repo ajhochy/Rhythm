@@ -1,10 +1,6 @@
 import type { OpencodeClient, PermissionRuleset } from '@opencode-ai/sdk/v2/client';
 
 import type { GlobalSession, Project } from '@/lib/opencode/types';
-import {
-  buildClient,
-  type OpencodeConnectionSettings,
-} from '@/lib/opencode/client';
 
 function requireData<T>(data: T | undefined, operation: string): T {
   if (data === undefined) {
@@ -80,7 +76,7 @@ function statusLabel(status: unknown): string {
 }
 
 export async function listSessionsAcrossProjects(
-  settings: OpencodeConnectionSettings,
+  buildScopedClient: (projectId: string) => OpencodeClient,
   projectPaths: string[],
 ): Promise<ProjectSessionCatalogEntry[]> {
   const uniquePaths = [...new Set(projectPaths.filter(Boolean))];
@@ -91,7 +87,7 @@ export async function listSessionsAcrossProjects(
     const batch = uniquePaths.slice(offset, offset + 4);
     const results = await Promise.all(
       batch.map(async (projectId) => {
-        const scopedClient = buildClient({ ...settings, directory: projectId });
+        const scopedClient = buildScopedClient(projectId);
         const [{ sessions, statuses }, archived] = await Promise.all([
           listSessions(scopedClient),
           listArchivedSessions(scopedClient),
