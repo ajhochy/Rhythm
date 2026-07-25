@@ -290,7 +290,6 @@ export function AppActivityProvider({ children }: PropsWithChildren) {
     <ActivityProvider
       availability={availability}
       cacheScope={cacheScope}
-      key={cacheScope}
       transport={transport}>
       {children}
     </ActivityProvider>
