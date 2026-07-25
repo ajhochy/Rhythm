@@ -13,9 +13,9 @@ coordinator branch, then run the combined merge gate and open a draft PR.
 ## In progress
 
 - Integrated and verified: #1096, #1123, #1132, #1134, #1135, #1157,
-  #1161, #1162, #1164, and #1166.
-- The required mobile roadmap/gateway/app foundation is integrated ahead of
-  the remaining #1167–#1175 dependency chain.
+  #1161, #1162, #1164, #1166, #1167, and #1168.
+- The mobile app/gateway foundation is consolidated; #1168 enforces
+  authenticated, project-scoped, allowlisted device access.
 - #1137 is integrated but under adversarial follow-up for a fork UI
   post-selection gate, binary @mention containment, and large-file handling.
 
@@ -33,12 +33,12 @@ coordinator branch, then run the combined merge gate and open a draft PR.
 
 - All listed integrated issues have focused/full automated checks and required
   live sandbox or signed-client evidence in their run logs.
-- #1166 real pairing proves cloud identity binding, hashed one-time codes,
-  key-backed device tokens, revocation, and no raw token persistence.
+- #1166 pairing, #1167 account lifecycle/mobile gates, and #1168 live project
+  isolation all pass with no auth/token residue.
 - #1137 is review-failed pending repair despite earlier green gates.
 - Aggregate coordinator validation is pending after all slices land.
 
 ## Next step
 
-Repair and independently re-review #1137, integrate #1167–#1169, dispatch the
+Repair and independently re-review #1137, integrate final #1169, dispatch the
 remaining mobile slices by dependency, then run combined gates and draft PRs.

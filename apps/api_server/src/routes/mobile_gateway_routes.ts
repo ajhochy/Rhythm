@@ -6,6 +6,7 @@ import { MobileGatewayController } from '../controllers/mobile_gateway_controlle
 import { getDb } from '../database/db';
 import { AppError } from '../errors/app_error';
 import {
+  requireMobileDevice,
   requireMobileCloudUser,
   requireSessionOrMobileDevice,
 } from '../middleware/mobile_device_auth';
@@ -15,6 +16,10 @@ import {
 } from '../repositories/mobile_devices_repository';
 import { MobileCloudIdentityService } from '../services/mobile_cloud_identity_service';
 import { MobilePairingService } from '../services/mobile_pairing_service';
+import {
+  mobileProjectResponse,
+  requireMobileProject,
+} from '../services/mobile_project_scope';
 
 export function createMobileGatewayRouter(): Router {
   const router = Router();
@@ -84,6 +89,18 @@ export function createMobileGatewayRouter(): Router {
     '/health',
     requireSessionOrMobileDevice(getPairingService, cloudIdentity),
     withController((active, req, res) => active.health(req, res)),
+  );
+  router.post(
+    '/project',
+    requireMobileDevice(getPairingService),
+    requireMobileProject(),
+    (req, res, next) => {
+      try {
+        res.json(mobileProjectResponse(req));
+      } catch (error) {
+        next(error instanceof AppError ? error : AppError.internal());
+      }
+    },
   );
 
   return router;
