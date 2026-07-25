@@ -127,7 +127,7 @@ describeLive('live E2E — #1161 cookbook bound profile', () => {
       });
       expect(registered?.options).toMatchObject({
         mcpAllowlist: { servers: [], tools: [] },
-        skillAllowlist: [],
+        skillAllowlist: { skills: [] },
       });
       expect(registered?.permission).toEqual(
         expect.arrayContaining([
