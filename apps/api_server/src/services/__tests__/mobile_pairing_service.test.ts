@@ -94,7 +94,12 @@ describe('MobilePairingService', () => {
       rhythmVersion: '0.1.0',
       opencodeVersion: '1.14.49',
       contractFingerprint: 'fd0aae2af9c69775409c399056cffeb39fd1f248f56abff7dae391895ca1add8',
-      features: ['pairing', 'device-revocation'],
+      features: [
+        'pairing',
+        'device-revocation',
+        'project-scope',
+        'opencode-http-proxy',
+      ],
       minimumMobileVersion: '0.1.0',
     });
   });

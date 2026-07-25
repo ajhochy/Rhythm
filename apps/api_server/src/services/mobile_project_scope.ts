@@ -93,6 +93,9 @@ const ROOT_OVERRIDE_FIELDS = new Set([
   'directory',
   'workingdirectory',
   'worktreedir',
+  'workspace',
+  'workspaceid',
+  'roots',
 ]);
 
 function hasOwnField(value: unknown, field: string): boolean {
@@ -138,6 +141,30 @@ export function requireMobileProject(
         : '.';
       req.mobileProject = scope;
       req.mobileProjectPath = resolveMobileProjectPath(scope, requestedPath);
+      next();
+    } catch (error) {
+      next(error instanceof AppError ? error : AppError.internal());
+    }
+  };
+}
+
+/**
+ * Resolve only the repository-owned project root for proxy operations. Unlike
+ * the `/project` preflight middleware above, this deliberately does not treat
+ * an OpenCode operation's own `body.path` field as a scope-preflight path.
+ * Every actual filesystem target remains constrained by the injected
+ * directory at the engine boundary.
+ */
+export function requireMobileProjectScope(
+  projects: MobileProjectsReader = new ProjectsRepository(),
+): RequestHandler {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    try {
+      rejectCallerRootOverrides(req);
+      req.mobileProject = resolveMobileProject(
+        req.header('X-Rhythm-Project-ID'),
+        projects,
+      );
       next();
     } catch (error) {
       next(error instanceof AppError ? error : AppError.internal());

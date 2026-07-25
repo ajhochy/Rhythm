@@ -1,0 +1,143 @@
+{
+  "run_id": "2026-07-24-issue-1169",
+  "issue": 1169,
+  "date": "2026-07-24",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1169-c1",
+      "text": "Add allowlisted /mobile-gateway/opencode/* proxy operations",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Real paired-device requests reached the generated allowlisted proxy through the running API and bundled fork engine."
+    },
+    {
+      "criterion_id": "issue-1169-c2",
+      "text": "Inject the repository-owned project directory and strip caller roots",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The live file-content request read a marker inside the selected disposable project; contract tests cover nested root stripping, symlink escape, traversal, and override rejection."
+    },
+    {
+      "criterion_id": "issue-1169-c3",
+      "text": "Cap request/response bodies and normalize errors",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Contract tests cover raw pre-sanitization request size, streaming response size, a never-ending abort-aware response body, and normalized upstream failures."
+    },
+    {
+      "criterion_id": "issue-1169-c4",
+      "text": "Return Rhythm/OpenCode versions, contract fingerprint, feature IDs, and minimum mobile version",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The authenticated compatibility response is pinned by the real HTTP contract; API and engine health were also probed before the live run."
+    },
+    {
+      "criterion_id": "issue-1169-c5",
+      "text": "Explicitly reject upgrade, disposal, TUI, v2, workspace/sync, and experimental Console",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The live global upgrade request returned 403 OPERATION_NOT_ALLOWED; generated-table and independent-review scans confirmed every forbidden family is denied."
+    },
+    {
+      "criterion_id": "issue-1169-c6",
+      "text": "Generated/table-tested allowlist covers every exposed path and method",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The deterministic generator classified all 133 bundled OpenCode operations (89 allowed, 44 denied), with unique IDs and matcher round trips."
+    },
+    {
+      "criterion_id": "issue-1169-c7",
+      "text": "Rejected operations return stable 403 OPERATION_NOT_ALLOWED",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Both the real-engine rejected-upgrade probe and the HTTP negative matrix observed the stable code."
+    },
+    {
+      "criterion_id": "issue-1169-c8",
+      "text": "Sandboxed real-engine health/session/file behavior and rejected upgrade",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Reserved sandbox ports 4898/4897 passed API health, engine readiness, global health, session list/create/delete, contained file content, and rejected upgrade."
+    },
+    {
+      "criterion_id": "issue-1169-c9",
+      "text": "No payload or token logging",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Contract tests cover denied requests plus malformed and oversized pre-router JSON errors; device tokens, query markers, request bodies, URLs, params, and raw parser errors are excluded."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "isolated-worktree-dependencies",
+      "description": "The fresh worktree lacked the vendored fork's ignored node_modules, so the first fork build failed on a missing preload. A no-save Bun install populated disposable dependencies without retaining lockfile drift, and the exact fork build then passed.",
+      "detected_by": "bun build reported preload not found for @opentui/solid/preload; package metadata was unchanged and apps/opencode_fork/node_modules was absent"
+    },
+    {
+      "process_category": "sandbox-process-lifecycle",
+      "description": "The command runner reaped the sandbox's nohup child when the wrapper command returned, despite the wrapper reporting ready. Keeping the owning execution session alive, then running the rebuilt API in the foreground, preserved the isolated process for behavioral testing.",
+      "detected_by": "sandbox status showed no listeners immediately after a ready message while the API log showed a successful bind and no application shutdown error"
+    },
+    {
+      "process_category": "test-host-disk-pressure",
+      "description": "A serialized full API rerun reached 364 passing files before three unrelated suites failed to initialize with ENOSPC in Vitest's transform cache. Only this worktree's regenerable 5.7 GB fork node_modules was removed; the exact suite is rerun by verification-gate.",
+      "detected_by": "three suite-load errors under the OS temp directory reported ENOSPC; no test assertion failed"
+    },
+    {
+      "process_category": "pr-wrapper-test-nondeterminism",
+      "description": "Three canonical PR-wrapper runs each failed a different unrelated test under its default five-second/parallel posture. The files passed immediately in focused reruns, and the authoritative 15-second serialized suite passed all 3,207 active tests.",
+      "detected_by": "phase8_collaboration 404 then focused 3/3 pass; agent_schedules_delegation_guard 401 then focused 6/6 pass; dashboard_summary five-second timeout then focused 9/9 pass in 1.49 seconds"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "independent-security-review",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/scripts/generate-mobile-opencode-operations.mjs",
+    "apps/api_server/src/middleware/error_handler.ts",
+    "apps/api_server/src/routes/mobile_gateway_routes.ts",
+    "apps/api_server/src/services/mobile_opencode_operations.generated.ts",
+    "apps/api_server/src/services/mobile_opencode_proxy.ts",
+    "apps/api_server/src/services/mobile_opencode_proxy_types.ts",
+    "apps/api_server/src/services/mobile_pairing_service.ts",
+    "apps/api_server/src/services/mobile_project_scope.ts",
+    "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy.test.ts",
+    "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy_live.test.ts"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Keep the generated manifest synchronized with the bundled OpenAPI document and retain the real-engine mobile proxy smoke whenever the fork contract changes."
+}

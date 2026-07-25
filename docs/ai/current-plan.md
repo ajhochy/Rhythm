@@ -26,14 +26,14 @@ without touching the installed app or production data.
 ## Integrated verified slices
 
 - #1096, #1123, #1132, #1134, #1135, #1157, #1161, #1162, #1164.
-- Mobile foundation and #1166–#1168.
+- Mobile foundation and #1166–#1169.
 - #1137 is integrated but review-failed pending corrective follow-up.
 
 ## Remaining phases
 
 1. Repair and independently re-review #1137.
-2. Integrate final reviewed #1169; run #1170 and #1171 in parallel where their
-   dependency bases permit, then complete #1172–#1174.
+2. Run #1170 and #1171 in parallel from the independently reviewed #1169
+   gateway base, then complete #1172–#1174.
 3. Run #1175's combined API, fork, MCP, Flutter, mobile, contract, live,
    accessibility, security, secret-scan, signing, and device gates.
 4. Re-fetch the open-issue range, close every acceptance gap, run GitNexus

@@ -19,7 +19,9 @@ import { MobilePairingService } from '../services/mobile_pairing_service';
 import {
   mobileProjectResponse,
   requireMobileProject,
+  requireMobileProjectScope,
 } from '../services/mobile_project_scope';
+import { MobileOpenCodeProxy } from '../services/mobile_opencode_proxy';
 
 export function createMobileGatewayRouter(): Router {
   const router = Router();
@@ -27,6 +29,7 @@ export function createMobileGatewayRouter(): Router {
   const requireCloudUser = requireMobileCloudUser(cloudIdentity);
   let pairingService: MobilePairingService | null = null;
   let controller: MobileGatewayController | null = null;
+  const opencodeProxy = new MobileOpenCodeProxy();
 
   const getPairingService = (): MobilePairingService => {
     if (pairingService) return pairingService;
@@ -102,6 +105,52 @@ export function createMobileGatewayRouter(): Router {
       }
     },
   );
+  router.all(
+    '/opencode/*',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    async (req, res, next) => {
+      try {
+        const proxyPath = req.path.slice('/opencode'.length);
+        const query = new URL(req.originalUrl, 'http://mobile.local')
+          .searchParams;
+        const result = await opencodeProxy.forward({
+          method: req.method,
+          path: proxyPath,
+          query,
+          body: req.body,
+          project: req.mobileProject!,
+          accept: req.header('accept'),
+        });
+        if (result.contentType) res.type(result.contentType);
+        res.status(result.status);
+        if (result.body.byteLength === 0) {
+          res.end();
+          return;
+        }
+        res.send(Buffer.from(result.body));
+      } catch (error) {
+        next(error instanceof AppError ? error : AppError.internal());
+      }
+    },
+  );
+
+  // Mobile requests can contain device credentials, provider tokens, prompts,
+  // or file content. Keep them out of the generic error handler, whose
+  // diagnostic payload includes request bodies for unexpected failures.
+  router.use((
+    error: unknown,
+    _req: Request,
+    res: Response,
+    _next: NextFunction,
+  ) => {
+    const safeError = error instanceof AppError
+      ? error
+      : AppError.internal();
+    res.status(safeError.statusCode).json({
+      error: { code: safeError.code, message: safeError.message },
+    });
+  });
 
   return router;
 }

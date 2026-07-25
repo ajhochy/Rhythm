@@ -13,9 +13,10 @@ coordinator branch, then run the combined merge gate and open a draft PR.
 ## In progress
 
 - Integrated and verified: #1096, #1123, #1132, #1134, #1135, #1157,
-  #1161, #1162, #1164, #1166, #1167, and #1168.
+  #1161, #1162, #1164, #1166, #1167, #1168, and #1169.
 - The mobile app/gateway foundation is consolidated; #1168 enforces
-  authenticated, project-scoped, allowlisted device access.
+  authenticated, project-scoped, allowlisted device access, while #1169
+  exposes the generated operation allowlist through the hardened proxy.
 - #1137 is integrated but under adversarial follow-up for a fork UI
   post-selection gate, binary @mention containment, and large-file handling.
 
@@ -35,10 +36,14 @@ coordinator branch, then run the combined merge gate and open a draft PR.
   live sandbox or signed-client evidence in their run logs.
 - #1166 pairing, #1167 account lifecycle/mobile gates, and #1168 live project
   isolation all pass with no auth/token residue.
+- #1169 passed independent security review, the serialized 3,207-test API
+  suite, and a real gateway/engine smoke covering pairing, session lifecycle,
+  contained file access, and denied operations.
 - #1137 is review-failed pending repair despite earlier green gates.
 - Aggregate coordinator validation is pending after all slices land.
 
 ## Next step
 
-Repair and independently re-review #1137, integrate final #1169, dispatch the
-remaining mobile slices by dependency, then run combined gates and draft PRs.
+Repair and independently re-review #1137, run #1170 and #1171 in parallel from
+the reviewed #1169 base, then complete the remaining mobile slices, combined
+gates, and draft PRs.
