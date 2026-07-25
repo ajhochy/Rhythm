@@ -4,7 +4,7 @@ repo: Rhythm
 branch: codex/1132-fork-sdk
 pr: null
 issues: [1132]
-status: awaiting-live-smoke
+status: verified
 tags: [run, Rhythm]
 ---
 
@@ -42,30 +42,51 @@ tags: [run, Rhythm]
   install and TypeScript compilation.
 - Fork standalone binary: PASS;
   `bun run build --single` produced a binary whose `--version` smoke passed.
+- Independent compiled-runtime review found and fixed a cross-issue #1133
+  blocker: Bun's split standalone build omitted the late
+  `AppFileSystem.containsReal` namespace member, so a real `bash` call failed
+  with `containsReal is not a function` before permission evaluation. The core
+  module now exposes a concrete named binding and compiled consumers use it.
+- Fork containment suites after that fix: PASS, 32 core tests + 18 opencode
+  path-traversal tests. Core typecheck: PASS.
 - Fork session suite: 364 pass, 4 skip, 1 todo, 2 fail. Both failures are in
   untouched base tests (`prompt.test.ts` interrupted-bash timing and
   `snapshot-tool-race.test.ts` snapshot timing).
-- Fork-wide typecheck: BLOCKED by untouched base errors:
-  `GlobalBusEmitter.emit` override plus three calls to the missing base
-  `AppFileSystem.containsReal`. No #1132 engine source changed.
+- Fork-wide typecheck: BLOCKED by one untouched base error:
+  `GlobalBusEmitter.emit` has an incompatible override signature. The three
+  prior `AppFileSystem.containsReal` errors are resolved.
 - `git diff --check`: PASS.
 - Workflow YAML parse: PASS.
 - GitNexus `detect_changes(scope=all)`: LOW risk, 23 indexed files / 40
   symbols, zero affected execution flows. The required compare-to-main scan
   reported MEDIUM because current `main` moved beyond this worktree base and
   included 106 unrelated files.
-- Live smoke:
-  `RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:<sandbox-port> DB_PATH=<temp-db> ./node_modules/.bin/vitest run src/__tests__/live_e2e_1132_built_sdk_events.test.ts`
-  — pending coordinator-owned sandbox; this worktree intentionally did not
-  start or stop a shared API/engine process.
+- Independent API verification after the live-test hardening: PASS —
+  `npm run lint`, `tsc --noEmit`, targeted 119-test suite, and
+  `npm run build`.
+- Live smoke: PASS, 1 test in 11.32s against the rebuilt fork
+  `0.0.0-codex/1132-fork-sdk-202607250738` and built API on isolated
+  `:4998`/`:4997`:
+  `RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4998 DB_PATH=/tmp/rhythm-dev-sandbox-1132-review-20260725/rhythm.db npx vitest run src/__tests__/live_e2e_1132_built_sdk_events.test.ts --reporter=verbose`.
+  Observable assertions covered `question.asked`, reply/reject HTTP 204,
+  both `question.resolved` outcomes, reply-session message deltas,
+  `permission.asked`, deny HTTP 204, `permission.resolved`, and idle
+  completion.
 
 ## Notes
 
-- No engine runtime behavior changed. The OpenAPI build patches only the two
-  explicit-null allowlist schema properties because Effect's emitter drops the
-  engine's `Schema.NullOr` object-property semantics.
+- The generated-SDK implementation does not change engine semantics. The
+  independent live gate added the minimum compiled-binding repair needed to
+  preserve #1133's existing realpath containment semantics in the standalone
+  binary.
 - The prior interim declaration decision is marked superseded. The canonical
   fork vendoring decision now documents the one-command rebuild.
-- Acceptance criteria 1–5 are recorded `pass`; criterion 6 remains `pending`
-  until the coordinator executes the isolated live smoke against the built
-  engine.
+- The first live fixture used a `#1132 ...` label, exposing the pre-existing
+  #1134 YAML quoting bug (`description: #...` parses as null). The final
+  fixture uses a YAML-safe label; #1134 must be integrated before the combined
+  smoke so arbitrary user labels remain safe.
+- The original live fixture also projected a custom agent without binding
+  `ocAgent`, which silently exercised built-in `build` permissions. The final
+  test binds `ocAgent` to the projected profile and fails immediately if the
+  compiled binary returns a bash tool error before the permission event.
+- Acceptance criteria 1–6 are recorded `pass`; `not_tested` is empty.

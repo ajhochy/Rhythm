@@ -1,6 +1,6 @@
 import path from "path"
 import { Effect, Context, Layer, Scope } from "effect"
-import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { AppFileSystem, containsReal } from "@opencode-ai/core/filesystem"
 import { Global } from "@opencode-ai/core/global"
 import { Config } from "@/config/config"
 import { InstanceState } from "@/effect/instance-state"
@@ -90,7 +90,7 @@ function containsReferencePath(referencePath: string, target: string) {
   // containsReal canonicalizes both sides with realpath before comparing, so a
   // symlink can't satisfy this (otherwise lexical) check on its raw path while
   // actually resolving outside the reference cache directory.
-  return AppFileSystem.containsReal(normalizedTarget(referencePath) ?? referencePath, target)
+  return containsReal(normalizedTarget(referencePath) ?? referencePath, target)
 }
 
 export function resolve(input: {

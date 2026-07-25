@@ -48,7 +48,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/live_e2e_1132_built_sdk_events.test.ts",
       "test_id": "built fork preserves permission, question reply/reject, and streamed message behavior",
-      "status": "pending"
+      "status": "pass"
     }
   ],
   "stack": "typescript",

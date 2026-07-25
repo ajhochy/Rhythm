@@ -236,3 +236,12 @@
 - **Root cause**: A multi-cause user symptom ("scheduled runs fail") was verified via one convenience entry point; the cwd cause was genuinely fixed, but ocAgent-mode ("Agent not found") + primary empty-output were untouched and uncovered. Also: the fix itself had been silently dropped from main by the #1020 partial re-land.
 - **Suggested fix**: verification-gate must drive the REAL user entry point (profile-bound scheduled task via trigger-now) for multi-entry-point symptoms; run acceptance-contract per-issue even in large epics. Follow-up: #1039.
 - **Workflow note**: W1 — acceptance-contract folded into coding-agent dispatch prompts instead of emitting per-issue contract.json + failing tests (13-issue epic).
+
+## 2026-07-25 — Issue #1132 — built generated-SDK event smoke PASS after compiled-runtime recovery
+
+- **Result**: smoke PASS (verification claimed PASS; no final divergence).
+- **Category**: none for correctness. Process issues: compiled-runtime-coverage, live-smoke-fixture, and worktree-dependency-isolation.
+- **Criteria affected**: issue-1132-c6 initially blocked; all c1-c6 pass after recovery.
+- **Root cause**: Source-only containment tests and a binary `--version` check did not execute the split bundle's late `AppFileSystem.containsReal` namespace member, so a real bash call failed before permission evaluation. Two fixture defects obscured the path: a `#`-prefixed label hit #1134's unquoted YAML bug, then an omitted `ocAgent` silently ran built-in `build` permissions.
+- **Suggested fix**: Keep a built/minified live test that binds the projected agent explicitly and exercises a real permission ask. For worktrees, verify internal workspace symlinks resolve inside that worktree before building.
+- See `.agent-stack/postmortems/2026-07-25-issue-1132.json`.

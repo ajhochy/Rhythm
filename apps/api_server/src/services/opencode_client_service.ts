@@ -1001,11 +1001,11 @@ export class OpencodeClientService {
     // The forked opencode engine (apps/opencode_fork) reads this field to scope
     // MCP tools to only the profile's allowed set for this session.
     //
-    // SDK-type decision (R3): the hand-written @types/opencode-ai-sdk.d.ts does
-    // NOT declare this field (extending it risks false-green drift — see postmortem
-    // 2026-06-13). We pass it via an untyped body cast.
-    // TODO: once the upstream SDK supports per-session allowlists natively, remove
-    //       this cast and update the d.ts instead.
+    // #1132: the vendored fork package is now the only SDK type source. This
+    // create path intentionally stays on the established legacy client/runtime
+    // bridge, whose generated create signature does not expose the fork-only
+    // fields; keep the cast narrow at this boundary. The generated v2 client
+    // owns subsequent allowlist updates without casts.
     let mcpAllowlist: { servers: string[]; tools: string[]; deferred?: true } | undefined;
     if (mcpRoleConfig) {
       try {

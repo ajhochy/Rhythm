@@ -28,6 +28,8 @@ const MODEL = {
 const createdAgentIds: string[] = [];
 const createdSessionIds: string[] = [];
 
+class TerminalPollError extends Error {}
+
 async function api(path: string, init: RequestInit = {}): Promise<Response> {
   return fetch(`${BASE}${path}`, {
     ...init,
@@ -53,6 +55,7 @@ async function poll<T>(
     try {
       return await operation();
     } catch (error) {
+      if (error instanceof TerminalPollError) throw error;
       last = error;
       await new Promise((resolve) => setTimeout(resolve, 400));
     }
@@ -122,14 +125,16 @@ describeLive('live E2E — #1132 built SDK event surface', () => {
     'built fork preserves permission, question reply/reject, and streamed message behavior',
     async () => {
       const suffix = randomUUID().slice(0, 8);
+      const profileId = `live-1132-${suffix}`;
       const created = await apiJson<{ id: string }>('/agent-configs', {
         method: 'POST',
         body: JSON.stringify({
-          id: `live-1132-${suffix}`,
-          label: `#1132 SDK events ${suffix}`,
+          id: profileId,
+          label: `Issue 1132 SDK events ${suffix}`,
           isAgent: true,
           enabled: true,
           sessionSelectable: true,
+          ocAgent: profileId,
           modelProvider: MODEL.provider,
           modelId: MODEL.id || undefined,
           corePermissionsJson: JSON.stringify({ question: 'allow', bash: 'ask' }),
@@ -193,6 +198,7 @@ describeLive('live E2E — #1132 built SDK event surface', () => {
           frames.some(
             (item) =>
               item.type === 'message.part.delta' &&
+              item.id === replySession &&
               typeof item.delta === 'string' &&
               item.delta.length > 0,
           ),
@@ -246,6 +252,23 @@ describeLive('live E2E — #1132 built SDK event surface', () => {
         );
         const permission = await poll(
           async () => {
+            const failedBash = frames.find((item) => {
+              if (item.type !== 'message.part.updated' || item.id !== permissionSession) {
+                return false;
+              }
+              const part = item.part as
+                | { tool?: string; state?: { status?: string; error?: string } }
+                | undefined;
+              return part?.tool === 'bash' && part.state?.status === 'error';
+            });
+            if (failedBash) {
+              const part = failedBash.part as { state?: { error?: string } };
+              throw new TerminalPollError(
+                `built binary rejected bash before permission event: ${
+                  part.state?.error ?? 'unknown tool error'
+                }`,
+              );
+            }
             const frame = frames.find(
               (item) =>
                 item.type === 'permission.asked' &&
