@@ -12,6 +12,10 @@ issues #1076–#1175, then update the existing draft PR.
 
 ## In progress
 
+- #1076's broad watch list is now superseded by bounded successor issues
+  #1176 (v2 lifecycle-parity trigger), #1177 (remote-workspace vertical
+  slice), and #1178 (private Rhythm-owned transcript sharing). The tracker has
+  the successor links and remains open until this aggregate release is ready.
 - Integrated and verified: #1096, #1123, #1132, #1134, #1135, #1137,
   #1157, #1161, #1162, #1164, #1166, #1167, #1168, #1169, #1170, #1171,
   #1172, #1173, and #1174.
