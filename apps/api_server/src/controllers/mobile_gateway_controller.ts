@@ -18,6 +18,28 @@ function requiredUserId(value: unknown): number {
   return parsed;
 }
 
+function authenticatedUserId(req: Request): number {
+  if (!req.auth) throw AppError.unauthorized();
+  return req.auth.user.id;
+}
+
+function rejectMismatchedClaim(claimedUserId: unknown, userId: number): void {
+  if (claimedUserId === undefined) return;
+  if (requiredUserId(claimedUserId) !== userId) {
+    throw AppError.forbidden(
+      'Authenticated Rhythm user does not match the requested user',
+    );
+  }
+}
+
+function consumeRequiredSecret(req: Request, field: string): string {
+  const value = requiredString(req.body?.[field], field);
+  if (req.body && typeof req.body === 'object') {
+    delete req.body[field];
+  }
+  return value;
+}
+
 function forwardSecretSafe(next: NextFunction, error: unknown): void {
   next(error instanceof AppError ? error : AppError.internal());
 }
@@ -31,8 +53,11 @@ export class MobileGatewayController {
 
   createPairingCode(req: Request, res: Response, next: NextFunction): void {
     try {
-      const userId = requiredUserId(req.body?.userId);
-      res.status(201).json(this.pairingService.createPairingCode(userId));
+      res
+        .status(201)
+        .json(
+          this.pairingService.createPairingCode(authenticatedUserId(req)),
+        );
     } catch (error) {
       forwardSecretSafe(next, error);
     }
@@ -40,10 +65,13 @@ export class MobileGatewayController {
 
   pair(req: Request, res: Response, next: NextFunction): void {
     try {
+      const userId = authenticatedUserId(req);
+      rejectMismatchedClaim(req.body?.userId, userId);
+      const pairingCode = consumeRequiredSecret(req, 'pairingCode');
       res.status(201).json(
         this.pairingService.pair({
-          pairingCode: requiredString(req.body?.pairingCode, 'pairingCode'),
-          userId: requiredUserId(req.body?.userId),
+          pairingCode,
+          userId,
           deviceName: requiredString(req.body?.deviceName, 'deviceName'),
         }),
       );
@@ -54,7 +82,7 @@ export class MobileGatewayController {
 
   listDevices(req: Request, res: Response, next: NextFunction): void {
     try {
-      res.json(this.pairingService.listDevices(requiredUserId(req.query.userId)));
+      res.json(this.pairingService.listDevices(authenticatedUserId(req)));
     } catch (error) {
       forwardSecretSafe(next, error);
     }
@@ -64,7 +92,7 @@ export class MobileGatewayController {
     try {
       const revoked = this.pairingService.revokeDevice(
         requiredString(req.params.id, 'device id'),
-        requiredUserId(req.query.userId),
+        authenticatedUserId(req),
       );
       if (!revoked) throw AppError.notFound('Mobile device');
       res.status(204).send();

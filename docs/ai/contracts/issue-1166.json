@@ -1,0 +1,58 @@
+{
+  "issue": 1166,
+  "generated": "2026-07-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1166-c1",
+      "text": "Pairing codes are user-bound, one-time, expiring, verifier-only, and constant-time checked",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1166_pairing_contract.test.ts",
+      "test_id": "issue-1166-c1: server identity owns verifier-only one-time expiring pairing codes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1166-c2",
+      "text": "Device tokens are verifier-only and revocable; one-active-host semantics are proven",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1166_pairing_contract.test.ts",
+      "test_id": "issue-1166-c2: device credentials are verifier-only revocable and replace the active host",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1166-c3",
+      "text": "API build and focused tests pass",
+      "mode": "manual",
+      "status": "pass",
+      "reason": "npm run build passed; the focused pairing/auth suites passed 16/16; VITEST_MAX_WORKERS=4 ai-workflow checks --level issue and --level pr both passed, including the full API suite."
+    },
+    {
+      "criterion_id": "issue-1166-c4",
+      "text": "Live HTTP behavior passes on sandbox API 4098 / engine 4097",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1166_pairing_live.test.ts",
+      "test_id": "issue-1166-c4: live sandbox enforces pairing and device credential security",
+      "status": "pending",
+      "reason": "Checked in and compile-verified with its env gate; not run because 4097/4098 are owned by the foreign creative-platform sandbox."
+    },
+    {
+      "criterion_id": "issue-1166-c5",
+      "text": "Never launch api_server directly or touch ports 4001/4096",
+      "mode": "manual",
+      "status": "pass",
+      "reason": "No server lifecycle command was run. A read-only listener audit confirmed installed app ports 4001/4096 and foreign sandbox ports 4097/4098 remained owned by their existing processes; the live test refuses every API URL except 127.0.0.1:4098 and refuses the installed app DB."
+    },
+    {
+      "criterion_id": "issue-1166-c6",
+      "text": "Independent review verdicts PASS",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires a separate read-only reviewer after implementation; the implementing agent cannot self-certify."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-1166-c3",
+    "issue-1166-c5",
+    "issue-1166-c6"
+  ]
+}

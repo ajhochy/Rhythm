@@ -1,11 +1,24 @@
 import Database from 'better-sqlite3';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   initializeMobilePairingSchema,
   MobileDevicesRepository,
 } from '../../repositories/mobile_devices_repository';
 import { MobilePairingService } from '../mobile_pairing_service';
+
+const { timingSafeEqualSpy } = vi.hoisted(() => ({
+  timingSafeEqualSpy: vi.fn(),
+}));
+
+vi.mock('node:crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:crypto')>();
+  timingSafeEqualSpy.mockImplementation(actual.timingSafeEqual);
+  return {
+    ...actual,
+    timingSafeEqual: timingSafeEqualSpy,
+  };
+});
 
 describe('mobile pairing schema', () => {
   it('creates the pairing tables additively and idempotently', () => {
@@ -36,6 +49,7 @@ describe('MobilePairingService', () => {
   let now: Date;
 
   beforeEach(() => {
+    timingSafeEqualSpy.mockClear();
     db = new Database(':memory:');
     initializeMobilePairingSchema(db);
     now = new Date('2026-07-24T18:00:00.000Z');
@@ -175,5 +189,25 @@ describe('MobilePairingService', () => {
     expect(service.listDevices(1)).toEqual([
       expect.objectContaining({ id: paired.deviceId, revokedAt: now.toISOString() }),
     ]);
+  });
+
+  it('uses Node constant-time comparison for pairing codes and device tokens', () => {
+    const pairingCode = service.createPairingCode(1).pairingCode;
+    const paired = service.pair({
+      pairingCode,
+      userId: 1,
+      deviceName: 'AJ iPhone',
+    });
+
+    expect(timingSafeEqualSpy).toHaveBeenCalledTimes(1);
+    expect(timingSafeEqualSpy.mock.calls[0][0]).toHaveLength(32);
+    expect(timingSafeEqualSpy.mock.calls[0][1]).toHaveLength(32);
+
+    expect(service.authenticateDevice(paired.deviceToken)?.id).toBe(
+      paired.deviceId,
+    );
+    expect(timingSafeEqualSpy).toHaveBeenCalledTimes(2);
+    expect(timingSafeEqualSpy.mock.calls[1][0]).toHaveLength(32);
+    expect(timingSafeEqualSpy.mock.calls[1][1]).toHaveLength(32);
   });
 });

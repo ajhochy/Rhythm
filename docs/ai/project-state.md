@@ -12,37 +12,33 @@ coordinator branch, then run the combined merge gate and open a draft PR.
 
 ## In progress
 
-- Integrated and verified: #1096 semantic-memory Settings; #1123 async
-  delegation; #1132 generated SDK; #1134 email security; #1135 audit locks;
-  #1157 Anthropic schema sanitization; #1161 cookbook profile binding; #1162
-  permission-subtree replacement; #1164 deadlock-safe model swarms.
-- #1137 is integrated but under adversarial follow-up for a newly found fork UI
-  post-selection gate and binary @mention containment path.
-- Other independently verified slices remain to be integrated.
+- Integrated and verified: #1096, #1123, #1132, #1134, #1135, #1157,
+  #1161, #1162, #1164, and #1166.
+- The required mobile roadmap/gateway/app foundation is integrated ahead of
+  the remaining #1167–#1175 dependency chain.
+- #1137 is integrated but under adversarial follow-up for a fork UI
+  post-selection gate, binary @mention containment, and large-file handling.
 
 ## Risks / known issues
 
-- #1137 independent review found a P1 fork-UI consumption gap and is validating
-  a possible containment regression; completion is frozen until fixed/retested.
-- Fork-wide typecheck has one unrelated base failure in
-  `GlobalBusEmitter.emit`; focused fork/core suites pass.
-- Two fork session timing tests fail in untouched base code.
+- #1137 is SPEC/QUALITY FAIL pending regression-first repair and re-review.
+- Mobile compare-to-main impact is expected HIGH because the previously
+  unfinished app/gateway foundation is now consolidated into Rhythm.
+- Fork-wide typecheck has one unrelated `GlobalBusEmitter.emit` base failure;
+  focused fork/core suites pass.
 - #1135's additive SQLite/Postgres change requires normal migration review.
 - #1123 adds one Rhythm MCP tool; update the PR tool count.
 
 ## Test status
 
-- Every integrated slice has its issue contract and run log with focused/full
-  automated checks and live sandbox or signed-client evidence as applicable.
-- #1134 security smoke observed zero external sends across malicious cases.
-- #1157 real Anthropic strict-schema call passed against the built fork.
-- #1161/#1162 live bound-profile/projection transitions passed.
-- #1164 live 50-reader swarm completed without the scheduler deadlock.
-- #1137 is review-failed pending repair despite its earlier green gates.
+- All listed integrated issues have focused/full automated checks and required
+  live sandbox or signed-client evidence in their run logs.
+- #1166 real pairing proves cloud identity binding, hashed one-time codes,
+  key-backed device tokens, revocation, and no raw token persistence.
+- #1137 is review-failed pending repair despite earlier green gates.
 - Aggregate coordinator validation is pending after all slices land.
 
 ## Next step
 
-Repair and independently re-review #1137, integrate the remaining issue
-commits, finish the mobile dependency chain, then run combined gates and push a
-draft PR.
+Repair and independently re-review #1137, integrate #1167–#1169, dispatch the
+remaining mobile slices by dependency, then run combined gates and draft PRs.

@@ -6,26 +6,38 @@ import { MobileGatewayController } from '../controllers/mobile_gateway_controlle
 import { getDb } from '../database/db';
 import { AppError } from '../errors/app_error';
 import {
+  requireMobileCloudUser,
+  requireSessionOrMobileDevice,
+} from '../middleware/mobile_device_auth';
+import {
   initializeMobilePairingSchema,
   MobileDevicesRepository,
 } from '../repositories/mobile_devices_repository';
+import { MobileCloudIdentityService } from '../services/mobile_cloud_identity_service';
 import { MobilePairingService } from '../services/mobile_pairing_service';
 
 export function createMobileGatewayRouter(): Router {
   const router = Router();
+  const cloudIdentity = new MobileCloudIdentityService();
+  const requireCloudUser = requireMobileCloudUser(cloudIdentity);
+  let pairingService: MobilePairingService | null = null;
   let controller: MobileGatewayController | null = null;
 
-  const getController = (): MobileGatewayController => {
-    if (controller) return controller;
+  const getPairingService = (): MobilePairingService => {
+    if (pairingService) return pairingService;
     const db = getDb();
     initializeMobilePairingSchema(db);
     const repository = new MobileDevicesRepository(db);
-    controller = new MobileGatewayController(
-      new MobilePairingService({
-        repository,
-        hostId: repository.findHostId() ?? randomUUID(),
-      }),
-    );
+    pairingService = new MobilePairingService({
+      repository,
+      hostId: repository.findHostId() ?? randomUUID(),
+    });
+    return pairingService;
+  };
+
+  const getController = (): MobileGatewayController => {
+    if (controller) return controller;
+    controller = new MobileGatewayController(getPairingService());
     return controller;
   };
 
@@ -44,15 +56,35 @@ export function createMobileGatewayRouter(): Router {
     }
   };
 
-  router.post('/pairing-codes', withController((active, req, res, next) =>
-    active.createPairingCode(req, res, next)));
-  router.post('/pair', withController((active, req, res, next) =>
-    active.pair(req, res, next)));
-  router.get('/devices', withController((active, req, res, next) =>
-    active.listDevices(req, res, next)));
-  router.delete('/devices/:id', withController((active, req, res, next) =>
-    active.revokeDevice(req, res, next)));
-  router.get('/health', withController((active, req, res) => active.health(req, res)));
+  router.post(
+    '/pairing-codes',
+    requireCloudUser,
+    withController((active, req, res, next) =>
+      active.createPairingCode(req, res, next)),
+  );
+  router.post(
+    '/pair',
+    requireCloudUser,
+    withController((active, req, res, next) =>
+      active.pair(req, res, next)),
+  );
+  router.get(
+    '/devices',
+    requireCloudUser,
+    withController((active, req, res, next) =>
+      active.listDevices(req, res, next)),
+  );
+  router.delete(
+    '/devices/:id',
+    requireCloudUser,
+    withController((active, req, res, next) =>
+      active.revokeDevice(req, res, next)),
+  );
+  router.get(
+    '/health',
+    requireSessionOrMobileDevice(getPairingService, cloudIdentity),
+    withController((active, req, res) => active.health(req, res)),
+  );
 
   return router;
 }
