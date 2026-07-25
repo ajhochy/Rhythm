@@ -252,3 +252,12 @@
 - **Criteria affected**: issue-1135-c1 through issue-1135-c6 all passed
 - **Root cause**: The security gap was an ordinary `enabled` preference with no independent audit lock; the smoke harness also needed fresh fork dependencies and foreground process ownership in this worktree.
 - **Suggested fix**: Keep the dedicated optimistic reviewed transition and authoritative lock checks; teach the sandbox launcher pinned dependency setup and a foreground mode. Two unrelated aggregate-only HTTP failures each passed in isolation and on clean aggregate reruns; investigate full-suite resource contention if the coordinator gate sees another.
+
+## 2026-07-25 — Issue #1137 — arbitrary-file reader discovery live smoke PASS
+
+- **Result**: smoke PASS (verification claimed PASS; no correctness divergence).
+- **Category**: none for product behavior; process issues were sandbox-process-lifetime, test-runner-disk-pressure, and worktree-dependency-isolation.
+- **Criteria affected**: issue-1137-c1 and issue-1137-c2 both passed.
+- **Root cause**: Selection-time allow-lists made arbitrary formats unreachable, while the engine's fallback pretended Read had run and forwarded opaque binary bytes to the provider. The first live launch was also reaped after reporting healthy, and the first full Flutter run exhausted disk after 812 passes.
+- **Suggested fix**: Keep selection unrestricted, resolve local binaries through the real Read tool, persist an actionable reader-discovery task, add a foreground sandbox mode, and retain serial full-suite fallback under disk pressure.
+- See `.agent-stack/postmortems/2026-07-25-issue-1137.json`.

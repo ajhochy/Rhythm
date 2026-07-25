@@ -1,0 +1,80 @@
+{
+  "run_id": "2026-07-25-issue-1137",
+  "issue": 1137,
+  "date": "2026-07-25",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1137-c1",
+      "text": "Attachment pickers do not gate on file type; any selected file reaches the consumption path.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Real-surface Flutter coverage and fork web picker coverage passed, including an arbitrary .rhythmfixture attachment."
+    },
+    {
+      "criterion_id": "issue-1137-c2",
+      "text": "An agent receiving a file with no built-in reader searches or surfaces a compatible skill, MCP tool/server, or trusted external reader instead of silently failing.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The built standalone engine persisted the exact reader-discovery task after a real API WebSocket file turn; path, MIME, extension, skills, MCP, and web fallback were all observed."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "sandbox-process-lifetime",
+      "description": "The launcher reported healthy, but its detached API process was reaped when the tool shell exited, so the first live test failed at beforeAll with ECONNREFUSED.",
+      "detected_by": "Immediate connection refusal plus a clean sandbox log with no exception or shutdown event; the same build remained healthy in a foreground tool-owned session."
+    },
+    {
+      "process_category": "test-runner-disk-pressure",
+      "description": "The default-concurrency Flutter suite reached 812 passing tests before compiler output failed with ENOSPC.",
+      "detected_by": "Flutter's output.dill write failed with errno 28; after deleting only reproducible caches from completed worktrees, the serial full suite passed 979/979."
+    },
+    {
+      "process_category": "worktree-dependency-isolation",
+      "description": "Shared fork package symlinks initially resolved the primary checkout's core package and reproduced the compiled containsReal failure from #1133.",
+      "detected_by": "A prompt cancellation/tool path reported AppFileSystem.containsReal undefined; the #1132 built-runtime follow-up fixed the binding and the coordinator live build passed."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "smoke-test-writer",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "smoke-test-writer",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/desktop_flutter/lib/features/agents/views/_attachment_mime.dart",
+    "apps/desktop_flutter/lib/features/agents/views/agents_view.dart",
+    "apps/opencode_fork/packages/app/src/constants/file-picker.ts",
+    "apps/opencode_fork/packages/opencode/src/session/prompt.ts",
+    "apps/api_server/src/__tests__/live_e2e_1137_any_file_reader_discovery.test.ts",
+    "docs/ai/attachment-fallback.md",
+    "docs/ai/contracts/issue-1137.json"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Add a foreground mode to tools/dev/sandbox.sh and keep built/minified binary behavior in every fork feature's required live gate."
+}
