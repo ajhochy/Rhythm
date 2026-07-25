@@ -15,7 +15,7 @@ assert.equal(new Set(manifest.operations.map(({ operationId }) => operationId)).
 
 const rhythmRoot = process.env.RHYTHM_REPO
   ? new URL(`file://${process.env.RHYTHM_REPO.replace(/\/$/, '')}/`)
-  : new URL('../../Rhythm/', import.meta.url);
+  : new URL('../../../', import.meta.url);
 const openapi = JSON.parse(
   await readFile(new URL('apps/opencode_fork/packages/sdk/openapi.json', rhythmRoot), 'utf8'),
 );

@@ -123,6 +123,38 @@ const storageError = (): RhythmAccountError => ({
   retryable: true,
 });
 
+async function neutralizeSessionToken(): Promise<void> {
+  try {
+    await deleteItemAsync(RHYTHM_SESSION_SECURE_KEY);
+  } catch (deleteError) {
+    try {
+      // An empty value is unusable by every token-bearing client. This is the
+      // safe fallback when a platform keychain refuses deletion.
+      await setItemAsync(RHYTHM_SESSION_SECURE_KEY, '');
+    } catch {
+      throw deleteError;
+    }
+  }
+  credentialGeneration += 1;
+}
+
+// SecureStore is process-global, so credential mutation ownership must also
+// span every store instance. Providers are intentionally remountable; an
+// instance-local queue lets cleanup from the unmounted store erase the new
+// store's successfully persisted token.
+let credentialQueue: Promise<void> = Promise.resolve();
+let credentialGeneration = 0;
+
+async function persistSessionToken(token: string): Promise<void> {
+  await setItemAsync(RHYTHM_SESSION_SECURE_KEY, token);
+  credentialGeneration += 1;
+}
+
+interface CredentialSnapshot {
+  token: string;
+  generation: number;
+}
+
 export class RhythmSessionStore {
   private readonly client: SessionStoreClient;
   private state: RhythmAccountState = 'signedOut';
@@ -138,12 +170,36 @@ export class RhythmSessionStore {
     return this.state;
   }
 
+  cancelPending(): void {
+    this.operation += 1;
+  }
+
   private snapshot(): RhythmSessionResult {
     return { state: this.state, user: this.user, ...(this.error ? { error: this.error } : {}) };
   }
 
   private current(operation: number): boolean {
     return operation === this.operation;
+  }
+
+  private async neutralizeForOperation(operation: number): Promise<boolean> {
+    if (!this.current(operation)) return false;
+    await neutralizeSessionToken();
+    return true;
+  }
+
+  private async withCredentialLock<T>(action: () => Promise<T>): Promise<T> {
+    const previous = credentialQueue;
+    let release!: () => void;
+    credentialQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await action();
+    } finally {
+      release();
+    }
   }
 
   private fail(error: RhythmAccountError, user: RhythmUser | null = this.user): RhythmSessionResult {
@@ -155,46 +211,63 @@ export class RhythmSessionStore {
 
   async restore(): Promise<RhythmSessionResult> {
     const operation = ++this.operation;
-    let token: string | null;
-    try {
-      token = await getItemAsync(RHYTHM_SESSION_SECURE_KEY);
-    } catch {
+    const credential = await this.withCredentialLock(async () => {
+      let token: string | null;
+      try {
+        token = await getItemAsync(RHYTHM_SESSION_SECURE_KEY);
+      } catch {
+        if (!this.current(operation)) return this.snapshot();
+        return this.fail(storageError());
+      }
       if (!this.current(operation)) return this.snapshot();
-      return this.fail(storageError());
-    }
-    if (!this.current(operation)) return this.snapshot();
-    if (!token) {
-      this.state = 'signedOut';
-      this.user = null;
-      this.error = undefined;
-      return this.snapshot();
-    }
-    return this.validateToken(operation);
+      if (!token) {
+        this.state = 'signedOut';
+        this.user = null;
+        this.error = undefined;
+        return this.snapshot();
+      }
+      return { token, generation: credentialGeneration };
+    });
+    if (!('token' in credential)) return credential;
+    return this.validateToken(operation, credential);
   }
 
   async refresh(): Promise<RhythmSessionResult> {
     const operation = ++this.operation;
     this.state = 'refreshing';
     this.error = undefined;
-    let token: string | null;
-    try {
-      token = await getItemAsync(RHYTHM_SESSION_SECURE_KEY);
-    } catch {
+    const credential = await this.withCredentialLock(async () => {
+      let token: string | null;
+      try {
+        token = await getItemAsync(RHYTHM_SESSION_SECURE_KEY);
+      } catch {
+        if (!this.current(operation)) return this.snapshot();
+        return this.fail(storageError());
+      }
       if (!this.current(operation)) return this.snapshot();
-      return this.fail(storageError());
-    }
-    if (!this.current(operation)) return this.snapshot();
-    if (!token) {
-      this.state = 'signedOut';
-      this.user = null;
-      return this.snapshot();
-    }
-    return this.validateToken(operation);
+      if (!token) {
+        this.state = 'signedOut';
+        this.user = null;
+        return this.snapshot();
+      }
+      return { token, generation: credentialGeneration };
+    });
+    if (!('token' in credential)) return credential;
+    return this.validateToken(operation, credential);
   }
 
-  private async validateToken(operation: number): Promise<RhythmSessionResult> {
+  private async validateToken(
+    operation: number,
+    credential: CredentialSnapshot,
+  ): Promise<RhythmSessionResult> {
     try {
-      const response = await this.client.request<MeResponse>('/auth/me', { method: 'GET' });
+      const response = this.client.requestWithToken
+        ? await this.client.requestWithToken<MeResponse>(
+            credential.token,
+            '/auth/me',
+            { method: 'GET' },
+          )
+        : await this.client.request<MeResponse>('/auth/me', { method: 'GET' });
       if (!this.current(operation)) return this.snapshot();
       if (!isUser(response?.user)) {
         return this.fail({
@@ -203,23 +276,43 @@ export class RhythmSessionStore {
           retryable: false,
         });
       }
-      try {
-        await this.persistMeta(response.user);
-      } catch {
-        if (!this.current(operation)) return this.snapshot();
-        return this.fail(storageError(), response.user);
-      }
-      if (!this.current(operation)) return this.snapshot();
-      this.state = 'signedIn';
-      this.user = response.user;
-      this.error = undefined;
-      return this.snapshot();
+      return this.withCredentialLock(async () => {
+        if (
+          !this.current(operation) ||
+          credential.generation !== credentialGeneration
+        ) return this.snapshot();
+        const token = await getItemAsync(RHYTHM_SESSION_SECURE_KEY);
+        if (token !== credential.token) return this.snapshot();
+        try {
+          await this.persistMeta(response.user);
+        } catch {
+          if (!this.current(operation)) return this.snapshot();
+          return this.fail(storageError(), response.user);
+        }
+        if (!this.current(operation)) {
+          await AsyncStorage.removeItem(RHYTHM_ACCOUNT_META_KEY).catch(() => undefined);
+          return this.snapshot();
+        }
+        this.state = 'signedIn';
+        this.user = response.user;
+        this.error = undefined;
+        return this.snapshot();
+      });
     } catch (error) {
       if (!this.current(operation)) return this.snapshot();
       const classified = classifyRhythmAccountError(error);
       if (classified.kind === 'authentication') {
         try {
-          await deleteItemAsync(RHYTHM_SESSION_SECURE_KEY);
+          const neutralized = await this.withCredentialLock(async () => {
+            if (
+              !this.current(operation) ||
+              credential.generation !== credentialGeneration
+            ) return false;
+            const token = await getItemAsync(RHYTHM_SESSION_SECURE_KEY);
+            if (token !== credential.token) return false;
+            return this.neutralizeForOperation(operation);
+          });
+          if (!neutralized) return this.snapshot();
         } catch {
           if (!this.current(operation)) return this.snapshot();
           return this.fail(storageError());
@@ -232,7 +325,13 @@ export class RhythmSessionStore {
       }
       const cachedUser = await this.loadMeta();
       if (!this.current(operation)) return this.snapshot();
-      return this.fail(classified, cachedUser);
+      return this.withCredentialLock(async () => {
+        if (
+          !this.current(operation) ||
+          credential.generation !== credentialGeneration
+        ) return this.snapshot();
+        return this.fail(classified, cachedUser);
+      });
     }
   }
 
@@ -240,7 +339,6 @@ export class RhythmSessionStore {
     const operation = ++this.operation;
     this.state = 'signingIn';
     this.error = undefined;
-    let tokenWritten = false;
     let persistenceStarted = false;
     try {
       const exchange = await this.client.requestPublic<ExchangeResponse>(
@@ -259,17 +357,33 @@ export class RhythmSessionStore {
         });
       }
       persistenceStarted = true;
-      await setItemAsync(RHYTHM_SESSION_SECURE_KEY, exchange.sessionToken);
-      tokenWritten = true;
-      await this.persistMeta(exchange.user);
-      if (!this.current(operation)) return this.snapshot();
-      this.state = 'signedIn';
-      this.user = exchange.user;
-      return this.snapshot();
+      return await this.withCredentialLock(async () => {
+        if (!this.current(operation)) return this.snapshot();
+        let tokenWritten = false;
+        try {
+          await persistSessionToken(exchange.sessionToken);
+          tokenWritten = true;
+          if (!this.current(operation)) {
+            await neutralizeSessionToken();
+            return this.snapshot();
+          }
+          await this.persistMeta(exchange.user);
+          if (!this.current(operation)) {
+            await neutralizeSessionToken();
+            await AsyncStorage.removeItem(RHYTHM_ACCOUNT_META_KEY).catch(() => undefined);
+            return this.snapshot();
+          }
+          this.state = 'signedIn';
+          this.user = exchange.user;
+          return this.snapshot();
+        } catch (error) {
+          if (tokenWritten) {
+            try { await neutralizeSessionToken(); } catch { /* report below */ }
+          }
+          throw error;
+        }
+      });
     } catch (error) {
-      if (tokenWritten) {
-        try { await deleteItemAsync(RHYTHM_SESSION_SECURE_KEY); } catch { /* report below */ }
-      }
       if (!this.current(operation)) return this.snapshot();
       const classified = persistenceStarted ? storageError() : classifyRhythmAccountError(error);
       this.fail(classified, null);
@@ -282,10 +396,15 @@ export class RhythmSessionStore {
   async signOut(): Promise<RhythmSessionResult> {
     const operation = ++this.operation;
     let token: string | null = null;
-    try { token = await getItemAsync(RHYTHM_SESSION_SECURE_KEY); } catch { /* deletion still works */ }
     try {
-      await deleteItemAsync(RHYTHM_SESSION_SECURE_KEY);
-      await AsyncStorage.removeItem(RHYTHM_ACCOUNT_META_KEY);
+      const signedOut = await this.withCredentialLock(async () => {
+        if (!this.current(operation)) return false;
+        try { token = await getItemAsync(RHYTHM_SESSION_SECURE_KEY); } catch { /* deletion still works */ }
+        await neutralizeSessionToken();
+        await AsyncStorage.removeItem(RHYTHM_ACCOUNT_META_KEY);
+        return true;
+      });
+      if (!signedOut) return this.snapshot();
     } catch {
       if (!this.current(operation)) return this.snapshot();
       return this.fail(storageError());

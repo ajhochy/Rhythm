@@ -77,6 +77,7 @@ const deleteItemAsync = async (key) => {
 // AsyncStorage stub backed by a plain Map
 const __asyncStorage = new Map();
 const __asyncFailures = { get: false, set: false, remove: false };
+let __asyncSetHook = null;
 const AsyncStorage = {
   getItem: async (key) => {
     if (__asyncFailures.get) throw new Error('AsyncStorage read failed');
@@ -84,6 +85,7 @@ const AsyncStorage = {
   },
   setItem: async (key, value) => {
     if (__asyncFailures.set) throw new Error('AsyncStorage write failed');
+    if (__asyncSetHook) await __asyncSetHook(key, value);
     __asyncStorage.set(key, value);
   },
   removeItem: async (key) => {
@@ -97,11 +99,13 @@ export function __getSecureStore() { return __secureStore; }
 export function __getAsyncStorage() { return __asyncStorage; }
 export function __setSecureFailure(operation, value) { __secureFailures[operation] = value; }
 export function __setAsyncFailure(operation, value) { __asyncFailures[operation] = value; }
+export function __setAsyncSetHook(hook) { __asyncSetHook = hook; }
 export function __resetStores() {
   __secureStore.clear();
   __asyncStorage.clear();
   Object.keys(__secureFailures).forEach((key) => { __secureFailures[key] = false; });
   Object.keys(__asyncFailures).forEach((key) => { __asyncFailures[key] = false; });
+  __asyncSetHook = null;
 }
 
 // ---------- end stubs ----------
@@ -128,6 +132,7 @@ const {
   __getAsyncStorage,
   __setSecureFailure,
   __setAsyncFailure,
+  __setAsyncSetHook,
 } = mod;
 
 // ---------------------------------------------------------------------------
@@ -679,6 +684,267 @@ function makeExchangeResponse(token = 'sess-token-abc') {
   assert.equal(error?.accountError?.kind, 'storage');
   assert.equal(await store.getState(), 'error');
   console.log('  ✓ TEST 16: SecureStore write failure remains a storage error');
+}
+
+// ---------------------------------------------------------------------------
+// TEST 17: A failed rollback cannot leave the exchanged token active
+// ---------------------------------------------------------------------------
+
+{
+  __resetStores();
+  __setAsyncFailure('set', true);
+  __setSecureFailure('delete', true);
+  const store = new RhythmSessionStore({
+    client: {
+      request: async () => { throw new Error('must not request'); },
+      requestPublic: async () => makeExchangeResponse('must-not-survive-rollback'),
+    },
+  });
+  const error = await captureThrown(() => store.signIn({
+    code: 'code', codeVerifier: 'verifier', redirectUri: 'uri', clientId: 'client',
+  }));
+  assert.equal(error?.accountError?.kind, 'storage');
+  assert.notEqual(
+    __getSecureStore().get(RHYTHM_SESSION_SECURE_KEY),
+    'must-not-survive-rollback',
+    'a failed delete rollback must neutralize the newly exchanged credential',
+  );
+  console.log('  ✓ TEST 17: failed delete rollback cannot leave a hidden valid token');
+}
+
+// ---------------------------------------------------------------------------
+// TEST 18: Cancelling an in-flight exchange prevents credential persistence
+// ---------------------------------------------------------------------------
+
+{
+  __resetStores();
+  let resolveExchange;
+  const exchangePending = new Promise((resolve) => { resolveExchange = resolve; });
+  const store = new RhythmSessionStore({
+    client: {
+      request: async () => { throw new Error('must not request'); },
+      requestPublic: async () => exchangePending,
+    },
+  });
+  const signingIn = store.signIn({
+    code: 'code', codeVerifier: 'verifier', redirectUri: 'uri', clientId: 'client',
+  });
+  store.cancelPending();
+  resolveExchange(makeExchangeResponse('cancelled-exchange-token'));
+  await signingIn;
+  assert.notEqual(
+    __getSecureStore().get(RHYTHM_SESSION_SECURE_KEY),
+    'cancelled-exchange-token',
+    'cancelling an OAuth exchange must prevent later credential persistence',
+  );
+  console.log('  ✓ TEST 18: cancelled exchange cannot persist a credential');
+}
+
+// ---------------------------------------------------------------------------
+// TEST 19: A stale sign-in cannot erase a newer overlapping sign-in token
+// ---------------------------------------------------------------------------
+
+{
+  __resetStores();
+  let releaseFirstMeta;
+  const firstMetaReleased = new Promise((resolve) => { releaseFirstMeta = resolve; });
+  let firstMetaStarted;
+  const firstMetaReached = new Promise((resolve) => { firstMetaStarted = resolve; });
+  let metaWrites = 0;
+  __setAsyncSetHook(async (key) => {
+    if (key !== RHYTHM_ACCOUNT_META_KEY || metaWrites++ !== 0) return;
+    firstMetaStarted();
+    await firstMetaReleased;
+  });
+
+  const store = new RhythmSessionStore({
+    client: {
+      request: async () => { throw new Error('must not request'); },
+      requestPublic: async (_path, init) => {
+        const code = JSON.parse(init.body).code;
+        return makeExchangeResponse(code === 'old' ? 'token-old' : 'token-new');
+      },
+    },
+  });
+  const oldSignIn = store.signIn({
+    code: 'old', codeVerifier: 'verifier-old', redirectUri: 'uri', clientId: 'client',
+  });
+  await firstMetaReached;
+  const newSignIn = store.signIn({
+    code: 'new', codeVerifier: 'verifier-new', redirectUri: 'uri', clientId: 'client',
+  });
+
+  // Give an unlocked implementation enough turns to overwrite token-old
+  // before the stale operation resumes its cleanup.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  releaseFirstMeta();
+  await Promise.all([oldSignIn, newSignIn]);
+
+  assert.equal(
+    __getSecureStore().get(RHYTHM_SESSION_SECURE_KEY),
+    'token-new',
+    'cleanup from a stale sign-in must not delete the newer successful credential',
+  );
+  assert.equal(await store.getState(), 'signedIn');
+  console.log('  ✓ TEST 19: overlapping stale sign-in cleanup preserves the newer token');
+}
+
+// ---------------------------------------------------------------------------
+// TEST 20: Unmount/remount stores share credential ownership
+// ---------------------------------------------------------------------------
+
+{
+  __resetStores();
+  let releaseOldMeta;
+  const oldMetaReleased = new Promise((resolve) => { releaseOldMeta = resolve; });
+  let oldMetaStarted;
+  const oldMetaReached = new Promise((resolve) => { oldMetaStarted = resolve; });
+  let metaWrites = 0;
+  __setAsyncSetHook(async (key) => {
+    if (key !== RHYTHM_ACCOUNT_META_KEY || metaWrites++ !== 0) return;
+    oldMetaStarted();
+    await oldMetaReleased;
+  });
+
+  const oldStore = new RhythmSessionStore({
+    client: {
+      request: async () => { throw new Error('must not request'); },
+      requestPublic: async () => makeExchangeResponse('token-old-store'),
+    },
+  });
+  const newStore = new RhythmSessionStore({
+    client: {
+      request: async () => { throw new Error('must not request'); },
+      requestPublic: async () => makeExchangeResponse('token-new-store'),
+    },
+  });
+
+  const oldSignIn = oldStore.signIn({
+    code: 'old', codeVerifier: 'verifier-old', redirectUri: 'uri', clientId: 'client',
+  });
+  await oldMetaReached;
+  oldStore.cancelPending();
+  const newSignIn = newStore.signIn({
+    code: 'new', codeVerifier: 'verifier-new', redirectUri: 'uri', clientId: 'client',
+  });
+
+  // An instance-local lock lets the remounted store persist token-new-store
+  // now; the old store then erases it when released. A module-global lock
+  // orders the stale cleanup before the new store's write.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  releaseOldMeta();
+  await Promise.all([oldSignIn, newSignIn]);
+
+  assert.equal(
+    __getSecureStore().get(RHYTHM_SESSION_SECURE_KEY),
+    'token-new-store',
+    'an unmounted store must not erase the remounted provider session',
+  );
+  assert.equal(await newStore.getState(), 'signedIn');
+  console.log('  ✓ TEST 20: unmount/remount stores preserve the newer credential');
+}
+
+// ---------------------------------------------------------------------------
+// TEST 21: Remount restore cannot adopt a token pending stale cleanup
+// ---------------------------------------------------------------------------
+
+{
+  __resetStores();
+  let releaseOldMeta;
+  const oldMetaReleased = new Promise((resolve) => { releaseOldMeta = resolve; });
+  let oldMetaStarted;
+  const oldMetaReached = new Promise((resolve) => { oldMetaStarted = resolve; });
+  let metaWrites = 0;
+  __setAsyncSetHook(async (key) => {
+    if (key !== RHYTHM_ACCOUNT_META_KEY || metaWrites++ !== 0) return;
+    oldMetaStarted();
+    await oldMetaReleased;
+  });
+
+  const oldStore = new RhythmSessionStore({
+    client: {
+      request: async () => { throw new Error('must not request'); },
+      requestPublic: async () => makeExchangeResponse('token-awaiting-stale-cleanup'),
+    },
+  });
+  const remountedStore = new RhythmSessionStore({
+    client: {
+      request: async (path) => {
+        if (path === '/auth/me') return makeMeResponse();
+        throw new Error(`Unexpected path: ${path}`);
+      },
+      requestPublic: async () => { throw new Error('must not exchange'); },
+    },
+  });
+
+  const oldSignIn = oldStore.signIn({
+    code: 'old', codeVerifier: 'verifier-old', redirectUri: 'uri', clientId: 'client',
+  });
+  await oldMetaReached;
+  oldStore.cancelPending();
+  const restored = remountedStore.restore();
+
+  // Without global coordination restore observes token-awaiting-stale-cleanup,
+  // declares signedIn, and then the unmounted store deletes that token.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  releaseOldMeta();
+  const [, restoreResult] = await Promise.all([oldSignIn, restored]);
+
+  assert.equal(restoreResult.state, 'signedOut');
+  assert.equal(await remountedStore.getState(), 'signedOut');
+  assert.equal(
+    __getSecureStore().get(RHYTHM_SESSION_SECURE_KEY),
+    undefined,
+    'remount restore must not adopt a credential that stale cleanup owns',
+  );
+  console.log('  ✓ TEST 21: remount restore cannot adopt a token pending stale cleanup');
+}
+
+// ---------------------------------------------------------------------------
+// TEST 22: A hung unmounted restore cannot block remount local sign-out
+// ---------------------------------------------------------------------------
+
+{
+  __resetStores();
+  __getSecureStore().set(RHYTHM_SESSION_SECURE_KEY, 'token-hanging-restore');
+  let resolveMe;
+  const mePending = new Promise((resolve) => { resolveMe = resolve; });
+  let requestStarted;
+  const requestReached = new Promise((resolve) => { requestStarted = resolve; });
+
+  const oldStore = new RhythmSessionStore({
+    client: {
+      request: async (path) => {
+        if (path !== '/auth/me') throw new Error(`Unexpected path: ${path}`);
+        requestStarted();
+        return mePending;
+      },
+      requestPublic: async () => { throw new Error('must not exchange'); },
+    },
+  });
+  const remountedStore = new RhythmSessionStore({
+    client: {
+      request: async () => { throw new Error('must not request'); },
+      requestPublic: async () => { throw new Error('must not exchange'); },
+    },
+  });
+
+  const restoring = oldStore.restore();
+  await requestReached;
+  oldStore.cancelPending();
+  const signOut = remountedStore.signOut();
+  const outcome = await Promise.race([
+    signOut.then(() => 'signed-out'),
+    new Promise((resolve) => setTimeout(() => resolve('timed-out'), 50)),
+  ]);
+  resolveMe(makeMeResponse());
+  await restoring;
+  await signOut;
+
+  assert.equal(outcome, 'signed-out', 'a hung stale /auth/me must not own the credential lock');
+  assert.equal(await remountedStore.getState(), 'signedOut');
+  assert.equal(__getSecureStore().get(RHYTHM_SESSION_SECURE_KEY), undefined);
+  console.log('  ✓ TEST 22: hung unmounted restore cannot block remount local sign-out');
 }
 
 // ---------------------------------------------------------------------------

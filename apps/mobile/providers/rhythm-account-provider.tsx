@@ -127,6 +127,8 @@ export function RhythmAccountProvider({ children }: PropsWithChildren) {
 
     return () => {
       cancelled = true;
+      operationRef.current += 1;
+      store.cancelPending();
     };
   }, [applyResult, store]);
 
@@ -139,6 +141,7 @@ export function RhythmAccountProvider({ children }: PropsWithChildren) {
         clientId: GOOGLE_MOBILE_CLIENT_ID,
         redirectUri: GOOGLE_MOBILE_REDIRECT_URI,
       });
+      if (operation !== operationRef.current) return;
       const result = await store.signIn(oauthParams);
       if (operation === operationRef.current) applyResult(result);
     } catch (cause) {

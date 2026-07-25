@@ -63,6 +63,16 @@ const [providerSource, settingsSource, accountSectionSource] = await Promise.all
   assert.match(providerSource, /https:\/\/api\.vcrcapps\.com/);
   assert.match(providerSource, /await store\.signIn\(oauthParams\)/);
   assert.match(providerSource, /operationRef\.current/);
+  assert.match(
+    providerSource,
+    /await startGoogleMobileOAuth[\s\S]*?if \(operation !== operationRef\.current\) return;[\s\S]*?await store\.signIn\(oauthParams\)/,
+    'a stale OAuth completion must be discarded before credentials are exchanged',
+  );
+  assert.match(
+    providerSource,
+    /return \(\) => \{[\s\S]*?operationRef\.current \+= 1;/,
+    'unmount must invalidate an in-flight OAuth completion',
+  );
   assert.match(providerSource, /error: RhythmAccountError \| undefined/);
   assert.match(settingsSource, /rhythmAccount\.signIn\(\)\.catch/);
   console.log('  ✓ Settings sign-in action starts OAuth and exchanges through the provider');
@@ -72,6 +82,11 @@ const [providerSource, settingsSource, accountSectionSource] = await Promise.all
   assert.match(accountSectionSource, /error\?: RhythmAccountError/);
   assert.match(accountSectionSource, /flexWrap: 'wrap'/);
   assert.match(accountSectionSource, /alignItems: 'flex-start'/);
+  assert.match(
+    accountSectionSource,
+    /const canSignOut = \['signedIn', 'offline', 'error'\]\.includes\(state\)/,
+    'offline and error account states must retain local-first sign-out',
+  );
   console.log('  ✓ Account section exposes failures and wraps under large Dynamic Type');
 }
 

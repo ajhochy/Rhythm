@@ -73,6 +73,7 @@ export function RhythmAccountSection({
   palette,
 }: RhythmAccountSectionProps) {
   const isBusy = state === 'signingIn' || state === 'refreshing';
+  const canSignOut = ['signedIn', 'offline', 'error'].includes(state);
 
   return (
     <Card
@@ -127,25 +128,14 @@ export function RhythmAccountSection({
           )}
 
           {state === 'signedIn' && (
-            <>
-              <Button
-                mode="outlined"
-                onPress={onRefresh}
-                disabled={isBusy}
-                accessibilityLabel="Refresh Rhythm session"
-              >
-                Refresh session
-              </Button>
-              <Button
-                mode="text"
-                onPress={onSignOut}
-                disabled={isBusy}
-                textColor={palette.danger}
-                accessibilityLabel="Sign out of Rhythm"
-              >
-                Sign out
-              </Button>
-            </>
+            <Button
+              mode="outlined"
+              onPress={onRefresh}
+              disabled={isBusy}
+              accessibilityLabel="Refresh Rhythm session"
+            >
+              Refresh session
+            </Button>
           )}
 
           {state === 'offline' && (
@@ -166,6 +156,18 @@ export function RhythmAccountSection({
               accessibilityLabel="Retry Rhythm account"
             >
               Retry
+            </Button>
+          )}
+
+          {canSignOut && (
+            <Button
+              mode="text"
+              onPress={onSignOut}
+              disabled={isBusy}
+              textColor={palette.danger}
+              accessibilityLabel="Sign out of Rhythm locally"
+            >
+              Sign out
             </Button>
           )}
 

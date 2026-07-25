@@ -35,7 +35,7 @@ if (!['--write', '--check'].includes(mode) || process.argv.length !== 3) {
 }
 
 const mobileRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const rhythmRoot = process.env.RHYTHM_REPO ?? path.resolve(mobileRoot, '../Rhythm');
+const rhythmRoot = process.env.RHYTHM_REPO ?? path.resolve(mobileRoot, '../..');
 const manifest = buildManifest(
   JSON.parse(await readFile(path.join(rhythmRoot, 'apps/opencode_fork/packages/opencode/package.json'), 'utf8')),
   JSON.parse(await readFile(path.join(rhythmRoot, 'apps/opencode_fork/packages/sdk/openapi.json'), 'utf8')),

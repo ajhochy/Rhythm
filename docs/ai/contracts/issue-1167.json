@@ -1,0 +1,33 @@
+{
+  "issue": "1167",
+  "generated": "2026-07-24",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "issue-1167-c1",
+      "text": "Account, OAuth, transport, static, foundation, and web E2E gates pass from `apps/mobile`",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1167-acceptance.test.mjs",
+      "test_id": "issue-1167-c1: foundation gate includes and can reach every required mobile check",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1167-c2",
+      "text": "No secrets in AsyncStorage, logs, errors, fixtures, or git",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1167-acceptance.test.mjs",
+      "test_id": "issue-1167-c2: tracked mobile source contains no live credential material",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1167-c3",
+      "text": "Review verdicts PASS for spec and quality",
+      "mode": "manual",
+      "test_file": null,
+      "test_id": null,
+      "status": "pass",
+      "evidence": "Five independent adversarial reviews were run. The first four found and reproduced progressively deeper same-store, cross-store, remount-restore, and hung-request credential races; each was repaired with an executable regression. The fifth verdict was SPEC PASS / QUALITY PASS and independently reproduced immediate local sign-out, stale-401 protection, stale-success metadata protection, fallback safety, and no lock starvation."
+    }
+  ],
+  "not_tested": []
+}

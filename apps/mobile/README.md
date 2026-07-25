@@ -126,12 +126,18 @@ npm run verify:foundation
 This runs, in order:
 
 1. `npm run contract:check` — verifies `contracts/rhythm-opencode-contract.json` matches the bundled OpenAPI fingerprint
-2. `npm run lint` — ESLint passes with zero violations
-3. `npm run typecheck` — TypeScript `--noEmit` exits 0
-4. `npm run test:connection-persistence` — connection persistence unit tests pass
-5. `npm run test:notification-persistence` — notification persistence unit tests pass
-6. `npm run test:fake-server:self` — fake OpenCode server self-test passes
-7. `npm run test:e2e:web` — all 15 Playwright end-to-end flows pass
+2. `npm run test:contract` — validates repository-root discovery and the generated SDK contract
+3. `npm run test:app-config` — validates Expo/EAS identifiers and this exact foundation gate
+4. `npm run lint` — ESLint passes with zero violations
+5. `npm run typecheck` — TypeScript `--noEmit` exits 0
+6. `npm run test:transport-clients` — transport-client contracts pass
+7. `npm run test:rhythm-account` — account lifecycle, rollback, cancellation, and overlap-race contracts pass
+8. `npm run test:google-mobile-oauth` — OAuth lifecycle and stale-completion contracts pass
+9. `npm run test:connection-persistence` — connection persistence unit tests pass
+10. `npm run test:notification-persistence` — notification persistence unit tests pass
+11. `npm run test:fake-server:self` — fake OpenCode server self-test passes
+12. `npm run test:acceptance:1167` — issue #1167 source and credential-safety acceptance gate passes
+13. `npm run test:e2e:web` — all 15 Playwright end-to-end flows pass
 
 #### Verified run — 2026-07-24
 
@@ -139,7 +145,7 @@ This runs, in order:
 npm run verify:foundation
 ```
 
-Result: **all 7 stages passed**, 15/15 Playwright tests green, zero lint/typecheck violations, contract fingerprint matched engine `1.14.49` (133 operations), connection/notification/fake-server checks passed.
+Result: **all 13 stages passed**, 15/15 Playwright tests green, 22/22 account contracts green, zero lint/typecheck violations, contract fingerprint matched engine `1.14.49` (133 operations), and app-config/OAuth/transport/connection/notification/fake-server/#1167 acceptance checks passed.
 
 ---
 

@@ -44,6 +44,8 @@ assert.equal(eas.build.production.autoIncrement, true);
 const pkgForFoundation = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const expectedFoundation =
   'npm run contract:check && ' +
+  'npm run test:contract && ' +
+  'npm run test:app-config && ' +
   'npm run lint && ' +
   'npm run typecheck && ' +
   'npm run test:transport-clients && ' +
@@ -52,6 +54,7 @@ const expectedFoundation =
   'npm run test:connection-persistence && ' +
   'npm run test:notification-persistence && ' +
   'npm run test:fake-server:self && ' +
+  'npm run test:acceptance:1167 && ' +
   'npm run test:e2e:web';
 assert.equal(
   pkgForFoundation.scripts['verify:foundation'],
@@ -67,6 +70,11 @@ assert.match(
   pkgForFoundation.scripts['test:ci:static'],
   /npm run test:google-mobile-oauth/,
   'static gate must execute the mobile OAuth contract tests',
+);
+assert.match(
+  pkgForFoundation.scripts['test:ci:static'],
+  /npm run test:app-config/,
+  'static gate must execute the app configuration contract tests',
 );
 
 console.log('app config tests passed');
