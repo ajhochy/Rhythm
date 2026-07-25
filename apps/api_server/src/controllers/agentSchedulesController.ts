@@ -50,16 +50,23 @@ function assertSchedulableProfile(configId: string | null | undefined): void {
 }
 
 export class AgentSchedulesController {
-  async list(_req: Request, res: Response, next: NextFunction) {
+  async list(req: Request, res: Response, next: NextFunction) {
     try {
-      const tasks = await repo.listAllAsync();
+      const tasks = req.mobileDevice
+        ? await repo.listForOwnerAsync(req.mobileDevice.userId)
+        : await repo.listAllAsync();
       res.json(tasks);
     } catch (err) { next(err); }
   }
 
   async get(req: Request, res: Response, next: NextFunction) {
     try {
-      const task = await repo.findByIdAsync(req.params.id);
+      const task = req.mobileDevice
+        ? await repo.findByIdForOwnerAsync(
+            req.params.id,
+            req.mobileDevice.userId,
+          )
+        : await repo.findByIdAsync(req.params.id);
       if (!task) throw AppError.notFound('AgentScheduledTask');
       res.json(task);
     } catch (err) { next(err); }
@@ -141,7 +148,9 @@ export class AgentSchedulesController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const existing = await repo.findByIdAsync(id);
+      const existing = req.mobileDevice
+        ? await repo.findByIdForOwnerAsync(id, req.mobileDevice.userId)
+        : await repo.findByIdAsync(id);
       if (!existing) throw AppError.notFound('AgentScheduledTask');
 
       const patch = req.body as Record<string, unknown>;
@@ -183,14 +192,29 @@ export class AgentSchedulesController {
         delete patch.allowedSkills;
       }
 
-      const updated = await repo.updateAsync(id, patch as Parameters<typeof repo.updateAsync>[1]);
+      const updated = req.mobileDevice
+        ? await repo.updateForOwnerAsync(
+            id,
+            req.mobileDevice.userId,
+            patch as Parameters<typeof repo.updateAsync>[1],
+          )
+        : await repo.updateAsync(
+            id,
+            patch as Parameters<typeof repo.updateAsync>[1],
+          );
+      if (!updated) throw AppError.notFound('AgentScheduledTask');
       res.json(updated);
     } catch (err) { next(err); }
   }
 
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      const deleted = await repo.deleteAsync(req.params.id);
+      const deleted = req.mobileDevice
+        ? await repo.deleteForOwnerAsync(
+            req.params.id,
+            req.mobileDevice.userId,
+          )
+        : await repo.deleteAsync(req.params.id);
       if (!deleted) throw AppError.notFound('AgentScheduledTask');
       res.status(204).end();
     } catch (err) { next(err); }
@@ -199,15 +223,26 @@ export class AgentSchedulesController {
   /** Manually fire a scheduled task immediately (test/debug). */
   async triggerNow(req: Request, res: Response, next: NextFunction) {
     try {
-      const task = await repo.findByIdAsync(req.params.id);
+      const task = req.mobileDevice
+        ? await repo.findByIdForOwnerAsync(
+            req.params.id,
+            req.mobileDevice.userId,
+          )
+        : await repo.findByIdAsync(req.params.id);
       if (!task) throw AppError.notFound('AgentScheduledTask');
 
       // Force next_run_at to now so the scheduler picks it up in the next tick
       const nowIso = new Date().toISOString();
-      const updated = await repo.updateAsync(
-        task.id,
-        { nextRunAt: nowIso } as Parameters<typeof repo.updateAsync>[1],
-      );
+      const triggerPatch = {
+        nextRunAt: nowIso,
+      } as Parameters<typeof repo.updateAsync>[1];
+      const updated = req.mobileDevice
+        ? await repo.updateForOwnerAsync(
+            task.id,
+            req.mobileDevice.userId,
+            triggerPatch,
+          )
+        : await repo.updateAsync(task.id, triggerPatch);
 
       // Return the full updated task, not just a message — the Flutter client
       // parses this response as an AgentScheduledTask to merge into its local

@@ -583,15 +583,16 @@ describe('issue #1169 mobile OpenCode proxy HTTP boundary', () => {
       },
       body: '{}',
     });
-    const code = (await codeResponse.json()) as { pairingCode: string };
+    const code = (await codeResponse.json()) as {
+      pairingCode: string;
+      hostId: string;
+    };
     const pairResponse = await fetch(`${baseUrl}/mobile-gateway/pair`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${userToken}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         pairingCode: code.pairingCode,
+        hostId: code.hostId,
         deviceName: 'Issue 1169 iPhone',
       }),
     });

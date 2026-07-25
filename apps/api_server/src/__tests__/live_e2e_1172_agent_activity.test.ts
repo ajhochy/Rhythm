@@ -349,17 +349,16 @@ describeLive('live E2E — issue #1172 agent activity', () => {
         },
       );
       expect(codeResponse.status).toBe(201);
-      const { pairingCode } = (await codeResponse.json()) as {
+      const { pairingCode, hostId } = (await codeResponse.json()) as {
         pairingCode: string;
+        hostId: string;
       };
       const pairResponse = await fetch(`${baseUrl}/mobile-gateway/pair`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${userToken}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pairingCode,
+          hostId,
           deviceName: 'Issue 1172 Live iPhone',
         }),
       });

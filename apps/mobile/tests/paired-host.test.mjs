@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import ts from 'typescript';
 
+await import('./public-gateway-client.test.mjs');
+
 const source = await readFile(
   new URL('../lib/pairing/paired-host-store.ts', import.meta.url),
   'utf8',
@@ -15,18 +17,26 @@ const stubs = `
 const __secureStore = new Map();
 const __asyncStore = new Map();
 let __network = { isConnected: true, isInternetReachable: true };
-let __cloudHandler = async () => { throw new Error('cloud handler missing'); };
+let __publicHandler = async () => { throw new Error('public handler missing'); };
 let __macHandler = async () => { throw new Error('Mac handler missing'); };
 let __asyncSetFailure = false;
+let __asyncSetFailureAtCall = null;
+let __asyncSetCalls = 0;
 let __asyncRemoveFailure = false;
 let __secureWriteFailure = false;
 let __secureCleanupFailure = false;
-const __cloudCalls = [];
+const __publicCalls = [];
 const __macCalls = [];
 const AsyncStorage = {
   getItem: async (key) => __asyncStore.get(key) ?? null,
   setItem: async (key, value) => {
-    if (__asyncSetFailure) throw new Error('metadata write failed');
+    __asyncSetCalls += 1;
+    if (
+      __asyncSetFailure ||
+      __asyncSetCalls === __asyncSetFailureAtCall
+    ) {
+      throw new Error('metadata write failed');
+    }
     __asyncStore.set(key, value);
   },
   removeItem: async (key) => {
@@ -59,7 +69,6 @@ const deleteItemAsync = async (key) => {
   }
   __secureStore.delete(key);
 };
-const RHYTHM_SESSION_SECURE_KEY = 'rhythm.cloud.session';
 class ApiError extends Error {
   constructor({ source = 'paired-mac', status = 0, code = 'UNKNOWN', message = 'request failed', retryable = false }) {
     super(message);
@@ -69,12 +78,11 @@ class ApiError extends Error {
     this.retryable = retryable;
   }
 }
-class RhythmCloudClient {
+class PublicGatewayClient {
   constructor(options) { this.options = options; }
-  async request(path, init) {
-    const token = await this.options.getToken();
-    __cloudCalls.push({ baseUrl: this.options.baseUrl, path, init, token });
-    return __cloudHandler(path, init, token, this.options.baseUrl);
+  async requestPublic(path, init) {
+    __publicCalls.push({ baseUrl: this.options.baseUrl, path, init });
+    return __publicHandler(path, init, this.options.baseUrl);
   }
 }
 class PairedMacClient {
@@ -89,25 +97,28 @@ export function __reset() {
   __secureStore.clear();
   __asyncStore.clear();
   __network = { isConnected: true, isInternetReachable: true };
-  __cloudCalls.length = 0;
+  __publicCalls.length = 0;
   __macCalls.length = 0;
   __asyncSetFailure = false;
+  __asyncSetFailureAtCall = null;
+  __asyncSetCalls = 0;
   __asyncRemoveFailure = false;
   __secureWriteFailure = false;
   __secureCleanupFailure = false;
-  __cloudHandler = async () => { throw new Error('cloud handler missing'); };
+  __publicHandler = async () => { throw new Error('public handler missing'); };
   __macHandler = async () => { throw new Error('Mac handler missing'); };
 }
 export function __failAsyncSet(value = true) { __asyncSetFailure = value; }
+export function __failAsyncSetOnCall(call) { __asyncSetFailureAtCall = call; }
 export function __failAsyncRemove(value = true) { __asyncRemoveFailure = value; }
 export function __failSecureWrite(value = true) { __secureWriteFailure = value; }
 export function __failSecureCleanup(value = true) { __secureCleanupFailure = value; }
-export function __setCloudHandler(handler) { __cloudHandler = handler; }
+export function __setPublicHandler(handler) { __publicHandler = handler; }
 export function __setMacHandler(handler) { __macHandler = handler; }
 export function __setNetwork(value) { __network = value; }
 export function __secure() { return __secureStore; }
 export function __async() { return __asyncStore; }
-export function __cloudRequests() { return __cloudCalls; }
+export function __publicRequests() { return __publicCalls; }
 export function __macRequests() { return __macCalls; }
 export { ApiError };
 `;
@@ -130,15 +141,16 @@ const {
   EXPECTED_CONTRACT_FINGERPRINT,
   parsePairingPayload,
   __async,
-  __cloudRequests,
+  __publicRequests,
   __failAsyncRemove,
   __failAsyncSet,
+  __failAsyncSetOnCall,
   __failSecureWrite,
   __failSecureCleanup,
   __macRequests,
   __reset,
   __secure,
-  __setCloudHandler,
+  __setPublicHandler,
   __setMacHandler,
   __setNetwork,
 } = mod;
@@ -147,6 +159,7 @@ const CODE = 'a'.repeat(43);
 const TOKEN = 'device-token-secret';
 const PAYLOAD = JSON.stringify({
   gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
+  hostId: 'host-1',
   pairingCode: CODE,
 });
 const compatibility = {
@@ -165,18 +178,14 @@ const compatibility = {
 const pairResponse = {
   deviceId: 'device-1',
   hostId: 'host-1',
+  userId: 7,
   deviceToken: TOKEN,
   ...compatibility,
 };
 const healthResponse = { status: 'ready', hostId: 'host-1', ...compatibility };
 
-function primeCloudSession() {
-  __secure().set('rhythm.cloud.session', 'cloud-session-secret');
-}
-
 async function pairedStore() {
-  primeCloudSession();
-  __setCloudHandler(async (path) =>
+  __setPublicHandler(async (path) =>
     path === '/mobile-gateway/health' ? healthResponse : pairResponse);
   const store = new PairedHostStore();
   store.setAccountUserId(7);
@@ -189,14 +198,16 @@ async function pairedStore() {
 {
   assert.deepEqual(parsePairingPayload(PAYLOAD), {
     gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
+    hostId: 'host-1',
     pairingCode: CODE,
   });
   for (const invalid of [
     'not-json',
-    JSON.stringify({ gatewayUrl: 'http://rhythm-mac.tail1234.ts.net', pairingCode: CODE }),
-    JSON.stringify({ gatewayUrl: 'https://example.com', pairingCode: CODE }),
-    JSON.stringify({ gatewayUrl: 'https://rhythm-mac.tail1234.ts.net', pairingCode: '!'.repeat(43) }),
-    JSON.stringify({ gatewayUrl: 'https://rhythm-mac.tail1234.ts.net', pairingCode: CODE, token: 'extra' }),
+    JSON.stringify({ gatewayUrl: 'http://rhythm-mac.tail1234.ts.net', hostId: 'host-1', pairingCode: CODE }),
+    JSON.stringify({ gatewayUrl: 'https://example.com', hostId: 'host-1', pairingCode: CODE }),
+    JSON.stringify({ gatewayUrl: 'https://rhythm-mac.tail1234.ts.net', hostId: 'host-1', pairingCode: '!'.repeat(43) }),
+    JSON.stringify({ gatewayUrl: 'https://rhythm-mac.tail1234.ts.net', hostId: 'host-1', pairingCode: CODE, token: 'extra' }),
+    JSON.stringify({ gatewayUrl: 'https://rhythm-mac.tail1234.ts.net', pairingCode: CODE }),
   ]) {
     assert.throws(() => parsePairingPayload(invalid), PairedHostError);
   }
@@ -229,11 +240,13 @@ async function pairedStore() {
   assert.doesNotMatch(metadata, new RegExp(CODE));
   assert.doesNotMatch(JSON.stringify(store.snapshot()), new RegExp(`${TOKEN}|${CODE}`));
   assert.equal(JSON.parse(metadata).rhythmUserId, 7);
-  assert.equal(__cloudRequests().length, 2);
-  assert.equal(__cloudRequests()[0].path, '/mobile-gateway/health');
-  const requestBody = JSON.parse(__cloudRequests()[1].init.body);
+  assert.equal(__publicRequests().length, 2);
+  assert.equal(__publicRequests()[0].path, '/mobile-gateway/health');
+  const requestBody = JSON.parse(__publicRequests()[1].init.body);
   assert.equal(requestBody.pairingCode, CODE);
-  assert.equal(__cloudRequests()[1].token, 'cloud-session-secret');
+  assert.equal(requestBody.hostId, 'host-1');
+  assert.equal(requestBody.userId, undefined);
+  assert.equal(__publicRequests()[1].init.headers?.Authorization, undefined);
 }
 
 // issue-1171-c4: unpaired and pairing are observable state transitions.
@@ -243,9 +256,8 @@ async function pairedStore() {
   emptyStore.setAccountUserId(7);
   assert.equal((await emptyStore.restore()).state, 'unpaired');
 
-  primeCloudSession();
   let release;
-  __setCloudHandler((path) => {
+  __setPublicHandler((path) => {
     if (path === '/mobile-gateway/health') return healthResponse;
     return new Promise((resolve) => {
       release = resolve;
@@ -320,26 +332,26 @@ async function pairedStore() {
 {
   __reset();
   const store = await pairedStore();
-  __setCloudHandler(async () => {
+  __setPublicHandler(async () => {
     throw new Error('must not be called');
   });
   const otherPayload = JSON.stringify({
     gatewayUrl: 'https://other-mac.tail1234.ts.net',
+    hostId: 'host-2',
     pairingCode: 'b'.repeat(43),
   });
   await assert.rejects(
     () => store.pair(otherPayload, { userId: 7, deviceName: 'AJ iPhone' }),
     (error) => error instanceof PairedHostError && error.kind === 'replacementRequired',
   );
-  assert.equal(__cloudRequests().length, 2);
+  assert.equal(__publicRequests().length, 2);
 }
 
 // issue-1171-c4/c5: compatibility is checked before the one-time code is
 // consumed, so an incompatible Mac cannot strand a newly issued device token.
 {
   __reset();
-  primeCloudSession();
-  __setCloudHandler(async (path) => {
+  __setPublicHandler(async (path) => {
     assert.equal(path, '/mobile-gateway/health');
     return { ...healthResponse, minimumMobileVersion: '99.0.0' };
   });
@@ -351,7 +363,7 @@ async function pairedStore() {
       error instanceof PairedHostError && error.kind === 'incompatible',
   );
   assert.equal(store.snapshot().state, 'incompatible');
-  assert.equal(__cloudRequests().length, 1);
+  assert.equal(__publicRequests().length, 1);
   assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
 }
 
@@ -393,19 +405,20 @@ async function pairedStore() {
   assert.equal(__macRequests().length, 0);
 }
 
-// issue-1171 security: confirmed cross-Mac replacement revokes the previous
-// Mac before committing the new credential.
+// issue-1171/#1175 security: confirmed cross-Mac replacement commits the new
+// credential before revoking the previous Mac with its stored Device token.
 {
   __reset();
   const store = await pairedStore();
   const oldMetadata = JSON.parse(__async().get(PAIRED_HOST_META_KEY));
   const otherPayload = JSON.stringify({
     gatewayUrl: 'https://other-mac.tail1234.ts.net',
+    hostId: 'host-2',
     pairingCode: 'b'.repeat(43),
   });
-  __setCloudHandler(async (path, _init, _token, baseUrl) => {
+  __setPublicHandler(async (path) => {
     if (path === '/mobile-gateway/health') {
-      return { ...healthResponse, hostId: baseUrl.includes('other') ? 'host-2' : 'host-1' };
+      return { ...healthResponse, hostId: 'host-2' };
     }
     if (path === '/mobile-gateway/pair') {
       return {
@@ -415,6 +428,10 @@ async function pairedStore() {
         deviceToken: 'new-device-token',
       };
     }
+    throw new Error(`unexpected public path ${path}`);
+  });
+  __setMacHandler(async (path, _init, token, baseUrl) => {
+    assert.equal(token, TOKEN);
     assert.equal(baseUrl, oldMetadata.gatewayUrl);
     assert.equal(path, '/mobile-gateway/devices/device-1');
     return undefined;
@@ -427,10 +444,11 @@ async function pairedStore() {
   assert.equal(replaced.state, 'connected');
   assert.equal(replaced.host.hostId, 'host-2');
   assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), 'new-device-token');
-  assert.ok(__cloudRequests().some(
+  assert.ok(__macRequests().some(
     (request) =>
       request.baseUrl === oldMetadata.gatewayUrl &&
-      request.path === '/mobile-gateway/devices/device-1',
+      request.path === '/mobile-gateway/devices/device-1' &&
+      request.token === TOKEN,
   ));
 }
 
@@ -443,11 +461,12 @@ async function secureWriteReplacement({
   const oldMetadata = __async().get(PAIRED_HOST_META_KEY);
   const otherPayload = JSON.stringify({
     gatewayUrl: 'https://other-mac.tail1234.ts.net',
+    hostId: 'host-2',
     pairingCode: 'b'.repeat(43),
   });
   __failSecureWrite();
   __failSecureCleanup(credentialCleanupFails);
-  __setCloudHandler(async (path) => {
+  __setPublicHandler(async (path) => {
     if (path === '/mobile-gateway/health') {
       return { ...healthResponse, hostId: 'host-2' };
     }
@@ -459,16 +478,16 @@ async function secureWriteReplacement({
         deviceToken: 'new-device-token',
       };
     }
+    throw new Error(`unexpected public path ${path}`);
+  });
+  __setMacHandler(async (path) => {
     if (
       path === '/mobile-gateway/devices/device-2' &&
       newDeviceRevocationFails
     ) {
       throw new Error('new Mac cleanup failed');
     }
-    assert.ok([
-      '/mobile-gateway/devices/device-1',
-      '/mobile-gateway/devices/device-2',
-    ].includes(path));
+    assert.equal(path, '/mobile-gateway/devices/device-2');
     return undefined;
   });
   let failure;
@@ -491,10 +510,10 @@ async function secureWriteReplacement({
 {
   const clean = await secureWriteReplacement();
   assert.equal(clean.failure.kind, 'storage');
-  assert.equal(clean.store.snapshot().state, 'revoked');
+  assert.equal(clean.store.snapshot().state, 'connected');
   assert.equal(clean.store.snapshot().host.hostId, 'host-1');
-  assert.match(clean.store.snapshot().message, /previous Mac was revoked.*rolled back/i);
-  assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
+  assert.match(clean.store.snapshot().message, /previous pairing is unchanged/i);
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
   assert.equal(__async().get(PAIRED_HOST_META_KEY), clean.oldMetadata);
 
   const serverCleanupFailed = await secureWriteReplacement({
@@ -502,45 +521,41 @@ async function secureWriteReplacement({
   });
   assert.equal(serverCleanupFailed.failure.kind, 'storageRollbackFailed');
   assert.equal(serverCleanupFailed.store.snapshot().state, 'unhealthy');
-  assert.equal(serverCleanupFailed.store.snapshot().host.hostId, 'host-2');
+  assert.equal(serverCleanupFailed.store.snapshot().host.hostId, 'host-1');
   assert.match(
     serverCleanupFailed.store.snapshot().message,
     /new Mac still lists.*Revoke/i,
   );
-  assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
   const serverCleanupMetadata = JSON.parse(
     __async().get(PAIRED_HOST_META_KEY),
   );
-  assert.equal(serverCleanupMetadata.hostId, 'host-2');
+  assert.equal(serverCleanupMetadata.hostId, 'host-1');
   assert.deepEqual(serverCleanupMetadata.recovery, {
     revokeDevice: true,
-    credential: 'none',
+    credential: 'previous',
   });
   const restoredServerCleanup = new PairedHostStore();
   restoredServerCleanup.setAccountUserId(7);
   assert.equal((await restoredServerCleanup.restore()).state, 'unhealthy');
-  assert.equal(restoredServerCleanup.snapshot().host.hostId, 'host-2');
-  assert.equal(__macRequests().length, 0);
+  assert.equal(restoredServerCleanup.snapshot().host.hostId, 'host-1');
+  assert.equal(__macRequests().length, 1);
 
   const keychainCleanupFailed = await secureWriteReplacement({
     credentialCleanupFails: true,
   });
-  assert.equal(keychainCleanupFailed.failure.kind, 'storageRollbackFailed');
-  assert.equal(keychainCleanupFailed.store.snapshot().state, 'unhealthy');
+  assert.equal(keychainCleanupFailed.failure.kind, 'storage');
+  assert.equal(keychainCleanupFailed.store.snapshot().state, 'connected');
   assert.equal(keychainCleanupFailed.store.snapshot().host.hostId, 'host-1');
   assert.match(
     keychainCleanupFailed.store.snapshot().message,
-    /new pairing was revoked.*previous (?:Mac )?credential remains.*Forget/i,
+    /previous pairing is unchanged/i,
   );
   assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
-  const keychainCleanupMetadata = JSON.parse(
+  assert.equal(
     __async().get(PAIRED_HOST_META_KEY),
+    keychainCleanupFailed.oldMetadata,
   );
-  assert.equal(keychainCleanupMetadata.hostId, 'host-1');
-  assert.deepEqual(keychainCleanupMetadata.recovery, {
-    revokeDevice: false,
-    credential: 'previous',
-  });
 
   const bothCleanupsFailed = await secureWriteReplacement({
     newDeviceRevocationFails: true,
@@ -548,14 +563,14 @@ async function secureWriteReplacement({
   });
   assert.equal(bothCleanupsFailed.failure.kind, 'storageRollbackFailed');
   assert.equal(bothCleanupsFailed.store.snapshot().state, 'unhealthy');
-  assert.equal(bothCleanupsFailed.store.snapshot().host.hostId, 'host-2');
+  assert.equal(bothCleanupsFailed.store.snapshot().host.hostId, 'host-1');
   assert.match(
     bothCleanupsFailed.store.snapshot().message,
-    /new Mac still lists.*previous (?:Mac )?credential remains.*Revoke.*Forget/i,
+    /new Mac still lists.*Revoke/i,
   );
   assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
   const bothCleanupMetadata = JSON.parse(__async().get(PAIRED_HOST_META_KEY));
-  assert.equal(bothCleanupMetadata.hostId, 'host-2');
+  assert.equal(bothCleanupMetadata.hostId, 'host-1');
   assert.deepEqual(bothCleanupMetadata.recovery, {
     revokeDevice: true,
     credential: 'previous',
@@ -570,9 +585,10 @@ async function secureWriteReplacement({
   const oldMetadata = __async().get(PAIRED_HOST_META_KEY);
   const otherPayload = JSON.stringify({
     gatewayUrl: 'https://other-mac.tail1234.ts.net',
+    hostId: 'host-2',
     pairingCode: 'b'.repeat(43),
   });
-  __setCloudHandler(async (path, _init, _token, baseUrl) => {
+  __setPublicHandler(async (path) => {
     if (path === '/mobile-gateway/health') return { ...healthResponse, hostId: 'host-2' };
     if (path === '/mobile-gateway/pair') {
       return {
@@ -582,7 +598,14 @@ async function secureWriteReplacement({
         deviceToken: 'new-device-token',
       };
     }
-    if (baseUrl.includes('rhythm-mac')) throw new Error('old Mac unreachable');
+    throw new Error(`unexpected public path ${path}`);
+  });
+  __setMacHandler(async (path, _init, token, baseUrl) => {
+    if (baseUrl.includes('rhythm-mac')) {
+      assert.equal(token, TOKEN);
+      throw new Error('old Mac unreachable');
+    }
+    assert.equal(token, 'new-device-token');
     assert.equal(path, '/mobile-gateway/devices/device-2');
     return undefined;
   });
@@ -599,11 +622,72 @@ async function secureWriteReplacement({
   assert.equal(__async().get(PAIRED_HOST_META_KEY), oldMetadata);
   assert.equal(store.snapshot().state, 'connected');
   assert.equal(store.snapshot().host.hostId, 'host-1');
-  assert.ok(__cloudRequests().some(
+  assert.ok(__macRequests().some(
     (request) =>
       request.baseUrl.includes('other-mac') &&
-      request.path === '/mobile-gateway/devices/device-2',
+      request.path === '/mobile-gateway/devices/device-2' &&
+      request.token === 'new-device-token',
   ));
+}
+
+// issue-1175-c18: if Keychain restoration succeeds but metadata restoration
+// fails, recovery must describe the previous credential that is actually
+// stored instead of claiming that the new Mac credential remains.
+{
+  __reset();
+  const store = await pairedStore();
+  const otherPayload = JSON.stringify({
+    gatewayUrl: 'https://other-mac.tail1234.ts.net',
+    hostId: 'host-2',
+    pairingCode: 'b'.repeat(43),
+  });
+  __setPublicHandler(async (path) => {
+    if (path === '/mobile-gateway/health') {
+      return { ...healthResponse, hostId: 'host-2' };
+    }
+    if (path === '/mobile-gateway/pair') {
+      return {
+        ...pairResponse,
+        deviceId: 'device-2',
+        hostId: 'host-2',
+        deviceToken: 'new-device-token',
+      };
+    }
+    throw new Error(`unexpected public path ${path}`);
+  });
+  __setMacHandler(async (path, _init, token, baseUrl) => {
+    if (baseUrl.includes('rhythm-mac')) {
+      assert.equal(token, TOKEN);
+      throw new Error('old Mac unreachable');
+    }
+    assert.equal(token, 'new-device-token');
+    assert.equal(path, '/mobile-gateway/devices/device-2');
+    return undefined;
+  });
+  // pairedStore wrote metadata once; replacement writes it a second time.
+  // Fail only the attempted previous-metadata restore, then allow recovery.
+  __failAsyncSetOnCall(3);
+  await assert.rejects(
+    () =>
+      store.pair(otherPayload, {
+        userId: 7,
+        deviceName: 'AJ iPhone',
+        replaceExisting: true,
+      }),
+    (error) =>
+      error instanceof PairedHostError &&
+      error.kind === 'storageRollbackFailed',
+  );
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
+  const recoveryMetadata = JSON.parse(
+    __async().get(PAIRED_HOST_META_KEY),
+  );
+  assert.equal(recoveryMetadata.hostId, 'host-1');
+  assert.equal(store.snapshot().host.hostId, 'host-1');
+  assert.deepEqual(recoveryMetadata.recovery, {
+    revokeDevice: false,
+    credential: 'previous',
+  });
 }
 
 // issue-1171 transactional storage: after the old Mac is revoked, a local
@@ -615,9 +699,10 @@ async function secureWriteReplacement({
   const oldMetadata = __async().get(PAIRED_HOST_META_KEY);
   const otherPayload = JSON.stringify({
     gatewayUrl: 'https://other-mac.tail1234.ts.net',
+    hostId: 'host-2',
     pairingCode: 'b'.repeat(43),
   });
-  __setCloudHandler(async (path, _init, _token, baseUrl) => {
+  __setPublicHandler(async (path) => {
     if (path === '/mobile-gateway/health') return { ...healthResponse, hostId: 'host-2' };
     if (path === '/mobile-gateway/pair') {
       return {
@@ -627,10 +712,10 @@ async function secureWriteReplacement({
         deviceToken: 'new-device-token',
       };
     }
-    assert.ok([
-      '/mobile-gateway/devices/device-1',
-      '/mobile-gateway/devices/device-2',
-    ].includes(path));
+    throw new Error(`unexpected public path ${path}`);
+  });
+  __setMacHandler(async (path) => {
+    assert.equal(path, '/mobile-gateway/devices/device-2');
     return undefined;
   });
   __failAsyncSet();
@@ -642,18 +727,15 @@ async function secureWriteReplacement({
     }),
     (error) => error instanceof PairedHostError && error.kind === 'storage',
   );
-  const rollbackRequests = __cloudRequests().slice(-2);
+  const rollbackRequests = __macRequests().slice(-1);
   assert.deepEqual(
     rollbackRequests.map((request) => request.path),
-    [
-      '/mobile-gateway/devices/device-1',
-      '/mobile-gateway/devices/device-2',
-    ],
+    ['/mobile-gateway/devices/device-2'],
   );
-  assert.equal(store.snapshot().state, 'revoked');
+  assert.equal(store.snapshot().state, 'connected');
   assert.equal(store.snapshot().host.hostId, 'host-1');
-  assert.match(store.snapshot().message, /previous Mac was revoked.*rolled back/i);
-  assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
+  assert.match(store.snapshot().message, /previous pairing is unchanged/i);
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
   assert.equal(__async().get(PAIRED_HOST_META_KEY), oldMetadata);
 }
 
@@ -665,9 +747,10 @@ async function secureWriteReplacement({
   const store = await pairedStore();
   const otherPayload = JSON.stringify({
     gatewayUrl: 'https://other-mac.tail1234.ts.net',
+    hostId: 'host-2',
     pairingCode: 'b'.repeat(43),
   });
-  __setCloudHandler(async (path) => {
+  __setPublicHandler(async (path) => {
     if (path === '/mobile-gateway/health') return { ...healthResponse, hostId: 'host-2' };
     if (path === '/mobile-gateway/pair') {
       return {
@@ -677,6 +760,9 @@ async function secureWriteReplacement({
         deviceToken: 'new-device-token',
       };
     }
+    throw new Error(`unexpected public path ${path}`);
+  });
+  __setMacHandler(async (path) => {
     if (path === '/mobile-gateway/devices/device-2') {
       throw new Error('new Mac cleanup failed');
     }
@@ -694,10 +780,10 @@ async function secureWriteReplacement({
       error.kind === 'storageRollbackFailed',
   );
   assert.equal(store.snapshot().state, 'unhealthy');
-  assert.equal(store.snapshot().host.hostId, 'host-2');
-  assert.equal(store.snapshot().host.deviceId, 'device-2');
-  assert.match(store.snapshot().message, /new Mac.*revoke this iPhone/i);
-  assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
+  assert.equal(store.snapshot().host.hostId, 'host-1');
+  assert.equal(store.snapshot().host.deviceId, 'device-1');
+  assert.match(store.snapshot().message, /new Mac.*revoke/i);
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
 }
 
 // issue-1171 transactional storage: an initial pairing whose metadata write
@@ -705,10 +791,12 @@ async function secureWriteReplacement({
 // rather than hiding the credential behind an unpaired state.
 {
   __reset();
-  primeCloudSession();
-  __setCloudHandler(async (path) => {
+  __setPublicHandler(async (path) => {
     if (path === '/mobile-gateway/health') return healthResponse;
     if (path === '/mobile-gateway/pair') return pairResponse;
+    throw new Error(`unexpected public path ${path}`);
+  });
+  __setMacHandler(async (path) => {
     assert.equal(path, '/mobile-gateway/devices/device-1');
     return undefined;
   });
@@ -734,7 +822,7 @@ async function secureWriteReplacement({
 {
   __reset();
   const revokeStore = await pairedStore();
-  __setCloudHandler(async () => {
+  __setMacHandler(async () => {
     throw new ApiError({ code: 'NETWORK_ERROR', status: 0, retryable: true });
   });
   await assert.rejects(() => revokeStore.revoke(), PairedHostError);
@@ -761,16 +849,18 @@ async function secureWriteReplacement({
   assert.equal(__async().has(PAIRED_HOST_META_KEY), true);
 }
 
-// issue-1171-c3/c6: explicit revoke calls the Mac with the cloud token, then
+// issue-1171-c3/c6/#1175-c18: explicit revoke calls the Mac with the stored
+// Device token, then
 // clears both Keychain and secret-free metadata.
 {
   __reset();
   const store = await pairedStore();
-  __setCloudHandler(async () => undefined);
+  __setMacHandler(async () => undefined);
   assert.equal((await store.revoke()).state, 'unpaired');
   assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
   assert.equal(__async().has(PAIRED_HOST_META_KEY), false);
-  assert.equal(__cloudRequests()[2].path, '/mobile-gateway/devices/device-1');
+  assert.equal(__macRequests()[0].path, '/mobile-gateway/devices/device-1');
+  assert.equal(__macRequests()[0].token, TOKEN);
 }
 
 console.log('Paired-host security and state-machine tests passed (22 scenarios)');

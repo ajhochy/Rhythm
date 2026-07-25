@@ -38,6 +38,7 @@ class MobilePairingCode {
 
   String get qrPayload => jsonEncode(<String, String>{
         'gatewayUrl': gatewayUrl,
+        'hostId': hostId,
         'pairingCode': code,
       });
 }
@@ -74,8 +75,10 @@ class MobileAccessDataSource {
     String? Function()? tokenProvider,
   })  : _client = client ?? http.Client(),
         _ownsClient = client == null,
-        _baseUrl = (baseUrl ?? AppConstants.agentLocalBaseUrl)
-            .replaceFirst(RegExp(r'/$'), ''),
+        _baseUrl = (baseUrl ?? AppConstants.agentLocalBaseUrl).replaceFirst(
+          RegExp(r'/$'),
+          '',
+        ),
         _tokenProvider = tokenProvider ?? (() => AuthSessionStore.sessionToken);
 
   final http.Client _client;
@@ -213,9 +216,7 @@ class MobileAccessDataSource {
           )
           .timeout(const Duration(seconds: 10));
     } catch (_) {
-      throw const MobileAccessException(
-        'Could not refresh paired iPhones.',
-      );
+      throw const MobileAccessException('Could not refresh paired iPhones.');
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw MobileAccessException(
@@ -236,7 +237,9 @@ class MobileAccessDataSource {
     return decoded.whereType<Map<String, dynamic>>().map((item) {
       final id = item['id'];
       final name = item['name'];
-      final createdAt = DateTime.tryParse(item['createdAt']?.toString() ?? '');
+      final createdAt = DateTime.tryParse(
+        item['createdAt']?.toString() ?? '',
+      );
       final rawRevokedAt = item['revokedAt'];
       if (id is! String || name is! String || createdAt == null) {
         throw const MobileAccessException(

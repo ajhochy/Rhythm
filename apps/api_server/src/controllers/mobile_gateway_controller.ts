@@ -10,26 +10,9 @@ function requiredString(value: unknown, field: string): string {
   return value.trim();
 }
 
-function requiredUserId(value: unknown): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw AppError.badRequest('userId must be a positive integer');
-  }
-  return parsed;
-}
-
 function authenticatedUserId(req: Request): number {
   if (!req.auth) throw AppError.unauthorized();
   return req.auth.user.id;
-}
-
-function rejectMismatchedClaim(claimedUserId: unknown, userId: number): void {
-  if (claimedUserId === undefined) return;
-  if (requiredUserId(claimedUserId) !== userId) {
-    throw AppError.forbidden(
-      'Authenticated Rhythm user does not match the requested user',
-    );
-  }
 }
 
 function consumeRequiredSecret(req: Request, field: string): string {
@@ -65,13 +48,11 @@ export class MobileGatewayController {
 
   pair(req: Request, res: Response, next: NextFunction): void {
     try {
-      const userId = authenticatedUserId(req);
-      rejectMismatchedClaim(req.body?.userId, userId);
       const pairingCode = consumeRequiredSecret(req, 'pairingCode');
       res.status(201).json(
         this.pairingService.pair({
           pairingCode,
-          userId,
+          hostId: requiredString(req.body?.hostId, 'hostId'),
           deviceName: requiredString(req.body?.deviceName, 'deviceName'),
         }),
       );
@@ -90,9 +71,15 @@ export class MobileGatewayController {
 
   revokeDevice(req: Request, res: Response, next: NextFunction): void {
     try {
+      const deviceId = requiredString(req.params.id, 'device id');
+      const userId =
+        req.mobileDevice?.userId ?? authenticatedUserId(req);
+      if (req.mobileDevice && req.mobileDevice.id !== deviceId) {
+        throw AppError.notFound('Mobile device');
+      }
       const revoked = this.pairingService.revokeDevice(
-        requiredString(req.params.id, 'device id'),
-        authenticatedUserId(req),
+        deviceId,
+        userId,
       );
       if (!revoked) throw AppError.notFound('Mobile device');
       res.status(204).send();

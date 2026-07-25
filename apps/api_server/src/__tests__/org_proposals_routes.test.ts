@@ -110,7 +110,42 @@ describe('issue-826: human-gate review queue API', () => {
     expect(body.every((p) => p.status === 'proposed')).toBe(true);
   });
 
-  it('issue-826-c2: approve transitions proposed -> applied and records decided_by_user_id', async () => {
+  it('issue-826-c2/#1175-c19: approve records the authenticated actor and ignores hostile reviewer input', async () => {
+    // Exercise the real session middleware even though the suite otherwise
+    // keeps AGENT_LOCAL enabled to preserve its dedicated bypass coverage.
+    await closeServer();
+    const [
+      { default: express },
+      { requireAuth },
+      { errorHandler },
+      { default: orgProposalsRouter },
+      { UsersRepository },
+      { SessionsRepository },
+    ] = await Promise.all([
+      import('express'),
+      import('../middleware/auth_middleware'),
+      import('../middleware/error_handler'),
+      import('../routes/org_proposals_routes'),
+      import('../repositories/users_repository'),
+      import('../repositories/sessions_repository'),
+    ]);
+    const actor = new UsersRepository().create({
+      name: 'Verified Reviewer',
+      email: 'verified-reviewer@example.com',
+      role: 'admin',
+    });
+    const session = new SessionsRepository().create(actor.id);
+    const authenticatedApp = express();
+    authenticatedApp.use(express.json());
+    authenticatedApp.use(
+      '/agent-org-proposals',
+      requireAuth,
+      orgProposalsRouter,
+    );
+    authenticatedApp.use(errorHandler);
+    ({ baseUrl, close: closeServer } =
+      await startTestServer(authenticatedApp));
+
     const proposal = await repo.createAsync({
       kind: 'create-agent',
       risk: 'high',
@@ -121,18 +156,21 @@ describe('issue-826: human-gate review queue API', () => {
 
     const res = await fetch(`${baseUrl}/agent-org-proposals/${proposal.id}/approve`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decidedByUserId: 42 }),
+      headers: {
+        Authorization: `Bearer ${session.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ decidedByUserId: actor.id + 1000 }),
     });
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as { status: string; decidedByUserId: number };
     expect(['applied', 'measuring']).toContain(body.status);
-    expect(body.decidedByUserId).toBe(42);
+    expect(body.decidedByUserId).toBe(actor.id);
 
     const stored = await repo.findByIdAsync(proposal.id);
     expect(stored?.status).not.toBe('proposed');
-    expect(stored?.decidedByUserId).toBe(42);
+    expect(stored?.decidedByUserId).toBe(actor.id);
   });
 
   it('issue-826-c3: reject transitions proposed -> rejected', async () => {

@@ -3,6 +3,7 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
 
 import { AppError } from '../errors/app_error';
 import { UsersRepository } from '../repositories/users_repository';
+import { WorkspaceRepository } from '../repositories/workspace_repository';
 import agentCookbookRouter from './agentCookbookRoutes';
 import { agentConfigsRouter } from './agent_configs_routes';
 import agentMemoryRouter from './agentMemoryRoutes';
@@ -25,6 +26,8 @@ type MobileToolMount =
   | 'agents/run-quality'
   | 'opencode/skills'
   | 'opencode/commands';
+
+type MobileToolPolicy = 'owner-scoped' | 'mac-global-admin';
 
 interface MobileToolOperation {
   method: string;
@@ -114,6 +117,25 @@ const MOBILE_TOOL_OPERATIONS: Record<
   ],
 };
 
+/**
+ * Every mount has one explicit tenancy policy. Personal resources are scoped
+ * again inside their repository/controller boundary; Mac-global resources are
+ * reachable only by a verified workspace admin or an explicit global
+ * admin/system principal.
+ */
+const MOBILE_TOOL_POLICIES: Record<MobileToolMount, MobileToolPolicy> = {
+  'agent-memory': 'mac-global-admin',
+  'agent-research': 'owner-scoped',
+  'agent-schedules': 'owner-scoped',
+  'agent-webhooks': 'owner-scoped',
+  'agent-configs': 'mac-global-admin',
+  'agent-cookbook': 'owner-scoped',
+  'agent-org-proposals': 'mac-global-admin',
+  'agents/run-quality': 'owner-scoped',
+  'opencode/skills': 'mac-global-admin',
+  'opencode/commands': 'mac-global-admin',
+};
+
 const MOBILE_CONFIG_RESERVED_PATHS = new Set([
   '/export',
   '/import',
@@ -146,6 +168,45 @@ function requireAllowedOperation(mount: MobileToolMount): RequestHandler {
   };
 }
 
+function requireToolPolicy(mount: MobileToolMount): RequestHandler {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    void (async () => {
+      try {
+        if (MOBILE_TOOL_POLICIES[mount] === 'owner-scoped') {
+          next();
+          return;
+        }
+        const auth = req.auth;
+        const actor = auth?.user;
+        if (!auth || !actor || !req.mobileDevice) {
+          throw AppError.unauthorized('Missing paired administrator');
+        }
+        if (actor.role === 'admin' || actor.role === 'system') {
+          next();
+          return;
+        }
+        const isWorkspaceAdmin =
+          await new WorkspaceRepository().hasAdminMembershipAsync(actor.id);
+        if (!isWorkspaceAdmin) {
+          throw AppError.forbidden(
+            'Only workspace administrators can access Mac-global agent policy',
+          );
+        }
+        // Downstream policy controllers already recognize the canonical
+        // admin/system roles. Project the independently verified workspace
+        // role into this request-local principal; never persist it.
+        req.auth = {
+          sessionToken: auth.sessionToken,
+          user: { ...actor, role: 'admin' },
+        };
+        next();
+      } catch (error) {
+        next(error instanceof AppError ? error : AppError.internal());
+      }
+    })();
+  };
+}
+
 async function attachPairedUser(
   req: Request,
   _res: Response,
@@ -174,51 +235,61 @@ export function createMobileToolsRouter(): Router {
   router.use(
     '/agent-memory',
     requireAllowedOperation('agent-memory'),
+    requireToolPolicy('agent-memory'),
     agentMemoryRouter,
   );
   router.use(
     '/agent-research',
     requireAllowedOperation('agent-research'),
+    requireToolPolicy('agent-research'),
     agentResearchRouter,
   );
   router.use(
     '/agent-schedules',
     requireAllowedOperation('agent-schedules'),
+    requireToolPolicy('agent-schedules'),
     agentSchedulesRouter,
   );
   router.use(
     '/agent-webhooks',
     requireAllowedOperation('agent-webhooks'),
+    requireToolPolicy('agent-webhooks'),
     agentWebhookRouter,
   );
   router.use(
     '/agent-configs',
     requireAllowedOperation('agent-configs'),
+    requireToolPolicy('agent-configs'),
     agentConfigsRouter,
   );
   router.use(
     '/agent-cookbook',
     requireAllowedOperation('agent-cookbook'),
+    requireToolPolicy('agent-cookbook'),
     agentCookbookRouter,
   );
   router.use(
     '/agent-org-proposals',
     requireAllowedOperation('agent-org-proposals'),
+    requireToolPolicy('agent-org-proposals'),
     orgProposalsRouter,
   );
   router.use(
     '/agents/run-quality',
     requireAllowedOperation('agents/run-quality'),
+    requireToolPolicy('agents/run-quality'),
     runQualityRouter,
   );
   router.use(
     '/opencode/skills',
     requireAllowedOperation('opencode/skills'),
+    requireToolPolicy('opencode/skills'),
     opencodeSkillsRouter,
   );
   router.use(
     '/opencode/commands',
     requireAllowedOperation('opencode/commands'),
+    requireToolPolicy('opencode/commands'),
     opencodeCommandsRouter,
   );
   return router;

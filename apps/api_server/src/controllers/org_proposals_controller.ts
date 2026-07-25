@@ -97,8 +97,7 @@ export class OrgProposalsController {
         );
       }
 
-      const decidedByUserId =
-        typeof req.body?.decidedByUserId === 'number' ? req.body.decidedByUserId : undefined;
+      const decidedByUserId = req.auth?.user.id;
 
       const applyResult = await applyProposal(proposal);
 
@@ -181,8 +180,7 @@ export class OrgProposalsController {
         );
       }
 
-      const decidedByUserId =
-        typeof req.body?.decidedByUserId === 'number' ? req.body.decidedByUserId : undefined;
+      const decidedByUserId = req.auth?.user.id;
 
       const rejected = await repo().updateStatusAsync(id, 'rejected', { decidedByUserId });
       res.json(rejected);

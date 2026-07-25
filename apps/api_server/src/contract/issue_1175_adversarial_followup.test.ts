@@ -76,12 +76,16 @@ describe('issue #1175 adversarial follow-up acceptance contract', () => {
         { method: 'POST', headers: cloudHeaders, body: '{}' },
       );
       expect(codeResponse.status).toBe(201);
-      const code = (await codeResponse.json()) as { pairingCode: string };
+      const code = (await codeResponse.json()) as {
+        pairingCode: string;
+        hostId: string;
+      };
       const pairResponse = await fetch(`${baseUrl}/mobile-gateway/pair`, {
         method: 'POST',
-        headers: cloudHeaders,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pairingCode: code.pairingCode,
+          hostId: code.hostId,
           deviceName: 'Contract iPhone',
         }),
       });

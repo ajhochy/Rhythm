@@ -79,9 +79,10 @@ export class MobilePairingService {
     return result;
   }
 
-  pair(input: { pairingCode: string; userId: number; deviceName: string }): {
+  pair(input: { pairingCode: string; hostId: string; deviceName: string }): {
     deviceId: string;
     hostId: string;
+    userId: number;
     deviceToken: string;
     gatewayVersion: string;
     rhythmVersion: string;
@@ -97,8 +98,11 @@ export class MobilePairingService {
         timingSafeEqual(storedVerifier, presentedVerifier);
     });
     if (!pairingCode) throw AppError.unauthorized('Invalid pairing code');
-    if (pairingCode.userId !== input.userId) {
-      throw AppError.forbidden('Pairing code belongs to a different Rhythm user');
+    if (
+      input.hostId !== this.hostId ||
+      pairingCode.hostId !== this.hostId
+    ) {
+      throw AppError.forbidden('Pairing code belongs to a different Mac');
     }
     const pairedAt = this.now();
     if (pairedAt.getTime() >= new Date(pairingCode.expiresAt).getTime()) {
@@ -113,7 +117,7 @@ export class MobilePairingService {
       {
         id: deviceId,
         hostId: pairingCode.hostId,
-        userId: input.userId,
+        userId: pairingCode.userId,
         name: input.deviceName,
         tokenVerifier: verifier(deviceToken).toString('hex'),
         revokedAt: null,
@@ -126,6 +130,7 @@ export class MobilePairingService {
     return {
       deviceId,
       hostId: pairingCode.hostId,
+      userId: pairingCode.userId,
       deviceToken,
       ...MOBILE_GATEWAY_COMPATIBILITY,
       features: [...MOBILE_GATEWAY_COMPATIBILITY.features],

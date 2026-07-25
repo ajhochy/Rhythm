@@ -84,9 +84,7 @@ MobilePairingCode code(String value, {DateTime? expiresAt}) =>
 String repeated(String value) => List.filled(43, value).join();
 
 Widget wrap(MobileAccessDataSource dataSource) => MaterialApp(
-      home: Scaffold(
-        body: MobileAccessDialog(dataSource: dataSource),
-      ),
+      home: Scaffold(body: MobileAccessDialog(dataSource: dataSource)),
     );
 
 Future<void> settleInitial(WidgetTester tester) async {
@@ -122,12 +120,16 @@ void main() {
         await tester.pumpWidget(wrap(dataSource));
         await settleInitial(tester);
         expect(
-            find.byKey(Key('tailscale-status-${state.name}')), findsOneWidget);
+          find.byKey(Key('tailscale-status-${state.name}')),
+          findsOneWidget,
+        );
         expect(find.text(label), findsOneWidget);
         expect(find.text('diagnostic-${state.name}'), findsOneWidget);
         if (state == TailscaleAccessState.wrongTarget) {
-          expect(find.byKey(const Key('configure-tailscale-serve')),
-              findsOneWidget);
+          expect(
+            find.byKey(const Key('configure-tailscale-serve')),
+            findsOneWidget,
+          );
         }
         await disposeDialog(tester);
       });
@@ -135,52 +137,55 @@ void main() {
   });
 
   testWidgets(
-      'issue-1171-c1: configure transitions wrong target to healthy without duplicate setup',
-      (tester) async {
-    final dataSource = _FakeMobileAccessDataSource(
-      status: const MobileAccessStatus(
-        state: TailscaleAccessState.wrongTarget,
-        gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
-        message: 'Wrong target',
-        canConfigure: true,
-      ),
-      codes: [code(repeated('a'))],
-    );
-    await tester.pumpWidget(wrap(dataSource));
-    await settleInitial(tester);
-    await tester.tap(find.byKey(const Key('configure-tailscale-serve')));
-    await tester.pump();
-    await tester.pump();
-    expect(find.text('Private connection ready'), findsOneWidget);
-    expect(find.byKey(const Key('mobile-pairing-code-card')), findsOneWidget);
-    expect(dataSource.generated, 1);
-    await disposeDialog(tester);
-  });
+    'issue-1171-c1: configure transitions wrong target to healthy without duplicate setup',
+    (tester) async {
+      final dataSource = _FakeMobileAccessDataSource(
+        status: const MobileAccessStatus(
+          state: TailscaleAccessState.wrongTarget,
+          gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
+          message: 'Wrong target',
+          canConfigure: true,
+        ),
+        codes: [code(repeated('a'))],
+      );
+      await tester.pumpWidget(wrap(dataSource));
+      await settleInitial(tester);
+      await tester.tap(find.byKey(const Key('configure-tailscale-serve')));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Private connection ready'), findsOneWidget);
+      expect(find.byKey(const Key('mobile-pairing-code-card')), findsOneWidget);
+      expect(dataSource.generated, 1);
+      await disposeDialog(tester);
+    },
+  );
 
   testWidgets(
-      'issue-1171-c2: QR payload contains only gatewayUrl and one-time pairingCode',
-      (tester) async {
-    final pairingCode = code(repeated('b'));
-    final dataSource = _FakeMobileAccessDataSource(
-      status: healthy,
-      codes: [pairingCode],
-    );
-    await tester.pumpWidget(wrap(dataSource));
-    await settleInitial(tester);
-    await tester.tap(find.byKey(const Key('generate-mobile-pairing-code')));
-    await tester.pump();
-    expect(find.byType(QrImageView), findsOneWidget);
-    final payload = jsonDecode(pairingCode.qrPayload) as Map<String, dynamic>;
-    expect(payload.keys.toSet(), {'gatewayUrl', 'pairingCode'});
-    expect(payload['gatewayUrl'], 'https://rhythm-mac.tail1234.ts.net');
-    expect(payload['pairingCode'], repeated('b'));
-    expect(pairingCode.qrPayload, isNot(contains('deviceToken')));
-    expect(pairingCode.qrPayload, isNot(contains('hostId')));
-    await disposeDialog(tester);
-  });
+    'issue-1171-c2: QR payload contains only host binding and one-time pairing material',
+    (tester) async {
+      final pairingCode = code(repeated('b'));
+      final dataSource = _FakeMobileAccessDataSource(
+        status: healthy,
+        codes: [pairingCode],
+      );
+      await tester.pumpWidget(wrap(dataSource));
+      await settleInitial(tester);
+      await tester.tap(find.byKey(const Key('generate-mobile-pairing-code')));
+      await tester.pump();
+      expect(find.byType(QrImageView), findsOneWidget);
+      final payload = jsonDecode(pairingCode.qrPayload) as Map<String, dynamic>;
+      expect(payload.keys.toSet(), {'gatewayUrl', 'hostId', 'pairingCode'});
+      expect(payload['gatewayUrl'], 'https://rhythm-mac.tail1234.ts.net');
+      expect(payload['hostId'], 'host-1');
+      expect(payload['pairingCode'], repeated('b'));
+      expect(pairingCode.qrPayload, isNot(contains('deviceToken')));
+      await disposeDialog(tester);
+    },
+  );
 
-  testWidgets('issue-1171-c2: expired QR disappears and can be regenerated',
-      (tester) async {
+  testWidgets('issue-1171-c2: expired QR disappears and can be regenerated', (
+    tester,
+  ) async {
     final dataSource = _FakeMobileAccessDataSource(
       status: healthy,
       codes: [
@@ -207,38 +212,42 @@ void main() {
   });
 
   testWidgets(
-      'issue-1171-c4/c6: active device shows replacement warning and accessible revoke',
-      (tester) async {
-    final dataSource = _FakeMobileAccessDataSource(
-      status: healthy,
-      devices: [
-        MobileDevice(
-          id: 'iphone-1',
-          name: 'AJ iPhone',
-          createdAt: DateTime.now(),
+    'issue-1171-c4/c6: active device shows replacement warning and accessible revoke',
+    (tester) async {
+      final dataSource = _FakeMobileAccessDataSource(
+        status: healthy,
+        devices: [
+          MobileDevice(
+            id: 'iphone-1',
+            name: 'AJ iPhone',
+            createdAt: DateTime.now(),
+          ),
+        ],
+      );
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(wrap(dataSource));
+      await settleInitial(tester);
+      expect(
+        find.byKey(const Key('mobile-access-replacement-warning')),
+        findsOneWidget,
+      );
+      expect(find.text('AJ iPhone'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(
+          'One-time mobile pairing QR code, expires in 05:00',
         ),
-      ],
-    );
-    final semantics = tester.ensureSemantics();
-    await tester.pumpWidget(wrap(dataSource));
-    await settleInitial(tester);
-    expect(
-      find.byKey(const Key('mobile-access-replacement-warning')),
-      findsOneWidget,
-    );
-    expect(find.text('AJ iPhone'), findsOneWidget);
-    expect(
-      find.bySemanticsLabel(
-          'One-time mobile pairing QR code, expires in 05:00'),
-      findsNothing,
-    );
-    final revokeButton = find.byKey(const Key('revoke-mobile-device-iphone-1'));
-    await tester.ensureVisible(revokeButton);
-    await tester.tap(revokeButton);
-    await tester.pump();
-    await tester.pump();
-    expect(dataSource.revoked, ['iphone-1']);
-    semantics.dispose();
-    await disposeDialog(tester);
-  });
+        findsNothing,
+      );
+      final revokeButton = find.byKey(
+        const Key('revoke-mobile-device-iphone-1'),
+      );
+      await tester.ensureVisible(revokeButton);
+      await tester.tap(revokeButton);
+      await tester.pump();
+      await tester.pump();
+      expect(dataSource.revoked, ['iphone-1']);
+      semantics.dispose();
+      await disposeDialog(tester);
+    },
+  );
 }

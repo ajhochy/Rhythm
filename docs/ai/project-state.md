@@ -64,6 +64,14 @@ with exact live evidence and production review notes.
 
 ## Recent coding-agent runs
 
+- 2026-07-25 — #1175 pairing/tool authorization c18/c19
+  (`codex/1175-pairing-tool-auth`): public host-bound one-time-code pairing,
+  Device-only replacement/revocation, explicit policy for all ten mobile tool
+  mounts, personal owner isolation, verified workspace-admin global mutations,
+  and server-derived proposal actors implemented. Focused static/behavioral
+  checks and rebuilt-fork isolated live HTTP smoke pass; aggregate-only
+  c11/c15/c17/c20/c21/c23 contracts remain with their parallel workstreams.
+  See `docs/ai/runs/2026-07-25-1175-pairing-tool-authorization.md`.
 - 2026-07-25 — #1175 delegation/Activity hardening
   (`codex/delegation-activity-1175`): locked execution gates, durable
   exactly-once wake reconciliation/restart pagination, per-user Activity

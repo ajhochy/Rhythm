@@ -8,6 +8,7 @@ export interface AgentCookbook {
   description: string | null;
   stepsJson: string;
   boundConfigId: string | null;
+  ownerUserId: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -28,6 +29,7 @@ function rowToModel(row: Record<string, unknown>): AgentCookbook {
     description: (row.description as string | null) ?? null,
     stepsJson: (row.steps_json as string) ?? '[]',
     boundConfigId: (row.bound_config_id as string | null) ?? null,
+    ownerUserId: (row.owner_user_id as number | null) ?? null,
     createdAt:
       typeof row.created_at === 'string'
         ? row.created_at
@@ -101,6 +103,27 @@ export class AgentCookbookRepository {
     return row ? rowToModel(row as Record<string, unknown>) : null;
   }
 
+  async findByIdForOwnerAsync(
+    id: string,
+    ownerUserId: number,
+  ): Promise<AgentCookbook | null> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `SELECT * FROM agent_cookbook
+         WHERE id = $1 AND owner_user_id = $2`,
+        [id, ownerUserId],
+      );
+      return result.rows[0] ? rowToModel(result.rows[0]) : null;
+    }
+    const row = getDb()
+      .prepare(
+        `SELECT * FROM agent_cookbook
+         WHERE id = ? AND owner_user_id = ?`,
+      )
+      .get(id, ownerUserId);
+    return row ? rowToModel(row as Record<string, unknown>) : null;
+  }
+
   async listAllAsync(): Promise<AgentCookbook[]> {
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(
@@ -111,6 +134,26 @@ export class AgentCookbookRepository {
     const rows = getDb()
       .prepare(`SELECT * FROM agent_cookbook ORDER BY created_at DESC`)
       .all();
+    return (rows as Record<string, unknown>[]).map(rowToModel);
+  }
+
+  async listForOwnerAsync(ownerUserId: number): Promise<AgentCookbook[]> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `SELECT * FROM agent_cookbook
+         WHERE owner_user_id = $1
+         ORDER BY created_at DESC`,
+        [ownerUserId],
+      );
+      return result.rows.map(rowToModel);
+    }
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM agent_cookbook
+         WHERE owner_user_id = ?
+         ORDER BY created_at DESC`,
+      )
+      .all(ownerUserId);
     return (rows as Record<string, unknown>[]).map(rowToModel);
   }
 
@@ -175,5 +218,36 @@ export class AgentCookbookRepository {
       .prepare(`DELETE FROM agent_cookbook WHERE id = ?`)
       .run(id);
     return r.changes > 0;
+  }
+
+  async updateForOwnerAsync(
+    id: string,
+    ownerUserId: number,
+    patch: Partial<CreateAgentCookbookInput>,
+  ): Promise<AgentCookbook | null> {
+    if (!(await this.findByIdForOwnerAsync(id, ownerUserId))) return null;
+    await this.updateAsync(id, patch);
+    return this.findByIdForOwnerAsync(id, ownerUserId);
+  }
+
+  async deleteForOwnerAsync(
+    id: string,
+    ownerUserId: number,
+  ): Promise<boolean> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `DELETE FROM agent_cookbook
+         WHERE id = $1 AND owner_user_id = $2`,
+        [id, ownerUserId],
+      );
+      return (result.rowCount ?? 0) > 0;
+    }
+    const result = getDb()
+      .prepare(
+        `DELETE FROM agent_cookbook
+         WHERE id = ? AND owner_user_id = ?`,
+      )
+      .run(id, ownerUserId);
+    return result.changes > 0;
   }
 }

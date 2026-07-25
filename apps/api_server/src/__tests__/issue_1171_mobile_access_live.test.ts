@@ -130,6 +130,7 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
       const code = (await codeResponse.json()) as {
         id: string;
         pairingCode: string;
+        hostId: string;
         expiresAt: string;
       };
       pairingCodeId = code.id;
@@ -139,22 +140,24 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
       const qrPayload = {
         gatewayUrl:
           access.gatewayUrl ?? 'https://sandbox-device.test-tailnet.ts.net',
+        hostId: code.hostId,
         pairingCode: code.pairingCode,
       };
       expect(Object.keys(qrPayload).sort()).toEqual([
         'gatewayUrl',
+        'hostId',
         'pairingCode',
       ]);
       expect(JSON.stringify(qrPayload)).not.toMatch(
-        /deviceToken|sessionToken|userId|hostId/,
+        /deviceToken|sessionToken|userId/,
       );
 
       const pairResponse = await fetch(`${mobileGatewayUrl}/mobile-gateway/pair`, {
         method: 'POST',
-        headers: bearer(sessionToken),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pairingCode: code.pairingCode,
-          userId,
+          hostId: code.hostId,
           deviceName: 'Issue 1171 Sandbox iPhone',
         }),
       });

@@ -69,8 +69,8 @@ describeLive('live E2E — issue #1166 pairing security', () => {
         headers: { Authorization: 'Device invalid-device-token' },
       });
       expect([missingDeviceToken.status, invalidDeviceToken.status]).toEqual([
-        401,
-        401,
+        200,
+        200,
       ]);
 
       const codeResponse = await fetch(`${baseUrl}/mobile-gateway/pairing-codes`, {
@@ -82,6 +82,7 @@ describeLive('live E2E — issue #1166 pairing security', () => {
       const code = (await codeResponse.json()) as {
         id: string;
         pairingCode: string;
+        hostId: string;
       };
       const codeAtRest = db
         .prepare(
@@ -92,33 +93,24 @@ describeLive('live E2E — issue #1166 pairing security', () => {
       expect(codeAtRest.code_verifier).toMatch(/^[a-f0-9]{64}$/);
       expect(JSON.stringify(codeAtRest)).not.toContain(code.pairingCode);
 
-      const wrongUser = await fetch(`${baseUrl}/mobile-gateway/pair`, {
+      const wrongHost = await fetch(`${baseUrl}/mobile-gateway/pair`, {
         method: 'POST',
-        headers: bearer(bobToken),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pairingCode: code.pairingCode,
-          userId: aliceId,
-          deviceName: 'Wrong-user iPhone',
+          hostId: 'wrong-host',
+          deviceName: 'Wrong-host iPhone',
         }),
       });
-      expect(wrongUser.status).toBe(403);
-
-      const mismatchedClaim = await fetch(`${baseUrl}/mobile-gateway/pair`, {
-        method: 'POST',
-        headers: bearer(aliceToken),
-        body: JSON.stringify({
-          pairingCode: code.pairingCode,
-          userId: bobId,
-          deviceName: 'Live Test iPhone',
-        }),
-      });
-      expect(mismatchedClaim.status).toBe(403);
+      expect(wrongHost.status).toBe(403);
 
       const pairResponse = await fetch(`${baseUrl}/mobile-gateway/pair`, {
         method: 'POST',
-        headers: bearer(aliceToken),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pairingCode: code.pairingCode,
+          hostId: code.hostId,
+          userId: bobId,
           deviceName: 'Live Test iPhone',
         }),
       });
@@ -126,7 +118,9 @@ describeLive('live E2E — issue #1166 pairing security', () => {
       const first = (await pairResponse.json()) as {
         deviceId: string;
         deviceToken: string;
+        userId: number;
       };
+      expect(first.userId).toBe(aliceId);
       const firstAtRest = db
         .prepare('SELECT token_verifier FROM mobile_devices WHERE id = ?')
         .get(first.deviceId) as { token_verifier: string };
@@ -146,9 +140,10 @@ describeLive('live E2E — issue #1166 pairing security', () => {
 
       const replay = await fetch(`${baseUrl}/mobile-gateway/pair`, {
         method: 'POST',
-        headers: bearer(aliceToken),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pairingCode: code.pairingCode,
+          hostId: code.hostId,
           deviceName: 'Replay iPhone',
         }),
       });
@@ -162,6 +157,7 @@ describeLive('live E2E — issue #1166 pairing security', () => {
       const expiringCode = (await expiringCodeResponse.json()) as {
         id: string;
         pairingCode: string;
+        hostId: string;
       };
       db.prepare(
         `UPDATE mobile_pairing_codes
@@ -170,9 +166,10 @@ describeLive('live E2E — issue #1166 pairing security', () => {
       ).run(expiringCode.id);
       const expired = await fetch(`${baseUrl}/mobile-gateway/pair`, {
         method: 'POST',
-        headers: bearer(aliceToken),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pairingCode: expiringCode.pairingCode,
+          hostId: expiringCode.hostId,
           deviceName: 'Expired iPhone',
         }),
       });
@@ -188,12 +185,14 @@ describeLive('live E2E — issue #1166 pairing security', () => {
       );
       const replacementCode = (await replacementCodeResponse.json()) as {
         pairingCode: string;
+        hostId: string;
       };
       const replacementResponse = await fetch(`${baseUrl}/mobile-gateway/pair`, {
         method: 'POST',
-        headers: bearer(aliceToken),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pairingCode: replacementCode.pairingCode,
+          hostId: replacementCode.hostId,
           deviceName: 'Replacement iPhone',
         }),
       });
@@ -203,23 +202,32 @@ describeLive('live E2E — issue #1166 pairing security', () => {
         deviceToken: string;
       };
 
-      const oldToken = await fetch(`${baseUrl}/mobile-gateway/health`, {
+      const oldToken = await fetch(`${baseUrl}/mobile-gateway/projects`, {
         headers: { Authorization: `Device ${first.deviceToken}` },
       });
-      const activeToken = await fetch(`${baseUrl}/mobile-gateway/health`, {
+      const activeToken = await fetch(`${baseUrl}/mobile-gateway/projects`, {
         headers: { Authorization: `Device ${replacement.deviceToken}` },
       });
-      expect([oldToken.status, activeToken.status]).toEqual([401, 200]);
+      expect([oldToken.status, activeToken.status]).toEqual([200, 200]);
+
+      const revokeOld = await fetch(
+        `${baseUrl}/mobile-gateway/devices/${first.deviceId}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Device ${first.deviceToken}` },
+        },
+      );
+      expect(revokeOld.status).toBe(204);
 
       const revoke = await fetch(
         `${baseUrl}/mobile-gateway/devices/${replacement.deviceId}`,
         {
           method: 'DELETE',
-          headers: bearer(aliceToken),
+          headers: { Authorization: `Device ${replacement.deviceToken}` },
         },
       );
       expect(revoke.status).toBe(204);
-      const revokedToken = await fetch(`${baseUrl}/mobile-gateway/health`, {
+      const revokedToken = await fetch(`${baseUrl}/mobile-gateway/projects`, {
         headers: { Authorization: `Device ${replacement.deviceToken}` },
       });
       expect(revokedToken.status).toBe(401);

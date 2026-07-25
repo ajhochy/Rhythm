@@ -123,13 +123,6 @@ export class MobileDevicesRepository {
 
       this.db
         .prepare(
-          `UPDATE mobile_devices
-           SET revoked_at = ?
-           WHERE user_id = ? AND revoked_at IS NULL`,
-        )
-        .run(consumedAt, device.userId);
-      this.db
-        .prepare(
           `INSERT INTO mobile_devices
              (id, host_id, user_id, name, token_verifier, revoked_at, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,

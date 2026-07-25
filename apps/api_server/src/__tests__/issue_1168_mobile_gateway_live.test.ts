@@ -108,12 +108,16 @@ describeLive('live E2E — issue #1168 mobile gateway security', () => {
         body: JSON.stringify({}),
       });
       expect(codeResponse.status).toBe(201);
-      const code = (await codeResponse.json()) as { pairingCode: string };
+      const code = (await codeResponse.json()) as {
+        pairingCode: string;
+        hostId: string;
+      };
       const pairResponse = await fetch(`${baseUrl}/mobile-gateway/pair`, {
         method: 'POST',
-        headers: bearer(userToken),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pairingCode: code.pairingCode,
+          hostId: code.hostId,
           deviceName: 'Issue 1168 Live iPhone',
         }),
       });

@@ -88,15 +88,16 @@ describe('#1172 agent activity HTTP routes', () => {
       body: '{}',
     });
     expect(code.status).toBe(201);
-    const { pairingCode } = (await code.json()) as { pairingCode: string };
+    const { pairingCode, hostId } = (await code.json()) as {
+      pairingCode: string;
+      hostId: string;
+    };
     const paired = await fetch(`${baseUrl}/mobile-gateway/pair`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${bearer}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         pairingCode,
+        hostId,
         deviceName: 'Activity iPhone',
       }),
     });

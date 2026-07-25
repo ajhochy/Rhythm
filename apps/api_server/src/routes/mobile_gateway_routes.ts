@@ -64,7 +64,6 @@ export function createMobileGatewayRouter(): Router {
   );
   router.post(
     '/pair',
-    requireCloudUser,
     withController((active, req, res, next) =>
       active.pair(req, res, next)),
   );
@@ -76,13 +75,12 @@ export function createMobileGatewayRouter(): Router {
   );
   router.delete(
     '/devices/:id',
-    requireCloudUser,
+    requireSessionOrMobileDevice(getPairingService, cloudIdentity),
     withController((active, req, res, next) =>
       active.revokeDevice(req, res, next)),
   );
   router.get(
     '/health',
-    requireSessionOrMobileDevice(getPairingService, cloudIdentity),
     withController((active, req, res) => active.health(req, res)),
   );
   router.get('/access', requireCloudUser, async (_req, res, next) => {

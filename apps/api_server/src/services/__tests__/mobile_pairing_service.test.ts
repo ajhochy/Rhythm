@@ -78,7 +78,7 @@ describe('MobilePairingService', () => {
 
     const result = service.pair({
       pairingCode,
-      userId: 1,
+      hostId: 'host-a',
       deviceName: 'AJ iPhone',
     });
     const row = db
@@ -90,6 +90,7 @@ describe('MobilePairingService', () => {
     expect(row.token_verifier).not.toContain(result.deviceToken);
     expect(result).toMatchObject({
       hostId: 'host-a',
+      userId: 1,
       gatewayVersion: '1',
       rhythmVersion: '0.1.0',
       opencodeVersion: '1.14.49',
@@ -108,10 +109,18 @@ describe('MobilePairingService', () => {
 
   it('allows a pairing code to be used only once', () => {
     const { pairingCode } = service.createPairingCode(1);
-    service.pair({ pairingCode, userId: 1, deviceName: 'First iPhone' });
+    service.pair({
+      pairingCode,
+      hostId: 'host-a',
+      deviceName: 'First iPhone',
+    });
 
     expect(() =>
-      service.pair({ pairingCode, userId: 1, deviceName: 'Second iPhone' }),
+      service.pair({
+        pairingCode,
+        hostId: 'host-a',
+        deviceName: 'Second iPhone',
+      }),
     ).toThrowError('Pairing code has already been used');
   });
 
@@ -120,7 +129,11 @@ describe('MobilePairingService', () => {
     now = new Date('2026-07-24T18:01:00.001Z');
 
     expect(() =>
-      service.pair({ pairingCode, userId: 1, deviceName: 'AJ iPhone' }),
+      service.pair({
+        pairingCode,
+        hostId: 'host-a',
+        deviceName: 'AJ iPhone',
+      }),
     ).toThrowError('Pairing code has expired');
     expect(
       db.prepare('SELECT COUNT(*) AS count FROM mobile_devices').get(),
@@ -132,26 +145,34 @@ describe('MobilePairingService', () => {
     now = new Date('2026-07-24T18:01:00.000Z');
 
     expect(() =>
-      service.pair({ pairingCode, userId: 1, deviceName: 'AJ iPhone' }),
+      service.pair({
+        pairingCode,
+        hostId: 'host-a',
+        deviceName: 'AJ iPhone',
+      }),
     ).toThrowError('Pairing code has expired');
   });
 
-  it('rejects a pairing attempt from a different Rhythm user', () => {
+  it('rejects a pairing attempt for a different Mac host', () => {
     const { pairingCode } = service.createPairingCode(1);
 
     expect(() =>
-      service.pair({ pairingCode, userId: 2, deviceName: 'AJ iPhone' }),
-    ).toThrowError('Pairing code belongs to a different Rhythm user');
+      service.pair({
+        pairingCode,
+        hostId: 'host-b',
+        deviceName: 'AJ iPhone',
+      }),
+    ).toThrowError('Pairing code belongs to a different Mac');
     expect(
       db.prepare('SELECT COUNT(*) AS count FROM mobile_devices').get(),
     ).toEqual({ count: 0 });
   });
 
-  it('replaces the active host for a Rhythm user', () => {
+  it('preserves the old device until it is explicitly revoked', () => {
     const firstCode = service.createPairingCode(1).pairingCode;
     const first = service.pair({
       pairingCode: firstCode,
-      userId: 1,
+      hostId: 'host-a',
       deviceName: 'AJ iPhone',
     });
     const replacementService = new MobilePairingService({
@@ -162,7 +183,7 @@ describe('MobilePairingService', () => {
     const replacementCode = replacementService.createPairingCode(1).pairingCode;
     const replacement = replacementService.pair({
       pairingCode: replacementCode,
-      userId: 1,
+      hostId: 'host-b',
       deviceName: 'AJ iPhone',
     });
 
@@ -173,19 +194,31 @@ describe('MobilePairingService', () => {
       )
       .all(1) as Array<{ id: string; host_id: string; revoked_at: string | null }>;
     expect(rows).toHaveLength(2);
-    expect(rows.find((row) => row.id === first.deviceId)?.revoked_at).not.toBeNull();
+    expect(
+      rows.find((row) => row.id === first.deviceId)?.revoked_at,
+    ).toBeNull();
     expect(rows.find((row) => row.id === replacement.deviceId)).toMatchObject({
       host_id: 'host-b',
       revoked_at: null,
     });
-    expect(rows.filter((row) => row.revoked_at === null)).toHaveLength(1);
+    expect(rows.filter((row) => row.revoked_at === null)).toHaveLength(2);
+
+    expect(replacementService.revokeDevice(first.deviceId, 1)).toBe(true);
+    const activeRows = db
+      .prepare(
+        `SELECT id FROM mobile_devices
+         WHERE user_id = ? AND revoked_at IS NULL
+         ORDER BY created_at, id`,
+      )
+      .all(1) as Array<{ id: string }>;
+    expect(activeRows).toEqual([{ id: replacement.deviceId }]);
   });
 
   it('revokes a device token and excludes it from authentication', () => {
     const pairingCode = service.createPairingCode(1).pairingCode;
     const paired = service.pair({
       pairingCode,
-      userId: 1,
+      hostId: 'host-a',
       deviceName: 'AJ iPhone',
     });
 
@@ -202,7 +235,7 @@ describe('MobilePairingService', () => {
     const pairingCode = service.createPairingCode(1).pairingCode;
     const paired = service.pair({
       pairingCode,
-      userId: 1,
+      hostId: 'host-a',
       deviceName: 'AJ iPhone',
     });
 

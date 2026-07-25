@@ -55,14 +55,18 @@ describe('mobile gateway pairing HTTP routes', () => {
       body: JSON.stringify({}),
     });
     expect(codeResponse.status).toBe(201);
-    const code = (await codeResponse.json()) as { pairingCode: string };
+    const code = (await codeResponse.json()) as {
+      pairingCode: string;
+      hostId: string;
+    };
     expect(code.pairingCode).toBeTruthy();
 
     const pairResponse = await fetch(`${baseUrl}/mobile-gateway/pair`, {
       method: 'POST',
-      headers: authHeaders,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         pairingCode: code.pairingCode,
+        hostId: code.hostId,
         deviceName: 'AJ iPhone',
       }),
     });
@@ -100,7 +104,7 @@ describe('mobile gateway pairing HTTP routes', () => {
     const devices = (await revokedListResponse.json()) as Array<{ revokedAt: string | null }>;
     expect(devices[0].revokedAt).not.toBeNull();
 
-    const revokedHealthResponse = await fetch(`${baseUrl}/mobile-gateway/health`, {
+    const revokedHealthResponse = await fetch(`${baseUrl}/mobile-gateway/projects`, {
       headers: { Authorization: `Device ${paired.deviceToken}` },
     });
     expect(revokedHealthResponse.status).toBe(401);
