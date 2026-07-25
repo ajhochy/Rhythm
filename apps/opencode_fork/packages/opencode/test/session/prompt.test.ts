@@ -1876,6 +1876,23 @@ it.instance(
           "Use the bundled reader for .rhythmfixture files.",
         ].join("\n"),
       )
+      // A large real catalog contains many unrelated descriptions mentioning
+      // "Rhythm". Exact extension/MIME readers must outrank those generic
+      // token matches instead of disappearing behind the five-item cap.
+      for (let index = 0; index < 6; index++) {
+        const noiseDir = path.join(dir, ".opencode", "skills", `a-rhythm-noise-${index}`)
+        yield* ensureDir(noiseDir)
+        yield* writeText(
+          path.join(noiseDir, "SKILL.md"),
+          [
+            "---",
+            `name: a-rhythm-noise-${index}`,
+            "description: General Rhythm workflow helper with no binary format support.",
+            "---",
+            "This skill is intentionally unrelated to attachment readers.",
+          ].join("\n"),
+        )
+      }
 
       const prompt = yield* SessionPrompt.Service
       const sessions = yield* Session.Service

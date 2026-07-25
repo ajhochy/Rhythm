@@ -1622,28 +1622,59 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                       : extension === ".pptx"
                         ? " Check the existing `pptx` skill first."
                         : ""
-                const terms = [
-                  extension.startsWith(".") ? extension.slice(1) : extension,
-                  ...mime.toLowerCase().split(/[^a-z0-9]+/),
-                ].filter(
+                const extensionTerm = extension.startsWith(".") ? extension.slice(1) : ""
+                const mimeSubtype = mime.toLowerCase().split("/")[1] ?? ""
+                const terms = [extensionTerm, ...mime.toLowerCase().split(/[^a-z0-9]+/)].filter(
                   (term) =>
                     term.length >= 3 &&
                     !["application", "binary", "file", "octet", "stream"].includes(term),
                 )
-                const matches = (value: string) => {
+                const compact = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "")
+                const score = (value: string) => {
                   const normalized = value.toLowerCase()
-                  return terms.some((term) => normalized.includes(term))
+                  const compacted = compact(value)
+                  let result = 0
+                  // Exact format signals dominate generic MIME words. Without
+                  // this weighting, a large catalog full of unrelated "Rhythm"
+                  // descriptions alphabetically crowds a real
+                  // `rhythmfixture-reader` out of the five surfaced results.
+                  if (extensionTerm && compacted.includes(compact(extensionTerm))) result += 100
+                  if (mimeSubtype && compacted.includes(compact(mimeSubtype))) result += 75
+                  for (const term of terms) {
+                    if (normalized.includes(term)) result += 10
+                  }
+                  return result
+                }
+                const strongest = <T extends { value: string; name: string }>(items: T[]) => {
+                  const ranked = items
+                    .map((item) => ({ item, score: score(item.value) }))
+                    .filter((entry) => entry.score > 0)
+                    .toSorted(
+                      (a, b) => b.score - a.score || a.item.name.localeCompare(b.item.name),
+                    )
+                  const best = ranked[0]?.score ?? 0
+                  // When an exact extension/subtype match exists, omit weak
+                  // one-token coincidences rather than calling them compatible.
+                  const floor = best >= 50 ? best * 0.5 : 1
+                  return ranked
+                    .filter((entry) => entry.score >= floor)
+                    .slice(0, 5)
+                    .map((entry) => entry.item)
                 }
                 const currentSession = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
                 const skillCatalog = (yield* sys.skills(ag, currentSession.skillAllowlist)) ?? ""
-                const skillCandidates = Array.from(
-                  skillCatalog.matchAll(
-                    /<skill>\s*<name>([^<]+)<\/name>\s*<description>([^<]*)<\/description>[\s\S]*?<\/skill>/g,
+                const skillCandidates = strongest(
+                  Array.from(
+                    skillCatalog.matchAll(
+                      /<skill>\s*<name>([^<]+)<\/name>\s*<description>([^<]*)<\/description>[\s\S]*?<\/skill>/g,
+                    ),
+                    (match) => ({
+                      name: match[1],
+                      description: match[2],
+                      value: `${match[1]} ${match[2]}`,
+                    }),
                   ),
-                  (match) => ({ name: match[1], description: match[2] }),
                 )
-                  .filter((item) => matches(`${item.name} ${item.description}`))
-                  .slice(0, 5)
 
                 const mcpTools = yield* mcp.tools()
                 const keyToServer = yield* mcp.toolClientNames()
@@ -1652,16 +1683,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   keyToServer,
                   currentSession.mcpAllowlist,
                 )
-                const mcpCandidates = allowedMcp
-                  .filter((name) => matches(`${name} ${mcpTools[name]?.description ?? ""}`))
-                  .slice(0, 5)
+                const mcpCandidates = strongest(
+                  allowedMcp.map((name) => ({
+                    name,
+                    value: `${name} ${mcpTools[name]?.description ?? ""}`,
+                  })),
+                )
                 const surfacedSkills = skillCandidates.length
                   ? `Compatible skills already available: ${skillCandidates
                       .map((item) => `\`${item.name}\` — ${item.description || "no description"}`)
                       .join("; ")}. Use the skill tool to load the best match.`
                   : "No installed skill name or description exactly matches this format."
                 const surfacedMcp = mcpCandidates.length
-                  ? `Compatible MCP tools already available: ${mcpCandidates.map((name) => `\`${name}\``).join(", ")}.`
+                  ? `Compatible MCP tools already available: ${mcpCandidates.map((item) => `\`${item.name}\``).join(", ")}.`
                   : "No allowlisted MCP tool name or description exactly matches this format."
 
                 pieces.push({
