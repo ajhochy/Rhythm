@@ -2,8 +2,8 @@
 
 ## Current focus
 
-Finish #1174 mobile parity against a rebuilt, sandbox-scoped OpenCode engine,
-then run the cumulative merge-readiness gates for open issues #1076–#1175.
+Run the cumulative merge-readiness, signed-device, and sandbox gates for open
+issues #1076–#1175, then update the existing draft PR.
 
 ## Active branch / PR
 
@@ -14,16 +14,17 @@ then run the cumulative merge-readiness gates for open issues #1076–#1175.
 
 - Integrated and verified: #1096, #1123, #1132, #1134, #1135, #1137,
   #1157, #1161, #1162, #1164, #1166, #1167, #1168, #1169, #1170, #1171,
-  #1172, and #1173.
+  #1172, #1173, and #1174.
 - #1171 corrective commit `df75c94cf` independently passes with no P0–P2
   findings: malformed scans recover, Playwright owns dedicated ports, and
   secure-write rollback/recovery remains truthful across restart.
 - #1172/#1173 now use the authenticated paired-Mac transport in production:
   safe project catalog, opaque project headers, SSE, PTY headers, activity,
   chat, and cloud/paired tool routing are scoped by account, host, and device.
-- #1174 contract/parity work is still active. The live gate is initializing
-  Git before asserting project update semantics, then rerunning the complete
-  real-engine matrix.
+- #1174 passes independent security review with no actionable findings, mobile
+  browser 28/28, API proxy 9/9, iOS Hermes export, and a rebuilt-fork live gate
+  that exercised project init/update, a real PTY resize, genuine prompt
+  mutation, and model-backed session initialization.
 
 ## Risks / known issues
 
@@ -53,6 +54,6 @@ then run the cumulative merge-readiness gates for open issues #1076–#1175.
 
 ## Next step
 
-Land and independently approve #1174, run cumulative API/mobile/fork/Flutter
-gates plus native simulator smoke, then push the integration branch and update
-the existing draft PR with exact live evidence and production review notes.
+Run cumulative API/mobile/fork/Flutter gates plus signed simulator and physical
+device smoke, then push the integration branch and update the existing draft PR
+with exact live evidence and production review notes.

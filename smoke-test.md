@@ -1,46 +1,59 @@
 # Smoke Test
 
-Scope: PR #734 / `feature/agent-scheduler`, P4 manager-to-specialist delegation D1-D5.
-Date: 2026-06-24 (re-run against the live running app server)
+Scope: issue #1174, complete mobile OpenCode 1.14.49 API parity.
+Date: 2026-07-25
 
 ## Findings
 
-- The local agent API (port 4001) was already running, spawned by the live Flutter macOS app (`Rhythm.app`, pid 38523) with `AGENT_LOCAL=true`, so `/agent-delegation/delegate` is reachable without auth (route guard is `if (!env.agentLocal) requireAuth`).
-- Acceptance baseline = contract `docs/ai/contracts/issue-P4-manager-delegation.json` (c1-c6). All six criteria were exercised behaviorally against the live server this run.
-- Live config state confirms the D5 importer outcome: `workflow-orchestrator.isManager=true` with 12 allowed delegates including `coding-agent`, excluding itself; `coding-agent` present, enabled, isAgent.
-- Happy-path delegation returned HTTP 200 in 1.7s with `output="SMOKE_DELEGATION_OK"` and created a persisted session `Delegated: Coding Agent` (`agentKind=coding-agent`, status `idle`), confirming the sub-run is re-scoped to the target profile.
+- The bundled OpenCode contract contains exactly 133 operations: 75 surfaced,
+  10 internal, 7 alternate, and 41 intentionally omitted. The generated mobile
+  gateway admits 83 operations and denies 50.
+- Mobile now exposes approved workspace search/VCS/project, session maintenance,
+  PTY, skills/config/schema/resource, and MCP authorization-removal surfaces.
+- Only genuine, non-synthetic user text can be edited or deleted. Shell-generated
+  synthetic user records remain visible history but cannot become mutation
+  targets.
+- Session initialization now supplies a fresh OpenCode ascending message ID.
+  The live gate proved that init reaches the configured model; reusing the
+  previous user ID silently skipped the model turn.
+- The final behavioral run used a throwaway HOME and SQLite database on API
+  `54174`, rebuilt fork `55174`, and local Anthropic-compatible fixture `56174`.
+  All processes were stopped, all ports were confirmed free, and the sandbox
+  was deleted.
 
 ## Checks
 
-| Area | Check | How to run | Result | Reasoning |
-| --- | --- | --- | --- | --- |
-| Backend | Local agent API alive | `curl localhost:4001/health` | Success | `{"status":"ok","service":"rhythm-api-server"}`. Server spawned by the running app. |
-| Backend D5 | Importer state: manager + delegates | `GET /agent-configs`, inspect `workflow-orchestrator` | Success | `isManager=true`, 12 delegates, includes `coding-agent`, excludes self; `coding-agent` enabled+isAgent. |
-| Backend D1 | API round-trips `allowedDelegatesJson` (insert) | `POST /agent-configs` with `allowedDelegatesJson:"[\"coding-agent\"]"` | Success | Created config returned `allowedDelegatesJson=["coding-agent"]`, `isManager=true`. |
-| Backend D1 | API round-trips `allowedDelegatesJson` (update) | `PATCH /agent-configs/:id` | Success | Returned `allowedDelegatesJson=["coding-agent","verification-gate"]`. Smoke config deleted (204); config count back to 21. |
-| Backend D4 | Non-manager cannot delegate | `POST /agent-delegation/delegate` caller `coding-agent` | Success | 403 `caller profile is not allowed to delegate`. |
-| Backend D4 | Manager → unlisted target rejected | `POST .../delegate` target `some-bogus-target` | Success | 403 `target profile is not an allowed delegate`. |
-| Backend D4 | Self-delegation rejected | `POST .../delegate` caller==target | Success | 400 `self-delegation is not allowed`. |
-| Backend D4 | Depth limit enforced | `POST .../delegate` `depth:1` | Success | 400 `delegation depth limit exceeded`. |
-| Backend D4 | Empty prompt rejected | `POST .../delegate` `prompt:""` | Success | 400 `prompt is required`. |
-| Backend D2/D3 | Allowed delegation runs re-scoped target | `POST .../delegate` caller `workflow-orchestrator` → target `coding-agent` | Success | HTTP 200, `output=SMOKE_DELEGATION_OK`, `targetAgentConfigId=coding-agent`, new session `3bb946b1-...`. |
-| Backend D2/D3 | Delegated sub-run persisted + re-scoped | `GET /agent-sessions`, find session | Success | Session `Delegated: Coding Agent`, `agentKind=coding-agent`, status `idle`. |
-| Frontend D5 | Profile sheet Manager toggle + Allowed Delegates editor | Manual: Agents → Profiles → open `workflow-orchestrator` → toggle/edit/save | Manual (visual) | Save mechanism (`PATCH allowedDelegatesJson`) and serialization (`agent_profile_model_picker_test.dart`, 6 tests) are both verified; only the visual click-through itself remains a human check. |
-
-## Regressions found during smoke
-
-| Area | Check | Result | Evidence |
+| Area | Behavior | Command | Result |
 | --- | --- | --- | --- |
-| Frontend (UI) | Create a new agent session ("+ New") | **RESOLVED — was a misdiagnosis, not a backend bug** | Originally logged as "the backend closes every new session ~1s after create." Re-investigation (2026-06-25) **disproved** that: the server never auto-closes a freshly created session. The new row was simply appended to the **bottom** of a tall-card list and looked like it vanished. Fixed on the Flutter side: newest-first ordering + much denser session cards. See "Corrected diagnosis" below. |
-| Agents (UI) | Delegated session reaches terminal state + shows model/usage | **FAIL (cosmetic, still open)** | Delegated sub-run completes server-side (`status: idle`, correct reply) but the desktop card stays "Starting" with `Model ?/?`, `$0.0000`, 0 tokens — delegated runs execute synchronously inside `POST /agent-delegation/delegate` and never stream lifecycle/usage to the desktop client over `ws://localhost:4001/ws/agents`. |
+| Contract | Every bundled operation has one classification and the generated allowlist matches it | `npm run contract:check && npm run test:contract && node tests/issue-1174-opencode-parity-contract.test.mjs` | Success: contract green; #1174 3/3 |
+| Security | Prefix/auth preservation, bounded errors, recursive config redaction, synthetic mutation exclusion, ascending init IDs | `npm run test:security:1174` | Success: 5/5 |
+| Mobile static | Lint, typecheck, utility and persistence suites | `npm run test:ci:static` | Success |
+| Fake engine | OpenCode 1.14.49 fake-server contract | `npm run test:fake-server:self` | Success |
+| API proxy | Generated allowlist, scoping, limits, denials, compatibility, and log redaction | `npx vitest run src/__tests__/issue_1169_mobile_opencode_proxy.test.ts` | Success: 9/9 |
+| Browser | Full mobile web suite, including genuine-message selection after a synthetic shell turn | `RHYTHM_MOBILE_E2E_WEB_PORT=19174 RHYTHM_MOBILE_E2E_FAKE_PORT=44174 RHYTHM_CAPTURE_SCREENSHOTS=1 npx playwright test` | Success: 28/28 |
+| Visual | Workspace, chat maintenance, terminal 32×120, skills, models/config, and MCP OAuth removal screenshots | Six PNGs under `apps/mobile/test-results/issue-1174-*` | Success: visually inspected |
+| Native bundle | Current iOS Hermes bundle and assets | `npx expo export --platform ios --output-dir dist-ios-1174 --clear` | Success |
+| Real behavior | Pairing, project init/update, VCS, actual PTY resize, genuine prompt, session init/model response, part/message mutation, inspection, and exact denied alternates | `RHYTHM_LIVE_E2E=1 ... npx vitest run src/__tests__/issue_1174_mobile_opencode_parity_live.test.ts` | Success: 1/1 in 5.58s |
+| Repo gate | Flutter analyze/format plus API and MCP typecheck | `ai-workflow checks --level issue` | Success |
+| Impact | Changed-symbol and execution-flow scope | `npx gitnexus detect_changes --scope all --repo Rhythm-1174` | LOW: 8 files, 12 symbols, 0 processes |
+| Independent review | UI/provider mutation guards, init ID parity, and live coverage | Re-review through `5e848c7ea` | Success: no actionable findings |
 
-Corrected diagnosis (create→"vanish") — 2026-06-25:
-- The backend does **not** auto-close sessions. Verified live against the running `:4001` server: 6 programmatic creates (agent-less, `build` ×2, `claude-code` ×2, incl. a 3-at-once burst) all stayed `starting`; a real app "+ New" stayed `starting`; DB has `starting` sessions surviving up to 186 h.
-- The only path that writes `status='closed'` is `markClosed`, callable only via `agent_sessions_controller.ts:421/438` (which **throw 400**, so never on a 201 path) and `:737` = `DELETE /agent-sessions/:id`. The scheduler, `agent_runner`, the delegation service, and the opencode stream bridge never write `closed`; the server never emits a `session.closed` WS frame.
-- The smoke-era `closed` rows were **selective** (siblings created seconds apart survived), i.e. a transient create+DELETE actor during that smoke run — not a reconcile.
-- Real cause: `createSession` appended new rows to the **bottom** of the list and the cards were tall, so the new session was off-screen / easy to miss. Fix: sort the list newest-first (`_agents_nav_column.dart`) and shrink `SessionRow` to a single-line compact card (`_session_list_body.dart`). The new session is already auto-selected by `_instantCreateSession`.
+## Recovery notes
 
-## Known Gaps
+- The first strengthened browser flow tried to delete a message after deleting
+  its only genuine part. Once synthetic fallback was correctly removed, the
+  panel disappeared. The test now deletes one genuine message, creates another,
+  and deletes that second message's part.
+- Live diagnostics corrected assumptions about non-Git project identity,
+  macOS `/tmp` canonicalization, caller-supplied PTY roots, and idle status
+  omission. No engine source change was retained.
+- The live fixture exposed the stale session-init message ID defect. A native
+  OpenCode-format ascending ID generator fixed it, and the final fixture
+  received both the genuine prompt and init turns.
+- The PR-level workflow reproduced the unrelated base-only #723 dynamic-import
+  VM failure. The aggregate branch already contains that test seam and has
+  green full-gate evidence; #1174 does not edit #723.
 
-- The profile-sheet editor click-through is the single genuine visual-UI manual check (open sheet, see Manager toggle + Allowed Delegates field, type, save). Its underlying PATCH save path and list serialization are verified automatically above, so the residual risk is purely rendering/interaction.
-- D3 was verified at the HTTP boundary the `rhythm_delegate` MCP tool posts to (`POST /agent-delegation/delegate`); the tool wrapper itself is covered by `agentDelegation.test.ts` (unit) rather than a live MCP round-trip this run.
+## Known gaps
+
+- None for issue #1174.
