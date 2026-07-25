@@ -2,7 +2,8 @@
  * Real sandbox contract: run with RHYTHM_LIVE_E2E=1 and point the variables at
  * the isolated sandbox only; never run this against the desktop/live ports.
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, it } from 'vitest';
 
@@ -16,10 +17,24 @@ function vaultContainsJob(dir: string, jobId: string): boolean {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const child = path.join(dir, entry.name);
     if (entry.isDirectory() && vaultContainsJob(child, jobId)) return true;
-    if (entry.isFile() && entry.name.endsWith('.md') && readFileSync(child, 'utf8').includes(`job_id: ${jobId}`)) return true;
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+    const frontmatter = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/.exec(readFileSync(child, 'utf8'))?.[1];
+    if (frontmatter && new RegExp(`^job_id:\\s*["']?${jobId}["']?\\s*$`, 'm').test(frontmatter)) return true;
   }
   return false;
 }
+
+it('finds a quoted job_id in frontmatter only', () => {
+  const vault = mkdtempSync(path.join(tmpdir(), 'agent-research-vault-'));
+  try {
+    writeFileSync(path.join(vault, 'result.md'), `---\njob_id: "job-123"\n---\njob_id: wrong\n`);
+    expect(vaultContainsJob(vault, 'job-123')).toBe(true);
+    writeFileSync(path.join(vault, 'result.md'), 'job_id: job-123\n');
+    expect(vaultContainsJob(vault, 'job-123')).toBe(false);
+  } finally {
+    rmSync(vault, { recursive: true, force: true });
+  }
+});
 
 it.runIf(enabled)('runs an actual research profile to a non-empty report and vault note', async () => {
   expect(vaultPath, 'RHYTHM_LIVE_VAULT_PATH must point at the sandbox vault').toBeTruthy();
