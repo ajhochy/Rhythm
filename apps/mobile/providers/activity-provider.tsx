@@ -1,5 +1,4 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
 import {
   createContext,
   useCallback,
@@ -22,6 +21,7 @@ import {
 } from '@/providers/services/activity-service';
 import { usePairedHost } from '@/providers/paired-host-provider';
 import { useRhythmAccount } from '@/providers/rhythm-account-provider';
+import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
 
 const ACTIVITY_CACHE_PREFIX = 'rhythm.agent-activity.read-cache.v1';
 
@@ -235,42 +235,18 @@ export function ActivityProvider({
   );
 }
 
-function e2eActivityTransport(baseUrl: string): ActivityTransport {
-  return {
-    async request<T>(
-      path: string,
-      init: Omit<RequestInit, 'headers'> & {
-        headers?: Record<string, string>;
-      },
-    ): Promise<T> {
-      const response = await fetch(`${baseUrl.replace(/\/$/, '')}${path}`, init);
-      if (!response.ok) {
-        const error = new Error(
-          `Activity request failed (${response.status})`,
-        ) as Error & { status: number };
-        error.status = response.status;
-        throw error;
-      }
-      return (await response.json()) as T;
-    },
-  };
-}
-
 export function AppActivityProvider({ children }: PropsWithChildren) {
   const account = useRhythmAccount();
   const pairedHost = usePairedHost();
-  const e2eServerUrl =
-    Constants.expoConfig?.extra?.e2eMode === true &&
-    typeof Constants.expoConfig?.extra?.e2eServerUrl === 'string'
-      ? Constants.expoConfig.extra.e2eServerUrl
-      : null;
-  const transport = useMemo<ActivityTransport | null>(
-    () =>
-      pairedHost.client ??
-      (e2eServerUrl ? e2eActivityTransport(e2eServerUrl) : null),
-    [e2eServerUrl, pairedHost.client],
+  const e2eTransport = useMemo(
+    () => mobileRuntimeVariant.createActivityTransport(),
+    [],
   );
-  const availability: ActivityAvailability = e2eServerUrl
+  const transport = useMemo<ActivityTransport | null>(
+    () => pairedHost.client ?? e2eTransport,
+    [e2eTransport, pairedHost.client],
+  );
+  const availability: ActivityAvailability = e2eTransport
     ? 'connected'
     : account.state === 'expired'
       ? 'expired-auth'
@@ -282,8 +258,8 @@ export function AppActivityProvider({ children }: PropsWithChildren) {
   const cacheScope =
     account.user && pairedHost.host
       ? `${account.user.id}:${pairedHost.host.hostId}:${pairedHost.host.deviceId}`
-      : e2eServerUrl
-        ? 'e2e-user'
+      : mobileRuntimeVariant.cacheScope
+        ? mobileRuntimeVariant.cacheScope
         : 'signed-out';
 
   return (

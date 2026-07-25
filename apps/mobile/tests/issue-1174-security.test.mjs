@@ -17,6 +17,7 @@ async function importClientModule() {
       const Constants = { expoConfig: undefined };
       const encodeBase64 = (value) => Buffer.from(value).toString('base64');
       const createOpencodeClient = () => ({});
+      const mobileRuntimeVariant = { serverUrl: 'http://127.0.0.1:4096' };
       ${runtimeSource}
     `,
     {

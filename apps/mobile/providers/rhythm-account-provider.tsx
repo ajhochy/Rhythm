@@ -25,7 +25,6 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
-import Constants from 'expo-constants';
 
 import { startGoogleMobileOAuth } from '@/lib/auth/google-mobile-oauth';
 import {
@@ -39,6 +38,7 @@ import {
 } from '@/lib/auth/rhythm-session-store';
 import { RhythmCloudClient } from '@/lib/transport/rhythm-cloud-client';
 import { getItemAsync } from 'expo-secure-store';
+import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
 
 // ---------------------------------------------------------------------------
 // Public surface produced by this provider
@@ -97,15 +97,8 @@ function buildCloudClient(): RhythmCloudClient {
 // ---------------------------------------------------------------------------
 
 export function RhythmAccountProvider({ children }: PropsWithChildren) {
-  const e2eMode = Constants.expoConfig?.extra?.e2eMode === true;
-  const e2eUser: RhythmUser | null = e2eMode
-    ? {
-        id: 7,
-        email: 'mobile-e2e@example.com',
-        name: 'Mobile E2E',
-        photoUrl: null,
-      }
-    : null;
+  const e2eMode = mobileRuntimeVariant.enabled;
+  const e2eUser = mobileRuntimeVariant.accountUser;
   const [state, setState] = useState<RhythmAccountState>(
     e2eMode ? 'signedIn' : 'signedOut',
   );

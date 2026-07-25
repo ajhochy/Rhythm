@@ -198,8 +198,13 @@ function makeExchangeResponse(token = 'sess-token-abc') {
       }
       throw new Error(`Unexpected path: ${path}`);
     },
-    requestPublic: async (path) => {
+    requestPublic: async (path, init) => {
       assert.equal(path, '/auth/google/mobile-exchange');
+      assert.deepEqual(JSON.parse(init.body), {
+        code: 'auth-code',
+        codeVerifier: 'verifier',
+        nonce: 'nonce_abcdefghijklmnopqrstuvwxyz123456',
+      });
       return makeExchangeResponse(exchangeToken);
     },
   };
@@ -209,8 +214,7 @@ function makeExchangeResponse(token = 'sess-token-abc') {
   const result = await store.signIn({
     code: 'auth-code',
     codeVerifier: 'verifier',
-    redirectUri: 'rhythmagents://auth',
-    clientId: 'client-id',
+    nonce: 'nonce_abcdefghijklmnopqrstuvwxyz123456',
   });
 
   assert.equal(result.state, 'signedIn', 'signIn must return signedIn state');

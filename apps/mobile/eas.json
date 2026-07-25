@@ -1,9 +1,10 @@
 {
-  "cli": { "version": ">= 16.17.0", "appVersionSource": "remote" },
+  "cli": { "version": "21.2.0", "appVersionSource": "remote" },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "credentialsSource": "remote",
       "env": { "EXPO_APP_VARIANT": "development" }
     },
     "development-simulator": {
@@ -16,7 +17,13 @@
     },
     "production": {
       "autoIncrement": true,
+      "credentialsSource": "remote",
       "env": { "EXPO_APP_VARIANT": "production" }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {}
     }
   }
 }

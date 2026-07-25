@@ -44,8 +44,7 @@ export interface RhythmSessionResult {
 export interface SignInParams {
   code: string;
   codeVerifier: string;
-  redirectUri: string;
-  clientId: string;
+  nonce: string;
 }
 
 export interface SessionStoreClient {

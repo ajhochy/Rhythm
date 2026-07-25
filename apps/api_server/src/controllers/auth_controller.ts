@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { env } from '../config/env';
 import { AppError } from '../errors/app_error';
 import { IntegrationAccountsRepository } from '../repositories/integration_accounts_repository';
 import { WorkspaceRepository } from '../repositories/workspace_repository';
@@ -177,7 +178,7 @@ export class AuthController {
 
   async googleMobileExchange(req: Request, res: Response, next: NextFunction) {
     try {
-      const { code, codeVerifier, redirectUri, clientId } = req.body as Record<
+      const { code, codeVerifier, nonce } = req.body as Record<
         string,
         unknown
       >;
@@ -187,18 +188,16 @@ export class AuthController {
       if (!codeVerifier || typeof codeVerifier !== 'string') {
         throw AppError.badRequest('codeVerifier is required');
       }
-      if (!redirectUri || typeof redirectUri !== 'string') {
-        throw AppError.badRequest('redirectUri is required');
-      }
-      if (!clientId || typeof clientId !== 'string') {
-        throw AppError.badRequest('clientId is required');
+      if (!nonce || typeof nonce !== 'string') {
+        throw AppError.badRequest('nonce is required');
       }
 
       const { profile } = await googleOAuth.exchangeMobileCode({
         code,
         codeVerifier,
-        redirectUri,
-        clientId,
+        nonce,
+        configuredClientId: env.googleMobileClientId,
+        configuredRedirectUri: env.googleMobileRedirectUri,
       });
 
       if (!profile.email) {

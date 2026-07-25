@@ -4,6 +4,7 @@ import {
   type AuthRequestConfig,
   type AuthSessionResult,
 } from 'expo-auth-session';
+import { randomUUID } from 'expo-crypto';
 
 import type { SignInParams } from './rhythm-session-store';
 
@@ -18,20 +19,31 @@ type MobileAuthRequest = {
 
 type AuthRequestFactory = (config: AuthRequestConfig) => MobileAuthRequest;
 
+function cryptographicNonce(): string {
+  return `${randomUUID().replaceAll('-', '')}${randomUUID().replaceAll('-', '')}`;
+}
+
 export async function startGoogleMobileOAuth({
   clientId,
   redirectUri,
   createRequest = (config) => new AuthRequest(config),
+  createNonce = cryptographicNonce,
 }: {
   clientId: string;
   redirectUri: string;
   createRequest?: AuthRequestFactory;
+  createNonce?: () => string;
 }): Promise<SignInParams> {
   if (!clientId) {
     throw new Error('Google mobile client ID is not configured.');
   }
   if (!redirectUri) {
     throw new Error('Google mobile redirect URI is not configured.');
+  }
+
+  const nonce = createNonce();
+  if (!/^[A-Za-z0-9_-]{32,256}$/.test(nonce)) {
+    throw new Error('Google sign-in could not create a secure nonce.');
   }
 
   const request = createRequest({
@@ -41,6 +53,7 @@ export async function startGoogleMobileOAuth({
     scopes: ['openid', 'email', 'profile'],
     usePKCE: true,
     prompt: Prompt.SelectAccount,
+    extraParams: { nonce },
   });
   const response = await request.promptAsync(GOOGLE_DISCOVERY);
 
@@ -58,5 +71,5 @@ export async function startGoogleMobileOAuth({
     throw new Error('Google sign-in did not return a valid authorization code.');
   }
 
-  return { code, codeVerifier, redirectUri, clientId };
+  return { code, codeVerifier, nonce };
 }

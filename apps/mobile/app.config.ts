@@ -1,5 +1,8 @@
 import type { ExpoConfig } from 'expo/config';
-import { withAndroidManifest } from '@expo/config-plugins';
+import {
+  withAndroidManifest,
+  withInfoPlist,
+} from '@expo/config-plugins';
 
 function env(name: string) {
   const value = process.env[name]?.trim();
@@ -7,12 +10,81 @@ function env(name: string) {
 }
 
 const appVariant = env('EXPO_APP_VARIANT') ?? 'production';
+if (appVariant !== 'production' && appVariant !== 'development') {
+  throw new Error(
+    `Unsupported EXPO_APP_VARIANT "${appVariant}". Expected "production" or "development".`,
+  );
+}
+
 const isDevelopmentVariant = appVariant === 'development';
 const isE2EMode = env('EXPO_PUBLIC_E2E_MODE') === '1';
 const allowLocalHttp = isDevelopmentVariant || isE2EMode;
 const e2eServerUrl = env('EXPO_PUBLIC_E2E_SERVER_URL');
+const googleMobileClientId = env('EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID');
 const googleMobileRedirectUri = env('EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI');
 const googleRedirectScheme = googleMobileRedirectUri?.match(/^([a-z][a-z0-9+.-]*):/i)?.[1];
+const rhythmCloudUrl = env('EXPO_PUBLIC_RHYTHM_CLOUD_URL');
+const productionCloudOrigin = 'https://api.vcrcapps.com';
+const googleClientSuffix = '.apps.googleusercontent.com';
+
+if (isE2EMode && !isDevelopmentVariant) {
+  throw new Error(
+    'EXPO_PUBLIC_E2E_MODE is forbidden for production mobile builds.',
+  );
+}
+if (isE2EMode && !e2eServerUrl) {
+  throw new Error(
+    'EXPO_PUBLIC_E2E_SERVER_URL is required when EXPO_PUBLIC_E2E_MODE=1.',
+  );
+}
+
+if (!isDevelopmentVariant) {
+  if (e2eServerUrl) {
+    throw new Error(
+      'EXPO_PUBLIC_E2E_SERVER_URL is forbidden for production mobile builds.',
+    );
+  }
+  if (
+    !googleMobileClientId ||
+    !/^[0-9]+-[a-z0-9-]+\.apps\.googleusercontent\.com$/i.test(
+      googleMobileClientId,
+    )
+  ) {
+    throw new Error(
+      'EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID must be an exact Google mobile OAuth client ID for production.',
+    );
+  }
+  const clientStem = googleMobileClientId.slice(0, -googleClientSuffix.length);
+  const expectedRedirectUri =
+    `com.googleusercontent.apps.${clientStem}:/oauthredirect`;
+  if (googleMobileRedirectUri !== expectedRedirectUri) {
+    throw new Error(
+      `EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI must exactly match ${expectedRedirectUri}.`,
+    );
+  }
+  let cloudUrl: URL;
+  try {
+    cloudUrl = new URL(rhythmCloudUrl ?? '');
+  } catch {
+    throw new Error(
+      `EXPO_PUBLIC_RHYTHM_CLOUD_URL must be the approved HTTPS origin ${productionCloudOrigin}.`,
+    );
+  }
+  if (
+    cloudUrl.origin !== productionCloudOrigin ||
+    cloudUrl.protocol !== 'https:' ||
+    cloudUrl.username ||
+    cloudUrl.password ||
+    (cloudUrl.pathname !== '' && cloudUrl.pathname !== '/') ||
+    cloudUrl.search ||
+    cloudUrl.hash
+  ) {
+    throw new Error(
+      `EXPO_PUBLIC_RHYTHM_CLOUD_URL must be the approved HTTPS origin ${productionCloudOrigin}.`,
+    );
+  }
+}
+
 const defaultAndroidPackage = 'app.getopencode';
 const releaseAndroidPackage = env('EXPO_ANDROID_PACKAGE') ?? defaultAndroidPackage;
 const developmentAndroidPackage = env('EXPO_ANDROID_PACKAGE_DEV') ?? `${releaseAndroidPackage}.dev`;
@@ -23,15 +95,33 @@ const iosBundleIdentifier = isDevelopmentVariant
   ? developmentIosBundleIdentifier
   : releaseIosBundleIdentifier;
 
-const withCleartextTraffic = (config: ExpoConfig) => withAndroidManifest(config, (config) => {
-  const application = config.modResults.manifest.application?.[0];
-  if (application) {
-    application.$['android:usesCleartextTraffic'] = allowLocalHttp
-      ? 'true'
-      : 'false';
-  }
-  return config;
-});
+const withTransportSecurity = (config: ExpoConfig) => {
+  const withIos = withInfoPlist(config, (modConfig) => {
+    if (allowLocalHttp) {
+      modConfig.modResults.NSAppTransportSecurity = {
+        // Development and E2E clients pair to a Mac by LAN/Tailscale IP,
+        // not only localhost.
+        NSAllowsArbitraryLoads: true,
+      };
+    } else {
+      // expo-dev-client and some native plugins add permissive development
+      // defaults during introspection. Production must remove them after all
+      // plugins have run.
+      delete modConfig.modResults.NSAppTransportSecurity;
+    }
+    return modConfig;
+  });
+
+  return withAndroidManifest(withIos, (modConfig) => {
+    const application = modConfig.modResults.manifest.application?.[0];
+    if (application) {
+      application.$['android:usesCleartextTraffic'] = allowLocalHttp
+        ? 'true'
+        : 'false';
+    }
+    return modConfig;
+  });
+};
 
 const config: ExpoConfig = {
   name: isDevelopmentVariant ? 'Rhythm Agents Dev' : 'Rhythm Agents',
@@ -63,17 +153,13 @@ const config: ExpoConfig = {
     bundleIdentifier: iosBundleIdentifier,
     buildNumber: '1',
     supportsTablet: false,
-    infoPlist: {
-      ...(allowLocalHttp
-        ? {
-            NSAppTransportSecurity: {
-              // Development and E2E clients pair to a Mac by LAN/Tailscale IP,
-              // not only localhost. Production emits no ATS bypass at all.
-              NSAllowsArbitraryLoads: true,
-            },
-          }
-        : {}),
-    },
+    infoPlist: allowLocalHttp
+      ? {
+          NSAppTransportSecurity: {
+            NSAllowsArbitraryLoads: true,
+          },
+        }
+      : {},
   },
   plugins: [
     'expo-router',
@@ -106,7 +192,7 @@ const config: ExpoConfig = {
         },
       },
     ],
-    withCleartextTraffic as unknown as string,
+    withTransportSecurity as unknown as string,
   ],
   experiments: {
     typedRoutes: true,

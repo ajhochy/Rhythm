@@ -3,11 +3,20 @@ import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+const VALID_PRODUCTION_ENV = {
+  EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID:
+    '123456789-example.apps.googleusercontent.com',
+  EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI:
+    'com.googleusercontent.apps.123456789-example:/oauthredirect',
+  EXPO_PUBLIC_RHYTHM_CLOUD_URL: 'https://api.vcrcapps.com',
+};
+
 function resolvedConfig(variant, envOverrides = {}) {
   const output = execFileSync('npx', ['expo', 'config', '--json'], {
     encoding: 'utf8',
     env: {
       ...process.env,
+      ...VALID_PRODUCTION_ENV,
       EXPO_APP_VARIANT: variant,
       EXPO_PUBLIC_E2E_MODE: '',
       EXPO_PUBLIC_E2E_SERVER_URL: '',

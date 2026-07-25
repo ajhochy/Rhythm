@@ -1,5 +1,4 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import Constants from 'expo-constants';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -24,6 +23,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { PairedHostError } from '@/lib/pairing/paired-host-store';
 import { usePairedHost } from '@/providers/paired-host-provider';
 import { useRhythmAccount } from '@/providers/rhythm-account-provider';
+import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
 
 export default function PairScreen() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -91,13 +91,9 @@ export default function PairScreen() {
   }, [pair, params.payload]);
 
   const signedIn = account.state === 'signedIn' && Boolean(account.user);
-  const e2eMode = Constants.expoConfig?.extra?.e2eMode === true;
-  const e2ePayload = JSON.stringify({
-    gatewayUrl: pairedHost.host
-      ? 'https://other-mac.tail1234.ts.net'
-      : 'https://rhythm-mac.tail1234.ts.net',
-    pairingCode: pairedHost.host ? 'b'.repeat(43) : 'a'.repeat(43),
-  });
+  const e2ePayload = mobileRuntimeVariant.simulatedPairingPayload(
+    Boolean(pairedHost.host),
+  );
   const cameraHeight = Math.max(200, Math.min(300, windowHeight * 0.38));
 
   return (
@@ -170,11 +166,11 @@ export default function PairScreen() {
             </Button>
           </View>
         )}
-        {e2eMode ? (
+        {e2ePayload ? (
           <Button
             mode="contained"
             maxFontSizeMultiplier={1.8}
-            testID="pair-simulate-qr"
+            testID={mobileRuntimeVariant.simulatedPairingTestId ?? undefined}
             accessibilityLabel="Scan test QR code"
             disabled={!signedIn || pairedHost.state === 'pairing'}
             onPress={() => void pair(e2ePayload)}>

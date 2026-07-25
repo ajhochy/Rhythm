@@ -33,6 +33,7 @@ const [providerSource, settingsSource, accountSectionSource] = await Promise.all
   const result = await startGoogleMobileOAuth({
     clientId: 'mobile-client-id',
     redirectUri: 'com.googleusercontent.apps.mobile:/oauth-callback',
+    createNonce: () => 'nonce_abcdefghijklmnopqrstuvwxyz123456',
     createRequest: (value) => {
       config = value;
       return {
@@ -48,12 +49,14 @@ const [providerSource, settingsSource, accountSectionSource] = await Promise.all
   assert.deepEqual(result, {
     code: 'google-code',
     codeVerifier: 'pkce-verifier',
-    redirectUri: 'com.googleusercontent.apps.mobile:/oauth-callback',
-    clientId: 'mobile-client-id',
+    nonce: 'nonce_abcdefghijklmnopqrstuvwxyz123456',
   });
   assert.equal(config.responseType, 'code');
   assert.equal(config.usePKCE, true);
   assert.deepEqual(config.scopes, ['openid', 'email', 'profile']);
+  assert.deepEqual(config.extraParams, {
+    nonce: 'nonce_abcdefghijklmnopqrstuvwxyz123456',
+  });
   assert.equal(discovery, GOOGLE_DISCOVERY);
   console.log('  ✓ Google OAuth starts PKCE authorization and returns exchange parameters');
 }
@@ -107,6 +110,7 @@ const [providerSource, settingsSource, accountSectionSource] = await Promise.all
     startGoogleMobileOAuth({
       clientId: 'mobile-client-id',
       redirectUri: 'rhythmagents://oauth-callback',
+      createNonce: () => 'nonce_abcdefghijklmnopqrstuvwxyz123456',
       createRequest: () => ({
         codeVerifier: 'pkce-verifier',
         promptAsync: async () => ({ type: 'cancel' }),

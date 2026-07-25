@@ -2,10 +2,25 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 
+const VALID_PRODUCTION_ENV = {
+  EXPO_PUBLIC_E2E_MODE: '',
+  EXPO_PUBLIC_E2E_SERVER_URL: '',
+  EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID:
+    '123456789-example.apps.googleusercontent.com',
+  EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI:
+    'com.googleusercontent.apps.123456789-example:/oauthredirect',
+  EXPO_PUBLIC_RHYTHM_CLOUD_URL: 'https://api.vcrcapps.com',
+};
+
 function resolvedConfig(variant, envOverrides = {}) {
   const output = execFileSync('npx', ['expo', 'config', '--json'], {
     encoding: 'utf8',
-    env: { ...process.env, EXPO_APP_VARIANT: variant, ...envOverrides },
+    env: {
+      ...process.env,
+      ...VALID_PRODUCTION_ENV,
+      EXPO_APP_VARIANT: variant,
+      ...envOverrides,
+    },
   });
   return JSON.parse(output);
 }
@@ -13,7 +28,10 @@ function resolvedConfig(variant, envOverrides = {}) {
 const production = resolvedConfig('production');
 assert.equal(production.name, 'Rhythm Agents');
 assert.equal(production.slug, 'rhythm-mobile');
-assert.equal(production.scheme, 'rhythmagents');
+assert.deepEqual(production.scheme, [
+  'rhythmagents',
+  'com.googleusercontent.apps.123456789-example',
+]);
 assert.equal(production.owner, 'ajhochys-team');
 assert.equal(production.ios.bundleIdentifier, 'org.visaliacrc.rhythm.agents');
 assert.equal(production.extra.eas.projectId, 'bd873c89-2fe2-45db-805c-ab819e582e5c');

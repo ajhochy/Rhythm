@@ -128,6 +128,8 @@ Minimum required variables:
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI=https://api.vcrcapps.com/auth/google/callback`
 - `GOOGLE_AUTH_CLIENT_ID`
+- `GOOGLE_MOBILE_CLIENT_ID`
+- `GOOGLE_MOBILE_REDIRECT_URI=<matching reverse-client iOS redirect URI>`
 - `PCO_APPLICATION_ID`
 - `PCO_SECRET`
 - `PCO_REDIRECT_URI=https://api.vcrcapps.com/auth/planning-center/callback`

@@ -75,6 +75,7 @@ export default defineConfig({
       env: {
         ...process.env,
         CI: '1',
+        EXPO_APP_VARIANT: 'development',
         EXPO_PUBLIC_E2E_MODE: '1',
         EXPO_PUBLIC_E2E_SERVER_URL: fakeBaseUrl,
       },

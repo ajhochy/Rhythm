@@ -1,5 +1,4 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
 import {
   createContext,
   useCallback,
@@ -17,12 +16,12 @@ import {
   sanitizeToolCache,
   TOOL_SCREEN_MANIFEST,
   type ToolRecord,
-  type ToolRequestInit,
   type ToolScreenId,
   type ToolTransport,
 } from '@/providers/services/rhythm-tools-service';
 import { usePairedHost } from '@/providers/paired-host-provider';
 import { useRhythmAccount } from '@/providers/rhythm-account-provider';
+import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
 
 const TOOLS_CACHE_PREFIX = 'rhythm.tools.read-cache.v1';
 
@@ -451,42 +450,13 @@ export function RhythmToolsProvider({
   );
 }
 
-function e2eTransport(baseUrl: string): ToolTransport {
-  return {
-    async request<T>(path: string, init: ToolRequestInit): Promise<T> {
-      const response = await fetch(`${baseUrl.replace(/\/$/, '')}${path}`, {
-        ...init,
-        headers: {
-          'Content-Type': 'application/json',
-          ...init.headers,
-        },
-      });
-      if (!response.ok) {
-        const error = new Error(`Request failed (${response.status})`) as Error & {
-          status: number;
-        };
-        error.status = response.status;
-        throw error;
-      }
-      if (response.status === 204) return undefined as T;
-      return (await response.json()) as T;
-    },
-  };
-}
-
 export function AppRhythmToolsProvider({ children }: PropsWithChildren) {
   const account = useRhythmAccount();
   const pairedHost = usePairedHost();
-  const e2eMode = Boolean(Constants.expoConfig?.extra?.e2eMode);
-  const e2eServerUrl =
-    typeof Constants.expoConfig?.extra?.e2eServerUrl === 'string'
-      ? Constants.expoConfig.extra.e2eServerUrl
-      : null;
+  const e2eMode = mobileRuntimeVariant.enabled;
   const service = useMemo(() => {
-    if (e2eMode && e2eServerUrl) {
-      const transport = e2eTransport(e2eServerUrl);
-      return new RhythmToolsService({ cloud: transport, paired: transport });
-    }
+    const e2eService = mobileRuntimeVariant.createRhythmToolsService();
+    if (e2eService) return e2eService;
     const unavailable: ToolTransport = {
       async request(): Promise<never> {
         throw new Error('This service is unavailable.');
@@ -498,15 +468,13 @@ export function AppRhythmToolsProvider({ children }: PropsWithChildren) {
     });
   }, [
     account.client,
-    e2eMode,
-    e2eServerUrl,
     pairedHost.client,
   ]);
   const cacheScope =
     account.user && pairedHost.host
       ? `${account.user.id}:${pairedHost.host.hostId}:${pairedHost.host.deviceId}`
       : e2eMode
-        ? 'e2e-user'
+        ? mobileRuntimeVariant.cacheScope ?? 'signed-out'
         : 'signed-out';
   const cloudAvailability: ToolsAvailability =
     e2eMode || account.state === 'signedIn' || account.state === 'refreshing'

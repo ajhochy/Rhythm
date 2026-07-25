@@ -9,22 +9,16 @@ import {
   type PropsWithChildren,
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import Constants from 'expo-constants';
 
 import {
   PairedHostStore,
-  PAIRED_DEVICE_SECURE_KEY,
   type PairedHost,
   type PairedHostSnapshot,
   type PairedHostState,
 } from '@/lib/pairing/paired-host-store';
-import { RHYTHM_SESSION_SECURE_KEY } from '@/lib/auth/rhythm-session-store';
 import type { PairedMacClient } from '@/lib/transport/paired-mac-client';
 import { useRhythmAccount } from '@/providers/rhythm-account-provider';
-
-const e2eCredentials = new Map<string, string>([
-  [RHYTHM_SESSION_SECURE_KEY, 'e2e-cloud-session'],
-]);
+import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
 
 export interface PairedHostContextValue {
   state: PairedHostState;
@@ -45,53 +39,9 @@ const PairedHostContext = createContext<PairedHostContextValue | null>(null);
 
 export function PairedHostProvider({ children }: PropsWithChildren) {
   const account = useRhythmAccount();
-  const [store] = useState(() => {
-    const e2eMode = Constants.expoConfig?.extra?.e2eMode === true;
-    const e2eServerUrl = Constants.expoConfig?.extra?.e2eServerUrl;
-    if (!e2eMode || typeof e2eServerUrl !== 'string') {
-      return new PairedHostStore();
-    }
-    const storageFailures = async () => {
-      const response = await fetch(
-        `${e2eServerUrl.replace(/\/$/, '')}/__control/mobile-storage-failure`,
-      );
-      if (!response.ok) return { write: false, cleanup: false };
-      const value = (await response.json()) as {
-        enabled?: boolean;
-        write?: boolean;
-        cleanup?: boolean;
-      };
-      return {
-        write: value.write ?? value.enabled === true,
-        cleanup: value.cleanup ?? value.enabled === true,
-      };
-    };
-    return new PairedHostStore({
-      getCredential: async (key) => e2eCredentials.get(key) ?? null,
-      setCredential: async (key, value) => {
-        const failures = await storageFailures();
-        if (
-          key === PAIRED_DEVICE_SECURE_KEY &&
-          (value ? failures.write : failures.cleanup)
-        ) {
-          throw new Error('E2E secure storage write failure');
-        }
-        e2eCredentials.set(key, value);
-      },
-      deleteCredential: async (key) => {
-        const failures = await storageFailures();
-        if (
-          key === PAIRED_DEVICE_SECURE_KEY &&
-          failures.cleanup
-        ) {
-          throw new Error('E2E secure storage delete failure');
-        }
-        e2eCredentials.delete(key);
-      },
-      resolveGatewayUrl: (gatewayUrl) =>
-        `${e2eServerUrl.replace(/\/$/, '')}/__mobile/${new URL(gatewayUrl).hostname}`,
-    });
-  });
+  const [store] = useState(
+    () => mobileRuntimeVariant.createPairedHostStore() ?? new PairedHostStore(),
+  );
   const [snapshot, setSnapshot] = useState<PairedHostSnapshot>(() =>
     store.snapshot(),
   );

@@ -68,12 +68,12 @@ OpenCode Mobile is built with Expo and React Native.
 
 2. Start the development server:
    ```bash
-   npm run start
+   EXPO_APP_VARIANT=development npm run start
    ```
 
 3. For a development client build:
    ```bash
-   npm run start:dev-client
+   EXPO_APP_VARIANT=development npm run start:dev-client
    ```
 
 ### Common Commands
@@ -115,6 +115,22 @@ Connection settings are configured inside the app. By default, the app expects a
 
 Local configuration files (`.env`, `config.json`) are gitignored for security.
 
+Production config resolution is fail-closed. Release builds require:
+
+- `EXPO_APP_VARIANT=production`
+- the exact `EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID`
+- its matching `EXPO_PUBLIC_GOOGLE_MOBILE_REDIRECT_URI`
+- `EXPO_PUBLIC_RHYTHM_CLOUD_URL=https://api.vcrcapps.com`
+
+E2E mode and local HTTP gateway overrides are accepted only by the explicit
+development variant and are excluded from the production Metro bundle.
+
+`npm run eas:production:ios` runs the production preflight, builds with the
+pinned EAS CLI in non-interactive/frozen-credential mode, and auto-submits that
+exact build through the repository-owned `submit.production` profile.
+`npm run eas:submit:ios` is the deterministic recovery command for submitting
+the latest completed iOS build after the same preflight.
+
 ### Foundation verification gate
 
 Run the full foundation gate with a single command:
@@ -152,13 +168,14 @@ Result: **all 13 stages passed**, 15/15 Playwright tests green, 22/22 account co
 ### Rhythm Agents / EAS
 
 ```bash
-/Users/aj/.local/bin/rhythm-mobile-eas whoami
+npm exec --yes --package=eas-cli@21.2.0 -- eas whoami
 npm run eas:development:ios
 npm run eas:development:ios-simulator
 npm run eas:production:ios
 ```
 
-The launcher loads `EXPO_TOKEN` from macOS Keychain; agents must never read the plaintext source key file.
+Use an authenticated EAS session or inject `EXPO_TOKEN` through the release
+environment. Never commit or print the token.
 
 #### iOS development-build verification
 

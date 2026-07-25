@@ -1,5 +1,4 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import Constants from 'expo-constants';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
@@ -15,6 +14,7 @@ import { RhythmAccountProvider } from '@/providers/rhythm-account-provider';
 import { AgentChatProvider } from '@/providers/agent-chat-provider';
 import { AppActivityProvider } from '@/providers/activity-provider';
 import { AppRhythmToolsProvider } from '@/providers/rhythm-tools-provider';
+import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -23,7 +23,7 @@ export const unstable_settings = {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const paperTheme = getPaperTheme(colorScheme === 'dark' ? 'dark' : 'light');
-  const isE2EMode = Boolean(Constants.expoConfig?.extra?.e2eMode);
+  const isE2EMode = mobileRuntimeVariant.enabled;
 
   useEffect(() => {
     if (Platform.OS === 'web' || isE2EMode) {

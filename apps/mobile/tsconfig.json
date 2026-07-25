@@ -5,6 +5,9 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@rhythm/mobile-runtime": [
+        "./lib/runtime/mobile-runtime.production"
       ]
     }
   },

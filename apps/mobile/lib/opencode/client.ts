@@ -6,9 +6,9 @@ import {
   type QuestionRequest,
 } from '@opencode-ai/sdk/v2/client';
 import { encode as encodeBase64 } from 'base-64';
-import Constants from 'expo-constants';
 
 import type { PairedMacClient } from '@/lib/transport/paired-mac-client';
+import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
 
 export type PendingPermissionRequest = PermissionRequest;
 export type PendingQuestionRequest = QuestionRequest;
@@ -22,7 +22,7 @@ export type OpencodeConnectionSettings = {
 };
 
 export const defaultConnectionSettings: OpencodeConnectionSettings = {
-  serverUrl: String(process.env.EXPO_PUBLIC_E2E_SERVER_URL || Constants.expoConfig?.extra?.e2eServerUrl || 'http://127.0.0.1:4096'),
+  serverUrl: mobileRuntimeVariant.serverUrl,
   username: '',
   password: '',
   directory: '',

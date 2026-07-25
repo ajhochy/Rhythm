@@ -13,7 +13,7 @@ import { UsersRepository } from '../repositories/users_repository';
 import { WorkspaceRepository } from '../repositories/workspace_repository';
 import { startTestServer } from '../__tests__/helpers/real_server';
 
-const apiRoot = join(import.meta.dirname, '..');
+const apiRoot = join(__dirname, '..');
 const repoRoot = join(apiRoot, '..', '..', '..');
 
 function apiSource(relativePath: string): string {
