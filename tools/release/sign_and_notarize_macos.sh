@@ -6,6 +6,9 @@ APP_DIR="${ROOT_DIR}/apps/desktop_flutter/build/macos/Build/Products/Release"
 DIST_DIR="${ROOT_DIR}/apps/desktop_flutter/dist"
 ENTITLEMENTS_PATH="${ROOT_DIR}/apps/desktop_flutter/macos/Runner/Release.entitlements"
 
+APP_PATH="$(find "${APP_DIR}" -maxdepth 1 -name '*.app' -print -quit)"
+DMG_PATH="$(find "${DIST_DIR}" -maxdepth 1 -name '*.dmg' -print -quit)"
+
 required_vars=(
   APPLE_CERTIFICATE_BASE64
   APPLE_CERTIFICATE_PASSWORD
@@ -17,13 +20,10 @@ required_vars=(
 
 for name in "${required_vars[@]}"; do
   if [[ -z "${!name:-}" ]]; then
-    echo "Missing required Apple release credential: ${name}" >&2
-    exit 1
+    echo "Skipping codesign/notarization because ${name} is not set."
+    exit 0
   fi
 done
-
-APP_PATH="$(find "${APP_DIR}" -maxdepth 1 -name '*.app' -print -quit)"
-DMG_PATH="$(find "${DIST_DIR}" -maxdepth 1 -name '*.dmg' -print -quit)"
 
 if [[ -z "${APP_PATH}" || -z "${DMG_PATH}" ]]; then
   echo "Missing app bundle or DMG for signing." >&2

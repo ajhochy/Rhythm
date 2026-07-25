@@ -16,14 +16,9 @@ issues #1076–#1175, then update the existing draft PR.
   #1176 (v2 lifecycle-parity trigger), #1177 (remote-workspace vertical
   slice), and #1178 (private Rhythm-owned transcript sharing). The tracker has
   the successor links and remains open until this aggregate release is ready.
-- Integrated and verified: #1123, #1132, #1134, #1135, #1137,
+- Integrated and verified: #1096, #1123, #1132, #1134, #1135, #1137,
   #1157, #1161, #1162, #1164, #1166, #1167, #1168, #1169, #1170, #1171,
   #1172, #1173, and #1174.
-- #1096's earlier manual evidence used an Apple-Development Debug app and did
-  not prove the notarized release artifact. The release workflow now has a
-  nonpublishing-by-default candidate mode, fail-closed credentials, artifact
-  verification, and a fresh-HOME packaged-app smoke; its real signed CI run is
-  still pending on the final aggregate head.
 - #1171 corrective commit `df75c94cf` independently passes with no P0–P2
   findings: malformed scans recover, Playwright owns dedicated ports, and
   secure-write rollback/recovery remains truthful across restart.
@@ -42,17 +37,12 @@ issues #1076–#1175, then update the existing draft PR.
 - #1135's additive SQLite/Postgres change requires normal migration review.
 - #1123 adds one Rhythm MCP tool; the draft PR description must update the
   approximate tool count.
-- Apple currently rejects production iOS bundle registration until the latest
-  Developer Program agreement is accepted. The real Google iOS OAuth
-  client/redirect also remains unavailable; no placeholder may ship.
 - Signed distribution remains pending after aggregate simulator/live gates.
 
 ## Test status
 
 - Required backend slices have focused checks and live sandbox evidence in
-  `docs/ai/runs/`. #1096's release contract, workflow YAML, shell syntax, and
-  fail-closed credential path pass locally; notarized DMG execution remains
-  pending in the nonpublishing release-candidate workflow.
+  `docs/ai/runs/`; #1096 also has signed Flutter UI evidence.
 - #1137's final immutable review passes at `0c8ab294b`, including the guarded
   six-test live endpoint suite.
 - #1170 passes focused contracts, API build, non-baseline regressions, and
@@ -68,21 +58,12 @@ issues #1076–#1175, then update the existing draft PR.
 
 ## Next step
 
-Integrate the two active #1173/#1175 corrective commits and #1096's release
-gate, run cumulative API/mobile/fork/Flutter and sandbox/device gates, then push
-the exact aggregate head and dispatch the nonpublishing signed macOS candidate.
+Run cumulative API/mobile/fork/Flutter gates plus signed simulator and physical
+device smoke, then push the integration branch and update the existing draft PR
+with exact live evidence and production review notes.
 
 ## Recent coding-agent runs
 
-- 2026-07-25 — #1096 notarized release-candidate correction
-  (`codex/1096-release-gate`): replaced the false-green Debug-app handoff with
-  a fail-closed, nonpublishing signed candidate workflow and a clean-HOME DMG
-  smoke that proves Engraph is absent while local FTS write/search still works.
-  Static contract/YAML/shell checks pass; the live signed workflow is pending.
-  Expo authentication and App Store Connect submission-key setup succeeded,
-  while Apple bundle registration is correctly stopped by the unaccepted team
-  agreement. See
-  `docs/ai/runs/2026-07-25-1096-release-gate-correction.md`.
 - 2026-07-25 — #1175 approval/taint/listener hardening
   (`codex/1175-approval-taint-listener`): IPv4-loopback-only `AGENT_LOCAL`,
   non-exportable signed human approvals, exhaustive scan→taint→fence ingress,
