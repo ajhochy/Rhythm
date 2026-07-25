@@ -2,7 +2,7 @@
 date: 2026-07-25
 repo: Rhythm
 branch: codex/fix-desktop-release-sqlite-smoke
-pr: 1184
+pr: 1185
 issues: []
 status: passed
 tags: [run, rhythm, release]
@@ -33,6 +33,10 @@ index: "[[Rhythm]]"
   [30178638700](https://github.com/ajhochy/Rhythm/actions/runs/30178638700):
   passed every build, packaged smoke, signing/notarization, upload, and publish
   step in 13m57s.
+- Follow-up PR #1185 Server CI run
+  [30179165647](https://github.com/ajhochy/Rhythm/actions/runs/30179165647):
+  passed the full API suite, advisory scan, build, API smoke, and optimizer
+  safety smoke in 3m20s.
 
 ## Notes
 
