@@ -90,21 +90,13 @@ test('issue-1174: chat session maintenance initializes, shells, edits, and delet
   await page.getByTestId('chat-session-shell-button').click();
   await expect(page.getByText('Command /shell npm test completed.', { exact: true }).first()).toBeVisible();
 
+  await expect(page.getByTestId('chat-message-part-input')).toHaveValue('Create an editable message');
   await page.getByTestId('chat-message-part-input').fill('Edited from mobile parity');
   await page.getByTestId('chat-message-part-save').click();
   await expect(page.getByText('Edited from mobile parity', { exact: true }).first()).toBeVisible();
 
-  page.once('dialog', (dialog) => void dialog.accept());
-  await page.getByTestId('chat-message-part-delete').click();
   const sessions = await (await request.get(`${fakeServer}/session`)).json();
   const sessionId = sessions[0].id;
-  await expect.poll(async () => {
-    const messages = await (await request.get(`${fakeServer}/session/${sessionId}/message`)).json();
-    return messages.some((message) => message.parts.some(
-      (part) => part.type === 'text' && part.text === 'Edited from mobile parity',
-    ));
-  }).toBe(false);
-
   const messageCount = (
     await (await request.get(`${fakeServer}/session/${sessionId}/message`)).json()
   ).length;
@@ -113,6 +105,19 @@ test('issue-1174: chat session maintenance initializes, shells, edits, and delet
   await expect.poll(async () => (
     await (await request.get(`${fakeServer}/session/${sessionId}/message`)).json()
   ).length).toBe(messageCount - 1);
+
+  await page.getByPlaceholder('Ask anything...').fill('Create a deletable part');
+  await page.getByTestId('chat-primary-button').click();
+  await expect(page.getByText(/Finished: Create a deletable part/).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('chat-message-part-input')).toHaveValue('Create a deletable part');
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page.getByTestId('chat-message-part-delete').click();
+  await expect.poll(async () => {
+    const messages = await (await request.get(`${fakeServer}/session/${sessionId}/message`)).json();
+    return messages.some((message) => message.parts.some(
+      (part) => part.type === 'text' && part.text === 'Create a deletable part',
+    ));
+  }).toBe(false);
   if (process.env.RHYTHM_CAPTURE_SCREENSHOTS === '1') {
     await page.screenshot({
       path: testInfo.outputPath('chat-maintenance.png'),

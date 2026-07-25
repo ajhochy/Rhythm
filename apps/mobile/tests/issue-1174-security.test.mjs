@@ -47,6 +47,42 @@ async function importInspectionModule() {
   return import(`data:text/javascript,${encodeURIComponent(output)}`);
 }
 
+async function importTranscriptModule() {
+  const source = await readFile(
+    new URL('../lib/opencode/transcript.ts', import.meta.url),
+    'utf8',
+  );
+  const runtimeSource = source.slice(
+    source.indexOf('export function findEditableUserTextPart'),
+    source.indexOf('export function getTranscriptActivityLabel'),
+  );
+  const output = ts.transpileModule(runtimeSource, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  return import(`data:text/javascript,${encodeURIComponent(output)}`);
+}
+
+async function importIdentifierModule() {
+  const source = await readFile(
+    new URL('../lib/opencode/identifier.ts', import.meta.url),
+    'utf8',
+  );
+  const runtimeSource = source.replace(
+    "import { getRandomBytes } from 'expo-crypto';",
+    'const getRandomBytes = (length) => new Uint8Array(length).fill(7);',
+  );
+  const output = ts.transpileModule(runtimeSource, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  return import(`data:text/javascript,${encodeURIComponent(output)}`);
+}
+
 test('issue-1174: custom route preserves prefix, directory, and basic auth', async () => {
   const { requestOpenCodeRoute } = await importClientModule();
   const originalFetch = globalThis.fetch;
@@ -143,4 +179,43 @@ test('issue-1174: config inspection recursively redacts adversarial secrets', as
     safe: { baseURL: 'https://api.example.test', retries: 3 },
   });
   assert.doesNotMatch(JSON.stringify(redacted), /secret-[1-7]/);
+});
+
+test('issue-1174: only genuine user text parts are editable', async () => {
+  const { findEditableUserTextPart } = await importTranscriptModule();
+  const genuine = {
+    info: { id: 'message-genuine', role: 'user' },
+    parts: [{ id: 'part-genuine', type: 'text', text: 'User-authored prompt' }],
+  };
+  const synthetic = {
+    info: { id: 'message-shell', role: 'user' },
+    parts: [{
+      id: 'part-shell',
+      type: 'text',
+      text: '/shell npm test',
+      synthetic: true,
+    }],
+  };
+  const assistant = {
+    info: { id: 'message-assistant', role: 'assistant' },
+    parts: [{ id: 'part-assistant', type: 'text', text: 'Response' }],
+  };
+
+  assert.equal(findEditableUserTextPart(genuine)?.id, 'part-genuine');
+  assert.equal(findEditableUserTextPart(genuine, 'part-genuine')?.text, 'User-authored prompt');
+  assert.equal(findEditableUserTextPart(genuine, 'missing-part'), undefined);
+  assert.equal(findEditableUserTextPart(synthetic), undefined);
+  assert.equal(findEditableUserTextPart(synthetic, 'part-shell'), undefined);
+  assert.equal(findEditableUserTextPart(assistant), undefined);
+});
+
+test('issue-1174: session initialization gets fresh ascending message IDs', async () => {
+  const { createOpenCodeMessageId } = await importIdentifierModule();
+  const first = createOpenCodeMessageId();
+  const second = createOpenCodeMessageId();
+
+  assert.match(first, /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+  assert.match(second, /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+  assert.notEqual(first, second);
+  assert.ok(first < second);
 });

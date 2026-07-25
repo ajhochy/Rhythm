@@ -49,7 +49,10 @@ import {
   toTranscriptEntry,
   type SessionMessageRecord,
 } from '@/lib/opencode/format';
-import { isTranscriptDisplayMessage } from '@/lib/opencode/transcript';
+import {
+  findEditableUserTextPart,
+  isTranscriptDisplayMessage,
+} from '@/lib/opencode/transcript';
 import { aggregateSessionUsage, getLatestAssistantTurnUsage } from '@/lib/opencode/usage';
 import { createFullFilePatch } from '@/lib/opencode/workspace-patch';
 import {
@@ -870,21 +873,26 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   );
 
   const deleteSessionMessage = useCallback(async (sessionId: string, messageId: string) => {
+    const message = messagesBySession[sessionId]
+      ?.find((entry) => entry.info.id === messageId);
+    if (!findEditableUserTextPart(message)) {
+      throw new Error('Only your non-synthetic text messages can be deleted.');
+    }
     await svcDeleteSessionMessage(client, sessionId, messageId);
     await Promise.all([
       refreshMessages(sessionId, true),
       refreshSessionDiff(sessionId, true),
       refreshSessions(true),
     ]);
-  }, [client, refreshMessages, refreshSessionDiff, refreshSessions]);
+  }, [client, messagesBySession, refreshMessages, refreshSessionDiff, refreshSessions]);
 
   const updateSessionTextPart = useCallback(
     async (sessionId: string, messageId: string, partId: string, text: string) => {
-      const part = messagesBySession[sessionId]
-        ?.find((message) => message.info.id === messageId)
-        ?.parts.find((entry) => entry.id === partId);
-      if (!part || part.type !== 'text') {
-        throw new Error('The selected text part is no longer available. Refresh the chat and try again.');
+      const message = messagesBySession[sessionId]
+        ?.find((entry) => entry.info.id === messageId);
+      const part = findEditableUserTextPart(message, partId);
+      if (!part) {
+        throw new Error('Only your non-synthetic text messages can be edited.');
       }
       await svcUpdateSessionPart(client, sessionId, messageId, { ...part, text });
       await refreshMessages(sessionId, true);
@@ -893,19 +901,24 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   );
 
   const deleteSessionPart = useCallback(async (sessionId: string, messageId: string, partId: string) => {
+    const message = messagesBySession[sessionId]
+      ?.find((entry) => entry.info.id === messageId);
+    if (!findEditableUserTextPart(message, partId)) {
+      throw new Error('Only your non-synthetic text messages can be deleted.');
+    }
     await svcDeleteSessionPart(client, sessionId, messageId, partId);
     await refreshMessages(sessionId, true);
-  }, [client, refreshMessages]);
+  }, [client, messagesBySession, refreshMessages]);
 
   const initializeSession = useCallback(async (sessionId: string) => {
     const model = getSelectedModelParts(chatPreferences.modelId);
     const messageId = messagesBySession[sessionId]
-      ?.findLast((message) => message.info.role === 'user')
+      ?.findLast((message) => findEditableUserTextPart(message) !== undefined)
       ?.info.id;
     if (!model || !messageId) {
       throw new Error('Send a message and select a model before initializing this session.');
     }
-    await svcInitializeSession(client, sessionId, model, messageId);
+    await svcInitializeSession(client, sessionId, model);
     await Promise.all([refreshMessages(sessionId, true), refreshSessions(true)]);
   }, [chatPreferences.modelId, client, messagesBySession, refreshMessages, refreshSessions]);
 

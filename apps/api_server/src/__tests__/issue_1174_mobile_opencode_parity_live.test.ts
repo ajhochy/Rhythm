@@ -1,10 +1,12 @@
-import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   mkdirSync,
+  readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer, type Server } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 
 import Database from 'better-sqlite3';
@@ -16,6 +18,93 @@ const baseUrl = (process.env.RHYTHM_LIVE_URL ?? '').replace(/\/$/, '');
 const engineUrl = (process.env.RHYTHM_LIVE_ENGINE_URL ?? '').replace(/\/$/, '');
 const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? '';
 const sandboxDir = process.env.RHYTHM_SANDBOX_DIR ?? '';
+const fixturePort = 56174;
+const providerId = 'e2e-anthropic-1174';
+const modelId = 'claude-parity-fixture';
+
+type SessionMessage = {
+  info: { id: string; role: string };
+  parts: Array<{
+    id: string;
+    sessionID: string;
+    messageID: string;
+    type: string;
+    text?: string;
+    synthetic?: boolean;
+  }>;
+};
+
+function anthropicSuccessStream(): string {
+  const events = [
+    {
+      type: 'message_start',
+      message: {
+        id: `msg_issue_1174_${randomUUID()}`,
+        type: 'message',
+        role: 'assistant',
+        model: modelId,
+        content: [],
+        stop_reason: null,
+        stop_sequence: null,
+        usage: {
+          input_tokens: 5,
+          output_tokens: 0,
+          cache_creation_input_tokens: null,
+          cache_read_input_tokens: null,
+        },
+      },
+    },
+    {
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'text', text: '' },
+    },
+    {
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'text_delta', text: 'Parity fixture accepted.' },
+    },
+    { type: 'content_block_stop', index: 0 },
+    {
+      type: 'message_delta',
+      delta: { stop_reason: 'end_turn', stop_sequence: null },
+      usage: {
+        input_tokens: 5,
+        output_tokens: 3,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+      },
+    },
+    { type: 'message_stop' },
+  ];
+  return `${events.map((event) => `data: ${JSON.stringify(event)}`).join('\n\n')}\n\n`;
+}
+
+function createOpenCodeMessageId(): string {
+  const encodedTimestamp = (
+    BigInt(Date.now()) * BigInt(0x1000)
+    + BigInt(1)
+  ) & BigInt('0xffffffffffff');
+  return `msg_${encodedTimestamp.toString(16).padStart(12, '0')}${randomUUID().replaceAll('-', '').slice(0, 14)}`;
+}
+
+async function poll<T>(
+  operation: () => Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  throw new Error(`${label} timed out: ${String(lastError)}`);
+}
 
 function gatewayHeaders(
   deviceToken: string,
@@ -84,15 +173,41 @@ describeLive('live E2E — issue #1174 mobile OpenCode parity', () => {
     const projectRoot = join(boundary, 'project');
     const fileName = 'mobile-parity-proof.txt';
     const marker = `MOBILE-PARITY-${runId}`;
+    const genuinePrompt = `Genuine user message ${marker}`;
+    const configPath = join(
+      sandboxDir,
+      'home',
+      '.config',
+      'opencode',
+      'opencode.json',
+    );
     mkdirSync(projectRoot, { recursive: true });
-    execFileSync('git', ['init', '--quiet', projectRoot]);
     writeFileSync(join(projectRoot, fileName), `${marker}\n`);
 
     let userId: number | null = null;
     let deviceId: string | null = null;
     let deviceToken: string | null = null;
     let engineSessionId: string | null = null;
+    let ptyId: string | null = null;
+    let fixtureServer: Server | null = null;
+    let originalConfig: string | null = null;
+    let fixtureRequests = 0;
     try {
+      fixtureServer = createServer((request, response) => {
+        const chunks: Buffer[] = [];
+        request.on('data', (chunk: Buffer) => chunks.push(chunk));
+        request.on('end', () => {
+          fixtureRequests += 1;
+          JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+          response.end(anthropicSuccessStream());
+        });
+      });
+      await new Promise<void>((resolveListen, rejectListen) => {
+        fixtureServer?.once('error', rejectListen);
+        fixtureServer?.listen(fixturePort, '127.0.0.1', resolveListen);
+      });
+
       userId = Number(
         db.prepare(
           `INSERT INTO users (name, email, google_sub)
@@ -158,6 +273,52 @@ describeLive('live E2E — issue #1174 mobile OpenCode parity', () => {
       expect(search.status).toBe(200);
       expect(JSON.stringify(await search.json())).toContain(fileName);
 
+      const currentProject = await gatewayRequest(
+        paired.deviceToken,
+        projectId,
+        '/project/current',
+      );
+      expect(currentProject.status).toBe(200);
+      const engineProject = (await currentProject.json()) as {
+        id: string;
+        name: string;
+        worktree: string;
+        vcs?: string;
+      };
+      expect(engineProject.id).toBeTruthy();
+
+      const initializedGit = await gatewayRequest(
+        paired.deviceToken,
+        projectId,
+        '/project/git/init',
+        { method: 'POST', body: '{}' },
+      );
+      expect(initializedGit.status).toBe(200);
+      const initializedProject = await initializedGit.json() as {
+        id: string;
+        worktree: string;
+        vcs?: string;
+      };
+      expect(initializedProject).toMatchObject({
+        worktree: realpathSync(projectRoot),
+        vcs: 'git',
+      });
+
+      const renamedProject = await gatewayRequest(
+        paired.deviceToken,
+        projectId,
+        `/project/${encodeURIComponent(initializedProject.id)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ name: 'Issue 1174 renamed live' }),
+        },
+      );
+      expect(renamedProject.status).toBe(200);
+      expect(await renamedProject.json()).toMatchObject({
+        id: initializedProject.id,
+        name: 'Issue 1174 renamed live',
+      });
+
       const vcsStatus = await gatewayRequest(
         paired.deviceToken,
         projectId,
@@ -165,6 +326,76 @@ describeLive('live E2E — issue #1174 mobile OpenCode parity', () => {
       );
       expect(vcsStatus.status).toBe(200);
       expect(JSON.stringify(await vcsStatus.json())).toContain(fileName);
+
+      const createdPty = await gatewayRequest(
+        paired.deviceToken,
+        projectId,
+        '/pty',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            command: '/bin/sh',
+            args: [
+              '-c',
+              'sleep 1; stty size > pty-size.txt; sleep 5',
+            ],
+            title: 'Issue 1174 resize',
+          }),
+        },
+      );
+      expect(
+        createdPty.status,
+        `PTY create response: ${await createdPty.clone().text()}`,
+      ).toBe(200);
+      const pty = (await createdPty.json()) as {
+        id: string;
+        title: string;
+        cwd: string;
+      };
+      ptyId = pty.id;
+      expect(pty).toMatchObject({
+        title: 'Issue 1174 resize',
+        cwd: realpathSync(projectRoot),
+      });
+
+      const resizedPty = await gatewayRequest(
+        paired.deviceToken,
+        projectId,
+        `/pty/${encodeURIComponent(pty.id)}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            title: 'Issue 1174 resized live',
+            size: { rows: 32, cols: 120 },
+          }),
+        },
+      );
+      expect(resizedPty.status).toBe(200);
+      expect(await resizedPty.json()).toMatchObject({
+        id: pty.id,
+        title: 'Issue 1174 resized live',
+      });
+      await poll(
+        async () => {
+          const contentResponse = await gatewayRequest(
+            paired.deviceToken,
+            projectId,
+            `/file/content?path=${encodeURIComponent('pty-size.txt')}`,
+          );
+          if (!contentResponse.ok) {
+            throw new Error(`PTY size proof returned ${contentResponse.status}`);
+          }
+          const content = (await contentResponse.json()) as {
+            type: string;
+            content: string;
+          };
+          expect(content.type).toBe('text');
+          expect(content.content.trim()).toBe('32 120');
+          return content;
+        },
+        10_000,
+        'PTY resize proof',
+      );
 
       const skills = await gatewayRequest(
         paired.deviceToken,
@@ -182,6 +413,27 @@ describeLive('live E2E — issue #1174 mobile OpenCode parity', () => {
       );
       expect(skillReload.status).toBe(200);
       expect(await skillReload.json()).toEqual(expect.any(Array));
+
+      originalConfig = readFileSync(configPath, 'utf8');
+      const config = JSON.parse(originalConfig) as {
+        provider?: Record<string, unknown>;
+      };
+      config.provider = config.provider ?? {};
+      config.provider[providerId] = {
+        npm: '@ai-sdk/anthropic',
+        name: 'Issue 1174 Anthropic fixture',
+        options: {
+          apiKey: 'issue-1174-fixture-key',
+          baseURL: `http://127.0.0.1:${fixturePort}/v1`,
+        },
+        models: {
+          [modelId]: {
+            name: 'Issue 1174 parity fixture',
+            limit: { context: 200000, output: 4096 },
+          },
+        },
+      };
+      writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
 
       const configReload = await gatewayRequest(
         paired.deviceToken,
@@ -271,38 +523,126 @@ describeLive('live E2E — issue #1174 mobile OpenCode parity', () => {
       ).toBe(200);
       expect(JSON.stringify(await shell.json())).toContain(marker);
 
-      const transcript = await gatewayRequest(
+      const prompted = await gatewayRequest(
         paired.deviceToken,
         projectId,
-        `/session/${encodeURIComponent(session.id)}/message`,
+        `/session/${encodeURIComponent(session.id)}/prompt_async`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            agent: 'build',
+            model: {
+              providerID: providerId,
+              modelID: modelId,
+            },
+            parts: [{ type: 'text', text: genuinePrompt }],
+          }),
+        },
       );
-      expect(transcript.status).toBe(200);
-      const messages = (await transcript.json()) as Array<{
-        info: { id: string; role: string };
-        parts: Array<{
-          id: string;
-          sessionID: string;
-          messageID: string;
-          type: string;
-          text?: string;
-          synthetic?: boolean;
-        }>;
-      }>;
-      const editable = messages.find(({ info, parts }) =>
-        info.role === 'user' && parts.some((part) => part.type === 'text'),
+      expect(prompted.status).toBe(204);
+
+      const genuine = await poll(
+        async () => {
+          const transcript = await gatewayRequest(
+            paired.deviceToken,
+            projectId,
+            `/session/${encodeURIComponent(session.id)}/message`,
+          );
+          expect(transcript.status).toBe(200);
+          const messages = (await transcript.json()) as SessionMessage[];
+          const editable = messages.find(({ info, parts }) =>
+            info.role === 'user' && parts.some((part) => (
+              part.type === 'text'
+              && part.synthetic !== true
+              && part.text === genuinePrompt
+            )),
+          );
+          const textPart = editable?.parts.find((part) => (
+            part.type === 'text'
+            && part.synthetic !== true
+            && part.text === genuinePrompt
+          ));
+          const assistantAccepted = messages.some(({ info, parts }) =>
+            info.role === 'assistant' && parts.some((part) => (
+              part.type === 'text'
+              && part.text?.includes('Parity fixture accepted.')
+            )),
+          );
+          if (!editable || !textPart || !assistantAccepted) {
+            throw new Error('genuine prompt turn has not completed');
+          }
+          return { editable, textPart };
+        },
+        30_000,
+        'genuine user prompt',
       );
-      const textPart = editable?.parts.find((part) => part.type === 'text');
-      expect(editable).toBeTruthy();
-      expect(textPart).toBeTruthy();
+      await poll(
+        async () => {
+          const statusResponse = await gatewayRequest(
+            paired.deviceToken,
+            projectId,
+            '/session/status',
+          );
+          expect(statusResponse.status).toBe(200);
+          const statuses = await statusResponse.json() as Record<
+            string,
+            { type: string }
+          >;
+          expect(statuses[session.id]?.type ?? 'idle').toBe('idle');
+          return statuses[session.id];
+        },
+        30_000,
+        'genuine prompt idle state',
+      );
+
+      const initializedSession = await gatewayRequest(
+        paired.deviceToken,
+        projectId,
+        `/session/${encodeURIComponent(session.id)}/init`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            providerID: providerId,
+            modelID: modelId,
+            messageID: createOpenCodeMessageId(),
+          }),
+        },
+      );
+      expect(
+        initializedSession.status,
+        `session init response: ${await initializedSession.clone().text()}`,
+      ).toBe(200);
+      expect(await initializedSession.json()).toBe(true);
+      await poll(
+        async () => {
+          const transcript = await gatewayRequest(
+            paired.deviceToken,
+            projectId,
+            `/session/${encodeURIComponent(session.id)}/message`,
+          );
+          const messages = (await transcript.json()) as SessionMessage[];
+          const acceptedResponses = messages.filter(({ info, parts }) =>
+            info.role === 'assistant' && parts.some((part) => (
+              part.type === 'text'
+              && part.text?.includes('Parity fixture accepted.')
+            )),
+          );
+          expect(acceptedResponses.length).toBeGreaterThanOrEqual(2);
+          expect(fixtureRequests).toBeGreaterThanOrEqual(2);
+          return acceptedResponses;
+        },
+        30_000,
+        'session initialization response',
+      );
 
       const editedText = `Edited from mobile parity ${runId}`;
       const updatedPart = await gatewayRequest(
         paired.deviceToken,
         projectId,
-        `/session/${encodeURIComponent(session.id)}/message/${encodeURIComponent(editable!.info.id)}/part/${encodeURIComponent(textPart!.id)}`,
+        `/session/${encodeURIComponent(session.id)}/message/${encodeURIComponent(genuine.editable.info.id)}/part/${encodeURIComponent(genuine.textPart.id)}`,
         {
           method: 'PATCH',
-          body: JSON.stringify({ ...textPart, text: editedText }),
+          body: JSON.stringify({ ...genuine.textPart, text: editedText }),
         },
       );
       expect(updatedPart.status).toBe(200);
@@ -311,7 +651,7 @@ describeLive('live E2E — issue #1174 mobile OpenCode parity', () => {
       const deletedPart = await gatewayRequest(
         paired.deviceToken,
         projectId,
-        `/session/${encodeURIComponent(session.id)}/message/${encodeURIComponent(editable!.info.id)}/part/${encodeURIComponent(textPart!.id)}`,
+        `/session/${encodeURIComponent(session.id)}/message/${encodeURIComponent(genuine.editable.info.id)}/part/${encodeURIComponent(genuine.textPart.id)}`,
         { method: 'DELETE' },
       );
       expect(deletedPart.status).toBe(200);
@@ -320,7 +660,7 @@ describeLive('live E2E — issue #1174 mobile OpenCode parity', () => {
       const deletedMessage = await gatewayRequest(
         paired.deviceToken,
         projectId,
-        `/session/${encodeURIComponent(session.id)}/message/${encodeURIComponent(editable!.info.id)}`,
+        `/session/${encodeURIComponent(session.id)}/message/${encodeURIComponent(genuine.editable.info.id)}`,
         { method: 'DELETE' },
       );
       expect(deletedMessage.status).toBe(200);
@@ -365,6 +705,14 @@ describeLive('live E2E — issue #1174 mobile OpenCode parity', () => {
         });
       }
     } finally {
+      if (ptyId && deviceToken) {
+        await gatewayRequest(
+          deviceToken,
+          projectId,
+          `/pty/${encodeURIComponent(ptyId)}`,
+          { method: 'DELETE' },
+        ).catch(() => undefined);
+      }
       if (engineSessionId) {
         await gatewayRequest(
           deviceToken ?? '',
@@ -372,6 +720,22 @@ describeLive('live E2E — issue #1174 mobile OpenCode parity', () => {
           `/session/${encodeURIComponent(engineSessionId)}`,
           { method: 'DELETE' },
         ).catch(() => undefined);
+      }
+      if (originalConfig !== null) {
+        writeFileSync(configPath, originalConfig, 'utf8');
+        if (deviceToken) {
+          await gatewayRequest(
+            deviceToken,
+            projectId,
+            '/config/reload',
+            { method: 'POST', body: '{}' },
+          ).catch(() => undefined);
+        }
+      }
+      if (fixtureServer?.listening) {
+        await new Promise<void>((resolveClose) => {
+          fixtureServer?.close(() => resolveClose());
+        });
       }
       if (deviceId !== null) {
         db.prepare('DELETE FROM mobile_devices WHERE id = ?').run(deviceId);
@@ -390,5 +754,5 @@ describeLive('live E2E — issue #1174 mobile OpenCode parity', () => {
         rmSync(boundary, { recursive: true, force: true });
       }
     }
-  });
+  }, 90_000);
 });

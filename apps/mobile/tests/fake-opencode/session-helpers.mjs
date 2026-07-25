@@ -202,7 +202,11 @@ export function createSessionHelpers({ getNow, getState, emitEvent }) {
     const command = body?.command || 'unknown';
     const args = body?.arguments?.trim();
     const text = `Command /${command}${args ? ` ${args}` : ''} completed.`;
-    createMessage(sessionId, 'user', [{ type: 'text', text: `/${command}${args ? ` ${args}` : ''}` }]);
+    createMessage(sessionId, 'user', [{
+      type: 'text',
+      text: `/${command}${args ? ` ${args}` : ''}`,
+      synthetic: true,
+    }]);
     createMessage(sessionId, 'assistant', [{ type: 'text', text }]);
     getState().sessionStatuses[sessionId] = { type: 'idle' };
     emitEvent({ type: 'session.idle', properties: { sessionID: sessionId } });

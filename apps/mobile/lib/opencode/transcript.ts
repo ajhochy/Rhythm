@@ -1,4 +1,28 @@
-import type { TranscriptDetail, TranscriptEntry } from '@/lib/opencode/format';
+import type {
+  SessionMessageRecord,
+  TranscriptDetail,
+  TranscriptEntry,
+} from '@/lib/opencode/format';
+
+type EditableTextPart = Extract<
+  SessionMessageRecord['parts'][number],
+  { type: 'text' }
+>;
+
+export function findEditableUserTextPart(
+  message: SessionMessageRecord | undefined,
+  partId?: string,
+): EditableTextPart | undefined {
+  if (message?.info.role !== 'user') {
+    return undefined;
+  }
+
+  return message.parts.find((part): part is EditableTextPart => (
+    part.type === 'text'
+    && part.synthetic !== true
+    && (partId === undefined || part.id === partId)
+  ));
+}
 
 export function getTranscriptActivityLabel(entry: TranscriptEntry) {
   const runningTool = entry.details.find((detail) => detail.kind === 'tool' && detail.status === 'running');

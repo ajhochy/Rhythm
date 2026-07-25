@@ -14,7 +14,11 @@ import { styles } from '@/components/chat/chat-view-styles';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { type TranscriptEntry } from '@/lib/opencode/format';
-import { getTranscriptActivityLabel, isTranscriptDisplayMessage } from '@/lib/opencode/transcript';
+import {
+  findEditableUserTextPart,
+  getTranscriptActivityLabel,
+  isTranscriptDisplayMessage,
+} from '@/lib/opencode/transcript';
 import { speakText, stopSpeaking } from '@/lib/voice/speech-output';
 import { useSpeechInput } from '@/lib/voice/use-speech-input';
 import { useOpencode } from '@/providers/opencode-provider';
@@ -163,15 +167,13 @@ export function ChatView() {
     : '';
   const visibleSessions = sessions;
   const editableMessages = useMemo(
-    () => currentMessages.filter((message) => (
-      message.info.role === 'user' && message.parts.some((part) => part.type === 'text')
-    )),
+    () => currentMessages.filter((message) => findEditableUserTextPart(message) !== undefined),
     [currentMessages],
   );
   const selectedEditableMessage = editableMessages.find(
     (message) => message.info.id === selectedEditableMessageId,
   ) || editableMessages.at(-1);
-  const selectedEditablePart = selectedEditableMessage?.parts.find((part) => part.type === 'text');
+  const selectedEditablePart = findEditableUserTextPart(selectedEditableMessage);
 
   useEffect(() => {
     draftRef.current = draft;
@@ -183,7 +185,7 @@ export function ChatView() {
 
   useEffect(() => {
     const nextMessage = editableMessages.at(-1);
-    const nextPart = nextMessage?.parts.find((part) => part.type === 'text');
+    const nextPart = findEditableUserTextPart(nextMessage);
     setSelectedEditableMessageId(nextMessage?.info.id);
     setEditablePartText(nextPart?.type === 'text' ? nextPart.text : '');
     setSessionChildren([]);

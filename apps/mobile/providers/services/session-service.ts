@@ -1,6 +1,7 @@
 import type { OpencodeClient, Part, PermissionRuleset } from '@opencode-ai/sdk/v2/client';
 
 import type { GlobalSession, Project } from '@/lib/opencode/types';
+import { createOpenCodeMessageId } from '@/lib/opencode/identifier';
 
 function requireData<T>(data: T | undefined, operation: string): T {
   if (data === undefined) {
@@ -209,9 +210,12 @@ export async function initializeSession(
   client: OpencodeClient,
   sessionId: string,
   model?: { providerID: string; modelID: string },
-  messageId?: string,
 ) {
-  return client.session.init({ sessionID: sessionId, ...model, messageID: messageId });
+  return client.session.init({
+    sessionID: sessionId,
+    ...model,
+    messageID: createOpenCodeMessageId(),
+  });
 }
 
 export async function runSessionShell(
