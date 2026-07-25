@@ -623,6 +623,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       description TEXT,
       steps_json TEXT NOT NULL DEFAULT '[]',
       bound_config_id TEXT,
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
@@ -776,6 +777,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       post_score     INTEGER,
       measure_reason TEXT,
       decided_by_user_id INTEGER,
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
@@ -941,9 +943,37 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS is_system INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS delegation_depth INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS status_message TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id) ON DELETE SET NULL;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS mcp_role TEXT;
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_is_system ON agent_sessions(is_system);
+  `);
+
+  // #1175 — Activity schema + owner-index parity. All changes are additive and
+  // idempotent for active Postgres deployments. NULL recipe/proposal owners are
+  // organization/system-global and excluded from authenticated mobile feeds;
+  // only the trusted local desktop global view may include them.
+  await pool.query(`
+    ALTER TABLE agent_cookbook
+      ADD COLUMN IF NOT EXISTS owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE agent_org_proposals
+      ADD COLUMN IF NOT EXISTS owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_agent_sessions_owner_activity
+      ON agent_sessions(owner_user_id, last_activity_at, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_scheduled_tasks_owner_activity
+      ON agent_scheduled_tasks(created_by_user_id, last_run_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_webhook_endpoints_owner_activity
+      ON agent_webhook_endpoints(created_by_user_id, last_triggered_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_owner_activity
+      ON agent_research_jobs(requested_by_user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_cookbook_owner_activity
+      ON agent_cookbook(owner_user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_org_proposals_owner_activity
+      ON agent_org_proposals(owner_user_id, updated_at);
   `);
 
   // #1028 (USO B1) — agent_sessions.category: session classification driving the

@@ -94,7 +94,10 @@ describe('#1172 agent activity aggregation', () => {
   });
 
   it('issue-1172-c5: aggregates all execution sources without a duplicate activity table', async () => {
-    const result = await listAgentActivity({ limit: 50 });
+    const result = await listAgentActivity({
+      trustedGlobal: true,
+      limit: 50,
+    });
 
     expect(new Set(result.items.map((item) => item.source))).toEqual(
       new Set(['human', 'scheduler', 'webhook', 'research', 'cookbook', 'optimizer']),
@@ -110,11 +113,19 @@ describe('#1172 agent activity aggregation', () => {
   });
 
   it('issue-1172-c6: canonical order filters and cursor remain stable and duplicate-free', async () => {
-    const first = await listAgentActivity({ limit: 2 });
+    const first = await listAgentActivity({ trustedGlobal: true, limit: 2 });
     expect(first.nextCursor).not.toBeNull();
     const cursor = first.nextCursor ?? undefined;
-    const second = await listAgentActivity({ limit: 2, cursor });
-    const repeated = await listAgentActivity({ limit: 2, cursor });
+    const second = await listAgentActivity({
+      trustedGlobal: true,
+      limit: 2,
+      cursor,
+    });
+    const repeated = await listAgentActivity({
+      trustedGlobal: true,
+      limit: 2,
+      cursor,
+    });
 
     expect(first.items).toHaveLength(2);
     expect(second.items).toEqual(repeated.items);
@@ -128,6 +139,7 @@ describe('#1172 agent activity aggregation', () => {
     ).toEqual([...first.items, ...second.items].map((item) => item.occurredAt));
 
     const filtered = await listAgentActivity({
+      trustedGlobal: true,
       limit: 20,
       source: 'research',
       status: 'active',
@@ -141,7 +153,29 @@ describe('#1172 agent activity aggregation', () => {
     } satisfies Partial<AgentActivityItem>);
 
     await expect(
-      listAgentActivity({ limit: 20, cursor: 'not-an-opaque-cursor' }),
+      listAgentActivity({
+        trustedGlobal: true,
+        limit: 20,
+        cursor: 'not-an-opaque-cursor',
+      }),
     ).rejects.toThrow(/cursor/i);
+  });
+
+  it('issue-1175-c10: callers must explicitly choose authenticated owner scope or trusted local global scope', async () => {
+    await expect(listAgentActivity({ limit: 20 })).rejects.toMatchObject({
+      statusCode: 403,
+    });
+
+    const authenticated = await listAgentActivity({
+      userId: 1,
+      limit: 20,
+    });
+    expect(authenticated.items).toEqual([]);
+
+    const trustedLocal = await listAgentActivity({
+      trustedGlobal: true,
+      limit: 20,
+    });
+    expect(trustedLocal.items.length).toBeGreaterThan(0);
   });
 });

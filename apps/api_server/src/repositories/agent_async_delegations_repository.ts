@@ -166,6 +166,56 @@ export class AgentAsyncDelegationsRepository {
     })();
   }
 
+  /**
+   * Return the durable claims left behind for one parent. A healthy process
+   * keeps these mirrored in AsyncDelegationCompletionService.wakeInFlight;
+   * finding them without that in-memory marker means the process restarted or
+   * an enqueue attempt threw before the claim could be released.
+   */
+  listWakingForParent(parentSessionId: string): AgentAsyncDelegation[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM agent_async_delegations
+          WHERE parent_session_id = ? AND status = 'waking'
+          ORDER BY created_at ASC, id ASC`,
+      )
+      .all(parentSessionId) as AgentAsyncDelegationRow[];
+    return rows.map(rowToModel);
+  }
+
+  /**
+   * Bounded restart scan. The service expands each selected parent to its full
+   * batch so one logical wake is never split across two prompts.
+   */
+  listWakingParentIds(limit = 100, afterParentSessionId: string | null = null): string[] {
+    const bounded = Math.max(1, Math.min(100, Math.floor(limit)));
+    const rows = getDb()
+      .prepare(
+        `SELECT parent_session_id
+           FROM agent_async_delegations
+          WHERE status = 'waking'
+            AND (? IS NULL OR parent_session_id > ?)
+          GROUP BY parent_session_id
+          ORDER BY parent_session_id ASC
+          LIMIT ?`,
+      )
+      .all(afterParentSessionId, afterParentSessionId, bounded) as Array<{
+      parent_session_id: string;
+    }>;
+    return rows.map((row) => row.parent_session_id);
+  }
+
+  countWakingClaims(): number {
+    const row = getDb()
+      .prepare(
+        `SELECT COUNT(*) AS count
+           FROM agent_async_delegations
+          WHERE status = 'waking'`,
+      )
+      .get() as { count: number };
+    return row.count;
+  }
+
   markNotified(ids: string[]): void {
     if (ids.length === 0) return;
     const now = new Date().toISOString();

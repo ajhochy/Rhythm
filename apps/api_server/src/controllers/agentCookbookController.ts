@@ -49,6 +49,10 @@ export class AgentCookbookController {
         stepsJson: resolvedStepsJson,
         boundConfigId:
           typeof boundConfigId === 'string' ? boundConfigId : undefined,
+        // Ownership comes only from verified middleware context. Local/system
+        // callers without auth intentionally create an org-global recipe,
+        // which paired Activity excludes.
+        ownerUserId: req.mobileDevice?.userId ?? req.auth?.user.id ?? null,
       });
 
       res.status(201).json(recipe);

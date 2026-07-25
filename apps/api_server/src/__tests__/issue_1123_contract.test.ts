@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { setDb } from '../database/db';
+import { getDb, setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
@@ -10,6 +10,7 @@ import { AgentAsyncDelegationsRepository } from '../repositories/agent_async_del
 const { engineSpies, sessionMap, streamSessionSpy } = vi.hoisted(() => ({
   engineSpies: {
     createSession: vi.fn(),
+    listMessages: vi.fn(),
     promptAsync: vi.fn(),
   },
   sessionMap: new Map<string, string>(),
@@ -90,6 +91,7 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
     sessionMap.clear();
     vi.clearAllMocks();
     engineSpies.createSession.mockResolvedValue({ id: 'sdk-child-1' });
+    engineSpies.listMessages.mockResolvedValue([]);
     engineSpies.promptAsync.mockResolvedValue(true);
     streamSessionSpy.mockResolvedValue(undefined);
   });
@@ -259,5 +261,145 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
       '/tmp',
       expect.not.objectContaining({ noReply: true }),
     );
+  });
+
+  it('issue-1175-c9: restart recovery recognizes an accepted deterministic wake and never prompts twice', async () => {
+    seedProfile({ id: 'manager', manager: true, delegates: ['specialist'] });
+    seedProfile({ id: 'specialist' });
+    const parent = seedSession({ agentKind: 'manager', sdkId: 'sdk-parent' });
+    const child = new AgentSessionsRepository().upsertChildSession(
+      'sdk-child',
+      'sdk-parent',
+      'Async child (@specialist subagent)',
+      '/tmp',
+    )!;
+    const delegations = new AgentAsyncDelegationsRepository();
+    delegations.create({
+      parentSessionId: parent.id,
+      childSessionId: child.id,
+      targetAgentConfigId: 'specialist',
+    });
+    new AgentSessionMessagesRepository().append(
+      child.id,
+      'output',
+      'durable specialist result',
+      'durable specialist result',
+    );
+
+    await new AsyncDelegationCompletionService().onChildIdle(child.id);
+    const promptOptions = engineSpies.promptAsync.mock.calls[0][4] as {
+      messageID: string;
+    };
+    const wakeText = String(engineSpies.promptAsync.mock.calls[0][1]);
+    expect(promptOptions.messageID).toMatch(/^msg_rhythm_async_/);
+
+    // Simulate the only ambiguous crash window: OpenCode accepted/persisted the
+    // deterministic user message, but api_server died before its notified write.
+    getDb()
+      .prepare(
+        `UPDATE agent_async_delegations
+            SET status = 'waking', notified_at = NULL
+          WHERE child_session_id = ?`,
+      )
+      .run(child.id);
+    engineSpies.promptAsync.mockClear();
+    engineSpies.listMessages.mockResolvedValue([
+      {
+        info: { id: promptOptions.messageID },
+        parts: [{ type: 'text', text: wakeText }],
+      },
+    ]);
+
+    const recovery = new AsyncDelegationCompletionService();
+    const result = await recovery.recoverAfterRestart();
+
+    expect(result).toEqual({ parentsExamined: 1, claimsRemaining: 0 });
+    expect(engineSpies.listMessages).toHaveBeenCalledWith(
+      'sdk-parent',
+      '/tmp',
+    );
+    expect(engineSpies.promptAsync).not.toHaveBeenCalled();
+    expect(delegations.findByChildSessionId(child.id)?.status).toBe('notified');
+  });
+
+  it('issue-1175-c9: a successful wake releases the process gate for the next completion batch', async () => {
+    seedProfile({ id: 'manager', manager: true, delegates: ['specialist'] });
+    seedProfile({ id: 'specialist' });
+    const parent = seedSession({ agentKind: 'manager', sdkId: 'sdk-parent' });
+    const sessions = new AgentSessionsRepository();
+    const delegations = new AgentAsyncDelegationsRepository();
+    const messages = new AgentSessionMessagesRepository();
+    const completion = new AsyncDelegationCompletionService();
+
+    for (const suffix of ['first', 'second']) {
+      const child = sessions.upsertChildSession(
+        `sdk-child-${suffix}`,
+        'sdk-parent',
+        `Async child ${suffix} (@specialist subagent)`,
+        '/tmp',
+      )!;
+      delegations.create({
+        parentSessionId: parent.id,
+        childSessionId: child.id,
+        targetAgentConfigId: 'specialist',
+      });
+      messages.append(
+        child.id,
+        'output',
+        `${suffix} durable result`,
+        `${suffix} durable result`,
+      );
+      await completion.onChildIdle(child.id);
+    }
+
+    expect(engineSpies.promptAsync).toHaveBeenCalledTimes(2);
+    expect(String(engineSpies.promptAsync.mock.calls[0][1])).toContain(
+      'first durable result',
+    );
+    expect(String(engineSpies.promptAsync.mock.calls[1][1])).toContain(
+      'second durable result',
+    );
+  });
+
+  it('issue-1175-c9: restart recovery paginates beyond the first bounded parent page', async () => {
+    seedProfile({ id: 'manager', manager: true, delegates: ['specialist'] });
+    seedProfile({ id: 'specialist' });
+    const sessions = new AgentSessionsRepository();
+    const delegations = new AgentAsyncDelegationsRepository();
+    const messages = new AgentSessionMessagesRepository();
+
+    for (let index = 0; index < 101; index += 1) {
+      const parent = seedSession({
+        agentKind: 'manager',
+        sdkId: `sdk-parent-${index.toString().padStart(3, '0')}`,
+      });
+      const child = sessions.upsertChildSession(
+        `sdk-child-${index.toString().padStart(3, '0')}`,
+        parent.sdkSessionId!,
+        `Async child ${index} (@specialist subagent)`,
+        '/tmp',
+      )!;
+      delegations.create({
+        parentSessionId: parent.id,
+        childSessionId: child.id,
+        targetAgentConfigId: 'specialist',
+      });
+      messages.append(child.id, 'output', `result ${index}`, `result ${index}`);
+      getDb()
+        .prepare(
+          `UPDATE agent_async_delegations
+              SET status = 'waking'
+            WHERE child_session_id = ?`,
+        )
+        .run(child.id);
+    }
+
+    const result = await new AsyncDelegationCompletionService().recoverAfterRestart(
+      25,
+    );
+
+    expect(result).toEqual({ parentsExamined: 101, claimsRemaining: 0 });
+    expect(engineSpies.promptAsync).toHaveBeenCalledTimes(101);
+    expect(delegations.countWakingClaims()).toBe(0);
   });
 });

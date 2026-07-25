@@ -57,3 +57,15 @@ issues #1076–#1175, then update the existing draft PR.
 Run cumulative API/mobile/fork/Flutter gates plus signed simulator and physical
 device smoke, then push the integration branch and update the existing draft PR
 with exact live evidence and production review notes.
+
+## Recent coding-agent runs
+
+- 2026-07-25 — #1175 delegation/Activity hardening
+  (`codex/delegation-activity-1175`): locked execution gates, durable
+  exactly-once wake reconciliation/restart pagination, per-user Activity
+  filtering across all six sources, and Postgres schema parity implemented.
+  Focused contracts/build and live Activity/locked-delegation HTTP smokes pass.
+  The existing full Gemini wake smoke observed the expected child result,
+  deterministic callback, and parent response but timed out on its legacy
+  WebSocket idle-frame predicate; see
+  `docs/ai/runs/2026-07-25-1175-delegation-activity-hardening.md`.

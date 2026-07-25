@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 
+import { env } from '../config/env';
 import { AppError } from '../errors/app_error';
 import {
   AGENT_ACTIVITY_SOURCES,
@@ -33,6 +34,12 @@ function enumQuery<T extends string>(
 export class AgentActivityController {
   async list(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
+      const userId = req.mobileDevice?.userId ?? req.auth?.user.id;
+      if (userId === undefined && !env.agentLocal) {
+        throw AppError.unauthorized(
+          'Agent activity requires an authenticated user',
+        );
+      }
       const rawLimit = optionalQuery(req.query.limit, 'limit');
       const limit = rawLimit === undefined ? undefined : Number(rawLimit);
       if (
@@ -42,6 +49,9 @@ export class AgentActivityController {
         throw AppError.badRequest('limit must be an integer from 1 to 100');
       }
       const page = await listAgentActivity({
+        ...(userId === undefined
+          ? { trustedGlobal: true }
+          : { userId }),
         source: enumQuery<AgentActivitySource>(
           req.query.source,
           'source',

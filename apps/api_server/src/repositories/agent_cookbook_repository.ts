@@ -17,6 +17,8 @@ export interface CreateAgentCookbookInput {
   description?: string;
   stepsJson?: string;
   boundConfigId?: string;
+  /** Server-derived owner. NULL is reserved for trusted local/system recipes. */
+  ownerUserId?: number | null;
 }
 
 function rowToModel(row: Record<string, unknown>): AgentCookbook {
@@ -46,8 +48,9 @@ export class AgentCookbookRepository {
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(
         `INSERT INTO agent_cookbook
-           (id, title, description, steps_json, bound_config_id, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
+           (id, title, description, steps_json, bound_config_id, owner_user_id,
+            created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          RETURNING *`,
         [
           id,
@@ -55,6 +58,7 @@ export class AgentCookbookRepository {
           input.description ?? null,
           stepsJson,
           input.boundConfigId ?? null,
+          input.ownerUserId ?? null,
           now,
           now,
         ],
@@ -65,8 +69,9 @@ export class AgentCookbookRepository {
     getDb()
       .prepare(
         `INSERT INTO agent_cookbook
-           (id, title, description, steps_json, bound_config_id, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?)`,
+           (id, title, description, steps_json, bound_config_id, owner_user_id,
+            created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
       )
       .run(
         id,
@@ -74,6 +79,7 @@ export class AgentCookbookRepository {
         input.description ?? null,
         stepsJson,
         input.boundConfigId ?? null,
+        input.ownerUserId ?? null,
         now,
         now,
       );

@@ -70,6 +70,31 @@ function parseAllowedDelegates(json: string | null): Set<string> {
   }
 }
 
+function requireExecutableProfile(
+  repo: AgentConfigsRepository,
+  profileId: string,
+  role: 'caller' | 'target',
+) {
+  const profile = repo.getById(profileId);
+  if (!profile) {
+    if (role === 'caller') {
+      throw AppError.forbidden('caller profile is not allowed to delegate');
+    }
+    throw AppError.badRequest('target profile is not runnable');
+  }
+  const blockReason = agentConfigExecutionBlockReason(profile);
+  if (blockReason) {
+    if (role === 'caller') throw AppError.forbidden(blockReason);
+    throw AppError.badRequest(blockReason);
+  }
+  return profile;
+}
+
+function dispatchFailureMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  return 'async delegation dispatch failed';
+}
+
 export async function delegateToAgent(
   input: AgentDelegationInput,
 ): Promise<AgentDelegationResult> {
@@ -99,8 +124,8 @@ export async function delegateToAgent(
   }
 
   const repo = new AgentConfigsRepository();
-  const caller = repo.getById(callerId);
-  if (!caller || !caller.isManager) {
+  const caller = requireExecutableProfile(repo, callerId, 'caller');
+  if (!caller.isManager) {
     throw AppError.forbidden('caller profile is not allowed to delegate');
   }
 
@@ -109,12 +134,10 @@ export async function delegateToAgent(
     throw AppError.forbidden('target profile is not an allowed delegate');
   }
 
-  const target = repo.getById(targetId);
-  if (!target || !target.isAgent) {
+  const target = requireExecutableProfile(repo, targetId, 'target');
+  if (!target.isAgent) {
     throw AppError.badRequest('target profile is not runnable');
   }
-  const targetBlockReason = agentConfigExecutionBlockReason(target);
-  if (targetBlockReason) throw AppError.badRequest(targetBlockReason);
 
   const scopedPrompt = input.context ? `${input.context.trim()}\n\n${prompt}` : prompt;
   const result = await runAgent({
@@ -218,8 +241,8 @@ export async function delegateToAgentAsync(
   }
 
   const configRepo = new AgentConfigsRepository();
-  const caller = configRepo.getById(callerId);
-  if (!caller || !caller.isManager || !caller.sessionSelectable) {
+  const caller = requireExecutableProfile(configRepo, callerId, 'caller');
+  if (!caller.isManager || !caller.sessionSelectable) {
     throw AppError.forbidden('caller profile is not allowed to use interactive async delegation');
   }
   if (hasExplicitAsyncDelegationDeny(caller.corePermissionsJson)) {
@@ -229,11 +252,16 @@ export async function delegateToAgentAsync(
     throw AppError.forbidden('target profile is not an allowed delegate');
   }
 
-  const target = configRepo.getById(targetId);
-  if (!target || !target.enabled || !target.isAgent) {
+  const target = requireExecutableProfile(configRepo, targetId, 'target');
+  if (!target.isAgent) {
     throw AppError.badRequest('target profile is not runnable');
   }
 
+  // Re-read both profiles at the first engine boundary. The caller/target rows
+  // can be security-locked after the initial roster checks above; a stale
+  // in-memory object must never authorize creation of an executable child.
+  requireExecutableProfile(configRepo, callerId, 'caller');
+  requireExecutableProfile(configRepo, targetId, 'target');
   const profileScope = await resolveProfileScope(targetId);
   const skillNames = parseSkillNames(profileScope.allowedSkillsJson);
   const scopedPrompt = input.context?.trim()
@@ -268,37 +296,53 @@ export async function delegateToAgentAsync(
   sessionRepo.updateStatus(childRow.id, 'working');
 
   const delegationRepo = new AgentAsyncDelegationsRepository();
-  delegationRepo.create({
-    parentSessionId: callerSession.id,
-    childSessionId: childRow.id,
-    targetAgentConfigId: targetId,
-  });
+  let delegationPersisted = false;
+  try {
+    delegationRepo.create({
+      parentSessionId: callerSession.id,
+      childSessionId: childRow.id,
+      targetAgentConfigId: targetId,
+    });
+    delegationPersisted = true;
 
-  // Subscribe before enqueue so a very fast child cannot finish before the
-  // bridge has a route for its first message/status event.
-  const { streamBridge } = await import('./opencode_stream_bridge');
-  await streamBridge.streamSession(childRow.id, childSession.id, callerSession.cwd);
+    // Subscribe before enqueue so a very fast child cannot finish before the
+    // bridge has a route for its first message/status event.
+    const { streamBridge } = await import('./opencode_stream_bridge');
+    await streamBridge.streamSession(childRow.id, childSession.id, callerSession.cwd);
 
-  const runningAsOwnAgent =
-    profileScope.ocAgent !== null && profileScope.ocAgent === targetId;
-  const promptOpts: Record<string, unknown> = {
-    permissionMode: 'bypassPermissions',
-    ...(profileScope.ocAgent ? { agent: profileScope.ocAgent } : {}),
-    ...(profileScope.systemPrompt && !runningAsOwnAgent
-      ? { system: profileScope.systemPrompt }
-      : {}),
-  };
-  const enqueued = await opencodeClient.promptAsync(
-    childSession.id,
-    scopedPrompt,
-    profileScope.model,
-    callerSession.cwd,
-    promptOpts,
-  );
-  if (!enqueued) {
-    delegationRepo.markDispatchFailed(childRow.id, 'engine rejected async delegated prompt');
-    sessionRepo.setErrorStatus(childRow.id, 'Engine rejected async delegated prompt');
-    throw AppError.internal('failed to enqueue async delegated prompt');
+    // This is the actual execution boundary. Re-read both profiles after the
+    // awaited stream subscription so a lock applied during setup wins.
+    requireExecutableProfile(configRepo, callerId, 'caller');
+    requireExecutableProfile(configRepo, targetId, 'target');
+
+    const runningAsOwnAgent =
+      profileScope.ocAgent !== null && profileScope.ocAgent === targetId;
+    const promptOpts: Record<string, unknown> = {
+      permissionMode: 'bypassPermissions',
+      ...(profileScope.ocAgent ? { agent: profileScope.ocAgent } : {}),
+      ...(profileScope.systemPrompt && !runningAsOwnAgent
+        ? { system: profileScope.systemPrompt }
+        : {}),
+    };
+    const enqueued = await opencodeClient.promptAsync(
+      childSession.id,
+      scopedPrompt,
+      profileScope.model,
+      callerSession.cwd,
+      promptOpts,
+    );
+    if (!enqueued) {
+      throw AppError.internal('failed to enqueue async delegated prompt');
+    }
+  } catch (error) {
+    const failure = dispatchFailureMessage(error);
+    if (delegationPersisted) {
+      delegationRepo.markDispatchFailed(childRow.id, failure);
+    }
+    sessionRepo.setErrorStatus(childRow.id, failure);
+    throw error instanceof AppError
+      ? error
+      : AppError.internal('async delegation dispatch failed');
   }
 
   return {

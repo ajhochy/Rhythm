@@ -509,6 +509,28 @@ async function main() {
         logger.warn(`[server] session status resync failed (non-fatal): ${String(e)}`);
       }
 
+      // #1175 — durable async delegation wakes can be left in `waking` when
+      // api_server exits after OpenCode accepts the deterministic parent
+      // message but before SQLite records `notified`. Reconcile only after the
+      // engine and persisted session mappings are ready. The service scans a
+      // bounded parent set and inspects the engine transcript before retrying,
+      // so an accepted wake is never duplicated.
+      try {
+        const { asyncDelegationCompletionService } = await import(
+          './services/async_delegation_completion_service'
+        );
+        const recovered =
+          await asyncDelegationCompletionService.recoverAfterRestart();
+        logger.info(
+          `[server] async delegation recovery complete: ` +
+            `parents=${recovered.parentsExamined} remaining=${recovered.claimsRemaining}`,
+        );
+      } catch (e) {
+        logger.warn(
+          `[server] async delegation recovery failed (non-fatal): ${String(e)}`,
+        );
+      }
+
       // Dual-accounts Task B — the Rhythm accounts store is the source of
       // truth for Claude tokens once it has accounts. Boot order:
       //   1. Store empty + Claude Code creds readable → one-time migration

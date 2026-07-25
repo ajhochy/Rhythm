@@ -2778,6 +2778,45 @@ Your job, in order:
     }
   });
 
+  // #1175 — Mobile Activity is an authenticated, per-user projection. Recipes
+  // and optimizer proposals predate user ownership, so add nullable ownership
+  // without rewriting legacy rows. NULL means organization/system-global and
+  // is visible only on the trusted local desktop global surface; paired/cloud
+  // feeds require an exact owner match. The compound indexes mirror each
+  // Activity source's owner + recency predicate.
+  const agentCookbookActivityCols = (
+    db.pragma('table_info(agent_cookbook)') as { name: string }[]
+  ).map((column) => column.name);
+  if (!agentCookbookActivityCols.includes('owner_user_id')) {
+    db.exec(
+      `ALTER TABLE agent_cookbook
+         ADD COLUMN owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`,
+    );
+  }
+  const agentOrgProposalActivityCols = (
+    db.pragma('table_info(agent_org_proposals)') as { name: string }[]
+  ).map((column) => column.name);
+  if (!agentOrgProposalActivityCols.includes('owner_user_id')) {
+    db.exec(
+      `ALTER TABLE agent_org_proposals
+         ADD COLUMN owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`,
+    );
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_sessions_owner_activity
+      ON agent_sessions(owner_user_id, last_activity_at, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_scheduled_tasks_owner_activity
+      ON agent_scheduled_tasks(created_by_user_id, last_run_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_webhook_endpoints_owner_activity
+      ON agent_webhook_endpoints(created_by_user_id, last_triggered_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_owner_activity
+      ON agent_research_jobs(requested_by_user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_cookbook_owner_activity
+      ON agent_cookbook(owner_user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_org_proposals_owner_activity
+      ON agent_org_proposals(owner_user_id, updated_at);
+  `);
+
   // #1123 — durable callback/outbox state for interactive asynchronous
   // delegation. The local child and parent rows remain the source of truth for
   // transcript/session data; this table only distinguishes async children from

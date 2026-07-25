@@ -37,6 +37,18 @@ export interface AgentActivityItem {
 }
 
 export interface ListAgentActivityOptions {
+  /**
+   * Authenticated owner scope. When present, every source query is filtered
+   * before previews/reports leave the database; NULL-owned system/org records
+   * are intentionally excluded.
+   */
+  userId?: number;
+  /**
+   * Explicit escape hatch for the trusted, unauthenticated local desktop
+   * surface. Callers must opt in so an accidentally omitted userId can never
+   * turn a paired/cloud request into a global feed.
+   */
+  trustedGlobal?: boolean;
   source?: AgentActivitySource;
   profileId?: string;
   projectId?: string;
@@ -56,6 +68,11 @@ interface ActivityCursor {
 }
 
 type DbRow = Record<string, unknown>;
+
+interface SelectRowsParams {
+  sqlite?: unknown[];
+  postgres?: unknown[];
+}
 
 function stringValue(value: unknown): string | null {
   if (typeof value === 'string' && value.trim() !== '') return value;
@@ -148,12 +165,21 @@ function decodeCursor(cursor: string): ActivityCursor {
   }
 }
 
-async function selectRows(sqliteSql: string, postgresSql = sqliteSql): Promise<DbRow[]> {
+async function selectRows(
+  sqliteSql: string,
+  postgresSql = sqliteSql,
+  params: SelectRowsParams = {},
+): Promise<DbRow[]> {
   if (env.dbClient === 'postgres') {
-    const result = await getPostgresPool().query(postgresSql);
+    const result = await getPostgresPool().query(
+      postgresSql,
+      params.postgres ?? [],
+    );
     return result.rows as DbRow[];
   }
-  return getDb().prepare(sqliteSql).all() as DbRow[];
+  return getDb()
+    .prepare(sqliteSql)
+    .all(...(params.sqlite ?? [])) as DbRow[];
 }
 
 function compareActivity(left: AgentActivityItem, right: AgentActivityItem): number {
@@ -197,7 +223,15 @@ function itemFromSession(
   };
 }
 
-async function loadActivityItems(): Promise<AgentActivityItem[]> {
+async function loadActivityItems(userId: number | null): Promise<AgentActivityItem[]> {
+  const sqliteParams = userId === null ? [] : [userId];
+  const postgresParams = userId === null ? [] : [userId];
+  const params = { sqlite: sqliteParams, postgres: postgresParams };
+  const sqliteOwnerWhere = (column: string, hasWhere = false): string =>
+    userId === null ? '' : `${hasWhere ? 'AND' : 'WHERE'} ${column} = ?`;
+  const postgresOwnerWhere = (column: string, hasWhere = false): string =>
+    userId === null ? '' : `${hasWhere ? 'AND' : 'WHERE'} ${column} = $1`;
+
   const [
     sessionRows,
     scheduledRows,
@@ -206,37 +240,98 @@ async function loadActivityItems(): Promise<AgentActivityItem[]> {
     cookbookRows,
     proposalRows,
   ] = await Promise.all([
-    selectRows(`
-      SELECT id, status, status_message, name, project_id, agent_kind, mcp_role,
-             scheduled_task_id, category, is_system, last_preview,
-             last_activity_at, created_at, updated_at
-      FROM agent_sessions
-    `),
-    selectRows(`
-      SELECT id, name, description, agent_config_id, last_run_at,
-             last_run_status, last_error, created_at, updated_at
-      FROM agent_scheduled_tasks
-      WHERE last_run_at IS NOT NULL
-    `),
-    selectRows(`
-      SELECT id, name, last_triggered_at, trigger_count, created_at, updated_at
-      FROM agent_webhook_endpoints
-      WHERE last_triggered_at IS NOT NULL AND trigger_count > 0
-    `),
-    selectRows(`
-      SELECT id, query, status, report, error, created_at, updated_at
-      FROM agent_research_jobs
-    `),
-    selectRows(`
-      SELECT id, title, description, bound_config_id, created_at, updated_at
-      FROM agent_cookbook
-    `),
-    selectRows(`
-      SELECT id, audit_run_id, status, title, rationale, target_ref,
-             created_at, updated_at
-      FROM agent_org_proposals
-      WHERE audit_run_id IS NOT NULL
-    `),
+    selectRows(
+      `
+        SELECT id, status, status_message, name, project_id, agent_kind, mcp_role,
+               scheduled_task_id, category, is_system, last_preview,
+               last_activity_at, created_at, updated_at
+        FROM agent_sessions
+        ${sqliteOwnerWhere('owner_user_id')}
+      `,
+      `
+        SELECT id, status, status_message, name, project_id, agent_kind, mcp_role,
+               scheduled_task_id, category, is_system, last_preview,
+               last_activity_at, created_at, updated_at
+        FROM agent_sessions
+        ${postgresOwnerWhere('owner_user_id')}
+      `,
+      params,
+    ),
+    selectRows(
+      `
+        SELECT id, name, description, agent_config_id, last_run_at,
+               last_run_status, last_error, created_at, updated_at
+        FROM agent_scheduled_tasks
+        WHERE last_run_at IS NOT NULL
+        ${sqliteOwnerWhere('created_by_user_id', true)}
+      `,
+      `
+        SELECT id, name, description, agent_config_id, last_run_at,
+               last_run_status, last_error, created_at, updated_at
+        FROM agent_scheduled_tasks
+        WHERE last_run_at IS NOT NULL
+        ${postgresOwnerWhere('created_by_user_id', true)}
+      `,
+      params,
+    ),
+    selectRows(
+      `
+        SELECT id, name, last_triggered_at, trigger_count, created_at, updated_at
+        FROM agent_webhook_endpoints
+        WHERE last_triggered_at IS NOT NULL AND trigger_count > 0
+        ${sqliteOwnerWhere('created_by_user_id', true)}
+      `,
+      `
+        SELECT id, name, last_triggered_at, trigger_count, created_at, updated_at
+        FROM agent_webhook_endpoints
+        WHERE last_triggered_at IS NOT NULL AND trigger_count > 0
+        ${postgresOwnerWhere('created_by_user_id', true)}
+      `,
+      params,
+    ),
+    selectRows(
+      `
+        SELECT id, query, status, report, error, created_at, updated_at
+        FROM agent_research_jobs
+        ${sqliteOwnerWhere('requested_by_user_id')}
+      `,
+      `
+        SELECT id, query, status, report, error, created_at, updated_at
+        FROM agent_research_jobs
+        ${postgresOwnerWhere('requested_by_user_id')}
+      `,
+      params,
+    ),
+    selectRows(
+      `
+        SELECT id, title, description, bound_config_id, created_at, updated_at
+        FROM agent_cookbook
+        ${sqliteOwnerWhere('owner_user_id')}
+      `,
+      `
+        SELECT id, title, description, bound_config_id, created_at, updated_at
+        FROM agent_cookbook
+        ${postgresOwnerWhere('owner_user_id')}
+      `,
+      params,
+    ),
+    selectRows(
+      `
+        SELECT id, audit_run_id, status, title, rationale, target_ref,
+               created_at, updated_at
+        FROM agent_org_proposals
+        WHERE audit_run_id IS NOT NULL
+        ${sqliteOwnerWhere('owner_user_id', true)}
+      `,
+      `
+        SELECT id, audit_run_id, status, title, rationale, target_ref,
+               created_at, updated_at
+        FROM agent_org_proposals
+        WHERE audit_run_id IS NOT NULL
+        ${postgresOwnerWhere('owner_user_id', true)}
+      `,
+      params,
+    ),
   ]);
 
   const items: AgentActivityItem[] = [];
@@ -425,9 +520,20 @@ async function loadActivityItems(): Promise<AgentActivityItem[]> {
 export async function listAgentActivity(
   options: ListAgentActivityOptions = {},
 ): Promise<AgentActivityPage> {
+  if (
+    options.userId !== undefined &&
+    (!Number.isInteger(options.userId) || options.userId < 1)
+  ) {
+    throw AppError.badRequest('userId must be a positive integer');
+  }
+  if (options.userId === undefined && options.trustedGlobal !== true) {
+    throw AppError.forbidden(
+      'agent activity requires an authenticated user scope',
+    );
+  }
   const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 50)));
   const cursor = options.cursor ? decodeCursor(options.cursor) : null;
-  const all = await loadActivityItems();
+  const all = await loadActivityItems(options.userId ?? null);
   const filtered = all.filter((item) => {
     if (options.source && item.source !== options.source) return false;
     if (options.status && item.status !== options.status) return false;

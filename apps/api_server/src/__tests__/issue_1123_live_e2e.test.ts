@@ -104,6 +104,122 @@ describeLive('live E2E — #1123 async delegation', () => {
     }
   });
 
+  it('issue-1175-c8: locked async callers and targets are rejected before any child session is created', async () => {
+    const suffix = randomUUID().slice(0, 8);
+    const lockedCallerId = `live-1175-locked-caller-${suffix}`;
+    const callerTargetId = `live-1175-caller-target-${suffix}`;
+    const targetManagerId = `live-1175-target-manager-${suffix}`;
+    const lockedTargetId = `live-1175-locked-target-${suffix}`;
+
+    for (const input of [
+      {
+        id: lockedCallerId,
+        label: `Live #1175 locked caller ${suffix}`,
+        isAgent: true,
+        isManager: true,
+        enabled: true,
+        sessionSelectable: true,
+        allowedDelegatesJson: JSON.stringify([callerTargetId]),
+        corePermissionsJson: JSON.stringify({ rhythm_delegate_async: 'allow' }),
+      },
+      {
+        id: callerTargetId,
+        label: `Live #1175 caller target ${suffix}`,
+        isAgent: true,
+        enabled: true,
+        sessionSelectable: true,
+      },
+      {
+        id: targetManagerId,
+        label: `Live #1175 target manager ${suffix}`,
+        isAgent: true,
+        isManager: true,
+        enabled: true,
+        sessionSelectable: true,
+        allowedDelegatesJson: JSON.stringify([lockedTargetId]),
+        corePermissionsJson: JSON.stringify({ rhythm_delegate_async: 'allow' }),
+      },
+      {
+        id: lockedTargetId,
+        label: `Live #1175 locked target ${suffix}`,
+        isAgent: true,
+        enabled: true,
+        sessionSelectable: true,
+      },
+    ]) {
+      const created = await apiJson<{ id: string }>('/agent-configs', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      });
+      createdAgentIds.push(created.id);
+    }
+
+    const callerParent = await apiJson<{ id: string }>('/agent-sessions', {
+      method: 'POST',
+      body: JSON.stringify({
+        agentId: lockedCallerId,
+        name: `Live #1175 locked caller ${suffix}`,
+        cwd: process.env.RHYTHM_LIVE_SESSION_CWD ?? homedir(),
+      }),
+    });
+    const targetParent = await apiJson<{ id: string }>('/agent-sessions', {
+      method: 'POST',
+      body: JSON.stringify({
+        agentId: targetManagerId,
+        name: `Live #1175 locked target ${suffix}`,
+        cwd: process.env.RHYTHM_LIVE_SESSION_CWD ?? homedir(),
+      }),
+    });
+    createdSessionIds.push(callerParent.id, targetParent.id);
+
+    for (const id of [lockedCallerId, lockedTargetId]) {
+      const lock = await api(`/agent-configs/${id}/security-lock`, {
+        method: 'POST',
+        body: JSON.stringify({
+          reason: `Issue #1175 live lock ${suffix}`,
+          actor: 'issue-1175-live-e2e',
+        }),
+      });
+      expect(lock.status).toBe(200);
+    }
+
+    const cases = [
+      {
+        callerSessionId: callerParent.id,
+        callerAgentConfigId: lockedCallerId,
+        targetAgentConfigId: callerTargetId,
+        expectedStatus: 403,
+      },
+      {
+        callerSessionId: targetParent.id,
+        callerAgentConfigId: targetManagerId,
+        targetAgentConfigId: lockedTargetId,
+        expectedStatus: 400,
+      },
+    ];
+    for (const testCase of cases) {
+      const before = await apiJson<Array<{ id: string }>>(
+        `/agent-sessions/${testCase.callerSessionId}/children`,
+      );
+      const response = await api('/agent-delegation/delegate-async', {
+        method: 'POST',
+        body: JSON.stringify({
+          callerAgentConfigId: testCase.callerAgentConfigId,
+          callerSessionId: testCase.callerSessionId,
+          targetAgentConfigId: testCase.targetAgentConfigId,
+          prompt: 'This must never create or prompt a child.',
+        }),
+      });
+      const responseText = await response.text();
+      expect(response.status).toBe(testCase.expectedStatus);
+      expect(responseText).toContain('security-locked');
+      const after = await apiJson<Array<{ id: string }>>(
+        `/agent-sessions/${testCase.callerSessionId}/children`,
+      );
+      expect(after).toEqual(before);
+    }
+  });
+
   it(
     'issue-1123-c6: a real child completes and wakes its concurrently steered parent exactly once without child polling',
     async () => {

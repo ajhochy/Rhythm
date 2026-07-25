@@ -13,7 +13,7 @@ const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? process.env.DB_PATH ?? '';
 const sandboxDir = process.env.RHYTHM_SANDBOX_DIR ?? '';
 
 describeLive('live E2E — issue #1172 agent activity', () => {
-  it('issue-1172-c9: live sandbox returns authenticated persisted activity without duplicate pages', async () => {
+  it('issue-1172-c9 / issue-1175-c10: live sandbox returns only the paired user activity without duplicate pages', async () => {
     assertLiveE2EIsolation();
     if (
       baseUrl !== 'http://127.0.0.1:5298' ||
@@ -44,17 +44,26 @@ describeLive('live E2E — issue #1172 agent activity', () => {
     const userToken = randomUUID();
     const projectId = `live1172-project-${suffix}`;
     const scheduleId = `live1172-schedule-${suffix}`;
+    const otherScheduleId = `live1175-other-schedule-${suffix}`;
     const sessionIds = [
       `live1172-human-${suffix}`,
       `live1172-scheduled-${suffix}`,
       `live1172-cookbook-run-${suffix}`,
+      `live1175-other-human-${suffix}`,
+      `live1175-other-cookbook-run-${suffix}`,
     ];
     const researchId = `live1172-research-${suffix}`;
+    const otherResearchId = `live1175-other-research-${suffix}`;
     const webhookId = `live1172-webhook-${suffix}`;
+    const otherWebhookId = `live1175-other-webhook-${suffix}`;
     const cookbookId = `live1172-cookbook-${suffix}`;
+    const otherCookbookId = `live1175-other-cookbook-${suffix}`;
     const proposalId = `live1172-proposal-${suffix}`;
+    const otherProposalId = `live1175-other-proposal-${suffix}`;
     const auditRunId = `live1172-audit-${suffix}`;
+    const otherAuditRunId = `live1175-other-audit-${suffix}`;
     let userId: number | null = null;
+    let otherUserId: number | null = null;
     let deviceId: string | null = null;
 
     try {
@@ -66,6 +75,16 @@ describeLive('live E2E — issue #1172 agent activity', () => {
           'Issue 1172 User',
           `issue-1172-${suffix}@example.com`,
           `issue-1172-${suffix}`,
+        ).lastInsertRowid,
+      );
+      otherUserId = Number(
+        db.prepare(`
+          INSERT INTO users (name, email, google_sub)
+          VALUES (?, ?, ?)
+        `).run(
+          'Issue 1175 Other User',
+          `issue-1175-other-${suffix}@example.com`,
+          `issue-1175-other-${suffix}`,
         ).lastInsertRowid,
       );
       db.prepare(`
@@ -92,45 +111,97 @@ describeLive('live E2E — issue #1172 agent activity', () => {
       db.prepare(`
         INSERT INTO agent_sessions
           (id, agent_kind, status, cwd, name, project_id, category,
-           is_system, created_at, updated_at)
-        VALUES (?, 'opencode', 'working', ?, ?, ?, 'chat', 0, ?, ?)
+           is_system, owner_user_id, created_at, updated_at)
+        VALUES (?, 'opencode', 'working', ?, ?, ?, 'chat', 0, ?, ?, ?)
       `).run(
         sessionIds[0],
         sandboxDir,
         'Live human planning',
         projectId,
+        userId,
+        times[0],
+        times[0],
+      );
+      db.prepare(`
+        INSERT INTO agent_sessions
+          (id, agent_kind, status, cwd, name, project_id, category,
+           is_system, owner_user_id, created_at, updated_at)
+        VALUES (?, 'opencode', 'working', ?, ?, ?, 'chat', 0, ?, ?, ?)
+      `).run(
+        sessionIds[3],
+        sandboxDir,
+        `OTHER_USER_HUMAN_${suffix}`,
+        projectId,
+        otherUserId,
         times[0],
         times[0],
       );
       db.prepare(`
         INSERT INTO agent_scheduled_tasks
           (id, name, prompt, agent_config_id, last_run_at, last_run_status,
-           created_at, updated_at)
-        VALUES (?, ?, 'run live schedule', 'secretary', ?, 'success', ?, ?)
-      `).run(scheduleId, 'Live schedule', times[1], times[1], times[1]);
+           created_by_user_id, created_at, updated_at)
+        VALUES (?, ?, 'run live schedule', 'secretary', ?, 'success', ?, ?, ?)
+      `).run(
+        scheduleId,
+        'Live schedule',
+        times[1],
+        userId,
+        times[1],
+        times[1],
+      );
+      db.prepare(`
+        INSERT INTO agent_scheduled_tasks
+          (id, name, prompt, agent_config_id, last_run_at, last_run_status,
+           created_by_user_id, created_at, updated_at)
+        VALUES (?, ?, 'other user schedule', 'secretary', ?, 'success', ?, ?, ?)
+      `).run(
+        otherScheduleId,
+        `OTHER_USER_SCHEDULE_${suffix}`,
+        times[1],
+        otherUserId,
+        times[1],
+        times[1],
+      );
       db.prepare(`
         INSERT INTO agent_sessions
           (id, agent_kind, status, cwd, name, project_id, scheduled_task_id,
-           category, is_system, created_at, updated_at)
-        VALUES (?, 'opencode', 'closed', ?, ?, ?, ?, 'scheduled', 1, ?, ?)
+           category, is_system, owner_user_id, created_at, updated_at)
+        VALUES (?, 'opencode', 'closed', ?, ?, ?, ?, 'scheduled', 1, ?, ?, ?)
       `).run(
         sessionIds[1],
         sandboxDir,
         'Live schedule',
         projectId,
         scheduleId,
+        userId,
         times[1],
         times[1],
       );
       db.prepare(`
         INSERT INTO agent_webhook_endpoints
-          (id, name, secret, last_triggered_at, trigger_count, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 1, ?, ?)
+          (id, name, secret, last_triggered_at, trigger_count,
+           created_by_user_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 1, ?, ?, ?)
       `).run(
         webhookId,
         'Live webhook',
         `must-not-leak-${suffix}`,
         times[2],
+        userId,
+        times[2],
+        times[2],
+      );
+      db.prepare(`
+        INSERT INTO agent_webhook_endpoints
+          (id, name, secret, last_triggered_at, trigger_count,
+           created_by_user_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+      `).run(
+        otherWebhookId,
+        `OTHER_USER_WEBHOOK_${suffix}`,
+        `other-user-secret-${suffix}`,
+        times[2],
+        otherUserId,
         times[2],
         times[2],
       );
@@ -147,31 +218,85 @@ describeLive('live E2E — issue #1172 agent activity', () => {
         times[3],
       );
       db.prepare(`
+        INSERT INTO agent_research_jobs
+          (id, query, status, sources_json, report, error,
+           requested_by_user_id, created_at, updated_at)
+        VALUES (?, ?, 'done', '[]', ?, NULL, ?, ?, ?)
+      `).run(
+        otherResearchId,
+        `OTHER_USER_QUERY_${suffix}`,
+        `OTHER_USER_REPORT_${suffix}`,
+        otherUserId,
+        times[3],
+        times[3],
+      );
+      db.prepare(`
         INSERT INTO agent_cookbook
-          (id, title, description, created_at, updated_at)
-        VALUES (?, ?, 'Live recipe', ?, ?)
-      `).run(cookbookId, 'Live cookbook run', times[4], times[4]);
+          (id, title, description, owner_user_id, created_at, updated_at)
+        VALUES (?, ?, 'Live recipe', ?, ?, ?)
+      `).run(cookbookId, 'Live cookbook run', userId, times[4], times[4]);
+      db.prepare(`
+        INSERT INTO agent_cookbook
+          (id, title, description, owner_user_id, created_at, updated_at)
+        VALUES (?, ?, 'Other user recipe', ?, ?, ?)
+      `).run(
+        otherCookbookId,
+        `OTHER_USER_COOKBOOK_${suffix}`,
+        otherUserId,
+        times[4],
+        times[4],
+      );
       db.prepare(`
         INSERT INTO agent_sessions
           (id, agent_kind, status, cwd, name, project_id, category,
-           is_system, created_at, updated_at)
-        VALUES (?, 'opencode', 'idle', ?, ?, ?, 'chat', 0, ?, ?)
+           is_system, owner_user_id, created_at, updated_at)
+        VALUES (?, 'opencode', 'idle', ?, ?, ?, 'chat', 0, ?, ?, ?)
       `).run(
         sessionIds[2],
         sandboxDir,
         'Live cookbook run',
         projectId,
+        userId,
+        times[4],
+        times[4],
+      );
+      db.prepare(`
+        INSERT INTO agent_sessions
+          (id, agent_kind, status, cwd, name, project_id, category,
+           is_system, owner_user_id, created_at, updated_at)
+        VALUES (?, 'opencode', 'idle', ?, ?, ?, 'chat', 0, ?, ?, ?)
+      `).run(
+        sessionIds[4],
+        sandboxDir,
+        `OTHER_USER_COOKBOOK_${suffix}`,
+        projectId,
+        otherUserId,
         times[4],
         times[4],
       );
       db.prepare(`
         INSERT INTO agent_org_proposals
-          (id, audit_run_id, kind, risk, status, title, created_at, updated_at)
-        VALUES (?, ?, 'refine-skill', 'low', 'applied', ?, ?, ?)
+          (id, audit_run_id, kind, risk, status, title, owner_user_id,
+           created_at, updated_at)
+        VALUES (?, ?, 'refine-skill', 'low', 'applied', ?, ?, ?, ?)
       `).run(
         proposalId,
         auditRunId,
         'Live optimizer',
+        userId,
+        times[5],
+        times[5],
+      );
+      db.prepare(`
+        INSERT INTO agent_org_proposals
+          (id, audit_run_id, kind, risk, status, title, owner_user_id,
+           created_at, updated_at)
+        VALUES (?, ?, 'refine-skill', 'low', 'applied', ?, ?, ?, ?)
+      `).run(
+        otherProposalId,
+        otherAuditRunId,
+        `OTHER_USER_OPTIMIZER_${suffix}`,
+        otherUserId,
         times[5],
         times[5],
       );
@@ -246,29 +371,65 @@ describeLive('live E2E — issue #1172 agent activity', () => {
       deviceId = paired.deviceId;
 
       const mobile = await fetch(
-        `${baseUrl}/mobile-gateway/agent-activity?source=research`,
+        `${baseUrl}/mobile-gateway/agent-activity?limit=100`,
         { headers: { Authorization: `Device ${paired.deviceToken}` } },
       );
       expect(mobile.status).toBe(200);
       const mobileBody = await mobile.text();
-      expect(mobileBody).toContain(researchId);
+      for (const ownMarker of [
+        sessionIds[0],
+        sessionIds[1],
+        webhookId,
+        researchId,
+        sessionIds[2],
+        auditRunId,
+      ]) {
+        expect(mobileBody).toContain(ownMarker);
+      }
+      for (const otherMarker of [
+        sessionIds[3],
+        otherScheduleId,
+        otherWebhookId,
+        otherResearchId,
+        sessionIds[4],
+        otherAuditRunId,
+        `OTHER_USER_REPORT_${suffix}`,
+        `other-user-secret-${suffix}`,
+      ]) {
+        expect(mobileBody).not.toContain(otherMarker);
+      }
       expect(mobileBody).not.toContain(`must-not-leak-${suffix}`);
     } finally {
       db.prepare(
-        `DELETE FROM agent_sessions WHERE id IN (?, ?, ?)`,
+        `DELETE FROM agent_sessions WHERE id IN (?, ?, ?, ?, ?)`,
       ).run(...sessionIds);
       db.prepare('DELETE FROM agent_scheduled_tasks WHERE id = ?').run(
         scheduleId,
       );
+      db.prepare('DELETE FROM agent_scheduled_tasks WHERE id = ?').run(
+        otherScheduleId,
+      );
       db.prepare('DELETE FROM agent_webhook_endpoints WHERE id = ?').run(
         webhookId,
+      );
+      db.prepare('DELETE FROM agent_webhook_endpoints WHERE id = ?').run(
+        otherWebhookId,
       );
       db.prepare('DELETE FROM agent_research_jobs WHERE id = ?').run(
         researchId,
       );
+      db.prepare('DELETE FROM agent_research_jobs WHERE id = ?').run(
+        otherResearchId,
+      );
       db.prepare('DELETE FROM agent_cookbook WHERE id = ?').run(cookbookId);
+      db.prepare('DELETE FROM agent_cookbook WHERE id = ?').run(
+        otherCookbookId,
+      );
       db.prepare('DELETE FROM agent_org_proposals WHERE id = ?').run(
         proposalId,
+      );
+      db.prepare('DELETE FROM agent_org_proposals WHERE id = ?').run(
+        otherProposalId,
       );
       const hasMobileSchema = Boolean(
         db.prepare(
@@ -289,6 +450,9 @@ describeLive('live E2E — issue #1172 agent activity', () => {
       db.prepare('DELETE FROM sessions WHERE token = ?').run(userToken);
       if (userId !== null) {
         db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+      }
+      if (otherUserId !== null) {
+        db.prepare('DELETE FROM users WHERE id = ?').run(otherUserId);
       }
       db.close();
     }
