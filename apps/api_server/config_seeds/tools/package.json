@@ -1,0 +1,6 @@
+{
+  "name": "rhythm-config-doctor-tools",
+  "private": true,
+  "description": "Standalone Config Doctor triage tooling (loader replay + health checks) for ~/.config/opencode agent profiles.",
+  "dependencies": { "js-yaml": "^4.1.0" }
+}

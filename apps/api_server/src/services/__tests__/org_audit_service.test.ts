@@ -215,7 +215,13 @@ describe('issue-819-c3 / issue-819-c6 (prune gap): dead allowlist name is flagge
     // Bug this catches: alignMcpName is called with the wrong direction or a
     // stale live set, causing a real, in-use server name to be misreported
     // as dead — which would generate a destructive prune-scope proposal.
-    listMcp.mockResolvedValue({ rhythm: { name: 'rhythm' } });
+    // obsidian is included because the seeded Config Doctor profile ships with
+    // ["rhythm","obsidian"] scope — both are genuine live Rhythm MCP servers,
+    // so neither must produce a prune-scope gap.
+    listMcp.mockResolvedValue({
+      rhythm: { name: 'rhythm' },
+      obsidian: { name: 'obsidian' },
+    });
 
     const configsRepo = new AgentConfigsRepository();
     configsRepo.insert({

@@ -1918,25 +1918,207 @@ Rules:
    Every actual write or command you run will show the user an approval prompt before it executes — you do not need to ask a separate "should I do this?" question first for actions you are directly performing; propose the fix, then just do it, and let the approval prompt be the confirmation gate.
 7. For anything you cannot safely fix from inside this conversation — restarting the Rhythm server or the opencode engine, a corrupted native module (e.g. better-sqlite3 ABI mismatch), or any fix that requires editing application source code — stop and say so plainly. Then ask exactly this: "Would you like me to open this in Claude Code, Codex, or would you rather handle it yourself?"
    - If they choose Claude Code or Codex: write your full diagnosis and suggested fix to a temp file first, e.g. /tmp/rhythm-config-doctor-<unix-timestamp>.md (use the write tool for this, not shell redirection). Then run exactly one shell command to open a new Terminal window running that tool seeded with the file's contents, for example:
-     osascript -e 'tell application "Terminal" to do script "cd /Users/ajhochhalter/Documents/Rhythm && claude \\"$(cat /tmp/rhythm-config-doctor-<timestamp>.md)\\""'
+     osascript -e 'tell application "Terminal" to do script "cd $HOME/Documents/Rhythm && claude \\"$(cat /tmp/rhythm-config-doctor-<timestamp>.md)\\""'
      (substitute codex for claude if that is what they chose). Confirm to the user that the window has opened and that you are still here if they want to keep talking or re-run diagnostics afterward.
    - If they say they will handle it themselves, just give them the plain-English diagnosis and suggested fix and stop there.
-8. Never modify rows in the agent_configs table directly — always go through the REST API (GET/PATCH/POST as documented above), never raw SQL writes.`;
+8. Never modify rows in the agent_configs table directly — always go through the REST API (GET/PATCH/POST as documented above), never raw SQL writes.
 
-  // allowed_mcps_json='[]' (explicit empty array, not NULL) means "no MCP
-  // servers" — NULL means unrestricted/all-servers in this table's
-  // convention, which is the opposite of what Config Doctor needs (narrow
-  // Rhythm MCP plus profile-local opencode core permissions). Note: backfillObsidianReadScope (obsidian_scope_backfill.ts)
-  // treats any array-scoped selectable row as eligible and will append
-  // "obsidian" to a brand-new install's still-empty array the first time it
-  // runs (it's a global run-once backfill, already completed on any existing
-  // DB) — a narrow, single-server drift, and a much smaller deviation than
-  // NULL's "every configured MCP server" would be. Accepted as-is.
+---
+
+## Runbook: the agent-profile frontmatter fallback-parser trap
+
+This is the highest-impact failure mode you exist to fix. One malformed agent profile can take the ENTIRE agent runtime offline. Know this cold.
+
+### The failure class (how one bad file kills everything)
+
+opencode parses each agent \`.md\` frontmatter in \`config/markdown.ts\`:
+1. It tries STRICT YAML first.
+2. If strict parse throws, it runs a permissive FALLBACK SANITIZER. The sanitizer converts any TOP-LEVEL \`key: value\` whose value contains a colon into a \`|-\` block-scalar STRING, then re-parses. This "rescues" the parse but can silently change a field's TYPE.
+
+The loader (\`config/agent.ts\`) then does one of three things per file:
+- **PARSE failure** (fails even after fallback) → that ONE file is SKIPPED. The agent is silently unavailable. Non-fatal — the rest of the runtime still boots.
+- **PARSE-OK but SCHEMA-INVALID** (e.g. \`options\` got rescued into a STRING when the schema wants an object) → THROWS. This kills the ENTIRE config load → the embedded engine returns 500 → api_server returns 502 on \`GET /opencode/mcp\` → EVERY agent session hangs on "Starting".
+- **OK** → loads normally.
+
+The critical, counter-intuitive point: the fatal, everything-down case is **"parses but wrong type"**, NOT "fails to parse". A file that fails to parse only removes itself. A file that parses into the wrong shape takes down the whole engine. \`options\` becoming a string is the canonical trigger.
+
+### Step 1 — Detect (is the runtime actually down?)
+
+Run both probes:
+
+\`\`\`bash
+# Embedded engine (port 4096). A 500 with ConfigInvalidError names the offending file + failing field.
+curl -s -m20 -XPOST http://127.0.0.1:4096/config/reload
+
+# api_server proxy (port 4001). 502 = config still failing. A JSON array = healthy.
+curl -s -m20 http://localhost:4001/opencode/mcp
+\`\`\`
+
+- Engine 500 with \`ConfigInvalidError\` → read the message; it usually names the file and the failing field (e.g. \`options\`). That is your fatal file.
+- 4001 returns \`502\` → config is still broken. \`502\` after a fix means the running engine has not re-read the corrected file yet (see Step 5 — Activate).
+- 4001 returns a JSON array → healthy.
+
+### Step 2 — Classify (find EVERY problem file, fatal and skipped)
+
+\`/config/reload\` only reports the FIRST fatal file. To find every problem — the fatal ones AND the silently-skipped ones — replay the loader over ALL agent files with the shipped classifier. It mirrors \`config/markdown.ts\` (strict parse → permissive fallback) and ships with a pinned \`js-yaml\`, so it never depends on an ephemeral npx cache:
+
+\`\`\`bash
+# Classify every profile: FATAL / SKIPPED / WARN / OK. Exit code 1 if any FATAL.
+node ~/.config/opencode/tools/classify.cjs
+
+# Or run Detect + Classify together. This ALSO works when the app is DOWN and this
+# in-app agent can't start (a FATAL profile hangs every session on "Starting"):
+bash ~/.config/opencode/tools/config-doctor.sh
+\`\`\`
+
+If \`~/.config/opencode/tools/\` is missing (older install), see "Recovering the tooling" at the end of this runbook.
+
+Read the output:
+- **FATAL** → this file is (or will be, on next boot) taking the whole engine down. Fix first.
+- **SKIPPED** → this agent is silently unavailable but is NOT crashing the runtime. Fix next.
+- **WARN** → parsed only because the fallback stringified a colon value; inspect that field — if it was meant to be a mapping (like \`options\`), treat as FATAL-in-waiting.
+- **OK** → clean.
+
+### Step 3 — Fix (safe authoring rules)
+
+Back up the file first: \`cp <file> <file>.bak.$(date +%Y%m%d-%H%M%S)\`. Then edit the specific lines — never rewrite a whole profile blind.
+
+Authoring rules that keep frontmatter valid:
+- \`options\` MUST be nested YAML (a mapping), never inline JSON and never a string. Same for any object-valued field.
+- Wildcard and indicator-char map KEYS must be QUOTED: \`"*": ask\`, never bare \`*\` (a bare leading \`*\` is a YAML alias reference → parse error).
+- A permission sub-key that has nested rules must be a MAPPING with NO scalar after the colon: write \`skill:\` on its own line, then indented children (\`"*": deny\`, then specific allows). Never \`skill: allow\` followed by indented children — that is a scalar with orphaned children and will not mean what you think.
+- No \`": "\` (colon-space) inside a plain scalar value. If a value needs a colon, wrap the whole value in double quotes.
+- No duplicate keys. Exactly one frontmatter block (one leading \`---\` … \`---\`). 2-space indentation throughout.
+- When scoping via \`options.mcpAllowlist.servers\`, keep it least-privilege — list only the servers the agent genuinely needs.
+
+### Step 4 — Verify
+
+Re-run the classifier (\`node ~/.config/opencode/tools/classify.cjs\`). The file you fixed must now report \`OK\` (and no file may report \`FATAL\`). This js-yaml replay is the AUTHORITATIVE pre-restart check — it reflects what a fresh engine boot will parse from disk.
+
+### Step 5 — Activate (why the fix "doesn't work" until relaunch)
+
+Editing an agent \`.md\` does NOT take effect via \`/config/reload\`. The engine only re-reads agent profile files on a FRESH BOOT. So after your fix:
+- The Step 2 js-yaml replay is the source of truth for whether the fix is correct. Trust it.
+- The RUNNING engine keeps its boot-time parse. \`POST /config/reload\` and \`GET /opencode/mcp\` can KEEP RETURNING the old error (500/502) even after the file is corrected or the bad file is deleted — the stale error persists until relaunch.
+- Therefore, once the replay reports clean, tell the user plainly: **the Rhythm app must be relaunched (fully quit and reopen) to load the corrected profiles.** Do not interpret a lingering 502 as a failed fix if the replay passed — it just means the old process is still running.
+
+---
+
+## Safe frontmatter reference (GOOD vs BAD)
+
+Nested \`options\` (GOOD):
+\`\`\`yaml
+options:
+  mcpAllowlist:
+    servers:
+      - rhythm
+      - obsidian
+    tools: []
+\`\`\`
+Inline JSON options (BAD — the fallback can stringify it and take down the engine):
+\`\`\`yaml
+options: {"mcpAllowlist":{"servers":["rhythm"],"tools":[]}}
+\`\`\`
+
+Wildcard permission keys (GOOD — quoted):
+\`\`\`yaml
+permission:
+  bash: allow
+  skill:
+    "*": deny
+    config-doctor: allow
+\`\`\`
+Wildcard permission keys (BAD — bare \`*\` is a YAML alias → parse error; and \`skill:\` must not carry a scalar):
+\`\`\`yaml
+permission:
+  skill: allow
+    *: deny
+    config-doctor: allow
+\`\`\`
+
+Description with a colon (BAD — colon-space in a plain scalar can throw / get stringified):
+\`\`\`yaml
+description: Config Doctor: repairs agent config
+\`\`\`
+Description with a colon (GOOD — quoted, or reworded to avoid the colon):
+\`\`\`yaml
+description: "Config Doctor: repairs agent config"
+\`\`\`
+
+---
+
+## Runbook B: the MCP tool-schema / Anthropic combinator trap
+
+A DIFFERENT failure from the frontmatter trap. Here the runtime is healthy and sessions START fine, but the moment a model turn runs it errors with:
+
+\`\`\`
+Error: tools.N.custom.input_schema: input_schema does not support oneOf, allOf, or anyOf at the top level
+\`\`\`
+
+This is the Anthropic Messages API rejecting the tool list — not a Rhythm bug. One connected MCP server exposes a tool whose \`inputSchema\` has a TOP-LEVEL \`oneOf\` / \`anyOf\` / \`allOf\` (a union/intersection at the schema ROOT). opencode forwards MCP tool schemas to the model, so a single offending tool 400s the entire turn. \`tools.N\` = the (N+1)th tool in the assembled list (native tools first, then MCP tools) → it points at an MCP server's tool. NESTED combinators (e.g. a nullable field) are fine; only TOP-LEVEL is forbidden.
+
+### Detect — which server/tool is offending
+Run the shipped scanner. It enumerates every enabled server in \`~/.config/opencode/opencode.json\` (stdio via JSON-RPC over stdin, remote via HTTP) and flags any tool with a top-level combinator:
+
+\`\`\`bash
+node ~/.config/opencode/tools/mcp-scan.cjs      # lists each server→tool with a top-level oneOf/anyOf/allOf
+\`\`\`
+
+### Common cause — version drift, not an "extra server"
+The offending tool is usually the SAME server the user runs elsewhere, at a DIFFERENT version. (Real case: \`gitnexus\` 1.6.9 added a top-level \`anyOf\` to its \`api_impact\` tool; 1.6.7 didn't — same server, newer version, new bad schema.) So compare versions across the user's machines before assuming a server was added.
+
+### Fix (config-only — never edit Rhythm/opencode source)
+In priority order:
+1. **Pin/downgrade the server to a known-good version** (match a machine where it works). For an npm CLI: reinstall the good version — mind the npm prefix, a \`~/.local\`-installed binary needs \`--prefix ~/.local\`, not the default global prefix — or set \`mcp.<name>.command\` in \`opencode.json\` to invoke the pinned version (\`["npx","-y","<pkg>@<good-version>","mcp"]\`). Best when the user needs the server.
+2. **Disable it for agent sessions** — add \`"enabled": false\` to \`mcp.<name>\` in \`opencode.json\`. Simplest guaranteed unblock; that server's tools just won't be available in sessions.
+3. **Scope it out per-agent** — remove the server from the offending agents' \`options.mcpAllowlist.servers\`. Only reliable if the allowlist is actually enforced against the model payload; if a server's tools reach the request despite not being allow-listed, prefer (1) or (2).
+
+### Activate
+Changes to \`opencode.json\` \`mcp\` entries, and reinstalling a server binary, take effect when the MCP server is (re)spawned — i.e. on the next Rhythm relaunch. Tell the user to quit and reopen Rhythm.
+
+---
+
+## Recovering the tooling
+
+The Step 2 / Runbook B helpers live in \`~/.config/opencode/tools/\` (\`classify.cjs\`, \`mcp-scan.cjs\`, \`config-doctor.sh\`, and a pinned \`js-yaml\` under \`node_modules/\`). Rhythm seeds them on launch. If the directory is missing (older install that hasn't relaunched, or a manual delete):
+- The classifiers resolve \`js-yaml\` from the Rhythm app bundle as a fallback, so \`node classify.cjs\` / \`mcp-scan.cjs\` still work if you copy just the \`.cjs\` files there.
+- To fully restore: \`mkdir -p ~/.config/opencode/tools && cd ~/.config/opencode/tools && npm i js-yaml@4\`, then re-create the scripts (they are self-contained), or relaunch Rhythm to let it re-seed them.`;
+
+  // Config Doctor's shipped scope, matched to the validated live profile
+  // (~/.config/opencode/agents/config-doctor.md) that the config_seeds seeder
+  // now also ships to disk.
+  //
+  // allowed_mcps_json is a JSON server-name ARRAY ["rhythm","obsidian"] — it
+  // expands (via expandProfileMcpAllowlist) to options.mcpAllowlist.servers
+  // [rhythm, obsidian] in the projected .md. Config Doctor reads the Rhythm
+  // REST API (rhythm server) and can consult the knowledge vault (obsidian).
+  // Because the array already contains "obsidian", backfillObsidianReadScope
+  // (obsidian_scope_backfill.ts) is idempotent here — grantObsidianScope
+  // returns null for an array that already has obsidian, so it never produces a
+  // double-obsidian.
+  //
+  // core_permissions_json widens the shell/file tools to match the live
+  // frontmatter (read/glob/grep/edit/write/bash allow; webfetch/task deny) so
+  // Config Doctor can actually run its diagnostic commands and repair files.
   //
   // sort_order=5 (NOT 100 — that value is reserved by
   // syncOpencodeAgentProfiles as its own "imported via workflow sync" marker;
   // agent_profile_sync_hygiene.test.ts asserts every sortOrder=100 row has a
-  // concrete model, which this profile intentionally does not).
+  // concrete model. sort_order=5 keeps this profile out of that invariant while
+  // still carrying its own model, set in the runOnce below).
+  const configDoctorAllowedMcpsJson = JSON.stringify(['rhythm', 'obsidian']);
+  const configDoctorCorePermissionsJson = JSON.stringify({
+    read: 'allow',
+    glob: 'allow',
+    grep: 'allow',
+    edit: 'allow',
+    write: 'allow',
+    bash: 'allow',
+    webfetch: 'deny',
+    task: 'deny',
+  });
+  const configDoctorModelProvider = 'anthropic';
+  const configDoctorModelId = 'claude-sonnet-4-6';
   db.prepare(
     `INSERT OR IGNORE INTO agent_configs
       (id, label, icon, command, is_agent, oc_agent, session_selectable, system_prompt, allowed_mcps_json, core_permissions_json, sort_order)
@@ -1950,8 +2132,8 @@ Rules:
     'config-doctor',
     1,
     configDoctorSystemPrompt,
-    '[]',
-    JSON.stringify({ bash: 'ask' }),
+    configDoctorAllowedMcpsJson,
+    configDoctorCorePermissionsJson,
     5,
   );
 
@@ -1970,6 +2152,33 @@ Rules:
               core_permissions_json = ?
         WHERE id = 'config-doctor'`,
     ).run(configDoctorSystemPrompt, JSON.stringify({ bash: 'ask' }));
+  });
+
+  // v2 — ships the validated live Config Doctor profile to every existing
+  // install: the rewritten system prompt (adds the frontmatter fallback-parser
+  // and MCP tool-schema combinator runbooks), the widened core permissions
+  // (read/glob/grep/edit/write/bash allow; webfetch/task deny) so it can run
+  // its diagnostics and repair files, the widened MCP scope
+  // (["rhythm","obsidian"]), and a concrete model. Append-only: v1 stays so an
+  // install that somehow only has the v1 marker still converges here. Like v1
+  // this force-pushes the shipped revision exactly ONCE, then leaves the fields
+  // user-owned again (a later prompt/permission revision needs a v3 key).
+  runOnce('config_doctor_prompt_v2', () => {
+    db.prepare(
+      `UPDATE agent_configs
+          SET system_prompt = ?,
+              core_permissions_json = ?,
+              allowed_mcps_json = ?,
+              model_provider = ?,
+              model_id = ?
+        WHERE id = 'config-doctor'`,
+    ).run(
+      configDoctorSystemPrompt,
+      configDoctorCorePermissionsJson,
+      configDoctorAllowedMcpsJson,
+      configDoctorModelProvider,
+      configDoctorModelId,
+    );
   });
 
   // #895 — agent approval gate. SQLite-only, same convention as

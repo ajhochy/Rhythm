@@ -115,10 +115,21 @@ jobs:
           # Vendored engine plugins (rhythm-anthropic-accounts) — resolved at
           # runtime by rhythmAnthropicPluginPath() as a sibling of dist/
           cp -r ../api_server/opencode_plugins "$DEST/"
+          # Config seed assets (config-doctor tools + customize-rhythm skill) —
+          # seeded to ~/.config/opencode/ at boot by config_seeds_seeder.ts,
+          # resolved at runtime as a sibling of dist/.
+          cp -r ../api_server/config_seeds "$DEST/"
           cp ../api_server/package.json "$DEST/"
           cp ../api_server/package-lock.json "$DEST/"
           (
             cd "$DEST"
+            npm install --omit=dev
+          )
+          # Vendor the pinned js-yaml into the bundled config-doctor tools so the
+          # shipped seed carries tools/node_modules/js-yaml (the classifiers'
+          # preferred resolver; falls back to the app bundle's js-yaml otherwise).
+          (
+            cd "$DEST/config_seeds/tools"
             npm install --omit=dev
           )
           # Write OAuth secrets into a .env file loaded by the CLI server at runtime
@@ -140,6 +151,9 @@ jobs:
           test -f "$DEST/.env"
           test -d "$DEST/node_modules"
           test -f "$DEST/node_modules/better-sqlite3/package.json"
+          test -f "$DEST/config_seeds/skills/customize-rhythm/SKILL.md"
+          test -f "$DEST/config_seeds/tools/classify.cjs"
+          test -f "$DEST/config_seeds/tools/node_modules/js-yaml/package.json"
 
       - name: Bundle Node runtime into app (#1023)
         working-directory: apps/desktop_flutter
