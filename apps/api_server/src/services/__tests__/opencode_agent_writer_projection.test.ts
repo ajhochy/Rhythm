@@ -1,8 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentConfig } from '../../repositories/agent_configs_repository';
+
+const matter: (text: string) => { data: Record<string, unknown> } = createRequire(
+  join(process.cwd(), '..', 'opencode_fork', 'packages', 'opencode', 'package.json'),
+)('gray-matter');
 
 const state = vi.hoisted(() => ({ home: '' }));
 const { mockReloadConfig } = vi.hoisted(() => ({ mockReloadConfig: vi.fn() }));
@@ -571,6 +576,26 @@ describe('#1138: corePermissions projection is defensive and self-healing', () =
     expect(projected).toMatch(/ {4}"git push\*": ask\n/);
   });
 
+  it('quotes wildcard scalar permission keys, parses them, and stays stable on re-projection', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    const config = {
+      ...agentConfig('research', 'Research'),
+      corePermissionsJson: JSON.stringify({ '*': 'allow', read: 'ask' }),
+    };
+    writeAgentProfileFile(config);
+    const first = readProjected('research');
+
+    expect(first).toContain('  "*": allow');
+    expect(first).toContain('  read: ask');
+    expect(matter(first).data.permission).toEqual({ '*': 'allow', read: 'ask' });
+
+    writeAgentProfileFile(config);
+    expect(readProjected('research')).toBe(first);
+  });
+
   it('skips only the bad entries, keeping the valid ones in a mixed payload', () => {
     state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
     process.env.VITEST = 'false';
@@ -649,4 +674,3 @@ describe('#1138: corePermissions projection is defensive and self-healing', () =
     expect(readProjected('workflow-orchestrator')).toContain('write: allow');
   });
 });
-

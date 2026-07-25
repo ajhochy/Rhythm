@@ -57,10 +57,12 @@ describe('Deep Research direct AgentRunner execution', () => {
 
     await vi.waitFor(() => expect(runAgent).toHaveBeenCalledOnce());
     await vi.waitFor(() => {
-      const job = db.prepare('SELECT status, report, agent_session_id FROM agent_research_jobs WHERE id = ?').get(created.id) as Record<string, string>;
+      const job = db.prepare('SELECT status, report, agent_session_id, vault_path FROM agent_research_jobs WHERE id = ?').get(created.id) as Record<string, string>;
       expect(job.status).toBe('done');
       expect(job.report).toContain('Useful findings.');
       expect(job.agent_session_id).toBe('research-session-1');
+      expect(job.vault_path).toContain(vault);
+      expect(existsSync(job.vault_path)).toBe(true);
     });
     expect(runAgent).toHaveBeenCalledWith(expect.objectContaining({
       agentConfigId: 'research', agentKind: 'research', cwd: process.cwd(), prompt: expect.stringContaining(query),

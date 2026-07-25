@@ -139,8 +139,8 @@ export async function executeResearchJob(id: string): Promise<void> {
       return;
     }
     await updateJob(id, { status: 'synthesizing' });
-    const updated = await updateJob(id, { status: 'done', report: result.result, error: null });
-    if (updated) await writeCompletedResearchNote(updated);
+    const vaultPath = await writeCompletedResearchNote({ ...job, report: result.result });
+    await updateJob(id, { status: 'done', report: result.result, error: null, vaultPath });
   } catch (err) {
     await updateJob(id, { status: 'error', error: `Research runner failed: ${String(err)}` });
   }
@@ -162,15 +162,16 @@ export async function recoverStaleResearchJobs(): Promise<number> {
   ).run(error, new Date().toISOString()).changes;
 }
 
-async function writeCompletedResearchNote(job: ResearchJob): Promise<void> {
+async function writeCompletedResearchNote(job: ResearchJob): Promise<string | null> {
   try {
-    await writeGenericResearchReport({
+    return await writeGenericResearchReport({
       jobId: job.id,
       topic: job.query,
       report: job.report ?? '',
     });
   } catch (vaultErr) {
     logger.warn(`[Research] vault note write failed for job ${job.id}: ${String(vaultErr)}`);
+    return null;
   }
 }
 
