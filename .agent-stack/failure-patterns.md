@@ -236,7 +236,6 @@
 - **Root cause**: A multi-cause user symptom ("scheduled runs fail") was verified via one convenience entry point; the cwd cause was genuinely fixed, but ocAgent-mode ("Agent not found") + primary empty-output were untouched and uncovered. Also: the fix itself had been silently dropped from main by the #1020 partial re-land.
 - **Suggested fix**: verification-gate must drive the REAL user entry point (profile-bound scheduled task via trigger-now) for multi-entry-point symptoms; run acceptance-contract per-issue even in large epics. Follow-up: #1039.
 - **Workflow note**: W1 — acceptance-contract folded into coding-agent dispatch prompts instead of emitting per-issue contract.json + failing tests (13-issue epic).
-
 ## 2026-07-25 — Issue #1132 — built generated-SDK event smoke PASS after compiled-runtime recovery
 
 - **Result**: smoke PASS (verification claimed PASS; no final divergence).
@@ -245,3 +244,11 @@
 - **Root cause**: Source-only containment tests and a binary `--version` check did not execute the split bundle's late `AppFileSystem.containsReal` namespace member, so a real bash call failed before permission evaluation. Two fixture defects obscured the path: a `#`-prefixed label hit #1134's unquoted YAML bug, then an omitted `ocAgent` silently ran built-in `build` permissions.
 - **Suggested fix**: Keep a built/minified live test that binds the projected agent explicitly and exercises a real permission ask. For worktrees, verify internal workspace symlinks resolve inside that worktree before building.
 - See `.agent-stack/postmortems/2026-07-25-issue-1132.json`.
+
+## 2026-07-24 — Issue 1135 — audit-locked profiles remain inert until reviewed re-enable
+
+- **Result**: smoke PASS (verification claimed PASS; no divergence)
+- **Category**: none (correctness); process: sandbox-dependency-setup + sandbox-process-lifetime + aggregate-test-flake + smoke-wrapper-cleanup
+- **Criteria affected**: issue-1135-c1 through issue-1135-c6 all passed
+- **Root cause**: The security gap was an ordinary `enabled` preference with no independent audit lock; the smoke harness also needed fresh fork dependencies and foreground process ownership in this worktree.
+- **Suggested fix**: Keep the dedicated optimistic reviewed transition and authoritative lock checks; teach the sandbox launcher pinned dependency setup and a foreground mode. Two unrelated aggregate-only HTTP failures each passed in isolation and on clean aggregate reruns; investigate full-suite resource contention if the coordinator gate sees another.

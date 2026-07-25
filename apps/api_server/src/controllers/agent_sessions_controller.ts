@@ -6,7 +6,10 @@ import { AppError } from '../errors/app_error';
 import { containsReal } from '../utils/path_containment';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
-import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import {
+  AgentConfigsRepository,
+  agentConfigExecutionBlockReason,
+} from '../repositories/agent_configs_repository';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
@@ -221,13 +224,18 @@ export class AgentSessionsController {
       // row at all (not Rhythm-managed) — reject only an agent whose id or
       // ocAgent matches a DISABLED agent_configs row.
       const disabledEngineNames = new Set<string>();
+      const securityLockedEngineNames = new Set<string>();
       for (const c of new AgentConfigsRepository().list()) {
-        if (c.enabled) continue;
-        disabledEngineNames.add(c.id);
-        if (c.ocAgent) disabledEngineNames.add(c.ocAgent);
+        if (agentConfigExecutionBlockReason(c) === null) continue;
+        const target = c.locked === true ? securityLockedEngineNames : disabledEngineNames;
+        target.add(c.id);
+        if (c.ocAgent) target.add(c.ocAgent);
       }
       const agents = rawAgents.filter(
-        (a) => !a.name || isReservedAgentConfigId(a.name) || !disabledEngineNames.has(a.name),
+        (a) =>
+          !a.name ||
+          (!securityLockedEngineNames.has(a.name) &&
+            (isReservedAgentConfigId(a.name) || !disabledEngineNames.has(a.name))),
       );
       // Mirror the engine's agent registry into agent_configs so every opencode
       // agent also exists as an Agent Profile. Reuse the filtered list so the
@@ -465,8 +473,9 @@ export class AgentSessionsController {
         if (!agentConfig) {
           throw AppError.badRequest(`agent not configured: '${normalizedAgentId}'`);
         }
-        if (!agentConfig.enabled) {
-          throw AppError.badRequest(`agent disabled: '${normalizedAgentId}'`);
+        const blockReason = agentConfigExecutionBlockReason(agentConfig);
+        if (blockReason) {
+          throw AppError.badRequest(blockReason);
         }
         resolvedEngineAgentKind =
           agentConfig.ocAgent && agentConfig.ocAgent.trim() !== ''
@@ -1273,8 +1282,9 @@ export class AgentSessionsController {
         if (!agentConfig) {
           throw AppError.badRequest(`agent not configured: '${requestedAgentId}'`);
         }
-        if (!agentConfig.enabled) {
-          throw AppError.badRequest(`agent disabled: '${requestedAgentId}'`);
+        const blockReason = agentConfigExecutionBlockReason(agentConfig);
+        if (blockReason) {
+          throw AppError.badRequest(blockReason);
         }
         // #858: mirror the create-path fix — persist the resolved ENGINE NAME
         // (ocAgent), not the raw agent_configs id, so a UUID-keyed profile
@@ -1288,6 +1298,18 @@ export class AgentSessionsController {
             : requestedAgentId;
         if (resolvedEngineAgentKind !== session.agentKind) {
           repo.updateAgentKind(session.id, resolvedEngineAgentKind);
+        }
+      } else if (session.agentKind) {
+        // A previously-created resumable session must not bypass a lock that
+        // landed after it was created. agent_kind may hold either the profile
+        // id or its resolved oc_agent name, so cover both representations.
+        const configsRepo = new AgentConfigsRepository();
+        const storedConfig =
+          configsRepo.getById(session.agentKind) ??
+          configsRepo.list().find((config) => config.ocAgent === session.agentKind);
+        if (storedConfig) {
+          const blockReason = agentConfigExecutionBlockReason(storedConfig);
+          if (blockReason) throw AppError.badRequest(blockReason);
         }
       }
 

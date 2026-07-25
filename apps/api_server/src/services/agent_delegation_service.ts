@@ -1,5 +1,8 @@
 import { AppError } from '../errors/app_error';
-import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import {
+  AgentConfigsRepository,
+  agentConfigExecutionBlockReason,
+} from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { run as runAgent } from './agent_runner';
 
@@ -96,9 +99,11 @@ export async function delegateToAgent(
   }
 
   const target = repo.getById(targetId);
-  if (!target || !target.enabled || !target.isAgent) {
+  if (!target || !target.isAgent) {
     throw AppError.badRequest('target profile is not runnable');
   }
+  const targetBlockReason = agentConfigExecutionBlockReason(target);
+  if (targetBlockReason) throw AppError.badRequest(targetBlockReason);
 
   const scopedPrompt = input.context ? `${input.context.trim()}\n\n${prompt}` : prompt;
   const result = await runAgent({

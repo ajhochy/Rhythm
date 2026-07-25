@@ -22,7 +22,10 @@ import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
-import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import {
+  AgentConfigsRepository,
+  agentConfigExecutionBlockReason,
+} from '../repositories/agent_configs_repository';
 import { queueSkillExtraction } from './skill_extractor';
 import { scheduleIdleEvaluation } from './harvested_skill_evaluator';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
@@ -215,7 +218,7 @@ export interface AgentRunResult {
   status: 'done' | 'error';
   error?: string;
   /** Machine-readable classification for errors callers may safely retry. */
-  errorCode?: 'capacity';
+  errorCode?: 'capacity' | 'profile_unavailable';
 }
 
 // ── In-process concurrency gate ───────────────────────────────────────────────
@@ -452,7 +455,9 @@ export function shouldEscalate(
 ): boolean {
   if (!enabled) return false;
   if (opts._isEscalation) return false; // recursion guard — escalate at most once
-  if (result.errorCode === 'capacity') return false; // load is not a model-quality failure
+  if (result.errorCode === 'capacity' || result.errorCode === 'profile_unavailable') {
+    return false; // infrastructure/policy rejection is not a model-quality failure
+  }
   return result.status === 'error';
 }
 
@@ -586,6 +591,27 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     category,
   } = opts;
 
+  // #1135 — enforce the independent security lock before consuming a
+  // concurrency slot or touching model/engine state. This protects existing
+  // schedules and background callers after a profile is locked.
+  const effectiveConfigId = agentConfigId ?? agentKind;
+  if (effectiveConfigId) {
+    const config = new AgentConfigsRepository().getById(effectiveConfigId);
+    if (config) {
+      const blockReason = agentConfigExecutionBlockReason(config);
+      if (blockReason) {
+        logger.warn(`[AgentRunner] ${blockReason}`);
+        return {
+          sessionId: '',
+          result: '',
+          status: 'error',
+          error: blockReason,
+          errorCode: 'profile_unavailable',
+        };
+      }
+    }
+  }
+
   // Unique slot key for concurrency tracking
   const slotKey = `run-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -605,7 +631,6 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // model is a fast fail rather than a silent timeout.
   // agentKind IS the agent_configs id (e.g. 'claude-code') — treat it as the
   // config id so the profile's model is used instead of dropping to MRU/default.
-  const effectiveConfigId = agentConfigId ?? agentKind;
   // P4-1: a forced modelOverride (teacher escalation) bypasses resolveRunModel.
   // P1a: resolve model + MCP scope + profile metadata via the shared helper.
   // Pass allowedMcpsJson (from the scheduled-task row) as an override when it

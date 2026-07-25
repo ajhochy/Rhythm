@@ -1631,6 +1631,35 @@ export function runMigrations(db: Database.Database): void {
   if (!agentConfigCols.includes('allowed_delegates_json')) {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN allowed_delegates_json TEXT`);
   }
+  // #1135 — audit/security lock state. `enabled` remains the ordinary user
+  // preference; `locked` is a separate authoritative execution boundary that
+  // generic profile edits cannot clear.
+  if (!agentConfigCols.includes('locked')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN locked INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!agentConfigCols.includes('disabled_reason')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN disabled_reason TEXT`);
+  }
+  if (!agentConfigCols.includes('locked_at')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN locked_at TEXT`);
+  }
+  if (!agentConfigCols.includes('locked_by')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN locked_by TEXT`);
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_config_security_events (
+      id              TEXT PRIMARY KEY,
+      agent_config_id TEXT NOT NULL,
+      event_type      TEXT NOT NULL CHECK (event_type IN ('locked', 'reviewed_reenabled')),
+      actor           TEXT NOT NULL,
+      reason          TEXT NOT NULL,
+      review_note     TEXT,
+      lock_version    TEXT NOT NULL,
+      created_at      TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_config_security_events_profile
+      ON agent_config_security_events(agent_config_id, created_at);
+  `);
 
   // Agent-runner model selection: store the preferred provider/model on an
   // agent config profile so AgentRunner can resolve a model without user input.

@@ -38,6 +38,7 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { getDb, setDb } from '../database/db';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -176,6 +177,38 @@ describe('#738 — AgentRunner', () => {
 
     expect(result.status).toBe('error');
     expect(result.error).toMatch(/failed to create/i);
+    expect(mockPrompt).not.toHaveBeenCalled();
+  });
+
+  it('issue-1135-c5: rejects a security-locked profile before engine/session work', async () => {
+    setDb(new Database(':memory:'));
+    runMigrations(getDb());
+    const configsRepo = new AgentConfigsRepository();
+    configsRepo.insert({
+      id: 'locked-runner-profile',
+      label: 'Locked Runner Profile',
+      icon: '',
+    });
+    configsRepo.lockForSecurity(
+      'locked-runner-profile',
+      'security review required',
+      'reviewer',
+    );
+    getDb()
+      .prepare(`UPDATE agent_configs SET enabled = 1 WHERE id = 'locked-runner-profile'`)
+      .run();
+
+    const result = await run({
+      prompt: 'Must not execute',
+      agentConfigId: 'locked-runner-profile',
+    });
+
+    expect(result).toMatchObject({
+      status: 'error',
+      errorCode: 'profile_unavailable',
+      error: expect.stringContaining('security-locked'),
+    });
+    expect(mockCreateSession).not.toHaveBeenCalled();
     expect(mockPrompt).not.toHaveBeenCalled();
   });
 

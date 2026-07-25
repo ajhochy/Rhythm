@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
-import { setDb } from '../database/db';
+import { getDb, setDb } from '../database/db';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import type { AgentKind } from '../models/agent_session';
@@ -200,5 +200,31 @@ describe('manager delegation authorization contracts', () => {
       statusCode: 500,
       message: 'target MCP is not connected',
     });
+  });
+
+  it('issue-1135-c5: rejects a security-locked delegate even if enabled drifts back to 1', async () => {
+    const configsRepo = new AgentConfigsRepository();
+    expect(
+      configsRepo.lockForSecurity(
+        'specialist',
+        'security audit rejected privileged prompt',
+        'security-reviewer',
+      ),
+    ).not.toBeNull();
+    getDb()
+      .prepare(`UPDATE agent_configs SET enabled = 1 WHERE id = 'specialist'`)
+      .run();
+
+    await expect(
+      delegateToAgent({
+        callerSessionId: seedCallerSession('manager'),
+        targetAgentConfigId: 'specialist',
+        prompt: 'Do not run this.',
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining('security-locked'),
+    });
+    expect(runMock).not.toHaveBeenCalled();
   });
 });

@@ -2,22 +2,22 @@
 
 ## Current focus
 
-Issue #1132 complete fork-generated SDK implementation has passed independent
-compiled-engine behavioral verification and is ready to integrate.
+Resolve and independently verify every open issue in #1076–#1175 on the
+coordinator branch, then run the combined merge gate and open a draft PR.
 
 ## Active branch / PR
 
-- Branch: `codex/1132-fork-sdk`
-- PR: none; isolated worktree handoff to the 2026-07-24 orchestration run
+- Branch: `codex/issues-1076-1175-2026-07-24`
+- PR: none; isolated issue worktrees are being integrated after verification.
 
 ## In progress
 
-- Complete generated fork SDK is vendored as a normal `api_server` dependency.
-- Hand-written SDK ambient declarations are deleted.
-- Four raw-fetch SDK gaps are converted to generated v2 calls.
-- Acceptance criteria 1–6 pass; no criteria remain untested.
-- The built-runtime `containsReal` binding blocker inherited from #1133 is
-  fixed and covered by the live permission path.
+- #1132 is integrated: complete generated fork SDK, runtime containment fix,
+  and all six acceptance criteria passed against the compiled engine.
+- #1135 is integrated: durable audit locks, reviewed re-enable, authoritative
+  execution checks, and all six acceptance criteria passed.
+- Parallel sandbox-port infrastructure and the serial shared API merge gate are
+  present. Other independently verified issue slices remain to be integrated.
 
 ## Risks / known issues
 
@@ -25,23 +25,25 @@ compiled-engine behavioral verification and is ready to integrate.
   `GlobalBusEmitter.emit`; core typecheck passes.
 - Two fork session timing tests fail in untouched base code. Relevant session
   and API suites are green.
-- #1134's YAML quoting fix must be present before combined smoke; without it,
-  labels beginning with `#` project invalid null descriptions.
+- #1134's YAML quoting fix must be integrated before combined smoke; without
+  it, labels beginning with `#` project invalid null descriptions.
+- #1135's SQLite/Postgres changes are additive, but the production Postgres
+  bootstrap still requires normal migration review before merge.
 
 ## Test status
 
-- SDK deterministic build/typecheck: PASS.
-- API lint/typecheck/build/full suite: PASS (3,184 tests).
-- Clean API install and Docker build: PASS.
-- Built fork binary/version smoke: PASS.
-- Fork containment suites: PASS, 32 core + 18 opencode tests.
-- GitNexus own-diff analysis: LOW risk, zero affected execution flows.
-- Live permission/question/message event smoke: PASS against built fork/API
-  on isolated `:4998`/`:4997` (1 test, 11.32s).
-- Full evidence:
-  `docs/ai/runs/2026-07-24-1132-complete-fork-sdk.md`.
+- #1132: SDK deterministic build/typecheck, API lint/typecheck/build/full
+  suite, Docker build, containment suites, and compiled-engine live event smoke
+  PASS on isolated `:4998`/`:4997`.
+- #1135: API build, issue and full workflow gates, focused 110-test suite,
+  contract validation, fork build, and rebuilt-engine/API smoke PASS 2/2 on
+  isolated `:4798`/`:4797`.
+- Aggregate coordinator validation is pending after all verified slices land.
+- Evidence: `docs/ai/runs/2026-07-24-1132-complete-fork-sdk.md` and
+  `docs/ai/runs/2026-07-24-issue-1135-audit-profile-lock.md`.
 
 ## Next step
 
-Integrate the #1132 implementation and verification commits, include #1134,
-then run the combined branch's final smoke/build gate.
+Integrate the remaining clean issue commits, run `detect_changes` against
+`main`, execute the combined API/fork/Flutter/live gates, and open a draft PR
+for human review and merge.

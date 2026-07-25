@@ -24,7 +24,10 @@
  */
 
 import { opencodeClient } from './opencode_engine';
-import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import {
+  AgentConfigsRepository,
+  agentConfigExecutionBlockReason,
+} from '../repositories/agent_configs_repository';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { normalizeDerivedAllowedMcps } from './mcp_name_alignment';
@@ -815,7 +818,7 @@ export async function syncOpencodeAgentProfiles(
   // safe to call for every disabled row on every sync.
   try {
     for (const config of repo.list()) {
-      if (config.enabled) continue;
+      if (agentConfigExecutionBlockReason(config) === null) continue;
       if (!isProjectableAgentConfigIgnoringEnabled(config)) continue;
       deleteAgentProfileFile(config.id);
     }

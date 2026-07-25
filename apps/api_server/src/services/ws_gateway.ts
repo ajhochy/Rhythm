@@ -2,6 +2,10 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { appEvents } from '../utils/app_events';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import {
+  AgentConfigsRepository,
+  agentConfigExecutionBlockReason,
+} from '../repositories/agent_configs_repository';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { bridgePty, ptyEngineUrl } from './pty_proxy';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
@@ -391,6 +395,24 @@ export async function handleInputFrame(
   // init-time scoping. Non-fatal: a missing/unknown profile id returns null
   // mcpRoleConfig (no restriction).
   const scopeAgentId = perTurnAgent ?? agentKind ?? null;
+  if (scopeAgentId) {
+    try {
+      const configsRepo = new AgentConfigsRepository();
+      const config =
+        configsRepo.getById(scopeAgentId) ??
+        configsRepo.list().find((candidate) => candidate.ocAgent === scopeAgentId);
+      if (config) {
+        const blockReason = agentConfigExecutionBlockReason(config);
+        if (blockReason) {
+          ws.send(JSON.stringify({ v: 1, type: 'error', id, message: blockReason }));
+          return;
+        }
+      }
+    } catch {
+      // Preserve the existing fail-open behavior when the local DB is
+      // unavailable; the projection/registry boundaries remain fail-closed.
+    }
+  }
 
   // #884 — resolve the model/provider for this turn ONCE, BEFORE
   // building/pushing the MCP allowlist, so createSession/updateSessionAllowlist

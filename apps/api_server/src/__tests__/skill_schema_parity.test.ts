@@ -38,6 +38,7 @@ const TABLES = [
   'agent_capability_gaps',
   'agent_org_proposals',
   'org_skills',
+  'agent_config_security_events',
 ] as const;
 
 /** Real SQLite column set after all migrations (incl. guarded ALTERs). */
@@ -122,6 +123,15 @@ describe('#792 agent_skills dual-DB schema parity', () => {
       'measure_reason',
     ]) {
       expect(sqlite).toContain(col);
+    }
+  });
+
+  it('issue-1135 lock state is additive in both SQLite and Postgres agent_configs', () => {
+    const sqlite = sqliteColumns('agent_configs');
+    const postgres = postgresColumns(pgSource, 'agent_configs');
+    for (const col of ['locked', 'disabled_reason', 'locked_at', 'locked_by']) {
+      expect(sqlite).toContain(col);
+      expect(postgres).toContain(col);
     }
   });
 

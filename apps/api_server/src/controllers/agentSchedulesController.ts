@@ -1,7 +1,10 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
-import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import {
+  AgentConfigsRepository,
+  agentConfigExecutionBlockReason,
+} from '../repositories/agent_configs_repository';
 import { computeNextRun } from '../services/agentSchedulerService';
 
 const repo = new AgentScheduledTasksRepository();
@@ -34,6 +37,9 @@ function assertSchedulableProfile(configId: string | null | undefined): void {
   if (!configId || typeof configId !== 'string') return;
   const config = configsRepo.getById(configId);
   if (!config) return; // not a profile (CLI kind / built-in) — runnable
+  if (config.locked === true) {
+    throw AppError.badRequest(agentConfigExecutionBlockReason(config)!);
+  }
   if (config.presetId) return; // CLI preset — runs via PTY runner, never a subagent
   if ((config.schedulable ?? config.sessionSelectable) === false) {
     throw AppError.badRequest(

@@ -30,7 +30,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { scanContextContent } from '../security/context_scanner';
-import type { AgentConfig } from '../repositories/agent_configs_repository';
+import {
+  agentConfigExecutionBlockReason,
+  type AgentConfig,
+} from '../repositories/agent_configs_repository';
 import { expandProfileMcpAllowlist, expandProfileSkillAllowlist } from './agent_profile_scope';
 import { opencodeClient } from './opencode_engine';
 
@@ -265,7 +268,7 @@ export function isAgentProfileFileMissing(config: AgentConfig): boolean {
  * below, e.g. agent_profile_sync's #858 oc_agent backfill pass.
  */
 export function isProjectableAgentConfig(config: AgentConfig): boolean {
-  if (!config.enabled) return false;
+  if (agentConfigExecutionBlockReason(config) !== null) return false;
   return isProjectableAgentConfigIgnoringEnabled(config);
 }
 
@@ -673,7 +676,10 @@ export function deleteAgentProfileFile(id: string): void {
  * profile's `enabled` state may have just changed.
  */
 export function syncAgentProfileFileForState(config: AgentConfig): void {
-  if (!config.enabled && isProjectableAgentConfigIgnoringEnabled(config)) {
+  if (
+    agentConfigExecutionBlockReason(config) !== null &&
+    isProjectableAgentConfigIgnoringEnabled(config)
+  ) {
     deleteAgentProfileFile(config.id);
     return;
   }

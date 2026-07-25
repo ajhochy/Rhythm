@@ -864,6 +864,29 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS allowed_skills_json TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS core_permissions_json TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS allowed_delegates_json TEXT;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS locked INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS disabled_reason TEXT;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS locked_by TEXT;
+  `);
+  // #1135 — append-only application audit log for security lock/reviewed
+  // re-enable transitions. Deliberately no cascading FK: deleting a profile
+  // must not erase its security evidence.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_config_security_events (
+      id              TEXT PRIMARY KEY,
+      agent_config_id TEXT NOT NULL,
+      event_type      TEXT NOT NULL CHECK (event_type IN ('locked', 'reviewed_reenabled')),
+      actor           TEXT NOT NULL,
+      reason          TEXT NOT NULL,
+      review_note     TEXT,
+      lock_version    TIMESTAMPTZ NOT NULL,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_agent_config_security_events_profile
+      ON agent_config_security_events(agent_config_id, created_at)
   `);
 
   // agent_config_id: logical FK from scheduled tasks to agent_configs.id.

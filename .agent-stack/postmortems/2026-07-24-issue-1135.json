@@ -1,0 +1,129 @@
+{
+  "run_id": "2026-07-24-issue-1135",
+  "issue": 1135,
+  "date": "2026-07-24",
+  "smoke_result": "pass",
+  "verification_claimed": "pass",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1135-c1",
+      "text": "On enabled true to false transition, delete the projected agent file and reload the engine configuration.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Real fork/API smoke observed the profile disappear after PATCH enabled:false and reappear after enabled:true."
+    },
+    {
+      "criterion_id": "issue-1135-c2",
+      "text": "Filter live agent-registry responses against enabled database profiles.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Real GET /agent-sessions/agents excluded both the ordinarily disabled profile and the security-locked profile after enabled-column drift."
+    },
+    {
+      "criterion_id": "issue-1135-c3",
+      "text": "Add an explicit locked or disabled_reason state for audit-disabled profiles; reject re-enable through the generic PATCH route unless a dedicated reviewed transition is used.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Live security-lock persisted reason/version, generic PATCH returned 409 after direct DB drift, and the exact reviewed-reenable transition succeeded."
+    },
+    {
+      "criterion_id": "issue-1135-c4",
+      "text": "Reconcile and delete stale projected files at startup and sync time.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The live sync-opencode reconciliation kept the locked profile absent despite enabled=1 drift; adjacent real sync tests passed."
+    },
+    {
+      "criterion_id": "issue-1135-c5",
+      "text": "Add unit and live behavioral tests proving a disabled profile is absent from listAgents and cannot be invoked as a primary agent or subagent.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Live primary-session creation returned 400 with the lock reason; focused delegation and AgentRunner tests proved no engine call occurs for a locked subagent/background target."
+    },
+    {
+      "criterion_id": "issue-1135-c6",
+      "text": "Verify model and prompt projection are consistent with the database after every state transition.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "After reviewed re-enable, the real engine registry exposed anthropic/claude-haiku-4-5 and the current LOCKED-1135-REVIEWED-PROMPT written during the lock."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "sandbox-dependency-setup",
+      "description": "The fresh worktree had no vendored-fork node_modules, and the installed Bun 1.3.14 wanted to refresh a git dependency in the Bun 1.3.13 lock.",
+      "detected_by": "Exact sandbox build failed with `preload not found @opentui/solid/preload`; `bun install --frozen-lockfile` then reported lockfile changes. `bun install --no-save` populated ignored dependencies and the exact build passed without retained source changes."
+    },
+    {
+      "process_category": "sandbox-process-lifetime",
+      "description": "The sandbox script reached healthy but its detached API process was reaped when the launching PTY exited in this tool environment.",
+      "detected_by": "Both 4797/4798 listeners disappeared immediately after `Sandbox ready`; the clean log had no exception or shutdown event. Running the same built API in a foreground session stayed healthy and completed the smoke."
+    },
+    {
+      "process_category": "aggregate-test-flake",
+      "description": "Two full-suite attempts failed in unrelated HTTP tests after 359 files and 3185 tests had passed: an empty JSON body in issue_895_agent_approvals.test.ts and, later, a five-second opc_mcp_oauth_routes.test.ts timeout.",
+      "detected_by": "The exact isolated tests passed 5/5 and 3/3 without code or assertion changes. Clean restarted `ai-workflow checks --level pr` runs passed after each occurrence."
+    },
+    {
+      "process_category": "smoke-wrapper-cleanup",
+      "description": "An early live wrapper changed directories before its relative cleanup trap ran, so the tests passed but the outer wrapper exited 127.",
+      "detected_by": "The final wrapper used an absolute sandbox-script path; the live test passed 2/2, printed `Sandbox removed`, and released ports 4797/4798."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/__tests__/agent_delegation_auth.test.ts",
+    "apps/api_server/src/__tests__/issue_1135_audit_lock_contract.test.ts",
+    "apps/api_server/src/__tests__/issue_738_agent_runner.test.ts",
+    "apps/api_server/src/__tests__/live_e2e_1135_disabled_agent.test.ts",
+    "apps/api_server/src/__tests__/skill_schema_parity.test.ts",
+    "apps/api_server/src/controllers/__tests__/agent_sessions_listAgents.test.ts",
+    "apps/api_server/src/controllers/agentSchedulesController.ts",
+    "apps/api_server/src/controllers/agent_configs_controller.ts",
+    "apps/api_server/src/controllers/agent_sessions_controller.ts",
+    "apps/api_server/src/database/migrations.ts",
+    "apps/api_server/src/database/postgres_bootstrap.ts",
+    "apps/api_server/src/repositories/agent_configs_repository.test.ts",
+    "apps/api_server/src/repositories/agent_configs_repository.ts",
+    "apps/api_server/src/routes/agent_configs_routes.ts",
+    "apps/api_server/src/services/agent_delegation_service.ts",
+    "apps/api_server/src/services/agent_profile_sync.ts",
+    "apps/api_server/src/services/agent_runner.ts",
+    "apps/api_server/src/services/generators/delegation_generator.ts",
+    "apps/api_server/src/services/opencode_agent_writer.ts",
+    "apps/api_server/src/services/ws_gateway.ts",
+    "docs/ai/contracts/issue-1135.json"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Teach the sandbox launcher to install pinned fork dependencies without mutating bun.lock and provide a foreground mode for tool-managed process lifetimes. Investigate full-suite HTTP-test resource contention if the unrelated aggregate-only failures recur in the coordinator gate."
+}

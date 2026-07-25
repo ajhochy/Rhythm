@@ -20,6 +20,7 @@
  * not that any function ran.
  */
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { rm } from 'node:fs/promises';
@@ -69,6 +70,24 @@ async function poll<T>(
 async function listAgentIds(): Promise<string[]> {
   const { agents } = await apiJson<{ agents: Array<{ name: string }> }>('/agent-sessions/agents');
   return agents.map((a) => a.name);
+}
+
+async function listAgents(): Promise<
+  Array<{
+    name: string;
+    model?: { providerID: string; modelID: string };
+    prompt?: string | null;
+  }>
+> {
+  return (
+    await apiJson<{
+      agents: Array<{
+        name: string;
+        model?: { providerID: string; modelID: string };
+        prompt?: string | null;
+      }>;
+    }>('/agent-sessions/agents')
+  ).agents;
 }
 
 afterEach(async () => {
@@ -154,6 +173,134 @@ describeLive('live E2E — #1135 disabled agent profile purged from projection +
         20_000,
         1_000,
         'profile to reappear in agent-sessions/agents after re-enable',
+      );
+    },
+    90_000,
+  );
+
+  it(
+    'issue-1135-c5/c6: a locked profile survives enabled drift, denies primary invocation, and reviewed re-enable projects current DB state',
+    async () => {
+      const initialPrompt = 'LOCKED-1135-OLD-PROMPT';
+      const currentPrompt = 'LOCKED-1135-REVIEWED-PROMPT';
+      const cfg = await apiJson<{ id: string }>('/agent-configs', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: `audit-lock-live-${Date.now()}`,
+          label: 'Live Audit Lock 1135',
+          isAgent: true,
+          enabled: true,
+          sessionSelectable: true,
+          systemPrompt: initialPrompt,
+        }),
+      });
+      createdAgentIds.push(cfg.id);
+
+      await poll(
+        async () => {
+          if (!(await listAgentIds()).includes(cfg.id)) throw new Error('not yet listed');
+        },
+        20_000,
+        1_000,
+        'audit profile to appear before lock',
+      );
+
+      const disabledReason = 'Live security review: privileged prompt requires approval';
+      const locked = await apiJson<{
+        enabled: boolean;
+        locked: boolean;
+        lockedAt: string;
+      }>(`/agent-configs/${cfg.id}/security-lock`, {
+        method: 'POST',
+        body: JSON.stringify({
+          reason: disabledReason,
+          actor: 'live-e2e-security-audit',
+        }),
+      });
+      expect(locked).toMatchObject({ enabled: false, locked: true });
+
+      // Simulate the exact privileged-DB-edit bypass from the issue. `locked`
+      // must remain the independent fail-closed execution bit.
+      const dbPath = process.env.DB_PATH!;
+      const db = new Database(dbPath);
+      try {
+        db.prepare(
+          `UPDATE agent_configs
+              SET enabled = 1,
+                  model_provider = ?,
+                  model_id = ?,
+                  system_prompt = ?
+            WHERE id = ?`,
+        ).run('anthropic', 'claude-haiku-4-5', currentPrompt, cfg.id);
+      } finally {
+        db.close();
+      }
+
+      const genericReenable = await api(`/agent-configs/${cfg.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: true }),
+      });
+      expect(genericReenable.status).toBe(409);
+
+      await apiJson('/agent-configs/sync-opencode', { method: 'POST' });
+      await poll(
+        async () => {
+          if ((await listAgentIds()).includes(cfg.id)) {
+            throw new Error('locked profile still listed after enabled drift');
+          }
+        },
+        20_000,
+        1_000,
+        'locked profile to remain absent after privileged enabled drift',
+      );
+
+      const primaryAttempt = await api('/agent-sessions', {
+        method: 'POST',
+        body: JSON.stringify({
+          agentId: cfg.id,
+          cwd: process.cwd(),
+          name: 'Locked primary invocation must fail',
+        }),
+      });
+      expect(primaryAttempt.status).toBe(400);
+      expect(await primaryAttempt.text()).toContain('locked');
+
+      const reviewed = await apiJson<{
+        enabled: boolean;
+        locked: boolean;
+        disabledReason: string | null;
+      }>(`/agent-configs/${cfg.id}/reviewed-reenable`, {
+        method: 'POST',
+        body: JSON.stringify({
+          expectedLockedAt: locked.lockedAt,
+          expectedDisabledReason: disabledReason,
+          reviewedBy: 'live-e2e-review-board',
+          reviewNote: 'Current prompt and model were inspected before re-enable.',
+        }),
+      });
+      expect(reviewed).toMatchObject({
+        enabled: true,
+        locked: false,
+        disabledReason: null,
+      });
+
+      await poll(
+        async () => {
+          const projected = (await listAgents()).find((agent) => agent.name === cfg.id);
+          if (!projected) throw new Error('not yet re-listed');
+          if (projected.model?.providerID !== 'anthropic') {
+            throw new Error(`stale provider: ${projected.model?.providerID ?? 'missing'}`);
+          }
+          if (projected.model?.modelID !== 'claude-haiku-4-5') {
+            throw new Error(`stale model: ${projected.model?.modelID ?? 'missing'}`);
+          }
+          if (projected.prompt !== currentPrompt) {
+            throw new Error(`stale prompt: ${projected.prompt ?? 'missing'}`);
+          }
+        },
+        20_000,
+        1_000,
+        'reviewed profile to expose current model and prompt',
       );
     },
     90_000,

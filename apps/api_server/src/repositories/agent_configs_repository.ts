@@ -89,6 +89,15 @@ export interface AgentConfig {
    * always populate it.
    */
   reasoningEffort?: string | null;
+  /**
+   * #1135 — security/audit lock. Unlike the ordinary `enabled` preference,
+   * this state is authoritative for every execution path and can only be
+   * cleared by the reviewed-reenable transition.
+   */
+  locked?: boolean;
+  disabledReason?: string | null;
+  lockedAt?: string | null;
+  lockedBy?: string | null;
   // Legacy CLI fields — retained on the row but no longer used by the
   // Opencode-based client. Marked optional so consumers do not depend on
   // them. New writes set these to NULL / empty defaults (issue #581).
@@ -174,6 +183,56 @@ interface AgentConfigRow {
   schedulable: number | null;
   image_generation_enabled: number;
   reasoning_effort: string | null;
+  locked?: number;
+  disabled_reason?: string | null;
+  locked_at?: string | null;
+  locked_by?: string | null;
+}
+
+export type AgentConfigSecurityEventType = 'locked' | 'reviewed_reenabled';
+
+export interface AgentConfigSecurityEvent {
+  id: string;
+  agentConfigId: string;
+  eventType: AgentConfigSecurityEventType;
+  actor: string;
+  reason: string;
+  reviewNote: string | null;
+  lockVersion: string;
+  createdAt: string;
+}
+
+interface AgentConfigSecurityEventRow {
+  id: string;
+  agent_config_id: string;
+  event_type: AgentConfigSecurityEventType;
+  actor: string;
+  reason: string;
+  review_note: string | null;
+  lock_version: string;
+  created_at: string;
+}
+
+export interface ReviewedReenableInput {
+  expectedLockedAt: string;
+  expectedDisabledReason: string;
+  reviewedBy: string;
+  reviewNote: string;
+}
+
+/**
+ * Returns the user-facing reason a profile cannot execute, or null when it
+ * is runnable. The lock is checked independently of `enabled`: even if a
+ * stale writer flips enabled back to 1, an audit-locked profile stays inert.
+ */
+export function agentConfigExecutionBlockReason(config: AgentConfig): string | null {
+  if (config.locked === true) {
+    return config.disabledReason
+      ? `agent security-locked: '${config.id}' (${config.disabledReason})`
+      : `agent security-locked: '${config.id}'`;
+  }
+  if (!config.enabled) return `agent disabled: '${config.id}'`;
+  return null;
 }
 
 export function slugIdFromLabel(label: string): string {
@@ -230,6 +289,23 @@ function rowToModel(row: AgentConfigRow): AgentConfig {
     defaultAnthropicAccountId: row.default_anthropic_account_id ?? null,
     imageGenerationEnabled: (row.image_generation_enabled ?? 0) !== 0,
     reasoningEffort: row.reasoning_effort ?? null,
+    locked: (row.locked ?? 0) !== 0,
+    disabledReason: row.disabled_reason ?? null,
+    lockedAt: row.locked_at ?? null,
+    lockedBy: row.locked_by ?? null,
+  };
+}
+
+function securityEventRowToModel(row: AgentConfigSecurityEventRow): AgentConfigSecurityEvent {
+  return {
+    id: row.id,
+    agentConfigId: row.agent_config_id,
+    eventType: row.event_type,
+    actor: row.actor,
+    reason: row.reason,
+    reviewNote: row.review_note ?? null,
+    lockVersion: row.lock_version,
+    createdAt: row.created_at,
   };
 }
 
@@ -246,7 +322,9 @@ export class AgentConfigsRepository {
   listEnabled(): AgentConfig[] {
     const rows = getDb()
       .prepare(
-        `SELECT * FROM agent_configs WHERE enabled = 1 ORDER BY sort_order, label`,
+        `SELECT * FROM agent_configs
+          WHERE enabled = 1 AND COALESCE(locked, 0) = 0
+          ORDER BY sort_order, label`,
       )
       .all() as AgentConfigRow[];
     return rows.map(rowToModel);
@@ -421,6 +499,93 @@ export class AgentConfigsRepository {
       .run(...values);
 
     return this.getById(id);
+  }
+
+  /**
+   * Atomically disables + security-locks a profile and appends immutable
+   * audit evidence. Returns null if the row vanished or was already locked.
+   */
+  lockForSecurity(id: string, reason: string, actor: string): AgentConfig | null {
+    const db = getDb();
+    return db.transaction(() => {
+      const lockedAt = new Date().toISOString();
+      const result = db
+        .prepare(
+          `UPDATE agent_configs
+              SET enabled = 0,
+                  locked = 1,
+                  disabled_reason = ?,
+                  locked_at = ?,
+                  locked_by = ?,
+                  updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND COALESCE(locked, 0) = 0`,
+        )
+        .run(reason, lockedAt, actor, id);
+      if (result.changes === 0) return null;
+
+      db.prepare(
+        `INSERT INTO agent_config_security_events
+          (id, agent_config_id, event_type, actor, reason, review_note,
+           lock_version, created_at)
+         VALUES (?, ?, 'locked', ?, ?, NULL, ?, ?)`,
+      ).run(crypto.randomUUID(), id, actor, reason, lockedAt, lockedAt);
+      return this.getById(id);
+    })();
+  }
+
+  /**
+   * Clears a security lock only when the reviewer supplies the exact lock
+   * version and reason they reviewed. The conditional update prevents a
+   * stale approval from clearing a newer lock.
+   */
+  reviewedReenable(id: string, input: ReviewedReenableInput): AgentConfig | null {
+    const db = getDb();
+    return db.transaction(() => {
+      const result = db
+        .prepare(
+          `UPDATE agent_configs
+              SET enabled = 1,
+                  locked = 0,
+                  disabled_reason = NULL,
+                  locked_at = NULL,
+                  locked_by = NULL,
+                  updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+              AND locked = 1
+              AND locked_at = ?
+              AND disabled_reason = ?`,
+        )
+        .run(id, input.expectedLockedAt, input.expectedDisabledReason);
+      if (result.changes === 0) return null;
+
+      const createdAt = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO agent_config_security_events
+          (id, agent_config_id, event_type, actor, reason, review_note,
+           lock_version, created_at)
+         VALUES (?, ?, 'reviewed_reenabled', ?, ?, ?, ?, ?)`,
+      ).run(
+        crypto.randomUUID(),
+        id,
+        input.reviewedBy,
+        input.expectedDisabledReason,
+        input.reviewNote,
+        input.expectedLockedAt,
+        createdAt,
+      );
+      return this.getById(id);
+    })();
+  }
+
+  listSecurityEvents(id: string): AgentConfigSecurityEvent[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM agent_config_security_events
+          WHERE agent_config_id = ?
+          ORDER BY created_at, id`,
+      )
+      .all(id) as AgentConfigSecurityEventRow[];
+    return rows.map(securityEventRowToModel);
   }
 
   remove(id: string): boolean {
