@@ -186,14 +186,30 @@ describe('issue #1175 adversarial follow-up acceptance contract', () => {
 
   it('issue-1175-c20: loopback shell and paired-device callers cannot self-approve a human gate', () => {
     // Regression caught: AGENT_LOCAL bypass made PATCH decisions anonymous,
-    // the controller trusted body.actor, and the Flutter UI sent no Bearer
-    // capability. A model with shell could approve its own pending row.
+    // the controller trusted body.actor, and the Flutter UI sent no distinct
+    // human capability. The API child also receives RHYTHM_API_TOKEN, so
+    // moving that Bearer into Keychain alone still lets a model with shell
+    // approve its own pending row. The human decision must be signed by a
+    // non-exportable app key that is never materialized for the child.
     const routes = apiSource('routes/agent_approvals_routes.ts');
     const controller = apiSource(
       'controllers/agent_approvals_controller.ts',
     );
+    const repository = apiSource(
+      'repositories/agent_approvals_repository.ts',
+    );
+    const env = apiSource('config/env.ts');
+    const apiSignatureTests = apiSource(
+      '__tests__/human_approval_signature.test.ts',
+    );
     const flutterDataSource = repoSource(
       'apps/desktop_flutter/lib/features/notifications/data/agent_approvals_data_source.dart',
+    );
+    const flutterSigner = repoSource(
+      'apps/desktop_flutter/lib/features/notifications/data/human_approval_signer.dart',
+    );
+    const flutterServer = repoSource(
+      'apps/desktop_flutter/lib/app/core/server/api_server_service.dart',
     );
     const flutterAuth = repoSource(
       'apps/desktop_flutter/lib/app/core/auth/auth_session_service.dart',
@@ -201,18 +217,52 @@ describe('issue #1175 adversarial follow-up acceptance contract', () => {
     const flutterPackage = repoSource(
       'apps/desktop_flutter/pubspec.yaml',
     );
+    const nativeSigner = repoSource(
+      'apps/desktop_flutter/macos/Runner/HumanApprovalSigner.swift',
+    );
 
     expect(routes).toMatch(
-      /agentApprovalsRouter\.get\(\s*['"]\/['"]\s*,\s*requireAuth/,
+      /agentApprovalsRouter\.get\(\s*['"]\/['"]\s*,\s*requireAuth[\s\S]{0,250}requireHumanApprovalCapability/,
     );
     expect(routes).toMatch(
-      /agentApprovalsRouter\.patch\(\s*['"]\/:id['"]\s*,\s*requireAuth/,
+      /agentApprovalsRouter\.patch\(\s*['"]\/:id['"]\s*,\s*requireAuth[\s\S]{0,350}requireHumanApprovalCapability/,
     );
     expect(controller).toMatch(/req\.auth\?*\.user|req\.auth\.user/);
     expect(controller).not.toMatch(
       /body\.actor|typeof\s+body\.actor|repo\.decide\([^,]+,[^,]+,\s*actor\)/,
     );
-    expect(flutterDataSource).toMatch(/AuthSessionStore\.headers/);
+    expect(controller).toMatch(
+      /verifyHumanApprovalSignature[\s\S]{0,750}(?:decisionNonce|nonce)[\s\S]{0,750}(?:payloadDigest|payload_digest)/,
+    );
+    expect(controller).toMatch(
+      /body\.(?:signature|decisionSignature)/,
+    );
+    expect(repository).toMatch(
+      /decisionNonce|decision_nonce/,
+    );
+    expect(repository).toMatch(
+      /randomBytes|randomUUID/,
+    );
+    expect(repository).toMatch(
+      /UPDATE agent_approvals[\s\S]{0,700}status\s*=\s*['"]pending['"][\s\S]{0,250}decision_nonce/i,
+    );
+    expect(env).toMatch(/HUMAN_APPROVAL_CAPABILITY_SHA256/);
+    expect(env).toMatch(/HUMAN_APPROVAL_PUBLIC_KEY/);
+    expect(flutterDataSource).toMatch(
+      /AuthSessionStore\.headers[\s\S]{0,750}(?:humanApprovalCapability|X-Rhythm-Human-Approval)/,
+    );
+    expect(flutterDataSource).toMatch(
+      /decisionNonce[\s\S]{0,750}(?:signature|signDecision)/,
+    );
+    expect(flutterSigner).toMatch(/class HumanApprovalSigner/);
+    expect(flutterSigner).toMatch(
+      /decisionNonce[\s\S]{0,750}payloadDigest[\s\S]{0,750}(?:status|decisionStatus)/,
+    );
+    expect(flutterServer).toMatch(/HUMAN_APPROVAL_CAPABILITY_SHA256/);
+    expect(flutterServer).toMatch(/HUMAN_APPROVAL_PUBLIC_KEY/);
+    expect(flutterServer).not.toMatch(
+      /environment[\s\S]{0,1000}HUMAN_APPROVAL_(?:CAPABILITY|PRIVATE_KEY)(?!_SHA256)/,
+    );
     expect(flutterPackage).toMatch(/flutter_secure_storage/);
     const tokenPersistence = flutterAuth.slice(
       flutterAuth.indexOf('Future<void> restoreSession'),
@@ -221,6 +271,23 @@ describe('issue #1175 adversarial follow-up acceptance contract', () => {
     expect(tokenPersistence).toMatch(/FlutterSecureStorage|secureStorage/i);
     expect(tokenPersistence).not.toMatch(
       /SharedPreferences[\s\S]{0,500}(?:session_token|_sessionTokenKey)/,
+    );
+    expect(nativeSigner).toMatch(/kSecAttrTokenIDSecureEnclave/);
+    expect(nativeSigner).toMatch(/SecKeyCreateSignature/);
+    expect(nativeSigner).toMatch(
+      /(?:keychain-access-groups|kSecAttrAccessGroup|SecAccessControl)/,
+    );
+    expect(nativeSigner).not.toMatch(
+      /SecKeyCopyExternalRepresentation[\s\S]{0,500}(?:private|signing)/i,
+    );
+    expect(apiSignatureTests).toMatch(
+      /forged[\s\S]{0,1200}replay|replay[\s\S]{0,1200}forged/i,
+    );
+    expect(apiSignatureTests).toMatch(
+      /payload[\s-]?(?:swap|substitut|digest)[\s\S]{0,1200}status[\s-]?(?:swap|substitut|change)|status[\s-]?(?:swap|substitut|change)[\s\S]{0,1200}payload[\s-]?(?:swap|substitut|digest)/i,
+    );
+    expect(apiSignatureTests).toMatch(
+      /AGENT_LOCAL[\s\S]{0,1200}(?:Device|device token)|(?:Device|device token)[\s\S]{0,1200}AGENT_LOCAL/,
     );
   });
 

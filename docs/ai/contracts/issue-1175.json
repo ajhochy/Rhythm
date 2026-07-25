@@ -156,7 +156,7 @@
     },
     {
       "criterion_id": "issue-1175-c20",
-      "text": "Approval listing and decisions require a UI-held Keychain-backed Bearer capability unavailable to the API child/model shell or Device tokens, and the server derives the human actor instead of accepting actor text.",
+      "text": "Approval listing requires a UI-held Keychain capability whose raw value is never exposed to the API child/model shell, and every decision additionally carries a one-time nonce-bound signature from a non-exportable Secure Enclave/Keychain private key. The child receives only the capability digest and signing public key, the server derives the human actor, and forged, replayed, payload-swapped, status-swapped, AGENT_LOCAL, and Device-token decisions fail closed.",
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
       "test_id": "issue-1175-c20: loopback shell and paired-device callers cannot self-approve a human gate",
