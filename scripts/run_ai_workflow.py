@@ -39,6 +39,9 @@ from typing import Iterable
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FLUTTER_DIR = REPO_ROOT / "apps" / "desktop_flutter"
 API_DIR = REPO_ROOT / "apps" / "api_server"
+MCP_DIR = REPO_ROOT / "apps" / "mcp_server"
+FORK_DIR = REPO_ROOT / "apps" / "opencode_fork" / "packages" / "opencode"
+MOBILE_DIR = REPO_ROOT / "apps" / "mobile"
 
 
 # ---------------------------------------------------------------------------
@@ -117,10 +120,29 @@ ISSUE_CHECKS: list[Check] = [
     Check("flutter analyze (no fatal infos)", FLUTTER_DIR, ["flutter", "analyze", "--no-fatal-infos"]),
     Check("dart format (--set-exit-if-changed)", FLUTTER_DIR, ["dart", "format", "--set-exit-if-changed", "."]),
     Check("api_server tsc --noEmit", API_DIR, ["npx", "--no-install", "tsc", "--noEmit"]),
+    Check("mcp_server tsc --noEmit", MCP_DIR, ["npx", "--no-install", "tsc", "--noEmit"]),
 ]
 
 PR_CHECKS: list[Check] = ISSUE_CHECKS + [
+    Check("flutter test", FLUTTER_DIR, ["flutter", "test"]),
+    Check("api_server lint", API_DIR, ["npm", "run", "lint", "--silent"]),
     Check("api_server vitest", API_DIR, ["npm", "test", "--silent"]),
+    Check("api_server build", API_DIR, ["npm", "run", "build", "--silent"]),
+    Check("mcp_server vitest", MCP_DIR, ["npm", "test", "--silent"]),
+    Check("mcp_server build", MCP_DIR, ["npm", "run", "build", "--silent"]),
+    Check("opencode fork typecheck", FORK_DIR, ["bun", "run", "typecheck"]),
+    Check(
+        "opencode fork session tests",
+        FORK_DIR,
+        ["bun", "test", "test/session/", "src/session/"],
+    ),
+]
+
+MOBILE_PR_CHECKS: list[Check] = [
+    Check("mobile static suite", MOBILE_DIR, ["npm", "run", "test:ci:static", "--silent"]),
+    Check("mobile contract", MOBILE_DIR, ["npm", "run", "contract:check", "--silent"]),
+    Check("mobile fake-server self-test", MOBILE_DIR, ["npm", "run", "test:fake-server:self", "--silent"]),
+    Check("mobile web e2e", MOBILE_DIR, ["npm", "run", "test:e2e:web", "--silent"]),
 ]
 
 
@@ -142,7 +164,7 @@ def cmd_checks(args: argparse.Namespace) -> int:
     if args.level == "issue":
         checks = ISSUE_CHECKS
     elif args.level == "pr":
-        checks = PR_CHECKS
+        checks = PR_CHECKS + (MOBILE_PR_CHECKS if (MOBILE_DIR / "package.json").exists() else [])
     elif args.level == "smoke":
         print("Smoke is manual. See docs/testing/manual-smoke.md.")
         return 0

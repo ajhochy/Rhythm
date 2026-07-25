@@ -1,0 +1,31 @@
+name: OpenCode Fork CI
+
+on:
+  pull_request:
+    paths:
+      - 'apps/opencode_fork/**'
+      - '.github/workflows/opencode_fork_ci.yml'
+
+jobs:
+  fork-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/opencode_fork
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.13'
+
+      - run: bun install --frozen-lockfile
+
+      - name: Type check
+        working-directory: apps/opencode_fork/packages/opencode
+        run: bun run typecheck
+
+      - name: Session tests
+        working-directory: apps/opencode_fork/packages/opencode
+        run: bun test test/session/ src/session/

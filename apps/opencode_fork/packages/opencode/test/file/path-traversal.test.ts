@@ -3,6 +3,7 @@ import { Cause, Effect, Exit } from "effect"
 import path from "path"
 import fs from "fs/promises"
 import { Filesystem } from "@/util/filesystem"
+import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { File } from "../../src/file"
 import { InstanceState } from "../../src/effect/instance-state"
 import { containsPath } from "../../src/project/instance-context"
@@ -109,7 +110,7 @@ describe("File.read / File.list symlink escape protection (in-root symlink to ou
   it.instance("File.read rejects reading through an in-root symlink pointing outside", () =>
     Effect.gen(function* () {
       const test = yield* TestInstance
-      const outer = yield* tmpdirScoped()
+      const outer = yield* tmpdirScoped().pipe(Effect.provide(CrossSpawnSpawner.defaultLayer))
       yield* Effect.promise(() => Bun.write(path.join(outer, "secret.txt"), "secret data"))
       yield* Effect.promise(() => fs.symlink(outer, path.join(test.directory, "escape")))
 
@@ -120,7 +121,7 @@ describe("File.read / File.list symlink escape protection (in-root symlink to ou
   it.instance("File.list rejects listing through an in-root symlink pointing outside", () =>
     Effect.gen(function* () {
       const test = yield* TestInstance
-      const outer = yield* tmpdirScoped()
+      const outer = yield* tmpdirScoped().pipe(Effect.provide(CrossSpawnSpawner.defaultLayer))
       yield* Effect.promise(() => fs.symlink(outer, path.join(test.directory, "escape-dir")))
 
       yield* expectAccessDenied(list("escape-dir"))
