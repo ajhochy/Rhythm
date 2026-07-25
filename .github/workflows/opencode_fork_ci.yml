@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'apps/opencode_fork/**'
+      - 'apps/api_server/vendor/opencode-ai-sdk/**'
       - '.github/workflows/opencode_fork_ci.yml'
 
 jobs:
@@ -29,3 +30,14 @@ jobs:
       - name: Session tests
         working-directory: apps/opencode_fork/packages/opencode
         run: bun test test/session/ src/session/
+
+      - name: Build complete fork SDK artifact
+        working-directory: apps/opencode_fork/packages/sdk/js
+        run: bun run build:rhythm
+
+      - name: Verify generated SDK artifact is current
+        run: |
+          git diff --exit-code -- \
+            packages/sdk/openapi.json \
+            packages/sdk/js/src/v2/gen \
+            ../api_server/vendor/opencode-ai-sdk

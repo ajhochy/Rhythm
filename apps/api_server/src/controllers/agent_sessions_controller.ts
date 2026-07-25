@@ -1521,19 +1521,19 @@ export class AgentSessionsController {
       // Map SDK Message[] → M1-2-compatible structured shape.
       const messages = sdkMessages.map((msg, idx) => {
         // SDK role 'user' → 'input', 'assistant' → 'output'
-        const role: 'input' | 'output' = msg.role === 'user' ? 'input' : 'output';
+        const role: 'input' | 'output' = msg.info.role === 'user' ? 'input' : 'output';
         return {
           id: idx + 1,
           sessionId: `child-${childSdkId}`,
           role,
           rawText: '',
           strippedText: '',
-          createdAt: msg.time?.created
-            ? new Date(msg.time.created).toISOString()
+          createdAt: msg.info.time?.created
+            ? new Date(msg.info.time.created).toISOString()
             : new Date().toISOString(),
-          sdkMessageId: msg.id,
+          sdkMessageId: msg.info.id,
           // Parts array passes through as-is (same shape as M1-2 parts_json).
-          parts: msg.parts ?? [],
+          parts: msg.parts,
           tokens: null,
           cost: null,
         };

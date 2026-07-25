@@ -96,7 +96,7 @@ const OPENCODE_NATIVE_TOOLS = new Set([
  * The bridge uses opencodeSessionMap to look up the local session ID for each event.
  */
 type DirectoryStream = {
-  eventStream: AsyncIterable<import('@opencode-ai/sdk').Event>;
+  eventStream: AsyncIterable<import('@opencode-ai/sdk').RhythmEvent>;
   abort: AbortController;
   // Recovery poll for questions whose `question.asked` event was missed on the
   // SSE stream (race with session mapping, child/subagent session, or the
@@ -610,7 +610,7 @@ export class OpencodeStreamBridge {
   }
 
   private async _listenGlobal(
-    stream: AsyncIterable<import('@opencode-ai/sdk').Event & { __directory?: string }>,
+    stream: AsyncIterable<import('@opencode-ai/sdk').RhythmEvent & { __directory?: string }>,
   ): Promise<void> {
     try {
       for await (const event of stream) {
@@ -833,7 +833,7 @@ export class OpencodeStreamBridge {
   }
 
   private _relayEvent(
-    event: import('@opencode-ai/sdk').Event,
+    event: import('@opencode-ai/sdk').RhythmEvent,
   ): void {
     // Extract the Opencode session ID — different event types nest it
     // differently:

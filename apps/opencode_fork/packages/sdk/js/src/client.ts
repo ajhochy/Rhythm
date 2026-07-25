@@ -1,4 +1,13 @@
 export * from "./gen/types.gen.js"
+export type {
+  McpLocalConfigInput,
+  McpRemoteConfigInput,
+  McpStatusEntry,
+  PartInput,
+  RhythmEvent,
+  SdkAgent,
+  SessionMessage,
+} from "./rhythm.js"
 
 import { createClient } from "./gen/client/client.gen.js"
 import { type Config } from "./gen/client/types.gen.js"

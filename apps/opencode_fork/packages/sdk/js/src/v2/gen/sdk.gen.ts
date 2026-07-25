@@ -3244,10 +3244,10 @@ export class Session2 extends HeyApiClient {
         servers: Array<string>
         tools: Array<string>
         deferred?: boolean
-      }
+      } | null
       skillAllowlist?: {
         skills: Array<string>
-      }
+      } | null
     },
     options?: Options<never, ThrowOnError>,
   ) {

@@ -10,6 +10,7 @@ RUN apt-get update \
 FROM build-tools AS deps
 COPY package.json package-lock.json ./
 COPY scripts ./scripts
+COPY vendor ./vendor
 RUN npm ci
 
 FROM deps AS build
@@ -22,6 +23,7 @@ RUN npm run build
 FROM build-tools AS prod-deps
 COPY package.json package-lock.json ./
 COPY scripts ./scripts
+COPY vendor ./vendor
 RUN npm ci --omit=dev && npm cache clean --force
 
 FROM base AS runtime

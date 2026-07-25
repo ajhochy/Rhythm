@@ -7,6 +7,13 @@ index: "[[Rhythm]]"
 
 # #1132 interim: shrink the hand-written SDK d.ts via selective re-export; defer the full fork-dist flip
 
+> **Superseded on 2026-07-24 by the permanent #1132 implementation.**
+> `bun run build:rhythm` now produces and vendors the complete fork-generated
+> package; `api_server` consumes it through a normal `file:` dependency; the
+> ambient declaration described below has been deleted. This document remains
+> as the record of the interim constraint and why the permanent build was
+> necessary.
+
 ## Context
 
 #1132 ("fork emits its own complete SDK types — real OCU-27 fix") asks for the

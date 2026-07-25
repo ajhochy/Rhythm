@@ -5644,10 +5644,10 @@ export type SessionUpdateData = {
       servers: Array<string>
       tools: Array<string>
       deferred?: boolean
-    }
+    } | null
     skillAllowlist?: {
       skills: Array<string>
-    }
+    } | null
   }
   path: {
     sessionID: string

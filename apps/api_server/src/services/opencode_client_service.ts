@@ -2,7 +2,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { readFileSync, existsSync } from 'fs';
 import { promisify } from 'util';
-import type { OpencodeClient, Event } from '@opencode-ai/sdk';
+import type { OpencodeClient, RhythmEvent as Event } from '@opencode-ai/sdk';
 import { logger } from '../utils/logger';
 import { OpencodeAuthStore } from './opencode_auth_store';
 import { AppError } from '../errors/app_error';
@@ -1091,16 +1091,9 @@ export class OpencodeClientService {
    * Updates the fork session's MCP allowlist so the next prompt uses it.
    * Called by ws_gateway when the per-turn agent drives scope on an existing session.
    *
-   * Uses direct fetch rather than the SDK client because the SDK's generated body
-   * type only includes `title` (generated before mcp-scope support was added), and
-   * the fork's URL is known at this.baseUrl.
-   *
-   * OCU-27 (#1068) re-check: confirmed `mcpAllowlist` is still absent from
-   * SessionUpdateData in both the real @opencode-ai/sdk@1.14.49 package's
-   * generated types.gen.d.ts and the vendored opencode_fork's regenerated
-   * types.gen.ts (#1067) — the field is accepted by the fork engine's route
-   * handler but was never added to its published OpenAPI schema. No typed SDK
-   * coverage exists to adopt; this direct-fetch shim stays as-is.
+   * #1132: the fork-generated v2 SDK now owns the nullable allowlist body.
+   * This deliberately uses the same v2 client as skills/questions so the API
+   * never reconstructs the fork route by hand.
    *
    * Issue #855: this method takes the SAME `McpRoleConfig` shape createSession()
    * accepts and expands it via the SAME `expandMcpAllowlist` helper — NOT a raw
@@ -1151,14 +1144,14 @@ export class OpencodeClientService {
           logger.warn(capResult.warning ?? '[GeminiToolCap] allowlist trimmed');
         }
       }
-      const base = this.serverUrl;
-      const res = await fetch(`${base}/session/${sessionId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mcpAllowlist }),
-      });
-      if (!res.ok) {
-        logger.warn('[OpencodeClientService] updateSessionAllowlist HTTP %s for session %s', res.status, sessionId);
+      const client = await this.v2Client();
+      const raw = await client.session.update({ sessionID: sessionId, mcpAllowlist });
+      if (raw.error) {
+        logger.warn(
+          '[OpencodeClientService] updateSessionAllowlist SDK error for session %s: %o',
+          sessionId,
+          raw.error,
+        );
         return false;
       }
       return true;
@@ -1178,26 +1171,23 @@ export class OpencodeClientService {
    * Passing null clears the restriction (fork stores NULL and reads it back as
    * undefined/unrestricted). Passing [] is an explicit deny-all skill scope.
    *
-   * OCU-27 (#1068): `skillAllowlist` is likewise absent from the regenerated
-   * SDK's SessionUpdateData — same situation as {@link updateSessionAllowlist}.
-   * Direct-fetch shim stays as-is.
+   * #1132: typed by the fork-generated v2 session.update contract.
    */
   async updateSessionSkillAllowlist(
     sessionId: string,
     skills: string[] | null,
   ): Promise<boolean> {
     try {
-      const base = this.serverUrl;
-      const res = await fetch(`${base}/session/${sessionId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ skillAllowlist: skills === null ? null : { skills } }),
+      const client = await this.v2Client();
+      const raw = await client.session.update({
+        sessionID: sessionId,
+        skillAllowlist: skills === null ? null : { skills },
       });
-      if (!res.ok) {
+      if (raw.error) {
         logger.warn(
-          '[OpencodeClientService] updateSessionSkillAllowlist HTTP %s for session %s',
-          res.status,
+          '[OpencodeClientService] updateSessionSkillAllowlist SDK error for session %s: %o',
           sessionId,
+          raw.error,
         );
         return false;
       }
@@ -1281,8 +1271,7 @@ export class OpencodeClientService {
    * this is called). Calls the fork's POST /skill/reload and returns the fresh
    * list. Call after any write into the Rhythm-managed dir.
    *
-   * OCU-27 (#1068): `/skill/reload` has no SDK coverage (real package or
-   * fork regen) — direct fetch stays.
+   * #1132: `/skill/reload` is generated as client.app.skills2.reload().
    */
   async reloadSkills(
     directory?: string,
@@ -1300,20 +1289,17 @@ export class OpencodeClientService {
       return [];
     }
     try {
-      const base = this.serverUrl;
-      const res = await fetch(`${base}/skill/reload?directory=${encodeURIComponent(dir)}`, {
-        method: 'POST',
-      });
-      if (!res.ok) {
-        logger.warn('[OpencodeClientService] reloadSkills HTTP %s', res.status);
+      const client = await this.v2Client();
+      const raw = await client.app.skills2.reload({ directory: dir });
+      if (raw.error || !raw.data) {
+        logger.warn('[OpencodeClientService] reloadSkills SDK error: %o', raw.error);
         return [];
       }
-      const data = (await res.json()) as Array<{
-        name: string;
-        description?: string;
-        location: string;
-      }>;
-      return data.map((s) => ({ name: s.name, description: s.description, location: s.location }));
+      return raw.data.map((s) => ({
+        name: s.name,
+        description: s.description,
+        location: s.location,
+      }));
     } catch (err) {
       logger.error('[OpencodeClientService] reloadSkills failed:', err);
       return [];
@@ -1325,34 +1311,36 @@ export class OpencodeClientService {
    * TTL) so the next config.get() re-scans ~/.config/opencode/agent(s)/*.md and
    * config files from disk. The cache holds agent profiles merged from disk, so
    * without this a Config Doctor edit to an agent file is invisible to new
-   * sessions until the engine restarts. Mirrors reloadSkills: raw fetch (no SDK
-   * regen), non-throwing, no-ops when the engine isn't ready.
-   *
-   * OCU-27 (#1068): `/config/reload` has no SDK coverage — direct fetch stays.
+   * sessions until the engine restarts. Mirrors reloadSkills: typed fork SDK,
+   * non-throwing, no-ops when the engine isn't ready.
    */
   async reloadConfig(directory?: string): Promise<boolean> {
     if (!this.isReady) {
       return false;
     }
     try {
-      const base = this.serverUrl;
       // #1039 — the fork's /config/reload is DIRECTORY-SCOPED (it invalidates
       // that instance's Agent InstanceState; see the fork's configReload
       // handler / WorkspaceRoutingQuery). Reload the default instance AND,
       // when given, the specific directory — a headless run resolves its agent
       // in the instance for its effectiveCwd, so a default-only reload leaves
       // that registry stale ("Agent not found" after a live promotion).
-      const targets = [
-        `${base}/config/reload`,
-        ...(directory
-          ? [`${base}/config/reload?directory=${encodeURIComponent(directory)}`]
-          : []),
+      const targets: Array<string | undefined> = [
+        undefined,
+        ...(directory ? [directory] : []),
       ];
+      const client = await this.v2Client();
       let ok = true;
-      for (const url of targets) {
-        const res = await fetch(url, { method: 'POST' });
-        if (!res.ok) {
-          logger.warn('[OpencodeClientService] reloadConfig HTTP %s (%s)', res.status, url);
+      for (const targetDirectory of targets) {
+        const raw = await client.app.config.reload(
+          targetDirectory ? { directory: targetDirectory } : undefined,
+        );
+        if (raw.error) {
+          logger.warn(
+            '[OpencodeClientService] reloadConfig SDK error (%s): %o',
+            targetDirectory ?? 'default',
+            raw.error,
+          );
           ok = false;
         }
       }
@@ -1450,21 +1438,22 @@ export class OpencodeClientService {
       // { data: undefined, error: undefined } — identical to the OpenRouter
       // silent-no-op shape. Distinguish them via the HTTP status: 204 is a
       // genuine success; anything else with no data is a silent no-op.
-      if (!raw.data) {
-        // Access the underlying HTTP response when available (hey-api 'fields'
-        // mode attaches it as `raw.response`). A 204 means the prompt was
-        // accepted by the opencode server — not a silent no-op.
-        const httpStatus = raw.response?.status;
-        if (httpStatus === 204) {
-          // Successful async enqueue — opencode will stream results via SSE.
-          return true;
-        }
-        logger.warn(
-          `[OpencodeClientService] promptAsync silent no-op for ${sessionId}: SDK returned neither data nor error (model may not be supported; HTTP status=${httpStatus ?? 'unknown'})`,
-        );
-        return false;
+      // Access the underlying HTTP response. The generated success payload is
+      // intentionally void (204), so data can never distinguish success from
+      // a silent no-op.
+      if (raw.data !== undefined) {
+        // Back-compat for older/fake SDK transports that returned a body on
+        // success. The generated fork client uses the 204 branch below.
+        return true;
       }
-      return true;
+      const httpStatus = raw.response?.status;
+      if (httpStatus === 204) {
+        return true;
+      }
+      logger.warn(
+        `[OpencodeClientService] promptAsync silent no-op for ${sessionId}: SDK returned neither data nor error (model may not be supported; HTTP status=${httpStatus ?? 'unknown'})`,
+      );
+      return false;
     } catch (err) {
       logger.error(`[OpencodeClientService] promptAsync failed for session ${sessionId}:`, err);
       return false;
@@ -1518,7 +1507,7 @@ export class OpencodeClientService {
    * the heartbeat watchdog to force a resubscribe).
    */
   async subscribeToGlobalEvents(): Promise<{
-    stream: AsyncIterable<import('@opencode-ai/sdk').Event & { __directory?: string }>;
+    stream: AsyncIterable<import('@opencode-ai/sdk').RhythmEvent & { __directory?: string }>;
     abort: () => void;
   } | null> {
     const controller = new AbortController();
@@ -1543,7 +1532,7 @@ export class OpencodeClientService {
     const body = res.body as Pick<AsyncIterable<Uint8Array>, typeof Symbol.asyncIterator>;
 
     async function* iterate(): AsyncIterable<
-      import('@opencode-ai/sdk').Event & { __directory?: string }
+      import('@opencode-ai/sdk').RhythmEvent & { __directory?: string }
     > {
       const decoder = new TextDecoder();
       let buffer = '';
@@ -1562,7 +1551,7 @@ export class OpencodeClientService {
           if (!json) continue;
           let envelope: {
             directory?: string;
-            payload?: import('@opencode-ai/sdk').Event;
+            payload?: import('@opencode-ai/sdk').RhythmEvent;
           };
           try {
             envelope = JSON.parse(json);
@@ -1889,9 +1878,11 @@ export class OpencodeClientService {
   }
 
   /** Test-only seam (mirrors {@link __setTestClient}) for the v2 SDK client. */
-  private _v2TestClient: import('@opencode-ai/sdk/v2/client').V2OpencodeClient | null = null;
-  __setTestV2Client(client: import('@opencode-ai/sdk/v2/client').V2OpencodeClient): void {
+  private _v2TestClient: import('@opencode-ai/sdk/v2/client').OpencodeClient | null = null;
+  __setTestV2Client(client: import('@opencode-ai/sdk/v2/client').OpencodeClient): void {
     this._v2TestClient = client;
+    this.status = 'ready';
+    this.error = null;
   }
 
   /**
@@ -1902,7 +1893,7 @@ export class OpencodeClientService {
    * Dynamic import mirrors {@link initialize}'s Function-wrapped `import()`
    * (v2 is ESM-only too, same CJS incompatibility).
    */
-  private async v2Client(): Promise<import('@opencode-ai/sdk/v2/client').V2OpencodeClient> {
+  private async v2Client(): Promise<import('@opencode-ai/sdk/v2/client').OpencodeClient> {
     if (this._v2TestClient) return this._v2TestClient;
     const dynamicImport = new Function('s', 'return import(s)') as (
       s: string,
@@ -1910,7 +1901,7 @@ export class OpencodeClientService {
     const mod = (await dynamicImport('@opencode-ai/sdk/v2/client')) as {
       createOpencodeClient: (config?: {
         baseUrl?: string;
-      }) => import('@opencode-ai/sdk/v2/client').V2OpencodeClient;
+      }) => import('@opencode-ai/sdk/v2/client').OpencodeClient;
     };
     return mod.createOpencodeClient({ baseUrl: this.serverUrl });
   }
@@ -2402,7 +2393,7 @@ export class OpencodeClientService {
   async listMessages(
     sdkId: string,
     directory?: string,
-  ): Promise<import('@opencode-ai/sdk').Message[]> {
+  ): Promise<import('@opencode-ai/sdk').SessionMessage[]> {
     const client = this.requireClient();
     // #861 smoke fix: engine session reads are DIRECTORY-SCOPED — without
     // ?directory=<session cwd> the engine looks in its default instance and

@@ -547,26 +547,21 @@ describe('createSession — mcpAllowlist body field (mcp-scope-04)', () => {
 // and expands it via the SAME expandMcpAllowlist() helper createSession uses.
 describe('updateSessionAllowlist — mcpAllowlist body shape (#855)', () => {
   let svc: OpencodeClientService;
-  let capturedInit: { body?: string } | undefined;
-  let fetchMock: ReturnType<typeof vi.fn>;
+  let capturedUpdate: Record<string, unknown> | undefined;
+  let updateMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     svc = new OpencodeClientService();
-    capturedInit = undefined;
-    fetchMock = vi.fn().mockImplementation((_url: string, init: { body?: string }) => {
-      capturedInit = init;
-      return Promise.resolve({ ok: true });
+    capturedUpdate = undefined;
+    updateMock = vi.fn().mockImplementation((input: Record<string, unknown>) => {
+      capturedUpdate = input;
+      return Promise.resolve({ data: { id: input.sessionID } });
     });
-    vi.stubGlobal('fetch', fetchMock);
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
+    svc.__setTestV2Client({ session: { update: updateMock } } as any);
   });
 
   function capturedMcpAllowlist(): { servers: unknown; tools: unknown } {
-    const body = JSON.parse(capturedInit!.body!);
-    return body.mcpAllowlist;
+    return capturedUpdate!.mcpAllowlist as { servers: unknown; tools: unknown };
   }
 
   // AC-01 / AC-05 (falsification target): tools-map-shaped allowedToolsJson —
@@ -588,7 +583,7 @@ describe('updateSessionAllowlist — mcpAllowlist body shape (#855)', () => {
     const ok = await svc.updateSessionAllowlist('sess-1', graphicDesignerLike);
 
     expect(ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(updateMock).toHaveBeenCalledOnce();
     const allowlist = capturedMcpAllowlist();
     // The critical regression guard: servers must be an ARRAY, never an object.
     expect(Array.isArray(allowlist.servers)).toBe(true);
@@ -620,21 +615,21 @@ describe('updateSessionAllowlist — mcpAllowlist body shape (#855)', () => {
     const ok = await svc.updateSessionAllowlist('sess-clear', null);
 
     expect(ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(JSON.parse(capturedInit!.body!)).toEqual({ mcpAllowlist: null });
+    expect(updateMock).toHaveBeenCalledOnce();
+    expect(capturedUpdate).toEqual({ sessionID: 'sess-clear', mcpAllowlist: null });
   });
 
-  // Error guard: PATCH failure (non-2xx) returns false, does not throw.
-  it('returns false and does not throw when the PATCH responds non-OK', async () => {
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 400 });
+  // Error guard: SDK error envelope returns false, does not throw.
+  it('returns false and does not throw when the SDK returns an error', async () => {
+    updateMock.mockResolvedValueOnce({ error: { status: 400 } });
     const cfg: McpRoleConfig = { role: 'r', mcpServers: { a: {} }, allowedToolsJson: '["a"]' };
     const ok = await svc.updateSessionAllowlist('sess-3', cfg);
     expect(ok).toBe(false);
   });
 
-  // Error guard: fetch throws → caught, returns false.
-  it('returns false and does not throw when fetch rejects', async () => {
-    fetchMock.mockRejectedValueOnce(new Error('network down'));
+  // Error guard: SDK throws → caught, returns false.
+  it('returns false and does not throw when the SDK rejects', async () => {
+    updateMock.mockRejectedValueOnce(new Error('network down'));
     const cfg: McpRoleConfig = { role: 'r', mcpServers: { a: {} }, allowedToolsJson: '["a"]' };
     const ok = await svc.updateSessionAllowlist('sess-4', cfg);
     expect(ok).toBe(false);
@@ -701,24 +696,23 @@ describe('#952 unscoped Gemini → deferred allowlist is binding', () => {
 
   describe('updateSessionAllowlist', () => {
     let svc: OpencodeClientService;
-    let capturedInit: { body?: string } | undefined;
+    let capturedUpdate: Record<string, unknown> | undefined;
 
     beforeEach(() => {
       svc = new OpencodeClientService();
-      capturedInit = undefined;
-      const fetchMock = vi.fn().mockImplementation((_url: string, init: { body?: string }) => {
-        capturedInit = init;
-        return Promise.resolve({ ok: true });
+      capturedUpdate = undefined;
+      const update = vi.fn().mockImplementation((input: Record<string, unknown>) => {
+        capturedUpdate = input;
+        return Promise.resolve({ data: { id: input.sessionID } });
       });
-      vi.stubGlobal('fetch', fetchMock);
+      svc.__setTestV2Client({ session: { update } } as any);
       injectReadyClient(svc, fakeClientWithServers(['rhythm', 'obsidian']));
     });
-    afterEach(() => vi.unstubAllGlobals());
 
     it('null + google: PATCHes a deferred all-servers allowlist (not null)', async () => {
       const ok = await svc.updateSessionAllowlist('sess-g', null, 'google');
       expect(ok).toBe(true);
-      const al = JSON.parse(capturedInit!.body!).mcpAllowlist as {
+      const al = capturedUpdate!.mcpAllowlist as {
         servers: string[];
         tools: string[];
         deferred?: boolean;
@@ -731,35 +725,34 @@ describe('#952 unscoped Gemini → deferred allowlist is binding', () => {
     it('null + non-google: still PATCHes mcpAllowlist:null (unchanged)', async () => {
       const ok = await svc.updateSessionAllowlist('sess-a', null, 'anthropic');
       expect(ok).toBe(true);
-      expect(JSON.parse(capturedInit!.body!)).toEqual({ mcpAllowlist: null });
+      expect(capturedUpdate).toEqual({ sessionID: 'sess-a', mcpAllowlist: null });
     });
   });
 });
 
 describe('updateSessionSkillAllowlist — clear sentinel (#923)', () => {
   let svc: OpencodeClientService;
-  let capturedInit: { body?: string } | undefined;
-  let fetchMock: ReturnType<typeof vi.fn>;
+  let capturedUpdate: Record<string, unknown> | undefined;
+  let updateMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     svc = new OpencodeClientService();
-    capturedInit = undefined;
-    fetchMock = vi.fn().mockImplementation((_url: string, init: { body?: string }) => {
-      capturedInit = init;
-      return Promise.resolve({ ok: true });
+    capturedUpdate = undefined;
+    updateMock = vi.fn().mockImplementation((input: Record<string, unknown>) => {
+      capturedUpdate = input;
+      return Promise.resolve({ data: { id: input.sessionID } });
     });
-    vi.stubGlobal('fetch', fetchMock);
+    svc.__setTestV2Client({ session: { update: updateMock } } as any);
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('null skills PATCHes skillAllowlist:null', async () => {
+  it('null skills sends skillAllowlist:null through generated session.update', async () => {
     const ok = await svc.updateSessionSkillAllowlist('sess-clear-skills', null);
 
     expect(ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(JSON.parse(capturedInit!.body!)).toEqual({ skillAllowlist: null });
+    expect(updateMock).toHaveBeenCalledOnce();
+    expect(capturedUpdate).toEqual({
+      sessionID: 'sess-clear-skills',
+      skillAllowlist: null,
+    });
   });
 });

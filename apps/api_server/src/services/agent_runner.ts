@@ -265,13 +265,13 @@ async function _waitForAssistantReply(
       // Find the last assistant message created after our prompt was sent
       const assistantMessages = messages.filter(
         (m) =>
-          m.role === 'assistant' &&
-          (m.time?.created ?? 0) >= afterTimestamp,
+          m.info.role === 'assistant' &&
+          (m.info.time?.created ?? 0) >= afterTimestamp,
       );
       if (assistantMessages.length > 0) {
         const last = assistantMessages[assistantMessages.length - 1];
         // Extract text from parts — SDK Part is a discriminated union; pick type='text'
-        const textParts = (last.parts ?? []).filter(
+        const textParts = last.parts.filter(
           (p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text',
         );
         if (textParts.length > 0) {
@@ -1009,7 +1009,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       try {
         const msgs = await opencodeClient.listMessages(sessionId, effectiveCwd);
         const lastAssistant = msgs
-          .filter((m) => m.role === 'assistant')
+          .filter((m) => m.info.role === 'assistant')
           .pop();
         resultText = _extractText(
           lastAssistant?.parts as ReadonlyArray<{ type: string }> | undefined,

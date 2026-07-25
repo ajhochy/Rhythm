@@ -1,0 +1,56 @@
+{
+  "issue": 1132,
+  "generated": "2026-07-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1132-c1",
+      "text": "The fork's generated SDK includes the fork-only events/types listed above (no hand-written gap remains).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1132_fork_sdk_artifact.test.ts",
+      "test_id": "fork-generated SDK exposes Rhythm custom events and compatibility aliases",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1132-c2",
+      "text": "The fork SDK builds to an importable artifact via a documented one-command step; procedure recorded in the fork-vendoring decision doc.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1132_fork_sdk_artifact.test.ts",
+      "test_id": "fork SDK one-command build emits an importable vendor package",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1132-c3",
+      "text": "api_server imports the complete generated types; the hand-written `opencode-ai-sdk.d.ts` is deleted or reduced to a re-export shim.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1132_fork_sdk_artifact.test.ts",
+      "test_id": "api_server consumes only the generated fork package",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1132-c4",
+      "text": "`tsc --noEmit` clean; full api_server suite green (baseline: only the 18 pre-existing `memory_*` vault failures).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1132_fork_sdk_artifact.test.ts",
+      "test_id": "generated package loads through its published runtime export",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1132-c5",
+      "text": "The four remaining direct-fetch shims are converted to typed SDK calls OR explicitly documented as still-uncovered with the reason.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1132_fork_sdk_artifact.test.ts",
+      "test_id": "four SDK-covered operations contain no raw fetch fallback",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1132-c6",
+      "text": "**Live behavioral check** (unit-green != live-green): permission events, question reply/reject, and message streaming still work against the BUILT engine — assert the observable behavior, not that a function was called.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1132_built_sdk_events.test.ts",
+      "test_id": "built fork preserves permission, question reply/reject, and streamed message behavior",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
