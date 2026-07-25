@@ -44,6 +44,7 @@ apps/api_server/src/config/curated_mcp_servers.local.json
 
 # Logs
 *.log
+!docs/ai/evidence/logs/*.log
 coverage/
 
 # Local runtime data
