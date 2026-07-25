@@ -6,8 +6,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 API_DIR="$ROOT/apps/api_server"
 ENGINE_DIR="$ROOT/apps/opencode_fork/packages/opencode"
 SB="${RHYTHM_SANDBOX_DIR:-${TMPDIR:-/tmp}/rhythm-dev-sandbox}"
-API_PORT=4098
-ENGINE_PORT=4097
+API_PORT="${RHYTHM_SANDBOX_API_PORT:-4098}"
+ENGINE_PORT="${RHYTHM_SANDBOX_ENGINE_PORT:-4097}"
 PID_FILE="$SB/api_server.pid"
 LOG_FILE="$SB/api_server.log"
 LIVE_DB="${RHYTHM_LIVE_DB_PATH:-$HOME/Library/Application Support/Rhythm/rhythm.db}"
@@ -16,8 +16,18 @@ fail() { printf 'sandbox: %s\n' "$*" >&2; exit 1; }
 listener() { lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true; }
 require_free_port() { [[ -z "$(listener "$1")" ]] || fail "port :$1 is occupied; refusing to touch it"; }
 
+validate_port() {
+  local label="$1"
+  local port="$2"
+  [[ "$port" =~ ^[0-9]+$ ]] || fail "$label must be an integer TCP port"
+  ((port >= 1024 && port <= 65535)) || fail "$label must be between 1024 and 65535"
+}
+
 safe_sandbox_path() {
   [[ "$SB" = /* && "$SB" != / && "$SB" != "$HOME" ]] || fail "RHYTHM_SANDBOX_DIR must be an absolute non-home path"
+  validate_port RHYTHM_SANDBOX_API_PORT "$API_PORT"
+  validate_port RHYTHM_SANDBOX_ENGINE_PORT "$ENGINE_PORT"
+  [[ "$API_PORT" != "$ENGINE_PORT" ]] || fail "sandbox API and engine ports must be different"
 }
 
 copy_runtime_files() {

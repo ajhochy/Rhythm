@@ -27,6 +27,21 @@ tools/dev/sandbox.sh status
 tools/dev/sandbox.sh down
 ```
 
+The defaults are API `:4098`, engine `:4097`, and
+`${TMPDIR:-/tmp}/rhythm-dev-sandbox`. Parallel runs must use a distinct
+directory and distinct free ports:
+
+```bash
+RHYTHM_SANDBOX_DIR=/tmp/rhythm-dev-sandbox-issue-123 \
+RHYTHM_SANDBOX_API_PORT=4198 \
+RHYTHM_SANDBOX_ENGINE_PORT=4197 \
+tools/dev/sandbox.sh up
+```
+
+Pass the same three variables to `status` and `down`. The launcher validates
+that both ports are unprivileged, distinct integers and still refuses to touch
+an occupied port.
+
 The live SQLite source defaults to
 `~/Library/Application Support/Rhythm/rhythm.db`; override it only with
 `RHYTHM_LIVE_DB_PATH=/absolute/path/to/rhythm.db`. The sandbox directory
