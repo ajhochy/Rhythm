@@ -1,0 +1,5 @@
+# OpenAPI contract integrity digests (public SHA-256 content hashes, not keys).
+d22c5a4e7dd977c7459db87c87b916dcacdfd189:apps/mobile/contracts/rhythm-opencode-classifications.json:generic-api-key:7
+3d1f9170b0a988ea3496b8a1e94a051b86067b36:apps/mobile/contracts/rhythm-opencode-contract.json:generic-api-key:3
+b0c4b721911e9522dfd496c9ea8f2f76773e1b7b:apps/mobile/contracts/rhythm-opencode-contract.json:generic-api-key:3
+ed458ab16deff3b570885cc2c14c2d40513b158f:contracts/rhythm-opencode-contract.json:generic-api-key:3

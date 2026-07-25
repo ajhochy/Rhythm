@@ -88,14 +88,24 @@ describe('issue-854-c7 — resolveConfiguredModelPin (eval driver session-create
 });
 
 describe('loadAllowedToolsForSlug — server-qualified names (#854 scope false-positive fix)', () => {
-  it('qualifies role-file tools as <server>_<tool> to match runtime call names', async () => {
+  it('qualifies Rhythm ingress tools and excludes the retired direct Gmail bypass', async () => {
     const { loadAllowedToolsForSlug } = await import('../agent_eval_driver');
     const allowed = loadAllowedToolsForSlug('secretary');
     expect(allowed).not.toBeNull();
     const set = new Set(allowed as string[]);
     // runtime emits these fully-qualified names; the scope gate must accept them
     expect(set.has('rhythm_rhythm_list_tasks')).toBe(true);
-    expect(set.has('gmail-work_search_emails')).toBe(true);
-    expect(set.has('gmail-personal_search_emails')).toBe(true);
+    expect(set.has('rhythm_rhythm_search_gmail')).toBe(true);
+    expect(set.has('rhythm_rhythm_read_email')).toBe(true);
+    // Secretary email reads must stay behind Rhythm's scan → taint → fence boundary.
+    expect(set.has('gmail-work_search_emails')).toBe(false);
+    expect(set.has('gmail-personal_search_emails')).toBe(false);
+  });
+
+  it('preserves hyphenated server names when qualifying role-file tools', async () => {
+    const { loadAllowedToolsForSlug } = await import('../agent_eval_driver');
+    const allowed = loadAllowedToolsForSlug('research');
+    expect(allowed).not.toBeNull();
+    expect(new Set(allowed as string[]).has('pdf-tools_read_pdf_content')).toBe(true);
   });
 });
