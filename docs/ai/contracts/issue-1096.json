@@ -85,9 +85,10 @@
     {
       "criterion_id": "issue-1096-c11",
       "text": "Signed-app behavior accounts for expected Gatekeeper/TCC/notarization/signing failures without bypassing macOS protections.",
-      "mode": "manual",
-      "status": "pass",
-      "evidence": "Apple Development-signed Debug app was pointed at the isolated :4398 sandbox. A sandbox-only persisted permission_denied state rendered fixed Privacy & Security guidance plus 'Do not bypass macOS protection'; the app then recovered through its real Enable action to Ready and returned to Off through Disable. Source and sandbox state were restored afterward."
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1096-release.mjs",
+      "test_id": "issue-1096-c11: the notarized DMG passes a clean-user Engraph-absent FTS smoke without publishing",
+      "status": "pending"
     },
     {
       "criterion_id": "issue-1096-c12",
