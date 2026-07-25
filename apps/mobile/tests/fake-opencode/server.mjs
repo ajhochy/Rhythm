@@ -93,6 +93,71 @@ function readJson(req) {
 
 const handleRhythmTools = createRhythmToolsRoutes({ readJson, sendJson });
 
+function directActivityPayload() {
+  const completedAt = new Date().toISOString();
+  return {
+    items: [
+      {
+        id: 'activity-research-target',
+        source: 'research',
+        status: 'completed',
+        title: 'Research target activity',
+        summary: 'Open the selected research result.',
+        occurredAt: new Date(Date.now() + 4_000).toISOString(),
+        startedAt: null,
+        completedAt,
+        sessionId: null,
+        resultUrl: '/agent-research/research-target',
+        profileId: null,
+        projectId: state.project.id,
+      },
+      {
+        id: 'activity-schedule-target',
+        source: 'scheduler',
+        status: 'completed',
+        title: 'Schedule target activity',
+        summary: 'Open the selected scheduled job.',
+        occurredAt: new Date(Date.now() + 3_000).toISOString(),
+        startedAt: null,
+        completedAt,
+        sessionId: null,
+        resultUrl: '/agent-schedules/schedule-target',
+        profileId: null,
+        projectId: state.project.id,
+      },
+      {
+        id: 'activity-webhook-target',
+        source: 'webhook',
+        status: 'completed',
+        title: 'Webhook target activity',
+        summary: 'Open the selected webhook.',
+        occurredAt: new Date(Date.now() + 2_000).toISOString(),
+        startedAt: null,
+        completedAt,
+        sessionId: null,
+        resultUrl: '/agent-webhooks/webhook-target',
+        profileId: null,
+        projectId: state.project.id,
+      },
+      {
+        id: 'activity-cookbook-target',
+        source: 'cookbook',
+        status: 'completed',
+        title: 'Cookbook target activity',
+        summary: 'Open the selected recipe.',
+        occurredAt: new Date(Date.now() + 1_000).toISOString(),
+        startedAt: null,
+        completedAt,
+        sessionId: null,
+        resultUrl: '/agent-cookbook/cookbook-target',
+        profileId: null,
+        projectId: state.project.id,
+      },
+    ],
+    nextCursor: null,
+  };
+}
+
 function getSession(sessionId) {
   return helpers.getSession(sessionId);
 }
@@ -178,6 +243,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (await handleRhythmTools({ req, res, pathname, requestUrl })) {
+      return;
+    }
+
+    if (
+      req.method === 'GET' &&
+      pathname === '/mobile-gateway/agent-activity'
+    ) {
+      sendJson(res, 200, directActivityPayload());
       return;
     }
 
@@ -402,6 +475,62 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, {
           items: [
             {
+              id: 'activity-research-target',
+              source: 'research',
+              status: 'completed',
+              title: 'Research target activity',
+              summary: 'Open the selected research result.',
+              occurredAt: new Date(Date.now() + 4_000).toISOString(),
+              startedAt: null,
+              completedAt: new Date().toISOString(),
+              sessionId: null,
+              resultUrl: '/agent-research/research-target',
+              profileId: null,
+              projectId: state.project.id,
+            },
+            {
+              id: 'activity-schedule-target',
+              source: 'scheduler',
+              status: 'completed',
+              title: 'Schedule target activity',
+              summary: 'Open the selected scheduled job.',
+              occurredAt: new Date(Date.now() + 3_000).toISOString(),
+              startedAt: null,
+              completedAt: new Date().toISOString(),
+              sessionId: null,
+              resultUrl: '/agent-schedules/schedule-target',
+              profileId: null,
+              projectId: state.project.id,
+            },
+            {
+              id: 'activity-webhook-target',
+              source: 'webhook',
+              status: 'completed',
+              title: 'Webhook target activity',
+              summary: 'Open the selected webhook.',
+              occurredAt: new Date(Date.now() + 2_000).toISOString(),
+              startedAt: null,
+              completedAt: new Date().toISOString(),
+              sessionId: null,
+              resultUrl: '/agent-webhooks/webhook-target',
+              profileId: null,
+              projectId: state.project.id,
+            },
+            {
+              id: 'activity-cookbook-target',
+              source: 'cookbook',
+              status: 'completed',
+              title: 'Cookbook target activity',
+              summary: 'Open the selected recipe.',
+              occurredAt: new Date(Date.now() + 1_000).toISOString(),
+              startedAt: null,
+              completedAt: new Date().toISOString(),
+              sessionId: null,
+              resultUrl: '/agent-cookbook/cookbook-target',
+              profileId: null,
+              projectId: state.project.id,
+            },
+            {
               id: 'activity-paired-1',
               source: 'human',
               status: 'completed',
@@ -611,6 +740,13 @@ const server = http.createServer(async (req, res) => {
           [providerId]: body || { type: 'api' },
         },
       });
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+    if (req.method === 'DELETE' && /^\/auth\/[^/]+$/.test(pathname)) {
+      const providerId = pathname.split('/')[2];
+      delete state.authByProvider[providerId];
+      state.configuredProviderIds.delete(providerId);
       sendJson(res, 200, { ok: true });
       return;
     }
@@ -883,6 +1019,15 @@ const server = http.createServer(async (req, res) => {
       }
       if (!state.mcpOauth[name] || !body?.code) {
         badRequest(res, 'MCP OAuth callback requires an active flow and code');
+        return;
+      }
+      if (body.code === 'bad-code') {
+        sendJson(res, 400, {
+          name: 'OAuthCodeRejectedError',
+          data: {
+            message: 'The authorization code was rejected.',
+          },
+        });
         return;
       }
       state.mcpOauth[name].code = body.code;

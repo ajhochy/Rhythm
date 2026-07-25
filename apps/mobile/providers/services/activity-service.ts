@@ -138,20 +138,25 @@ export function getActivityDeepLink(item: {
     return `/agents/chats/${encodeURIComponent(item.sessionId)}`;
   }
   if (!item.resultUrl?.startsWith('/')) return null;
-  const routes: [RegExp, string][] = [
-    [/^\/agent-research\/([^/?#]+)$/, '/tools/research/$1'],
-    [/^\/agent-schedules\/([^/?#]+)$/, '/tools/schedules/$1'],
-    [/^\/agent-webhooks\/([^/?#]+)$/, '/tools/webhooks/$1'],
-    [/^\/agent-cookbook\/([^/?#]+)$/, '/tools/cookbook/$1'],
-    [/^\/agent-org-proposals(?:\?.*)?$/, '/tools/review'],
+  const routes: [RegExp, ToolActivityTarget][] = [
+    [/^\/agent-research\/([^/?#]+)$/, 'research'],
+    [/^\/agent-schedules\/([^/?#]+)$/, 'schedules'],
+    [/^\/agent-webhooks\/([^/?#]+)$/, 'webhooks'],
+    [/^\/agent-cookbook\/([^/?#]+)$/, 'cookbook'],
   ];
-  for (const [pattern, replacement] of routes) {
-    if (pattern.test(item.resultUrl)) {
-      return item.resultUrl.replace(pattern, replacement);
+  for (const [pattern, tool] of routes) {
+    const match = item.resultUrl.match(pattern);
+    if (match) {
+      return `/tools/${tool}?selectedId=${encodeURIComponent(match[1])}`;
     }
+  }
+  if (/^\/agent-org-proposals(?:\?.*)?$/.test(item.resultUrl)) {
+    return '/tools/review';
   }
   return null;
 }
+
+type ToolActivityTarget = 'research' | 'schedules' | 'webhooks' | 'cookbook';
 
 export async function listActivity(
   transport: ActivityTransport,

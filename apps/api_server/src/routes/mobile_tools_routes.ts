@@ -75,6 +75,7 @@ const MOBILE_TOOL_OPERATIONS: Record<
     { method: 'GET', path: ROOT },
     { method: 'GET', path: ID },
     { method: 'POST', path: ROOT },
+    { method: 'POST', path: ID_ACTION('rotate-secret') },
     { method: 'DELETE', path: ID },
   ],
   'agent-configs': [

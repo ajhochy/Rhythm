@@ -23,6 +23,22 @@ import { env } from '../config/env';
 const repo = new AgentWebhookEndpointsRepository();
 const triggersRepo = new ClaudeTriggersRepository();
 
+function endpointResponse(
+  req: Request,
+  endpoint: Awaited<ReturnType<AgentWebhookEndpointsRepository['findByIdAsync']>> & {},
+  includeSecret: boolean,
+) {
+  const host = req.get('host');
+  const url = host
+    ? `${req.protocol}://${host}/agent-webhooks/${encodeURIComponent(endpoint.id)}/receive`
+    : `/agent-webhooks/${encodeURIComponent(endpoint.id)}/receive`;
+  return {
+    ...endpoint,
+    url,
+    secret: includeSecret ? endpoint.secret : '[redacted]',
+  };
+}
+
 export class AgentWebhookController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
@@ -30,7 +46,7 @@ export class AgentWebhookController {
         ? await repo.listForOwnerAsync(req.mobileDevice.userId)
         : await repo.listAsync();
       // Redact secret from listing
-      res.json(endpoints.map((e) => ({ ...e, secret: '[redacted]' })));
+      res.json(endpoints.map((endpoint) => endpointResponse(req, endpoint, false)));
     } catch (err) { next(err); }
   }
 
@@ -58,7 +74,7 @@ export class AgentWebhookController {
       });
 
       // Return the secret only on creation (never again after this)
-      res.status(201).json(endpoint);
+      res.status(201).json(endpointResponse(req, endpoint, true));
     } catch (err) { next(err); }
   }
 
@@ -71,7 +87,20 @@ export class AgentWebhookController {
           )
         : await repo.findByIdAsync(req.params.id);
       if (!endpoint) throw AppError.notFound('WebhookEndpoint');
-      res.json({ ...endpoint, secret: '[redacted]' });
+      res.json(endpointResponse(req, endpoint, false));
+    } catch (err) { next(err); }
+  }
+
+  async rotateSecret(req: Request, res: Response, next: NextFunction) {
+    try {
+      const endpoint = req.mobileDevice
+        ? await repo.rotateSecretForOwnerAsync(
+            req.params.id,
+            req.mobileDevice.userId,
+          )
+        : await repo.rotateSecretAsync(req.params.id);
+      if (!endpoint) throw AppError.notFound('WebhookEndpoint');
+      res.json(endpointResponse(req, endpoint, true));
     } catch (err) { next(err); }
   }
 

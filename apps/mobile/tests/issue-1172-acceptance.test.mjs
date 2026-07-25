@@ -90,7 +90,7 @@ test('issue-1172-c7: activity feed normalizes states and only emits valid deep l
   );
   assert.equal(
     getActivityDeepLink({ source: 'research', sessionId: null, resultUrl: '/agent-research/research-1' }),
-    '/tools/research/research-1',
+    '/tools/research?selectedId=research-1',
   );
   assert.equal(
     getActivityDeepLink({ source: 'webhook', sessionId: null, resultUrl: 'https://attacker.example' }),

@@ -231,18 +231,10 @@ export class AgentSchedulesController {
         : await repo.findByIdAsync(req.params.id);
       if (!task) throw AppError.notFound('AgentScheduledTask');
 
-      // Force next_run_at to now so the scheduler picks it up in the next tick
-      const nowIso = new Date().toISOString();
-      const triggerPatch = {
-        nextRunAt: nowIso,
-      } as Parameters<typeof repo.updateAsync>[1];
-      const updated = req.mobileDevice
-        ? await repo.updateForOwnerAsync(
-            task.id,
-            req.mobileDevice.userId,
-            triggerPatch,
-          )
-        : await repo.updateAsync(task.id, triggerPatch);
+      // Force next_run_at to now so the scheduler picks it up in the next tick,
+      // and expose an honest queued state until the scheduler records running
+      // or terminal status.
+      const updated = await repo.queueNowAsync(task.id);
 
       // Return the full updated task, not just a message — the Flutter client
       // parses this response as an AgentScheduledTask to merge into its local

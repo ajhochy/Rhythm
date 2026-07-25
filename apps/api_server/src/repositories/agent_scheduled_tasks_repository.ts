@@ -251,6 +251,30 @@ export class AgentScheduledTasksRepository {
     ).run(nextRunAt, lastRunAt, lastRunStatus, lastError ?? null, now, id);
   }
 
+  async queueNowAsync(id: string): Promise<AgentScheduledTask | null> {
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `UPDATE agent_scheduled_tasks
+         SET next_run_at = $1, last_run_status = 'queued',
+             last_error = NULL, updated_at = $1
+         WHERE id = $2
+         RETURNING *`,
+        [now, id],
+      );
+      return result.rows[0] ? rowToModel(result.rows[0]) : null;
+    }
+    const result = getDb()
+      .prepare(
+        `UPDATE agent_scheduled_tasks
+         SET next_run_at = ?, last_run_status = 'queued',
+             last_error = NULL, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(now, now, id);
+    return result.changes > 0 ? this.findByIdAsync(id) : null;
+  }
+
   async updateAsync(id: string, patch: Partial<CreateAgentScheduledTaskInput & { enabled: boolean; nextRunAt: string | null }>): Promise<AgentScheduledTask | null> {
     const now = new Date().toISOString();
     const fields: string[] = [];

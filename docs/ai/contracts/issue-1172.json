@@ -73,6 +73,14 @@
       "test_file": "apps/api_server/src/__tests__/live_e2e_1172_agent_activity.test.ts",
       "test_id": "issue-1172-c9: live sandbox returns authenticated persisted activity without duplicate pages",
       "status": "red"
+    },
+    {
+      "criterion_id": "issue-1172-c10",
+      "text": "Research, schedule, webhook, and cookbook Activity items navigate to supported mobile tool routes and visibly open the exact selected target rather than a nonexistent path.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/issue-1172-tool-deep-links.spec.mjs",
+      "test_id": "issue-1172-c10: Activity tool links open the selected supported target UI",
+      "status": "green"
     }
   ],
   "stack": "typescript/react-native",

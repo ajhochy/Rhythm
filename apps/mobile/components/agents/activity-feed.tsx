@@ -111,6 +111,7 @@ export function ActivityFeed({
           return (
             <Card
               accessibilityLabel={`${item.title}. ${item.source}. ${item.status}.`}
+              accessibilityRole={deepLink ? 'button' : undefined}
               disabled={!deepLink}
               mode="outlined"
               onPress={

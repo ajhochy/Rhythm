@@ -12,6 +12,8 @@ import {
 
 import type { ToolScreenStateKind } from '@/components/tools/tool-screen-state';
 import {
+  deriveToolsCacheScope,
+  getToolCacheStorageKey,
   RhythmToolsService,
   sanitizeToolCache,
   TOOL_SCREEN_MANIFEST,
@@ -22,8 +24,6 @@ import {
 import { usePairedHost } from '@/providers/paired-host-provider';
 import { useRhythmAccount } from '@/providers/rhythm-account-provider';
 import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
-
-const TOOLS_CACHE_PREFIX = 'rhythm.tools.read-cache.v1';
 
 export type ToolsAvailability =
   | 'connected'
@@ -55,6 +55,7 @@ export type ToolAction =
   | 'schedules:delete'
   | 'schedules:trigger'
   | 'webhooks:create'
+  | 'webhooks:rotate-secret'
   | 'webhooks:revoke'
   | 'profiles:create'
   | 'profiles:update'
@@ -96,12 +97,6 @@ const INITIAL_STATE: ToolResourceState = {
 };
 
 const ToolsContext = createContext<ToolsContextValue | null>(null);
-
-function cacheKey(scope: string, tool: ToolScreenId): string {
-  const safeScope =
-    scope.trim().replace(/[^a-zA-Z0-9._-]/g, '_') || 'signed-out';
-  return `${TOOLS_CACHE_PREFIX}.${safeScope}.${tool}`;
-}
 
 function originFor(tool: ToolScreenId): 'cloud' | 'paired' {
   return TOOL_SCREEN_MANIFEST.find((entry) => entry.id === tool)!.origin;
@@ -250,6 +245,8 @@ async function runAction(
       return service.triggerSchedule(id);
     case 'webhooks:create':
       return service.createWebhook(input);
+    case 'webhooks:rotate-secret':
+      return service.rotateWebhookSecret(id);
     case 'webhooks:revoke':
       return service.revokeWebhook(id);
     case 'profiles:create':
@@ -344,7 +341,9 @@ export function RhythmToolsProvider({
 
   const readCache = useCallback(
     async (tool: ToolScreenId): Promise<ToolRecord[]> => {
-      const raw = await AsyncStorage.getItem(cacheKey(cacheScope, tool));
+      const raw = await AsyncStorage.getItem(
+        getToolCacheStorageKey(cacheScope, tool),
+      );
       if (!raw) return [];
       try {
         return sanitizeToolCache(tool, JSON.parse(raw));
@@ -388,7 +387,7 @@ export function RhythmToolsProvider({
         if (generation.current[tool] !== requestGeneration) return;
         const items = sanitizeToolCache(tool, toItems(response));
         await AsyncStorage.setItem(
-          cacheKey(cacheScope, tool),
+          getToolCacheStorageKey(cacheScope, tool),
           JSON.stringify(items),
         );
         setToolState(tool, {
@@ -470,12 +469,18 @@ export function AppRhythmToolsProvider({ children }: PropsWithChildren) {
     account.client,
     pairedHost.client,
   ]);
-  const cacheScope =
-    account.user && pairedHost.host
-      ? `${account.user.id}:${pairedHost.host.hostId}:${pairedHost.host.deviceId}`
-      : e2eMode
-        ? mobileRuntimeVariant.cacheScope ?? 'signed-out'
-        : 'signed-out';
+  const cacheScope = deriveToolsCacheScope({
+    accountUserId: account.user?.id ?? null,
+    pairedHost: pairedHost.host
+      ? {
+          hostId: pairedHost.host.hostId,
+          deviceId: pairedHost.host.deviceId,
+        }
+      : null,
+    runtimeCacheScope: e2eMode
+      ? mobileRuntimeVariant.cacheScope
+      : null,
+  });
   const cloudAvailability: ToolsAvailability =
     e2eMode || account.state === 'signedIn' || account.state === 'refreshing'
       ? 'connected'

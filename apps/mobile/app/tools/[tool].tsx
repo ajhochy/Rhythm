@@ -1,4 +1,5 @@
 import * as Clipboard from 'expo-clipboard';
+import * as WebBrowser from 'expo-web-browser';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -12,6 +13,7 @@ import {
   Appbar,
   Button,
   Card,
+  Checkbox,
   Chip,
   Dialog,
   Divider,
@@ -42,6 +44,7 @@ const CREATE_LABEL: Partial<Record<ToolScreenId, string>> = {
   research: 'New research',
   schedules: 'New scheduled job',
   webhooks: 'New webhook',
+  profiles: 'New profile',
   cookbook: 'New recipe',
   skills: 'New skill',
   playbooks: 'New playbook',
@@ -100,10 +103,13 @@ function actionInput(tool: ToolScreenId, form: Record<string, string>) {
         prompt: form.prompt || `Run scheduled job: ${form.name}`,
         cron: form.cron,
         cronExpression: form.cron,
+        scheduleType: 'cron',
         enabled: true,
       };
     case 'webhooks':
       return { name: form.name, eventTypes: ['*'], enabled: true };
+    case 'profiles':
+      return profileInput(form);
     case 'cookbook':
       return {
         title: form.title,
@@ -140,6 +146,7 @@ function createAction(tool: ToolScreenId): ToolAction {
     research: 'research:create',
     schedules: 'schedules:create',
     webhooks: 'webhooks:create',
+    profiles: 'profiles:create',
     cookbook: 'cookbook:create',
     skills: 'skills:create',
     playbooks: 'playbooks:create',
@@ -148,8 +155,35 @@ function createAction(tool: ToolScreenId): ToolAction {
   return actions[tool]!;
 }
 
+function profileInput(form: Record<string, string>): Record<string, unknown> {
+  const allowedMcpsJson =
+    form.scopeMode === 'inherit'
+      ? null
+      : form.scopeMode === 'explicit-empty'
+        ? '[]'
+        : JSON.stringify(
+            (form.scope ?? '')
+              .split(',')
+              .map((value) => value.trim())
+              .filter(Boolean),
+          );
+  const delegates = (form.delegates ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return {
+    label: form.name,
+    systemPrompt: form.prompt,
+    modelProvider: form.modelProvider || null,
+    modelId: form.modelId || null,
+    isManager: form.isManager === 'true',
+    allowedDelegatesJson: JSON.stringify(delegates),
+    allowedMcpsJson,
+  };
+}
+
 export default function RhythmToolScreen() {
-  const params = useLocalSearchParams<{ tool?: string }>();
+  const params = useLocalSearchParams<{ tool?: string; selectedId?: string }>();
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
@@ -160,13 +194,20 @@ export default function RhythmToolScreen() {
   const { getState, perform, refresh } = useRhythmTools();
   const {
     chatPreferences,
+    completeMcpOAuth,
+    completeProviderOAuth,
     loadOpenCodeInspection,
     reloadOpenCodeConfig,
     reloadOpenCodeSkills,
     removeMcpOAuth,
+    removeProvider,
+    startMcpOAuth,
+    startProviderOAuth,
   } = useOpencode();
   const state = getState(tool ?? 'brain');
-  const [dialog, setDialog] = useState<'create' | 'profile' | null>(null);
+  const [dialog, setDialog] = useState<
+    'create' | 'edit' | 'profile' | 'mcp-oauth' | 'provider-oauth' | null
+  >(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<ToolRecord | null>(null);
   const [search, setSearch] = useState('');
@@ -174,10 +215,25 @@ export default function RhythmToolScreen() {
   const [oneTimeSecret, setOneTimeSecret] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [runtimeInspection, setRuntimeInspection] = useState<OpenCodeInspection>();
+  const [oauthCode, setOauthCode] = useState('');
+  const [oauthName, setOauthName] = useState('');
+  const [providerMethodIndex, setProviderMethodIndex] = useState(0);
 
   useEffect(() => {
     if (tool) void refresh(tool);
   }, [refresh, tool]);
+
+  useEffect(() => {
+    if (!params.selectedId || selected || state.items.length === 0) return;
+    const target = state.items.find((item) => item.id === params.selectedId);
+    if (target) setSelected(target);
+  }, [params.selectedId, selected, state.items]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const refreshed = state.items.find((item) => item.id === selected.id);
+    if (refreshed && refreshed !== selected) setSelected(refreshed);
+  }, [selected, state.items]);
 
   const items = useMemo(() => {
     if (tool !== 'brain' || !search.trim()) return state.items;
@@ -250,11 +306,12 @@ export default function RhythmToolScreen() {
   };
 
   const submitCreate = async () => {
-    await run(
+    const result = await run(
       createAction(tool),
       actionInput(tool, form),
       tool === 'research' ? 'Research started.' : `${manifest.title} saved.`,
     );
+    if (result === undefined) return;
     setDialog(null);
     setForm({});
   };
@@ -285,7 +342,24 @@ export default function RhythmToolScreen() {
         : null;
     setSelected(item);
     setForm({
+      name: String(item.label ?? item.name ?? ''),
       prompt: String(item.systemPrompt ?? item.prompt ?? ''),
+      modelProvider: String(item.modelProvider ?? ''),
+      modelId: String(item.modelId ?? ''),
+      delegates:
+        typeof item.allowedDelegatesJson === 'string'
+          ? (() => {
+              try {
+                const parsed = JSON.parse(item.allowedDelegatesJson) as unknown;
+                return Array.isArray(parsed) ? parsed.join(', ') : '';
+              } catch {
+                return '';
+              }
+            })()
+          : Array.isArray(item.allowedDelegates)
+            ? item.allowedDelegates.join(', ')
+            : '',
+      isManager: item.isManager === true ? 'true' : 'false',
       scopeMode:
         allowed === null ? 'inherit' : allowed === '[]' ? 'explicit-empty' : 'explicit',
       scope: allowed && allowed !== '[]'
@@ -304,33 +378,145 @@ export default function RhythmToolScreen() {
 
   const saveProfile = async () => {
     if (!selected) return;
-    const allowedMcpsJson =
-      form.scopeMode === 'inherit'
-        ? null
-        : form.scopeMode === 'explicit-empty'
-          ? '[]'
-          : JSON.stringify(
-              form.scope
-                .split(',')
-                .map((value) => value.trim())
-                .filter(Boolean),
-            );
-    await run(
+    const result = await run(
       'profiles:update',
       {
         id: selected.id,
-        systemPrompt: form.prompt,
-        permissionScope:
-          form.scopeMode === 'inherit'
-            ? null
-            : form.scopeMode === 'explicit-empty'
-              ? []
-              : JSON.parse(allowedMcpsJson ?? '[]'),
-        allowedMcpsJson,
+        ...profileInput(form),
       },
       'Projected to OpenCode',
     );
+    if (result === undefined) return;
     setDialog(null);
+  };
+
+  const openEdit = (item: ToolRecord) => {
+    setSelected(item);
+    if (tool === 'profiles') {
+      openProfile(item);
+      return;
+    }
+    setForm({
+      title: String(item.title ?? ''),
+      content: String(item.content ?? ''),
+      name: String(item.name ?? ''),
+      description: String(item.description ?? item.prompt ?? ''),
+      prompt: String(item.prompt ?? ''),
+      cron: String(item.cronExpression ?? item.cron ?? ''),
+      template: String(item.template ?? item.content ?? ''),
+    });
+    setDialog('edit');
+  };
+
+  const saveEdit = async () => {
+    if (!selected) return;
+    const actions: Partial<Record<ToolScreenId, ToolAction>> = {
+      brain: 'brain:update',
+      schedules: 'schedules:update',
+      cookbook: 'cookbook:update',
+      skills: 'skills:update',
+      playbooks: 'playbooks:update',
+    };
+    const action = actions[tool];
+    if (!action) return;
+    const input = {
+      ...actionInput(tool, form),
+      id: selected.id,
+      name:
+        tool === 'skills' || tool === 'playbooks'
+          ? String(selected.name ?? selected.id)
+          : form.name,
+      ...(tool === 'schedules' ? { enabled: selected.enabled !== false } : {}),
+    };
+    const result = await run(
+      action,
+      input,
+      tool === 'brain'
+        ? 'Memory updated.'
+        : tool === 'schedules'
+          ? 'Scheduled job updated.'
+          : tool === 'cookbook'
+            ? 'Recipe updated.'
+            : tool === 'skills'
+              ? 'Skill updated.'
+              : 'Playbook updated.',
+    );
+    if (result === undefined) return;
+    setDialog(null);
+    setForm({});
+  };
+
+  const beginMcpOAuth = async (item: ToolRecord) => {
+    setSubmitting(true);
+    setNotice(null);
+    try {
+      const name = String(item.name ?? item.id);
+      const authorizationUrl = await startMcpOAuth(name);
+      if (!authorizationUrl) {
+        throw new Error('The MCP server did not return an authorization URL.');
+      }
+      setOauthName(name);
+      setOauthCode('');
+      setDialog('mcp-oauth');
+      await WebBrowser.openBrowserAsync(authorizationUrl);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : 'Could not start MCP authorization.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const finishMcpOAuth = async () => {
+    setSubmitting(true);
+    setNotice(null);
+    try {
+      await completeMcpOAuth(oauthName, oauthCode);
+      await refresh('mcp');
+      setDialog(null);
+      setOauthCode('');
+      setNotice('MCP authorization completed.');
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : 'Could not complete MCP authorization.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const beginProviderOAuth = async (item: ToolRecord) => {
+    setSubmitting(true);
+    setNotice(null);
+    try {
+      const providerId = String(item.providerID ?? item.providerId ?? item.id);
+      const authorization = await startProviderOAuth(providerId, 0);
+      if (!authorization.url) {
+        throw new Error('The provider did not return an authorization URL.');
+      }
+      setOauthName(providerId);
+      setProviderMethodIndex(0);
+      setOauthCode('');
+      setDialog('provider-oauth');
+      await WebBrowser.openBrowserAsync(authorization.url);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : 'Could not start provider authorization.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const finishProviderOAuth = async () => {
+    setSubmitting(true);
+    setNotice(null);
+    try {
+      await completeProviderOAuth(oauthName, providerMethodIndex, oauthCode);
+      await refresh('models');
+      setDialog(null);
+      setOauthCode('');
+      setNotice(`${recordTitle('models', selected ?? { id: oauthName })} authorization completed.`);
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : 'Could not complete provider authorization.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const renderActions = (item: ToolRecord) => {
@@ -338,16 +524,25 @@ export default function RhythmToolScreen() {
     switch (tool) {
       case 'brain':
         return (
-          <Button
-            accessibilityLabel={`Delete ${title}`}
-            disabled={state.offline}
-            onPress={async () => {
-              if (await confirmAction('Delete memory?', `Delete ${title}?`)) {
-                await run('brain:delete', { id: item.id }, 'Memory deleted.');
-              }
-            }}>
-            Delete
-          </Button>
+          <View style={styles.actions}>
+            <Button
+              accessibilityLabel={`Edit ${title}`}
+              disabled={state.offline}
+              onPress={() => openEdit(item)}>
+              Edit
+            </Button>
+            <Button
+              accessibilityLabel={`Delete ${title}`}
+              disabled={state.offline}
+              onPress={async () => {
+                if (await confirmAction('Delete memory?', `Delete ${title}?`)) {
+                  await run('brain:delete', { id: item.id }, 'Memory deleted.');
+                  if (selected?.id === item.id) setSelected(null);
+                }
+              }}>
+              Delete
+            </Button>
+          </View>
         );
       case 'research':
         return (
@@ -373,60 +568,169 @@ export default function RhythmToolScreen() {
         );
       case 'schedules':
         return (
-          <Button
-            accessibilityLabel={`Run ${title} now`}
-            disabled={state.offline}
-            onPress={async () => {
-              if (await confirmAction('Run scheduled job?', `Run ${title} now?`)) {
-                await run('schedules:trigger', { id: item.id }, 'Run queued.');
-              }
-            }}>
-            Run now
-          </Button>
+          <View style={styles.actions}>
+            <Button
+              accessibilityLabel={`Edit ${title}`}
+              disabled={state.offline}
+              onPress={() => openEdit(item)}>
+              Edit
+            </Button>
+            <Button
+              accessibilityLabel={`${item.enabled === false ? 'Enable' : 'Disable'} ${title}`}
+              disabled={state.offline}
+              onPress={() =>
+                void run(
+                  'schedules:update',
+                  { id: item.id, enabled: item.enabled === false },
+                  item.enabled === false ? 'Scheduled job enabled.' : 'Scheduled job disabled.',
+                )}>
+              {item.enabled === false ? 'Enable' : 'Disable'}
+            </Button>
+            <Button
+              accessibilityLabel={`Run ${title} now`}
+              disabled={state.offline}
+              onPress={async () => {
+                if (await confirmAction('Run scheduled job?', `Run ${title} now?`)) {
+                  await run('schedules:trigger', { id: item.id }, 'Run queued.');
+                }
+              }}>
+              Run now
+            </Button>
+            <Button
+              accessibilityLabel={`Delete ${title}`}
+              disabled={state.offline}
+              onPress={async () => {
+                if (await confirmAction('Delete scheduled job?', `Delete ${title}?`)) {
+                  await run('schedules:delete', { id: item.id }, 'Scheduled job deleted.');
+                  if (selected?.id === item.id) setSelected(null);
+                }
+              }}>
+              Delete
+            </Button>
+          </View>
         );
       case 'webhooks':
         return (
+          <View style={styles.actions}>
+            <Button
+              accessibilityLabel={`Copy ${title} URL`}
+              disabled={!item.url}
+              onPress={async () => {
+                await Clipboard.setStringAsync(String(item.url));
+                setNotice('Webhook URL copied.');
+              }}>
+              Copy URL
+            </Button>
+            <Button
+              accessibilityLabel={`Rotate ${title} secret`}
+              disabled={state.offline}
+              onPress={async () => {
+                if (await confirmAction('Rotate webhook secret?', `Rotate the secret for ${title}?`)) {
+                  await run('webhooks:rotate-secret', { id: item.id }, 'Webhook secret rotated.');
+                }
+              }}>
+              Rotate secret
+            </Button>
+            <Button
+              accessibilityLabel={`Delete ${title}`}
+              disabled={state.offline}
+              onPress={async () => {
+                if (await confirmAction('Delete webhook?', `Delete ${title}?`)) {
+                  await run('webhooks:revoke', { id: item.id }, 'Webhook deleted.');
+                  if (selected?.id === item.id) setSelected(null);
+                }
+              }}>
+              Delete
+            </Button>
+          </View>
+        );
+      case 'profiles':
+        return (
           <Button
-            accessibilityLabel={`Revoke ${title}`}
+            accessibilityLabel={`Delete ${title}`}
             disabled={state.offline}
             onPress={async () => {
-              if (await confirmAction('Revoke webhook?', `Revoke ${title}?`)) {
-                await run('webhooks:revoke', { id: item.id }, 'Webhook revoked.');
+              if (await confirmAction('Delete profile?', `Delete ${title}?`)) {
+                await run('profiles:delete', { id: item.id }, 'Profile deleted.');
+                if (selected?.id === item.id) setSelected(null);
               }
             }}>
-            Revoke
+            Delete
           </Button>
         );
       case 'cookbook':
         return (
-          <Button
-            accessibilityLabel={`Run ${title}`}
-            disabled={state.offline}
-            onPress={async () => {
-              if (await confirmAction('Run recipe?', `Run ${title}?`)) {
-                await run('cookbook:run', { id: item.id }, 'Recipe queued.');
-              }
-            }}>
-            Run
-          </Button>
+          <View style={styles.actions}>
+            <Button
+              accessibilityLabel={`Edit ${title}`}
+              disabled={state.offline}
+              onPress={() => openEdit(item)}>
+              Edit
+            </Button>
+            <Button
+              accessibilityLabel={`Run ${title}`}
+              disabled={state.offline}
+              onPress={async () => {
+                if (await confirmAction('Run recipe?', `Run ${title}?`)) {
+                  await run('cookbook:run', { id: item.id }, 'Recipe queued.');
+                }
+              }}>
+              Run
+            </Button>
+            <Button
+              accessibilityLabel={`Delete ${title}`}
+              disabled={state.offline}
+              onPress={async () => {
+                if (await confirmAction('Delete recipe?', `Delete ${title}?`)) {
+                  await run('cookbook:delete', { id: item.id }, 'Recipe deleted.');
+                  if (selected?.id === item.id) setSelected(null);
+                }
+              }}>
+              Delete
+            </Button>
+          </View>
         );
       case 'skills':
         return item.managed ? (
-          <Button
-            accessibilityLabel={`Delete ${title}`}
-            disabled={state.offline}
-            onPress={() => void run('skills:delete', { name: item.name }, 'Skill deleted.')}>
-            Delete
-          </Button>
+          <View style={styles.actions}>
+            <Button
+              accessibilityLabel={`Edit ${title}`}
+              disabled={state.offline}
+              onPress={() => openEdit(item)}>
+              Edit
+            </Button>
+            <Button
+              accessibilityLabel={`Delete ${title}`}
+              disabled={state.offline}
+              onPress={async () => {
+                if (await confirmAction('Delete skill?', `Delete ${title}?`)) {
+                  await run('skills:delete', { name: item.name }, 'Skill deleted.');
+                }
+              }}>
+              Delete
+            </Button>
+          </View>
         ) : <Chip compact>Read only</Chip>;
       case 'playbooks':
         return item.managed ? (
-          <Button
-            accessibilityLabel={`Delete ${title}`}
-            disabled={state.offline}
-            onPress={() => void run('playbooks:delete', { name: item.name }, 'Playbook deleted.')}>
-            Delete
-          </Button>
+          <View style={styles.actions}>
+            <Button
+              accessibilityLabel={`Edit ${title}`}
+              disabled={state.offline}
+              onPress={() => openEdit(item)}>
+              Edit
+            </Button>
+            <Button
+              accessibilityLabel={`Delete ${title}`}
+              disabled={state.offline}
+              onPress={async () => {
+                if (await confirmAction('Delete playbook?', `Delete ${title}?`)) {
+                  await run('playbooks:delete', { name: item.name }, 'Playbook deleted.');
+                }
+              }}>
+              Delete
+            </Button>
+          </View>
         ) : <Chip compact>Read only</Chip>;
       case 'mcp':
         return (
@@ -442,8 +746,9 @@ export default function RhythmToolScreen() {
               {item.status === 'connected' ? 'Disconnect' : 'Connect'}
             </Button>
             <Button
+              accessibilityLabel={`Authenticate ${title}`}
               disabled={state.offline}
-              onPress={() => void run('mcp:oauth', { name: item.name }, 'OAuth started.')}>
+              onPress={() => void beginMcpOAuth(item)}>
               Authenticate
             </Button>
             <Button
@@ -466,6 +771,42 @@ export default function RhythmToolScreen() {
                 }
               }}>
               Remove auth
+            </Button>
+          </View>
+        );
+      case 'models':
+        return (
+          <View style={styles.actions}>
+            <Button
+              accessibilityLabel={`Authenticate ${title}`}
+              disabled={state.offline || submitting}
+              onPress={() => {
+                setSelected(item);
+                void beginProviderOAuth(item);
+              }}>
+              Authenticate
+            </Button>
+            <Button
+              accessibilityLabel={`Remove ${title} credentials`}
+              disabled={state.offline || submitting}
+              onPress={async () => {
+                if (!(await confirmAction(
+                  'Remove provider credentials?',
+                  `Remove saved credentials for ${title}?`,
+                ))) return;
+                setSubmitting(true);
+                setNotice(null);
+                try {
+                  await removeProvider(String(item.providerID ?? item.providerId ?? item.id));
+                  await refresh('models');
+                  setNotice(`${title} credentials removed.`);
+                } catch (reason) {
+                  setNotice(reason instanceof Error ? reason.message : 'Could not remove provider credentials.');
+                } finally {
+                  setSubmitting(false);
+                }
+              }}>
+              Remove credentials
             </Button>
           </View>
         );
@@ -583,7 +924,7 @@ export default function RhythmToolScreen() {
             <Text>Mac offline — saved data is read-only.</Text>
           </Surface>
         ) : null}
-        {notice ? (
+        {notice && !dialog ? (
           <Surface
             accessibilityLiveRegion="polite"
             style={[styles.notice, { backgroundColor: palette.surfaceAlt }]}>
@@ -592,7 +933,9 @@ export default function RhythmToolScreen() {
         ) : null}
         {oneTimeSecret ? (
           <Surface style={styles.secret}>
-            <Text variant="titleMedium">Copy this webhook secret now</Text>
+            <Text accessibilityRole="header" variant="titleMedium">
+              Copy this webhook secret now
+            </Text>
             <Text selectable>{oneTimeSecret}</Text>
             <Text>This secret is shown once and is never saved on this device.</Text>
             <Button
@@ -627,12 +970,53 @@ export default function RhythmToolScreen() {
             {CREATE_LABEL[tool]}
           </Button>
         ) : null}
+        {selected && tool === 'brain' ? (
+          <Surface style={styles.detail}>
+            <Text accessibilityRole="header" variant="titleMedium">Memory details</Text>
+            <Text accessibilityRole="header" variant="titleLarge">
+              {recordTitle(tool, selected)}
+            </Text>
+            <Text>{String(selected.content ?? 'No memory content.')}</Text>
+            <View style={styles.actions}>
+              <Button
+                accessibilityLabel="Edit memory"
+                disabled={state.offline}
+                onPress={() => openEdit(selected)}>
+                Edit memory
+              </Button>
+              <Button onPress={() => setSelected(null)}>Close details</Button>
+            </View>
+          </Surface>
+        ) : null}
         {selected && tool === 'research' ? (
           <Surface style={styles.detail}>
-            <Text variant="titleLarge">{recordTitle(tool, selected)}</Text>
+            <Text accessibilityRole="header" variant="titleLarge">
+              {recordTitle(tool, selected)}
+            </Text>
             <Text variant="titleMedium">Research report</Text>
             <Text>{String(selected.report ?? 'The report is still being prepared.')}</Text>
             <Button onPress={() => setSelected(null)}>Close report</Button>
+          </Surface>
+        ) : null}
+        {selected && ['schedules', 'webhooks', 'cookbook'].includes(tool) ? (
+          <Surface style={styles.detail}>
+            <Text accessibilityRole="header" variant="titleLarge">
+              {recordTitle(tool, selected)}
+            </Text>
+            {tool === 'schedules' ? (
+              <>
+                <Text>{selected.enabled === false ? 'Disabled' : 'Enabled'}</Text>
+                <Text>Schedule: {String(selected.cronExpression ?? selected.cron ?? 'Not set')}</Text>
+                <Text>Last run: {String(selected.lastRunStatus ?? 'not run')}</Text>
+              </>
+            ) : null}
+            {tool === 'webhooks' ? (
+              <Text selectable>{String(selected.url ?? 'Webhook URL unavailable')}</Text>
+            ) : null}
+            {tool === 'cookbook' ? (
+              <Text>{String(selected.description ?? selected.prompt ?? 'No instructions.')}</Text>
+            ) : null}
+            <Button onPress={() => setSelected(null)}>Close details</Button>
           </Surface>
         ) : null}
         {selected && tool === 'review' ? (
@@ -679,11 +1063,20 @@ export default function RhythmToolScreen() {
           items.map((item) => {
             const title = recordTitle(tool, item);
             const subtitle = recordSubtitle(tool, item);
+            const actions = renderActions(item);
             return (
               <Card
                 accessibilityLabel={`${title}. ${subtitle}`}
                 accessibilityRole={
-                  tool === 'profiles' || tool === 'research' || tool === 'review'
+                  [
+                    'brain',
+                    'research',
+                    'schedules',
+                    'webhooks',
+                    'profiles',
+                    'cookbook',
+                    'review',
+                  ].includes(tool)
                     ? 'button'
                     : undefined
                 }
@@ -692,7 +1085,14 @@ export default function RhythmToolScreen() {
                 onPress={
                   tool === 'profiles'
                     ? () => openProfile(item)
-                    : tool === 'research' || tool === 'review'
+                    : [
+                        'brain',
+                        'research',
+                        'schedules',
+                        'webhooks',
+                        'cookbook',
+                        'review',
+                      ].includes(tool)
                       ? () => setSelected(item)
                       : undefined
                 }
@@ -703,6 +1103,27 @@ export default function RhythmToolScreen() {
                   title={title}
                   titleNumberOfLines={2}
                 />
+                {tool === 'brain' && item.content ? (
+                  <Card.Content>
+                    <Text>{String(item.content)}</Text>
+                  </Card.Content>
+                ) : null}
+                {tool === 'schedules' ? (
+                  <Card.Content style={styles.actions}>
+                    <Chip compact>{item.enabled === false ? 'Disabled' : 'Enabled'}</Chip>
+                    <Text>Last run: {String(item.lastRunStatus ?? 'not run')}</Text>
+                  </Card.Content>
+                ) : null}
+                {tool === 'webhooks' && item.url ? (
+                  <Card.Content>
+                    <Text selectable>{String(item.url)}</Text>
+                  </Card.Content>
+                ) : null}
+                {tool === 'cookbook' && (item.description || item.prompt) ? (
+                  <Card.Content>
+                    <Text>{String(item.description ?? item.prompt)}</Text>
+                  </Card.Content>
+                ) : null}
                 {tool === 'report-card' ? (
                   <Card.Content>
                     <Text>
@@ -719,12 +1140,8 @@ export default function RhythmToolScreen() {
                     </Text>
                   </Card.Content>
                 ) : null}
-                {renderActions(item) ? (
-                  <>
-                    <Divider />
-                    <Card.Actions>{renderActions(item)}</Card.Actions>
-                  </>
-                ) : null}
+                {actions ? <Divider /> : null}
+                {actions ? <Card.Actions>{actions}</Card.Actions> : null}
               </Card>
             );
           })
@@ -786,6 +1203,75 @@ export default function RhythmToolScreen() {
                   onChangeText={(name) => setForm({ name })}
                   value={form.name ?? ''}
                 />
+              ) : null}
+              {tool === 'profiles' ? (
+                <>
+                  <TextInput
+                    accessibilityLabel="Profile name"
+                    label="Profile name"
+                    onChangeText={(name) => setForm((value) => ({ ...value, name }))}
+                    value={form.name ?? ''}
+                  />
+                  <TextInput
+                    accessibilityLabel="Profile prompt"
+                    label="Profile prompt"
+                    multiline
+                    onChangeText={(prompt) => setForm((value) => ({ ...value, prompt }))}
+                    value={form.prompt ?? ''}
+                  />
+                  <TextInput
+                    accessibilityLabel="Model provider"
+                    autoCapitalize="none"
+                    label="Model provider"
+                    onChangeText={(modelProvider) =>
+                      setForm((value) => ({ ...value, modelProvider }))}
+                    value={form.modelProvider ?? ''}
+                  />
+                  <TextInput
+                    accessibilityLabel="Model ID"
+                    autoCapitalize="none"
+                    label="Model ID"
+                    onChangeText={(modelId) =>
+                      setForm((value) => ({ ...value, modelId }))}
+                    value={form.modelId ?? ''}
+                  />
+                  <TextInput
+                    accessibilityLabel="Allowed delegates"
+                    label="Allowed delegates, comma separated"
+                    onChangeText={(delegates) =>
+                      setForm((value) => ({ ...value, delegates }))}
+                    value={form.delegates ?? ''}
+                  />
+                  <Checkbox.Item
+                    label="Manager profile"
+                    onPress={() =>
+                      setForm((value) => ({
+                        ...value,
+                        isManager: value.isManager === 'true' ? 'false' : 'true',
+                      }))}
+                    status={form.isManager === 'true' ? 'checked' : 'unchecked'}
+                  />
+                  <Text accessibilityRole="header">Permission scope mode</Text>
+                  <SegmentedButtons
+                    buttons={[
+                      { label: 'Inherit', value: 'inherit', accessibilityLabel: 'Inherit permission scope' },
+                      { label: 'None', value: 'explicit-empty', accessibilityLabel: 'No permissions' },
+                      { label: 'Custom', value: 'explicit', accessibilityLabel: 'Custom permission scope' },
+                    ]}
+                    onValueChange={(scopeMode) =>
+                      setForm((value) => ({ ...value, scopeMode }))}
+                    value={form.scopeMode ?? 'inherit'}
+                  />
+                  {form.scopeMode === 'explicit' ? (
+                    <TextInput
+                      accessibilityLabel="Allowed MCP scope"
+                      label="Allowed MCPs, comma separated"
+                      onChangeText={(scope) =>
+                        setForm((value) => ({ ...value, scope }))}
+                      value={form.scope ?? ''}
+                    />
+                  ) : null}
+                </>
               ) : null}
               {tool === 'cookbook' ? (
                 <>
@@ -860,6 +1346,8 @@ export default function RhythmToolScreen() {
                   ? 'Start research'
                   : tool === 'schedules'
                     ? 'Save scheduled job'
+                    : tool === 'profiles'
+                      ? 'Create profile'
                     : tool === 'cookbook'
                       ? 'Save recipe'
                       : tool === 'brain'
@@ -869,6 +1357,118 @@ export default function RhythmToolScreen() {
               disabled={submitting}
               onPress={() => void submitCreate()}>
               Save
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+        <Dialog
+          onDismiss={() => setDialog(null)}
+          visible={dialog === 'edit'}>
+          <Dialog.Title>
+            Edit {selected ? recordTitle(tool, selected) : manifest.title}
+          </Dialog.Title>
+          <Dialog.ScrollArea>
+            <ScrollView contentContainerStyle={styles.dialogFields}>
+              {tool === 'brain' ? (
+                <>
+                  <TextInput
+                    accessibilityLabel="Memory title"
+                    label="Memory title"
+                    onChangeText={(title) =>
+                      setForm((value) => ({ ...value, title }))}
+                    value={form.title ?? ''}
+                  />
+                  <TextInput
+                    accessibilityLabel="Memory content"
+                    label="Memory content"
+                    multiline
+                    onChangeText={(content) =>
+                      setForm((value) => ({ ...value, content }))}
+                    value={form.content ?? ''}
+                  />
+                </>
+              ) : null}
+              {tool === 'schedules' ? (
+                <>
+                  <TextInput
+                    accessibilityLabel="Job name"
+                    label="Job name"
+                    onChangeText={(name) =>
+                      setForm((value) => ({ ...value, name }))}
+                    value={form.name ?? ''}
+                  />
+                  <TextInput
+                    accessibilityLabel="Cron schedule"
+                    label="Cron schedule"
+                    onChangeText={(cron) =>
+                      setForm((value) => ({ ...value, cron }))}
+                    value={form.cron ?? ''}
+                  />
+                </>
+              ) : null}
+              {tool === 'cookbook' ? (
+                <>
+                  <TextInput
+                    accessibilityLabel="Recipe title"
+                    label="Recipe title"
+                    onChangeText={(title) =>
+                      setForm((value) => ({ ...value, title }))}
+                    value={form.title ?? ''}
+                  />
+                  <TextInput
+                    accessibilityLabel="Recipe instructions"
+                    label="Recipe instructions"
+                    multiline
+                    onChangeText={(description) =>
+                      setForm((value) => ({ ...value, description }))}
+                    value={form.description ?? ''}
+                  />
+                </>
+              ) : null}
+              {tool === 'skills' || tool === 'playbooks' ? (
+                <>
+                  <TextInput
+                    accessibilityLabel="Description"
+                    label="Description"
+                    onChangeText={(description) =>
+                      setForm((value) => ({ ...value, description }))}
+                    value={form.description ?? ''}
+                  />
+                  <TextInput
+                    accessibilityLabel={
+                      tool === 'skills' ? 'Skill content' : 'Playbook template'
+                    }
+                    label={tool === 'skills' ? 'Skill content' : 'Playbook template'}
+                    multiline
+                    onChangeText={(text) =>
+                      setForm((value) => ({
+                        ...value,
+                        [tool === 'skills' ? 'content' : 'template']: text,
+                      }))}
+                    value={
+                      form[tool === 'skills' ? 'content' : 'template'] ?? ''
+                    }
+                  />
+                </>
+              ) : null}
+            </ScrollView>
+          </Dialog.ScrollArea>
+          <Dialog.Actions>
+            <Button onPress={() => setDialog(null)}>Cancel</Button>
+            <Button
+              accessibilityLabel={
+                tool === 'brain'
+                  ? 'Save memory changes'
+                  : tool === 'schedules'
+                    ? 'Save scheduled job changes'
+                    : tool === 'cookbook'
+                      ? 'Save recipe changes'
+                      : tool === 'skills'
+                        ? 'Save skill changes'
+                        : 'Save playbook changes'
+              }
+              disabled={submitting}
+              onPress={() => void saveEdit()}>
+              Save changes
             </Button>
           </Dialog.Actions>
         </Dialog>
@@ -884,6 +1484,39 @@ export default function RhythmToolScreen() {
               onChangeText={(prompt) => setForm((value) => ({ ...value, prompt }))}
               value={form.prompt ?? ''}
             />
+            <TextInput
+              accessibilityLabel="Model provider"
+              autoCapitalize="none"
+              label="Model provider"
+              onChangeText={(modelProvider) =>
+                setForm((value) => ({ ...value, modelProvider }))}
+              value={form.modelProvider ?? ''}
+            />
+            <TextInput
+              accessibilityLabel="Model ID"
+              autoCapitalize="none"
+              label="Model ID"
+              onChangeText={(modelId) =>
+                setForm((value) => ({ ...value, modelId }))}
+              value={form.modelId ?? ''}
+            />
+            <TextInput
+              accessibilityLabel="Allowed delegates"
+              label="Allowed delegates, comma separated"
+              onChangeText={(delegates) =>
+                setForm((value) => ({ ...value, delegates }))}
+              value={form.delegates ?? ''}
+            />
+            <Checkbox.Item
+              label="Manager profile"
+              onPress={() =>
+                setForm((value) => ({
+                  ...value,
+                  isManager: value.isManager === 'true' ? 'false' : 'true',
+                }))}
+              status={form.isManager === 'true' ? 'checked' : 'unchecked'}
+            />
+            {notice && dialog === 'profile' ? <Text>{notice}</Text> : null}
             <Text accessibilityRole="header">Permission scope mode</Text>
             <View accessibilityLabel="Permission scope mode">
               <SegmentedButtons
@@ -913,6 +1546,62 @@ export default function RhythmToolScreen() {
               disabled={submitting}
               onPress={() => void saveProfile()}>
               Save profile
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+        <Dialog
+          onDismiss={() => setDialog(null)}
+          visible={dialog === 'mcp-oauth'}>
+          <Dialog.Title>Complete {oauthName} authorization</Dialog.Title>
+          <Dialog.Content style={styles.dialogFields}>
+            <Text>
+              Finish signing in in the browser, then paste the authorization code.
+            </Text>
+            <TextInput
+              accessibilityLabel="MCP authorization code"
+              autoCapitalize="none"
+              label="MCP authorization code"
+              onChangeText={setOauthCode}
+              value={oauthCode}
+            />
+            {notice && dialog === 'mcp-oauth' ? <Text>{notice}</Text> : null}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setDialog(null)}>Cancel</Button>
+            <Button
+              accessibilityLabel="Complete MCP authorization"
+              disabled={submitting || !oauthCode.trim()}
+              onPress={() => void finishMcpOAuth()}>
+              Complete authorization
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+        <Dialog
+          onDismiss={() => setDialog(null)}
+          visible={dialog === 'provider-oauth'}>
+          <Dialog.Title>
+            Complete {selected ? recordTitle('models', selected) : oauthName} authorization
+          </Dialog.Title>
+          <Dialog.Content style={styles.dialogFields}>
+            <Text>
+              Finish provider sign-in in the browser, then paste the authorization code.
+            </Text>
+            <TextInput
+              accessibilityLabel="Provider authorization code"
+              autoCapitalize="none"
+              label="Provider authorization code"
+              onChangeText={setOauthCode}
+              value={oauthCode}
+            />
+            {notice && dialog === 'provider-oauth' ? <Text>{notice}</Text> : null}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setDialog(null)}>Cancel</Button>
+            <Button
+              accessibilityLabel="Complete provider authorization"
+              disabled={submitting || !oauthCode.trim()}
+              onPress={() => void finishProviderOAuth()}>
+              Complete authorization
             </Button>
           </Dialog.Actions>
         </Dialog>

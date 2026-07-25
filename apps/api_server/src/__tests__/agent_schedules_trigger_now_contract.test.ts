@@ -75,12 +75,14 @@ describe('trigger-now / activity-log regression', () => {
       name: string;
       scheduleType: string;
       nextRunAt: string | null;
+      lastRunStatus: string | null;
     };
     // Regression: these used to be undefined ('message' was the only key).
     expect(body.id).toBe(created.id);
     expect(body.name).toBe('ai-trend-research-daily');
     expect(body.scheduleType).toBe('cron');
     expect(body.nextRunAt).toBeTruthy();
+    expect(body.lastRunStatus).toBe('queued');
   });
 
   it('GET /agent-sessions?scheduledTaskId= (empty) returns no sessions, never falls through to listAll', async () => {

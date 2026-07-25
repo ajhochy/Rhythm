@@ -9,6 +9,41 @@ export interface ToolTransport {
   ): Promise<T>;
 }
 
+const TOOLS_CACHE_PREFIX = 'rhythm.tools.read-cache.v1';
+
+export interface ToolsCacheScopeInput {
+  accountUserId: string | number | null;
+  pairedHost: {
+    hostId: string;
+    deviceId: string;
+  } | null;
+  runtimeCacheScope: string | null;
+}
+
+export function deriveToolsCacheScope({
+  accountUserId,
+  pairedHost,
+  runtimeCacheScope,
+}: ToolsCacheScopeInput): string {
+  if (accountUserId !== null) {
+    return pairedHost
+      ? `account:${accountUserId}:host:${pairedHost.hostId}:device:${pairedHost.deviceId}`
+      : `account:${accountUserId}:unpaired`;
+  }
+  return runtimeCacheScope
+    ? `runtime:${runtimeCacheScope}`
+    : 'signed-out';
+}
+
+export function getToolCacheStorageKey(
+  scope: string,
+  tool: ToolScreenId,
+): string {
+  const safeScope =
+    scope.trim().replace(/[^a-zA-Z0-9._-]/g, '_') || 'signed-out';
+  return `${TOOLS_CACHE_PREFIX}.${safeScope}.${tool}`;
+}
+
 export type ToolScreenState =
   | 'loading'
   | 'empty'
@@ -503,6 +538,13 @@ export class RhythmToolsService {
     return this.pairedRequest(`/mobile-gateway/tools/agent-webhooks/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
+  }
+
+  rotateWebhookSecret(id: string): Promise<WebhookRecord> {
+    return this.pairedRequest(
+      `/mobile-gateway/tools/agent-webhooks/${encodeURIComponent(id)}/rotate-secret`,
+      { method: 'POST' },
+    );
   }
 
   listProfiles(): Promise<ProfileRecord[]> {

@@ -8,14 +8,37 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
   let nextId = 1;
   const state = {
     brain: [],
-    research: [],
-    schedules: [],
+    research: [
+      {
+        id: 'research-target',
+        query: 'Selected research target',
+        status: 'complete',
+        report: 'Selected research result rendered from Activity.',
+      },
+    ],
+    schedules: [
+      {
+        id: 'schedule-target',
+        name: 'Selected schedule target',
+        cron: '0 8 * * 1',
+        enabled: true,
+        lastRunStatus: 'complete',
+      },
+    ],
     webhooks: [
+      {
+        id: 'webhook-target',
+        name: 'Selected webhook target',
+        status: 'connected',
+        enabled: true,
+        url: 'http://127.0.0.1/webhooks/webhook-target/receive',
+      },
       {
         id: 'webhook-planning-center',
         name: 'Planning Center intake',
         status: 'connected',
         enabled: true,
+        url: 'http://127.0.0.1/webhooks/webhook-planning-center/receive',
       },
     ],
     profiles: [
@@ -29,7 +52,13 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
         projection: { status: 'projected', updatedAt: now() },
       },
     ],
-    cookbook: [],
+    cookbook: [
+      {
+        id: 'cookbook-target',
+        title: 'Selected recipe target',
+        description: 'Selected recipe rendered from Activity.',
+      },
+    ],
     proposals: [
       {
         id: 'proposal-high-risk',
@@ -141,7 +170,16 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
         item.status = mcpAction[2] === 'connect' ? 'connected' : 'disabled';
         item.enabled = mcpAction[2] === 'connect';
       }
-      sendJson(res, 200, item ?? { name, status: 'pending' });
+      sendJson(
+        res,
+        200,
+        mcpAction[2] === 'auth'
+          ? {
+              authorizationUrl: `https://example.test/mcp/${name}/authorize`,
+              oauthState: `oauth-${name}`,
+            }
+          : item ?? { name, status: 'pending' },
+      );
       return true;
     }
     if (req.method === 'POST' && pathname === '/mobile-gateway/opencode/mcp') {
@@ -289,9 +327,18 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
           name: body?.name,
           enabled: true,
           secret: 'e2e-show-once-webhook-secret',
+          url: `http://127.0.0.1/webhooks/${nextId}/receive`,
         };
         state.webhooks.unshift({ ...item, secret: undefined });
         sendJson(res, 201, clone(item));
+        return true;
+      }
+      if (req.method === 'POST' && id && action === 'rotate-secret') {
+        const item = find(state.webhooks, id);
+        sendJson(res, 200, {
+          ...clone(item),
+          secret: 'rotated-e2e-webhook-secret',
+        });
         return true;
       }
       if (req.method === 'DELETE' && id) {
@@ -306,7 +353,30 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
         sendJson(res, 200, clone(state.profiles));
         return true;
       }
+      if (req.method === 'POST' && parts.length === 1) {
+        const slug = String(body?.label ?? createdId('profile'))
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '');
+        const item = {
+          id: slug || createdId('profile'),
+          ...body,
+          projection: { status: 'projected', updatedAt: now() },
+        };
+        state.profiles.unshift(item);
+        sendJson(res, 201, clone(item));
+        return true;
+      }
       if (req.method === 'PATCH' && id) {
+        if (body?.systemPrompt === 'forbidden profile change') {
+          sendJson(res, 403, {
+            error: {
+              code: 'FORBIDDEN',
+              message: 'Only workspace administrators can edit agent profiles.',
+            },
+          });
+          return true;
+        }
         const item = find(state.profiles, id);
         if (item) Object.assign(item, body, { projection: { status: 'pending' } });
         sendJson(res, 200, clone(item));
@@ -316,6 +386,11 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
         const item = find(state.profiles, id);
         if (item) item.projection = { status: 'projected', updatedAt: now() };
         sendJson(res, 200, { status: 'projected' });
+        return true;
+      }
+      if (req.method === 'DELETE' && id) {
+        remove(state.profiles, id);
+        endEmpty(res);
         return true;
       }
     }
@@ -338,6 +413,11 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
       if (req.method === 'DELETE' && id) {
         remove(state.cookbook, id);
         endEmpty(res);
+        return true;
+      }
+      if (req.method === 'PATCH' && id) {
+        Object.assign(find(state.cookbook, id) ?? {}, body, { updatedAt: now() });
+        sendJson(res, 200, clone(find(state.cookbook, id)));
         return true;
       }
     }

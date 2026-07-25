@@ -114,8 +114,15 @@ function createToolTransport(): ToolTransport {
         },
       });
       if (!response.ok) {
+        const payload = await response.json().catch(() => undefined) as
+          | { error?: string | { message?: string }; message?: string }
+          | undefined;
+        const message =
+          typeof payload?.error === 'string'
+            ? payload.error
+            : payload?.error?.message ?? payload?.message;
         const error = new Error(
-          `Request failed (${response.status})`,
+          message ?? `Request failed (${response.status})`,
         ) as Error & { status: number };
         error.status = response.status;
         throw error;

@@ -98,6 +98,13 @@ describe('#1173 mobile tools gateway', () => {
   it('accepts only the explicit mobile operation matrix', () => {
     expect(isMobileToolOperationAllowed('agent-memory', 'GET', '/')).toBe(true);
     expect(isMobileToolOperationAllowed('agent-memory', 'POST', '/sync')).toBe(false);
+    expect(
+      isMobileToolOperationAllowed(
+        'agent-webhooks',
+        'POST',
+        '/webhook-id/rotate-secret',
+      ),
+    ).toBe(true);
     expect(isMobileToolOperationAllowed('agent-webhooks', 'POST', '/hook/receive')).toBe(false);
     expect(isMobileToolOperationAllowed('agent-configs', 'POST', '/export')).toBe(false);
     expect(isMobileToolOperationAllowed('agent-configs', 'POST', '/profile/security-lock')).toBe(false);
@@ -307,6 +314,7 @@ describe('#1173 mobile tools gateway', () => {
         id: webhook.id,
         crossOperations: [
           { method: 'GET', suffix: '' },
+          { method: 'POST', suffix: '/rotate-secret', body: '{}' },
           { method: 'DELETE', suffix: '' },
         ],
       },

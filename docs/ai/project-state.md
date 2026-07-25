@@ -64,6 +64,16 @@ with exact live evidence and production review notes.
 
 ## Recent coding-agent runs
 
+- 2026-07-25 — #1173 mobile Tools corrective completion
+  (`codex/1173-mobile-tools-corrective`): isolated Tools caches by account,
+  completed Brain/schedule/profile/cookbook/skill/playbook/webhook/MCP/provider
+  mutation and OAuth lifecycles, and replaced broken Activity detail paths with
+  supported selected-target routes. Added owner-scoped webhook secret rotation
+  with one-time secret display and a guarded live HTTP test. The complete PR
+  gate, unique-port live sandbox, 8/8 rebuilt corrective browser run, and native
+  Fragment-warning regression pass. Production signing/distribution remains
+  deferred to the aggregate release workflow. See
+  `docs/ai/runs/2026-07-25-issue-1173-mobile-tools-corrective.md`.
 - 2026-07-25 — #1175 approval/taint/listener hardening
   (`codex/1175-approval-taint-listener`): IPv4-loopback-only `AGENT_LOCAL`,
   non-exportable signed human approvals, exhaustive scan→taint→fence ingress,
