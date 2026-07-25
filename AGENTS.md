@@ -76,12 +76,32 @@ a project-state update, a handoff message, or a commit), you must:
    api_server, not a mock. Gate it behind an env flag (e.g.
    `RHYTHM_LIVE_E2E=1`) so it skips in the normal `vitest run` suite.
 
-2. **Run it against the running backend.** Build the fork binary
-   (`cd apps/opencode_fork/packages/opencode && bun run build --single`),
-   build the api_server (`npm run build`), launch with
-   `RHYTHM_OPENCODE_BIN_DIR` pointing at the rebuilt fork, and run the test
-   with the env flag set. See `docs/ai/testing-guide.md` "Running the fork
+2. **Run it against the running backend — inside the dev sandbox.** Build the
+   fork binary (`cd apps/opencode_fork/packages/opencode && bun run build
+   --single`), build the api_server (`npm run build`), then bring up the
+   sandbox and run the test against it:
+
+   ```bash
+   tools/dev/sandbox.sh up       # API 4098 + engine 4097, temp HOME, copied DB
+   tools/dev/sandbox.sh status
+   tools/dev/sandbox.sh down
+   ```
+
+   See `docs/ai/testing-guide.md` "Isolated dev sandbox" and "Running the fork
    engine in dev" for the launch commands.
+
+   > ⚠️ **Never start a second api_server by hand.** Always go through
+   > `tools/dev/sandbox.sh`. An api_server started without
+   > `RHYTHM_OPENCODE_ENGINE_PORT` defaults its engine port to **4096 — the
+   > desktop app's live engine** — and api_server startup runs stale-port
+   > reclamation that SIGTERMs/SIGKILLs whatever holds that port. It will kill
+   > the engine you are running inside, mid-turn, orphaning your own session
+   > and every sibling subagent (the dispatcher's task cards then spin
+   > "working" forever while the children are dead).
+   >
+   > Setting `PORT`, `HOME`, and `DB_PATH` is **not** enough — the engine port
+   > is a separate knob. A hand-rolled `env PORT=4098 …` is still fatal.
+   > See `docs/ai/decisions/2026-07-14-dev-sandbox-isolation.md`.
 
 3. **The test must assert the behavior, not the code.** Don't assert "the
    function was called" — assert the observable outcome the user/agent will
@@ -124,7 +144,7 @@ command, upstream-sync procedure, and rebase-on-upstream steps.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **Rhythm** (61361 symbols, 122092 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Rhythm** (62567 symbols, 125280 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -152,5 +172,9 @@ This project is indexed by GitNexus as **Rhythm** (61361 symbols, 122092 relatio
 | `gitnexus://repo/Rhythm/clusters` | All functional areas |
 | `gitnexus://repo/Rhythm/processes` | All execution flows |
 | `gitnexus://repo/Rhythm/process/{name}` | Step-by-step execution trace |
+
+## Cross-Repo Groups
+
+This repository is listed under GitNexus **group(s): rhythm-mobile** (see `~/.gitnexus/groups/`). For cross-repo analysis, use MCP tools `impact`, `query`, and `context` with `repo` set to `@<groupName>` or `@<groupName>/<memberPath>` (paths match keys in that group’s `group.yaml`). Use `group_list` / `group_sync` for membership and sync. From the project root: `node .gitnexus/run.cjs group list`, `node .gitnexus/run.cjs group sync <name>`, `node .gitnexus/run.cjs group impact <name> --target <symbol> --repo <group-path>` (the `.gitnexus/run.cjs` path is repo-root-relative).
 
 <!-- gitnexus:end -->
