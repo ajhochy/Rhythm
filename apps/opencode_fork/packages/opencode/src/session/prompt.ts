@@ -1541,28 +1541,83 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 ]
               }
 
-              return [
+              const args = { filePath: filepath }
+              const pieces: Draft<MessageV2.Part>[] = [
                 ...(referenceContext ? [{ ...referenceContext, messageID: info.id, sessionID: input.sessionID }] : []),
                 {
                   messageID: info.id,
                   sessionID: input.sessionID,
                   type: "text",
                   synthetic: true,
-                  text: `Called the Read tool with the following input: {"filePath":"${filepath}"}`,
-                },
-                {
-                  id: part.id,
-                  messageID: info.id,
-                  sessionID: input.sessionID,
-                  type: "file",
-                  url:
-                    `data:${mime};base64,` +
-                    Buffer.from(yield* fsys.readFile(filepath).pipe(Effect.catch(Effect.die))).toString("base64"),
-                  mime,
-                  filename: part.filename!,
-                  source: part.source,
+                  text: `Called the Read tool with the following input: ${JSON.stringify(args)}`,
                 },
               ]
+              const exit = yield* execRead(args).pipe(Effect.exit)
+              if (Exit.isSuccess(exit)) {
+                pieces.push({
+                  messageID: info.id,
+                  sessionID: input.sessionID,
+                  type: "text",
+                  synthetic: true,
+                  text: exit.value.output,
+                })
+                if (exit.value.attachments?.length) {
+                  pieces.push(
+                    ...exit.value.attachments.map((attachment) => ({
+                      ...attachment,
+                      synthetic: true,
+                      filename: attachment.filename ?? part.filename,
+                      messageID: info.id,
+                      sessionID: input.sessionID,
+                    })),
+                  )
+                }
+                return pieces
+              }
+
+              const error = Cause.squash(exit.cause)
+              const message = error instanceof Error ? error.message : String(error)
+              log.error("failed to read attached file", { error, filepath, mime })
+              pieces.push({
+                messageID: info.id,
+                sessionID: input.sessionID,
+                type: "text",
+                synthetic: true,
+                text: `Read tool failed to read ${filepath} with the following error: ${message}`,
+              })
+              if (message.includes("Cannot read binary file:")) {
+                const extension = path.extname(filepath).toLowerCase() || "(no extension)"
+                const officeHint =
+                  extension === ".docx"
+                    ? " Check the existing `docx` skill first."
+                    : extension === ".xlsx"
+                      ? " Check the existing `xlsx` skill first."
+                      : extension === ".pptx"
+                        ? " Check the existing `pptx` skill first."
+                        : ""
+                pieces.push({
+                  messageID: info.id,
+                  sessionID: input.sessionID,
+                  type: "text",
+                  synthetic: true,
+                  text: [
+                    "Attachment reader discovery required.",
+                    `The local file ${filepath} has MIME type ${mime} and extension ${extension}, which the built-in Read tool cannot parse.`,
+                    "Do not ignore or reject this attachment, and do not guess at its binary contents.",
+                    `Before answering, inspect the session's available skills for a format-specific reader.${officeHint}`,
+                    "Also inspect the available MCP tools and servers for a compatible reader.",
+                    "If no compatible reader is available, use web search to search online for a trusted skill, MCP server, or tool that supports this exact format; surface the best option and any installation or permission requirement rather than silently failing.",
+                    `Keep the original local path (${filepath}) so the selected reader can consume it.`,
+                  ].join("\n"),
+                })
+                return pieces
+              }
+
+              yield* bus.publish(Session.Event.Error, {
+                sessionID: input.sessionID,
+                error: new NamedError.Unknown({ message }).toObject(),
+              })
+              return pieces
             }
           }
         }

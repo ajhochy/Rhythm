@@ -376,4 +376,36 @@ void main() {
       expect(find.textContaining('unsupported file type'), findsNothing);
     },
   );
+
+  testWidgets(
+    'issue-1137-c1: REAL-SURFACE composer attaches an arbitrary binary '
+    '@-mention as a file: ref without a type gate',
+    (tester) async {
+      // Regression caught: the composer used to accept the file selection,
+      // fetch its binary proxy shape, and then reject it with a SnackBar.
+      repo.findFilesResult = const ['assets/fixture.rhythmfixture'];
+      repo.fileContentResult = const {
+        'type': 'binary',
+        'mimeType': 'application/octet-stream',
+        'content': '',
+      };
+
+      await tester.pumpWidget(_wrap(controller));
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const ValueKey('agent-composer-input')),
+        '@fixture',
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byKey(const ValueKey('at-mention-item-0')));
+      await tester.pump();
+      await tester.pump();
+
+      final part = controller.pendingAttachmentsFor('s1').single;
+      expect(part['type'], 'file');
+      expect(part['mime'], 'application/octet-stream');
+      expect(part['url'], 'file:///tmp/assets/fixture.rhythmfixture');
+      expect(find.textContaining('unsupported file type'), findsNothing);
+    },
+  );
 }

@@ -52,6 +52,7 @@ import { testEffect } from "../lib/effect"
 import { reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { writeFile } from "fs/promises"
 
 void Log.init({ print: false })
 
@@ -1804,6 +1805,137 @@ it.instance(
       expect(text[0]?.startsWith("Called the Read tool with the following input:")).toBe(true)
       expect(text[1]?.includes("Read tool failed to read")).toBe(true)
       expect(text[2]).toBe("after-file")
+
+      yield* sessions.remove(session.id)
+    }),
+  { git: true, config: cfg },
+)
+
+it.instance(
+  "issue-1137-c2: unreadable arbitrary binary becomes an actionable reader-discovery task",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({})
+      const fixture = path.join(dir, "fixture.rhythmfixture")
+      yield* Effect.promise(() => writeFile(fixture, Uint8Array.of(0, 255, 1, 2)))
+
+      const msg = yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        noReply: true,
+        parts: [
+          { type: "text", text: "Inspect the attached file." },
+          {
+            type: "file",
+            mime: "application/x-rhythm-fixture",
+            url: pathToFileURL(fixture).href,
+            filename: "fixture.rhythmfixture",
+          },
+        ],
+      })
+      if (msg.info.role !== "user") throw new Error("expected user message")
+
+      const synthetic = msg.parts
+        .flatMap((part) => (part.type === "text" && part.synthetic ? [part.text] : []))
+        .join("\n")
+      // Regression caught: the old path forwarded opaque binary bytes as a
+      // provider FilePart, which failed before the agent could find a reader.
+      expect(synthetic).toContain("application/x-rhythm-fixture")
+      expect(synthetic).toContain(fixture)
+      expect(synthetic).toMatch(/available skills/i)
+      expect(synthetic).toMatch(/MCP tool/i)
+      expect(synthetic).toMatch(/search.*online|web search/i)
+      expect(synthetic).toMatch(/do not (?:ignore|reject)/i)
+      expect(
+        msg.parts.some((part) => part.type === "file" && part.mime === "application/x-rhythm-fixture"),
+      ).toBe(false)
+
+      yield* sessions.remove(session.id)
+    }),
+  { git: true, config: cfg },
+)
+
+it.instance(
+  "issue-1137 regression: Office binaries surface the existing format-specific skill path",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({})
+      const fixture = path.join(dir, "report.docx")
+      yield* Effect.promise(() => writeFile(fixture, Uint8Array.of(0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0)))
+
+      const msg = yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        noReply: true,
+        parts: [
+          {
+            type: "file",
+            mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            url: pathToFileURL(fixture).href,
+            filename: "report.docx",
+          },
+        ],
+      })
+      if (msg.info.role !== "user") throw new Error("expected user message")
+
+      const synthetic = msg.parts
+        .flatMap((part) => (part.type === "text" && part.synthetic ? [part.text] : []))
+        .join("\n")
+      expect(synthetic).toMatch(/docx/i)
+      expect(synthetic).toMatch(/skill/i)
+      expect(msg.parts.some((part) => part.type === "file")).toBe(false)
+
+      yield* sessions.remove(session.id)
+    }),
+  { git: true, config: cfg },
+)
+
+it.instance(
+  "issue-1137 regression: built-in readable media remain model attachments",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({})
+      const fixture = path.join(dir, "pixel.png")
+      yield* Effect.promise(() =>
+        writeFile(fixture, Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)),
+      )
+
+      const msg = yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        noReply: true,
+        parts: [
+          {
+            type: "file",
+            mime: "image/png",
+            url: pathToFileURL(fixture).href,
+            filename: "pixel.png",
+          },
+        ],
+      })
+      if (msg.info.role !== "user") throw new Error("expected user message")
+
+      const media = msg.parts.find((part) => part.type === "file")
+      expect(media?.type).toBe("file")
+      if (media?.type === "file") {
+        expect(media.mime).toBe("image/png")
+        expect(media.url).toStartWith("data:image/png;base64,")
+        expect(media.filename).toBe("pixel.png")
+      }
+      expect(
+        msg.parts.some(
+          (part) => part.type === "text" && part.synthetic && part.text.includes("reader discovery required"),
+        ),
+      ).toBe(false)
 
       yield* sessions.remove(session.id)
     }),

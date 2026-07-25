@@ -1,0 +1,24 @@
+{
+  "issue": 1137,
+  "generated": "2026-07-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1137-c1",
+      "text": "Attachment picker should not gate on file type. Let the user attach any file; move type validation (if any) to the point of consumption, not the file picker (`ACCEPTED_FILE_TYPES` / `ACCEPTED_FILE_EXTENSIONS` in `file-picker.ts`, and wherever the Flutter desktop client mirrors this list).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/ocu_1061_at_mention_test.dart",
+      "test_id": "issue-1137-c1: REAL-SURFACE composer attaches an arbitrary binary @-mention as a file: ref without a type gate",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1137-c2",
+      "text": "Longer-term: when an agent receives an attached file it has no reader for, the agentic procedure should be to search for / surface an existing MCP tool, skill, or server capable of reading that file type (similar to how the Office-document skill was added) rather than silently failing or ignoring the attachment.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/prompt.test.ts",
+      "test_id": "issue-1137-c2: unreadable arbitrary binary becomes an actionable reader-discovery task",
+      "status": "pass"
+    }
+  ],
+  "stack": "dart/typescript",
+  "not_tested": []
+}

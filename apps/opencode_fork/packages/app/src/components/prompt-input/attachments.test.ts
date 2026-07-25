@@ -1,6 +1,17 @@
 import { describe, expect, test } from "bun:test"
 import { attachmentMime } from "./files"
 import { pasteMode } from "./paste"
+import { ACCEPTED_FILE_EXTENSIONS, ACCEPTED_FILE_TYPES, filePickerFilters } from "@/constants/file-picker"
+
+describe("issue-1137-c1: file picker does not gate by type", () => {
+  test("offers an unrestricted picker instead of a hardcoded MIME or extension allow-list", () => {
+    // Regression caught: a format absent from these lists could not even be
+    // selected, so reader discovery at consumption time was unreachable.
+    expect(ACCEPTED_FILE_TYPES).toEqual([])
+    expect(ACCEPTED_FILE_EXTENSIONS).toEqual([])
+    expect(filePickerFilters(ACCEPTED_FILE_EXTENSIONS)).toBeUndefined()
+  })
+})
 
 describe("attachmentMime", () => {
   test("keeps PDFs when the browser reports the mime", async () => {
