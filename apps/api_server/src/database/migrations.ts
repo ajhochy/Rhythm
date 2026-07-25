@@ -1495,6 +1495,11 @@ export function runMigrations(db: Database.Database): void {
       report TEXT,                               -- final synthesized report
       error TEXT,
       agent_session_id TEXT,
+      research_type TEXT NOT NULL DEFAULT 'generic',
+      title TEXT,
+      agent_profile_id TEXT,
+      origin TEXT NOT NULL DEFAULT 'page',
+      vault_path TEXT,
       requested_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1506,6 +1511,13 @@ export function runMigrations(db: Database.Database): void {
   if (!researchCols.includes('agent_session_id')) {
     db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN agent_session_id TEXT`);
   }
+  if (!researchCols.includes('research_type')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN research_type TEXT NOT NULL DEFAULT 'generic'`);
+  if (!researchCols.includes('title')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN title TEXT`);
+  if (!researchCols.includes('agent_profile_id')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN agent_profile_id TEXT`);
+  if (!researchCols.includes('origin')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN origin TEXT NOT NULL DEFAULT 'page'`);
+  if (!researchCols.includes('vault_path')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN vault_path TEXT`);
+  db.exec(`UPDATE agent_research_jobs SET research_type = 'generic', title = query, agent_profile_id = 'research', origin = 'page' WHERE research_type IS NULL OR title IS NULL OR agent_profile_id IS NULL OR origin IS NULL`);
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_research_jobs_agent_session_id ON agent_research_jobs(agent_session_id) WHERE agent_session_id IS NOT NULL`);
 
   // Extend pending_claude_triggers with scheduler context columns (additive).
   // These are all nullable — existing human-triggered rows have NULL here.

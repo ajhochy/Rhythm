@@ -584,13 +584,25 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       report TEXT,
       error TEXT,
       agent_session_id TEXT,
+      research_type TEXT NOT NULL DEFAULT 'generic',
+      title TEXT,
+      agent_profile_id TEXT,
+      origin TEXT NOT NULL DEFAULT 'page',
+      vault_path TEXT,
       requested_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
   await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS agent_session_id TEXT`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS research_type TEXT NOT NULL DEFAULT 'generic'`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS title TEXT`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS agent_profile_id TEXT`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'page'`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS vault_path TEXT`);
+  await pool.query(`UPDATE agent_research_jobs SET research_type = 'generic', title = query, agent_profile_id = 'research', origin = 'page' WHERE research_type IS NULL OR title IS NULL OR agent_profile_id IS NULL OR origin IS NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_status ON agent_research_jobs(status)`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_research_jobs_agent_session_id ON agent_research_jobs(agent_session_id) WHERE agent_session_id IS NOT NULL`);
 
   // B1 — agent_cookbook: reusable recipe/skill library for the agent scheduler.
   await pool.query(`

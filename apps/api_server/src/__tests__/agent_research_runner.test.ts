@@ -109,4 +109,13 @@ describe('Deep Research direct AgentRunner execution', () => {
       status: 'error', error: 'Research interrupted by server restart. Retry this job to run it again.',
     });
   });
+
+  it('does not retry specialist-origin failures', async () => {
+    db.prepare(`INSERT INTO agent_research_jobs
+      (id, query, status, sources_json, research_type, title, agent_profile_id, origin, created_at, updated_at)
+      VALUES ('specialist', 'Daily trends', 'error', '[]', 'ai-trends', 'Daily trends', 'AI-Trend-Researcher', 'specialist-run', ?, ?)`)
+      .run(new Date().toISOString(), new Date().toISOString());
+    const retry = await fetch(`${baseUrl}/agent-research/specialist/retry`, { method: 'POST' });
+    expect(retry.status).toBe(400);
+  });
 });

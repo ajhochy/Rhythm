@@ -20,6 +20,7 @@ void main() {
     'status': 'error',
     'sourcesJson': '[]',
     'error': 'Provider unavailable. Connect it and retry.',
+    'canRetry': true,
     'createdAt': '2026-01-01T00:00:00.000Z',
     'updatedAt': '2026-01-01T00:00:00.000Z',
   };
