@@ -15,7 +15,7 @@ coordinator branch, then run the combined merge gate and open a draft PR.
 - Integrated and verified: #1096 semantic-memory Settings; #1123 async
   delegation; #1132 generated SDK; #1134 email security; #1135 audit locks;
   #1157 Anthropic schema sanitization; #1161 cookbook profile binding; #1162
-  complete permission-subtree replacement.
+  permission-subtree replacement; #1164 deadlock-safe model swarms.
 - #1137 is integrated but under adversarial follow-up for a newly found fork UI
   post-selection gate and binary @mention containment path.
 - Other independently verified slices remain to be integrated.
@@ -36,8 +36,8 @@ coordinator branch, then run the combined merge gate and open a draft PR.
   automated checks and live sandbox or signed-client evidence as applicable.
 - #1134 security smoke observed zero external sends across malicious cases.
 - #1157 real Anthropic strict-schema call passed against the built fork.
-- #1161 live cookbook execution used the bound profile.
-- #1162 live projection reload removed stale nested permission children.
+- #1161/#1162 live bound-profile/projection transitions passed.
+- #1164 live 50-reader swarm completed without the scheduler deadlock.
 - #1137 is review-failed pending repair despite its earlier green gates.
 - Aggregate coordinator validation is pending after all slices land.
 
