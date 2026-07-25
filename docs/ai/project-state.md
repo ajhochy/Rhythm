@@ -2,112 +2,57 @@
 
 ## Current focus
 
-Run the cumulative merge-readiness, signed-device, and sandbox gates for open
-issues #1076–#1175, then update the existing draft PR.
+Complete the aggregate Task 18 release gates on draft PR #1165: final live
+sandbox/fork coverage, signed simulator and physical-device smoke, EAS/TestFlight
+validation, and human manual review.
 
 ## Active branch / PR
 
-- Branch: `codex/mobile-1172-agents-activity`
-- PR: none yet; this is the isolated mobile integration worktree.
+- Local branch: `codex/mobile-1172-agents-activity`
+- Remote PR branch: `feat/rhythm-agent-ios-roadmap`
+- Draft PR: #1165, `WIP: consolidate unfinished Rhythm Agents iOS prototype`
+- Verified implementation head: `6aee45226`
 
 ## In progress
 
-- #1076's broad watch list is now superseded by bounded successor issues
-  #1176 (v2 lifecycle-parity trigger), #1177 (remote-workspace vertical
-  slice), and #1178 (private Rhythm-owned transcript sharing). The tracker has
-  the successor links and remains open until this aggregate release is ready.
-- Integrated and verified: #1096, #1123, #1132, #1134, #1135, #1137,
-  #1157, #1161, #1162, #1164, #1166, #1167, #1168, #1169, #1170, #1171,
-  #1172, #1173, and #1174.
-- #1171 corrective commit `df75c94cf` independently passes with no P0–P2
-  findings: malformed scans recover, Playwright owns dedicated ports, and
-  secure-write rollback/recovery remains truthful across restart.
-- #1172/#1173 now use the authenticated paired-Mac transport in production:
-  safe project catalog, opaque project headers, SSE, PTY headers, activity,
-  chat, and cloud/paired tool routing are scoped by account, host, and device.
-- #1174 passes independent security review with no actionable findings, mobile
-  browser 28/28, API proxy 9/9, iOS Hermes export, and a rebuilt-fork live gate
-  that exercised project init/update, a real PTY resize, genuine prompt
-  mutation, and model-backed session initialization.
+- Mobile roadmap Tasks 1–16 are integrated through issues #1166–#1174.
+- Task 17 has the #1175 security/corrective slices integrated, including
+  host-bound pairing, owner/admin authorization, human-approval and taint
+  hardening, Activity/delegation isolation, production paired transport, and
+  local development-config correction.
+- The branch also integrates #1096, #1123, #1132, #1134, #1135, #1137,
+  #1157, #1161, #1162, and #1164.
+- #1076 is bounded by successor issues #1176, #1177, and #1178.
+- The PR remains intentionally draft and its body now reports the current plan
+  position, approximately 75 registered Rhythm MCP tools, and remaining gates.
 
 ## Risks / known issues
 
 - Compare-to-main impact is expected HIGH/CRITICAL because this branch
   intentionally accumulates the full #1076–#1175 implementation.
 - #1135's additive SQLite/Postgres change requires normal migration review.
-- #1123 adds one Rhythm MCP tool; the draft PR description must update the
-  approximate tool count.
-- Signed distribution remains pending after aggregate simulator/live gates.
+- Task 18 distribution evidence is incomplete; do not merge before signed
+  device/TestFlight and manual smoke gates.
+- The implementation ledger is a historical July 24 stop record; this snapshot
+  and `docs/ai/runs/` are the current handoff sources.
 
 ## Test status
 
-- Required backend slices have focused checks and live sandbox evidence in
-  `docs/ai/runs/`; #1096 also has signed Flutter UI evidence.
-- #1137's final immutable review passes at `0c8ab294b`, including the guarded
-  six-test live endpoint suite.
-- #1170 passes focused contracts, API build, non-baseline regressions, and
-  rebuilt-fork SSE/PTY live smoke.
-- #1171 passes 22 paired-host scenarios, local/CI occupied-port rejection,
-  3/3 corrective browser checks, and independent re-review.
-- Paired production browser smoke passes QR pairing, project catalog, chat
-  creation/completion over SSE, Activity, and an audit proving no filesystem
-  paths or credentials crossed the mobile boundary.
-- Current aggregate gates pass mobile `test:ci:static`, API build, and 13
-  focused mobile gateway/project/SSE tests. GitNexus staged scope for the
-  production wiring commit is LOW with zero affected indexed flows.
+- `ai-workflow checks --level issue` passes.
+- `ai-workflow checks --level pr` passes all Flutter, API, MCP, fork, and mobile
+  static/contract/fake-server/web-E2E checks and builds.
+- MCP local validation passes 22/22 files and 99/99 tests, typecheck, build, and
+  an exact Node 22.19.0 Undici load.
+- Rebuilt-fork isolated sandbox health, OpenCode health, capabilities, and auth
+  readiness probes pass on dedicated ports; the sandbox was removed afterward.
+- GitHub Mobile CI passes at `39f18a22a`; MCP Server CI passes at implementation
+  head `6aee45226`.
+- Existing focused and live behavioral evidence remains recorded in
+  `docs/ai/runs/`; final aggregate signed-device/distribution evidence is still
+  outstanding.
 
 ## Next step
 
-Run cumulative API/mobile/fork/Flutter gates plus signed simulator and physical
-device smoke, then push the integration branch and update the existing draft PR
-with exact live evidence and production review notes.
-
-## Recent coding-agent runs
-
-- 2026-07-25 — #1175 prototype development invocation
-  (`codex/mobile-dev-invocation-prototype`): local Expo start, dev-client,
-  web-export, Android, web, and iOS scripts now force the development variant
-  and `NODE_ENV=development`; EAS/release commands are unchanged. The focused
-  c31 contract, hostile inherited-production config proof, mobile
-  typecheck/lint/app-config checks, and repository issue gate pass. No backend
-  or runtime source changed; final native smoke remains with the aggregate
-  coordinator.
-- 2026-07-25 — #1173 mobile Tools corrective completion
-  (`codex/1173-mobile-tools-corrective`): isolated Tools caches by account,
-  completed Brain/schedule/profile/cookbook/skill/playbook/webhook/MCP/provider
-  mutation and OAuth lifecycles, and replaced broken Activity detail paths with
-  supported selected-target routes. Added owner-scoped webhook secret rotation
-  with one-time secret display and a guarded live HTTP test. The complete PR
-  gate, unique-port live sandbox, 8/8 rebuilt corrective browser run, and native
-  Fragment-warning regression pass. Production signing/distribution remains
-  deferred to the aggregate release workflow. See
-  `docs/ai/runs/2026-07-25-issue-1173-mobile-tools-corrective.md`.
-- 2026-07-25 — #1175 approval/taint/listener hardening
-  (`codex/1175-approval-taint-listener`): IPv4-loopback-only `AGENT_LOCAL`,
-  non-exportable signed human approvals, exhaustive scan→taint→fence ingress,
-  and exact payload-bound authorization for all 41 consequential mutations.
-  The corrective registry audit now classifies all 75 registered Rhythm tools,
-  expands wildcard grants, and enforces MCP/API source parity. Relevant
-  API/MCP/Flutter/build/live gates pass; slice GitNexus is LOW with zero
-  affected flows. See
-  `docs/ai/runs/2026-07-25-1175-approval-taint-listener.md` and
-  `docs/ai/runs/2026-07-25-1175-wildcard-security-correction.md`.
-- 2026-07-25 — #1175 pairing/tool authorization c18/c19
-  (`codex/1175-pairing-tool-auth`): public host-bound one-time-code pairing,
-  Device-only replacement/revocation, explicit policy for all ten mobile tool
-  mounts, personal owner isolation, verified workspace-admin global mutations,
-  and server-derived proposal actors implemented. Focused static/behavioral
-  checks and rebuilt-fork isolated live HTTP smoke pass; independent review
-  rejected the aggregate head pending cross-user ownership, desktop-human
-  administration, OAuth account admission, and same-endpoint replacement
-  corrections. See
-  `docs/ai/runs/2026-07-25-1175-pairing-tool-authorization.md`.
-- 2026-07-25 — #1175 delegation/Activity hardening
-  (`codex/delegation-activity-1175`): locked execution gates, durable
-  exactly-once wake reconciliation/restart pagination, per-user Activity
-  filtering across all six sources, and Postgres schema parity implemented.
-  Focused contracts/build and live Activity/locked-delegation HTTP smokes pass.
-  The existing full Gemini wake smoke observed the expected child result,
-  deterministic callback, and parent response but timed out on its legacy
-  WebSocket idle-frame predicate; see
-  `docs/ai/runs/2026-07-25-1175-delegation-activity-hardening.md`.
+Run the remaining Task 18 cumulative live tests and signed-device release
+workflow, record exact evidence, complete `docs/testing/manual-smoke.md`, and
+leave PR #1165 for human review rather than merging it.
