@@ -676,4 +676,102 @@ describe('#1138: corePermissions projection is defensive and self-healing', () =
     writeAgentProfileFile(workflowOrchestratorConfig());
     expect(readProjected('workflow-orchestrator')).toContain('write: allow');
   });
+
+  it('issue-1162-c1: map to scalar replaces the complete permission subtree', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    writeAgentProfileFile({
+      ...agentConfig('map-to-scalar', 'Map To Scalar'),
+      corePermissionsJson: JSON.stringify({
+        read: 'allow',
+        bash: { '*': 'allow', 'git push*': 'ask' },
+      }),
+    });
+    writeAgentProfileFile({
+      ...agentConfig('map-to-scalar', 'Map To Scalar'),
+      corePermissionsJson: JSON.stringify({ read: 'allow', bash: 'deny' }),
+    });
+
+    const projected = readProjected('map-to-scalar');
+    // Regression caught: replacing only `  bash:` leaves these child lines
+    // under a scalar and makes the whole frontmatter invalid YAML.
+    expect(projected).toContain('  bash: deny');
+    expect(projected).not.toContain('    "*": allow');
+    expect(projected).not.toContain('    "git push*": ask');
+    expect(projected).toContain('  read: allow');
+  });
+
+  it('issue-1162-c2: scalar to map emits one valid nested permission subtree', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    writeAgentProfileFile({
+      ...agentConfig('scalar-to-map', 'Scalar To Map'),
+      corePermissionsJson: JSON.stringify({ bash: 'ask' }),
+    });
+    writeAgentProfileFile({
+      ...agentConfig('scalar-to-map', 'Scalar To Map'),
+      corePermissionsJson: JSON.stringify({
+        bash: { '*': 'allow', 'git push*': 'deny' },
+      }),
+    });
+
+    const projected = readProjected('scalar-to-map');
+    expect(projected.match(/^  bash:/gm)).toHaveLength(1);
+    expect(projected).toContain(
+      '  bash:\n    "*": allow\n    "git push*": deny',
+    );
+    expect(projected).not.toContain('  bash: ask');
+  });
+
+  it('issue-1162-c3: map to map replaces old patterns without duplication', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    writeAgentProfileFile({
+      ...agentConfig('map-to-map', 'Map To Map'),
+      corePermissionsJson: JSON.stringify({
+        external_directory: { '*': 'ask', '/old/*': 'allow' },
+      }),
+    });
+    writeAgentProfileFile({
+      ...agentConfig('map-to-map', 'Map To Map'),
+      corePermissionsJson: JSON.stringify({
+        external_directory: { '*': 'deny', '/tmp/*': 'allow' },
+      }),
+    });
+
+    const projected = readProjected('map-to-map');
+    expect(projected.match(/^  external_directory:/gm)).toHaveLength(1);
+    expect(projected).toContain(
+      '  external_directory:\n    "*": deny\n    "/tmp/*": allow',
+    );
+    expect(projected).not.toContain('"/old/*": allow');
+    expect(projected).not.toContain('"*": ask');
+  });
+
+  it('issue-1162-c5: external_directory map to scalar removes its star child', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    writeAgentProfileFile({
+      ...agentConfig('external-directory-scalar', 'External Directory Scalar'),
+      corePermissionsJson: JSON.stringify({
+        external_directory: { '*': 'allow' },
+      }),
+    });
+    writeAgentProfileFile({
+      ...agentConfig('external-directory-scalar', 'External Directory Scalar'),
+      corePermissionsJson: JSON.stringify({ external_directory: 'allow' }),
+    });
+
+    const projected = readProjected('external-directory-scalar');
+    expect(projected).toContain('  external_directory: allow');
+    expect(projected).not.toContain('    "*": allow');
+  });
 });

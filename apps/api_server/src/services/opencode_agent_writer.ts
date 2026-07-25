@@ -327,42 +327,19 @@ function setFrontmatterKey(fm: string, key: string, value: string): string {
   return fm.length > 0 ? `${fm}\n${line}` : line;
 }
 
-/** Ensure a direct child entry exists inside the top-level permission block. */
-function setPermissionKey(fm: string, key: string, value: string): string {
+/**
+ * Replace one direct child of the top-level permission block, including every
+ * deeper-indented line in its existing subtree.
+ */
+function replacePermissionSubtree(
+  fm: string,
+  key: string,
+  replacement: string[],
+): string {
   const lines = fm.split('\n');
   const permissionIndex = lines.findIndex((line) => /^permission:\s*$/.test(line));
   if (permissionIndex === -1) {
-    return `${fm}${fm.length > 0 ? '\n' : ''}permission:\n  ${key}: ${value}`;
-  }
-
-  let blockEnd = lines.length;
-  for (let i = permissionIndex + 1; i < lines.length; i += 1) {
-    if (/^\S/.test(lines[i])) {
-      blockEnd = i;
-      break;
-    }
-  }
-
-  const keyPattern = new RegExp(`^  ${key}:`);
-  const existingIndex = lines
-    .slice(permissionIndex + 1, blockEnd)
-    .findIndex((line) => keyPattern.test(line));
-  if (existingIndex >= 0) {
-    lines[permissionIndex + 1 + existingIndex] = `  ${key}: ${value}`;
-  } else {
-    lines.splice(blockEnd, 0, `  ${key}: ${value}`);
-  }
-  return lines.join('\n');
-}
-
-function setPermissionValue(fm: string, key: string, value: unknown): string {
-  if (typeof value === 'string') return setPermissionKey(fm, key, value);
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return fm;
-
-  const lines = fm.split('\n');
-  const permissionIndex = lines.findIndex((line) => /^permission:\s*$/.test(line));
-  if (permissionIndex === -1) {
-    return `${fm}${fm.length > 0 ? '\n' : ''}permission:\n${permissionBlockLines(key, value).join('\n')}`;
+    return `${fm}${fm.length > 0 ? '\n' : ''}permission:\n${replacement.join('\n')}`;
   }
 
   let blockEnd = lines.length;
@@ -376,10 +353,12 @@ function setPermissionValue(fm: string, key: string, value: unknown): string {
   let existingStart = -1;
   let existingEnd = blockEnd;
   for (let i = permissionIndex + 1; i < blockEnd; i += 1) {
-    if (new RegExp(`^  ${key}:`).test(lines[i])) {
+    if (lines[i].startsWith(`  ${key}:`)) {
       existingStart = i;
       existingEnd = i + 1;
-      while (existingEnd < blockEnd && /^    /.test(lines[existingEnd])) existingEnd += 1;
+      while (existingEnd < blockEnd && /^ {4}/.test(lines[existingEnd])) {
+        existingEnd += 1;
+      }
       break;
     }
   }
@@ -387,9 +366,20 @@ function setPermissionValue(fm: string, key: string, value: unknown): string {
   lines.splice(
     existingStart === -1 ? blockEnd : existingStart,
     existingStart === -1 ? 0 : existingEnd - existingStart,
-    ...permissionBlockLines(key, value),
+    ...replacement,
   );
   return lines.join('\n');
+}
+
+/** Ensure a scalar direct child exists inside the top-level permission block. */
+function setPermissionKey(fm: string, key: string, value: string): string {
+  return replacePermissionSubtree(fm, key, [`  ${key}: ${value}`]);
+}
+
+function setPermissionValue(fm: string, key: string, value: unknown): string {
+  if (typeof value === 'string') return setPermissionKey(fm, key, value);
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return fm;
+  return replacePermissionSubtree(fm, key, permissionBlockLines(key, value));
 }
 
 function permissionBlockLines(key: string, value: object): string[] {
