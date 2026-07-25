@@ -241,6 +241,14 @@
       "test_file": "tests/contract/issue-1175.mjs",
       "test_id": "issue-1175-c30: aggregate diff check is clean",
       "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c31",
+      "text": "Ordinary local Expo, development-client, web, Android, and iOS prototype commands force EXPO_APP_VARIANT=development and NODE_ENV=development, override inherited production values, and resolve development config without production OAuth credentials while EAS and release commands remain unchanged.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-development-invocation.test.mjs",
+      "test_id": "issue-1175-c31: ordinary prototype commands force development config without production OAuth",
+      "status": "pass"
     }
   ],
   "stack": "typescript",

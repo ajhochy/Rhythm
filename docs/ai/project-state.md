@@ -64,6 +64,14 @@ with exact live evidence and production review notes.
 
 ## Recent coding-agent runs
 
+- 2026-07-25 — #1175 prototype development invocation
+  (`codex/mobile-dev-invocation-prototype`): local Expo start, dev-client,
+  web-export, Android, web, and iOS scripts now force the development variant
+  and `NODE_ENV=development`; EAS/release commands are unchanged. The focused
+  c31 contract, hostile inherited-production config proof, mobile
+  typecheck/lint/app-config checks, and repository issue gate pass. No backend
+  or runtime source changed; final native smoke remains with the aggregate
+  coordinator.
 - 2026-07-25 — #1173 mobile Tools corrective completion
   (`codex/1173-mobile-tools-corrective`): isolated Tools caches by account,
   completed Brain/schedule/profile/cookbook/skill/playbook/webhook/MCP/provider
