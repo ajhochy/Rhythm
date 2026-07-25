@@ -1,0 +1,80 @@
+{
+  "issue": 1172,
+  "generated": "2026-07-25",
+  "criteria": [
+    {
+      "criterion_id": "issue-1172-c1",
+      "text": "The shipping mobile client exposes exactly three primary tabs named Agents, Tools, and Settings; chat, workspace, and terminal remain reusable contextual Agent routes.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/issue-1172-acceptance.test.mjs",
+      "test_id": "issue-1172-c1: navigation exposes exactly Agents Tools and Settings",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1172-c2",
+      "text": "Agents supports all/project-filtered active, completed, and archived chats with create, open, rename, archive, restore, fork, and confirmed delete actions plus nested child sessions.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1172-acceptance.test.mjs",
+      "test_id": "issue-1172-c2: chat read model filters projects and lifecycle states while preserving children",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1172-c3",
+      "text": "Reconnect handling deduplicates stable event IDs and performs an authoritative transcript, status, todo, diff, and child refresh with bounded exponential backoff.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/issue-1172-acceptance.test.mjs",
+      "test_id": "issue-1172-c3: recovery dedupes stable event IDs and bounds retry delays",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1172-c4",
+      "text": "Offline chat caches contain only secret-free read models, remain read-only, and all mutations are disabled until the paired host reconnects.",
+      "mode": "security",
+      "test_file": "apps/mobile/tests/issue-1172-acceptance.test.mjs",
+      "test_id": "issue-1172-c4: offline cache strips secrets and mutation guard fails closed",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1172-c5",
+      "text": "GET /agent-activity aggregates human, scheduler, webhook, research, cookbook, and optimizer executions from existing records without creating a duplicate execution table.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/agent_activity_service.test.ts",
+      "test_id": "issue-1172-c5: aggregates all execution sources without a duplicate activity table",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1172-c6",
+      "text": "Activity ordering, source/status normalization, filtering, and opaque cursor pagination are canonical, stable, and duplicate-free.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/agent_activity_service.test.ts",
+      "test_id": "issue-1172-c6: canonical order filters and cursor remain stable and duplicate-free",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1172-c7",
+      "text": "Activity renders active, waiting, failed, and completed items with source labels and transcript/result deep links when the underlying record supplies one.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/issue-1172-acceptance.test.mjs",
+      "test_id": "issue-1172-c7: activity feed normalizes states and only emits valid deep links",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1172-c8",
+      "text": "Loading, empty, offline-cache, expired-auth, forbidden, and retryable-error states are accessible, dark-mode compatible, and Dynamic Type safe.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/issue-1172-acceptance.test.mjs",
+      "test_id": "issue-1172-c8: reusable screen states cover the full resilient state set",
+      "status": "red"
+    },
+    {
+      "criterion_id": "issue-1172-c9",
+      "text": "A live sandboxed API test proves the authenticated agent-activity route reads real persisted source records and paginates without duplicates.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1172_agent_activity.test.ts",
+      "test_id": "issue-1172-c9: live sandbox returns authenticated persisted activity without duplicate pages",
+      "status": "red"
+    }
+  ],
+  "stack": "typescript/react-native",
+  "not_tested": []
+}
