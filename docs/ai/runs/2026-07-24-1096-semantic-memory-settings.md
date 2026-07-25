@@ -4,7 +4,7 @@ repo: Rhythm
 branch: codex/1096-engraph-settings
 pr: null
 issues: [1096]
-status: verification-blocked
+status: complete
 tags: [run, Rhythm]
 ---
 
@@ -47,6 +47,34 @@ npm run build
 npx vitest run src/__tests__/live_e2e_1096_engraph_manager_http.test.ts
   PASS (gate load) — 1 file / 2 tests skipped without RHYTHM_LIVE_E2E=1
 
+RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 \
+RHYTHM_LIVE_URL=http://127.0.0.1:4398 \
+DB_PATH=/tmp/rhythm-dev-sandbox-1096/rhythm.db \
+RHYTHM_LIVE_ENGRAPH_BIN=/Users/ajhochhalter/.local/bin/engraph \
+npx vitest run src/__tests__/live_e2e_1096_engraph_manager_http.test.ts
+  PASS — 2/2 against the branch-built sandbox. Real authenticated search
+  reached Ready; retry/rebuild/disable preserved unrelated PID 37322.
+
+RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 \
+RHYTHM_LIVE_ENGRAPH_BIN=/Users/ajhochhalter/.local/bin/engraph \
+npx vitest run src/__tests__/live_e2e_engraph_manager.test.ts
+  PASS — 2/2 (44.20s). Both fixture and real Engraph paths used only the
+  sandbox Application Support HOME; disabling returned retrieval to [].
+
+flutter build macos --debug
+codesign --verify --deep --strict --verbose=2 \
+  build/macos/Build/Products/Debug/Rhythm.app
+  PASS — Apple Development: ajhochy@gmail.com (team 56Q69NYP9H), deep/strict
+  verification valid.
+
+signed-client smoke against http://127.0.0.1:4398
+  PASS — Settings rendered a sandbox-only permission_denied state as:
+  "Review Privacy & Security in System Settings. Do not bypass macOS
+  protection. Standard memory search remains active." The real Enable action
+  recovered through the branch-built API/Engraph process to Ready; Disable
+  returned the signed UI to Off. No Gatekeeper/TCC setting or protection was
+  changed, and all temporary source/sandbox state was restored.
+
 ai-workflow checks --level issue
   PASS — Flutter analyze/format + API/MCP typecheck
 
@@ -62,29 +90,11 @@ Visual artifacts (inspected, nonblank):
 
 ## Notes
 
-The verification gate is **not complete**. This workstream was instructed not
-to start or stop a server because foreign work owns 4097/4098 and the live app
-owns 4001/4096. Therefore c3/c7/c9 and the c11 signed-app criterion remain
-pending.
-
-When an isolated slot is available, build/launch the branch per
-`docs/ai/testing-guide.md`, then run:
-
-```bash
-cd apps/api_server
-RHYTHM_LIVE_E2E=1 \
-RHYTHM_LIVE_E2E_ISOLATED=1 \
-RHYTHM_LIVE_URL=http://127.0.0.1:<sandbox-port> \
-DB_PATH=/tmp/<sandbox>/rhythm.db \
-RHYTHM_LIVE_ENGRAPH_BIN=/absolute/path/to/engraph \
-npx vitest run src/__tests__/live_e2e_1096_engraph_manager_http.test.ts
-```
-
-Then point a signed development client at that sandbox and verify:
-
-1. detected/selectable Engraph can reach indexing → starting → ready;
-2. the UI remains usable throughout and health/retry/rebuild/disable work;
-3. a Gatekeeper/TCC-style permission denial shows only the fixed safe System
-   Settings guidance and never suggests bypassing macOS protection;
-4. disabling returns to standard-memory-search reassurance without touching
-   any unrelated process.
+The isolated smoke used API `:4398` and engine `:4397`; it did not touch the
+installed app on `:4001/:4096` or the foreign sandbox on `:4098/:4097`.
+The signed build's API constants were changed only for the throwaway smoke
+build, then restored byte-for-byte (`app_constants.dart` SHA-256
+`7a65d35bcd9b937b796bb3d3b3c7eaf9e2ecd573f527a02a9bb3ba200b62bc4d`).
+The permission failure was injected only into the sandbox manager config so
+the production macOS security posture remained untouched. Final sandbox state
+was disabled and all temporary workspace changes were removed.

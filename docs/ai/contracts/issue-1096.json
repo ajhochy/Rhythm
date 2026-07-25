@@ -24,7 +24,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/live_e2e_engraph_manager.test.ts",
       "test_id": "starts through Rhythm, proves a real <=1s authenticated search, then falls back to FTS-safe [] once disabled",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1096-c4",
@@ -56,7 +56,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/live_e2e_1096_engraph_manager_http.test.ts",
       "test_id": "issue-1096-c7: HTTP lifecycle reaches ready only after a real authenticated <=1s search",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1096-c8",
@@ -72,7 +72,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/live_e2e_1096_engraph_manager_http.test.ts",
       "test_id": "issue-1096-c9: HTTP start retry rebuild and shutdown preserve an unrelated process",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1096-c10",
@@ -86,8 +86,8 @@
       "criterion_id": "issue-1096-c11",
       "text": "Signed-app behavior accounts for expected Gatekeeper/TCC/notarization/signing failures without bypassing macOS protections.",
       "mode": "manual",
-      "status": "pending",
-      "reason": "UNVERIFIED until the signed development client is exercised against the isolated sandbox; the test must confirm safe Gatekeeper/TCC guidance without changing system protections."
+      "status": "pass",
+      "evidence": "Apple Development-signed Debug app was pointed at the isolated :4398 sandbox. A sandbox-only persisted permission_denied state rendered fixed Privacy & Security guidance plus 'Do not bypass macOS protection'; the app then recovered through its real Enable action to Ready and returned to Off through Disable. Source and sandbox state were restored afterward."
     },
     {
       "criterion_id": "issue-1096-c12",
@@ -163,7 +163,5 @@
     }
   ],
   "stack": "dart",
-  "not_tested": [
-    "issue-1096-c11"
-  ]
+  "not_tested": []
 }
