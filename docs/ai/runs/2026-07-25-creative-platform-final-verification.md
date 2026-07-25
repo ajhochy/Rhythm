@@ -38,3 +38,13 @@ index: "[[Rhythm]]"
 - The branch was pushed and draft PR
   [#1179](https://github.com/ajhochy/Rhythm/pull/1179) was opened.
 - Manual visual smoke is required before merge.
+
+## CI follow-up
+
+- Initial Desktop format and Server auth failures were stale-head results.
+- The latest Server Linux failures came from a cross-package `gray-matter`
+  dependency and a process-global `AGENT_LOCAL` race; commit `6a24e56aa` fixed
+  both.
+- Independent local API verification: 3240 passed, 52 skipped.
+- Latest GitHub checks: Server passed in 3m39s, Desktop passed in 5m57s, and MCP
+  typecheck/build passed in 22s. No automated blockers remain.
