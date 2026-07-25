@@ -36,7 +36,7 @@
     },
     {
       "criterion_id": "issue-1175-c5",
-      "text": "A signed development build runs on a physical iPhone and verifies pairing, isolation failures, chat/SSE/PTY, approvals, every Tool, revocation, and background recovery.",
+      "text": "A signed development build runs on a physical iPhone and verifies pairing, isolation failures, chat/SSE/PTY, approvals, every Tool, revocation, and background recovery; committed evidence uses only a non-sensitive model label, never a device UDID.",
       "mode": "ui",
       "test_file": "tests/contract/issue-1175.mjs",
       "test_id": "issue-1175-c5: signed physical-device matrix",

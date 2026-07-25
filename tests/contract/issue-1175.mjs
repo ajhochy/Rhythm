@@ -74,7 +74,16 @@ const physicalChecks = [
 assert.match(evidence.developmentBuild?.buildId ?? '', /^[A-Za-z0-9-]+$/);
 assert.equal(evidence.developmentBuild?.signed, true);
 assert.equal(evidence.physicalDevice?.status, 'pass');
-assert.match(evidence.physicalDevice?.deviceId ?? '', /^[A-Za-z0-9-]+$/);
+assert.match(
+  evidence.physicalDevice?.deviceLabel ?? '',
+  /^(?:iPhone|iPad)[A-Za-z0-9 ()+.-]*$/,
+  'physical-device evidence must use only a non-sensitive model label',
+);
+assert.equal(
+  'deviceId' in (evidence.physicalDevice ?? {}),
+  false,
+  'physical-device evidence must never commit a UDID',
+);
 for (const check of physicalChecks) {
   assert.equal(
     evidence.physicalDevice?.checks?.[check],
