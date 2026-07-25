@@ -468,6 +468,80 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     }
   });
 
+  it('issue-1170-c3: a stalled downstream drain fails once without reconnecting or retaining state', async () => {
+    vi.useFakeTimers();
+    const sseModule = await loadSseModule();
+    expect(sseModule).not.toBeNull();
+    if (!sseModule) return;
+
+    const request = new EventEmitter();
+    const upstreamSignals: AbortSignal[] = [];
+    const frame = new TextEncoder().encode(
+      'data: {"payload":{"id":"evt-stalled","type":"server.connected","properties":{}}}\n\n',
+    );
+    const fetchFn = vi.fn(async (
+      _url: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      if (fetchFn.mock.calls.length > 1) request.emit('close');
+      if (init?.signal) upstreamSignals.push(init.signal);
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(frame);
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    });
+    const proxy = new sseModule.MobileSseProxy({
+      fetchFn,
+      maxFrameBytes: 512,
+      maxBufferedBytes: 512,
+      reconnectBaseMs: 250,
+      reconnectMaxMs: 250,
+    });
+    const response = responseSink();
+    const originalWrite = response.write.bind(response);
+    vi.spyOn(response, 'write').mockImplementation((chunk) => {
+      originalWrite(chunk);
+      return false;
+    });
+    const endSpy = vi.spyOn(response, 'end');
+    let output = '';
+    response.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    const startedAt = Date.now();
+    let completedAt: number | null = null;
+    const streaming = proxy.stream({
+      request,
+      response,
+      project: { id: 'project-contract', root: '/sandbox/project' },
+      isDeviceActive: () => true,
+    }).then(() => {
+      completedAt = Date.now();
+    });
+
+    await vi.advanceTimersByTimeAsync(5_300);
+    await streaming;
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(completedAt).not.toBeNull();
+    expect(completedAt! - startedAt).toBeLessThanOrEqual(5_050);
+    expect(output.match(/"type":"gateway.error"/g)).toHaveLength(1);
+    expect(output).toContain('"code":"STREAM_BACKPRESSURE"');
+    expect(Buffer.byteLength(output, 'utf8')).toBeLessThanOrEqual(512);
+    expect(upstreamSignals).toHaveLength(1);
+    expect(upstreamSignals[0].aborted).toBe(true);
+    expect(endSpy).toHaveBeenCalledTimes(1);
+    expect(response.writableEnded).toBe(true);
+    expect(request.listenerCount('close')).toBe(0);
+    expect(response.listenerCount('close')).toBe(0);
+    expect(response.listenerCount('drain')).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('issue-1170-c1: legacy WebSockets accept actual loopback sockets but reject remote sockets before routing', async () => {
     const server = createServer((_request, response) => response.end());
     const wss = attachWsGateway(server);

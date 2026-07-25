@@ -25,7 +25,8 @@
       "test_file": "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts",
       "test_id": "issue-1170-c3: disconnect and overload paths abort upstream work and release bounded state",
       "additional_test_ids": [
-        "issue-1170-c3: fatal SSE frame and buffer overflow abort once, report the error, and release all state"
+        "issue-1170-c3: fatal SSE frame and buffer overflow abort once, report the error, and release all state",
+        "issue-1170-c3: a stalled downstream drain fails once without reconnecting or retaining state"
       ],
       "status": "pass"
     },

@@ -438,7 +438,16 @@ export class MobileSseProxy {
           delivered = true;
           if (!input.response.write(encoded)) {
             const drained = await waitForDrain(input.response, signal);
-            if (!drained) return delivered;
+            if (!drained) {
+              if (signal.aborted || input.response.writableEnded) {
+                return delivered;
+              }
+              throw new AppError(
+                503,
+                'STREAM_BACKPRESSURE',
+                'Mobile event stream drain timed out',
+              );
+            }
           }
         }
       }

@@ -42,8 +42,11 @@ coordinator branch, then run the combined merge gate and open a draft PR.
 - #1169 passed independent security review, the serialized 3,207-test API
   suite, and a real gateway/engine smoke covering pairing, session lifecycle,
   contained file access, and denied operations.
-- #1137 corrective gates pass (Flutter 32/32 plus analyze, fork prompt 56/56,
-  app 21/21, API containment 10/10, and final standalone-engine live 1/1).
+- #1137 is review-failed pending repair despite earlier green gates.
+- #1170 passes 10 focused contracts, API build, the clean 3,248-test API
+  remainder, and a rebuilt-fork live smoke for session SSE plus PTY closure.
+  The full suite's only failure is the unchanged #723 Vitest VM dynamic-import
+  callback defect, reproduced on the reviewed base.
 - Aggregate coordinator validation is pending after all slices land.
 
 ## Next step
