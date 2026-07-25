@@ -40,7 +40,7 @@ export default defineConfig({
     {
       command: 'node ./tests/fake-opencode/server.mjs',
       url: `${fakeBaseUrl}/path`,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 30_000,
       env: {
         ...process.env,
@@ -50,7 +50,7 @@ export default defineConfig({
     {
       command: `npm run build:web:ci -- --clear && serve -s dist-e2e -l ${webPort}`,
       url: webBaseUrl,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 180_000,
       env: {
         ...process.env,

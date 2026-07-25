@@ -77,6 +77,41 @@
         "docs/ai/runs/artifacts/issue-1171/native-large-text-pair-top.png and native-large-text-connected.png — retained native screenshots after the corrective layout pass",
         "tests/contract/issue-1171.mjs c6 executes API surface/security, paired-host state, Playwright failure/computed-font, and retained native-evidence checks"
       ]
+    },
+    {
+      "criterion_id": "issue-1171-c7",
+      "text": "PairedHostStore.pair malformed parse must transition out of pairing and preserve a truthful retryable snapshot; add store/provider/E2E regression proving scanner re-enables without restart.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/pairing.spec.mjs",
+      "test_id": "issue-1171-c7: malformed scanner input re-enables pairing without an app restart",
+      "status": "pass",
+      "evidence": [
+        "cd apps/mobile && npm run test:paired-host — 22/22 scenarios pass; malformed input restores an unpaired retryable snapshot instead of leaving pairing active",
+        "PLAYWRIGHT_FAKE_PORT=44271 PLAYWRIGHT_WEB_PORT=19271 npx playwright test tests/e2e/pairing.spec.mjs --grep \"malformed scanner|replacement secure-write\" — 3/3 pass; malformed input displays an error, re-enables Scan test QR code, and pairs successfully without restart"
+      ]
+    },
+    {
+      "criterion_id": "issue-1171-c8",
+      "text": "Dedicated Playwright must never reuse an existing server in any local/CI mode; fail fast on occupied ports and keep parameterized ports.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/playwright-port-isolation.test.mjs",
+      "test_id": "issue-1171-c8: a healthy occupied parameterized port fails before Playwright reuses or builds",
+      "status": "pass",
+      "evidence": [
+        "cd apps/mobile && node tests/playwright-port-isolation.test.mjs — pass; a healthy occupied parameterized fake port is rejected within 15 seconds in both local and CI modes"
+      ]
+    },
+    {
+      "criterion_id": "issue-1171-c9",
+      "text": "Add injectable failure of the initial new-token secure write during cross-Mac replacement, including combinations where cleanup/revocation succeed/fail; make final host/device state truthful and actionable in every branch, and cover unit + E2E where practical.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/paired-host.test.mjs",
+      "test_id": "issue-1171-c9: secure-write replacement failure matrix exposes truthful actionable snapshots",
+      "status": "pass",
+      "evidence": [
+        "cd apps/mobile && npm run test:paired-host — 22/22 scenarios pass, including secure-write failure crossed with new-device revocation and Keychain cleanup success/failure",
+        "PLAYWRIGHT_FAKE_PORT=44271 PLAYWRIGHT_WEB_PORT=19271 npx playwright test tests/e2e/pairing.spec.mjs --grep \"malformed scanner|replacement secure-write\" — 3/3 pass; full cleanup exposes the revoked previous host, while server-cleanup failure persists and restores the still-active new device after page reload"
+      ]
     }
   ],
   "stack": "typescript",

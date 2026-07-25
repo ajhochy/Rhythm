@@ -27,6 +27,22 @@ test.beforeEach(async ({ request }) => {
   await resetMobile(request);
 });
 
+test('malformed scanner input re-enables pairing without an app restart', async ({
+  page,
+}) => {
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  await openPairingFromSettings(page);
+  await page.getByLabel('Pairing payload').fill('not-json');
+  await page.getByRole('button', { name: 'Pair securely' }).click();
+
+  await expect(page.getByText(/pairing QR code is invalid/i).last()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Scan test QR code' })).toBeEnabled();
+  await scanTestQr(page);
+  await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
+  expect(pageErrors).toEqual([]);
+});
+
 test('scanner pairing and Settings revocation work without exposing credentials', async ({
   page,
   request,
@@ -106,6 +122,76 @@ test('failed old-Mac revocation rolls back the new credential and remains usable
     expect.arrayContaining([
       expect.objectContaining({ gatewayHost: 'rhythm-mac.tail1234.ts.net', revoked: false }),
       expect.objectContaining({ gatewayHost: 'other-mac.tail1234.ts.net', revoked: true }),
+    ]),
+  );
+});
+
+test('replacement secure-write failure revokes both devices and exposes a retryable revoked host', async ({
+  page,
+  request,
+}) => {
+  await openPairingFromSettings(page);
+  await scanTestQr(page);
+  await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
+  await request.post(`${fakeBaseUrl}/__control/mobile-storage-failure`, {
+    data: { write: true, cleanup: false },
+  });
+
+  await page.getByRole('button', { name: 'Pair a different Mac' }).click();
+  page.once('dialog', (dialog) => void dialog.accept());
+  await scanTestQr(page);
+  await expect(
+    page.getByText(/previous Mac was revoked.*new pairing.*rolled back/i).last(),
+  ).toBeVisible();
+
+  await page.getByLabel('Close pairing').click();
+  await expect(page.getByLabel('Paired Mac status: Access revoked').last()).toBeVisible();
+  await expect(page.getByText('rhythm-mac.tail1234.ts.net').last()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pair a different Mac' })).toBeEnabled();
+
+  const audit = await request.get(`${fakeBaseUrl}/__control/mobile`);
+  const body = await audit.json();
+  expect(body.devices).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ gatewayHost: 'rhythm-mac.tail1234.ts.net', revoked: true }),
+      expect.objectContaining({ gatewayHost: 'other-mac.tail1234.ts.net', revoked: true }),
+    ]),
+  );
+});
+
+test('replacement secure-write and server-cleanup failure exposes the active new device', async ({
+  page,
+  request,
+}) => {
+  await openPairingFromSettings(page);
+  await scanTestQr(page);
+  await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
+  await request.post(`${fakeBaseUrl}/__control/mobile-storage-failure`, {
+    data: { write: true, cleanup: false },
+  });
+  await request.post(`${fakeBaseUrl}/__control/mobile-new-revoke-failure`, {
+    data: { enabled: true },
+  });
+
+  await page.getByRole('button', { name: 'Pair a different Mac' }).click();
+  page.once('dialog', (dialog) => void dialog.accept());
+  await scanTestQr(page);
+  await expect(page.getByText(/new Mac still lists.*Revoke/i).last()).toBeVisible();
+
+  await page.getByLabel('Close pairing').click();
+  await expect(page.getByLabel('Paired Mac status: Mac unhealthy').last()).toBeVisible();
+  await expect(page.getByText('other-mac.tail1234.ts.net').last()).toBeVisible();
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByLabel('Paired Mac status: Mac unhealthy').last()).toBeVisible();
+  await expect(page.getByText('other-mac.tail1234.ts.net').last()).toBeVisible();
+  await expect(page.getByText(/new Mac still lists.*Revoke/i).last()).toBeVisible();
+
+  const audit = await request.get(`${fakeBaseUrl}/__control/mobile`);
+  const body = await audit.json();
+  expect(body.devices).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ gatewayHost: 'rhythm-mac.tail1234.ts.net', revoked: true }),
+      expect.objectContaining({ gatewayHost: 'other-mac.tail1234.ts.net', revoked: false }),
     ]),
   );
 });

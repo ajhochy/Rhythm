@@ -123,3 +123,48 @@ index: "[[Rhythm]]"
   dependency symlink to the canonical cache restored the pinned packages; the
   build's incidental one-line `bun.lock` rewrite was reverted before the diff
   gate.
+
+## Second independent-review corrections
+
+- Malformed QR parsing now occurs inside the paired-host transaction. A parse
+  failure restores the previous host/state, publishes the actionable error,
+  and lets the provider and scanner retry without restarting the app.
+- Cross-Mac replacement now distinguishes the initial new-token Keychain write
+  from credential cleanup. Its rollback truth table records whether the new
+  device remains active and whether the old or new credential remains, then
+  persists a recovery marker for the host on which the next revoke/forget
+  action is meaningful. Provider restart restores that actionable state
+  without sending a mismatched device token to the new host.
+- Failure to revoke the previous Mac now verifies cleanup of the newly created
+  device. If that cleanup also fails, the app reports both active
+  registrations instead of falsely claiming the original pairing was the only
+  remaining device.
+- Both Playwright-managed servers now unconditionally set
+  `reuseExistingServer: false`; parameterized occupied ports are rejected in
+  local and CI modes before any foreign server can be reused.
+- Regression-first red evidence:
+  `npm run test:paired-host` observed `pairing` instead of `unpaired` after a
+  malformed payload, and `node tests/playwright-port-isolation.test.mjs`
+  reached a web build instead of rejecting an occupied port.
+- Final focused checks:
+  - `cd apps/mobile && npm run test:paired-host` — 22/22 pass.
+  - `cd apps/mobile && node tests/playwright-port-isolation.test.mjs` — pass in
+    both local and CI modes.
+  - `cd apps/mobile && npm run test:fake-server:self` — pass.
+  - `cd apps/mobile && npm run lint && npm run typecheck` — pass.
+  - `PLAYWRIGHT_FAKE_PORT=44271 PLAYWRIGHT_WEB_PORT=19271 npx playwright test
+    tests/e2e/pairing.spec.mjs --grep "malformed scanner|replacement
+    secure-write"` — 3/3 pass on dedicated ports. No API, engine, or simulator
+    was started.
+- Failure triage: the first focused browser run found an ambiguous duplicate
+  error-text locator while the correct retryable state was visible; the smoke
+  assertion was scoped to the inline live-region and then passed. A later
+  typecheck found TypeScript had lost a non-null narrowing inside the
+  `existingRevoked` branch; an explicit assertion at that proven branch fixed
+  it, and typecheck plus 22/22 store scenarios passed again.
+- Final GitNexus `detect-changes --scope staged` — LOW, 12 files /
+  25 indexed symbols / 0 affected flows.
+- Final GitNexus `detect-changes --scope compare --base-ref main` — CRITICAL,
+  477 files / 2,465 symbols / 18 flows. The branch remains intentionally
+  unsuitable for wholesale merge; cherry-pick the exact second corrective
+  commit.

@@ -51,28 +51,38 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
     if (!e2eMode || typeof e2eServerUrl !== 'string') {
       return new PairedHostStore();
     }
-    const storageFailureEnabled = async () => {
+    const storageFailures = async () => {
       const response = await fetch(
         `${e2eServerUrl.replace(/\/$/, '')}/__control/mobile-storage-failure`,
       );
-      if (!response.ok) return false;
-      return ((await response.json()) as { enabled?: boolean }).enabled === true;
+      if (!response.ok) return { write: false, cleanup: false };
+      const value = (await response.json()) as {
+        enabled?: boolean;
+        write?: boolean;
+        cleanup?: boolean;
+      };
+      return {
+        write: value.write ?? value.enabled === true,
+        cleanup: value.cleanup ?? value.enabled === true,
+      };
     };
     return new PairedHostStore({
       getCredential: async (key) => e2eCredentials.get(key) ?? null,
       setCredential: async (key, value) => {
+        const failures = await storageFailures();
         if (
           key === PAIRED_DEVICE_SECURE_KEY &&
-          await storageFailureEnabled()
+          (value ? failures.write : failures.cleanup)
         ) {
           throw new Error('E2E secure storage write failure');
         }
         e2eCredentials.set(key, value);
       },
       deleteCredential: async (key) => {
+        const failures = await storageFailures();
         if (
           key === PAIRED_DEVICE_SECURE_KEY &&
-          await storageFailureEnabled()
+          failures.cleanup
         ) {
           throw new Error('E2E secure storage delete failure');
         }

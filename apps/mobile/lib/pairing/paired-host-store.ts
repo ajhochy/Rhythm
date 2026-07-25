@@ -46,6 +46,10 @@ export interface PairedHost {
   minimumMobileVersion: string;
   features: string[];
   pairedAt: string;
+  recovery?: {
+    revokeDevice: boolean;
+    credential: 'none' | 'host' | 'previous';
+  };
 }
 
 export interface PairedHostSnapshot {
@@ -233,8 +237,33 @@ function isPairedHost(value: unknown): value is PairedHost {
     typeof host.minimumMobileVersion === 'string' &&
     Array.isArray(host.features) &&
     host.features.every((feature) => typeof feature === 'string') &&
-    typeof host.pairedAt === 'string'
+    typeof host.pairedAt === 'string' &&
+    (
+      host.recovery === undefined ||
+      (
+        typeof host.recovery === 'object' &&
+        typeof host.recovery.revokeDevice === 'boolean' &&
+        ['none', 'host', 'previous'].includes(host.recovery.credential ?? '')
+      )
+    )
   );
+}
+
+function recoveryMessage(host: PairedHost): string | null {
+  const recovery = host.recovery;
+  if (!recovery) return null;
+  if (recovery.revokeDevice && recovery.credential === 'previous') {
+    return 'The new Mac still lists this iPhone, and the previous Mac credential remains in Keychain. Revoke this iPhone from the new Mac, then retry Forget.';
+  }
+  if (recovery.revokeDevice && recovery.credential === 'host') {
+    return 'The new Mac still lists this iPhone and its credential remains in Keychain. Revoke it from the new Mac, then retry Forget.';
+  }
+  if (recovery.revokeDevice) {
+    return 'The new Mac still lists this iPhone because pairing cleanup failed. Revoke this iPhone from the new Mac, then pair again.';
+  }
+  return recovery.credential === 'previous'
+    ? 'The new pairing was revoked, but the previous Mac credential remains in Keychain. Unlock this iPhone and retry Forget.'
+    : 'The new pairing was revoked, but its credential remains in Keychain. Unlock this iPhone and retry Forget.';
 }
 
 async function neutralizeDeviceToken(options: PairedHostStoreOptions): Promise<void> {
@@ -392,6 +421,8 @@ export class PairedHostStore {
       );
     }
     if (!token) {
+      const recovery = recoveryMessage(host);
+      if (recovery) return this.apply('unhealthy', recovery);
       return this.apply(
         'revoked',
         'This iPhone no longer has a valid Mac credential. Pair it again.',
@@ -421,9 +452,11 @@ export class PairedHostStore {
           'accountMismatch',
           this.accountUserId === null
             ? 'Sign in to the Rhythm account that paired this Mac.'
-            : 'This Mac belongs to a different Rhythm account. Switch accounts or forget it before pairing again.',
+          : 'This Mac belongs to a different Rhythm account. Switch accounts or forget it before pairing again.',
         );
       }
+      const recovery = recoveryMessage(host);
+      if (recovery) return this.apply('unhealthy', recovery);
       const token = await this.getCredential(PAIRED_DEVICE_SECURE_KEY);
       if (!token) {
         return this.apply(
@@ -511,10 +544,12 @@ export class PairedHostStore {
     rawPayload: string,
     input: { userId: number; deviceName: string; replaceExisting?: boolean },
   ): Promise<PairedHostSnapshot> {
+    const previous = this.snapshot();
     const operation = ++this.operation;
     this.apply('pairing', 'Pairing securely with your Mac…');
-    let payload = parsePairingPayload(rawPayload);
+    let payload: PairingPayload = { gatewayUrl: '', pairingCode: '' };
     try {
+      payload = parsePairingPayload(rawPayload);
       if (this.accountUserId !== input.userId) {
         throw new PairedHostError(
           'notSignedIn',
@@ -639,12 +674,22 @@ export class PairedHostStore {
           );
           existingRevoked = true;
         } catch {
-          await client
-            .request(
+          let newDeviceRevoked = false;
+          try {
+            await client.request(
               `/mobile-gateway/devices/${encodeURIComponent(response.deviceId)}`,
               { method: 'DELETE' },
-            )
-            .catch(() => undefined);
+            );
+            newDeviceRevoked = true;
+          } catch {
+            newDeviceRevoked = false;
+          }
+          if (!newDeviceRevoked) {
+            const message =
+              'The previous Mac remains paired, and the new Mac also lists this iPhone because cleanup failed. Open Rhythm on the new Mac, revoke this iPhone there, then try replacing again.';
+            this.apply('unhealthy', message, existing);
+            throw new PairedHostError('storageRollbackFailed', message);
+          }
           throw new PairedHostError(
             'replacementFailed',
             'The previous Mac could not be revoked, so this iPhone kept its existing pairing. Bring the previous Mac online and try again.',
@@ -682,10 +727,45 @@ export class PairedHostStore {
             this.apply('revoked', message, existing);
             throw new PairedHostError('storage', message);
           }
+          if (newDeviceRevoked) {
+            const message = tokenWritten
+              ? 'The new pairing was revoked, but its credential remains in Keychain. Unlock this iPhone and retry Forget.'
+              : 'The new pairing was revoked, but the previous Mac credential remains in Keychain. Unlock this iPhone and retry Forget.';
+            const recoveryHost: PairedHost = {
+              ...(tokenWritten ? host : existing!),
+              recovery: {
+                revokeDevice: false,
+                credential: tokenWritten ? 'host' : 'previous',
+              },
+            };
+            await AsyncStorage.setItem(
+              PAIRED_HOST_META_KEY,
+              JSON.stringify(recoveryHost),
+            ).catch(() => undefined);
+            this.apply('unhealthy', message, recoveryHost);
+            throw new PairedHostError('storageRollbackFailed', message);
+          }
           const message = credentialCleared
             ? 'The new Mac still lists this iPhone because pairing cleanup failed. Revoke this iPhone from the new Mac, then pair again.'
-            : 'The new Mac still lists this iPhone and its credential may remain in Keychain. Unlock this iPhone, revoke it from the new Mac, and retry.';
-          this.apply('unhealthy', message, host);
+            : tokenWritten
+              ? 'The new Mac still lists this iPhone and its credential remains in Keychain. Revoke it from the new Mac, then retry Forget.'
+              : 'The new Mac still lists this iPhone, and the previous Mac credential remains in Keychain. Revoke this iPhone from the new Mac, then retry Forget.';
+          const recoveryHost: PairedHost = {
+            ...host,
+            recovery: {
+              revokeDevice: true,
+              credential: credentialCleared
+                ? 'none'
+                : tokenWritten
+                  ? 'host'
+                  : 'previous',
+            },
+          };
+          await AsyncStorage.setItem(
+            PAIRED_HOST_META_KEY,
+            JSON.stringify(recoveryHost),
+          ).catch(() => undefined);
+          this.apply('unhealthy', message, recoveryHost);
           throw new PairedHostError('storageRollbackFailed', message);
         }
         await AsyncStorage.removeItem(PAIRED_HOST_META_KEY).catch(() => undefined);
@@ -716,6 +796,12 @@ export class PairedHostStore {
       if (error instanceof PairedHostError) {
         if (error.kind === 'incompatible') {
           this.apply('incompatible', error.message, this.host);
+        } else if (
+          error.kind === 'invalidPayload' ||
+          error.kind === 'replacementRequired' ||
+          error.kind === 'replacementFailed'
+        ) {
+          this.apply(previous.state, error.message, previous.host);
         } else if (
           (error.kind === 'storage' && this.state === 'revoked') ||
           error.kind === 'storageRollbackFailed'

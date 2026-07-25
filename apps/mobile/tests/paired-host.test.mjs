@@ -19,6 +19,7 @@ let __cloudHandler = async () => { throw new Error('cloud handler missing'); };
 let __macHandler = async () => { throw new Error('Mac handler missing'); };
 let __asyncSetFailure = false;
 let __asyncRemoveFailure = false;
+let __secureWriteFailure = false;
 let __secureCleanupFailure = false;
 const __cloudCalls = [];
 const __macCalls = [];
@@ -36,6 +37,13 @@ const AsyncStorage = {
 const getNetworkStateAsync = async () => __network;
 const getItemAsync = async (key) => __secureStore.get(key) ?? null;
 const setItemAsync = async (key, value) => {
+  if (
+    __secureWriteFailure &&
+    key === 'rhythm.paired.device' &&
+    value !== ''
+  ) {
+    throw new Error('secure write failed');
+  }
   if (
     __secureCleanupFailure &&
     key === 'rhythm.paired.device' &&
@@ -85,12 +93,14 @@ export function __reset() {
   __macCalls.length = 0;
   __asyncSetFailure = false;
   __asyncRemoveFailure = false;
+  __secureWriteFailure = false;
   __secureCleanupFailure = false;
   __cloudHandler = async () => { throw new Error('cloud handler missing'); };
   __macHandler = async () => { throw new Error('Mac handler missing'); };
 }
 export function __failAsyncSet(value = true) { __asyncSetFailure = value; }
 export function __failAsyncRemove(value = true) { __asyncRemoveFailure = value; }
+export function __failSecureWrite(value = true) { __secureWriteFailure = value; }
 export function __failSecureCleanup(value = true) { __secureCleanupFailure = value; }
 export function __setCloudHandler(handler) { __cloudHandler = handler; }
 export function __setMacHandler(handler) { __macHandler = handler; }
@@ -123,6 +133,7 @@ const {
   __cloudRequests,
   __failAsyncRemove,
   __failAsyncSet,
+  __failSecureWrite,
   __failSecureCleanup,
   __macRequests,
   __reset,
@@ -189,6 +200,22 @@ async function pairedStore() {
   ]) {
     assert.throws(() => parsePairingPayload(invalid), PairedHostError);
   }
+}
+
+// issue-1171-c7: malformed scanner input must leave the store out of pairing
+// so the provider can publish a retryable snapshot without an app restart.
+{
+  __reset();
+  const store = new PairedHostStore();
+  store.setAccountUserId(7);
+  await assert.rejects(
+    () => store.pair('not-json', { userId: 7, deviceName: 'AJ iPhone' }),
+    (error) =>
+      error instanceof PairedHostError && error.kind === 'invalidPayload',
+  );
+  assert.equal(store.snapshot().state, 'unpaired');
+  assert.equal(store.snapshot().host, null);
+  assert.match(store.snapshot().message, /invalid/i);
 }
 
 // issue-1171-c3: the one-time code is sent once and never enters persisted metadata.
@@ -407,6 +434,134 @@ async function pairedStore() {
   ));
 }
 
+async function secureWriteReplacement({
+  newDeviceRevocationFails = false,
+  credentialCleanupFails = false,
+} = {}) {
+  __reset();
+  const store = await pairedStore();
+  const oldMetadata = __async().get(PAIRED_HOST_META_KEY);
+  const otherPayload = JSON.stringify({
+    gatewayUrl: 'https://other-mac.tail1234.ts.net',
+    pairingCode: 'b'.repeat(43),
+  });
+  __failSecureWrite();
+  __failSecureCleanup(credentialCleanupFails);
+  __setCloudHandler(async (path) => {
+    if (path === '/mobile-gateway/health') {
+      return { ...healthResponse, hostId: 'host-2' };
+    }
+    if (path === '/mobile-gateway/pair') {
+      return {
+        ...pairResponse,
+        deviceId: 'device-2',
+        hostId: 'host-2',
+        deviceToken: 'new-device-token',
+      };
+    }
+    if (
+      path === '/mobile-gateway/devices/device-2' &&
+      newDeviceRevocationFails
+    ) {
+      throw new Error('new Mac cleanup failed');
+    }
+    assert.ok([
+      '/mobile-gateway/devices/device-1',
+      '/mobile-gateway/devices/device-2',
+    ].includes(path));
+    return undefined;
+  });
+  let failure;
+  try {
+    await store.pair(otherPayload, {
+      userId: 7,
+      deviceName: 'AJ iPhone',
+      replaceExisting: true,
+    });
+  } catch (error) {
+    failure = error;
+  }
+  assert.ok(failure instanceof PairedHostError);
+  return { failure, oldMetadata, store };
+}
+
+// issue-1171-c9: if the initial new-token Keychain write fails during a
+// cross-Mac replacement, every server/local cleanup combination must expose
+// the host that still needs action and describe exactly what remains.
+{
+  const clean = await secureWriteReplacement();
+  assert.equal(clean.failure.kind, 'storage');
+  assert.equal(clean.store.snapshot().state, 'revoked');
+  assert.equal(clean.store.snapshot().host.hostId, 'host-1');
+  assert.match(clean.store.snapshot().message, /previous Mac was revoked.*rolled back/i);
+  assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
+  assert.equal(__async().get(PAIRED_HOST_META_KEY), clean.oldMetadata);
+
+  const serverCleanupFailed = await secureWriteReplacement({
+    newDeviceRevocationFails: true,
+  });
+  assert.equal(serverCleanupFailed.failure.kind, 'storageRollbackFailed');
+  assert.equal(serverCleanupFailed.store.snapshot().state, 'unhealthy');
+  assert.equal(serverCleanupFailed.store.snapshot().host.hostId, 'host-2');
+  assert.match(
+    serverCleanupFailed.store.snapshot().message,
+    /new Mac still lists.*Revoke/i,
+  );
+  assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
+  const serverCleanupMetadata = JSON.parse(
+    __async().get(PAIRED_HOST_META_KEY),
+  );
+  assert.equal(serverCleanupMetadata.hostId, 'host-2');
+  assert.deepEqual(serverCleanupMetadata.recovery, {
+    revokeDevice: true,
+    credential: 'none',
+  });
+  const restoredServerCleanup = new PairedHostStore();
+  restoredServerCleanup.setAccountUserId(7);
+  assert.equal((await restoredServerCleanup.restore()).state, 'unhealthy');
+  assert.equal(restoredServerCleanup.snapshot().host.hostId, 'host-2');
+  assert.equal(__macRequests().length, 0);
+
+  const keychainCleanupFailed = await secureWriteReplacement({
+    credentialCleanupFails: true,
+  });
+  assert.equal(keychainCleanupFailed.failure.kind, 'storageRollbackFailed');
+  assert.equal(keychainCleanupFailed.store.snapshot().state, 'unhealthy');
+  assert.equal(keychainCleanupFailed.store.snapshot().host.hostId, 'host-1');
+  assert.match(
+    keychainCleanupFailed.store.snapshot().message,
+    /new pairing was revoked.*previous (?:Mac )?credential remains.*Forget/i,
+  );
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
+  const keychainCleanupMetadata = JSON.parse(
+    __async().get(PAIRED_HOST_META_KEY),
+  );
+  assert.equal(keychainCleanupMetadata.hostId, 'host-1');
+  assert.deepEqual(keychainCleanupMetadata.recovery, {
+    revokeDevice: false,
+    credential: 'previous',
+  });
+
+  const bothCleanupsFailed = await secureWriteReplacement({
+    newDeviceRevocationFails: true,
+    credentialCleanupFails: true,
+  });
+  assert.equal(bothCleanupsFailed.failure.kind, 'storageRollbackFailed');
+  assert.equal(bothCleanupsFailed.store.snapshot().state, 'unhealthy');
+  assert.equal(bothCleanupsFailed.store.snapshot().host.hostId, 'host-2');
+  assert.match(
+    bothCleanupsFailed.store.snapshot().message,
+    /new Mac still lists.*previous (?:Mac )?credential remains.*Revoke.*Forget/i,
+  );
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
+  const bothCleanupMetadata = JSON.parse(__async().get(PAIRED_HOST_META_KEY));
+  assert.equal(bothCleanupMetadata.hostId, 'host-2');
+  assert.deepEqual(bothCleanupMetadata.recovery, {
+    revokeDevice: true,
+    credential: 'previous',
+  });
+}
+
 // issue-1171 security: if the old Mac cannot be revoked, the newly minted
 // credential is rolled back and the original pairing remains intact.
 {
@@ -442,6 +597,7 @@ async function pairedStore() {
   );
   assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
   assert.equal(__async().get(PAIRED_HOST_META_KEY), oldMetadata);
+  assert.equal(store.snapshot().state, 'connected');
   assert.equal(store.snapshot().host.hostId, 'host-1');
   assert.ok(__cloudRequests().some(
     (request) =>
@@ -617,4 +773,4 @@ async function pairedStore() {
   assert.equal(__cloudRequests()[2].path, '/mobile-gateway/devices/device-1');
 }
 
-console.log('Paired-host security and state-machine tests passed (20 scenarios)');
+console.log('Paired-host security and state-machine tests passed (22 scenarios)');

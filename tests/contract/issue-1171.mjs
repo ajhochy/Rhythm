@@ -106,7 +106,7 @@ if (needs('c2', 'c5')) {
   );
 }
 
-if (needs('c3', 'c4', 'c6')) {
+if (needs('c3', 'c4', 'c6', 'c7', 'c9')) {
   run(
     'c3/c4/c6 paired-host security and state machine',
     'apps/mobile',
@@ -115,7 +115,7 @@ if (needs('c3', 'c4', 'c6')) {
   );
 }
 
-if (needs('c4', 'c5', 'c6')) {
+if (needs('c4', 'c5', 'c6', 'c7', 'c9')) {
   run(
     'c4/c5/c6 pairing, replacement, failure UI, and computed-type browser behavior',
     'apps/mobile',
@@ -125,6 +125,15 @@ if (needs('c4', 'c5', 'c6')) {
       PLAYWRIGHT_FAKE_PORT: '44171',
       PLAYWRIGHT_WEB_PORT: '19171',
     },
+  );
+}
+
+if (needs('c8')) {
+  run(
+    'c8 Playwright occupied-port isolation',
+    'apps/mobile',
+    'node',
+    ['tests/playwright-port-isolation.test.mjs'],
   );
 }
 

@@ -2,101 +2,57 @@
 
 ## Current focus
 
-Consolidate the corrected #1137, #1170, and #1171 slices into the mobile
-activity/chat branch, then finish the production mobile gateway wiring required
-by #1172 and #1173.
+Finish #1174 mobile parity against a rebuilt, sandbox-scoped OpenCode engine,
+then run the cumulative merge-readiness gates for open issues #1076–#1175.
 
 ## Active branch / PR
 
 - Branch: `codex/mobile-1172-agents-activity`
-- PR: none; this is the isolated mobile integration worktree.
+- PR: none yet; this is the isolated mobile integration worktree.
 
 ## In progress
 
-- Integrated and verified: #1096, #1123, #1132, #1134, #1135, #1157,
-  #1161, #1162, #1164, #1166, #1167, #1168, #1169, and #1170.
-- The mobile app/gateway foundation is consolidated; #1168 enforces
-  authenticated, project-scoped, allowlisted device access, while #1169
-  exposes the generated operation allowlist through the hardened proxy.
-- #1137's final corrective slice is independently reviewed and live-verified;
-  the fork consumes browser binaries after selection, mobile prompt file parts
-  are canonicalized and contained before engine forwarding, full bytes are
-  classified even for declared text MIME, and valid DOCX extraction requires
-  structured tool proof.
-- #1171's pairing stack is being integrated as a working base, but its latest
-  immutable review remains blocked on malformed-QR recovery, fail-closed
-  dedicated Playwright ports, and transactional secure-write failure coverage.
-  #1172's activity/chat foundation and #1173's tool screens are being
-  consolidated in parallel; #1174 parity implementation remains in progress.
+- Integrated and verified: #1096, #1123, #1132, #1134, #1135, #1137,
+  #1157, #1161, #1162, #1164, #1166, #1167, #1168, #1169, #1170, #1171,
+  #1172, and #1173.
+- #1171 corrective commit `df75c94cf` independently passes with no P0–P2
+  findings: malformed scans recover, Playwright owns dedicated ports, and
+  secure-write rollback/recovery remains truthful across restart.
+- #1172/#1173 now use the authenticated paired-Mac transport in production:
+  safe project catalog, opaque project headers, SSE, PTY headers, activity,
+  chat, and cloud/paired tool routing are scoped by account, host, and device.
+- #1174 contract/parity work is still active. The live gate is initializing
+  Git before asserting project update semantics, then rerunning the complete
+  real-engine matrix.
 
 ## Risks / known issues
 
-- Compare-to-main impact is expected HIGH/CRITICAL because this worktree
-  intentionally inherits the cumulative #1076–#1175 implementation.
-- Production project-catalog, authenticated project-header injection, activity
-  transport, and tool transport wiring remain before the mobile client is
-  shippable.
-- Fork-wide typecheck has one unrelated `GlobalBusEmitter.emit` base failure;
-  focused fork/core suites pass.
+- Compare-to-main impact is expected HIGH/CRITICAL because this branch
+  intentionally accumulates the full #1076–#1175 implementation.
 - #1135's additive SQLite/Postgres change requires normal migration review.
-- #1123 adds one Rhythm MCP tool; update the PR tool count.
+- #1123 adds one Rhythm MCP tool; the draft PR description must update the
+  approximate tool count.
+- Signed distribution remains pending after aggregate simulator/live gates.
 
 ## Test status
 
-- All listed integrated issues have focused/full automated checks and required
-  live sandbox or signed-client evidence in their run logs.
-- #1166 pairing, #1167 account lifecycle/mobile gates, and #1168 live project
-  isolation all pass with no auth/token residue.
-- #1169 passed independent security review, the serialized 3,207-test API
-  suite, and a real gateway/engine smoke covering pairing, session lifecycle,
-  contained file access, and denied operations.
+- Required backend slices have focused checks and live sandbox evidence in
+  `docs/ai/runs/`; #1096 also has signed Flutter UI evidence.
 - #1137's final immutable review passes at `0c8ab294b`, including the guarded
   six-test live endpoint suite.
-- #1170 passes 10 focused contracts, API build, the clean 3,248-test API
-  remainder, and a rebuilt-fork live smoke for session SSE plus PTY closure.
-  The full suite's only failure is the unchanged #723 Vitest VM dynamic-import
-  callback defect, reproduced on the reviewed base.
-- #1172's pre-integration acceptance, browser, API, and live checks pass.
-- `ai-workflow checks --level issue` passes.
-- `ai-workflow checks --level pr` passes every Flutter, API, MCP, fork, and
-  mobile static/contract/fake-server/web-E2E sub-gate.
-- Focused correction gates pass: browser 16/16, mobile proxy 11/11, issue-723
-  2/2, mobile Playwright 15/15.
-- Fresh real-engine sandbox gates pass: mobile containment 1/1 and the
-  structured-proof #1137 file 6/6. Dedicated ports 5497/5498 are free and the
-  sandbox was removed.
-- #1171's earlier focused/live/native gates passed, but the independent final
-  review found three correctness/test-integrity gaps; corrective tests and code
-  are required before approval.
-- Aggregate coordinator validation is pending after all slices land.
+- #1170 passes focused contracts, API build, non-baseline regressions, and
+  rebuilt-fork SSE/PTY live smoke.
+- #1171 passes 22 paired-host scenarios, local/CI occupied-port rejection,
+  3/3 corrective browser checks, and independent re-review.
+- Paired production browser smoke passes QR pairing, project catalog, chat
+  creation/completion over SSE, Activity, and an audit proving no filesystem
+  paths or credentials crossed the mobile boundary.
+- Current aggregate gates pass mobile `test:ci:static`, API build, and 13
+  focused mobile gateway/project/SSE tests. GitNexus staged scope for the
+  production wiring commit is LOW with zero affected indexed flows.
 
 ## Next step
 
-Finish integrating the #1171 base, land and independently approve its final
-correction, then
-wire #1172/#1173 to the strict paired-device production surface before the
-aggregate behavioral gate.
-
-## Recent coding-agent runs
-
-- 2026-07-25 — #1137 review correction: replaced serialized Office-proof
-  matching with completed structured tool-part and transcript-order assertions;
-  red mention-only regression reproduced, focused build passed, and dedicated
-  live sandbox passed 4/4 before clean teardown.
-
-### 2026-07-25 — #1137 shared-port live guard
-
-- Files modified: `live_e2e_1137_any_file_reader_discovery.test.ts` for robust
-  API/engine endpoint parsing and pre-request rejection;
-  `docs/ai/contracts/issue-1137.json` for criteria c12-c13; the #1137 run log
-  for exact red/green, listener, sandbox, and teardown evidence.
-- Checks run: focused red produced one failing and three passing non-live tests;
-  focused green passed 4/4 with two live tests skipped; API build passed;
-  dedicated 5497/5498 live gate passed 6/6 in 33.22s and the sandbox was
-  removed.
-- Decisions made: kept the stricter endpoint guard local to #1137 so unrelated
-  live suites retain their existing #1001 isolation behavior; fail closed on
-  malformed, non-HTTP, non-loopback, implicit-port, and shared-port URLs.
-- Deviations from spec: none.
-- Concerns: cumulative compare-to-main risk remains inherited from the
-  #1076-#1175 integration branch; this correction changes no production symbol.
+Land and independently approve #1174, run cumulative API/mobile/fork/Flutter
+gates plus native simulator smoke, then push the integration branch and update
+the existing draft PR with exact live evidence and production review notes.

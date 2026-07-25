@@ -219,13 +219,35 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && pathname === '/__control/mobile-new-revoke-failure') {
+      const body = await readJson(req);
+      state.mobileNewRevokeFailure = body?.enabled === true;
+      sendJson(res, 200, { enabled: state.mobileNewRevokeFailure });
+      return;
+    }
+
     if (pathname === '/__control/mobile-storage-failure') {
       if (req.method === 'POST') {
         const body = await readJson(req);
-        state.mobileStorageFailure = body?.enabled === true;
+        if (typeof body?.enabled === 'boolean') {
+          state.mobileCredentialWriteFailure = body.enabled;
+          state.mobileCredentialCleanupFailure = body.enabled;
+        }
+        if (typeof body?.write === 'boolean') {
+          state.mobileCredentialWriteFailure = body.write;
+        }
+        if (typeof body?.cleanup === 'boolean') {
+          state.mobileCredentialCleanupFailure = body.cleanup;
+        }
       }
       if (req.method === 'GET' || req.method === 'POST') {
-        sendJson(res, 200, { enabled: state.mobileStorageFailure });
+        sendJson(res, 200, {
+          enabled:
+            state.mobileCredentialWriteFailure &&
+            state.mobileCredentialCleanupFailure,
+          write: state.mobileCredentialWriteFailure,
+          cleanup: state.mobileCredentialCleanupFailure,
+        });
         return;
       }
     }
@@ -321,6 +343,13 @@ const server = http.createServer(async (req, res) => {
           gatewayHost === 'rhythm-mac.tail1234.ts.net'
         ) {
           sendJson(res, 503, { error: { code: 'UNAVAILABLE', message: 'Old Mac offline' } });
+          return;
+        }
+        if (
+          state.mobileNewRevokeFailure &&
+          gatewayHost === 'other-mac.tail1234.ts.net'
+        ) {
+          sendJson(res, 503, { error: { code: 'UNAVAILABLE', message: 'New Mac cleanup failed' } });
           return;
         }
         device.revoked = true;
