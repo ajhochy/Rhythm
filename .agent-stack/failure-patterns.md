@@ -269,3 +269,11 @@
 - **Criteria affected**: c3, c5, c7-c15, c17-c18, c20 passed in the live/signed smoke; the remaining criteria retained automated contract evidence
 - **Root cause**: the feature branch predated alternate sandbox-port support, so the already-reviewed coordinator patch was applied only for the isolated run and restored byte-for-byte afterward.
 - **Suggested fix**: land alternate-port sandbox support before the next parallel live workstream so branch verification never needs a temporary launcher patch.
+
+## 2026-07-24 — Issue #1123 — interactive async delegation (smoke PASS)
+
+- **Result**: smoke PASS (verification claimed PASS; no divergence)
+- **Category**: none
+- **Criteria affected**: issue-1123-c1 through issue-1123-c6
+- **Root cause**: no product failure; the first live-test lineage assertion mixed local database session IDs with the engine SDK identities returned by `/children`, then passed after failure triage corrected the identity domain.
+- **Suggested fix**: live contracts crossing local and engine session surfaces should declare the identity domain of every endpoint before asserting lineage.

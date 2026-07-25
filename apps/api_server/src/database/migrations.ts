@@ -2726,4 +2726,27 @@ Your job, in order:
       ).run(repaired, row.id, row.value);
     }
   });
+
+  // #1123 — durable callback/outbox state for interactive asynchronous
+  // delegation. The local child and parent rows remain the source of truth for
+  // transcript/session data; this table only distinguishes async children from
+  // native `task` children and makes completion delivery idempotent.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_async_delegations (
+      id TEXT PRIMARY KEY,
+      parent_session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      child_session_id TEXT NOT NULL UNIQUE REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      target_agent_config_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'dispatched'
+        CHECK (status IN ('dispatched', 'completed', 'waking', 'notified', 'failed')),
+      completion_text TEXT,
+      error_text TEXT,
+      completed_at TEXT,
+      notified_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_async_delegations_parent_status
+      ON agent_async_delegations(parent_session_id, status, created_at);
+  `);
 }

@@ -993,6 +993,10 @@ export class OpencodeClientService {
     // skipped (same as any non-google provider) and can still be applied
     // later via `updateSessionAllowlist` once resolved.
     providerId?: string | null,
+    // #1123 — when present, create a real engine child session. Optional and
+    // omitted by every pre-#1123 caller, so top-level create/resume/AgentRunner
+    // behavior stays byte-for-byte unchanged.
+    parentSdkSessionId?: string,
   ): Promise<{ id: string } | null> {
     if (!this.client) return null;
 
@@ -1052,6 +1056,9 @@ export class OpencodeClientService {
 
     try {
       const body: Record<string, unknown> = { title };
+      if (parentSdkSessionId) {
+        body.parentID = parentSdkSessionId;
+      }
       if (mcpAllowlist !== undefined) {
         body.mcpAllowlist = mcpAllowlist;
       }

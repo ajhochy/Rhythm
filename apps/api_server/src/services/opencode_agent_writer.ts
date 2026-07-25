@@ -569,6 +569,7 @@ export function writeAgentProfileFile(config: AgentConfig): void {
       const keep = new Set<string>(Object.keys(corePermissions));
       if (config.imageGenerationEnabled === true) keep.add('image_generation');
       if (config.isManager === true) keep.add('task');
+      keep.add('rhythm_delegate_async');
       if (config.id === 'workflow-orchestrator') keep.add('write');
       fm = pruneStalePermissionKeys(fm, keep);
     } else {
@@ -596,6 +597,19 @@ export function writeAgentProfileFile(config: AgentConfig): void {
     const delegateRoster = parseDelegateRoster(config);
     if (config.isManager === true) {
       fm = setPermissionValue(fm, 'task', buildTaskDelegatePermissions(delegateRoster));
+    }
+    // #1123 — expose the additive async delegate tool only to manager profiles
+    // that can own an interactive chat. Runtime API validation repeats the
+    // interactive/session gate so a profile that is also schedulable cannot use
+    // this from a headless run. An explicit corePermissionsJson entry remains
+    // authoritative for eligible managers; every ineligible profile is forced
+    // deny so the schema is unavailable before dispatch.
+    if (config.isManager === true && config.sessionSelectable) {
+      if (corePermissions.rhythm_delegate_async === undefined) {
+        fm = setPermissionKey(fm, 'rhythm_delegate_async', 'allow');
+      }
+    } else {
+      fm = setPermissionKey(fm, 'rhythm_delegate_async', 'deny');
     }
     if (config.id === 'workflow-orchestrator') {
       fm = setPermissionKey(fm, 'write', 'allow');

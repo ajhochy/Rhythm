@@ -936,6 +936,28 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_category ON agent_sessions(category);
   `);
 
+  // #1123 — durable completion/outbox state for interactive async delegation.
+  // Additive only; no existing rows need backfill because pre-#1123 child
+  // sessions all belong to the native blocking `task` path.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_async_delegations (
+      id TEXT PRIMARY KEY,
+      parent_session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      child_session_id TEXT NOT NULL UNIQUE REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      target_agent_config_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'dispatched'
+        CHECK (status IN ('dispatched', 'completed', 'waking', 'notified', 'failed')),
+      completion_text TEXT,
+      error_text TEXT,
+      completed_at TEXT,
+      notified_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_async_delegations_parent_status
+      ON agent_async_delegations(parent_session_id, status, created_at);
+  `);
+
   // One-time repair, marker-guarded (schema_meta) — same contract as the
   // SQLite twin in migrations.ts ('nonmanager_delegates_wipe_v1'): this
   // bootstrap runs on EVERY boot, so an unguarded content UPDATE here

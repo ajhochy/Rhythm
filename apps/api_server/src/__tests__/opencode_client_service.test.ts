@@ -91,6 +91,29 @@ describe('OpencodeClientService — SDK response unwrap (.data)', () => {
     expect(await svc.createSession('hello')).toEqual({ id: 'sdk-session-123' });
   });
 
+  it('#1123 createSession adds parentID only for the optional child-session path', async () => {
+    const create = vi.fn().mockResolvedValue({
+      data: { id: 'sdk-child' }, request: {}, response: {},
+    });
+    const svc = makeService({ session: { create } });
+
+    await svc.createSession('top-level', '/tmp');
+    await svc.createSession(
+      'child',
+      '/tmp',
+      undefined,
+      undefined,
+      'anthropic',
+      'sdk-parent',
+    );
+
+    expect(create.mock.calls[0][0].body).toEqual({ title: 'top-level' });
+    expect(create.mock.calls[1][0].body).toEqual({
+      title: 'child',
+      parentID: 'sdk-parent',
+    });
+  });
+
   it('prompt returns res.data on success and null on error wrapper', async () => {
     const ok = makeService({
       session: {

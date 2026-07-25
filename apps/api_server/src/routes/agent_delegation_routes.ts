@@ -9,3 +9,4 @@ export const agentDelegationRouter = Router();
 if (!env.agentLocal) agentDelegationRouter.use(requireAuth);
 
 agentDelegationRouter.post('/delegate', controller.delegate.bind(controller));
+agentDelegationRouter.post('/delegate-async', controller.delegateAsync.bind(controller));

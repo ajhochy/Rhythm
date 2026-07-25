@@ -140,6 +140,7 @@ describe('workflow-orchestrator file projection', () => {
       );
       expect(projected).not.toContain('Do not attempt domain or coding work yourself');
       expect(projected).not.toContain('Only handle trivial admin yourself');
+      expect(projected).toContain('  rhythm_delegate_async: allow');
     }
 
     expect(secretary).toContain(
@@ -161,6 +162,32 @@ describe('workflow-orchestrator file projection', () => {
     expect(workflow).toContain(
       '  task:\n    "*": deny\n    "coding-agent": allow\n    "verification-gate": allow',
     );
+  });
+
+  it('#1123 denies async delegation in non-manager and hidden/headless profile files', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    const specialist = agentConfig('specialist');
+    const hiddenManager = managerConfig(
+      'hidden-manager',
+      'Hidden Manager',
+      'Headless manager profile.',
+      ['specialist'],
+    );
+    hiddenManager.sessionSelectable = false;
+
+    writeAgentProfileFile(specialist);
+    writeAgentProfileFile(hiddenManager);
+
+    for (const id of ['specialist', 'hidden-manager']) {
+      const projected = readFileSync(
+        join(state.home, '.config', 'opencode', 'agents', `${id}.md`),
+        'utf8',
+      );
+      expect(projected).toContain('  rhythm_delegate_async: deny');
+    }
   });
 
   it('issue-0-c6: workflow-orchestrator projection grants write', () => {
@@ -548,8 +575,9 @@ describe('#1138: corePermissions projection is defensive and self-healing', () =
     // The invalid bare-* alias line must never be emitted.
     expect(projected).not.toMatch(/"permission":\s*\*/);
     expect(projected).not.toContain('"permission": read');
-    // With every entry skipped, no permission block is written at all.
-    expect(projected).not.toMatch(/^permission:/m);
+    // With every malformed entry skipped, only #1123's mandatory fail-closed
+    // async-delegation deny remains.
+    expect(projected).toContain('permission:\n  rhythm_delegate_async: deny');
   });
 
   it('still projects a valid flat-map corePermissions shape', () => {
@@ -632,7 +660,7 @@ describe('#1138: corePermissions projection is defensive and self-healing', () =
       corePermissionsJson: null,
     });
     const projected = readProjected('empties-perms');
-    expect(projected).not.toMatch(/^permission:/m);
+    expect(projected).toContain('permission:\n  rhythm_delegate_async: deny');
     expect(projected).not.toContain('read: allow');
   });
 
@@ -649,4 +677,3 @@ describe('#1138: corePermissions projection is defensive and self-healing', () =
     expect(readProjected('workflow-orchestrator')).toContain('write: allow');
   });
 });
-

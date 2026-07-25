@@ -4,7 +4,10 @@ import {
   agentConfigExecutionBlockReason,
 } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { AgentAsyncDelegationsRepository } from '../repositories/agent_async_delegations_repository';
 import { run as runAgent } from './agent_runner';
+import { opencodeClient, opencodeSessionMap } from './opencode_engine';
+import { resolveProfileScope } from './agent_profile_scope';
 
 export interface AgentDelegationInput {
   callerAgentConfigId?: string | null;
@@ -18,6 +21,14 @@ export interface AgentDelegationInput {
 export interface AgentDelegationResult {
   sessionId: string;
   output: string;
+  targetAgentConfigId: string;
+}
+
+export interface AsyncAgentDelegationResult {
+  sessionId: string;
+  sdkSessionId: string;
+  status: 'dispatched';
+  message: string;
   targetAgentConfigId: string;
 }
 
@@ -125,5 +136,176 @@ export async function delegateToAgent(
     sessionId: result.sessionId,
     output: result.result,
     targetAgentConfigId: targetId,
+  };
+}
+
+function hasExplicitAsyncDelegationDeny(corePermissionsJson: string | null): boolean {
+  if (!corePermissionsJson) return false;
+  try {
+    const parsed = JSON.parse(corePermissionsJson) as Record<string, unknown>;
+    const value = parsed?.rhythm_delegate_async;
+    if (value === 'deny') return true;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return Object.values(value as Record<string, unknown>).some((action) => action === 'deny');
+    }
+  } catch {
+    // The profile writer already treats malformed permissions fail-soft. The
+    // hard runtime mode/manager/roster gates below remain authoritative.
+  }
+  return false;
+}
+
+function parseSkillNames(allowedSkillsJson: string | null): string[] | undefined {
+  if (allowedSkillsJson === null) return undefined;
+  try {
+    const parsed = JSON.parse(allowedSkillsJson) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (value): value is string => typeof value === 'string' && value.trim().length > 0,
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * #1123 — interactive-only, fire-and-forget delegation.
+ *
+ * This deliberately coexists with {@link delegateToAgent}: synchronous
+ * scheduler/AgentFlow callers keep waiting for a final result, while an
+ * interactive manager gets an immediate acknowledgement and a later pushed
+ * completion through AsyncDelegationCompletionService.
+ */
+export async function delegateToAgentAsync(
+  input: AgentDelegationInput,
+): Promise<AsyncAgentDelegationResult> {
+  const claimedCallerId = input.callerAgentConfigId?.trim();
+  const callerSessionId = input.callerSessionId?.trim();
+  const targetId = input.targetAgentConfigId?.trim();
+  const prompt = input.prompt?.trim();
+
+  if (!callerSessionId) throw AppError.badRequest('callerSessionId is required');
+  if (!targetId) throw AppError.badRequest('targetAgentConfigId is required');
+  if (!prompt) throw AppError.badRequest('prompt is required');
+
+  const sessionRepo = new AgentSessionsRepository();
+  const callerSession = sessionRepo.findById(callerSessionId);
+  if (!callerSession) throw AppError.badRequest('caller session not found');
+  if (
+    callerSession.isSystem ||
+    callerSession.scheduledTaskId !== null ||
+    callerSession.category !== 'chat'
+  ) {
+    throw AppError.forbidden('async delegation is only available in interactive chat sessions');
+  }
+
+  const callerId = (callerSession.mcpRole ?? callerSession.agentKind)?.trim();
+  if (!callerId) throw AppError.forbidden('caller session has no agent profile');
+  if (claimedCallerId && claimedCallerId !== callerId) {
+    throw AppError.forbidden('callerAgentConfigId does not match caller session');
+  }
+  if (callerId === targetId) throw AppError.badRequest('self-delegation is not allowed');
+
+  const parentSdkSessionId =
+    callerSession.sdkSessionId ?? opencodeSessionMap.get(callerSession.id) ?? null;
+  if (!parentSdkSessionId) {
+    throw AppError.badRequest('caller session is not attached to the engine');
+  }
+
+  const childDepth = callerSession.delegationDepth + 1;
+  if (childDepth > MAX_DELEGATION_DEPTH) {
+    throw AppError.badRequest('delegation depth limit exceeded');
+  }
+
+  const configRepo = new AgentConfigsRepository();
+  const caller = configRepo.getById(callerId);
+  if (!caller || !caller.isManager || !caller.sessionSelectable) {
+    throw AppError.forbidden('caller profile is not allowed to use interactive async delegation');
+  }
+  if (hasExplicitAsyncDelegationDeny(caller.corePermissionsJson)) {
+    throw AppError.forbidden('caller profile denies rhythm_delegate_async');
+  }
+  if (!parseAllowedDelegates(caller.allowedDelegatesJson).has(targetId)) {
+    throw AppError.forbidden('target profile is not an allowed delegate');
+  }
+
+  const target = configRepo.getById(targetId);
+  if (!target || !target.enabled || !target.isAgent) {
+    throw AppError.badRequest('target profile is not runnable');
+  }
+
+  const profileScope = await resolveProfileScope(targetId);
+  const skillNames = parseSkillNames(profileScope.allowedSkillsJson);
+  const scopedPrompt = input.context?.trim()
+    ? `${input.context.trim()}\n\n${prompt}`
+    : prompt;
+  const childTitle = `Async delegation: ${target.label} (@${targetId} subagent)`;
+  const childSession = await opencodeClient.createSession(
+    childTitle,
+    callerSession.cwd,
+    profileScope.mcpRoleConfig ?? undefined,
+    skillNames,
+    profileScope.model.providerID,
+    parentSdkSessionId,
+  );
+  if (!childSession?.id) {
+    throw AppError.internal('failed to create async delegated child session');
+  }
+
+  const childRow = sessionRepo.upsertChildSession(
+    childSession.id,
+    parentSdkSessionId,
+    childTitle,
+    callerSession.cwd,
+    profileScope.mcpRoleConfig?.allowedToolsJson ?? null,
+  );
+  if (!childRow) {
+    throw AppError.internal('failed to persist async delegated child session');
+  }
+
+  opencodeSessionMap.set(childRow.id, childSession.id);
+  sessionRepo.updatePermissionMode(childRow.id, 'bypassPermissions');
+  sessionRepo.updateStatus(childRow.id, 'working');
+
+  const delegationRepo = new AgentAsyncDelegationsRepository();
+  delegationRepo.create({
+    parentSessionId: callerSession.id,
+    childSessionId: childRow.id,
+    targetAgentConfigId: targetId,
+  });
+
+  // Subscribe before enqueue so a very fast child cannot finish before the
+  // bridge has a route for its first message/status event.
+  const { streamBridge } = await import('./opencode_stream_bridge');
+  await streamBridge.streamSession(childRow.id, childSession.id, callerSession.cwd);
+
+  const runningAsOwnAgent =
+    profileScope.ocAgent !== null && profileScope.ocAgent === targetId;
+  const promptOpts: Record<string, unknown> = {
+    permissionMode: 'bypassPermissions',
+    ...(profileScope.ocAgent ? { agent: profileScope.ocAgent } : {}),
+    ...(profileScope.systemPrompt && !runningAsOwnAgent
+      ? { system: profileScope.systemPrompt }
+      : {}),
+  };
+  const enqueued = await opencodeClient.promptAsync(
+    childSession.id,
+    scopedPrompt,
+    profileScope.model,
+    callerSession.cwd,
+    promptOpts,
+  );
+  if (!enqueued) {
+    delegationRepo.markDispatchFailed(childRow.id, 'engine rejected async delegated prompt');
+    sessionRepo.setErrorStatus(childRow.id, 'Engine rejected async delegated prompt');
+    throw AppError.internal('failed to enqueue async delegated prompt');
+  }
+
+  return {
+    sessionId: childRow.id,
+    sdkSessionId: childSession.id,
+    status: 'dispatched',
+    targetAgentConfigId: targetId,
+    message: `Dispatched to ${target.label}; you'll be notified when it's done.`,
   };
 }
