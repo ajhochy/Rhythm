@@ -16,7 +16,14 @@ import { setDb, getDb } from '../database/db';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 
 /** Tools referenced by the Rhythm Setup prompt that actually exist in apps/mcp_server. */
-const EXISTING_TOOLS = ['rhythm_create_agent_profile', 'rhythm_notify'];
+const EXISTING_TOOLS = [
+  'rhythm_create_agent_profile',
+  'rhythm_notify',
+  'rhythm_get_setup_readiness',
+  'rhythm_request_approval',
+  'rhythm_install_creative_capability',
+  'rhythm_verify_creative_capability',
+];
 
 function makeDb() {
   const db = new Database(':memory:');

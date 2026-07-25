@@ -59,6 +59,7 @@ import { agentApprovalsRouter } from './routes/agent_approvals_routes';
 import { systemRouter } from './routes/system_routes';
 import { engraphManagerRouter } from './routes/engraph_manager_routes';
 import { creativePlatformRouter } from './routes/creative_platform_routes';
+import { setupReadinessRouter } from './routes/setup_readiness_routes';
 
 export function createApp() {
   const app = express();
@@ -140,6 +141,7 @@ export function createApp() {
     app.use('/agents/capabilities', agentsCapabilitiesRouter);
     app.use('/agent-capability-status', agentCapabilityStatusRouter);
     app.use('/creative-platform', creativePlatformRouter);
+    app.use('/setup-readiness', setupReadinessRouter);
     app.use('/agent-approvals', agentApprovalsRouter);
     app.use('/agents/usage-budget', usageBudgetRouter);
     app.use('/agents/run-quality', runQualityRouter);

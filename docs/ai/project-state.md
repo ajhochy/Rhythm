@@ -3,7 +3,7 @@
 
 ## Current focus
 
-**Creative platform integration — Phases 1–3 complete.** Working
+**Creative platform integration — Phases 1–4 complete locally.** Working
 in worktree `~/Documents/rhythm-worktrees/creative-platform`. No PR yet — AJ
 requires the full capability set (including real external-runtime
 installation) before this goes up for review; do not open a PR from the
@@ -26,6 +26,9 @@ current state.
 - **Phase 2 integration (complete):** approval-gated local API + Rhythm MCP
   surfaces, Setup prompt wiring, packaged OpenMontage stdio bridge, and
   sandbox proof are committed on this branch.
+- **Phase 4:** bounded external-discovery actuator,
+  retry-safe workflow-skill population, release payload guards, and
+  informational Setup readiness are implemented.
 - **Remaining epic work:**
   1. Approval-gated Setup Agent external-runtime installer — real
      install + verify + rollback for Blender, ComfyUI (+ selectable model
@@ -57,7 +60,7 @@ current state.
 
 ## Next step
 
-1. Continue self-improvement package audit and Deep Research live execution.
+1. Do not push/open PR yet; continue the remaining creative-platform epic work.
 2. Re-run Flutter formatting, widget tests, and analyzer on a Flutter-equipped machine.
 3. Only after all stacks land: push branch, open draft PR, hand off for
    manual smoke per `docs/testing/manual-smoke.md`.

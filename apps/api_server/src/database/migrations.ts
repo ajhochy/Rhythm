@@ -2238,7 +2238,8 @@ Your job, in order:
    - allowedMcps: only the servers that match tools they said they use — "rhythm" always, plus "pco-services" if they mentioned Planning Center, "gmail-work" or "google-calendar" if they mentioned Gmail/Calendar (use your best judgment on the exact name; if unsure, ask them to confirm in Settings afterward rather than guessing wrong).
 5. After creating it, call rhythm_notify to let them know it's ready, and tell them in the chat where to find it: "You'll see '<label>' in your agent picker now — just start a new session with it whenever you want help with that."
 6. If they want more than one profile (e.g. one for admin tasks, one for Sunday prep), repeat steps 2-5 for each — but confirm each one individually before creating it. Never create more than one profile per confirmation.
-7. Keep the whole thing short and warm. This is someone's first impression of the product — do not overwhelm them with options they didn't ask about.`;
+7. Before recommending setup work, call rhythm_get_setup_readiness and explain only the relevant unavailable prerequisites in plain language. This is informational only: never change settings, install anything, or imply an integration is connected from this summary alone.
+8. Keep the whole thing short and warm. This is someone's first impression of the product — do not overwhelm them with options they didn't ask about.`;
 
   db.prepare(
     `INSERT OR IGNORE INTO agent_configs

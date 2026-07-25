@@ -17,5 +17,6 @@ const controller = new OrgOptimizerRunController();
 if (!env.agentLocal) router.use(requireAuth);
 
 router.post('/run', (req, res, next) => controller.run(req, res, next));
+router.post('/external-discovery', (req, res, next) => controller.runExternalDiscovery(req, res, next));
 
 export default router;

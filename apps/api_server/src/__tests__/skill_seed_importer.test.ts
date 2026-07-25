@@ -128,6 +128,22 @@ describe('populateWorkflowSkillsOnce — durable marker + copy-only-if-absent', 
     expect(second.alreadyPresent).toBe(0);
   });
 
+  it('retries after a missing source or zero eligible files, then marks only after population', () => {
+    const missing = populateWorkflowSkillsOnce({ claudeSkillsDir: join(claudeDir, 'missing') });
+    expect(missing).toMatchObject({ copied: 0, alreadyPresent: 0, alreadyDone: false });
+    expect(db.prepare(`SELECT key FROM schema_meta WHERE key = ?`).get(POPULATE_MARKER)).toBeUndefined();
+
+    const noEligibleDir = makeClaudeSkillsDir({ defuddle: '---\nname: defuddle\n---\nUnused.\n' });
+    const noEligible = populateWorkflowSkillsOnce({ claudeSkillsDir: noEligibleDir });
+    expect(noEligible.copied).toBe(0);
+    expect(db.prepare(`SELECT key FROM schema_meta WHERE key = ?`).get(POPULATE_MARKER)).toBeUndefined();
+    rmSync(noEligibleDir, { recursive: true, force: true });
+
+    const populated = populateWorkflowSkillsOnce({ claudeSkillsDir: claudeDir });
+    expect(populated.copied).toBe(1);
+    expect(db.prepare(`SELECT key FROM schema_meta WHERE key = ?`).get(POPULATE_MARKER)).toBeDefined();
+  });
+
   it('never overwrites an already-present managed file (anti-clobber)', () => {
     // Simulate a refinement already sitting at the managed destination BEFORE
     // the one-time population ever runs (e.g. a prior partial install).

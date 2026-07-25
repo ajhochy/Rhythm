@@ -419,9 +419,11 @@ export function populateWorkflowSkillsOnce(
       }
     }
 
-    // Only mark done AFTER a clean pass — a thrown error skips this so a
-    // later boot retries from scratch.
-    markDone();
+    // A missing source (or no currently eligible source files) is not a
+    // completed population. Leave the marker absent so a later boot can copy
+    // newly-installed workflow skills; present managed files still count as a
+    // completed, non-clobbering pass.
+    if (copied + alreadyPresent > 0) markDone();
     return { alreadyDone: false, copied, alreadyPresent };
   } catch (err) {
     logger.warn(`[skill-populate] population failed (non-fatal): ${String(err)}`);
