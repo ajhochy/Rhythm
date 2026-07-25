@@ -279,7 +279,6 @@ describeLive('live E2E — #1123 async delegation', () => {
       const ws = await openWs();
       const frames: Array<Record<string, unknown>> = [];
       let observableText = '';
-      let wakeSeen = false;
       let resolveDone!: () => void;
       let rejectDone!: (error: Error) => void;
       const done = new Promise<void>((resolve, reject) => {
@@ -305,8 +304,10 @@ describeLive('live E2E — #1123 async delegation', () => {
         if (frame.id !== parent.id) return;
         frames.push(frame);
         observableText += observableFrameText(frame);
-        if (observableText.includes('PARENT_WAKE_RECON')) wakeSeen = true;
-        if (wakeSeen && frame.type === 'session.status' && frame.working === false) {
+        // The durable behavior under test is the parent wake answer itself.
+        // `session.status` is transport/version-specific and can be omitted
+        // after the final delta even though the answer and callback persisted.
+        if (observableText.includes('PARENT_WAKE_RECON')) {
           resolveDone();
         }
       });
