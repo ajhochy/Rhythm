@@ -1,60 +1,74 @@
+
 # Project State
 
 ## Current focus
 
-**Mega orchestration run complete** — 10 issues resolved/partial, on draft
-[PR #1158](https://github.com/ajhochy/Rhythm/pull/1158), awaiting AJ's manual
-smoke + merge.
+**Creative platform integration — Phase 1 landed, Phase 2 blocked.** Working
+in worktree `~/Documents/rhythm-worktrees/creative-platform`. No PR yet — AJ
+requires the full capability set (including real external-runtime
+installation) before this goes up for review; do not open a PR from the
+current state.
 
 ## Active branch / PR
 
-- `mega/run-2026-07-23` → PR #1158 (draft), pushed to origin.
-- Issue branches merged into it (each in its own worktree under
-  `~/Documents/rhythm-worktrees/run0723-*`): `fix/1133-realpath-authz`,
-  `fix/1134-email-injection-gate`, `fix/1135-disabled-agent-projection`,
-  `feat/1137-attach-any-file`, `fix/1152-skill-create-resolver`,
-  `fix/1153-cwd-banner`, `fix/1154-unknown-mcprole`,
-  `fix/1156-delegated-permission-gate`, `feat/1096-engraph-manager-wp1`,
-  `feat/1132-fork-sdk-types`.
+- `feature/creative-platform-integration` off `origin/main` — not pushed, no
+  PR opened yet.
+- Commits so far: `9b02641da` (Gallery launches `agentId` creative-media),
+  `4521219c8` (idempotent creative-media local profile seed with
+  generalized prompt/model/image-gen/MCP+skill allowlists), `a7d5cb84d`
+  (bundles all 9 creative skills offline + curated adapters for
+  Canva/ComfyUI/Blender/OpenMontage/Obsidian).
 
 ## In progress
 
-- Resolved: #1133, #1134, #1135, #1137, #1152, #1153, #1154, #1156.
-- Partial:
-  - **#1096** — WP1 already shipped earlier via #1130; this run fixed the 3
-    env-dependent Engraph discovery test failures. WP2 (Settings UI) remains
-    open.
-  - **#1132** — interim d.ts shim shrink (903→660 lines, type-only). Full
-    fork-SDK-dist fix deferred to a fork-rebase-boundary PR — see
-    `docs/ai/decisions/2026-07-24-1132-interim-sdk-shim.md`.
-- Skipped with reasons: #1037 (exploration, no implementation — scope choice
-  for AJ), #1068 (superseded by #1132's remaining goal), #1076
-  (tracking-only), #1123 (spike blocked on OCU-05/16/17/18).
+- **Phase 1 (done, verified):** Gallery launcher wiring, creative-media
+  local profile seed, and bundled/curated creative skills + adapters.
+- **Phase 2 (blocked, not started/incomplete):**
+  1. Approval-gated Setup Agent external-runtime installer — real
+     install + verify + rollback for Blender, ComfyUI (+ selectable model
+     packs), OpenMontage, Obsidian/plugin, document/media toolchains. This
+     is the largest remaining piece and is security-sensitive.
+  2. Gallery artifact recording / local file rendering.
+  3. Self-improvement package audit.
+  4. Deep Research direct `AgentRunner` execution with a live report.
+- Planning recommended splitting into 5 stacked draft PRs; AJ explicitly
+  overrode this — all capabilities must ship together, external-runtime
+  install stack cannot be dropped or deferred silently.
 
 ## Risks / known issues
 
-- **#1134** approval gate depends on the `/agent-approvals` list-endpoint
-  shape — worth a second look if that endpoint changes.
-- **#1154** packaging step (`.mcp-roles` copy in `desktop_release.yml`) is
-  only verifiable on a real release build, not in sandbox e2e.
-- **#1132** full flip still pending — d.ts drift risk remains until the fork
-  rebase PR lands.
+- **Implementation blocker:** several coding-agent task sessions returned
+  empty (no changes) for Phase 2, including a narrowed registry-only task.
+  Root cause not diagnosed — need a working coding-agent session or manual
+  implementation.
+- The installer must not be improvised with arbitrary shell execution,
+  unpinned downloads, or fake/manual-only recipes — needs pinned, verifiable
+  install/verify/rollback recipes per external tool.
+- Sandbox Phase 1 verification copied an existing user-owned `creative-media`
+  row rather than seeding fresh from empty DB — this correctly preserved
+  that row, but do **not** claim "live registry == seed defaults" from this;
+  that equivalence hasn't actually been verified from a clean DB.
 
 ## Test status
 
-Gate PASS on mega HEAD (`5b90d462d`):
-- api_server `vitest`: 3140 passed / 18 failed (= pre-existing `memory_*`
-  vault baseline only; the 3 Engraph PATH baseline failures from earlier runs
-  are now fixed).
-- mcp_server: 96/96.
-- Flutter: `flutter analyze --no-fatal-infos` exit 0; `flutter test` 976/976.
-- Live e2e: #1133 (2/2), #1135, #1152, #1156 all PASS against sandbox `:4098`.
-- Full evidence: `docs/ai/runs/2026-07-23-mega-run-1037-1156.md`.
+Phase 1 only, gate PASS on current branch HEAD:
+- api_server: `npm run build` clean; 3 seed tests, 2 packaging tests, 7
+  config-seed tests, 41 curated-adapter tests all passed.
+- Flutter: Gallery widget tests 7/7; `flutter analyze --no-fatal-infos` exit
+  0 (pre-existing infos only, run by orchestrator).
+- Sandbox `:4098`: health + creative-media profile endpoint both PASS.
+- No personal paths/secrets in diff; `git status` clean.
+- Full detail: `docs/ai/runs/2026-07-24-creative-platform-checkpoint.md`.
 
 ## Next step
 
-1. AJ manual smoke (`docs/testing/manual-smoke.md`).
-2. Merge PR #1158.
-3. Clean up `run0723-*` worktrees (needs AJ approval).
-4. Follow-ups: #1096 WP2 (Settings UI), #1132 full fix at fork rebase, #1135
-   item-3 (`locked`/`disabled_reason` enhancement).
+1. Resume Phase 2 with a working coding-agent session, or manually implement
+   pinned installer recipes (install + verify + rollback) for Blender,
+   ComfyUI + model packs, OpenMontage, Obsidian/plugin, document/media
+   toolchains, gated behind Setup Agent approval.
+2. Then continue remaining stacks: Gallery artifact recording/local file
+   rendering, self-improvement package audit, Deep Research live
+   `AgentRunner` execution.
+3. Only after all stacks land: push branch, open draft PR, hand off for
+   manual smoke per `docs/testing/manual-smoke.md`.
+</content>
