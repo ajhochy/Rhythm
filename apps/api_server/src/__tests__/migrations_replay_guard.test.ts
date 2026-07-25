@@ -150,6 +150,7 @@ describe('runMigrations boot-replay stomp guard', () => {
         'opencode_preset_v1',
         'nonmanager_delegates_wipe_v1',
         'config_doctor_prompt_v1',
+        'config_doctor_prompt_v2',
         'config_doctor_mcps_v1',
         'org_optimizer_mcps_v1',
         'empty_scope_to_null_v1',
