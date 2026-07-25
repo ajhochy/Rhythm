@@ -2700,6 +2700,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     const connectionChanged = (['serverUrl', 'username', 'password'] as const)
       .some((key) => patch[key] !== undefined && patch[key] !== settingsRef.current[key]);
     if (connectionChanged) {
+      if (Platform.OS === 'web' && !pairedHost.client && !pairedHost.host) {
+        const nextSettings = { ...settingsRef.current, ...patch };
+        connectionTargetRef.current =
+          `direct:${nextSettings.serverUrl}:${nextSettings.username}:${nextSettings.password}`;
+      }
       scopeGenerationRef.current += 1;
       serverGenerationRef.current += 1;
       setConnection({ status: 'idle', message: 'Connection settings changed. Reconnect to apply them.' });
@@ -2717,7 +2722,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       ...current,
       ...patch,
     }));
-  }, [clearProjectState]);
+  }, [clearProjectState, pairedHost.client, pairedHost.host]);
   const clearPromptError = useCallback(() => setPromptError(undefined), []);
 
   useEffect(() => {

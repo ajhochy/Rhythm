@@ -1,5 +1,22 @@
 # Failure Patterns
 
+## 2026-07-25 — Issue 1174 aggregate — reconnect remount regression fixed
+
+- **Result**: smoke PASS after fix (source-branch verification claimed PASS);
+  aggregate integration initially diverged.
+- **Category**: C7 — aggregate integration regression; process P2 — ESLint and
+  Playwright raced over `test-results` when run concurrently.
+- **Criteria affected**: issue-1174-c3/c4 and the retained prefixed-API Settings
+  reconnect flow.
+- **Root cause**: direct Settings edits updated the provider target and triggered
+  automatic reconnects even though the UI promised an explicit reconnect,
+  repeatedly remounting the action. The source branch did not include the later
+  paired-transport target lifecycle.
+- **Suggested fix**: retain the prefixed-URL flow in the aggregate browser gate
+  and serialize filesystem-writing mobile gates.
+- See
+  `.agent-stack/postmortems/2026-07-25-issue-1174-aggregate.json`.
+
 ## 2026-07-14 — Dev sandbox isolation lifecycle — smoke PASS
 
 - **Result**: smoke PASS; verification had not yet claimed PASS; no divergence.

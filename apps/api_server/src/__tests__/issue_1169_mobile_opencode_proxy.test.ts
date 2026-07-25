@@ -470,12 +470,9 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
       },
     });
     const project = { id: 'project-1137', root: projectRoot };
-    const forwardFile = (
-      path: '/session/safe/message' | '/session/safe/prompt_async',
-      fileUrl: string,
-    ) => proxy.forward({
+    const forwardFile = (fileUrl: string) => proxy.forward({
       method: 'POST',
-      path,
+      path: '/session/safe/prompt_async',
       query: new URLSearchParams(),
       body: {
         parts: [
@@ -502,16 +499,13 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
         'data:text/plain,%FF',
         'not-a-url',
       ]) {
-        await expect(forwardFile('/session/safe/message', rejectedUrl))
+        await expect(forwardFile(rejectedUrl))
           .rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
       }
       expect(calls).toEqual([]);
 
-      await forwardFile('/session/safe/message', pathToFileURL(inside).href);
-      await forwardFile(
-        '/session/safe/prompt_async',
-        'data:application/octet-stream;base64,AP9SSFlUSE0=',
-      );
+      await forwardFile(pathToFileURL(inside).href);
+      await forwardFile('data:application/octet-stream;base64,AP9SSFlUSE0=');
 
       expect(calls).toHaveLength(2);
       expect(calls[0].body).toMatchObject({
@@ -699,7 +693,7 @@ describe('issue #1169 mobile OpenCode proxy HTTP boundary', () => {
     expect(outside.startsWith(projectRoot)).toBe(false);
 
     const response = await fetch(
-      `${baseUrl}/mobile-gateway/opencode/session/issue-1137/message`,
+      `${baseUrl}/mobile-gateway/opencode/session/issue-1137/prompt_async`,
       {
         method: 'POST',
         headers: proxyHeaders(),

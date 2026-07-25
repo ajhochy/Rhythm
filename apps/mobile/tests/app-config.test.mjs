@@ -56,6 +56,7 @@ const expectedFoundation =
   'npm run test:notification-persistence && ' +
   'npm run test:fake-server:self && ' +
   'npm run test:acceptance:1167 && ' +
+  'npm run test:security:1174 && ' +
   'npm run test:e2e:web';
 assert.equal(
   pkgForFoundation.scripts['verify:foundation'],

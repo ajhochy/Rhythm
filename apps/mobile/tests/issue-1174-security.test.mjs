@@ -119,7 +119,7 @@ test('issue-1174: custom route preserves prefix, directory, and basic auth', asy
 test('issue-1174: custom route errors never expose an upstream response body', async () => {
   const { requestOpenCodeRoute } = await importClientModule();
   const originalFetch = globalThis.fetch;
-  const secret = 'sk-live-secret-that-must-never-reach-the-ui';
+  const secret = 'upstream-sensitive-value-that-must-never-reach-the-ui';
   globalThis.fetch = async () => new Response(
     JSON.stringify({ error: secret.repeat(500) }),
     { status: 502 },
@@ -138,7 +138,7 @@ test('issue-1174: custom route errors never expose an upstream response body', a
       ),
       (error) => {
         assert.equal(error.message, 'OpenCode request failed (502).');
-        assert.doesNotMatch(error.message, /sk-live-secret|error/);
+        assert.doesNotMatch(error.message, /upstream-sensitive-value|error/);
         assert.ok(error.message.length < 80);
         return true;
       },
