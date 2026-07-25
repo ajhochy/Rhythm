@@ -492,9 +492,11 @@ describe('wrapper method shapes (M3/M4 readiness)', () => {
 describe('issue-716: addMcp persists new server to opencode.json before calling SDK', () => {
   let svc: OpencodeClientService;
   let sdkClient: ReturnType<typeof makeRealSdkClient> & { mcp: { add: ReturnType<typeof vi.fn> } };
+  let reloadConfig: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     svc = new OpencodeClientService();
+    reloadConfig = vi.spyOn(svc, 'reloadConfig').mockResolvedValue(true);
     // Extend the fake client with the mcp.add method that addMcp needs.
     const base = makeRealSdkClient();
     sdkClient = {
@@ -533,6 +535,7 @@ describe('issue-716: addMcp persists new server to opencode.json before calling 
       };
       expect(addCall.body.name).toBe('test-server');
       expect(addCall.body.config).toEqual(config);
+      expect(reloadConfig).toHaveBeenCalledOnce();
 
       // opencode.json was written with the new server.
       const writtenPath = path.join(tmpDir, '.config', 'opencode', 'opencode.json');
@@ -606,6 +609,33 @@ describe('issue-716: addMcp persists new server to opencode.json before calling 
       await expect(
         svc.addMcp('bad-server', { type: 'local', command: ['npx', 'bad'] }),
       ).rejects.toMatchObject({ statusCode: 502 });
+    } finally {
+      osMod.homedir = origHomedirFn;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not report success when the engine config cache cannot be reloaded', async () => {
+    sdkClient.mcp.add.mockResolvedValue({
+      data: { 'test-server': { status: 'connected' } },
+    });
+    reloadConfig.mockResolvedValue(false);
+
+    const os = await import('os');
+    const fs = await import('fs');
+    const path = await import('path');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opc-test4-'));
+    const osMod = require('os') as typeof import('os');
+    const origHomedirFn = osMod.homedir;
+    osMod.homedir = () => tmpDir;
+
+    try {
+      await expect(
+        svc.addMcp('test-server', { type: 'local', command: ['npx', 'test'] }),
+      ).rejects.toMatchObject({
+        statusCode: 502,
+        message: expect.stringContaining('config cache could not be reloaded'),
+      });
     } finally {
       osMod.homedir = origHomedirFn;
       fs.rmSync(tmpDir, { recursive: true, force: true });

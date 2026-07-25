@@ -310,6 +310,15 @@ function splitFrontmatter(text: string): [string | null, string] {
   return [m[1], m[2]];
 }
 
+/**
+ * Encode a user-authored value as a YAML-safe double-quoted scalar. JSON
+ * string syntax is valid YAML and protects leading `#`, colons, newlines, and
+ * other label content from changing the frontmatter structure.
+ */
+export function yamlQuotedString(value: string): string {
+  return JSON.stringify(value);
+}
+
 /** Replace a top-level `key: …` line in frontmatter, or append it if absent. */
 function setFrontmatterKey(fm: string, key: string, value: string): string {
   const line = `${key}: ${value}`;
@@ -550,7 +559,7 @@ export function writeAgentProfileFile(config: AgentConfig): void {
       fm = existingFm ?? '';
       // description: only seed when missing — preserve a richer existing one.
       if (!/^description:.*$/m.test(fm)) {
-        fm = setFrontmatterKey(fm, 'description', config.label);
+        fm = setFrontmatterKey(fm, 'description', yamlQuotedString(config.label));
       }
       fm = setFrontmatterKey(fm, 'mode', mode);
       if (model) fm = setFrontmatterKey(fm, 'model', model);
@@ -574,7 +583,7 @@ export function writeAgentProfileFile(config: AgentConfig): void {
       fm = pruneStalePermissionKeys(fm, keep);
     } else {
       // Fresh file authored from the profile.
-      fm = `description: ${config.label}\nmode: ${mode}`;
+      fm = `description: ${yamlQuotedString(config.label)}\nmode: ${mode}`;
       if (model) fm += `\nmodel: ${model}`;
       body = config.systemPrompt ?? '';
     }

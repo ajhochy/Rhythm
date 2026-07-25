@@ -2695,6 +2695,19 @@ export class OpencodeClientService {
         `addMcp failed for ${name}: ${JSON.stringify(raw.error)}`,
       );
     }
+
+    // Live #1134 verification exposed a second cache boundary after #716:
+    // mcp.add() connects the server, but mcp.status() can keep reading the
+    // engine's memoized pre-write config until /config/reload runs. Require
+    // that invalidation before reporting success so the immediately-following
+    // GET /opencode/mcp observes the server we just added.
+    if (!(await this.reloadConfig())) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `addMcp connected ${name}, but the engine config cache could not be reloaded`,
+      );
+    }
     return raw.data ?? {};
   }
 

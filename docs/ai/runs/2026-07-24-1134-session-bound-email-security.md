@@ -4,7 +4,7 @@ repo: Rhythm
 branch: codex/1134-email-injection-boundary
 pr: null
 issues: [1134]
-status: ready-for-isolated-live
+status: complete
 tags: [run, Rhythm, security]
 ---
 
@@ -24,6 +24,12 @@ tags: [run, Rhythm, security]
   `.mcp-roles/email-outbound.mcp.json` for fresh-context writes.
 - Added API adversarial/replay tests, MCP handler tests, engine metadata tests,
   acceptance contract, and an env-gated live stdio test.
+- The live gate exposed and fixed two existing engine-projection defects:
+  `addMcp` now invalidates the engine config cache before reporting success,
+  and user-authored agent labels are YAML-quoted before projection.
+- Hardened the live harness against user-input/completion polling races and
+  retained MCP children by waiting for new output and using a stable isolated
+  fixture port.
 - `apps/mcp_server/src/index.ts` tool count is unchanged: zero tools added or
   removed.
 
@@ -61,23 +67,34 @@ tags: [run, Rhythm, security]
 - `node .gitnexus/run.cjs detect-changes --scope staged --limit 1000 --repo /Users/ajhochhalter/Documents/rhythm-worktrees/run0724-1134`
   — 31 indexed files / 78 symbols, zero affected execution processes, LOW risk.
 - `git diff --check` — pass.
+- Live sandbox build and behavioral gate:
+  `RHYTHM_SANDBOX_DIR=/tmp/rhythm-dev-sandbox-1134 RHYTHM_SANDBOX_API_PORT=4598 RHYTHM_SANDBOX_ENGINE_PORT=4597 tools/dev/sandbox.sh up`
+  rebuilt the fork binary and api_server, then
+  `DB_PATH=/tmp/rhythm-dev-sandbox-1134/rhythm.db RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4598 RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4597 RHYTHM_SANDBOX_DIR=/tmp/rhythm-dev-sandbox-1134 RHYTHM_LIVE_DB_PATH=/tmp/rhythm-dev-sandbox-1134/rhythm.db RHYTHM_1134_FIXTURE_PORT=14534 RHYTHM_LIVE_MODEL_PROVIDER=openai RHYTHM_LIVE_MODEL_ID=gpt-5.4-mini npx vitest run src/__tests__/live_e2e_1134_external_email_boundary.test.ts --testTimeout=360000 --hookTimeout=45000`
+  — pass, 1/1 in 35.94s. The real model called the real Gmail read tool;
+  the malicious body was blocked before delivery; the model then produced
+  explicit fail-closed outcomes for email, shared message, and thread creation;
+  the inert HTTP fixture observed `{email:0,message:0,thread:0}`.
+- Sandbox teardown removed `/tmp/rhythm-dev-sandbox-1134`; ports 4598, 4597,
+  and fixture port 14534 were released. No production process was touched.
+- Final post-live API verification:
+  `cd apps/api_server && npm run build && npx vitest run src/__tests__/opencode_client_typed_wrappers.test.ts src/__tests__/opencode_agent_writer_yaml.test.ts src/__tests__/issue_1134_external_content_security.test.ts src/__tests__/live_e2e_1134_external_email_boundary.test.ts --testTimeout=15000 --hookTimeout=15000`
+  — build pass; 51/51 pass, one live test skipped without its env gate.
+  `npx vitest run --fileParallelism=false --testTimeout=15000 --hookTimeout=15000`
+  — 361 files / 3186 tests pass; 31 files / 50 env-gated tests skip.
+- Post-live GitNexus:
+  `detect-changes --scope unstaged` — 7 indexed files / 16 symbols,
+  zero affected processes, LOW risk. Full branch compare against `main` —
+  MEDIUM, two expected agent-config patch/hydration flows from the committed
+  #1134 implementation.
 
 ## Notes
-
-- The root coordinator prohibited this workstream from starting/stopping the
-  sandbox. Criterion c6 is implemented but remains pending until the root runs:
-
-  ```bash
-  cd apps/mcp_server && npm run build
-  cd ../api_server
-  RHYTHM_LIVE_E2E=1 \
-  RHYTHM_LIVE_E2E_ISOLATED=1 \
-  RHYTHM_LIVE_URL=http://127.0.0.1:4098 \
-  DB_PATH=/tmp/<sandbox>/rhythm.db \
-  npx vitest run src/__tests__/live_e2e_1134_external_email_boundary.test.ts
-  ```
 
 - The test registers this checkout's built MCP server with the real sandbox
   fork engine, creates/deletes its own agent profile/session, drives real model
   turns over the api_server WebSocket gateway, and starts only an inert loopback
   Gmail/message fixture. It refuses `:4001`.
+- Failed exploratory live attempts were valuable: they exposed an MCP
+  add→list cache mismatch, invalid unquoted YAML for `#`-prefixed labels,
+  retained MCP child processes across removal, and an input-row polling race.
+  Each divergence is fixed or explicitly accommodated by the permanent test.

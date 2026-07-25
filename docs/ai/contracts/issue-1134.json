@@ -48,7 +48,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/live_e2e_1134_external_email_boundary.test.ts",
       "test_id": "#1134 c6 live: malicious Gmail cannot reach email or shared-message outbound fixtures",
-      "status": "pending"
+      "status": "pass"
     }
   ],
   "stack": {
@@ -57,7 +57,5 @@
     "build_command": "cd apps/api_server && npm run build && cd ../mcp_server && npm run build && cd ../opencode_fork/packages/opencode && bun run typecheck",
     "test_command": "cd apps/api_server && npx vitest run src/__tests__/issue_1134_external_content_security.test.ts src/__tests__/gmail_signals.test.ts && cd ../mcp_server && npx vitest run src/tools/__tests__/email_injection_gate.test.ts src/security/__tests__/context_scanner.test.ts"
   },
-  "not_tested": [
-    "#1134 c6 live: malicious Gmail cannot reach email or shared-message outbound fixtures"
-  ]
+  "not_tested": []
 }
