@@ -12,6 +12,7 @@ import {
 import { MobileCloudIdentityService } from '../services/mobile_cloud_identity_service';
 import { MobilePairingService } from '../services/mobile_pairing_service';
 import { getMobilePairingService } from '../services/mobile_gateway_runtime';
+import { TailscaleServeService } from '../services/tailscale_serve_service';
 import {
   mobileProjectResponse,
   requireMobileProject,
@@ -28,6 +29,7 @@ export function createMobileGatewayRouter(): Router {
   const opencodeProxy = new MobileOpenCodeProxy();
   const activityController = new AgentActivityController();
   const sseProxy = new MobileSseProxy();
+  const tailscaleServe = new TailscaleServeService();
   const getPairingService = (): MobilePairingService =>
     getMobilePairingService();
 
@@ -81,6 +83,20 @@ export function createMobileGatewayRouter(): Router {
     requireSessionOrMobileDevice(getPairingService, cloudIdentity),
     withController((active, req, res) => active.health(req, res)),
   );
+  router.get('/access', requireCloudUser, async (_req, res, next) => {
+    try {
+      res.json(await tailscaleServe.diagnose());
+    } catch (error) {
+      next(error instanceof AppError ? error : AppError.internal());
+    }
+  });
+  router.post('/access/enable', requireCloudUser, async (_req, res, next) => {
+    try {
+      res.json(await tailscaleServe.ensureConfigured());
+    } catch (error) {
+      next(error instanceof AppError ? error : AppError.internal());
+    }
+  });
   router.post(
     '/project',
     requireMobileDevice(getPairingService),

@@ -23,8 +23,10 @@ by #1172 and #1173.
   are canonicalized and contained before engine forwarding, full bytes are
   classified even for declared text MIME, and valid DOCX extraction requires
   structured tool proof.
-- #1171's corrective pairing slice is awaiting its final commit and independent
-  review. #1172's activity/chat foundation and #1173's tool screens are being
+- #1171's pairing stack is being integrated as a working base, but its latest
+  immutable review remains blocked on malformed-QR recovery, fail-closed
+  dedicated Playwright ports, and transactional secure-write failure coverage.
+  #1172's activity/chat foundation and #1173's tool screens are being
   consolidated in parallel; #1174 parity implementation remains in progress.
 
 ## Risks / known issues
@@ -63,11 +65,15 @@ by #1172 and #1173.
 - Fresh real-engine sandbox gates pass: mobile containment 1/1 and the
   structured-proof #1137 file 6/6. Dedicated ports 5497/5498 are free and the
   sandbox was removed.
+- #1171's earlier focused/live/native gates passed, but the independent final
+  review found three correctness/test-integrity gaps; corrective tests and code
+  are required before approval.
 - Aggregate coordinator validation is pending after all slices land.
 
 ## Next step
 
-Finish the #1137 cherry-pick, independently approve and integrate #1171, then
+Finish integrating the #1171 base, land and independently approve its final
+correction, then
 wire #1172/#1173 to the strict paired-device production surface before the
 aggregate behavioral gate.
 

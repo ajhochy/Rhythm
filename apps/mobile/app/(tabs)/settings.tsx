@@ -1,6 +1,7 @@
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as Linking from 'expo-linking';
 import Constants from 'expo-constants';
+import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
@@ -21,7 +22,9 @@ import { Colors, Fonts } from '@/constants/theme';
 import { ProviderConfigDialog } from '@/components/settings/provider-config-dialog';
 import { McpSection } from '@/components/settings/mcp-section';
 import { RhythmAccountSection } from '@/components/settings/rhythm-account-section';
+import { PairedMacSection } from '@/components/settings/paired-mac-section';
 import { useRhythmAccount } from '@/providers/rhythm-account-provider';
+import { usePairedHost } from '@/providers/paired-host-provider';
 import {
   AiDefaultsSection,
   ConnectionSection,
@@ -49,6 +52,7 @@ export default function SettingsScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
   const rhythmAccount = useRhythmAccount();
+  const pairedHost = usePairedHost();
   const {
     availableModels,
     availableProviders,
@@ -384,6 +388,30 @@ export default function SettingsScreen() {
           onSignIn={() => void rhythmAccount.signIn().catch(() => undefined)}
           onSignOut={() => void rhythmAccount.signOut()}
           onRefresh={() => void rhythmAccount.refresh()}
+          palette={palette}
+        />
+        <PairedMacSection
+          state={pairedHost.state}
+          host={pairedHost.host}
+          message={pairedHost.message}
+          onPair={() => router.push('/pair')}
+          onRefresh={() => void pairedHost.refresh()}
+          onRevoke={() => {
+            const revoke = () => void pairedHost.revoke().catch(() => undefined);
+            if (Platform.OS === 'web') {
+              if (globalThis.confirm('Revoke this iPhone from the paired Mac?')) revoke();
+              return;
+            }
+            Alert.alert(
+              'Revoke mobile access?',
+              'This iPhone will need a new one-time code before it can use the Mac again.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Revoke', style: 'destructive', onPress: revoke },
+              ],
+            );
+          }}
+          onForget={() => void pairedHost.forget()}
           palette={palette}
         />
         <List.AccordionGroup expandedId={expandedSection} onAccordionPress={(id) => setExpandedSection(expandedSection === String(id) ? '' : String(id))}>

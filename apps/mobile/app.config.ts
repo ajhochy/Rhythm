@@ -66,6 +66,13 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-router',
+    [
+      'expo-camera',
+      {
+        cameraPermission: 'Allow $(PRODUCT_NAME) to scan a one-time Mac pairing code.',
+        barcodeScannerEnabled: true,
+      },
+    ],
     'expo-notifications',
     'expo-background-task',
     [

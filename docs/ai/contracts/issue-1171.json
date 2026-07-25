@@ -1,0 +1,56 @@
+{
+  "issue": 1171,
+  "generated": "2026-07-25",
+  "criteria": [
+    {
+      "criterion_id": "issue-1171-c1",
+      "text": "Handles Tailscale missing/logged-out/wrong target/healthy states",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/tailscale_serve_service.test.ts",
+      "test_id": "issue-1171-c1: diagnoses every Tailscale and Serve state without shell execution",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1171-c2",
+      "text": "QR contains only tailnet gateway URL + one-time code",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/mobile_access_dialog_test.dart",
+      "test_id": "issue-1171-c2: QR payload is minimal, expires, regenerates, and never exposes durable credentials",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1171-c3",
+      "text": "Device token is Keychain-only; pairing code discarded after exchange",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/paired-host.test.mjs",
+      "test_id": "issue-1171-c3: successful pairing persists only the device token in SecureStore and erases the code",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1171-c4",
+      "text": "States cover unpaired/pairing/connected/offline/Tailscale unavailable/revoked/incompatible/unhealthy",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/paired-host.test.mjs",
+      "test_id": "issue-1171-c4: paired-host state machine and settings/pair route expose every actionable state independently from cloud auth",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1171-c5",
+      "text": "Flutter format/analyze/tests and mobile tests/E2E pass",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1171.mjs",
+      "test_id": "issue-1171-c5: required desktop and mobile verification commands are wired and green",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1171-c6",
+      "text": "Independent security/accessibility review passes",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1171.mjs",
+      "test_id": "issue-1171-c6: security and accessibility regression suites exist and pass before independent review",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

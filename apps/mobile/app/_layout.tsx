@@ -10,6 +10,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { getPaperTheme } from '@/constants/paper-theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { OpencodeProvider } from '@/providers/opencode-provider';
+import { PairedHostProvider } from '@/providers/paired-host-provider';
 import { RhythmAccountProvider } from '@/providers/rhythm-account-provider';
 import { AgentChatProvider } from '@/providers/agent-chat-provider';
 
@@ -39,18 +40,28 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <RhythmAccountProvider>
-      <OpencodeProvider>
-        <AgentChatProvider>
-        <PaperProvider theme={paperTheme}>
-          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="(tabs)" />
-            </Stack>
-            <StatusBar style="auto" />
-          </ThemeProvider>
-        </PaperProvider>
-        </AgentChatProvider>
-      </OpencodeProvider>
+        <PairedHostProvider>
+          <OpencodeProvider>
+            <AgentChatProvider>
+              <PaperProvider theme={paperTheme}>
+                <ThemeProvider
+                  value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                  <Stack>
+                    <Stack.Screen
+                      name="(tabs)"
+                      options={{ headerShown: false }}
+                    />
+                    <Stack.Screen
+                      name="pair"
+                      options={{ headerShown: false }}
+                    />
+                  </Stack>
+                  <StatusBar style="auto" />
+                </ThemeProvider>
+              </PaperProvider>
+            </AgentChatProvider>
+          </OpencodeProvider>
+        </PairedHostProvider>
       </RhythmAccountProvider>
     </SafeAreaProvider>
   );

@@ -51,6 +51,7 @@ const expectedFoundation =
   'npm run test:transport-clients && ' +
   'npm run test:rhythm-account && ' +
   'npm run test:google-mobile-oauth && ' +
+  'npm run test:paired-host && ' +
   'npm run test:connection-persistence && ' +
   'npm run test:notification-persistence && ' +
   'npm run test:fake-server:self && ' +
@@ -70,6 +71,11 @@ assert.match(
   pkgForFoundation.scripts['test:ci:static'],
   /npm run test:google-mobile-oauth/,
   'static gate must execute the mobile OAuth contract tests',
+);
+assert.match(
+  pkgForFoundation.scripts['test:ci:static'],
+  /npm run test:paired-host/,
+  'static gate must execute the paired-host security and state tests',
 );
 assert.match(
   pkgForFoundation.scripts['test:ci:static'],

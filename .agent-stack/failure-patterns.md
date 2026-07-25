@@ -279,6 +279,15 @@
 - **Root cause**: no product failure; the first live-test lineage assertion mixed local database session IDs with the engine SDK identities returned by `/children`, then passed after failure triage corrected the identity domain.
 - **Suggested fix**: live contracts crossing local and engine session surfaces should declare the identity domain of every endpoint before asserting lineage.
 
+## 2026-07-25 — Issue #1171 — desktop-to-iPhone pairing smoke PASS
+
+- **Result**: smoke PASS (verification intentionally remains review-pending; no correctness divergence)
+- **Category**: none; process: base-test-regression, native-build-infrastructure, and foundation-manifest-drift
+- **Criteria affected**: issue-1171-c1 through issue-1171-c5 passed; c6 awaits immutable independent review
+- **Root cause**: Product behavior passed live and native probes; unrelated issue #723 uses a Vitest-incompatible dynamic-import seam, and the reviewed base's OpenAPI source fingerprint drifts from its accepted mobile manifest.
+- **Suggested fix**: Retain the live exchange/native deep-link probes, review the immutable pairing commit independently, and repair #723 plus the base manifest drift in their owning slices.
+- See `.agent-stack/postmortems/2026-07-25-issue-1171.json`.
+
 ## 2026-07-24 — Issue 1164 — real 50-reader scheduler swarm
 
 - **Result**: smoke PASS (verification correctly remained incomplete until the live run)
