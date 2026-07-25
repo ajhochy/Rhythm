@@ -85,6 +85,8 @@ import {
   deleteManagedSkill,
   managedSkillExists,
   readManagedSkillBytes,
+  slugForSkillName,
+  InvalidSkillNameError,
 } from './rhythm_managed_skills';
 import { downloadSkillBody } from './generators/external_discovery_search';
 import { scanContextContent } from '../security/context_scanner';
@@ -888,6 +890,106 @@ const broadenScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => 
   return { measurable: true, beforeSnapshotJson };
 };
 
+// ── workflow-prompt-fix: skill-create branch (#1152) ──
+//
+// A workflow-prompt-fix normally EDITS a live skill's body (below). But the
+// org-optimizer's missing-skill diagnosis (workflow_signal_generator.ts sets
+// `rootCause: 'skill'` for this case) targets a skill that doesn't exist yet
+// — `resolveSkillForProposal` (and its #1041 fallbacks) can never resolve it,
+// so before #1152 every such proposal dead-ended on
+// `describeSkillResolutionFailure`'s "re-point the proposal" refusal even
+// though the diagnosis's actual intent was "create this skill". The
+// discriminator is deliberately an EXPLICIT intent field (`rootCause ===
+// 'skill'`), not a fuzzy near-miss heuristic — a genuine typo'd/misrouted ref
+// with any other rootCause still refuses with the existing guidance.
+
+/**
+ * True when a no-match workflow-prompt-fix proposal is an explicit
+ * skill-CREATE (not a stale/mis-pointed edit): the diagnosis names
+ * `rootCause: 'skill'` AND the intended title (`proposalProfileId`) is a
+ * non-empty, path-safe bare name. Never creates a blank/unsafe-titled skill —
+ * an invalid title falls through to the existing refusal.
+ */
+function isSkillCreateProposal(proposal: AgentOrgProposal): boolean {
+  if (resolveSkillForProposal(proposal)) return false;
+  const change = parseChange(proposal.changeJson);
+  if (change?.rootCause !== 'skill') return false;
+  const title = proposalProfileId(proposal);
+  if (!title) return false;
+  try {
+    slugForSkillName(title);
+  } catch (err) {
+    if (err instanceof InvalidSkillNameError) return false;
+    throw err;
+  }
+  return true;
+}
+
+/**
+ * Scaffold the missing skill named by an {@link isSkillCreateProposal} and
+ * grant it to the profile the diagnosis targeted. Reuses the EXACT
+ * write-if-absent + allowedSkillsJson-grant mechanics
+ * `buildRealExternalAdoptionDeps().installSkill` already uses for adopted
+ * skills above, rather than a second implementation. `title` doubles as the
+ * agent_config id to grant (the same conflation `proposalProfileId` exists
+ * to paper over — see its doc comment).
+ *
+ * ponytail: revert only restores the snapshot fields (nothing deletes the
+ * created skill/grant on revert) — the issue's acceptance criteria don't ask
+ * for delete-on-revert; add an `isSkillCreateRevertSnapshot` branch in
+ * org_proposal_apply.ts's revertProposal if that's ever needed.
+ */
+function applySkillCreate(proposal: AgentOrgProposal, title: string, concreteFix: string): ProposalApplyResult {
+  const revisedBody = draftPromptFixBody('', concreteFix);
+
+  const scan = scanContextContent(revisedBody, `skill "${title}"`);
+  if (scan.blocked) {
+    throw AppError.badRequest(scan.warning ?? `Unsafe skill body blocked for '${title}'`);
+  }
+
+  const skillWasAbsent = !managedSkillExists(title);
+  if (skillWasAbsent) {
+    writeManagedSkill({
+      name: title,
+      description: 'Created by workflow-prompt-fix (missing-skill diagnosis)',
+      body: revisedBody,
+    });
+  }
+
+  const skillsRepo = new AgentSkillsRepository();
+  const skill = skillsRepo.findByTitle(title) ?? skillsRepo.create({ title, body: revisedBody, status: 'active' });
+
+  const configsRepo = new AgentConfigsRepository();
+  const config = configsRepo.getById(title);
+  let priorAllowedSkillsJson: string | null = null;
+  if (config) {
+    priorAllowedSkillsJson = config.allowedSkillsJson ?? null;
+    const list = parseAllowlist(priorAllowedSkillsJson);
+    if (!list.includes(title)) {
+      configsRepo.update(title, { allowedSkillsJson: JSON.stringify([...list, title]) });
+      const updated = configsRepo.getById(title);
+      if (updated) writeAgentProfileFile(updated); // resync the opencode agent file
+    }
+  }
+
+  const beforeSnapshotJson = JSON.stringify({
+    skillCreated: true,
+    createdSkillId: skill.id,
+    skillWasAbsent,
+    agentConfigId: config ? title : null,
+    priorAllowedSkillsJson,
+  });
+  const changeJson = JSON.stringify({
+    skillName: title,
+    priorBody: '',
+    revisedBody,
+    description: skill.description ?? null,
+    whenToUse: skill.whenToUse ?? null,
+  });
+
+  return { measurable: true, beforeSnapshotJson, changeJson };
+}
+
 // ── workflow-prompt-fix ──
 function validateWorkflowPromptFix(proposal: AgentOrgProposal): ProposalValidationResult {
   const change = parseChange(proposal.changeJson);
@@ -899,6 +1001,7 @@ function validateWorkflowPromptFix(proposal: AgentOrgProposal): ProposalValidati
     };
   }
   if (!resolveSkillForProposal(proposal)) {
+    if (isSkillCreateProposal(proposal)) return { valid: true };
     return {
       valid: false,
       reason: `workflow-prompt-fix ${describeSkillResolutionFailure(proposal)}`,
@@ -914,7 +1017,12 @@ const workflowPromptFixApplier: ProposalApplier = (proposal): ProposalApplyResul
     throw AppError.badRequest('workflow-prompt-fix change_json is missing its concreteFix at apply time');
   }
   const skill = resolveSkillForProposal(proposal);
-  if (!skill) throw AppError.badRequest(`workflow-prompt-fix ${describeSkillResolutionFailure(proposal)}`);
+  if (!skill) {
+    if (isSkillCreateProposal(proposal)) {
+      return applySkillCreate(proposal, proposalProfileId(proposal)!, concreteFix);
+    }
+    throw AppError.badRequest(`workflow-prompt-fix ${describeSkillResolutionFailure(proposal)}`);
+  }
 
   const priorBody = skill.body ?? '';
   const revisedBody = draftPromptFixBody(priorBody, concreteFix);

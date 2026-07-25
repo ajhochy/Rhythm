@@ -1,5 +1,7 @@
 import type Database from 'better-sqlite3';
 
+import { convertLegacyNumberedCorePermissions } from './core_permissions_repair';
+
 export function runMigrations(db: Database.Database): void {
   // ── Write-discipline contract ─────────────────────────────────────────
   // runMigrations() runs on EVERY boot (db.ts initDb), not just first
@@ -2456,5 +2458,34 @@ Your job, in order:
   }
   runOnce('issue_1118_reasoning_effort', () => {
     // Marker only — the additive ALTER above is an idempotent STRUCTURE change.
+  });
+
+  // #1138 follow-up — one-time CONTENT repair of legacy numbered-key
+  // core_permissions_json rows ({"0":{permission,pattern,action},...}) left
+  // behind by the old Tool Permissions panel. The projector now SKIPS those
+  // entries (fail-soft, #1149), so the rows' permissions were silently never
+  // applied. Converts each row to the flat {perm: action | {pattern: action}}
+  // map via the shared converter; flat/hand-repaired/garbage rows return
+  // `undefined` and are left byte-for-byte untouched. runOnce-guarded per the
+  // write-discipline contract above: a user who later hand-edits a row back
+  // into a weird shape must not be re-transformed on every boot.
+  runOnce('numbered_core_permissions_repair_v1', () => {
+    const rows = db
+      .prepare(
+        `SELECT id, core_permissions_json AS value
+           FROM agent_configs
+          WHERE core_permissions_json IS NOT NULL`,
+      )
+      .all() as { id: string; value: string }[];
+    for (const row of rows) {
+      const repaired = convertLegacyNumberedCorePermissions(row.value);
+      if (repaired === undefined) continue;
+      db.prepare(
+        `UPDATE agent_configs
+            SET core_permissions_json = ?
+          WHERE id = ?
+            AND core_permissions_json = ?`,
+      ).run(repaired, row.id, row.value);
+    }
   });
 }

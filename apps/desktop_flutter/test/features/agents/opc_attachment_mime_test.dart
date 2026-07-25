@@ -73,6 +73,85 @@ void main() {
       expect(resolveAttachmentMime(bytes, 'data.json', 'json'),
           'application/json');
     });
+
+    // Issue #1137: Office docs classify to their real MIME, not octet-stream
+    // (a zip-magic-byte body is realistic — docx/xlsx/pptx are zip archives).
+    const zipMagic = [0x50, 0x4B, 0x03, 0x04];
+    test('Office extensions resolve to their real MIME, not octet-stream', () {
+      expect(
+        resolveAttachmentMime(zipMagic, 'report.docx', 'docx'),
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+      expect(resolveAttachmentMime(zipMagic, 'legacy.doc', 'doc'),
+          'application/msword');
+      expect(
+        resolveAttachmentMime(zipMagic, 'budget.xlsx', 'xlsx'),
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      expect(resolveAttachmentMime(zipMagic, 'legacy.xls', 'xls'),
+          'application/vnd.ms-excel');
+      expect(
+        resolveAttachmentMime(zipMagic, 'deck.pptx', 'pptx'),
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      );
+      expect(resolveAttachmentMime(zipMagic, 'legacy.ppt', 'ppt'),
+          'application/vnd.ms-powerpoint');
+    });
+  });
+
+  group('isSkillReadableBinaryMime', () {
+    test('Office MIME types are skill-readable binaries', () {
+      expect(
+        isSkillReadableBinaryMime(
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        ),
+        isTrue,
+      );
+      expect(isSkillReadableBinaryMime('application/msword'), isTrue);
+      expect(
+        isSkillReadableBinaryMime(
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ),
+        isTrue,
+      );
+      expect(isSkillReadableBinaryMime('application/vnd.ms-excel'), isTrue);
+      expect(
+        isSkillReadableBinaryMime(
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        ),
+        isTrue,
+      );
+      expect(
+          isSkillReadableBinaryMime('application/vnd.ms-powerpoint'), isTrue);
+    });
+
+    test('images, pdf, text, and octet-stream are NOT skill-readable binaries',
+        () {
+      expect(isSkillReadableBinaryMime('image/png'), isFalse);
+      expect(isSkillReadableBinaryMime('application/pdf'), isFalse);
+      expect(isSkillReadableBinaryMime('text/plain'), isFalse);
+      expect(isSkillReadableBinaryMime('application/octet-stream'), isFalse);
+    });
+  });
+
+  group('buildFileRefAttachment', () {
+    test('builds a file: FilePart map for an Office document', () {
+      final part = buildFileRefAttachment(
+        mime:
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        filename: 'report.docx',
+        absolutePath: '/tmp/report.docx',
+      );
+      expect(part['type'], 'file');
+      expect(
+        part['mime'],
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+      expect(part['filename'], 'report.docx');
+      // A `file:` URL, not a `data:` URI — this is the whole point (#1137):
+      // the engine's Read tool + docx skill only fires on `file:` FileParts.
+      expect(part['url'], 'file:///tmp/report.docx');
+    });
   });
 
   group('isTextLikeMime', () {

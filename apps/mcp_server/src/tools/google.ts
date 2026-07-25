@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { apiGet, apiPost, apiPatch, toolResult, toolError, RhythmApiError } from '../api_client.js';
 import { registerTool } from './_tool.js';
 import { untrustedContext } from '../untrusted_context.js';
+import { scanContextContent } from '../security/context_scanner.js';
+import { markTainted } from '../taint.js';
+import { enforceApprovalIfTainted } from './_approval_gate.js';
 
 function handleErr(err: unknown) {
   if (err instanceof RhythmApiError && err.status === 409) {
@@ -16,7 +19,7 @@ function handleErr(err: unknown) {
   return toolError(err);
 }
 
-export function registerGoogleTools(server: McpServer, apiUrl: string, apiToken: string) {
+export function registerGoogleTools(server: McpServer, apiUrl: string, apiToken: string, agentUrl: string) {
   registerTool(server, 'rhythm_list_calendar_events',
     'List upcoming Google Calendar events for the signed-in user. Returns event id, title, start, end, location.',
     {
@@ -92,7 +95,14 @@ export function registerGoogleTools(server: McpServer, apiUrl: string, apiToken:
         const res = await apiGet<unknown>(apiUrl, apiToken, `/integrations/google/gmail/search?q=${encodeURIComponent(query)}`);
         // Gmail subjects/snippets are attacker-controllable (#737, SF-4): fence
         // before the result reaches the model. The text is the whole result here.
-        return toolResult(untrustedContext(JSON.stringify(res, null, 2), 'gmail search results'));
+        // #1134: taint on consume + fail-closed scan BEFORE fencing/forwarding.
+        const raw = JSON.stringify(res, null, 2);
+        markTainted('gmail');
+        const scan = scanContextContent(raw, 'gmail search results');
+        if (scan.blocked) {
+          return { content: [{ type: 'text' as const, text: scan.warning as string }], isError: true as const };
+        }
+        return toolResult(untrustedContext(raw, 'gmail search results'));
       } catch (err) { return handleErr(err); }
     },
   );
@@ -104,20 +114,34 @@ export function registerGoogleTools(server: McpServer, apiUrl: string, apiToken:
       try {
         const res = await apiGet<unknown>(apiUrl, apiToken, `/integrations/google/gmail/messages/${encodeURIComponent(id)}`);
         // Full email body is attacker-controllable (#737, SF-4): fence before the
-        // result reaches the model.
-        return toolResult(untrustedContext(JSON.stringify(res, null, 2), 'gmail message'));
+        // result reaches the model. #1134: taint on consume + fail-closed scan
+        // BEFORE fencing/forwarding.
+        const raw = JSON.stringify(res, null, 2);
+        markTainted('gmail');
+        const scan = scanContextContent(raw, 'gmail message');
+        if (scan.blocked) {
+          return { content: [{ type: 'text' as const, text: scan.warning as string }], isError: true as const };
+        }
+        return toolResult(untrustedContext(raw, 'gmail message'));
       } catch (err) { return handleErr(err); }
     },
   );
 
   registerTool(server, 'rhythm_send_email',
-    'Send an email as the signed-in user via Gmail. Requires Google tools enabled.',
+    'Send an email as the signed-in user via Gmail. Requires Google tools enabled. If this ' +
+    'session has read untrusted external content (e.g. Gmail), a valid approval_id from ' +
+    'rhythm_request_approval is required before the send proceeds.',
     {
       to: z.string().describe('Recipient email address.'),
       subject: z.string().describe('Subject line.'),
       body: z.string().describe('Plain-text body.'),
+      approval_id: z.string().optional().describe('Approval id returned by rhythm_request_approval — required if this session has read untrusted external content.'),
     },
-    async ({ to, subject, body }: { to: string; subject: string; body: string }) => {
+    async ({ to, subject, body, approval_id }: { to: string; subject: string; body: string; approval_id?: string }) => {
+      const gate = await enforceApprovalIfTainted({ agentUrl, approvalId: approval_id, action: `send email to ${to}` });
+      if (!gate.allowed) {
+        return { content: [{ type: 'text' as const, text: gate.refusalMessage as string }], isError: true as const };
+      }
       try {
         const res = await apiPost<unknown>(apiUrl, apiToken, '/integrations/google/gmail/send', { to, subject, body });
         return toolResult(JSON.stringify(res, null, 2));

@@ -4,6 +4,7 @@ import { NodeFileSystem } from "@effect/platform-node"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { testEffect } from "../lib/effect"
 import path from "path"
+import * as fs from "fs/promises"
 
 const live = AppFileSystem.layer.pipe(Layer.provideMerge(NodeFileSystem.layer))
 const { effect: it } = testEffect(live)
@@ -361,6 +362,86 @@ describe("AppFileSystem", () => {
       expect(AppFileSystem.overlaps("/a/b", "/a/b/c")).toBe(true)
       expect(AppFileSystem.overlaps("/a/b/c", "/a/b")).toBe(true)
       expect(AppFileSystem.overlaps("/a", "/b")).toBe(false)
+    })
+  })
+
+  describe("containsReal", () => {
+    it(
+      "rejects an in-root symlink pointing outside root (escape via containsReal but not lexical contains)",
+      Effect.gen(function* () {
+        const filesys = yield* FileSystem.FileSystem
+        const root = yield* filesys.makeTempDirectoryScoped()
+        const outside = yield* filesys.makeTempDirectoryScoped()
+        yield* filesys.writeFileString(path.join(outside, "passwd"), "secret")
+
+        const link = path.join(root, "link")
+        yield* Effect.promise(() => fs.symlink(outside, link))
+
+        const target = path.join(link, "passwd")
+        // The lexical check is fooled (string-prefixed by root); containsReal must not be.
+        expect(AppFileSystem.contains(root, target)).toBe(true)
+        expect(AppFileSystem.containsReal(root, target)).toBe(false)
+      }),
+    )
+
+    it(
+      "allows a legitimate subdirectory",
+      Effect.gen(function* () {
+        const filesys = yield* FileSystem.FileSystem
+        const root = yield* filesys.makeTempDirectoryScoped()
+        const sub = path.join(root, "sub", "file.ts")
+        yield* filesys.makeDirectory(path.dirname(sub), { recursive: true })
+        yield* filesys.writeFileString(sub, "x")
+
+        expect(AppFileSystem.containsReal(root, sub)).toBe(true)
+      }),
+    )
+
+    it(
+      "does not false-lockout when the root itself is reached through a symlink",
+      Effect.gen(function* () {
+        const filesys = yield* FileSystem.FileSystem
+        const real = yield* filesys.makeTempDirectoryScoped()
+        const child = path.join(real, "child.txt")
+        yield* filesys.writeFileString(child, "x")
+
+        const base = yield* filesys.makeTempDirectoryScoped()
+        const rootViaSymlink = path.join(base, "root-link")
+        yield* Effect.promise(() => fs.symlink(real, rootViaSymlink))
+
+        // root passed in is itself a symlink (mirrors macOS /tmp -> /private/tmp);
+        // the real child path must still be recognized as contained.
+        expect(AppFileSystem.containsReal(rootViaSymlink, child)).toBe(true)
+      }),
+    )
+
+    it(
+      "allows a non-existent write target whose nearest existing parent is inside root",
+      Effect.gen(function* () {
+        const filesys = yield* FileSystem.FileSystem
+        const root = yield* filesys.makeTempDirectoryScoped()
+        const newFile = path.join(root, "does-not-exist-yet.txt")
+
+        expect(AppFileSystem.containsReal(root, newFile)).toBe(true)
+      }),
+    )
+
+    it(
+      "fails closed on a dangling symlink",
+      Effect.gen(function* () {
+        const filesys = yield* FileSystem.FileSystem
+        const root = yield* filesys.makeTempDirectoryScoped()
+        const dangling = path.join(root, "dangling")
+        yield* Effect.promise(() => fs.symlink(path.join(root, "nope-does-not-exist"), dangling))
+
+        expect(AppFileSystem.containsReal(root, dangling)).toBe(false)
+        expect(AppFileSystem.containsReal(root, path.join(dangling, "passwd"))).toBe(false)
+      }),
+    )
+
+    test("blocks ../ and direct-outside paths unchanged (no regression)", () => {
+      expect(AppFileSystem.containsReal("/a/b", "/a/b/../../etc")).toBe(false)
+      expect(AppFileSystem.containsReal("/a/b", "/etc/passwd")).toBe(false)
     })
   })
 })

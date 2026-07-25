@@ -174,6 +174,11 @@ export const ReadTool = Tool.define(
         ),
       )
 
+      // Note: reference.contains and assertExternalDirectoryEffect's containment
+      // check both canonicalize with realpath internally (containsReal) before
+      // comparing, so a symlink can't satisfy either check on a raw,
+      // uncanonicalized path while actually pointing elsewhere. That keeps this
+      // ordering safe regardless of which check runs first.
       yield* assertExternalDirectoryEffect(ctx, filepath, {
         bypass: Boolean(ctx.extra?.["bypassCwdCheck"]) || (yield* reference.contains(filepath)),
         kind: stat?.type === "Directory" ? "directory" : "file",

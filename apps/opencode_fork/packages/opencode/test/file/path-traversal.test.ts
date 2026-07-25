@@ -6,7 +6,7 @@ import { Filesystem } from "@/util/filesystem"
 import { File } from "../../src/file"
 import { InstanceState } from "../../src/effect/instance-state"
 import { containsPath } from "../../src/project/instance-context"
-import { TestInstance } from "../fixture/fixture"
+import { TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(File.defaultLayer)
@@ -101,6 +101,39 @@ describe("File.list path traversal protection", () => {
 
       const result = yield* list("subdir")
       expect(Array.isArray(result)).toBe(true)
+    }),
+  )
+})
+
+describe("File.read / File.list symlink escape protection (in-root symlink to outside)", () => {
+  it.instance("File.read rejects reading through an in-root symlink pointing outside", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const outer = yield* tmpdirScoped()
+      yield* Effect.promise(() => Bun.write(path.join(outer, "secret.txt"), "secret data"))
+      yield* Effect.promise(() => fs.symlink(outer, path.join(test.directory, "escape")))
+
+      yield* expectAccessDenied(read(path.join("escape", "secret.txt")))
+    }),
+  )
+
+  it.instance("File.list rejects listing through an in-root symlink pointing outside", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const outer = yield* tmpdirScoped()
+      yield* Effect.promise(() => fs.symlink(outer, path.join(test.directory, "escape-dir")))
+
+      yield* expectAccessDenied(list("escape-dir"))
+    }),
+  )
+
+  it.instance("File.read still allows a legitimate in-root subdirectory (no false lockout)", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      yield* Effect.promise(() => Bun.write(path.join(test.directory, "sub", "ok.txt"), "fine"))
+
+      const result = yield* read(path.join("sub", "ok.txt"))
+      expect(result.content).toBe("fine")
     }),
   )
 })

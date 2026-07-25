@@ -274,10 +274,7 @@ class _InspectorResizeHandle extends StatelessWidget {
         child: SizedBox(
           width: 6,
           child: Center(
-            child: Container(
-              width: 1,
-              color: context.rhythm.border,
-            ),
+            child: Container(width: 1, color: context.rhythm.border),
           ),
         ),
       ),
@@ -557,7 +554,9 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
   /// The user hits Enter to send the (possibly edited) draft as the normal
   /// first user turn — no server-seeded system message, no auto-prompt.
   void _maybeConsumeComposerDraft(
-      BuildContext context, AgentSession? selected) {
+    BuildContext context,
+    AgentSession? selected,
+  ) {
     if (selected == null) return;
     final sessionId = selected.id;
     if (_draftConsumedForSession.contains(sessionId)) return;
@@ -708,8 +707,9 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
                           else
                             Expanded(
                               child: Container(
-                                color: context.rhythm.canvas
-                                    .withValues(alpha: 0.45),
+                                color: context.rhythm.canvas.withValues(
+                                  alpha: 0.45,
+                                ),
                                 child: _buildTranscriptBody(
                                   context,
                                   controller,
@@ -1127,9 +1127,10 @@ class _AnthropicAccountBadge extends StatelessWidget {
       padding: EdgeInsets.zero,
       onSelected: (accountId) {
         if (accountId == session.anthropicAccountId) return;
-        context
-            .read<AgentsController>()
-            .setSessionAnthropicAccount(session.id, accountId);
+        context.read<AgentsController>().setSessionAnthropicAccount(
+              session.id,
+              accountId,
+            );
       },
       itemBuilder: (context) => [
         for (final account in accounts)
@@ -1509,9 +1510,7 @@ class _EngineConnectingState extends StatelessWidget {
         Container(
           padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
           decoration: BoxDecoration(
-            border: Border(
-              top: BorderSide(color: context.rhythm.borderSubtle),
-            ),
+            border: Border(top: BorderSide(color: context.rhythm.borderSubtle)),
             color: context.rhythm.surfaceRaised,
           ),
           child: Column(
@@ -1541,9 +1540,7 @@ class _EngineConnectingState extends StatelessWidget {
                   ),
                   disabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                    borderSide: BorderSide(
-                      color: context.rhythm.borderSubtle,
-                    ),
+                    borderSide: BorderSide(color: context.rhythm.borderSubtle),
                   ),
                 ),
               ),
@@ -1655,11 +1652,11 @@ class _ChatBubble extends StatelessWidget {
         flushText();
         // Route `question` / AskUserQuestion tool calls to the interactive
         // answer selector. All other tool calls use the generic card.
-        if (const {'question', 'askuserquestion'}
-            .contains(part.toolName?.toLowerCase())) {
-          children.add(
-            QuestionToolCard(part: part, sessionId: sessionId),
-          );
+        if (const {
+          'question',
+          'askuserquestion',
+        }.contains(part.toolName?.toLowerCase())) {
+          children.add(QuestionToolCard(part: part, sessionId: sessionId));
         } else {
           // OPC-M2-3: dispatch to a tool-specific renderer by name.
           children.add(_buildToolRenderer(part));
@@ -1669,10 +1666,7 @@ class _ChatBubble extends StatelessWidget {
         // then render it as a collapsible ReasoningBlock.
         flushText();
         children.add(
-          ReasoningBlock(
-            key: ValueKey('reasoning-${part.id}'),
-            part: part,
-          ),
+          ReasoningBlock(key: ValueKey('reasoning-${part.id}'), part: part),
         );
       } else if (part.type == 'step-start' || part.type == 'step-finish') {
         // Step boundary markers — hidden from the UI per spec (M2 scope).
@@ -1681,19 +1675,17 @@ class _ChatBubble extends StatelessWidget {
         // OPC-M3-3: flush any accumulated text, then render a full-width
         // compaction divider ("Conversation compacted" with expandable summary).
         flushText();
-        children.add(CompactionDivider(
-          key: ValueKey('compaction-${part.id}'),
-          part: part,
-        ));
+        children.add(
+          CompactionDivider(key: ValueKey('compaction-${part.id}'), part: part),
+        );
       } else if (part.type == 'agent') {
         // OPC-M4-4: agent-switch marker — flush text then show "Switched to X".
         flushText();
         final name = part.agentName;
         if (name != null && name.isNotEmpty) {
-          children.add(AgentPartMarker(
-            key: ValueKey('agent-${part.id}'),
-            agentName: name,
-          ));
+          children.add(
+            AgentPartMarker(key: ValueKey('agent-${part.id}'), agentName: name),
+          );
         }
       } else {
         // text and any future unknown part types — accumulate as prose.
@@ -1804,8 +1796,10 @@ class _UserBubble extends StatelessWidget {
             for (final fp in fileParts) _buildFilePart(context, fp),
             if (text.isNotEmpty)
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: context.rhythm.accentMuted,
                   borderRadius: BorderRadius.circular(RhythmRadius.md),
@@ -1912,11 +1906,7 @@ class _UserBubble extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.attach_file,
-              size: 12,
-              color: context.rhythm.accent,
-            ),
+            Icon(Icons.attach_file, size: 12, color: context.rhythm.accent),
             const SizedBox(width: 4),
             ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 200),
@@ -2112,14 +2102,31 @@ class _InputAreaState extends State<_InputArea> {
         final bytes = await File(path).readAsBytes();
         final mime = resolveAttachmentMime(bytes, f.name, f.extension);
 
+        if (isSkillReadableBinaryMime(mime)) {
+          // Issue #1137: Office docs can't ride as a `data:` FilePart (the
+          // model rejects the media type) — attach a `file:` reference to
+          // the real path instead so the engine's Read tool + docx/xlsx/pptx
+          // skill can read it.
+          controller.addPendingAttachment(
+            id,
+            buildFileRefAttachment(
+              mime: mime,
+              filename: f.name,
+              absolutePath: path,
+            ),
+          );
+          continue;
+        }
+
         if (mime == 'application/octet-stream') {
           // Genuinely unsupported binary — block at attach time.
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  '${f.name}: unsupported file type. '
-                  'Only text files, images, and PDFs can be attached.',
+                  '${f.name}: unsupported file type. Only text files, '
+                  'images, PDFs, and Office documents can be attached. See '
+                  'docs/ai/attachment-fallback.md for other file types.',
                 ),
                 duration: const Duration(seconds: 4),
               ),
@@ -2153,8 +2160,9 @@ class _InputAreaState extends State<_InputArea> {
             // Truncate at the byte boundary and re-decode to keep valid UTF-8.
             final truncBytes = bytes.sublist(0, _kTextSizeCap);
             final partial = tryDecodeUtf8(truncBytes) ??
-                const Utf8Decoder(allowMalformed: true)
-                    .convert(truncBytes.toList());
+                const Utf8Decoder(
+                  allowMalformed: true,
+                ).convert(truncBytes.toList());
             content =
                 '$partial\n\n… [truncated — showing first 100 KB of ${f.name}]';
           } else {
@@ -2185,8 +2193,9 @@ class _InputAreaState extends State<_InputArea> {
   /// OCU-20 (#1061) — attach [relPath] (picked from the @-mention popover) by
   /// fetching its content through the worktree-safe content proxy and running
   /// it through the same classification path as [_pickFiles]: text is inlined
-  /// (capped at 100KB), image/PDF becomes a FilePart data URI, anything else
-  /// is rejected with a SnackBar.
+  /// (capped at 100KB), image/PDF becomes a FilePart data URI, Office docs
+  /// (#1137) become a `file:` reference, anything else is rejected with a
+  /// SnackBar.
   Future<void> _attachFromMention(String relPath) async {
     final controller = context.read<AgentsController>();
     final id = controller.selectedSessionId;
@@ -2199,6 +2208,29 @@ class _InputAreaState extends State<_InputArea> {
           SnackBar(content: Text(reason), duration: const Duration(seconds: 4)),
         );
       }
+    }
+
+    // Issue #1137: Office docs are picked by (worktree-relative) path, not
+    // bytes — no need to round-trip through the content proxy at all. Build
+    // the `file:` reference directly from the session's cwd + relPath.
+    final ext = filename.contains('.') ? filename.split('.').last : '';
+    final extMime = mimeFromExtension(ext);
+    if (isSkillReadableBinaryMime(extMime)) {
+      final cwd = controller.selectedSession?.cwd;
+      if (cwd == null) {
+        reject('Could not attach $filename: session directory unknown.');
+        return;
+      }
+      final base = cwd.endsWith('/') ? cwd.substring(0, cwd.length - 1) : cwd;
+      controller.addPendingAttachment(
+        id,
+        buildFileRefAttachment(
+          mime: extMime,
+          filename: filename,
+          absolutePath: '$base/$relPath',
+        ),
+      );
+      return;
     }
 
     try {
@@ -2237,8 +2269,11 @@ class _InputAreaState extends State<_InputArea> {
         return;
       }
 
-      reject('$filename: unsupported file type. '
-          'Only text files, images, and PDFs can be attached.');
+      reject(
+        '$filename: unsupported file type. Only text files, images, '
+        'PDFs, and Office documents can be attached. See '
+        'docs/ai/attachment-fallback.md for other file types.',
+      );
     } catch (e) {
       reject('Could not attach $filename: $e');
     }
@@ -2481,8 +2516,9 @@ class _InputAreaState extends State<_InputArea> {
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           decoration: BoxDecoration(
                             color: context.rhythm.surfaceMuted,
-                            borderRadius:
-                                BorderRadius.circular(RhythmRadius.md),
+                            borderRadius: BorderRadius.circular(
+                              RhythmRadius.md,
+                            ),
                             border: Border.all(color: context.rhythm.border),
                           ),
                           child: Row(
@@ -2572,9 +2608,7 @@ class _AttachmentChipWidget extends StatelessWidget {
       decoration: BoxDecoration(
         color: context.rhythm.accentMuted,
         borderRadius: BorderRadius.circular(RhythmRadius.pill),
-        border: Border.all(
-          color: context.rhythm.accent.withValues(alpha: 0.3),
-        ),
+        border: Border.all(color: context.rhythm.accent.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -3292,17 +3326,11 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
                     // Recent branches (de-duplicated against current).
                     for (final b in _recentBranches)
                       if (b != _currentBranch)
-                        DropdownMenuItem<String>(
-                          value: b,
-                          child: Text(b),
-                        ),
+                        DropdownMenuItem<String>(value: b, child: Text(b)),
                     // Remaining local branches not already shown.
                     for (final b in _localBranches)
                       if (b != _currentBranch && !_recentBranches.contains(b))
-                        DropdownMenuItem<String>(
-                          value: b,
-                          child: Text(b),
-                        ),
+                        DropdownMenuItem<String>(value: b, child: Text(b)),
                     // Sentinel for "create new branch".
                     DropdownMenuItem<String>(
                       value: '__new__',
@@ -3353,8 +3381,10 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
                 isExpanded: true,
                 dropdownColor: context.rhythm.surfaceRaised,
                 decoration: _inputDecoration(context, hint: 'Profile default'),
-                style:
-                    TextStyle(fontSize: 13, color: context.rhythm.textPrimary),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: context.rhythm.textPrimary,
+                ),
                 items: [
                   DropdownMenuItem<String?>(
                     value: null,
@@ -3537,10 +3567,7 @@ class ResumableSessionRowTestHarness extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ResumableSessionRow(
-      session: session,
-      onResume: onResume ?? () {},
-    );
+    return ResumableSessionRow(session: session, onResume: onResume ?? () {});
   }
 }
 
@@ -3719,17 +3746,22 @@ class ChildTranscriptView extends StatelessWidget {
                               ? Align(
                                   alignment: Alignment.centerRight,
                                   child: Container(
-                                    constraints:
-                                        const BoxConstraints(maxWidth: 560),
+                                    constraints: const BoxConstraints(
+                                      maxWidth: 560,
+                                    ),
                                     padding: const EdgeInsets.symmetric(
-                                        horizontal: 12, vertical: 8),
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
                                     decoration: BoxDecoration(
                                       color: context.rhythm.accentMuted,
                                       borderRadius: BorderRadius.circular(
-                                          RhythmRadius.md),
+                                        RhythmRadius.md,
+                                      ),
                                       border: Border.all(
-                                        color: context.rhythm.accent
-                                            .withValues(alpha: 0.2),
+                                        color: context.rhythm.accent.withValues(
+                                          alpha: 0.2,
+                                        ),
                                       ),
                                     ),
                                     child: Text(
@@ -3754,10 +3786,11 @@ class ChildTranscriptView extends StatelessWidget {
                                         decoration: BoxDecoration(
                                           color: context.rhythm.surfaceMuted,
                                           borderRadius: BorderRadius.circular(
-                                              RhythmRadius.md),
+                                            RhythmRadius.md,
+                                          ),
                                           border: Border.all(
-                                              color:
-                                                  context.rhythm.borderSubtle),
+                                            color: context.rhythm.borderSubtle,
+                                          ),
                                         ),
                                         child: Text(
                                           displayText,
@@ -3917,10 +3950,7 @@ class AgentSelectorPill extends StatelessWidget {
           value: '',
           child: Text(
             '$managerLabel (default)',
-            style: TextStyle(
-              fontSize: 12,
-              color: context.rhythm.textSecondary,
-            ),
+            style: TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
           ),
         ),
         for (final a in items)
@@ -3930,10 +3960,7 @@ class AgentSelectorPill extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  a.label,
-                  style: const TextStyle(fontSize: 13),
-                ),
+                Text(a.label, style: const TextStyle(fontSize: 13)),
                 if (a.description != null)
                   Text(
                     a.description!,
@@ -4023,11 +4050,7 @@ class AgentPartMarker extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(
-          Icons.swap_horiz,
-          size: 13,
-          color: context.rhythm.textMuted,
-        ),
+        Icon(Icons.swap_horiz, size: 13, color: context.rhythm.textMuted),
         const SizedBox(width: 4),
         Text(
           'Switched to $agentName',
@@ -4074,10 +4097,7 @@ class _InputAreaTestHarnessState extends State<InputAreaTestHarness> {
   Widget build(BuildContext context) {
     // The real _InputArea is private — we test via a minimal Scaffold that
     // mirrors how _TranscriptPanel embeds it.
-    return _InputArea(
-      inputController: _controller,
-      onSend: () {},
-    );
+    return _InputArea(inputController: _controller, onSend: () {});
   }
 }
 

@@ -1,6 +1,6 @@
 import { NodeFileSystem } from "@effect/platform-node"
-import { dirname, join, relative, resolve as pathResolve } from "path"
-import { realpathSync } from "fs"
+import { basename, dirname, join, relative, resolve as pathResolve } from "path"
+import { lstatSync, realpathSync } from "fs"
 import * as NFS from "fs/promises"
 import { lookup } from "mime-types"
 import { Effect, FileSystem, Layer, Schema, Context } from "effect"
@@ -240,5 +240,65 @@ export namespace AppFileSystem {
 
   export function contains(parent: string, child: string) {
     return !relative(parent, child).startsWith("..")
+  }
+
+  /**
+   * Canonicalize `p` with realpath, fail-closed.
+   *
+   * If `p` doesn't exist (e.g. a write target for a file that hasn't been
+   * created yet), walks up to the nearest existing ancestor, canonicalizes
+   * that, and rejoins the missing tail segments (which can't be resolved
+   * because they don't exist). Throws on anything other than a missing
+   * segment — a broken/dangling symlink (ELOOP), a permission error
+   * (EACCES) partway up the chain, or no existing ancestor at all — so
+   * callers that need fail-closed semantics (containment checks) should not
+   * catch-and-treat-as-safe.
+   */
+  export function canonicalize(p: string): string {
+    let current = pathResolve(p)
+    const tail: string[] = []
+    while (true) {
+      try {
+        const real = realpathSync(current)
+        return tail.length ? join(real, ...tail) : real
+      } catch (e: any) {
+        if (e?.code !== "ENOENT") throw e
+        // Distinguish "nothing here" (fine — keep walking up to build a
+        // canonical path for a not-yet-created write target) from "a
+        // dangling symlink lives here" (fail closed: a symlink whose target
+        // doesn't exist can't be proven safe, so don't silently treat its
+        // resolved location as if it were just a missing plain path).
+        let dangling = false
+        try {
+          dangling = lstatSync(current).isSymbolicLink()
+        } catch {
+          // current doesn't exist at all (not even as a symlink) — legitimate walk-up
+        }
+        if (dangling) throw e
+        const parent = dirname(current)
+        if (parent === current) throw e
+        tail.unshift(basename(current))
+        current = parent
+      }
+    }
+  }
+
+  /**
+   * Like `contains`, but canonicalizes both `parent` and `child` with
+   * realpath before comparing, so a symlink living inside `parent` cannot
+   * escape containment by pointing outside it. Canonicalizing `parent` too
+   * (not just `child`) means a root reached through a symlink itself (e.g.
+   * macOS `/tmp` -> `/private/tmp`) still compares equal and isn't a false
+   * lockout.
+   *
+   * Fails closed: any resolution error (dangling symlink, EACCES, ELOOP, no
+   * existing ancestor) returns `false`.
+   */
+  export function containsReal(parent: string, child: string): boolean {
+    try {
+      return contains(canonicalize(parent), canonicalize(child))
+    } catch {
+      return false
+    }
   }
 }

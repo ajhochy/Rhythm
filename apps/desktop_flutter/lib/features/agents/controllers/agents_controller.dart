@@ -1453,8 +1453,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// rehydration (selectedAgentFor step 2) picks it up. Non-fatal on failure.
   Future<void> _persistSelectedAgent(String sessionId, String agentName) async {
     try {
-      final updated =
-          await _repository.updateSession(sessionId, agentId: agentName);
+      final updated = await _repository.updateSession(
+        sessionId,
+        agentId: agentName,
+      );
       if (_disposed) return;
       _sessions = [for (final s in _sessions) s.id == sessionId ? updated : s];
       notifyListeners();
@@ -1901,7 +1903,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     } catch (e) {
       _creating = false;
       if (e is AppError) {
-        _error = e.message;
+        _error = _friendlyCreateSessionError(e);
         _lastErrorStatus = e.statusCode;
       } else {
         _error = e.toString();
@@ -1909,6 +1911,19 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       return null;
     }
+  }
+
+  /// #1154 — Defense-in-depth: a session-create 400 body is a server-side
+  /// validation string (e.g. `Unknown mcpRole: "secretary"`), not user-facing
+  /// copy. The real fix is making mcpRole resolution work in the bundled app
+  /// (see `MCP_ROLES_DIR` wiring in `ApiServerService`); this guard just
+  /// ensures that raw string never reaches the footer if resolution ever
+  /// fails again (unknown role, corrupt role file, etc).
+  static String _friendlyCreateSessionError(AppError e) {
+    if (e.message.contains('mcpRole')) {
+      return "Couldn't start this assistant. Please try again.";
+    }
+    return e.message;
   }
 
   /// Picks the default agent for `createSession` callers that haven't chosen
@@ -2118,8 +2133,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _removePendingPermission(sessionId, permissionId);
     notifyListeners();
     try {
-      await _repository.respondPermission(sessionId, permissionId, 'deny',
-          message: reason);
+      await _repository.respondPermission(
+        sessionId,
+        permissionId,
+        'deny',
+        message: reason,
+      );
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
       notifyListeners();
@@ -2130,7 +2149,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// project (server maps 'always' to the engine's `always` reply so the
   /// same action is not re-asked).
   Future<void> alwaysAllowPermission(
-      String sessionId, String permissionId) async {
+    String sessionId,
+    String permissionId,
+  ) async {
     _removePendingPermission(sessionId, permissionId);
     notifyListeners();
     try {
