@@ -154,7 +154,7 @@ class _AgentResearchViewState extends State<AgentResearchView> {
           ...failed.map(
             (job) => _FailedJobCard(
               job: job,
-               onRetry: job.canRetry ? () => controller.retry(job.id) : null,
+              onRetry: job.canRetry ? () => controller.retry(job.id) : null,
               onTap: () => _showReportBottomSheet(context, job),
             ),
           ),
@@ -530,11 +530,11 @@ class _CompletedJobCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: RhythmSpacing.xs),
-                    Row(
-                      children: [
-                        _ResearchTypeBadge(job: job),
-                        const SizedBox(width: RhythmSpacing.xs),
-                        _StatusChip(isDone: isDone),
+                  Row(
+                    children: [
+                      _ResearchTypeBadge(job: job),
+                      const SizedBox(width: RhythmSpacing.xs),
+                      _StatusChip(isDone: isDone),
                       if (job.sources.isNotEmpty) ...[
                         const SizedBox(width: RhythmSpacing.xs),
                         Text(
@@ -674,14 +674,18 @@ class _ResearchTypeBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: RhythmSpacing.xs, vertical: 2),
+        padding: const EdgeInsets.symmetric(
+            horizontal: RhythmSpacing.xs, vertical: 2),
         decoration: BoxDecoration(
           color: context.rhythm.accentMuted,
           borderRadius: BorderRadius.circular(RhythmRadius.xs),
         ),
         child: Text(
           job.typeLabel,
-          style: TextStyle(color: context.rhythm.accent, fontSize: 11, fontWeight: FontWeight.w600),
+          style: TextStyle(
+              color: context.rhythm.accent,
+              fontSize: 11,
+              fontWeight: FontWeight.w600),
         ),
       );
 }
@@ -827,14 +831,16 @@ class _ReportBottomSheet extends StatelessWidget {
                       ),
                       const SizedBox(height: RhythmSpacing.sm),
                       _ResearchTypeBadge(job: job),
-                      if (job.agentProfileId != null || job.agentSessionId != null)
+                      if (job.agentProfileId != null ||
+                          job.agentSessionId != null)
                         Padding(
                           padding: const EdgeInsets.only(top: RhythmSpacing.xs),
                           child: Text(
                             [job.agentProfileId, job.agentSessionId]
                                 .whereType<String>()
                                 .join(' · '),
-                            style: TextStyle(color: context.rhythm.textMuted, fontSize: 11),
+                            style: TextStyle(
+                                color: context.rhythm.textMuted, fontSize: 11),
                           ),
                         ),
                       if (job.sources.isNotEmpty) ...[
@@ -866,10 +872,15 @@ class _ReportBottomSheet extends StatelessWidget {
                       ],
                       if (job.vaultPath != null) ...[
                         const SizedBox(height: RhythmSpacing.md),
-                        Text('Vault: ${job.vaultPath}', style: TextStyle(color: context.rhythm.textMuted, fontSize: 12)),
+                        Text('Vault: ${job.vaultPath}',
+                            style: TextStyle(
+                                color: context.rhythm.textMuted, fontSize: 12)),
                       ],
                       const SizedBox(height: RhythmSpacing.md),
-                      Text('Created ${job.createdAt} · Updated ${job.updatedAt}', style: TextStyle(color: context.rhythm.textMuted, fontSize: 11)),
+                      Text(
+                          'Created ${job.createdAt} · Updated ${job.updatedAt}',
+                          style: TextStyle(
+                              color: context.rhythm.textMuted, fontSize: 11)),
                     ],
                   ),
                 ),

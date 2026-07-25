@@ -45,6 +45,11 @@ import { registerAgentScheduleTools } from '../tools/agentSchedule.js';
 import { registerAgentDelegationTools } from '../tools/agentDelegation.js';
 import { registerAgentMemoryTools } from '../tools/agentMemory.js';
 import { registerAgentSessionTools } from '../tools/agentSessions.js';
+import { registerAgentApprovalTools } from '../tools/agentApprovals.js';
+import { registerFeedbackSensorTools } from '../tools/feedbackSensors.js';
+import { registerAgentProfileTools } from '../tools/agentProfiles.js';
+import { registerCreativePlatformTools } from '../tools/creativePlatform.js';
+import { registerSetupReadinessTool } from '../tools/setupReadiness.js';
 import { registerAgentResearchTools } from '../tools/agentResearch.js';
 import { registerOrgOptimizerTools } from '../tools/orgOptimizer.js';
 
@@ -60,18 +65,23 @@ const REGISTRARS_IN_INDEX_ORDER: Registrar[] = [
   (s) => registerTaskTools(s, API_URL, API_TOKEN),
   (s) => registerProjectTools(s, API_URL, API_TOKEN),
   (s) => registerRhythmTools(s, API_URL, API_TOKEN),
-  (s) => registerMessageTools(s, API_URL, API_TOKEN),
+  (s) => registerMessageTools(s, API_URL, API_TOKEN, AGENT_URL),
   (s) => registerFacilityTools(s, API_URL, API_TOKEN),
   (s) => registerDashboardTools(s, API_URL, API_TOKEN),
   (s) => registerClaudeTriggerTools(s, API_URL, API_TOKEN),
   (s) => registerAutomationTools(s, API_URL, API_TOKEN),
   (s) => registerNotificationTools(s, AGENT_URL),
-  (s) => registerGoogleTools(s, API_URL, API_TOKEN),
+  (s) => registerGoogleTools(s, API_URL, API_TOKEN, AGENT_URL),
   (s) => registerPcoTools(s, API_URL, API_TOKEN),
   (s) => registerAgentScheduleTools(s, API_URL, API_TOKEN),
   (s) => registerAgentDelegationTools(s, AGENT_URL, API_TOKEN),
   (s) => registerAgentMemoryTools(s, AGENT_URL, API_TOKEN),
   (s) => registerAgentSessionTools(s, AGENT_URL, API_TOKEN),
+  (s) => registerAgentApprovalTools(s, AGENT_URL),
+  (s) => registerFeedbackSensorTools(s, API_URL, API_TOKEN),
+  (s) => registerAgentProfileTools(s, AGENT_URL),
+  (s) => registerCreativePlatformTools(s, AGENT_URL),
+  (s) => registerSetupReadinessTool(s, AGENT_URL),
   (s) => registerAgentResearchTools(s, API_URL, API_TOKEN),
   (s) => registerOrgOptimizerTools(s, AGENT_URL, API_TOKEN),
 ];
@@ -112,7 +122,7 @@ describe('MCP server tool registration (issue #864 guard)', () => {
     const client = await connectClient(server);
     try {
       const { tools } = await client.listTools();
-      expect(tools.length).toBeGreaterThan(0);
+      expect(tools).toHaveLength(81);
       assertNoDuplicateNames(tools.map((t) => t.name));
     } finally {
       await client.close();
