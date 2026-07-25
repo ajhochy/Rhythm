@@ -2,18 +2,33 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '../app';
+import { env } from '../config/env';
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { UsersRepository } from '../repositories/users_repository';
+import {
+  installHumanApprovalTestCredentials,
+} from './helpers/human_approval_test_credentials';
 import { startTestServer } from './helpers/real_server';
 
 describe('#1173 webhook secret rotation', () => {
   let db: Database.Database;
   let baseUrl: string;
   let closeServer: () => Promise<void>;
+  let humanCapabilityHeader: Record<string, string>;
+  let originalHumanApprovalConfig: {
+    capabilitySha256: string;
+    publicKey: string;
+  };
 
   beforeEach(async () => {
+    originalHumanApprovalConfig = {
+      capabilitySha256: env.humanApprovalCapabilitySha256,
+      publicKey: env.humanApprovalPublicKey,
+    };
+    humanCapabilityHeader =
+      installHumanApprovalTestCredentials().capabilityHeader;
     db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     setDb(db);
@@ -24,6 +39,9 @@ describe('#1173 webhook secret rotation', () => {
   afterEach(async () => {
     await closeServer();
     db.close();
+    env.humanApprovalCapabilitySha256 =
+      originalHumanApprovalConfig.capabilitySha256;
+    env.humanApprovalPublicKey = originalHumanApprovalConfig.publicKey;
   });
 
   async function pair(email: string): Promise<string> {
@@ -32,12 +50,14 @@ describe('#1173 webhook secret rotation', () => {
     const auth = {
       Authorization: `Bearer ${session.token}`,
       'Content-Type': 'application/json',
+      ...humanCapabilityHeader,
     };
     const codeResponse = await fetch(`${baseUrl}/mobile-gateway/pairing-codes`, {
       method: 'POST',
       headers: auth,
       body: '{}',
     });
+    expect(codeResponse.status).toBe(201);
     const { pairingCode, hostId } = (await codeResponse.json()) as {
       pairingCode: string;
       hostId: string;
@@ -47,7 +67,12 @@ describe('#1173 webhook secret rotation', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pairingCode, hostId, deviceName: `${email} phone` }),
     });
-    return ((await pairResponse.json()) as { deviceToken: string }).deviceToken;
+    expect(pairResponse.status).toBe(201);
+    const { deviceToken } = (await pairResponse.json()) as {
+      deviceToken: string;
+    };
+    expect(deviceToken).toBeTruthy();
+    return deviceToken;
   }
 
   it('rotates only the paired owner secret and returns the replacement exactly once', async () => {
