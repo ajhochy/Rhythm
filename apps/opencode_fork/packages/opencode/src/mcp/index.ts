@@ -1,4 +1,4 @@
-import { dynamicTool, type Tool, jsonSchema, type JSONSchema7 } from "ai"
+import { dynamicTool, type Tool, jsonSchema, type JSONSchema7, type ToolExecutionOptions } from "ai"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js"
@@ -34,6 +34,40 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 
 const log = Log.create({ service: "mcp" })
 const DEFAULT_TIMEOUT = 30_000
+
+/**
+ * Rhythm-only MCP request metadata. The engine adds this after the model has
+ * produced tool arguments, so the model cannot forge session/turn identity.
+ * The receiving MCP server reads it from RequestHandlerExtra._meta.
+ */
+export const RHYTHM_SECURITY_CONTEXT_META_KEY = "com.vcrc.rhythm/security-context"
+
+export interface RhythmMcpSecurityContext {
+  sdkSessionId: string
+  turnId: string
+  agentName: string
+  toolCallId: string
+}
+
+const RHYTHM_SECURITY_CONTEXT = Symbol("rhythm-mcp-security-context")
+type RhythmToolExecutionOptions = ToolExecutionOptions & {
+  [RHYTHM_SECURITY_CONTEXT]?: RhythmMcpSecurityContext
+}
+
+export function withRhythmSecurityContext(
+  options: ToolExecutionOptions,
+  context: RhythmMcpSecurityContext,
+): ToolExecutionOptions {
+  return Object.assign({}, options, { [RHYTHM_SECURITY_CONTEXT]: context })
+}
+
+export function rhythmSecurityRequestMeta(
+  options: ToolExecutionOptions,
+): Record<string, unknown> | undefined {
+  const context = (options as RhythmToolExecutionOptions)[RHYTHM_SECURITY_CONTEXT]
+  if (!context) return undefined
+  return { [RHYTHM_SECURITY_CONTEXT_META_KEY]: context }
+}
 
 const TolerantListToolsResultSchema = ListToolsResultSchema.extend({
   tools: ToolSchema.omit({ outputSchema: true }).array(),
@@ -165,11 +199,13 @@ function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number
   return dynamicTool({
     description: mcpTool.description ?? "",
     inputSchema: jsonSchema(schema),
-    execute: async (args: unknown) => {
+    execute: async (args: unknown, options: ToolExecutionOptions) => {
+      const securityMeta = rhythmSecurityRequestMeta(options)
       return client.callTool(
         {
           name: mcpTool.name,
           arguments: (args || {}) as Record<string, unknown>,
+          ...(securityMeta && { _meta: securityMeta }),
         },
         CallToolResultSchema,
         {

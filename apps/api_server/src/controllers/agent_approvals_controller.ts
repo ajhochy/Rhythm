@@ -15,8 +15,15 @@ import {
   isAutoApproveProfile,
   type AgentApprovalStatus,
 } from '../repositories/agent_approvals_repository';
+import {
+  ExternalContentSecurityService,
+  parseSecurityAction,
+  parseSecurityPayload,
+  parseTrustedSecurityContext,
+} from '../services/external_content_security_service';
 
 const repo = new AgentApprovalsRepository();
+const security = new ExternalContentSecurityService();
 
 export class AgentApprovalsController {
   create(req: Request, res: Response, next: NextFunction): void {
@@ -24,6 +31,37 @@ export class AgentApprovalsController {
       const body = req.body ?? {};
       const action = typeof body.action === 'string' ? body.action.trim() : '';
       if (!action) throw AppError.badRequest('action is required');
+
+      if (body.security !== undefined) {
+        if (!body.security || typeof body.security !== 'object' || Array.isArray(body.security)) {
+          throw AppError.badRequest('security must be an object');
+        }
+        const securityInput = body.security as Record<string, unknown>;
+        const binding = security.createApprovalBinding(
+          parseTrustedSecurityContext(securityInput.context),
+          parseSecurityAction(securityInput.action),
+          parseSecurityPayload(securityInput.payload),
+        );
+        const approval = repo.create({
+          sessionId: binding.sessionId,
+          agentConfigId: binding.agentConfigId,
+          // Security-bound cards use a server-authored action label and
+          // canonical payload preview so untrusted/model text cannot misstate
+          // what the human is approving.
+          action: `Authorize ${binding.securityAction}`,
+          preview: binding.preview,
+          consequence: typeof body.consequence === 'string' ? body.consequence : null,
+          autoApprove: false,
+          securityAction: binding.securityAction,
+          payloadDigest: binding.payloadDigest,
+          taintId: binding.taintId,
+          taintedTurnId: binding.taintedTurnId,
+          boundAgent: binding.boundAgent,
+          expiresAt: binding.expiresAt,
+        });
+        res.status(201).json(approval);
+        return;
+      }
 
       const agentConfigId = typeof body.agentConfigId === 'string' ? body.agentConfigId : null;
       const approval = repo.create({

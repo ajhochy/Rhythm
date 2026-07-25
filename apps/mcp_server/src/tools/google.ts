@@ -4,8 +4,11 @@ import { apiGet, apiPost, apiPatch, toolResult, toolError, RhythmApiError } from
 import { registerTool } from './_tool.js';
 import { untrustedContext } from '../untrusted_context.js';
 import { scanContextContent } from '../security/context_scanner.js';
-import { markTainted } from '../taint.js';
-import { enforceApprovalIfTainted } from './_approval_gate.js';
+import {
+  authorizeOutboundAction,
+  recordExternalContentTaint,
+} from '../security/external_content_boundary.js';
+import { trustedSecurityContext } from '../security/security_context.js';
 
 function handleErr(err: unknown) {
   if (err instanceof RhythmApiError && err.status === 409) {
@@ -90,15 +93,23 @@ export function registerGoogleTools(server: McpServer, apiUrl: string, apiToken:
   registerTool(server, 'rhythm_search_gmail',
     "Search the signed-in user's Gmail. Returns matching message ids/threads. Requires Google tools enabled.",
     { query: z.string().describe('Gmail search query, e.g. "from:boss is:unread".') },
-    async ({ query }: { query: string }) => {
+    async ({ query }: { query: string }, extra) => {
       try {
         const res = await apiGet<unknown>(apiUrl, apiToken, `/integrations/google/gmail/search?q=${encodeURIComponent(query)}`);
-        // Gmail subjects/snippets are attacker-controllable (#737, SF-4): fence
-        // before the result reaches the model. The text is the whole result here.
-        // #1134: taint on consume + fail-closed scan BEFORE fencing/forwarding.
         const raw = JSON.stringify(res, null, 2);
-        markTainted('gmail');
         const scan = scanContextContent(raw, 'gmail search results');
+        const context = trustedSecurityContext(extra);
+        if (!context) {
+          throw new Error('trusted Rhythm session/turn metadata is unavailable; Gmail content was not loaded');
+        }
+        await recordExternalContentTaint({
+          agentUrl,
+          context,
+          source: 'gmail.search',
+          rawContent: raw,
+          blocked: scan.blocked,
+          matches: scan.matches,
+        });
         if (scan.blocked) {
           return { content: [{ type: 'text' as const, text: scan.warning as string }], isError: true as const };
         }
@@ -110,15 +121,23 @@ export function registerGoogleTools(server: McpServer, apiUrl: string, apiToken:
   registerTool(server, 'rhythm_read_email',
     'Read a Gmail message by id (full body). Requires Google tools enabled.',
     { id: z.string().describe('Gmail message id.') },
-    async ({ id }: { id: string }) => {
+    async ({ id }: { id: string }, extra) => {
       try {
         const res = await apiGet<unknown>(apiUrl, apiToken, `/integrations/google/gmail/messages/${encodeURIComponent(id)}`);
-        // Full email body is attacker-controllable (#737, SF-4): fence before the
-        // result reaches the model. #1134: taint on consume + fail-closed scan
-        // BEFORE fencing/forwarding.
         const raw = JSON.stringify(res, null, 2);
-        markTainted('gmail');
         const scan = scanContextContent(raw, 'gmail message');
+        const context = trustedSecurityContext(extra);
+        if (!context) {
+          throw new Error('trusted Rhythm session/turn metadata is unavailable; Gmail content was not loaded');
+        }
+        await recordExternalContentTaint({
+          agentUrl,
+          context,
+          source: 'gmail.message',
+          rawContent: raw,
+          blocked: scan.blocked,
+          matches: scan.matches,
+        });
         if (scan.blocked) {
           return { content: [{ type: 'text' as const, text: scan.warning as string }], isError: true as const };
         }
@@ -129,21 +148,29 @@ export function registerGoogleTools(server: McpServer, apiUrl: string, apiToken:
 
   registerTool(server, 'rhythm_send_email',
     'Send an email as the signed-in user via Gmail. Requires Google tools enabled. If this ' +
-    'session has read untrusted external content (e.g. Gmail), a valid approval_id from ' +
-    'rhythm_request_approval is required before the send proceeds.',
+    'session has read untrusted external content, request human approval with ' +
+    'security_action="email.send" and security_payload exactly equal to {to,subject,body}, ' +
+    'then retry once with that approval_id.',
     {
       to: z.string().describe('Recipient email address.'),
       subject: z.string().describe('Subject line.'),
       body: z.string().describe('Plain-text body.'),
       approval_id: z.string().optional().describe('Approval id returned by rhythm_request_approval — required if this session has read untrusted external content.'),
     },
-    async ({ to, subject, body, approval_id }: { to: string; subject: string; body: string; approval_id?: string }) => {
-      const gate = await enforceApprovalIfTainted({ agentUrl, approvalId: approval_id, action: `send email to ${to}` });
+    async ({ to, subject, body, approval_id }: { to: string; subject: string; body: string; approval_id?: string }, extra) => {
+      const payload = { to, subject, body };
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: 'email.send',
+        payload,
+      });
       if (!gate.allowed) {
         return { content: [{ type: 'text' as const, text: gate.refusalMessage as string }], isError: true as const };
       }
       try {
-        const res = await apiPost<unknown>(apiUrl, apiToken, '/integrations/google/gmail/send', { to, subject, body });
+        const res = await apiPost<unknown>(apiUrl, apiToken, '/integrations/google/gmail/send', payload);
         return toolResult(JSON.stringify(res, null, 2));
       } catch (err) { return handleErr(err); }
     },

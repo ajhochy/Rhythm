@@ -1,0 +1,31 @@
+{
+  "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
+  "role": "email-outbound",
+  "description": "Clean-context outbound communications role. Cannot read Gmail or shared threads; sends only an exact user-reviewed payload, with server-enforced approval whenever its session is tainted.",
+  "mcpServers": {
+    "rhythm": {
+      "command": "node",
+      "args": [
+        "apps/mcp_server/dist/index.js"
+      ],
+      "env": {
+        "RHYTHM_API_URL": "${RHYTHM_API_URL}",
+        "RHYTHM_API_TOKEN": "${RHYTHM_API_TOKEN}"
+      },
+      "allowedTools": [
+        "rhythm_send_email",
+        "rhythm_send_message",
+        "rhythm_create_message_thread",
+        "rhythm_request_approval",
+        "rhythm_ping"
+      ]
+    }
+  },
+  "disabledMcpServers": [
+    "bash",
+    "computer",
+    "editor",
+    "filesystem"
+  ],
+  "allowedSkills": []
+}

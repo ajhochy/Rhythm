@@ -2233,6 +2233,57 @@ The Step 2 / Runbook B helpers live in \`~/.config/opencode/tools/\` (\`classify
     CREATE INDEX IF NOT EXISTS idx_agent_approvals_status ON agent_approvals(status, created_at);
   `);
 
+  // #1134 — security-bound approvals are not bearer IDs. These additive
+  // columns bind an approved row to one session/agent/action/payload/taint
+  // epoch, give it a short expiry, and record its single atomic consumption.
+  const agentApprovalCols = (db.pragma('table_info(agent_approvals)') as { name: string }[])
+    .map((c) => c.name);
+  const addAgentApprovalColumn = (name: string, sqlType: string) => {
+    if (!agentApprovalCols.includes(name)) {
+      db.exec(`ALTER TABLE agent_approvals ADD COLUMN ${name} ${sqlType}`);
+    }
+  };
+  addAgentApprovalColumn('security_action', 'TEXT');
+  addAgentApprovalColumn('payload_digest', 'TEXT');
+  addAgentApprovalColumn('taint_id', 'TEXT');
+  addAgentApprovalColumn('tainted_turn_id', 'TEXT');
+  addAgentApprovalColumn('bound_agent', 'TEXT');
+  addAgentApprovalColumn('expires_at', 'TEXT');
+  addAgentApprovalColumn('consumed_at', 'TEXT');
+
+  // The current row is the active session taint epoch. Every external read
+  // rotates taint_id, invalidating approvals created before newer untrusted
+  // content entered context. The event table retains sanitized diagnostics
+  // (pattern ids/classes and a SHA-256 digest; never raw content).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_external_content_events (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      sdk_session_id TEXT NOT NULL,
+      turn_id TEXT NOT NULL,
+      agent_name TEXT NOT NULL,
+      tool_call_id TEXT NOT NULL,
+      source TEXT NOT NULL,
+      content_digest TEXT NOT NULL,
+      blocked INTEGER NOT NULL DEFAULT 0,
+      diagnostics_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_external_content_events_session
+      ON agent_external_content_events(session_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS agent_external_taint_state (
+      session_id TEXT PRIMARY KEY REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      sdk_session_id TEXT NOT NULL,
+      taint_id TEXT NOT NULL,
+      latest_event_id TEXT NOT NULL,
+      tainted_turn_id TEXT NOT NULL,
+      tainted_agent TEXT NOT NULL,
+      source TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
   // Per-profile auto-approve override — some profiles (e.g. a dev/testing
   // profile) can skip the human gate; church-admin-facing profiles default
   // to requiring manual approval (column defaults to 0/false).

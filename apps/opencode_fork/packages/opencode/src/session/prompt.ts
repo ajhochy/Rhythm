@@ -664,7 +664,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               )
               const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.gen(function* () {
                 yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
-                return yield* Effect.promise(() => execute(args, opts))
+                const trustedOptions = MCP.withRhythmSecurityContext(opts, {
+                  sdkSessionId: ctx.sessionID,
+                  turnId: ctx.messageID,
+                  agentName: ctx.agent,
+                  toolCallId: opts.toolCallId,
+                })
+                return yield* Effect.promise(() => execute(args, trustedOptions))
               }).pipe(
                 Effect.withSpan("Tool.execute", {
                   attributes: {

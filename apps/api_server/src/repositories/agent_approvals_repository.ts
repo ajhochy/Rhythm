@@ -20,6 +20,13 @@ export interface AgentApproval {
   status: AgentApprovalStatus;
   actor: string | null;
   decidedAt: string | null;
+  securityAction: string | null;
+  payloadDigest: string | null;
+  taintId: string | null;
+  taintedTurnId: string | null;
+  boundAgent: string | null;
+  expiresAt: string | null;
+  consumedAt: string | null;
   createdAt: string;
 }
 
@@ -32,6 +39,12 @@ export interface CreateAgentApprovalInput {
   /** True when the caller's profile has auto_approve_actions set — persists pre-approved. */
   autoApprove?: boolean;
   actor?: string | null;
+  securityAction?: string | null;
+  payloadDigest?: string | null;
+  taintId?: string | null;
+  taintedTurnId?: string | null;
+  boundAgent?: string | null;
+  expiresAt?: string | null;
 }
 
 function rowToModel(row: Record<string, unknown>): AgentApproval {
@@ -45,6 +58,13 @@ function rowToModel(row: Record<string, unknown>): AgentApproval {
     status: row.status as AgentApprovalStatus,
     actor: (row.actor as string | null) ?? null,
     decidedAt: (row.decided_at as string | null) ?? null,
+    securityAction: (row.security_action as string | null) ?? null,
+    payloadDigest: (row.payload_digest as string | null) ?? null,
+    taintId: (row.taint_id as string | null) ?? null,
+    taintedTurnId: (row.tainted_turn_id as string | null) ?? null,
+    boundAgent: (row.bound_agent as string | null) ?? null,
+    expiresAt: (row.expires_at as string | null) ?? null,
+    consumedAt: (row.consumed_at as string | null) ?? null,
     createdAt: row.created_at as string,
   };
 }
@@ -66,15 +86,20 @@ export function isAutoApproveProfile(agentConfigId: string | null | undefined): 
 export class AgentApprovalsRepository {
   create(input: CreateAgentApprovalInput): AgentApproval {
     const id = randomUUID();
-    const status: AgentApprovalStatus = input.autoApprove ? 'approved' : 'pending';
-    const decidedAt = input.autoApprove ? new Date().toISOString() : null;
-    const actor = input.autoApprove ? 'auto-approved' : (input.actor ?? null);
+    // #1134: security-bound outbound approvals can never inherit a profile's
+    // auto-approve flag. They require an explicit human decision.
+    const autoApprove = input.autoApprove === true && !input.securityAction;
+    const status: AgentApprovalStatus = autoApprove ? 'approved' : 'pending';
+    const decidedAt = autoApprove ? new Date().toISOString() : null;
+    const actor = autoApprove ? 'auto-approved' : (input.actor ?? null);
 
     getDb()
       .prepare(
         `INSERT INTO agent_approvals
-          (id, session_id, agent_config_id, action, preview, consequence, status, actor, decided_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, session_id, agent_config_id, action, preview, consequence, status,
+           actor, decided_at, security_action, payload_digest, taint_id,
+           tainted_turn_id, bound_agent, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -86,6 +111,12 @@ export class AgentApprovalsRepository {
         status,
         actor,
         decidedAt,
+        input.securityAction ?? null,
+        input.payloadDigest ?? null,
+        input.taintId ?? null,
+        input.taintedTurnId ?? null,
+        input.boundAgent ?? null,
+        input.expiresAt ?? null,
       );
 
     return this.getById(id)!;

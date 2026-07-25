@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { registerGoogleTools } from '../google.js';
-import { __resetTaintForTest } from '../../taint.js';
+import { RHYTHM_SECURITY_CONTEXT_META_KEY } from '../../security/security_context.js';
 
-type ToolHandler = (args: Record<string, unknown>) => Promise<{
+type ToolHandler = (args: Record<string, unknown>, extra?: { _meta?: Record<string, unknown> }) => Promise<{
   content: Array<{ type: 'text'; text: string }>;
   isError?: true;
 }>;
@@ -27,6 +27,16 @@ function makeStubServer(): { server: unknown; tools: Map<string, RegisteredTool>
 const API_URL = 'http://x';
 const API_TOKEN = 'tok';
 const AGENT_URL = 'http://agent';
+const EXTRA = {
+  _meta: {
+    [RHYTHM_SECURITY_CONTEXT_META_KEY]: {
+      sdkSessionId: 'sdk-google-test',
+      turnId: 'turn-google-test',
+      agentName: 'email-assistant',
+      toolCallId: 'call-google-test',
+    },
+  },
+};
 
 function makeFetchOk(body: unknown) {
   return vi.fn().mockResolvedValue({
@@ -47,7 +57,6 @@ function makeFetch409() {
 describe('registerGoogleTools — rhythm_list_calendar_events', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
-    __resetTaintForTest();
   });
 
   it('(a) GETs /integrations/google/calendar/events with calendarId=primary by default', async () => {
@@ -133,7 +142,6 @@ describe('registerGoogleTools — rhythm_list_calendar_events', () => {
 describe('registerGoogleTools — rhythm_search_gmail', () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
-    __resetTaintForTest();
   });
 
   it('(a) GETs /integrations/google/gmail/search with encoded query', async () => {
@@ -144,10 +152,11 @@ describe('registerGoogleTools — rhythm_search_gmail', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     registerGoogleTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
-    await tools.get('rhythm_search_gmail')!.handler({ query: 'from:boss is:unread' });
+    await tools.get('rhythm_search_gmail')!.handler({ query: 'from:boss is:unread' }, EXTRA);
 
-    expect(mockFetch).toHaveBeenCalledOnce();
-    const [url] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const [url] = mockFetch.mock.calls.find(([candidate]) =>
+      String(candidate).includes('/integrations/google/gmail/search')) as [string, RequestInit];
     expect(url).toContain('/integrations/google/gmail/search');
     expect(url).toContain('from%3Aboss');
   });
@@ -160,7 +169,7 @@ describe('registerGoogleTools — rhythm_search_gmail', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     registerGoogleTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
-    const res = await tools.get('rhythm_search_gmail')!.handler({ query: 'test' });
+    const res = await tools.get('rhythm_search_gmail')!.handler({ query: 'test' }, EXTRA);
 
     expect(res.isError).toBe(true);
     expect(res.content[0].text.toLowerCase()).toContain('google tools');

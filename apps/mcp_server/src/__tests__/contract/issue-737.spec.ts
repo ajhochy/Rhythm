@@ -11,8 +11,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { untrustedContext, UNTRUSTED_FENCE_OPEN, UNTRUSTED_FENCE_CLOSE } from '../../untrusted_context.js';
 import { registerGoogleTools } from '../../tools/google.js';
+import { RHYTHM_SECURITY_CONTEXT_META_KEY } from '../../security/security_context.js';
 
-type ToolHandler = (args: Record<string, unknown>) => Promise<{
+type ToolHandler = (args: Record<string, unknown>, extra?: { _meta?: Record<string, unknown> }) => Promise<{
   content: Array<{ type: 'text'; text: string }>;
   isError?: true;
 }>;
@@ -41,6 +42,16 @@ function makeFetchOk(body: unknown) {
 const API_URL = 'http://x';
 const API_TOKEN = 'tok';
 const AGENT_URL = 'http://agent';
+const EXTRA = {
+  _meta: {
+    [RHYTHM_SECURITY_CONTEXT_META_KEY]: {
+      sdkSessionId: 'sdk-737',
+      turnId: 'turn-737',
+      agentName: 'email-assistant',
+      toolCallId: 'call-737',
+    },
+  },
+};
 
 // A sample email body carrying a prompt-injection payload — the exact threat SF-4 describes.
 // Used only by the c1 pure-helper test below (untrustedContext() itself has no opinion on
@@ -94,7 +105,7 @@ describe('issue-737-c2: rhythm_read_email returns the email body inside an untru
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     registerGoogleTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
-    const res = await tools.get('rhythm_read_email')!.handler({ id: 'msg1' });
+    const res = await tools.get('rhythm_read_email')!.handler({ id: 'msg1' }, EXTRA);
 
     expect(res.isError).toBeUndefined();
     const text = res.content[0].text;
@@ -122,7 +133,7 @@ describe('issue-737-c2b: rhythm_search_gmail returns results inside an untrusted
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     registerGoogleTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
-    const res = await tools.get('rhythm_search_gmail')!.handler({ query: 'is:unread' });
+    const res = await tools.get('rhythm_search_gmail')!.handler({ query: 'is:unread' }, EXTRA);
 
     expect(res.isError).toBeUndefined();
     const text = res.content[0].text;
