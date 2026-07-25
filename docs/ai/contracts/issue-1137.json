@@ -8,6 +8,11 @@
       "mode": "ui",
       "test_file": "apps/desktop_flutter/test/features/agents/ocu_1061_at_mention_test.dart",
       "test_id": "issue-1137-c1: REAL-SURFACE composer attaches an arbitrary binary @-mention as a file: ref without a type gate",
+      "supporting_tests": [
+        "apps/opencode_fork/packages/app/src/components/prompt-input/attachments.test.ts :: createPromptAttachments consumes an arbitrary binary after selection",
+        "apps/desktop_flutter/test/features/agents/ocu_1061_at_mention_test.dart :: native picker arbitrary binary and read-error surface",
+        "apps/desktop_flutter/test/features/agents/ocu_1061_at_mention_test.dart :: traversal-shaped mention rejected before attachment"
+      ],
       "status": "pass"
     },
     {
@@ -16,6 +21,10 @@
       "mode": "integration",
       "test_file": "apps/opencode_fork/packages/opencode/test/session/prompt.test.ts",
       "test_id": "issue-1137-c2: unreadable arbitrary binary becomes an actionable reader-discovery task",
+      "supporting_tests": [
+        "apps/opencode_fork/packages/opencode/test/session/prompt.test.ts :: browser binary materializes and surfaces installed reader skill",
+        "apps/api_server/src/__tests__/live_e2e_1137_any_file_reader_discovery.test.ts :: native/browser live binary + surfaced reader + symlink rejection"
+      ],
       "status": "pass"
     }
   ],

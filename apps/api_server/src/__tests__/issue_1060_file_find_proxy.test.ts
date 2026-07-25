@@ -83,7 +83,9 @@ describe('OCU-19 (#1060) file/find proxy', () => {
   it('list + content + status proxy through', async () => {
     expect((await fetch(`${baseUrl}/agent-sessions/${sessionId}/files/list?path=src`, { headers })).status).toBe(200);
     expect(listFiles).toHaveBeenCalledWith('/repo', 'src');
-    expect((await fetch(`${baseUrl}/agent-sessions/${sessionId}/files/content?path=src/a.ts`, { headers })).status).toBe(200);
+    const contentResponse = await fetch(`${baseUrl}/agent-sessions/${sessionId}/files/content?path=src/a.ts`, { headers });
+    expect(contentResponse.status).toBe(200);
+    expect(await contentResponse.json()).toMatchObject({ resolvedPath: '/repo/src/a.ts' });
     expect(readFileContent).toHaveBeenCalledWith('/repo', 'src/a.ts');
     expect((await fetch(`${baseUrl}/agent-sessions/${sessionId}/files/status`, { headers })).status).toBe(200);
     expect(fileStatus).toHaveBeenCalledWith('/repo');
@@ -171,5 +173,27 @@ describe('resolveSessionDir symlink escape (#1133)', () => {
     );
     expect(res.status).toBe(200);
     expect(listFiles).toHaveBeenCalledWith(sessionDir, 'sub');
+  });
+
+  it('returns the canonical contained path needed for a binary file reference', async () => {
+    const fixture = join(sessionDir, 'fixture.rhythmfixture');
+    writeFileSync(fixture, Buffer.from([0x00, 0xff, 0x01, 0x02]));
+    readFileContent.mockResolvedValueOnce({
+      type: 'binary',
+      mimeType: 'application/x-rhythm-fixture',
+      content: 'AP8BAg==',
+      encoding: 'base64',
+    });
+
+    const res = await fetch(
+      `${baseUrl}/agent-sessions/${sessionId}/files/content?path=${encodeURIComponent('fixture.rhythmfixture')}`,
+      { headers },
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      type: 'binary',
+      resolvedPath: fixture,
+    });
   });
 });

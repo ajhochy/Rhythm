@@ -3,7 +3,7 @@ import path from 'path';
 import { readFileSync, existsSync } from 'fs';
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
-import { containsReal } from '../utils/path_containment';
+import { canonicalize, containsReal } from '../utils/path_containment';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import {
@@ -1874,13 +1874,21 @@ export class AgentSessionsController {
       if (!relPath) throw AppError.badRequest('path is required');
       const dir = this.resolveSessionDir(req.params.id, relPath);
       const content = await opencodeClient.readFileContent(dir, relPath);
+      const resolvedPath = canonicalize(path.resolve(dir, relPath));
+      if (!containsReal(dir, resolvedPath)) {
+        throw new AppError(400, 'PATH_TRAVERSAL', `path '${relPath}' resolves outside the session directory`);
+      }
+      const response = {
+        ...(content && typeof content === 'object' ? content : { content }),
+        resolvedPath,
+      };
       // 2MB cap on the relayed payload (defensive — the engine may return a
       // large file; a hard cap keeps the api_server response bounded).
-      const size = Buffer.byteLength(JSON.stringify(content ?? null), 'utf8');
+      const size = Buffer.byteLength(JSON.stringify(response), 'utf8');
       if (size > AgentSessionsController.FILE_CONTENT_CAP_BYTES) {
         throw new AppError(413, 'PAYLOAD_TOO_LARGE', `file content exceeds the ${AgentSessionsController.FILE_CONTENT_CAP_BYTES}-byte cap`);
       }
-      res.json(content);
+      res.json(response);
     } catch (err) {
       next(err);
     }

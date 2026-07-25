@@ -435,7 +435,24 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
 
   const escBlur = () => platform.platform === "desktop" && platform.os === "macos"
 
-  const pick = () => fileInputRef?.click()
+  const pick = async () => {
+    if (!platform.openFilePickerDialog) {
+      fileInputRef?.click()
+      return
+    }
+
+    const selected = await platform.openFilePickerDialog({
+      multiple: true,
+      accept: [],
+      extensions: [],
+    })
+    const paths = typeof selected === "string" ? [selected] : (selected ?? [])
+    for (const path of paths) {
+      const filename = path.replaceAll("\\", "/").split("/").at(-1) || path
+      focusEditorEnd()
+      addPart({ type: "file", path, content: `@${filename}`, start: 0, end: 0 })
+    }
+  }
 
   const setMode = (mode: "normal" | "shell") => {
     setStore("mode", mode)
@@ -453,7 +470,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       category: language.t("command.category.file"),
       keybind: "mod+u",
       disabled: store.mode !== "normal",
-      onSelect: pick,
+      onSelect: () => void pick(),
     },
     {
       id: "prompt.mode.shell",

@@ -4,8 +4,9 @@
  * This test drives the real Flutter entry shape through the running
  * api_server WebSocket and the standalone fork engine. It proves that an
  * unsupported binary is not rejected or forwarded to the model as opaque
- * bytes: the persisted user turn contains an actionable reader-discovery
- * task with the original path, MIME type, and available discovery routes.
+ * bytes: native paths and browser data URLs both reach real Read, the
+ * persisted user turn surfaces an actually-installed matching reader skill,
+ * and traversal/symlink input is rejected before any prompt is sent.
  *
  * Run against an isolated sandbox built from this branch:
  *   RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 \
@@ -14,7 +15,7 @@
  *   npx vitest run src/__tests__/live_e2e_1137_any_file_reader_discovery.test.ts
  */
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -96,7 +97,7 @@ describeLive('live E2E — #1137 arbitrary file reader discovery', () => {
   });
 
   it(
-    'persists an actionable discovery task for an unsupported local binary sent through session.input',
+    'consumes native/browser binaries, surfaces an installed reader, and rejects a symlink escape before prompt',
     async () => {
       const suffix = randomUUID().slice(0, 8);
       const agentId = `live1137reader${suffix}`;
@@ -117,6 +118,22 @@ describeLive('live E2E — #1137 arbitrary file reader discovery', () => {
       scratchDirs.push(cwd);
       const fixture = resolve(cwd, 'fixture.rhythmfixture');
       writeFileSync(fixture, Buffer.from([0x00, 0xff, 0x52, 0x48, 0x59, 0x54, 0x48, 0x4d]));
+      const skillDir = resolve(cwd, '.opencode/skills/rhythmfixture-reader');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        resolve(skillDir, 'SKILL.md'),
+        [
+          '---',
+          'name: rhythmfixture-reader',
+          'description: Reads and validates .rhythmfixture binary attachments.',
+          '---',
+          'Use the bundled reader for .rhythmfixture files.',
+        ].join('\n'),
+      );
+      const outside = mkdtempSync(join(tmpdir(), 'rhythm-live-1137-outside-'));
+      scratchDirs.push(outside);
+      writeFileSync(resolve(outside, 'secret.rhythmfixture'), Buffer.from([0x00, 0xff, 0x01, 0x02]));
+      symlinkSync(outside, resolve(cwd, 'escape'));
 
       const session = await apiJson<{ id: string }>('/agent-sessions', {
         method: 'POST',
@@ -127,6 +144,11 @@ describeLive('live E2E — #1137 arbitrary file reader discovery', () => {
         }),
       });
       createdSessionIds.push(session.id);
+
+      const escaped = await api(
+        `/agent-sessions/${session.id}/files/content?path=${encodeURIComponent('escape/secret.rhythmfixture')}`,
+      );
+      expect(escaped.status).toBe(400);
 
       const ws = await openWs();
       try {
@@ -142,6 +164,12 @@ describeLive('live E2E — #1137 arbitrary file reader discovery', () => {
                 mime: 'application/x-rhythm-fixture',
                 filename: 'fixture.rhythmfixture',
                 url: pathToFileURL(fixture).href,
+              },
+              {
+                type: 'file',
+                mime: 'application/x-rhythm-fixture',
+                filename: 'browser-fixture.rhythmfixture',
+                url: 'data:application/x-rhythm-fixture;base64,AP9SSFlUSE0=',
               },
             ],
           }),
@@ -163,6 +191,10 @@ describeLive('live E2E — #1137 arbitrary file reader discovery', () => {
         expect(transcript).toContain('available MCP tools and servers');
         expect(transcript).toContain('web search');
         expect(transcript).toContain('Do not ignore or reject this attachment');
+        expect(transcript).toContain('Compatible skills already available');
+        expect(transcript).toContain('rhythmfixture-reader');
+        expect(transcript).toContain('Reads and validates .rhythmfixture');
+        expect(transcript).toContain('browser-fixture.rhythmfixture');
       } finally {
         ws.close();
       }

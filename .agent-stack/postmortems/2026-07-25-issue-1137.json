@@ -2,25 +2,25 @@
   "run_id": "2026-07-25-issue-1137",
   "issue": 1137,
   "date": "2026-07-25",
-  "smoke_result": "pass",
-  "verification_claimed": "PASS",
-  "divergence": false,
+  "smoke_result": "fail",
+  "verification_claimed": "PASS (initial; invalidated by independent review)",
+  "divergence": true,
   "criteria_results": [
     {
       "criterion_id": "issue-1137-c1",
       "text": "Attachment pickers do not gate on file type; any selected file reaches the consumption path.",
       "contract_status": "pass",
-      "smoke_status": "pass",
-      "category": "none",
-      "notes": "Real-surface Flutter coverage and fork web picker coverage passed, including an arbitrary .rhythmfixture attachment."
+      "smoke_status": "fail",
+      "category": "C1 — missing contract",
+      "notes": "The initial tests proved unrestricted selection but not post-selection consumption: createPromptAttachments still rejected arbitrary browser binaries. Flutter binary @mentions also bypassed the API containment proxy."
     },
     {
       "criterion_id": "issue-1137-c2",
       "text": "An agent receiving a file with no built-in reader searches or surfaces a compatible skill, MCP tool/server, or trusted external reader instead of silently failing.",
       "contract_status": "pass",
-      "smoke_status": "pass",
-      "category": "none",
-      "notes": "The built standalone engine persisted the exact reader-discovery task after a real API WebSocket file turn; path, MIME, extension, skills, MCP, and web fallback were all observed."
+      "smoke_status": "fail",
+      "category": "C1 — missing contract",
+      "notes": "The initial live gate observed only an injected procedure. It did not prove that a compatible reader was actually searched or surfaced, and it never exercised browser binary consumption."
     }
   ],
   "process_issues": [
@@ -38,6 +38,11 @@
       "process_category": "worktree-dependency-isolation",
       "description": "Shared fork package symlinks initially resolved the primary checkout's core package and reproduced the compiled containsReal failure from #1133.",
       "detected_by": "A prompt cancellation/tool path reported AppFileSystem.containsReal undefined; the #1132 built-runtime follow-up fixed the binding and the coordinator live build passed."
+    },
+    {
+      "process_category": "acceptance-surface-gap",
+      "description": "The initial acceptance tests stopped at unrestricted picker configuration and synthetic instruction persistence instead of driving post-selection consumption, containment, and a concrete surfaced reader.",
+      "detected_by": "Independent SPEC/security review reproduced browser binary rejection and showed Flutter's binary @mention fast path bypassing containsReal."
     }
   ],
   "workflow_adherence": {
@@ -75,6 +80,6 @@
     "docs/ai/contracts/issue-1137.json"
   ],
   "failure_output": "",
-  "overall_category": "none",
-  "suggested_follow_up": "Add a foreground mode to tools/dev/sandbox.sh and keep built/minified binary behavior in every fork feature's required live gate."
+  "overall_category": "C1 — missing contract",
+  "suggested_follow_up": "Every unrestricted picker contract must drive the selected artifact through request construction and the built engine; binary @mention tests must include traversal and symlink cases; reader-discovery live gates must assert a concrete surfaced reader, not only an instruction."
 }

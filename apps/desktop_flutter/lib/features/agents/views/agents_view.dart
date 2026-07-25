@@ -2088,10 +2088,11 @@ class _InputAreaState extends State<_InputArea> {
   ///   - text/* / json / xml  → TextPart: content decoded as UTF-8, capped at 100 KB.
   ///   - every other binary   → local file: reference for reader discovery.
   static const int _kTextSizeCap = 100 * 1024; // 100 KB
+  static const int _kMimeSampleSize = 4096;
 
   Future<void> _pickFiles() async {
     final result = await FilePicker.pickFiles(allowMultiple: true);
-    if (result == null) return;
+    if (result == null || !mounted) return;
     final controller = context.read<AgentsController>();
     final id = controller.selectedSessionId;
     if (id == null) return;
@@ -2099,8 +2100,15 @@ class _InputAreaState extends State<_InputArea> {
       final path = f.path;
       if (path == null) continue;
       try {
-        final bytes = await File(path).readAsBytes();
-        final mime = resolveAttachmentMime(bytes, f.name, f.extension);
+        final file = File(path);
+        final reader = await file.open();
+        late final List<int> sample;
+        try {
+          sample = await reader.read(_kMimeSampleSize);
+        } finally {
+          await reader.close();
+        }
+        final mime = resolveAttachmentMime(sample, f.name, f.extension);
 
         if (shouldAttachByFileReference(mime)) {
           // Issue #1137: provider-unsupported binaries stay as local `file:`
@@ -2117,6 +2125,7 @@ class _InputAreaState extends State<_InputArea> {
           continue;
         }
 
+        final bytes = await file.readAsBytes();
         if (isTextLikeMime(mime)) {
           // Issue #717: inline text/code/log files as a text part so the
           // model can read their contents directly.
@@ -2166,8 +2175,15 @@ class _InputAreaState extends State<_InputArea> {
             'url': dataUri,
           });
         }
-      } catch (_) {
-        // File read error — skip this attachment silently.
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Could not attach ${f.name}: $e'),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
       }
     }
   }
@@ -2189,29 +2205,6 @@ class _InputAreaState extends State<_InputArea> {
           SnackBar(content: Text(reason), duration: const Duration(seconds: 4)),
         );
       }
-    }
-
-    // Issue #1137: provider-unsupported binaries are picked by
-    // (worktree-relative) path, so keep the real path instead of asking the
-    // content proxy to decode bytes it may not understand.
-    final ext = filename.contains('.') ? filename.split('.').last : '';
-    final extMime = mimeFromExtension(ext);
-    if (shouldAttachByFileReference(extMime)) {
-      final cwd = controller.selectedSession?.cwd;
-      if (cwd == null) {
-        reject('Could not attach $filename: session directory unknown.');
-        return;
-      }
-      final base = cwd.endsWith('/') ? cwd.substring(0, cwd.length - 1) : cwd;
-      controller.addPendingAttachment(
-        id,
-        buildFileRefAttachment(
-          mime: extMime,
-          filename: filename,
-          absolutePath: '$base/$relPath',
-        ),
-      );
-      return;
     }
 
     try {
@@ -2250,18 +2243,17 @@ class _InputAreaState extends State<_InputArea> {
         return;
       }
 
-      final cwd = controller.selectedSession?.cwd;
-      if (cwd == null) {
-        reject('Could not attach $filename: session directory unknown.');
+      final resolvedPath = content['resolvedPath'] as String?;
+      if (resolvedPath == null || resolvedPath.isEmpty) {
+        reject('Could not attach $filename: safe file path unavailable.');
         return;
       }
-      final base = cwd.endsWith('/') ? cwd.substring(0, cwd.length - 1) : cwd;
       controller.addPendingAttachment(
         id,
         buildFileRefAttachment(
           mime: mime,
           filename: filename,
-          absolutePath: '$base/$relPath',
+          absolutePath: resolvedPath,
         ),
       );
     } catch (e) {

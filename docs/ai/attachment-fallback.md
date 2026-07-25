@@ -8,15 +8,20 @@ type. They hand an agent a file in one of three ways:
 2. **Native media FilePart** (`data:` URI) — images and PDFs the model can
    read directly.
 3. **`file:` reference** — every other binary format, including Office
-   documents and unknown MIME types, is attached as a `file:` URL pointing at
-   the real path on disk. The engine tries its built-in Read tool first.
+   documents and unknown MIME types, is attached as a `file:` URL. Native
+   pickers use the selected path directly. Workspace `@` mentions first pass
+   through the API containment guard and use only its canonical contained
+   path. Browser-selected bytes are written with mode `0600` under the
+   engine-owned temporary attachment tree, then handled as the same `file:`
+   reference. The temporary session directory is removed with the session.
 
 If Read cannot parse the binary, the engine does not forward opaque bytes to
 the model and does not reject the attachment. It injects an actionable reader
-discovery task containing the exact local path, MIME, and extension. That task
-requires the agent to inspect its available skills and MCP tools, then search
-online for a trusted compatible skill/server/tool when no reader is already
-available.
+discovery task containing the exact local path, MIME, and extension. The engine
+also searches the session's permission-filtered skill catalog and allowlisted
+MCP catalog by format, surfaces concrete matching readers immediately, and
+requires the agent to search online for a trusted compatible skill/server/tool
+when no reader is already available.
 
 ## The fallback procedure (do this, don't just reject)
 
@@ -42,8 +47,9 @@ When a user (or an agent asked to open a file) hits an unreadable attachment:
 ## Why this isn't "just widen the allow-list"
 
 Simply widening a picker MIME list would let unsupported provider media fail
-before the agent can act. #1137 instead removes the picker gate and routes
-non-native formats through a local `file:` reference. The engine consumes
-what Read already supports and turns the remaining formats into an explicit
-agentic discovery task, so a new reader can be found without losing the
-attachment path or silently accepting unreadable bytes.
+before the agent can act. #1137 instead removes the picker gate, proves the
+post-selection consumer accepts arbitrary binaries, and routes non-native
+formats through a local `file:` reference. The engine consumes what Read
+already supports and turns the remaining formats into an explicit agentic
+discovery task with real catalog matches, so a reader can be found without
+losing the attachment path or silently accepting unreadable bytes.

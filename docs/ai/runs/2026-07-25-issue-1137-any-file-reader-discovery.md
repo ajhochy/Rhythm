@@ -79,3 +79,42 @@ Cleanup assertions:
 - Contract `docs/ai/contracts/issue-1137.json`: c1-c2 pass,
   `not_tested: []`.
 - No production database or installed app port was touched.
+
+## Independent review correction
+
+The initial `verified` verdict above was invalidated by independent review.
+The first gate proved only that picker filters were empty and that a synthetic
+instruction was persisted. It missed two real defects:
+
+- the fork browser consumer still rejected arbitrary binaries after selection;
+- Flutter binary `@` mentions skipped the content proxy's `containsReal`
+  validation and constructed a path from `cwd + relPath`.
+
+The corrective slice was built regression-first:
+
+- `createPromptAttachments` now consumes arbitrary browser binaries; the
+  engine materializes them mode `0600`, runs the real Read path, surfaces
+  permission-filtered matching skill/MCP candidates, and deletes temporary
+  attachment directories when their session is removed;
+- Electron native selection uses unrestricted native paths;
+- Flutter native classification samples only 4 KB before deciding to use a
+  local reference, reports read errors, and has direct picker-channel coverage;
+- Flutter `@` mentions always call the contained file proxy and accept only its
+  canonical `resolvedPath`; traversal-shaped results create no prompt part;
+- the live test now covers a native path, a browser data URL, an actually
+  installed `rhythmfixture-reader` skill surfaced in the transcript, and an
+  external symlink rejected before the WebSocket prompt.
+
+Corrective pre-integration checks:
+
+- fork app picker/request tests: 21/21 pass; app typecheck pass;
+- fork prompt suite: 56/56 pass; binary data/cleanup and data-URL tests pass;
+- API file proxy: 10/10 pass;
+- Flutter focused attachment/mention suite: 32/32 pass;
+- Flutter format and analyze: pass, 273 pre-existing infos.
+
+The old issue worktree's aggregate API/fork typechecks use shared dependencies
+whose workspace links target the coordinator and therefore report known
+cross-worktree type identities plus pre-#1161 `ws_gateway` errors. The
+authoritative built/type/live gate must run after this corrective commit lands
+on the coordinator's reviewed dependency lineage.

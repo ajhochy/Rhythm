@@ -53,6 +53,7 @@ import { reply, TestLLMServer } from "../lib/llm-server"
 import { SyncEvent } from "@/sync"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { writeFile } from "fs/promises"
+import { existsSync } from "fs"
 
 void Log.init({ print: false })
 
@@ -1854,6 +1855,60 @@ it.instance(
       ).toBe(false)
 
       yield* sessions.remove(session.id)
+    }),
+  { git: true, config: cfg },
+)
+
+it.instance(
+  "issue-1137-c1/c2: browser binary data attachment is materialized and surfaces an installed reader skill",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const skillDir = path.join(dir, ".opencode", "skills", "rhythmfixture-reader")
+      yield* ensureDir(skillDir)
+      yield* writeText(
+        path.join(skillDir, "SKILL.md"),
+        [
+          "---",
+          "name: rhythmfixture-reader",
+          "description: Reads and validates .rhythmfixture binary attachments.",
+          "---",
+          "Use the bundled reader for .rhythmfixture files.",
+        ].join("\n"),
+      )
+
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const session = yield* sessions.create({})
+      const msg = yield* prompt.prompt({
+        sessionID: session.id,
+        agent: "build",
+        noReply: true,
+        parts: [
+          {
+            type: "file",
+            mime: "application/x-rhythm-fixture",
+            url: "data:application/x-rhythm-fixture;base64,AP8BAg==",
+            filename: "fixture.rhythmfixture",
+          },
+        ],
+      })
+      if (msg.info.role !== "user") throw new Error("expected user message")
+
+      const synthetic = msg.parts
+        .flatMap((part) => (part.type === "text" && part.synthetic ? [part.text] : []))
+        .join("\n")
+      expect(synthetic).toContain("Called the Read tool")
+      expect(synthetic).toContain("Attachment reader discovery required")
+      expect(synthetic).toContain("rhythmfixture-reader")
+      expect(synthetic).toContain("Reads and validates .rhythmfixture")
+      expect(msg.parts.some((part) => part.type === "file")).toBe(false)
+      const materialized = synthetic.match(/"filePath":"([^"]+browser-fixture|[^"]+fixture\.rhythmfixture)"/)?.[1]
+      expect(materialized).toBeDefined()
+      expect(existsSync(materialized!)).toBe(true)
+
+      yield* sessions.remove(session.id)
+      expect(existsSync(materialized!)).toBe(false)
     }),
   { git: true, config: cfg },
 )

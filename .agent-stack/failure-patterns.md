@@ -253,13 +253,13 @@
 - **Root cause**: The security gap was an ordinary `enabled` preference with no independent audit lock; the smoke harness also needed fresh fork dependencies and foreground process ownership in this worktree.
 - **Suggested fix**: Keep the dedicated optimistic reviewed transition and authoritative lock checks; teach the sandbox launcher pinned dependency setup and a foreground mode. Two unrelated aggregate-only HTTP failures each passed in isolation and on clean aggregate reruns; investigate full-suite resource contention if the coordinator gate sees another.
 
-## 2026-07-25 — Issue #1137 — arbitrary-file reader discovery live smoke PASS
+## 2026-07-25 — Issue #1137 — picker/discovery false-positive gate
 
-- **Result**: smoke PASS (verification claimed PASS; no correctness divergence).
-- **Category**: none for product behavior; process issues were sandbox-process-lifetime, test-runner-disk-pressure, and worktree-dependency-isolation.
-- **Criteria affected**: issue-1137-c1 and issue-1137-c2 both passed.
-- **Root cause**: Selection-time allow-lists made arbitrary formats unreachable, while the engine's fallback pretended Read had run and forwarded opaque binary bytes to the provider. The first live launch was also reaped after reporting healthy, and the first full Flutter run exhausted disk after 812 passes.
-- **Suggested fix**: Keep selection unrestricted, resolve local binaries through the real Read tool, persist an actionable reader-discovery task, add a foreground sandbox mode, and retain serial full-suite fallback under disk pressure.
+- **Result**: initial smoke/verification claim invalidated by independent review.
+- **Category**: C1 — missing contract.
+- **Criteria affected**: issue-1137-c1 and issue-1137-c2.
+- **Root cause**: The contract stopped at empty picker filters and persistence of a synthetic instruction. It never drove an arbitrary browser binary through `createPromptAttachments`, never checked Flutter's binary `@mention` fast path against traversal/symlink input, and never asserted a concrete reader candidate. The fork still rejected arbitrary binaries after selection, while Flutter bypassed the API realpath guard.
+- **Suggested fix**: Picker contracts must drive post-selection consumption through request construction and the built engine. Binary workspace references must use a server-returned canonical contained path. Reader-discovery live gates must install and observe a concrete matching reader, plus cover browser data URLs and pre-prompt symlink rejection.
 - See `.agent-stack/postmortems/2026-07-25-issue-1137.json`.
 
 ## 2026-07-24 — Issue 1096 — signed Semantic Memory sandbox smoke

@@ -49,7 +49,7 @@ import { Shell } from "@/shell/shell"
 import { ShellID } from "@/tool/shell/id"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Truncate } from "@/tool/truncate"
-import { decodeDataUrl } from "@/util/data-url"
+import { decodeDataUrl, decodeDataUrlBytes } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
 import * as EffectLogger from "@opencode-ai/core/effect/logger"
@@ -68,6 +68,7 @@ import * as DateTime from "effect/DateTime"
 import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
+import { Global } from "@opencode-ai/core/global"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -1395,7 +1396,27 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   { ...part, messageID: info.id, sessionID: input.sessionID },
                 ]
               }
-              break
+              if (part.mime.startsWith("image/") || part.mime === "application/pdf") break
+
+              // Browsers cannot provide a stable local path. Persist the
+              // selected binary in the engine-owned temp tree so the same
+              // real Read → reader-discovery path used by native clients runs
+              // instead of forwarding opaque bytes to the provider.
+              const safeName = path
+                .basename(part.filename || "attachment.bin")
+                .replaceAll(/[^A-Za-z0-9._-]/g, "_")
+              const filepath = path.join(
+                Global.Path.tmp,
+                "attachments",
+                input.sessionID,
+                `${ulid()}-${safeName || "attachment.bin"}`,
+              )
+              yield* fsys.writeWithDirs(filepath, decodeDataUrlBytes(part.url), 0o600).pipe(Effect.orDie)
+              return yield* resolvePart({
+                ...part,
+                url: pathToFileURL(filepath).href,
+                filename: part.filename || safeName,
+              })
             case "file:": {
               log.info("file", { mime: part.mime })
               const filepath = fileURLToPath(part.url)
@@ -1601,6 +1622,48 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                       : extension === ".pptx"
                         ? " Check the existing `pptx` skill first."
                         : ""
+                const terms = [
+                  extension.startsWith(".") ? extension.slice(1) : extension,
+                  ...mime.toLowerCase().split(/[^a-z0-9]+/),
+                ].filter(
+                  (term) =>
+                    term.length >= 3 &&
+                    !["application", "binary", "file", "octet", "stream"].includes(term),
+                )
+                const matches = (value: string) => {
+                  const normalized = value.toLowerCase()
+                  return terms.some((term) => normalized.includes(term))
+                }
+                const currentSession = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+                const skillCatalog = (yield* sys.skills(ag, currentSession.skillAllowlist)) ?? ""
+                const skillCandidates = Array.from(
+                  skillCatalog.matchAll(
+                    /<skill>\s*<name>([^<]+)<\/name>\s*<description>([^<]*)<\/description>[\s\S]*?<\/skill>/g,
+                  ),
+                  (match) => ({ name: match[1], description: match[2] }),
+                )
+                  .filter((item) => matches(`${item.name} ${item.description}`))
+                  .slice(0, 5)
+
+                const mcpTools = yield* mcp.tools()
+                const keyToServer = yield* mcp.toolClientNames()
+                const allowedMcp = filterMcpToolsByAllowlist(
+                  Object.keys(mcpTools),
+                  keyToServer,
+                  currentSession.mcpAllowlist,
+                )
+                const mcpCandidates = allowedMcp
+                  .filter((name) => matches(`${name} ${mcpTools[name]?.description ?? ""}`))
+                  .slice(0, 5)
+                const surfacedSkills = skillCandidates.length
+                  ? `Compatible skills already available: ${skillCandidates
+                      .map((item) => `\`${item.name}\` — ${item.description || "no description"}`)
+                      .join("; ")}. Use the skill tool to load the best match.`
+                  : "No installed skill name or description exactly matches this format."
+                const surfacedMcp = mcpCandidates.length
+                  ? `Compatible MCP tools already available: ${mcpCandidates.map((name) => `\`${name}\``).join(", ")}.`
+                  : "No allowlisted MCP tool name or description exactly matches this format."
+
                 pieces.push({
                   messageID: info.id,
                   sessionID: input.sessionID,
@@ -1612,6 +1675,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     "Do not ignore or reject this attachment, and do not guess at its binary contents.",
                     `Before answering, inspect the session's available skills for a format-specific reader.${officeHint}`,
                     "Also inspect the available MCP tools and servers for a compatible reader.",
+                    surfacedSkills,
+                    surfacedMcp,
                     "If no compatible reader is available, use web search to search online for a trusted skill, MCP server, or tool that supports this exact format; surface the best option and any installation or permission requirement rather than silently failing.",
                     `Keep the original local path (${filepath}) so the selected reader can consume it.`,
                   ].join("\n"),
