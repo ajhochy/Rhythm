@@ -535,6 +535,31 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE pending_claude_triggers ALTER COLUMN task_id DROP NOT NULL;
   `);
 
+  // Rhythm Agent iOS Task 4 — schema parity for verifier-only pairing data.
+  // Pairing remains a local-agent feature, but these additive definitions keep
+  // shared repository schema from drifting on Postgres deployments.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS mobile_pairing_codes (
+      id TEXT PRIMARY KEY,
+      host_id TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
+      code_verifier TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS mobile_devices (
+      id TEXT PRIMARY KEY,
+      host_id TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      token_verifier TEXT NOT NULL,
+      revoked_at TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
+
   // ── Agent-EXECUTION tables (#755) ──────────────────────────────────────────
   // Created ONLY when the deployment role runs the agent runtime
   // (RHYTHM_ROLE=all|local; the DEFAULT preserves today's behavior). The
