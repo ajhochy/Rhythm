@@ -1,0 +1,169 @@
+{
+  "issue": 1096,
+  "generated": "2026-07-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1096-c1",
+      "text": "With no Engraph executable, Rhythm remains fully functional on FTS; setup/status reports a clear install path without requiring shell or environment-variable edits.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/engraph_manager.test.ts",
+      "test_id": "fails closed with a sanitized message when the configured binary no longer exists",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1096-c2",
+      "text": "Discovery checks `PATH` and supported common Homebrew locations; a binary picker can choose another executable and persists only a validated path.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/engraph_manager.test.ts",
+      "test_id": "discoverEngraphCandidates / validateEngraphBinary",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1096-c3",
+      "text": "Rhythm creates and uses only its Application Support HOME/index; `~/.engraph` remains untouched in verified tests/manual inspection.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_engraph_manager.test.ts",
+      "test_id": "starts through Rhythm, proves a real <=1s authenticated search, then falls back to FTS-safe [] once disabled",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1096-c4",
+      "text": "Only the canonical agent-memory directory is indexable; arbitrary, traversal, symlink-escape, and whole-vault paths are rejected or safely normalized to the approved root.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/engraph_manager.test.ts",
+      "test_id": "path/root confinement (isWithinApprovedMemoryRoot)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1096-c5",
+      "text": "Setup/indexing is asynchronous and does not block app startup or normal requests.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/engraph_manager_routes.test.ts",
+      "test_id": "enable/retry/rebuild respond immediately without waiting for the (slow) lifecycle action to finish",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1096-c6",
+      "text": "Managed service access is loopback-only, authenticated, and read-only; external/non-loopback and unauthenticated access fail.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/engraph_manager_routes.test.ts",
+      "test_id": "/engraph-manager — auth convention / exposes no write/content-reading endpoint",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1096-c7",
+      "text": "The health state requires a real authenticated search to complete within one second. Process existence or an open port alone is insufficient.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1096_engraph_manager_http.test.ts",
+      "test_id": "issue-1096-c7: HTTP lifecycle reaches ready only after a real authenticated <=1s search",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1096-c8",
+      "text": "Disabled, missing, unhealthy, timeout, malformed-result, or permission-blocked Engraph always falls back safely to FTS without breaking prompt construction.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_retrieval_semantic.test.ts",
+      "test_id": "returns the original FTS order when Engraph is unavailable",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1096-c9",
+      "text": "Start, shutdown, retry, and rebuild affect only the exact process Rhythm owns; no unrelated process can be terminated.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1096_engraph_manager_http.test.ts",
+      "test_id": "issue-1096-c9: HTTP start retry rebuild and shutdown preserve an unrelated process",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1096-c10",
+      "text": "Stored settings, logs, API responses, and UI-safe diagnostics contain no secrets, indexed memory content, user query text, or unnecessary sensitive path details.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/engraph_manager.test.ts",
+      "test_id": "sanitizeErrorMessage / never contains a secret/API-key-shaped field",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1096-c11",
+      "text": "Signed-app behavior accounts for expected Gatekeeper/TCC/notarization/signing failures without bypassing macOS protections.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "UNVERIFIED until the signed development client is exercised against the isolated sandbox; the test must confirm safe Gatekeeper/TCC guidance without changing system protections."
+    },
+    {
+      "criterion_id": "issue-1096-c12",
+      "text": "Settings presents Semantic Memory as optional, local, and fail-safe; staff can understand the status without developer knowledge.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1096_semantic_memory_test.dart",
+      "test_id": "issue-1096-c12: Settings presents Semantic Memory as optional local and fail-safe",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1096-c13",
+      "text": "Users can enable/disable semantic memory, request a health check/retry, open install guidance, select a binary, and request a confirmed rebuild through supported backend APIs.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1096_semantic_memory_test.dart",
+      "test_id": "issue-1096-c13: every supported semantic-memory action is exposed",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1096-c14",
+      "text": "The UI renders each required state/copy above from backend state and stays responsive during validation/indexing/rebuild.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1096_semantic_memory_test.dart",
+      "test_id": "issue-1096-c14: backend lifecycle states render without blocking the UI",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1096-c15",
+      "text": "No UI flow asks the user to edit environment variables, shell configuration, ports, tokens, or `~/.engraph`.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1096_semantic_memory_test.dart",
+      "test_id": "issue-1096-c15: setup guidance never asks staff for developer configuration",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1096-c16",
+      "text": "The binary picker follows existing app conventions and only submits the selected path to backend validation; the client does not trust it as healthy.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1096_semantic_memory_test.dart",
+      "test_id": "issue-1096-c16: selected binary is validated by the backend before enablement",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1096-c17",
+      "text": "Failure views are sanitized, actionable, accessible, and explicitly reassure users that standard memory search remains active.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1096_semantic_memory_test.dart",
+      "test_id": "issue-1096-c17: failure view is actionable accessible sanitized and reassuring",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1096-c18",
+      "text": "macOS permission/security failures have clear, safe guidance and do not suggest bypassing system protection.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1096_semantic_memory_test.dart",
+      "test_id": "issue-1096-c18: macOS security guidance preserves system protection",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1096-c19",
+      "text": "Rebuild copy and behavior make clear that only Rhythm’s Application Support index is affected.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1096_semantic_memory_test.dart",
+      "test_id": "issue-1096-c19: rebuild confirmation scopes deletion to Rhythm's private index",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1096-c20",
+      "text": "UI never displays indexed content, queries, auth data, secrets, or unnecessary sensitive paths.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/contract/issue_1096_semantic_memory_test.dart",
+      "test_id": "issue-1096-c20: UI uses category guidance instead of backend sensitive fields",
+      "status": "pass"
+    }
+  ],
+  "stack": "dart",
+  "not_tested": [
+    "issue-1096-c11"
+  ]
+}

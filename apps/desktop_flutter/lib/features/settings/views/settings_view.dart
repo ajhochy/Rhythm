@@ -17,6 +17,7 @@ import '../../../app/core/workspace/workspace_models.dart';
 import '../../../app/core/services/theme_mode_service.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/settings_controller.dart';
+import '../widgets/semantic_memory_section.dart';
 
 class SettingsView extends StatefulWidget {
   const SettingsView({super.key});
@@ -216,6 +217,8 @@ class _SettingsViewState extends State<SettingsView> {
           const _ClaudeIntegrationSection(),
           const SizedBox(height: 24),
           const _AgentServerSection(),
+          const SizedBox(height: 24),
+          const SemanticMemorySection(),
           const SizedBox(height: 24),
           const MemoryVaultSection(),
           const SizedBox(height: 24),
