@@ -254,19 +254,19 @@ jobs:
         run: |
           DEST="build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/mcp_server"
           test -f "$DEST/dist/index.js"
-           test -f "$DEST/package.json"
-           test -d "$DEST/node_modules"
-           test -f "$DEST/node_modules/@modelcontextprotocol/sdk/package.json"
-           assert_grep() {
-             local label="$1" file="$2" pattern="$3"
-             if ! grep -qE "$pattern" "$file"; then
-               echo "::error::Missing $label in $file (pattern: $pattern)"
-               exit 1
-             fi
-            }
-            assert_grep 'creative platform tool registration' "$DEST/dist/index.js" 'registerCreativePlatformTools\)[[:space:]]*\([[:space:]]*server'
-            assert_grep 'setup readiness tool registration' "$DEST/dist/index.js" 'registerSetupReadinessTool\)[[:space:]]*\([[:space:]]*server'
-            assert_grep 'org optimizer tool registration' "$DEST/dist/index.js" 'registerOrgOptimizerTools\)[[:space:]]*\([[:space:]]*server'
+          test -f "$DEST/package.json"
+          test -d "$DEST/node_modules"
+          test -f "$DEST/node_modules/@modelcontextprotocol/sdk/package.json"
+          assert_grep() {
+            local label="$1" file="$2" pattern="$3"
+            if ! grep -qE "$pattern" "$file"; then
+              echo "::error::Missing $label in $file (pattern: $pattern)"
+              exit 1
+            fi
+          }
+          assert_grep 'creative platform tool registration' "$DEST/dist/index.js" 'registerCreativePlatformTools\)?[[:space:]]*\([[:space:]]*server'
+          assert_grep 'setup readiness tool registration' "$DEST/dist/index.js" 'registerSetupReadinessTool\)?[[:space:]]*\([[:space:]]*server'
+          assert_grep 'org optimizer tool registration' "$DEST/dist/index.js" 'registerOrgOptimizerTools\)?[[:space:]]*\([[:space:]]*server'
            grep -q 'rhythm_list_creative_capabilities' "$DEST/dist/tools/creativePlatform.js"
           grep -q 'rhythm_install_creative_capability' "$DEST/dist/tools/creativePlatform.js"
           grep -q 'rhythm_creative_capability_status' "$DEST/dist/tools/creativePlatform.js"
