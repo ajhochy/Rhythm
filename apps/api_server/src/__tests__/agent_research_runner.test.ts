@@ -3,13 +3,13 @@ import Database from 'better-sqlite3';
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { AddressInfo } from 'node:net';
 
 const { runAgent } = vi.hoisted(() => ({ runAgent: vi.fn() }));
 
 vi.mock('../services/agent_runner', () => ({ run: runAgent }));
 
 import { createApp } from '../app';
+import { startTestServer } from './helpers/real_server';
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { recoverStaleResearchJobs } from '../controllers/agentResearchController';
@@ -29,10 +29,7 @@ describe('Deep Research direct AgentRunner execution', () => {
     runMigrations(db);
     setDb(db);
     runAgent.mockResolvedValue({ sessionId: 'research-session-1', status: 'done', result: '# Research report\n\nUseful findings.' });
-    const server = createApp().listen(0);
-    await new Promise<void>((resolve) => server.once('listening', resolve));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    close = () => new Promise((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
+    ({ baseUrl, close } = await startTestServer(createApp()));
   });
 
   afterEach(async () => {
