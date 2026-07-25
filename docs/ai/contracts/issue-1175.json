@@ -7,59 +7,130 @@
       "text": "GitNexus compare-to-main impact is captured and contains only expected mobile, gateway, engine, and explicitly linked issue flows.",
       "mode": "integration",
       "test_file": "tests/contract/issue-1175.mjs",
-      "test_id": "issue-1175-c1: bounded GitNexus aggregate scope",
-      "status": "red"
+      "test_id": "issue-1175-c1: bounded GitNexus aggregate scope is durably tied to the tested head",
+      "status": "pending"
     },
     {
       "criterion_id": "issue-1175-c2",
       "text": "Independent whole-branch security and quality review has no unresolved Critical or Important findings.",
-      "mode": "security",
+      "mode": "integration",
       "test_file": "tests/contract/issue-1175.mjs",
-      "test_id": "issue-1175-c2: independent review closure",
-      "status": "red"
+      "test_id": "issue-1175-c2: independent review closure is backed by its immutable report",
+      "status": "pending"
     },
     {
       "criterion_id": "issue-1175-c3",
       "text": "Full API, Flutter, mobile, contract, browser E2E, accessibility, security, and secret-scan gates pass with exact commands recorded.",
       "mode": "integration",
       "test_file": "tests/contract/issue-1175.mjs",
-      "test_id": "issue-1175-c3: cumulative automated gates",
-      "status": "red"
+      "test_id": "issue-1175-c3: every cumulative gate records exact command, head, exit code, and log hash",
+      "status": "pending"
     },
     {
       "criterion_id": "issue-1175-c4",
       "text": "Real gateway and engine behavior passes through tools/dev/sandbox.sh on API 4098 and engine 4097 while listeners 4001 and 4096 remain untouched.",
       "mode": "integration",
       "test_file": "tests/contract/issue-1175.mjs",
-      "test_id": "issue-1175-c4: isolated real sandbox",
-      "status": "red"
+      "test_id": "issue-1175-c4: exact sandbox launcher and listener snapshots prove isolation",
+      "status": "pending"
     },
     {
       "criterion_id": "issue-1175-c5",
       "text": "A signed development build runs on a physical iPhone and verifies pairing, isolation failures, chat/SSE/PTY, approvals, every Tool, revocation, and background recovery; committed evidence uses only a non-sensitive model label, never a device UDID.",
       "mode": "ui",
       "test_file": "tests/contract/issue-1175.mjs",
-      "test_id": "issue-1175-c5: signed physical-device matrix",
-      "status": "red"
+      "test_id": "issue-1175-c5: signed physical-device matrix is tied to the tested build without a UDID",
+      "status": "pending"
     },
     {
       "criterion_id": "issue-1175-c6",
       "text": "A production iOS build and TestFlight submission complete through secure credential tooling without exposing or committing credentials.",
-      "mode": "security",
+      "mode": "integration",
       "test_file": "tests/contract/issue-1175.mjs",
-      "test_id": "issue-1175-c6: production build and TestFlight",
-      "status": "red"
+      "test_id": "issue-1175-c6: production archive and TestFlight submission have source and artifact provenance",
+      "status": "pending"
     },
     {
       "criterion_id": "issue-1175-c7",
       "text": "Exact evidence is recorded in docs/ai/runs and PR #1165 remains draft, open, unmerged, and updated for human approval.",
       "mode": "integration",
       "test_file": "tests/contract/issue-1175.mjs",
-      "test_id": "issue-1175-c7: durable log and draft PR posture",
-      "status": "red"
+      "test_id": "issue-1175-c7: durable run log agrees with the live draft PR",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c8",
+      "text": "Async delegation rejects audit/security-locked callers and targets (including stale enabled+locked rows), and a parent locked after dispatch is never woken by a completion.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
+      "test_id": "issue-1175-c8: async delegation rejects locked participants and never wakes a newly locked parent",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c9",
+      "text": "streamSession/promptAsync exceptions durably mark child/delegation failed, completion claim exceptions release claims/retry, and stale waking claims reconcile after restart exactly once.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
+      "test_id": "issue-1175-c9: dispatch and completion failures persist terminal state and stale claims recover exactly once",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c10",
+      "text": "Mobile Activity is scoped by req.mobileDevice.userId across sessions, research, schedules, webhooks, cookbook, optimizer and never emits other users' previews/reports.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
+      "test_id": "issue-1175-c10: paired Activity is user-scoped across every source",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c11",
+      "text": "Paired OpenCode HTTP and SSE never return secrets or filesystem roots/nested directories, with safe operation-specific response shaping/deny.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
+      "test_id": "issue-1175-c11: paired HTTP and SSE shape or deny sensitive upstream fields recursively",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c12",
+      "text": "Reload/config inspection calls use paired Device auth + opaque project ID, never Basic/direct bypass.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-security-review.test.mjs",
+      "test_id": "issue-1175-c12: paired reload and inspection stay on Device auth plus opaque project scope",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c13",
+      "text": "Production/release iOS ATS does not allow arbitrary HTTP, while explicit dev/E2E mode stays local-capable.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-security-review.test.mjs",
+      "test_id": "issue-1175-c13: production iOS ATS denies arbitrary HTTP while explicit dev and E2E remain local-capable",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c14",
+      "text": "#1175 release contract proves exact HEAD/evidence/run-log/commands/PR head+draft/checks/build provenance rather than booleans.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c14: release evidence proves one exact tested source head and evidence-only final commits",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c15",
+      "text": "A selected-project Device token cannot enumerate status or read, mutate, abort, or delete an out-of-scope OpenCode session; session lists/status are filtered and every ID-addressed session/message/part/permission/question/PTY resource is server-side ownership/project validated.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
+      "test_id": "issue-1175-c15: selected-project credentials cannot enumerate or operate on another project session",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c16",
+      "text": "agent_activity_service Postgres queries select only columns present in postgres_bootstrap, including status_message, project_id, and mcp_role schema parity.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
+      "test_id": "issue-1175-c16: Activity query columns exist in both SQLite and Postgres bootstrap schemas",
+      "status": "pending"
     }
   ],
-  "stack": "typescript/react-native/flutter/ios",
-  "evidence_file": "docs/ai/evidence/issue-1175-release.json",
+  "stack": "typescript",
   "not_tested": []
 }
