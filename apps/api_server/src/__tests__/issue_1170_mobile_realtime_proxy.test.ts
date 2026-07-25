@@ -1,0 +1,522 @@
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+
+import Database from 'better-sqlite3';
+import {
+  afterEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
+import { WebSocket } from 'ws';
+
+import { createApp } from '../app';
+import { setDb } from '../database/db';
+import { runMigrations } from '../database/migrations';
+import { resetMobileGatewayRuntimeForTest } from '../services/mobile_gateway_runtime';
+import { MobileOpenCodeProxy } from '../services/mobile_opencode_proxy';
+import { startTestServer } from './helpers/real_server';
+
+type SseModule = {
+  MobileSseProxy: new (options?: Record<string, unknown>) => {
+    stream(input: Record<string, unknown>): Promise<void>;
+  };
+};
+
+type PtyModule = {
+  MobilePtyProxy: new (options: Record<string, unknown>) => {
+    handleUpgrade(
+      request: Record<string, unknown>,
+      socket: PassThrough,
+      head: Buffer,
+    ): boolean;
+    close(): void;
+    activeConnectionCount(): number;
+    bufferedBytes(): number;
+  };
+};
+
+async function loadSseModule(): Promise<SseModule | null> {
+  return vi
+    .importActual<SseModule>('../services/mobile_sse_proxy')
+    .catch(() => null);
+}
+
+async function loadPtyModule(): Promise<PtyModule | null> {
+  return vi
+    .importActual<PtyModule>('../services/mobile_pty_proxy')
+    .catch(() => null);
+}
+
+function responseSink(): PassThrough & {
+  statusCode: number;
+  headers: Record<string, string>;
+  setHeader(name: string, value: string): void;
+  flushHeaders(): void;
+} {
+  const stream = new PassThrough() as ReturnType<typeof responseSink>;
+  stream.statusCode = 200;
+  stream.headers = {};
+  stream.setHeader = (name: string, value: string) => {
+    stream.headers[name.toLowerCase()] = value;
+  };
+  stream.flushHeaders = vi.fn();
+  return stream;
+}
+
+function rawUpgradeRequest(input: {
+  authorization?: string;
+  projectId?: string;
+  ticket?: string;
+}): Record<string, unknown> {
+  return {
+    url: `/mobile-gateway/pty/pty-contract/connect${
+      input.ticket ? `?ticket=${encodeURIComponent(input.ticket)}` : ''
+    }`,
+    headers: {
+      ...(input.authorization
+        ? { authorization: input.authorization }
+        : {}),
+      ...(input.projectId
+        ? { 'x-rhythm-project-id': input.projectId }
+        : {}),
+    },
+  };
+}
+
+describe('issue #1170 mobile realtime proxy contract', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('issue-1170-c1: authentication is rejected before any upstream SSE or PTY connection', async () => {
+    const sseModule = await loadSseModule();
+    const ptyModule = await loadPtyModule();
+    expect(sseModule, 'mobile_sse_proxy.ts must exist').not.toBeNull();
+    expect(ptyModule, 'mobile_pty_proxy.ts must exist').not.toBeNull();
+    if (!sseModule || !ptyModule) return;
+
+    const fetchFn = vi.fn();
+    const request = new EventEmitter();
+    const response = responseSink();
+    const sse = new sseModule.MobileSseProxy({ fetchFn });
+    await expect(sse.stream({
+      request,
+      response,
+      project: { id: 'project-contract', root: '/sandbox/project' },
+      isDeviceActive: () => false,
+    })).rejects.toMatchObject({ statusCode: 401 });
+    expect(fetchFn).not.toHaveBeenCalled();
+
+    const authenticateDevice = vi.fn(() => null);
+    const resolveProject = vi.fn();
+    const engineFactory = vi.fn();
+    const pty = new ptyModule.MobilePtyProxy({
+      authenticateDevice,
+      resolveProject,
+      engineFactory,
+    });
+    const socket = new PassThrough();
+    const matched = pty.handleUpgrade(
+      rawUpgradeRequest({ projectId: 'project-contract', ticket: 'ticket' }),
+      socket,
+      Buffer.alloc(0),
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(matched).toBe(true);
+    expect(socket.read()?.toString()).toContain('401 Unauthorized');
+    expect(authenticateDevice).not.toHaveBeenCalled();
+    expect(resolveProject).not.toHaveBeenCalled();
+    expect(engineFactory).not.toHaveBeenCalled();
+    pty.close();
+
+    const db = new Database(':memory:');
+    runMigrations(db);
+    setDb(db);
+    const server = await startTestServer(createApp());
+    try {
+      const unauthenticated = await fetch(
+        `${server.baseUrl}/mobile-gateway/events`,
+        { headers: { 'X-Rhythm-Project-ID': 'missing-project' } },
+      );
+      // Regression caught: if project lookup or the upstream fetch happens
+      // before auth, this becomes a 404/502 instead of the credential-safe 401.
+      expect(unauthenticated.status).toBe(401);
+      expect(await unauthenticated.json()).toMatchObject({
+        error: { code: 'UNAUTHORIZED' },
+      });
+    } finally {
+      await server.close();
+      db.close();
+      resetMobileGatewayRuntimeForTest();
+    }
+  });
+
+  it('issue-1170-c2: a revoked device cannot open SSE or complete a PTY upgrade', async () => {
+    const sseModule = await loadSseModule();
+    const ptyModule = await loadPtyModule();
+    expect(sseModule).not.toBeNull();
+    expect(ptyModule).not.toBeNull();
+    if (!sseModule || !ptyModule) return;
+
+    const fetchFn = vi.fn();
+    const sse = new sseModule.MobileSseProxy({ fetchFn });
+    await expect(sse.stream({
+      request: new EventEmitter(),
+      response: responseSink(),
+      project: { id: 'project-contract', root: '/sandbox/project' },
+      isDeviceActive: () => false,
+    })).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'UNAUTHORIZED',
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+
+    const resolveProject = vi.fn();
+    const engineFactory = vi.fn();
+    const pty = new ptyModule.MobilePtyProxy({
+      authenticateDevice: vi.fn(() => null),
+      resolveProject,
+      engineFactory,
+    });
+    const socket = new PassThrough();
+    expect(pty.handleUpgrade(rawUpgradeRequest({
+      authorization: 'Device revoked-token',
+      projectId: 'project-contract',
+      ticket: 'ticket',
+    }), socket, Buffer.alloc(0))).toBe(true);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(socket.read()?.toString()).toContain('401 Unauthorized');
+    expect(resolveProject).not.toHaveBeenCalled();
+    expect(engineFactory).not.toHaveBeenCalled();
+    pty.close();
+  });
+
+  it('issue-1170-c3: disconnect and overload paths abort upstream work and release bounded state', async () => {
+    const sseModule = await loadSseModule();
+    const ptyModule = await loadPtyModule();
+    expect(sseModule).not.toBeNull();
+    expect(ptyModule).not.toBeNull();
+    if (!sseModule || !ptyModule) return;
+
+    let upstreamSignal: AbortSignal | undefined;
+    const encoder = new TextEncoder();
+    const upstreamBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(
+          'data: {"directory":"/sandbox/project","payload":{"id":"evt-1","type":"server.connected","properties":{}}}\n\n',
+        ));
+      },
+    });
+    const sse = new sseModule.MobileSseProxy({
+      fetchFn: vi.fn(async (
+        _url: string | URL | Request,
+        init?: RequestInit,
+      ) => {
+        upstreamSignal = init?.signal ?? undefined;
+        return new Response(upstreamBody, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        });
+      }),
+      reconnectBaseMs: 5,
+      reconnectMaxMs: 10,
+    });
+    const request = new EventEmitter();
+    const response = responseSink();
+    const streaming = sse.stream({
+      request,
+      response,
+      project: { id: 'project-contract', root: '/sandbox/project' },
+      isDeviceActive: () => true,
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    request.emit('close');
+    await streaming;
+    expect(upstreamSignal?.aborted).toBe(true);
+    expect(request.listenerCount('close')).toBe(0);
+    expect(response.listenerCount('close')).toBe(0);
+
+    const fakeEngine = new EventEmitter() as EventEmitter & {
+      readyState: number;
+      bufferedAmount: number;
+      send: ReturnType<typeof vi.fn>;
+      close: ReturnType<typeof vi.fn>;
+      terminate: ReturnType<typeof vi.fn>;
+    };
+    fakeEngine.readyState = WebSocket.CONNECTING;
+    fakeEngine.bufferedAmount = 0;
+    fakeEngine.send = vi.fn();
+    fakeEngine.close = vi.fn(() => {
+      fakeEngine.readyState = WebSocket.CLOSED;
+      fakeEngine.emit('close', 1000, Buffer.alloc(0));
+    });
+    fakeEngine.terminate = vi.fn();
+    const fakeClient = new EventEmitter() as EventEmitter & {
+      readyState: number;
+      bufferedAmount: number;
+      send: ReturnType<typeof vi.fn>;
+      close: ReturnType<typeof vi.fn>;
+      terminate: ReturnType<typeof vi.fn>;
+    };
+    fakeClient.readyState = WebSocket.OPEN;
+    fakeClient.bufferedAmount = 0;
+    fakeClient.send = vi.fn();
+    fakeClient.close = vi.fn(() => {
+      fakeClient.readyState = WebSocket.CLOSED;
+      fakeClient.emit('close', 1000, Buffer.alloc(0));
+    });
+    fakeClient.terminate = vi.fn();
+    const pty = new ptyModule.MobilePtyProxy({
+      authenticateDevice: vi.fn(() => ({ id: 'device-contract' })),
+      resolveProject: vi.fn(() => ({
+        id: 'project-contract',
+        root: '/sandbox/project',
+      })),
+      engineFactory: vi.fn(() => fakeEngine),
+      clientUpgrade: vi.fn((
+        _request: unknown,
+        _socket: unknown,
+        _head: unknown,
+        connected: (client: typeof fakeClient) => void,
+      ) => connected(fakeClient)),
+      maxBufferedBytes: 4,
+    });
+    const clientSocket = new PassThrough();
+    expect(pty.handleUpgrade(rawUpgradeRequest({
+      authorization: 'Device active-token',
+      projectId: 'project-contract',
+      ticket: 'ticket-contract-123',
+    }), clientSocket, Buffer.alloc(0))).toBe(true);
+    fakeEngine.emit('open');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(pty.activeConnectionCount()).toBe(1);
+    fakeClient.emit('message', Buffer.from('12345'), false);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(pty.bufferedBytes()).toBeLessThanOrEqual(4);
+    expect(fakeClient.close).toHaveBeenCalled();
+    fakeClient.emit('close', 1009, Buffer.from('buffer limit'));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(pty.activeConnectionCount()).toBe(0);
+    expect(pty.bufferedBytes()).toBe(0);
+    expect(fakeEngine.close.mock.calls.length + fakeEngine.terminate.mock.calls.length)
+      .toBeGreaterThan(0);
+    pty.close();
+
+    const pendingEngine = new EventEmitter() as EventEmitter & {
+      readyState: number;
+      bufferedAmount: number;
+      close: ReturnType<typeof vi.fn>;
+      terminate: ReturnType<typeof vi.fn>;
+    };
+    pendingEngine.readyState = WebSocket.CONNECTING;
+    pendingEngine.bufferedAmount = 0;
+    pendingEngine.close = vi.fn();
+    pendingEngine.terminate = vi.fn();
+    const pendingProxy = new ptyModule.MobilePtyProxy({
+      authenticateDevice: vi.fn(() => ({ id: 'device-contract' })),
+      resolveProject: vi.fn(() => ({
+        id: 'project-contract',
+        root: '/sandbox/project',
+      })),
+      engineFactory: vi.fn(() => pendingEngine),
+      connectTimeoutMs: 5,
+    });
+    const pendingSocket = new PassThrough();
+    let pendingResponse = '';
+    pendingSocket.on('data', (chunk) => {
+      pendingResponse += chunk.toString();
+    });
+    expect(pendingProxy.handleUpgrade(rawUpgradeRequest({
+      authorization: 'Device active-token',
+      projectId: 'project-contract',
+      ticket: 'ticket-contract-123',
+    }), pendingSocket, Buffer.alloc(0))).toBe(true);
+    expect(pendingProxy.activeConnectionCount()).toBe(1);
+    await expect.poll(() => pendingProxy.activeConnectionCount(), {
+      timeout: 1_000,
+    }).toBe(0);
+    expect(pendingResponse).toContain('504 Gateway Timeout');
+    expect(pendingEngine.terminate).toHaveBeenCalled();
+    expect(pendingEngine.listenerCount('open')).toBe(0);
+    expect(pendingSocket.listenerCount('close')).toBe(0);
+    pendingProxy.close();
+  });
+
+  it('roadmap: SSE reconnects, forwards heartbeats, filters projects, and dedupes bounded event IDs', async () => {
+    const sseModule = await loadSseModule();
+    expect(sseModule).not.toBeNull();
+    if (!sseModule) return;
+
+    const encoder = new TextEncoder();
+    const responseFor = (frames: string, hold = false) =>
+      new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(frames));
+          if (!hold) controller.close();
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    const firstFrames = [
+      'data: {"directory":"/outside/project","payload":{"id":"evt-wrong","type":"session.created","properties":{"info":{"id":"ses-wrong"}}}}',
+      '',
+      'data: {"payload":{"id":"heartbeat-1","type":"server.heartbeat","properties":{}}}',
+      '',
+      'data: {"directory":"/sandbox/project","payload":{"id":"evt-1","type":"session.created","properties":{"info":{"id":"ses-one"}}}}',
+      '',
+      '',
+    ].join('\n');
+    const secondFrames = [
+      'data: {"directory":"/sandbox/project","payload":{"id":"evt-1","type":"session.created","properties":{"info":{"id":"ses-one"}}}}',
+      '',
+      'data: {"directory":"/sandbox/project","payload":{"id":"evt-2","type":"session.updated","properties":{"info":{"id":"ses-one"}}}}',
+      '',
+      '',
+    ].join('\n');
+    let attempt = 0;
+    const fetchFn = vi.fn(async () =>
+      responseFor(attempt++ === 0 ? firstFrames : secondFrames, attempt > 1));
+    const proxy = new sseModule.MobileSseProxy({
+      fetchFn,
+      reconnectBaseMs: 1,
+      reconnectMaxMs: 2,
+      maxDedupeEntries: 2,
+    });
+    const request = new EventEmitter();
+    const response = responseSink();
+    let output = '';
+    response.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    const streaming = proxy.stream({
+      request,
+      response,
+      project: { id: 'project-contract', root: '/sandbox/project' },
+      isDeviceActive: () => true,
+    });
+
+    await expect.poll(() => output, { timeout: 2_000 })
+      .toContain('evt-2');
+    request.emit('close');
+    await streaming;
+    expect(fetchFn.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(output).toContain('server.heartbeat');
+    expect(output).not.toContain('evt-wrong');
+    expect(output.match(/id: evt-1/g)).toHaveLength(1);
+    expect(output).toContain('id: evt-2');
+    expect(request.listenerCount('close')).toBe(0);
+    expect(response.listenerCount('close')).toBe(0);
+  });
+
+  it('roadmap: PTY bridge preserves text/binary frames, ticket scope, close codes, and active revocation', async () => {
+    const ptyModule = await loadPtyModule();
+    expect(ptyModule).not.toBeNull();
+    if (!ptyModule) return;
+
+    const socket = () => {
+      const ws = new EventEmitter() as EventEmitter & {
+        readyState: number;
+        bufferedAmount: number;
+        send: ReturnType<typeof vi.fn>;
+        close: ReturnType<typeof vi.fn>;
+        terminate: ReturnType<typeof vi.fn>;
+      };
+      ws.readyState = WebSocket.OPEN;
+      ws.bufferedAmount = 0;
+      ws.send = vi.fn();
+      ws.close = vi.fn((code: number, reason: string) => {
+        ws.readyState = WebSocket.CLOSED;
+        ws.emit('close', code, Buffer.from(reason));
+      });
+      ws.terminate = vi.fn();
+      return ws;
+    };
+    const client = socket();
+    const engine = socket();
+    engine.readyState = WebSocket.CONNECTING;
+    const engineFactory = vi.fn((_url: string) => engine);
+    let active = true;
+    const proxy = new ptyModule.MobilePtyProxy({
+      authenticateDevice: vi.fn(() =>
+        active ? { id: 'device-contract' } : null),
+      resolveProject: vi.fn(() => ({
+        id: 'project-contract',
+        root: '/sandbox/project',
+      })),
+      engineFactory,
+      clientUpgrade: vi.fn((
+        _request: unknown,
+        _socket: unknown,
+        _head: unknown,
+        connected: (connectedClient: typeof client) => void,
+      ) => connected(client)),
+      revalidateIntervalMs: 5,
+    });
+    const rawSocket = new PassThrough();
+    expect(proxy.handleUpgrade(rawUpgradeRequest({
+      authorization: 'Device active-token',
+      projectId: 'project-contract',
+      ticket: 'ticket-contract-123',
+    }), rawSocket, Buffer.alloc(0))).toBe(true);
+    expect(engineFactory).toHaveBeenCalledTimes(1);
+    const upstream = new URL(String(engineFactory.mock.calls[0][0]));
+    expect(upstream.pathname).toBe('/pty/pty-contract/connect');
+    expect(upstream.searchParams.get('directory')).toBe('/sandbox/project');
+    expect(upstream.searchParams.get('ticket'))
+      .toBe('ticket-contract-123');
+    expect(upstream.searchParams.get('token')).toBeNull();
+
+    engine.readyState = WebSocket.OPEN;
+    engine.emit('open');
+    client.emit('message', Buffer.from('text-input'), false);
+    client.emit('message', Buffer.from([0, 1, 2]), true);
+    engine.emit('message', Buffer.from('text-output'), false);
+    engine.emit('message', Buffer.from([3, 4, 5]), true);
+    expect(engine.send.mock.calls.map((call) => call[1]?.binary))
+      .toEqual([false, true]);
+    expect(client.send.mock.calls.map((call) => call[1]?.binary))
+      .toEqual([false, true]);
+
+    active = false;
+    await expect.poll(() => client.close.mock.calls.length, {
+      timeout: 1_000,
+    }).toBeGreaterThan(0);
+    expect(client.close.mock.calls.at(-1)?.[0]).toBe(4401);
+    expect(engine.close.mock.calls.at(-1)?.[0]).toBe(4401);
+    expect(proxy.activeConnectionCount()).toBe(0);
+    proxy.close();
+  });
+
+  it('roadmap: PTY ticket issuance reuses the engine connect-ticket guard without leaking it', async () => {
+    const upstream = vi.fn(async (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) => new Response(JSON.stringify({
+      ticket: 'engine-issued-ticket',
+      expires_in: 30,
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    const proxy = new MobileOpenCodeProxy({
+      baseUrl: 'http://127.0.0.1:4897',
+      fetchFn: upstream,
+    });
+    const result = await proxy.forward({
+      method: 'POST',
+      path: '/pty/pty-contract/connect-token',
+      query: new URLSearchParams(),
+      project: { id: 'project-contract', root: '/sandbox/project' },
+    });
+    expect(result.status).toBe(200);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    const headers = new Headers(upstream.mock.calls[0][1]?.headers);
+    expect(headers.get('x-opencode-ticket')).toBe('1');
+    expect(headers.get('authorization')).toBeNull();
+    expect(String(upstream.mock.calls[0][0])).not.toContain('Device');
+  });
+});

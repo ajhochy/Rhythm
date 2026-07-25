@@ -1,49 +1,35 @@
-import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 
 import { MobileGatewayController } from '../controllers/mobile_gateway_controller';
 import { AgentActivityController } from '../controllers/agent_activity_controller';
-import { getDb } from '../database/db';
 import { AppError } from '../errors/app_error';
 import {
   requireMobileDevice,
   requireMobileCloudUser,
   requireSessionOrMobileDevice,
 } from '../middleware/mobile_device_auth';
-import {
-  initializeMobilePairingSchema,
-  MobileDevicesRepository,
-} from '../repositories/mobile_devices_repository';
 import { MobileCloudIdentityService } from '../services/mobile_cloud_identity_service';
 import { MobilePairingService } from '../services/mobile_pairing_service';
+import { getMobilePairingService } from '../services/mobile_gateway_runtime';
 import {
   mobileProjectResponse,
   requireMobileProject,
   requireMobileProjectScope,
 } from '../services/mobile_project_scope';
 import { MobileOpenCodeProxy } from '../services/mobile_opencode_proxy';
+import { MobileSseProxy } from '../services/mobile_sse_proxy';
 
 export function createMobileGatewayRouter(): Router {
   const router = Router();
   const cloudIdentity = new MobileCloudIdentityService();
   const requireCloudUser = requireMobileCloudUser(cloudIdentity);
-  let pairingService: MobilePairingService | null = null;
   let controller: MobileGatewayController | null = null;
   const opencodeProxy = new MobileOpenCodeProxy();
   const activityController = new AgentActivityController();
-
-  const getPairingService = (): MobilePairingService => {
-    if (pairingService) return pairingService;
-    const db = getDb();
-    initializeMobilePairingSchema(db);
-    const repository = new MobileDevicesRepository(db);
-    pairingService = new MobilePairingService({
-      repository,
-      hostId: repository.findHostId() ?? randomUUID(),
-    });
-    return pairingService;
-  };
+  const sseProxy = new MobileSseProxy();
+  const getPairingService = (): MobilePairingService =>
+    getMobilePairingService();
 
   const getController = (): MobileGatewayController => {
     if (controller) return controller;
@@ -111,6 +97,46 @@ export function createMobileGatewayRouter(): Router {
     '/agent-activity',
     requireMobileDevice(getPairingService),
     (req, res, next) => activityController.list(req, res, next),
+  );
+  const streamEvents = (sessionId?: string) =>
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      const authorization = req.header('Authorization') ?? '';
+      const token = authorization.match(/^Device\s+(\S+)$/i)?.[1] ?? '';
+      const deviceId = req.mobileDevice?.id;
+      try {
+        await sseProxy.stream({
+          request: req,
+          response: res,
+          project: req.mobileProject!,
+          ...(sessionId ? { sessionId } : {}),
+          isDeviceActive: () => {
+            const active = getPairingService().authenticateDevice(token);
+            return active !== null && active.id === deviceId;
+          },
+        });
+      } catch (error) {
+        if (res.headersSent) {
+          res.end();
+          return;
+        }
+        next(error instanceof AppError ? error : AppError.internal());
+      }
+    };
+  router.get(
+    '/events',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    (req, res, next) => {
+      void streamEvents()(req, res, next);
+    },
+  );
+  router.get(
+    '/sessions/:id/events',
+    requireMobileDevice(getPairingService),
+    requireMobileProjectScope(),
+    (req, res, next) => {
+      void streamEvents(req.params.id)(req, res, next);
+    },
   );
   router.all(
     '/opencode/*',

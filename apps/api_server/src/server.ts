@@ -4,6 +4,7 @@ import { config as loadDotenv } from 'dotenv';
 import { Agent as UndiciAgent, setGlobalDispatcher } from 'undici';
 import { opencodeClient } from './services/opencode_engine';
 import { managedChromeService } from './services/managed_chrome_service';
+import { MobilePtyProxy } from './services/mobile_pty_proxy';
 import { runAdvisoryCheck, formatStartupWarning } from './security/security_advisories';
 
 // #1039 Cause B — Node's built-in fetch (undici) aborts any request whose
@@ -368,11 +369,14 @@ async function main() {
   const app = createApp();
 
   const httpServer = http.createServer(app);
+  const mobilePtyProxy = env.agentExecutionEnabled
+    ? new MobilePtyProxy()
+    : undefined;
   // WS gateway is an agent-execution surface (#755). In the 'cloud' role we
   // create a no-op WSS so `wss.close()` in the shutdown handler is still valid,
   // but never attach the upgrade/connection handlers.
   const wss = env.agentExecutionEnabled
-    ? attachWsGateway(httpServer)
+    ? attachWsGateway(httpServer, mobilePtyProxy)
     : new (await import('ws')).WebSocketServer({ noServer: true });
 
   if (env.agentExecutionEnabled) {

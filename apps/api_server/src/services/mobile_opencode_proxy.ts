@@ -312,6 +312,9 @@ export class MobileOpenCodeProxy {
         signal: controller.signal,
         headers: {
           ...(input.accept ? { Accept: input.accept } : {}),
+          ...(operation.operationId === 'pty.connectToken'
+            ? { 'x-opencode-ticket': '1' }
+            : {}),
           ...(encodedBody !== undefined
             ? { 'Content-Type': 'application/json' }
             : {}),

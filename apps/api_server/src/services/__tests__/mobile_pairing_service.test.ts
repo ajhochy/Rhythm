@@ -99,6 +99,8 @@ describe('MobilePairingService', () => {
         'device-revocation',
         'project-scope',
         'opencode-http-proxy',
+        'opencode-sse-proxy',
+        'opencode-pty-proxy',
       ],
       minimumMobileVersion: '0.1.0',
     });

@@ -1,0 +1,57 @@
+{
+  "issue": 1170,
+  "generated": "2026-07-25",
+  "criteria": [
+    {
+      "criterion_id": "issue-1170-c1",
+      "text": "Authentication occurs before stream/upgrade",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts",
+      "test_id": "issue-1170-c1: authentication is rejected before any upstream SSE or PTY connection",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1170-c2",
+      "text": "Revoked tokens cannot connect",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts",
+      "test_id": "issue-1170-c2: a revoked device cannot open SSE or complete a PTY upgrade",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1170-c3",
+      "text": "Disconnects release all listeners, sockets, and buffers",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts",
+      "test_id": "issue-1170-c3: disconnect and overload paths abort upstream work and release bounded state",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1170-c4",
+      "text": "Sandboxed live test observes a real SSE event and PTY input/output round trip",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy_live.test.ts",
+      "test_id": "issue-1170-c4: live sandbox emits a real scoped SSE event and preserves PTY text and binary round trips",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1170-c5",
+      "text": "Tests use only `tools/dev/sandbox.sh` on 4098/4097; never direct server startup",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy_live.test.ts",
+      "test_id": "issue-1170-c5: live harness refuses installed-app ports and requires sandbox attestation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1170-c6",
+      "text": "GitNexus impact/detect-changes and independent review pass",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "GitNexus evidence and an independent reviewer verdict are workflow artifacts rather than executable product behavior."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-1170-c6"
+  ]
+}

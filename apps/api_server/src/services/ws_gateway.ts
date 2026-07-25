@@ -24,9 +24,22 @@ export interface WsMessage {
 const clients = new Set<WebSocket>();
 let attached = false;
 
-export function attachWsGateway(server: http.Server): WebSocketServer {
+export interface MobileUpgradeHandler {
+  handleUpgrade(
+    request: http.IncomingMessage,
+    socket: import('node:stream').Duplex,
+    head: Buffer,
+  ): boolean;
+  close(): void;
+}
+
+export function attachWsGateway(
+  server: http.Server,
+  mobileUpgradeHandler?: MobileUpgradeHandler,
+): WebSocketServer {
   // Idempotency guard: if already attached, return a no-op WSS
   if (attached) {
+    mobileUpgradeHandler?.close();
     return new WebSocketServer({ noServer: true });
   }
   attached = true;
@@ -74,6 +87,7 @@ export function attachWsGateway(server: http.Server): WebSocketServer {
   const ptyWss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (req, socket, head) => {
+    if (mobileUpgradeHandler?.handleUpgrade(req, socket, head)) return;
     let pathname = '/';
     try {
       pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
@@ -92,6 +106,7 @@ export function attachWsGateway(server: http.Server): WebSocketServer {
     }
     socket.destroy();
   });
+  wss.once('close', () => mobileUpgradeHandler?.close());
 
   return wss;
 }
