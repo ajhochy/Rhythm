@@ -6,6 +6,9 @@ import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { UsersRepository } from '../repositories/users_repository';
+import {
+  installHumanApprovalTestCredentials,
+} from './helpers/human_approval_test_credentials';
 import { startTestServer } from './helpers/real_server';
 
 describe('mobile gateway pairing HTTP routes', () => {
@@ -29,6 +32,7 @@ describe('mobile gateway pairing HTTP routes', () => {
     authHeaders = {
       Authorization: `Bearer ${session.token}`,
       'Content-Type': 'application/json',
+      ...installHumanApprovalTestCredentials().capabilityHeader,
     };
     ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
   });

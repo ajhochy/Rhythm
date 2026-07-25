@@ -40,6 +40,7 @@ interface GoogleUserInfo {
   email?: string;
   name?: string;
   picture?: string;
+  hd?: string;
 }
 
 interface GoogleVerifiedIdTokenClaims {
@@ -53,6 +54,7 @@ interface GoogleVerifiedIdTokenClaims {
   nonce?: string;
   picture?: string;
   sub?: string;
+  hd?: string;
 }
 
 export class GoogleOAuthService {
@@ -268,6 +270,7 @@ export class GoogleOAuthService {
       email: claims.email,
       name: claims.name?.trim() || claims.email,
       picture: claims.picture?.trim() || undefined,
+      hd: claims.hd?.trim().toLowerCase() || undefined,
     };
   }
 

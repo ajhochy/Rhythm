@@ -452,6 +452,110 @@ async function pairedStore() {
   ));
 }
 
+// issue-1175-c29: a recycled tailnet endpoint is a different Mac when hostId
+// changes. Require confirmation even though URL/user match, then never present
+// the stale credential to the new host while committing the new pairing.
+{
+  __reset();
+  const store = await pairedStore();
+  const recycledPayload = JSON.stringify({
+    gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
+    hostId: 'host-2',
+    pairingCode: 'b'.repeat(43),
+  });
+  __setPublicHandler(async () => {
+    throw new Error('must not consume before replacement confirmation');
+  });
+  await assert.rejects(
+    () => store.pair(recycledPayload, {
+      userId: 7,
+      deviceName: 'AJ iPhone',
+    }),
+    (error) =>
+      error instanceof PairedHostError &&
+      error.kind === 'replacementRequired',
+  );
+  assert.equal(__publicRequests().length, 2);
+
+  __setPublicHandler(async (path) => {
+    if (path === '/mobile-gateway/health') {
+      return { ...healthResponse, hostId: 'host-2' };
+    }
+    if (path === '/mobile-gateway/pair') {
+      return {
+        ...pairResponse,
+        deviceId: 'device-2',
+        hostId: 'host-2',
+        deviceToken: 'new-device-token',
+      };
+    }
+    throw new Error(`unexpected public path ${path}`);
+  });
+  __setMacHandler(async () => {
+    throw new Error('recycled endpoint must not receive the stale credential');
+  });
+  const replaced = await store.pair(recycledPayload, {
+    userId: 7,
+    deviceName: 'AJ iPhone',
+    replaceExisting: true,
+  });
+  assert.equal(replaced.state, 'connected');
+  assert.equal(replaced.host.hostId, 'host-2');
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), 'new-device-token');
+  assert.equal(
+    __macRequests().some((request) => request.token === TOKEN),
+    false,
+  );
+}
+
+// issue-1175-c29: when secure storage fails after detecting a recycled
+// endpoint, cleanup uses only the new credential and the state cannot claim
+// the old, now-dead credential is still connected.
+{
+  __reset();
+  const store = await pairedStore();
+  const recycledPayload = JSON.stringify({
+    gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
+    hostId: 'host-2',
+    pairingCode: 'c'.repeat(43),
+  });
+  __setPublicHandler(async (path) => {
+    if (path === '/mobile-gateway/health') {
+      return { ...healthResponse, hostId: 'host-2' };
+    }
+    if (path === '/mobile-gateway/pair') {
+      return {
+        ...pairResponse,
+        deviceId: 'device-2',
+        hostId: 'host-2',
+        deviceToken: 'new-device-token',
+      };
+    }
+    throw new Error(`unexpected public path ${path}`);
+  });
+  __setMacHandler(async (path, _init, token) => {
+    assert.equal(token, 'new-device-token');
+    assert.equal(path, '/mobile-gateway/devices/device-2');
+    return undefined;
+  });
+  __failSecureWrite();
+  await assert.rejects(
+    () => store.pair(recycledPayload, {
+      userId: 7,
+      deviceName: 'AJ iPhone',
+      replaceExisting: true,
+    }),
+    (error) => error instanceof PairedHostError && error.kind === 'storage',
+  );
+  assert.equal(store.snapshot().state, 'unhealthy');
+  assert.equal(store.snapshot().host.hostId, 'host-1');
+  assert.match(store.snapshot().message, /different Mac|recycled|pair again/i);
+  assert.equal(
+    __macRequests().some((request) => request.token === TOKEN),
+    false,
+  );
+}
+
 async function secureWriteReplacement({
   newDeviceRevocationFails = false,
   credentialCleanupFails = false,

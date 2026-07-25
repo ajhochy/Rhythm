@@ -11,6 +11,9 @@ import { runMigrations } from '../database/migrations';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { UsersRepository } from '../repositories/users_repository';
 import { WorkspaceRepository } from '../repositories/workspace_repository';
+import {
+  installHumanApprovalTestCredentials,
+} from '../__tests__/helpers/human_approval_test_credentials';
 import { startTestServer } from '../__tests__/helpers/real_server';
 
 const apiRoot = join(__dirname, '..');
@@ -51,12 +54,15 @@ describe('issue #1175 adversarial follow-up acceptance contract', () => {
     let db: Database.Database;
     let baseUrl: string;
     let closeServer: () => Promise<void>;
+    let humanCapabilityHeader: Record<string, string>;
 
     beforeEach(async () => {
       db = new Database(':memory:');
       db.pragma('foreign_keys = ON');
       setDb(db);
       runMigrations(db);
+      humanCapabilityHeader =
+        installHumanApprovalTestCredentials().capabilityHeader;
       ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
     });
 
@@ -70,6 +76,7 @@ describe('issue #1175 adversarial follow-up acceptance contract', () => {
       const cloudHeaders = {
         Authorization: `Bearer ${session.token}`,
         'Content-Type': 'application/json',
+        ...humanCapabilityHeader,
       };
       const codeResponse = await fetch(
         `${baseUrl}/mobile-gateway/pairing-codes`,

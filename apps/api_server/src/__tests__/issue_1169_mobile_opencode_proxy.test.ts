@@ -28,6 +28,9 @@ import { ProjectsRepository } from '../repositories/projects_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { UsersRepository } from '../repositories/users_repository';
 import { logger } from '../utils/logger';
+import {
+  installHumanApprovalTestCredentials,
+} from './helpers/human_approval_test_credentials';
 import { startTestServer } from './helpers/real_server';
 
 type ManifestEntry = {
@@ -100,6 +103,12 @@ function decodeBody(body: Uint8Array): unknown {
   return JSON.parse(Buffer.from(body).toString('utf8'));
 }
 
+const permissiveOwnershipRepository = {
+  isResourceOwnedBy: () => true,
+  claimResource: () => true,
+  releaseResource: () => true,
+};
+
 describe('issue #1169 mobile OpenCode proxy contract', () => {
   it('issue-1169-c1: the generated manifest classifies every bundled OpenCode operation', async () => {
     const proxy = await loadProxyModule();
@@ -160,6 +169,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const proxy = new proxyModule.MobileOpenCodeProxy({
       baseUrl: 'http://127.0.0.1:4897',
+      ownershipRepository: permissiveOwnershipRepository,
       fetchFn: async (input: string | URL | Request, init?: RequestInit) => {
         calls.push({ url: String(input), init });
         return new Response(JSON.stringify({ id: 'session-1169' }), {
@@ -188,6 +198,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
         },
       },
       project: { id: 'project-1169', root: projectRoot },
+      userId: 1,
     });
 
     expect(result.status).toBe(200);
@@ -216,6 +227,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
     try {
       const fileProxy = new proxyModule.MobileOpenCodeProxy({
         baseUrl: 'http://127.0.0.1:4897',
+        ownershipRepository: permissiveOwnershipRepository,
         fetchFn: async (
           input: string | URL | Request,
           init?: RequestInit,
@@ -235,6 +247,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
         // Node fetch rejects a GET body, so the proxy must discard it.
         body: {},
         project: { id: 'project-1169', root: registeredRoot },
+        userId: 1,
       });
       expect(new URL(fileCalls[0]).searchParams.get('path'))
         .toBe('inside.txt');
@@ -244,12 +257,14 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
         path: '/file/content',
         query: new URLSearchParams({ path: '../outside/secret.txt' }),
         project: { id: 'project-1169', root: registeredRoot },
+        userId: 1,
       })).rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
       await expect(fileProxy.forward({
         method: 'GET',
         path: '/file/content',
         query: new URLSearchParams({ path: 'escape/secret.txt' }),
         project: { id: 'project-1169', root: registeredRoot },
+        userId: 1,
       })).rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
       expect(fileCalls).toHaveLength(1);
     } finally {
@@ -265,6 +280,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
     const requests: string[] = [];
     const requestBounded = new proxyModule.MobileOpenCodeProxy({
       baseUrl: 'http://127.0.0.1:4897',
+      ownershipRepository: permissiveOwnershipRepository,
       requestBodyLimitBytes: 32,
       fetchFn: async (input: string | URL | Request) => {
         requests.push(String(input));
@@ -277,6 +293,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
       query: new URLSearchParams(),
       body: { value: 'x'.repeat(128) },
       project: { id: 'project-1169', root: '/sandbox/project' },
+      userId: 1,
     })).rejects.toMatchObject({
       statusCode: 413,
       code: 'REQUEST_TOO_LARGE',
@@ -291,6 +308,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
       query: new URLSearchParams(),
       body: { cwd: `/attacker/${'x'.repeat(128)}` },
       project: { id: 'project-1169', root: '/sandbox/project' },
+      userId: 1,
     })).rejects.toMatchObject({
       statusCode: 413,
       code: 'REQUEST_TOO_LARGE',
@@ -299,6 +317,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
 
     const responseBounded = new proxyModule.MobileOpenCodeProxy({
       baseUrl: 'http://127.0.0.1:4897',
+      ownershipRepository: permissiveOwnershipRepository,
       responseBodyLimitBytes: 16,
       fetchFn: async () => new Response('x'.repeat(128), { status: 200 }),
     });
@@ -307,6 +326,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
       path: '/global/health',
       query: new URLSearchParams(),
       project: { id: 'project-1169', root: '/sandbox/project' },
+      userId: 1,
     })).rejects.toMatchObject({
       statusCode: 502,
       code: 'UPSTREAM_RESPONSE_TOO_LARGE',
@@ -314,6 +334,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
 
     const normalized = new proxyModule.MobileOpenCodeProxy({
       baseUrl: 'http://127.0.0.1:4897',
+      ownershipRepository: permissiveOwnershipRepository,
       fetchFn: async () => new Response(
         JSON.stringify({
           error: 'raw engine failure',
@@ -327,6 +348,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
       path: '/global/health',
       query: new URLSearchParams(),
       project: { id: 'project-1169', root: '/sandbox/project' },
+      userId: 1,
     });
     expect(errorResult.status).toBe(502);
     expect(decodeBody(errorResult.body)).toEqual({
@@ -341,6 +363,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
 
     const responseTimed = new proxyModule.MobileOpenCodeProxy({
       baseUrl: 'http://127.0.0.1:4897',
+      ownershipRepository: permissiveOwnershipRepository,
       timeoutMs: 25,
       fetchFn: async (
         _input: string | URL | Request,
@@ -363,6 +386,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
         path: '/global/health',
         query: new URLSearchParams(),
         project: { id: 'project-1169', root: '/sandbox/project' },
+        userId: 1,
       }).then(
         () => ({ state: 'resolved' as const }),
         (error: unknown) => ({ state: 'rejected' as const, error }),
@@ -459,6 +483,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
     const calls: Array<{ url: string; body: unknown }> = [];
     const proxy = new proxyModule.MobileOpenCodeProxy({
       baseUrl: 'http://127.0.0.1:4897',
+      ownershipRepository: permissiveOwnershipRepository,
       fetchFn: async (input: string | URL | Request, init?: RequestInit) => {
         const url = new URL(String(input));
         if (url.pathname === '/session' && init?.method === 'GET') {
@@ -495,6 +520,7 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
         ],
       },
       project,
+      userId: 1,
     });
 
     try {
@@ -547,6 +573,7 @@ describe('issue #1169 mobile OpenCode proxy HTTP boundary', () => {
   let projectId: string;
   let userToken: string;
   let deviceToken: string;
+  let humanCapabilityHeader: Record<string, string>;
 
   beforeEach(async () => {
     db = new Database(':memory:');
@@ -573,6 +600,8 @@ describe('issue #1169 mobile OpenCode proxy HTTP boundary', () => {
       email: 'issue-1169@example.com',
     });
     userToken = new SessionsRepository().create(user.id).token;
+    humanCapabilityHeader =
+      installHumanApprovalTestCredentials().capabilityHeader;
     ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
 
     const codeResponse = await fetch(`${baseUrl}/mobile-gateway/pairing-codes`, {
@@ -580,6 +609,7 @@ describe('issue #1169 mobile OpenCode proxy HTTP boundary', () => {
       headers: {
         Authorization: `Bearer ${userToken}`,
         'Content-Type': 'application/json',
+        ...humanCapabilityHeader,
       },
       body: '{}',
     });

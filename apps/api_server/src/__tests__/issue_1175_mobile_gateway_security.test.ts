@@ -24,6 +24,12 @@ const json = (value: unknown, status = 200) =>
 const decode = (body: Uint8Array) =>
   JSON.parse(Buffer.from(body).toString('utf8')) as unknown;
 
+const permissiveOwnershipRepository = {
+  isResourceOwnedBy: () => true,
+  claimResource: () => true,
+  releaseResource: () => true,
+};
+
 function input(
   method: string,
   path: string,
@@ -34,6 +40,7 @@ function input(
     path,
     query: new URLSearchParams(),
     project,
+    userId: 1,
     ...overrides,
   };
 }
@@ -43,6 +50,7 @@ describe('issue #1175 paired OpenCode gateway security regressions', () => {
     const upstream = vi.fn(async () => json(true));
     const proxy = new MobileOpenCodeProxy({
       baseUrl: 'http://opencode.test',
+      ownershipRepository: permissiveOwnershipRepository,
       fetchFn: upstream,
     });
 
@@ -104,6 +112,7 @@ describe('issue #1175 paired OpenCode gateway security regressions', () => {
     });
     const proxy = new MobileOpenCodeProxy({
       baseUrl: 'http://opencode.test',
+      ownershipRepository: permissiveOwnershipRepository,
       fetchFn: upstream,
     });
 
@@ -156,12 +165,14 @@ describe('issue #1175 paired OpenCode gateway security regressions', () => {
     response.end = vi.fn();
     const sse = new MobileSseProxy({
       baseUrl: 'http://opencode.test',
+      ownershipRepository: permissiveOwnershipRepository,
       fetchFn: upstream,
     });
     await expect(sse.stream({
       request: request as unknown as Request,
       response: response as unknown as Response,
       project,
+      userId: 1,
       sessionId: 'ses-other',
       isDeviceActive: () => true,
     })).rejects.toMatchObject({
@@ -244,6 +255,7 @@ describe('issue #1175 paired OpenCode gateway security regressions', () => {
     ]);
     const proxy = new MobileOpenCodeProxy({
       baseUrl: 'http://opencode.test',
+      ownershipRepository: permissiveOwnershipRepository,
       fetchFn: async (request) => {
         const url = new URL(String(request));
         return json(payloads.get(url.pathname));
@@ -396,6 +408,7 @@ describe('issue #1175 paired OpenCode gateway security regressions', () => {
     });
     const proxy = new MobileOpenCodeProxy({
       baseUrl: 'http://opencode.test',
+      ownershipRepository: permissiveOwnershipRepository,
       fetchFn: upstream,
     });
 
@@ -429,6 +442,7 @@ describe('issue #1175 paired OpenCode gateway security regressions', () => {
   it('normalizes raw diffs and rejects every other successful non-JSON payload', async () => {
     const proxy = new MobileOpenCodeProxy({
       baseUrl: 'http://opencode.test',
+      ownershipRepository: permissiveOwnershipRepository,
       fetchFn: async (request) => {
         const url = new URL(String(request));
         if (url.pathname === '/vcs/diff/raw') {

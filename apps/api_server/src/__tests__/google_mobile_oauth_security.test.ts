@@ -5,6 +5,7 @@ import { createApp } from '../app';
 import { env } from '../config/env';
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
+import { UsersRepository } from '../repositories/users_repository';
 import { startTestServer } from './helpers/real_server';
 
 const nativeFetch = globalThis.fetch;
@@ -94,6 +95,10 @@ describe('Google mobile OAuth security', () => {
     db.pragma('foreign_keys = ON');
     setDb(db);
     runMigrations(db);
+    new UsersRepository().create({
+      name: 'Preprovisioned Verified Profile',
+      email: 'verified@example.com',
+    });
     ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
   });
 

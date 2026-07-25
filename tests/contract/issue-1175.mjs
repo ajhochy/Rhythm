@@ -383,3 +383,12 @@ test('issue-1175-c14: release evidence proves one exact tested source head and e
   assert.equal(evidence.pullRequest?.headSha, currentHead);
   assertNoCredentialValues(evidence);
 });
+
+test('issue-1175-c30: aggregate diff check is clean', () => {
+  // Regression caught: a source slice can be internally formatted while an
+  // earlier aggregate commit still carries whitespace errors relative to main.
+  assert.doesNotThrow(
+    () => command('git', ['diff', '--check', 'main']),
+    'git diff --check main must report no whitespace errors',
+  );
+});

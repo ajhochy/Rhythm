@@ -42,6 +42,12 @@ import { MobileSseProxy } from '../services/mobile_sse_proxy';
 
 let db: Database.Database;
 
+const permissiveOwnershipRepository = {
+  isResourceOwnedBy: () => true,
+  claimResource: () => true,
+  releaseResource: () => true,
+};
+
 function makeDb(): void {
   db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
@@ -701,6 +707,7 @@ describe('issue #1175 independent security review acceptance contract', () => {
     ]);
     const proxy = new MobileOpenCodeProxy({
       baseUrl: 'http://opencode.contract',
+      ownershipRepository: permissiveOwnershipRepository,
       fetchFn: vi.fn(async (input) => {
         const url = new URL(String(input));
         return new Response(JSON.stringify(operationPayloads.get(url.pathname)), {
@@ -716,6 +723,7 @@ describe('issue #1175 independent security review acceptance contract', () => {
           path,
           query: new URLSearchParams(),
           project,
+          userId: 1,
         }),
       );
       if ('response' in httpOutcome) {
@@ -788,6 +796,7 @@ describe('issue #1175 independent security review acceptance contract', () => {
     });
     const sse = new MobileSseProxy({
       baseUrl: 'http://opencode.contract',
+      ownershipRepository: permissiveOwnershipRepository,
       fetchFn: vi.fn(async () =>
         new Response(upstreamSse, {
           status: 200,
@@ -802,6 +811,7 @@ describe('issue #1175 independent security review acceptance contract', () => {
       request: request as unknown as Request,
       response: response as unknown as Response,
       project,
+      userId: 1,
       isDeviceActive: () => true,
     });
     clearTimeout(fallbackClose);
@@ -936,6 +946,7 @@ describe('issue #1175 independent security review acceptance contract', () => {
     });
     const proxy = new MobileOpenCodeProxy({
       baseUrl: 'http://opencode.contract',
+      ownershipRepository: permissiveOwnershipRepository,
       fetchFn,
     });
     const forward = (
@@ -949,6 +960,7 @@ describe('issue #1175 independent security review acceptance contract', () => {
         query: new URLSearchParams(),
         body,
         project: projectA,
+        userId: 1,
       });
 
     const list = await forward('GET', '/session');

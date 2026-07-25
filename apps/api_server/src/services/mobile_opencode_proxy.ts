@@ -3,8 +3,14 @@ import { relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { AppError } from '../errors/app_error';
+import {
+  type MobileOpenCodeOwnershipStore,
+} from '../repositories/mobile_opencode_ownership_repository';
 import { logger } from '../utils/logger';
 import { OPENCODE_ENGINE_PORT } from './opencode_client_service';
+import {
+  getMobileOpenCodeOwnershipRepository,
+} from './mobile_opencode_ownership_runtime';
 import {
   resolveMobileProjectPath,
   type MobileProjectScope,
@@ -59,6 +65,7 @@ export interface MobileOpenCodeProxyOptions {
   requestBodyLimitBytes?: number;
   responseBodyLimitBytes?: number;
   timeoutMs?: number;
+  ownershipRepository?: MobileOpenCodeOwnershipStore;
 }
 
 export interface MobileOpenCodeForwardInput {
@@ -67,6 +74,7 @@ export interface MobileOpenCodeForwardInput {
   query: URLSearchParams;
   body?: unknown;
   project: MobileProjectScope;
+  userId: number;
   accept?: string;
 }
 
@@ -404,12 +412,41 @@ function normalizedUpstreamError(status: number): MobileOpenCodeProxyResponse {
   };
 }
 
+function responseResourceId(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const id = (value as Record<string, unknown>).id;
+  return typeof id === 'string' && /^[A-Za-z0-9_-]{1,256}$/.test(id)
+    ? id
+    : null;
+}
+
+function operationPathParameter(
+  operationPath: string,
+  requestPath: string,
+  parameter: string,
+): string | null {
+  const template = operationPath.slice(1).split('/');
+  const actual = requestPath.slice(1).split('/');
+  const index = template.indexOf(`{${parameter}}`);
+  if (index < 0 || index >= actual.length) return null;
+  try {
+    const decoded = decodeURIComponent(actual[index]);
+    return /^[A-Za-z0-9_-]{1,256}$/.test(decoded) ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
 export class MobileOpenCodeProxy {
   private readonly baseUrl: string;
   private readonly fetchFn: FetchFn;
   private readonly requestBodyLimitBytes: number;
   private readonly responseBodyLimitBytes: number;
   private readonly timeoutMs: number;
+  private readonly configuredOwnershipRepository?:
+    MobileOpenCodeOwnershipStore;
 
   constructor(options: MobileOpenCodeProxyOptions = {}) {
     this.baseUrl = (
@@ -423,6 +460,7 @@ export class MobileOpenCodeProxy {
       options.responseBodyLimitBytes ??
       MOBILE_OPENCODE_RESPONSE_BODY_LIMIT_BYTES;
     this.timeoutMs = options.timeoutMs ?? MOBILE_OPENCODE_TIMEOUT_MS;
+    this.configuredOwnershipRepository = options.ownershipRepository;
   }
 
   async forward(
@@ -430,6 +468,15 @@ export class MobileOpenCodeProxy {
   ): Promise<MobileOpenCodeProxyResponse> {
     const operation = matchMobileOpenCodeOperation(input.method, input.path);
     if (!operation?.allowed) throw operationNotAllowed();
+    if (!Number.isSafeInteger(input.userId) || input.userId <= 0) {
+      throw AppError.unauthorized('Paired user ownership is required');
+    }
+    const ownership = this.configuredOwnershipRepository ??
+      getMobileOpenCodeOwnershipRepository();
+    const owner = {
+      ownerUserId: input.userId,
+      ownership,
+    };
 
     const query = scopedQuery(input.query, input.project, operation.operationId);
     const url = `${this.baseUrl}${safeForwardPath(input.path)}?${query.toString()}`;
@@ -500,6 +547,7 @@ export class MobileOpenCodeProxy {
         fetchJson,
         input.query,
         input.body,
+        owner,
       );
       const sanitizedBody = !acceptsBody || input.body === undefined
         ? undefined
@@ -548,6 +596,34 @@ export class MobileOpenCodeProxy {
         response,
         this.responseBodyLimitBytes,
       );
+      const releaseDeletedOwnership = (): void => {
+        const sessionId = operationPathParameter(
+          operation.path,
+          input.path,
+          'sessionID',
+        );
+        const ptyId = operationPathParameter(
+          operation.path,
+          input.path,
+          'ptyID',
+        );
+        if (operation.operationId === 'session.delete' && sessionId) {
+          ownership.releaseResource(
+            'session',
+            sessionId,
+            input.userId,
+            input.project.id,
+          );
+        }
+        if (operation.operationId === 'pty.remove' && ptyId) {
+          ownership.releaseResource(
+            'pty',
+            ptyId,
+            input.userId,
+            input.project.id,
+          );
+        }
+      };
       if (
         body.byteLength > 0 &&
         contentType?.toLowerCase().includes('application/json')
@@ -562,12 +638,55 @@ export class MobileOpenCodeProxy {
             'OpenCode returned an invalid mobile response',
           );
         }
+        const claim = (
+          kind: 'session' | 'pty',
+          resourceId: string | null,
+        ): void => {
+          if (
+            !resourceId ||
+            !ownership.claimResource(
+              kind,
+              resourceId,
+              input.userId,
+              input.project.id,
+            )
+          ) {
+            throw new AppError(
+              502,
+              'OPENCODE_OWNERSHIP_CONFLICT',
+              'OpenCode returned an unowned mobile resource',
+            );
+          }
+        };
+        if (
+          operation.operationId === 'session.create' ||
+          operation.operationId === 'session.fork'
+        ) {
+          claim('session', responseResourceId(value));
+        }
+        if (operation.operationId === 'session.children') {
+          if (!Array.isArray(value)) {
+            throw new AppError(
+              502,
+              'OPENCODE_OWNERSHIP_CONFLICT',
+              'OpenCode returned an invalid child-session response',
+            );
+          }
+          for (const child of value) {
+            claim('session', responseResourceId(child));
+          }
+        }
+        if (operation.operationId === 'pty.create') {
+          claim('pty', responseResourceId(value));
+        }
+        releaseDeletedOwnership();
         const safeValue = await shapeMobileOpenCodeResponse(
           operation,
           value,
           input.project,
           fetchJson,
           input.path,
+          owner,
         );
         const safeBody = Buffer.from(JSON.stringify(safeValue));
         if (safeBody.byteLength > this.responseBodyLimitBytes) {
@@ -584,6 +703,7 @@ export class MobileOpenCodeProxy {
         };
       }
       if (body.byteLength > 0) {
+        releaseDeletedOwnership();
         const safeText = shapeMobileOpenCodeTextResponse(
           operation,
           Buffer.from(body).toString('utf8'),
@@ -603,6 +723,7 @@ export class MobileOpenCodeProxy {
           body: safeBody,
         };
       }
+      releaseDeletedOwnership();
       return {
         status: response.status,
         contentType,

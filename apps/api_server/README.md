@@ -17,6 +17,12 @@ Node.js + TypeScript API scaffold for Rhythm.
 - `GOOGLE_AUTH_CLIENT_ID` - OAuth audience accepted by `POST /auth/google/login` (set this to the Firebase Apple client ID currently used by the macOS app)
 - `GOOGLE_MOBILE_CLIENT_ID`, `GOOGLE_MOBILE_REDIRECT_URI` - the exact Google iOS client and matching reverse-client redirect used by `POST /auth/google/mobile-exchange`; request bodies cannot override either value
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` - existing Google integration OAuth settings
+- `RHYTHM_GOOGLE_ALLOWED_EMAILS` - comma-separated Google emails invited to create a Rhythm account
+- `RHYTHM_GOOGLE_ALLOWED_HOSTED_DOMAINS` - comma-separated Google Workspace domains allowed to create accounts when the verified `hd` claim matches the email domain
+
+Production account creation fails closed unless the identity is already
+preprovisioned or matches one of the two admission lists. The same policy
+applies in development and test deployments.
 
 ## Production deployment
 

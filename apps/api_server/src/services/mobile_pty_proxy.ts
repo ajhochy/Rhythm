@@ -8,8 +8,14 @@ import {
 } from 'ws';
 
 import { AppError } from '../errors/app_error';
+import type {
+  MobileOpenCodeOwnershipReader,
+} from '../repositories/mobile_opencode_ownership_repository';
 import { OPENCODE_ENGINE_PORT } from './opencode_client_service';
 import { getMobilePairingService } from './mobile_gateway_runtime';
+import {
+  getMobileOpenCodeOwnershipRepository,
+} from './mobile_opencode_ownership_runtime';
 import {
   resolveMobileProject,
   type MobileProjectScope,
@@ -38,6 +44,7 @@ export interface MobilePtyProxyOptions {
   maxConnections?: number;
   connectTimeoutMs?: number;
   revalidateIntervalMs?: number;
+  ownershipRepository?: MobileOpenCodeOwnershipReader;
 }
 
 interface ActiveConnection {
@@ -45,6 +52,9 @@ interface ActiveConnection {
   engine: WebSocketLike;
   token: string;
   deviceId: string;
+  userId: number;
+  projectId: string;
+  ptyId: string;
   timer: NodeJS.Timeout;
   cleanup: () => void;
 }
@@ -156,6 +166,8 @@ export class MobilePtyProxy {
   private readonly maxConnections: number;
   private readonly connectTimeoutMs: number;
   private readonly revalidateIntervalMs: number;
+  private readonly configuredOwnershipRepository?:
+    MobileOpenCodeOwnershipReader;
   private readonly clientWss: WebSocketServer;
   private readonly pending = new Map<WebSocketLike, () => void>();
   private readonly active = new Set<ActiveConnection>();
@@ -177,6 +189,7 @@ export class MobilePtyProxy {
     this.connectTimeoutMs =
       options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
     this.revalidateIntervalMs = options.revalidateIntervalMs ?? 1_000;
+    this.configuredOwnershipRepository = options.ownershipRepository;
     this.engineFactory =
       options.engineFactory ??
       ((url) => new WebSocket(url, {
@@ -252,6 +265,19 @@ export class MobilePtyProxy {
       rejectUpgrade(socket, 400);
       return true;
     }
+    const ownership = this.configuredOwnershipRepository ??
+      getMobileOpenCodeOwnershipRepository();
+    if (
+      !ownership.isResourceOwnedBy(
+        'pty',
+        ptyId,
+        device.userId,
+        project.id,
+      )
+    ) {
+      rejectUpgrade(socket, 404);
+      return true;
+    }
     if (this.pending.size + this.active.size >= this.maxConnections) {
       rejectUpgrade(socket, 503);
       return true;
@@ -321,7 +347,16 @@ export class MobilePtyProxy {
       cleanupPending();
       try {
         this.clientUpgrade(request, socket, head, (client) => {
-          this.bridge(client, engine, token, device.id);
+          this.bridge(
+            client,
+            engine,
+            token,
+            device.id,
+            device.userId,
+            project.id,
+            ptyId,
+            ownership,
+          );
         });
       } catch {
         safeClose(engine, 1011, 'gateway upgrade failed');
@@ -368,6 +403,10 @@ export class MobilePtyProxy {
     engine: WebSocketLike,
     token: string,
     deviceId: string,
+    userId: number,
+    projectId: string,
+    ptyId: string,
+    ownership: MobileOpenCodeOwnershipReader,
   ): void {
     let closed = false;
     const connection = {} as ActiveConnection;
@@ -433,6 +472,9 @@ export class MobilePtyProxy {
     connection.engine = engine;
     connection.token = token;
     connection.deviceId = deviceId;
+    connection.userId = userId;
+    connection.projectId = projectId;
+    connection.ptyId = ptyId;
     connection.cleanup = cleanup;
     connection.timer = setInterval(() => {
       let device: MobileDevice | null = null;
@@ -443,6 +485,17 @@ export class MobilePtyProxy {
       }
       if (!device || device.id !== deviceId) {
         shutdown(4401, 'device revoked');
+        return;
+      }
+      if (
+        !ownership.isResourceOwnedBy(
+          'pty',
+          ptyId,
+          userId,
+          projectId,
+        )
+      ) {
+        shutdown(4403, 'resource ownership changed');
       }
     }, this.revalidateIntervalMs);
     connection.timer.unref();

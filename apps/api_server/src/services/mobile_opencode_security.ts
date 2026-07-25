@@ -9,6 +9,10 @@ import {
 import { fileURLToPath } from 'node:url';
 
 import { AppError } from '../errors/app_error';
+import type {
+  MobileOpenCodeOwnershipReader,
+  MobileOpenCodeResourceKind,
+} from '../repositories/mobile_opencode_ownership_repository';
 import { canonicalize, containsReal } from '../utils/path_containment';
 import type { MobileProjectScope } from './mobile_project_scope';
 import type { MobileOpenCodeOperation } from './mobile_opencode_proxy_types';
@@ -18,6 +22,11 @@ export type MobileOpenCodeJsonFetcher = (
 ) => Promise<unknown>;
 
 type JsonRecord = Record<string, unknown>;
+
+export interface MobileOpenCodeOwnerScope {
+  ownerUserId: number;
+  ownership: MobileOpenCodeOwnershipReader;
+}
 
 type ResourceScope = {
   sessions?: unknown[];
@@ -200,14 +209,39 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+function resourceOwnedByCaller(
+  kind: MobileOpenCodeResourceKind,
+  resourceId: string | undefined,
+  project: MobileProjectScope,
+  owner: MobileOpenCodeOwnerScope,
+): boolean {
+  return Boolean(resourceId) &&
+    Number.isSafeInteger(owner.ownerUserId) &&
+    owner.ownerUserId > 0 &&
+    owner.ownership.isResourceOwnedBy(
+      kind,
+      resourceId!,
+      owner.ownerUserId,
+      project.id,
+    );
+}
+
 async function projectSessions(
   fetchJson: MobileOpenCodeJsonFetcher,
   project: MobileProjectScope,
   scope: ResourceScope,
+  owner: MobileOpenCodeOwnerScope,
 ): Promise<unknown[]> {
   if (!scope.sessions) {
     scope.sessions = asArray(await fetchJson('/session'))
-      .filter((session) => sessionBelongsToProject(session, project));
+      .filter((session) =>
+        sessionBelongsToProject(session, project) &&
+        resourceOwnedByCaller(
+          'session',
+          stringField(session, 'id'),
+          project,
+          owner,
+        ));
   }
   return scope.sessions;
 }
@@ -216,10 +250,11 @@ async function projectSessionIds(
   fetchJson: MobileOpenCodeJsonFetcher,
   project: MobileProjectScope,
   scope: ResourceScope,
+  owner: MobileOpenCodeOwnerScope,
 ): Promise<Set<string>> {
   if (!scope.sessionIds) {
     scope.sessionIds = new Set(
-      (await projectSessions(fetchJson, project, scope))
+      (await projectSessions(fetchJson, project, scope, owner))
         .map((session) => stringField(session, 'id'))
         .filter((id): id is string => Boolean(id)),
     );
@@ -231,9 +266,15 @@ async function projectPermissions(
   fetchJson: MobileOpenCodeJsonFetcher,
   project: MobileProjectScope,
   scope: ResourceScope,
+  owner: MobileOpenCodeOwnerScope,
 ): Promise<unknown[]> {
   if (!scope.permissions) {
-    const sessionIds = await projectSessionIds(fetchJson, project, scope);
+    const sessionIds = await projectSessionIds(
+      fetchJson,
+      project,
+      scope,
+      owner,
+    );
     scope.permissions = asArray(await fetchJson('/permission'))
       .filter((permission) => {
         const sessionId =
@@ -249,9 +290,15 @@ async function projectQuestions(
   fetchJson: MobileOpenCodeJsonFetcher,
   project: MobileProjectScope,
   scope: ResourceScope,
+  owner: MobileOpenCodeOwnerScope,
 ): Promise<unknown[]> {
   if (!scope.questions) {
-    const sessionIds = await projectSessionIds(fetchJson, project, scope);
+    const sessionIds = await projectSessionIds(
+      fetchJson,
+      project,
+      scope,
+      owner,
+    );
     scope.questions = asArray(await fetchJson('/question'))
       .filter((question) => {
         const sessionId =
@@ -267,10 +314,18 @@ async function projectPtys(
   fetchJson: MobileOpenCodeJsonFetcher,
   project: MobileProjectScope,
   scope: ResourceScope,
+  owner: MobileOpenCodeOwnerScope,
 ): Promise<unknown[]> {
   if (!scope.ptys) {
     scope.ptys = asArray(await fetchJson('/pty'))
-      .filter((pty) => ptyBelongsToProject(pty, project));
+      .filter((pty) =>
+        ptyBelongsToProject(pty, project) &&
+        resourceOwnedByCaller(
+          'pty',
+          stringField(pty, 'id'),
+          project,
+          owner,
+        ));
   }
   return scope.ptys;
 }
@@ -380,7 +435,9 @@ export async function authorizeMobileOpenCodeOperation(
   fetchJson: MobileOpenCodeJsonFetcher,
   query?: URLSearchParams,
   body?: unknown,
+  owner?: MobileOpenCodeOwnerScope,
 ): Promise<void> {
+  if (!owner) throw resourceNotFound();
   const parameters = templateParameters(operation, path);
   const scope: ResourceScope = {};
   const bodyRecord = isRecord(body) ? body : {};
@@ -388,7 +445,12 @@ export async function authorizeMobileOpenCodeOperation(
     parameters.sessionID ??
     (typeof bodyRecord.parentID === 'string' ? bodyRecord.parentID : undefined);
   if (sessionId) {
-    const sessionIds = await projectSessionIds(fetchJson, project, scope);
+    const sessionIds = await projectSessionIds(
+      fetchJson,
+      project,
+      scope,
+      owner,
+    );
     if (!sessionIds.has(sessionId)) throw resourceNotFound();
   }
 
@@ -415,13 +477,23 @@ export async function authorizeMobileOpenCodeOperation(
 
   const requestId = parameters.requestID;
   if (requestId && operation.operationId.startsWith('permission.')) {
-    const permissions = await projectPermissions(fetchJson, project, scope);
+    const permissions = await projectPermissions(
+      fetchJson,
+      project,
+      scope,
+      owner,
+    );
     if (!permissions.some((request) => stringField(request, 'id') === requestId)) {
       throw resourceNotFound();
     }
   }
   if (requestId && operation.operationId.startsWith('question.')) {
-    const questions = await projectQuestions(fetchJson, project, scope);
+    const questions = await projectQuestions(
+      fetchJson,
+      project,
+      scope,
+      owner,
+    );
     if (!questions.some((request) => stringField(request, 'id') === requestId)) {
       throw resourceNotFound();
     }
@@ -429,7 +501,12 @@ export async function authorizeMobileOpenCodeOperation(
 
   const ptyId = parameters.ptyID;
   if (ptyId) {
-    const ptys = await projectPtys(fetchJson, project, scope);
+    const ptys = await projectPtys(
+      fetchJson,
+      project,
+      scope,
+      owner,
+    );
     if (!ptys.some((pty) => stringField(pty, 'id') === ptyId)) {
       throw resourceNotFound();
     }
@@ -645,7 +722,9 @@ export async function shapeMobileOpenCodeResponse(
   project: MobileProjectScope,
   fetchJson: MobileOpenCodeJsonFetcher,
   requestPath?: string,
+  owner?: MobileOpenCodeOwnerScope,
 ): Promise<unknown> {
+  if (!owner) throw resourceNotFound();
   const scope: ResourceScope = {};
   let scopedValue = value;
   switch (operation.operationId) {
@@ -670,7 +749,14 @@ export async function shapeMobileOpenCodeResponse(
     case 'experimental.session.list':
     case 'session.children':
       scopedValue = asArray(value)
-        .filter((session) => sessionBelongsToProject(session, project));
+        .filter((session) =>
+          sessionBelongsToProject(session, project) &&
+          resourceOwnedByCaller(
+            'session',
+            stringField(session, 'id'),
+            project,
+            owner,
+          ));
       break;
     case 'session.messages': {
       const parameters = requestPath
@@ -684,7 +770,12 @@ export async function shapeMobileOpenCodeResponse(
       break;
     }
     case 'session.status': {
-      const sessionIds = await projectSessionIds(fetchJson, project, scope);
+      const sessionIds = await projectSessionIds(
+        fetchJson,
+        project,
+        scope,
+        owner,
+      );
       scopedValue = isRecord(value)
         ? Object.fromEntries(
           Object.entries(value)
@@ -694,14 +785,31 @@ export async function shapeMobileOpenCodeResponse(
       break;
     }
     case 'permission.list':
-      scopedValue = await projectPermissions(fetchJson, project, scope);
+      scopedValue = await projectPermissions(
+        fetchJson,
+        project,
+        scope,
+        owner,
+      );
       break;
     case 'question.list':
-      scopedValue = await projectQuestions(fetchJson, project, scope);
+      scopedValue = await projectQuestions(
+        fetchJson,
+        project,
+        scope,
+        owner,
+      );
       break;
     case 'pty.list':
       scopedValue = asArray(value)
-        .filter((pty) => ptyBelongsToProject(pty, project));
+        .filter((pty) =>
+          ptyBelongsToProject(pty, project) &&
+          resourceOwnedByCaller(
+            'pty',
+            stringField(pty, 'id'),
+            project,
+            owner,
+          ));
       break;
     case 'worktree.list': {
       const authoritative = await projectWorktrees(fetchJson, scope);
@@ -765,9 +873,16 @@ export async function mobileSessionBelongsToProject(
   sessionId: string,
   project: MobileProjectScope,
   fetchJson: MobileOpenCodeJsonFetcher,
+  owner?: MobileOpenCodeOwnerScope,
 ): Promise<boolean> {
+  if (!owner) return false;
   const scope: ResourceScope = {};
-  return (await projectSessionIds(fetchJson, project, scope)).has(sessionId);
+  return (await projectSessionIds(
+    fetchJson,
+    project,
+    scope,
+    owner,
+  )).has(sessionId);
 }
 
 function mobileSseType(value: unknown): string | null {
@@ -896,6 +1011,104 @@ export function mobileSseEventBelongsToProject(
   ) {
     return false;
   }
+  return true;
+}
+
+function collectOwnedSseIds(
+  value: unknown,
+  sessionIds: Set<string>,
+  ptyIds: Set<string>,
+  depth = 0,
+): void {
+  if (depth > 8 || typeof value !== 'object' || value === null) return;
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      collectOwnedSseIds(child, sessionIds, ptyIds, depth + 1);
+    }
+    return;
+  }
+  for (const [field, child] of Object.entries(value)) {
+    if (
+      typeof child === 'string' &&
+      (field === 'sessionID' || field === 'sessionId')
+    ) {
+      sessionIds.add(child);
+    }
+    if (
+      typeof child === 'string' &&
+      (field === 'ptyID' || field === 'ptyId')
+    ) {
+      ptyIds.add(child);
+    }
+    collectOwnedSseIds(child, sessionIds, ptyIds, depth + 1);
+  }
+}
+
+export function mobileSseEventBelongsToOwner(
+  value: unknown,
+  project: MobileProjectScope,
+  owner: MobileOpenCodeOwnerScope,
+  expectedSessionId?: string,
+): boolean {
+  if (
+    !mobileSseEventBelongsToProject(
+      value,
+      project,
+      expectedSessionId,
+    )
+  ) {
+    return false;
+  }
+  const type = mobileSseType(value);
+  if (type === 'server.connected' || type === 'server.heartbeat') return true;
+
+  const sessionIds = new Set<string>();
+  const ptyIds = new Set<string>();
+  collectOwnedSseIds(value, sessionIds, ptyIds);
+  const payload = isRecord(value) && isRecord(value.payload)
+    ? value.payload
+    : value;
+  const properties = isRecord(payload) && isRecord(payload.properties)
+    ? payload.properties
+    : {};
+  const info = isRecord(properties.info) ? properties.info : {};
+  if (type?.startsWith('session.') && typeof info.id === 'string') {
+    sessionIds.add(info.id);
+  }
+  if (type?.startsWith('pty.') && typeof info.id === 'string') {
+    ptyIds.add(info.id);
+  }
+  if (
+    expectedSessionId &&
+    (
+      sessionIds.size === 0 ||
+      [...sessionIds].some((id) => id !== expectedSessionId)
+    )
+  ) {
+    return false;
+  }
+  if (
+    sessionIds.size > 0 &&
+    [...sessionIds].some((id) =>
+      !resourceOwnedByCaller('session', id, project, owner))
+  ) {
+    return false;
+  }
+  if (
+    ptyIds.size > 0 &&
+    [...ptyIds].some((id) =>
+      !resourceOwnedByCaller('pty', id, project, owner))
+  ) {
+    return false;
+  }
+  if (
+    type &&
+    /^(session|message|part|permission|question)\./.test(type) &&
+    sessionIds.size === 0
+  ) {
+    return false;
+  }
+  if (type?.startsWith('pty.') && ptyIds.size === 0) return false;
   return true;
 }
 

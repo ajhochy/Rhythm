@@ -7,6 +7,9 @@ import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { UsersRepository } from '../repositories/users_repository';
+import {
+  installHumanApprovalTestCredentials,
+} from './helpers/human_approval_test_credentials';
 import { startTestServer } from './helpers/real_server';
 
 describe('#1172 agent activity HTTP routes', () => {
@@ -14,12 +17,15 @@ describe('#1172 agent activity HTTP routes', () => {
   let baseUrl: string;
   let closeServer: () => Promise<void>;
   let bearer: string;
+  let humanCapabilityHeader: Record<string, string>;
 
   beforeEach(async () => {
     db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     setDb(db);
     runMigrations(db);
+    humanCapabilityHeader =
+      installHumanApprovalTestCredentials().capabilityHeader;
     const user = new UsersRepository().create({
       name: 'Activity User',
       email: `activity-${randomUUID()}@example.com`,
@@ -84,6 +90,7 @@ describe('#1172 agent activity HTTP routes', () => {
       headers: {
         Authorization: `Bearer ${bearer}`,
         'Content-Type': 'application/json',
+        ...humanCapabilityHeader,
       },
       body: '{}',
     });

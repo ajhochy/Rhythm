@@ -68,6 +68,12 @@ function responseSink(): PassThrough & {
   return stream;
 }
 
+const permissiveOwnershipRepository = {
+  isResourceOwnedBy: () => true,
+  claimResource: () => true,
+  releaseResource: () => true,
+};
+
 function rawUpgradeRequest(input: {
   authorization?: string;
   projectId?: string;
@@ -141,7 +147,10 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     const fetchFn = vi.fn();
     const request = new EventEmitter();
     const response = responseSink();
-    const sse = new sseModule.MobileSseProxy({ fetchFn });
+    const sse = new sseModule.MobileSseProxy({
+      fetchFn,
+      ownershipRepository: permissiveOwnershipRepository,
+    });
     await expect(sse.stream({
       request,
       response,
@@ -202,7 +211,10 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     if (!sseModule || !ptyModule) return;
 
     const fetchFn = vi.fn();
-    const sse = new sseModule.MobileSseProxy({ fetchFn });
+    const sse = new sseModule.MobileSseProxy({
+      fetchFn,
+      ownershipRepository: permissiveOwnershipRepository,
+    });
     await expect(sse.stream({
       request: new EventEmitter(),
       response: responseSink(),
@@ -251,6 +263,7 @@ describe('issue #1170 mobile realtime proxy contract', () => {
       },
     });
     const sse = new sseModule.MobileSseProxy({
+      ownershipRepository: permissiveOwnershipRepository,
       fetchFn: vi.fn(async (
         _url: string | URL | Request,
         init?: RequestInit,
@@ -270,6 +283,7 @@ describe('issue #1170 mobile realtime proxy contract', () => {
       request,
       response,
       project: { id: 'project-contract', root: '/sandbox/project' },
+      userId: 1,
       isDeviceActive: () => true,
     });
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -310,7 +324,11 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     });
     fakeClient.terminate = vi.fn();
     const pty = new ptyModule.MobilePtyProxy({
-      authenticateDevice: vi.fn(() => ({ id: 'device-contract' })),
+      authenticateDevice: vi.fn(() => ({
+        id: 'device-contract',
+        userId: 1,
+      })),
+      ownershipRepository: permissiveOwnershipRepository,
       resolveProject: vi.fn(() => ({
         id: 'project-contract',
         root: '/sandbox/project',
@@ -356,7 +374,11 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     pendingEngine.close = vi.fn();
     pendingEngine.terminate = vi.fn();
     const pendingProxy = new ptyModule.MobilePtyProxy({
-      authenticateDevice: vi.fn(() => ({ id: 'device-contract' })),
+      authenticateDevice: vi.fn(() => ({
+        id: 'device-contract',
+        userId: 1,
+      })),
+      ownershipRepository: permissiveOwnershipRepository,
       resolveProject: vi.fn(() => ({
         id: 'project-contract',
         root: '/sandbox/project',
@@ -431,6 +453,7 @@ describe('issue #1170 mobile realtime proxy contract', () => {
       });
       const proxy = new sseModule.MobileSseProxy({
         fetchFn,
+        ownershipRepository: permissiveOwnershipRepository,
         maxFrameBytes: scenario.maxFrameBytes,
         maxBufferedBytes: scenario.maxBufferedBytes,
         reconnectBaseMs: 1,
@@ -447,6 +470,7 @@ describe('issue #1170 mobile realtime proxy contract', () => {
         request,
         response,
         project: { id: 'project-contract', root: '/sandbox/project' },
+        userId: 1,
         isDeviceActive: () => true,
       });
       const result = await Promise.race([
@@ -496,6 +520,7 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     });
     const proxy = new sseModule.MobileSseProxy({
       fetchFn,
+      ownershipRepository: permissiveOwnershipRepository,
       maxFrameBytes: 512,
       maxBufferedBytes: 512,
       reconnectBaseMs: 250,
@@ -518,6 +543,7 @@ describe('issue #1170 mobile realtime proxy contract', () => {
       request,
       response,
       project: { id: 'project-contract', root: '/sandbox/project' },
+      userId: 1,
       isDeviceActive: () => true,
     }).then(() => {
       completedAt = Date.now();
@@ -632,6 +658,7 @@ describe('issue #1170 mobile realtime proxy contract', () => {
       responseFor(attempt++ === 0 ? firstFrames : secondFrames, attempt > 1));
     const proxy = new sseModule.MobileSseProxy({
       fetchFn,
+      ownershipRepository: permissiveOwnershipRepository,
       reconnectBaseMs: 1,
       reconnectMaxMs: 2,
       maxDedupeEntries: 2,
@@ -646,6 +673,7 @@ describe('issue #1170 mobile realtime proxy contract', () => {
       request,
       response,
       project: { id: 'project-contract', root: '/sandbox/project' },
+      userId: 1,
       isDeviceActive: () => true,
     });
 
@@ -677,6 +705,7 @@ describe('issue #1170 mobile realtime proxy contract', () => {
       '',
     ].join('\n');
     const proxy = new sseModule.MobileSseProxy({
+      ownershipRepository: permissiveOwnershipRepository,
       fetchFn: vi.fn(async (input) => {
         const url = new URL(String(input));
         if (url.pathname === '/session') {
@@ -708,6 +737,7 @@ describe('issue #1170 mobile realtime proxy contract', () => {
       request,
       response,
       project: { id: 'project-contract', root: '/sandbox/project' },
+      userId: 1,
       sessionId: 'ses-target',
       isDeviceActive: () => true,
     });
@@ -751,7 +781,8 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     let active = true;
     const proxy = new ptyModule.MobilePtyProxy({
       authenticateDevice: vi.fn(() =>
-        active ? { id: 'device-contract' } : null),
+        active ? { id: 'device-contract', userId: 1 } : null),
+      ownershipRepository: permissiveOwnershipRepository,
       resolveProject: vi.fn(() => ({
         id: 'project-contract',
         root: '/sandbox/project',
@@ -825,6 +856,7 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     });
     const proxy = new MobileOpenCodeProxy({
       baseUrl: 'http://127.0.0.1:4897',
+      ownershipRepository: permissiveOwnershipRepository,
       fetchFn: upstream,
     });
     const result = await proxy.forward({
@@ -832,6 +864,7 @@ describe('issue #1170 mobile realtime proxy contract', () => {
       path: '/pty/pty-contract/connect-token',
       query: new URLSearchParams(),
       project: { id: 'project-contract', root: '/sandbox/project' },
+      userId: 1,
     });
     expect(result.status).toBe(200);
     expect(upstream).toHaveBeenCalledTimes(2);

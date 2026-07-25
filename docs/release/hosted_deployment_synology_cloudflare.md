@@ -130,6 +130,7 @@ Minimum required variables:
 - `GOOGLE_AUTH_CLIENT_ID`
 - `GOOGLE_MOBILE_CLIENT_ID`
 - `GOOGLE_MOBILE_REDIRECT_URI=<matching reverse-client iOS redirect URI>`
+- at least one of `RHYTHM_GOOGLE_ALLOWED_EMAILS=<comma-separated invites>` or `RHYTHM_GOOGLE_ALLOWED_HOSTED_DOMAINS=<comma-separated Workspace domains>`; production rejects new Google accounts when neither list authorizes them
 - `PCO_APPLICATION_ID`
 - `PCO_SECRET`
 - `PCO_REDIRECT_URI=https://api.vcrcapps.com/auth/planning-center/callback`

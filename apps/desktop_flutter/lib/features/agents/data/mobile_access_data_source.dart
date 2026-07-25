@@ -2,8 +2,9 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-import '../../../../app/core/auth/auth_session_store.dart';
-import '../../../../app/core/constants/app_constants.dart';
+import '../../../app/core/auth/auth_session_store.dart';
+import '../../../app/core/constants/app_constants.dart';
+import '../../notifications/data/human_approval_signer.dart';
 
 enum TailscaleAccessState { missing, loggedOut, wrongTarget, healthy }
 
@@ -73,28 +74,34 @@ class MobileAccessDataSource {
     http.Client? client,
     String? baseUrl,
     String? Function()? tokenProvider,
+    HumanApprovalSigner? humanApprovalSigner,
   })  : _client = client ?? http.Client(),
         _ownsClient = client == null,
         _baseUrl = (baseUrl ?? AppConstants.agentLocalBaseUrl).replaceFirst(
           RegExp(r'/$'),
           '',
         ),
-        _tokenProvider = tokenProvider ?? (() => AuthSessionStore.sessionToken);
+        _tokenProvider = tokenProvider ?? (() => AuthSessionStore.sessionToken),
+        _humanApprovalSigner = humanApprovalSigner ?? HumanApprovalSigner();
 
   final http.Client _client;
   final bool _ownsClient;
   final String _baseUrl;
   final String? Function() _tokenProvider;
+  final HumanApprovalSigner _humanApprovalSigner;
 
-  Map<String, String> _headers({bool json = false}) {
+  Future<Map<String, String>> _headers({bool json = false}) async {
     final token = _tokenProvider();
     if (token == null || token.isEmpty) {
       throw const MobileAccessException(
         'Sign in to Rhythm before enabling mobile access.',
       );
     }
+    final humanCapability =
+        await _humanApprovalSigner.humanApprovalCapability();
     return <String, String>{
       'Authorization': 'Bearer $token',
+      'X-Rhythm-Human-Approval': humanCapability,
       'Accept': 'application/json',
       if (json) 'Content-Type': 'application/json',
     };
@@ -160,7 +167,7 @@ class MobileAccessDataSource {
     final body = await _jsonResponse(
       _client.get(
         Uri.parse('$_baseUrl/mobile-gateway/access'),
-        headers: _headers(),
+        headers: await _headers(),
       ),
     );
     return _statusFromJson(body);
@@ -170,7 +177,7 @@ class MobileAccessDataSource {
     final body = await _jsonResponse(
       _client.post(
         Uri.parse('$_baseUrl/mobile-gateway/access/enable'),
-        headers: _headers(json: true),
+        headers: await _headers(json: true),
         body: '{}',
       ),
     );
@@ -181,7 +188,7 @@ class MobileAccessDataSource {
     final body = await _jsonResponse(
       _client.post(
         Uri.parse('$_baseUrl/mobile-gateway/pairing-codes'),
-        headers: _headers(json: true),
+        headers: await _headers(json: true),
         body: '{}',
       ),
     );
@@ -212,7 +219,7 @@ class MobileAccessDataSource {
       response = await _client
           .get(
             Uri.parse('$_baseUrl/mobile-gateway/devices'),
-            headers: _headers(),
+            headers: await _headers(),
           )
           .timeout(const Duration(seconds: 10));
     } catch (_) {
@@ -266,7 +273,7 @@ class MobileAccessDataSource {
               '$_baseUrl/mobile-gateway/devices/'
               '${Uri.encodeComponent(deviceId)}',
             ),
-            headers: _headers(),
+            headers: await _headers(),
           )
           .timeout(const Duration(seconds: 10));
     } catch (_) {

@@ -6,12 +6,18 @@ import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { UsersRepository } from '../repositories/users_repository';
+import {
+  installHumanApprovalTestCredentials,
+} from './helpers/human_approval_test_credentials';
 import { startTestServer } from './helpers/real_server';
+
+let humanCapabilityHeader: Record<string, string> = {};
 
 function bearer(token: string): Record<string, string> {
   return {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
+    ...humanCapabilityHeader,
   };
 }
 
@@ -27,6 +33,8 @@ describe('issue #1166 pairing security contract', () => {
     db.pragma('foreign_keys = ON');
     runMigrations(db);
     setDb(db);
+    humanCapabilityHeader =
+      installHumanApprovalTestCredentials().capabilityHeader;
 
     const users = new UsersRepository();
     const sessions = new SessionsRepository();

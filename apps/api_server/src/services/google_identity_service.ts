@@ -8,6 +8,7 @@ interface GoogleTokenInfoResponse {
   name?: string;
   picture?: string;
   sub?: string;
+  hd?: string;
 }
 
 export interface GoogleIdentity {
@@ -15,6 +16,7 @@ export interface GoogleIdentity {
   email: string;
   name: string;
   picture?: string | null;
+  hostedDomain?: string | null;
 }
 
 export class GoogleIdentityService {
@@ -48,6 +50,7 @@ export class GoogleIdentityService {
       email: body.email,
       name: body.name?.trim() || body.email,
       picture: body.picture?.trim() || null,
+      hostedDomain: body.hd?.trim().toLowerCase() || null,
     };
   }
 }

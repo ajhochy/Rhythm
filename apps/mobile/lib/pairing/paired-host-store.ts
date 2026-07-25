@@ -569,9 +569,14 @@ export class PairedHostStore {
         );
       }
       const existing = this.host ?? (await this.loadHost());
+      const recycledEndpoint =
+        existing !== null &&
+        existing.gatewayUrl === payload.gatewayUrl &&
+        existing.hostId !== payload.hostId;
       if (
         existing &&
         (existing.gatewayUrl !== payload.gatewayUrl ||
+          existing.hostId !== payload.hostId ||
           existing.rhythmUserId !== input.userId) &&
         !input.replaceExisting
       ) {
@@ -734,8 +739,11 @@ export class PairedHostStore {
         }
         const newDeviceRevoked = await revokeNewDevice();
         const rollbackComplete = newDeviceRevoked && previousRestored;
-        const message = rollbackComplete
-          ? 'Secure pairing storage is unavailable. The new pairing was rolled back and the previous pairing is unchanged.'
+        const recycledRollback = recycledEndpoint && rollbackComplete;
+        const message = recycledRollback
+          ? 'Secure pairing storage is unavailable. This endpoint now belongs to a different Mac; the new pairing was revoked. Unlock this iPhone and pair again.'
+          : rollbackComplete
+            ? 'Secure pairing storage is unavailable. The new pairing was rolled back and the previous pairing is unchanged.'
           : newDeviceRevoked
             ? 'The new pairing was revoked, but its Device credential remains in Keychain. Unlock this iPhone and retry Forget.'
             : 'Secure pairing storage failed and the new Mac still lists this iPhone. Revoke it from the Mac before trying again.';
@@ -766,7 +774,9 @@ export class PairedHostStore {
           ).catch(() => undefined);
         }
         this.apply(
-          rollbackComplete ? previous.state : 'unhealthy',
+          rollbackComplete && !recycledEndpoint
+            ? previous.state
+            : 'unhealthy',
           message,
           rollbackComplete ? previous.host : recoveryHost,
         );
@@ -775,7 +785,7 @@ export class PairedHostStore {
           message,
         );
       }
-      if (existing && existingDeviceToken) {
+      if (existing && existingDeviceToken && !recycledEndpoint) {
         const oldClient = new PairedMacClient({
           baseUrl: this.resolvedGatewayUrl(existing.gatewayUrl),
           getDeviceToken: async () => existingDeviceToken!,

@@ -1,12 +1,20 @@
 import type { Request, Response } from 'express';
 
 import { AppError } from '../errors/app_error';
+import type {
+  MobileOpenCodeOwnershipReader,
+} from '../repositories/mobile_opencode_ownership_repository';
+import {
+  getMobileOpenCodeOwnershipRepository,
+} from './mobile_opencode_ownership_runtime';
 import { OPENCODE_ENGINE_PORT } from './opencode_client_service';
 import type { MobileProjectScope } from './mobile_project_scope';
 import {
   mobileSseEventBelongsToProject,
+  mobileSseEventBelongsToOwner,
   mobileSessionBelongsToProject,
   shapeMobileSseEvent,
+  type MobileOpenCodeOwnerScope,
   type MobileOpenCodeJsonFetcher,
 } from './mobile_opencode_security';
 
@@ -24,6 +32,7 @@ export interface MobileSseProxyOptions {
   reconnectBaseMs?: number;
   reconnectMaxMs?: number;
   activeCheckIntervalMs?: number;
+  ownershipRepository?: MobileOpenCodeOwnershipReader;
 }
 
 export interface MobileSseStreamInput {
@@ -41,6 +50,7 @@ export interface MobileSseStreamInput {
     | 'writableLength'
   >;
   project: MobileProjectScope;
+  userId: number;
   sessionId?: string;
   isDeviceActive: () => boolean;
 }
@@ -290,6 +300,8 @@ export class MobileSseProxy {
   private readonly reconnectBaseMs: number;
   private readonly reconnectMaxMs: number;
   private readonly activeCheckIntervalMs: number;
+  private readonly configuredOwnershipRepository?:
+    MobileOpenCodeOwnershipReader;
 
   constructor(options: MobileSseProxyOptions = {}) {
     this.baseUrl = (
@@ -305,10 +317,19 @@ export class MobileSseProxy {
     this.reconnectBaseMs = options.reconnectBaseMs ?? 250;
     this.reconnectMaxMs = options.reconnectMaxMs ?? 15_000;
     this.activeCheckIntervalMs = options.activeCheckIntervalMs ?? 1_000;
+    this.configuredOwnershipRepository = options.ownershipRepository;
   }
 
   async stream(input: MobileSseStreamInput): Promise<void> {
     if (!deviceIsActive(input.isDeviceActive)) throw unauthorized();
+    if (!Number.isSafeInteger(input.userId) || input.userId <= 0) {
+      throw unauthorized();
+    }
+    const owner = {
+      ownerUserId: input.userId,
+      ownership: this.configuredOwnershipRepository ??
+        getMobileOpenCodeOwnershipRepository(),
+    };
     if (
       input.sessionId !== undefined &&
       !/^[A-Za-z0-9_-]{1,256}$/.test(input.sessionId)
@@ -343,6 +364,7 @@ export class MobileSseProxy {
           input.sessionId,
           input.project,
           fetchJson,
+          owner,
         )
       ) {
         throw AppError.notFound('Mobile OpenCode resource');
@@ -403,6 +425,7 @@ export class MobileSseProxy {
           const delivered = await this.consume(
             upstream,
             input,
+            owner,
             controller.signal,
             seen,
             seenOrder,
@@ -456,6 +479,7 @@ export class MobileSseProxy {
   private async consume(
     upstream: globalThis.Response,
     input: MobileSseStreamInput,
+    owner: MobileOpenCodeOwnerScope,
     signal: AbortSignal,
     seen: Set<string>,
     seenOrder: string[],
@@ -503,6 +527,12 @@ export class MobileSseProxy {
             mobileSseEventBelongsToProject(
               parsed,
               input.project,
+              input.sessionId,
+            ) &&
+            mobileSseEventBelongsToOwner(
+              parsed,
+              input.project,
+              owner,
               input.sessionId,
             ) &&
             (

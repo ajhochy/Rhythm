@@ -558,6 +558,24 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       revoked_at TEXT,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS mobile_opencode_resource_owners (
+      resource_kind TEXT NOT NULL
+        CHECK (resource_kind IN ('session', 'pty')),
+      resource_id TEXT NOT NULL,
+      owner_user_id INTEGER NOT NULL
+        REFERENCES users(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (resource_kind, resource_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mobile_opencode_resource_owner
+      ON mobile_opencode_resource_owners(
+        owner_user_id,
+        project_id,
+        resource_kind
+      );
   `);
 
   // ── Agent-EXECUTION tables (#755) ──────────────────────────────────────────

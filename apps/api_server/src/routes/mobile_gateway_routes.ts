@@ -9,6 +9,9 @@ import {
   requireMobileCloudUser,
   requireSessionOrMobileDevice,
 } from '../middleware/mobile_device_auth';
+import {
+  requireDesktopHumanCapability,
+} from '../security/human_approval_security';
 import { MobileCloudIdentityService } from '../services/mobile_cloud_identity_service';
 import { MobilePairingService } from '../services/mobile_pairing_service';
 import { getMobilePairingService } from '../services/mobile_gateway_runtime';
@@ -59,6 +62,7 @@ export function createMobileGatewayRouter(): Router {
   router.post(
     '/pairing-codes',
     requireCloudUser,
+    requireDesktopHumanCapability,
     withController((active, req, res, next) =>
       active.createPairingCode(req, res, next)),
   );
@@ -70,12 +74,20 @@ export function createMobileGatewayRouter(): Router {
   router.get(
     '/devices',
     requireCloudUser,
+    requireDesktopHumanCapability,
     withController((active, req, res, next) =>
       active.listDevices(req, res, next)),
   );
   router.delete(
     '/devices/:id',
     requireSessionOrMobileDevice(getPairingService, cloudIdentity),
+    (req, res, next) => {
+      if (req.mobileDevice) {
+        next();
+        return;
+      }
+      requireDesktopHumanCapability(req, res, next);
+    },
     withController((active, req, res, next) =>
       active.revokeDevice(req, res, next)),
   );
@@ -83,20 +95,30 @@ export function createMobileGatewayRouter(): Router {
     '/health',
     withController((active, req, res) => active.health(req, res)),
   );
-  router.get('/access', requireCloudUser, async (_req, res, next) => {
-    try {
-      res.json(await tailscaleServe.diagnose());
-    } catch (error) {
-      next(error instanceof AppError ? error : AppError.internal());
-    }
-  });
-  router.post('/access/enable', requireCloudUser, async (_req, res, next) => {
-    try {
-      res.json(await tailscaleServe.ensureConfigured());
-    } catch (error) {
-      next(error instanceof AppError ? error : AppError.internal());
-    }
-  });
+  router.get(
+    '/access',
+    requireCloudUser,
+    requireDesktopHumanCapability,
+    async (_req, res, next) => {
+      try {
+        res.json(await tailscaleServe.diagnose());
+      } catch (error) {
+        next(error instanceof AppError ? error : AppError.internal());
+      }
+    },
+  );
+  router.post(
+    '/access/enable',
+    requireCloudUser,
+    requireDesktopHumanCapability,
+    async (_req, res, next) => {
+      try {
+        res.json(await tailscaleServe.ensureConfigured());
+      } catch (error) {
+        next(error instanceof AppError ? error : AppError.internal());
+      }
+    },
+  );
   router.post(
     '/project',
     requireMobileDevice(getPairingService),
@@ -135,6 +157,7 @@ export function createMobileGatewayRouter(): Router {
           request: req,
           response: res,
           project: req.mobileProject!,
+          userId: req.mobileDevice!.userId,
           ...(sessionId ? { sessionId } : {}),
           isDeviceActive: () => {
             const active = getPairingService().authenticateDevice(token);
@@ -185,6 +208,7 @@ export function createMobileGatewayRouter(): Router {
           query,
           body: req.body,
           project: req.mobileProject!,
+          userId: req.mobileDevice!.userId,
           accept: req.header('accept'),
         });
         if (result.contentType) res.type(result.contentType);

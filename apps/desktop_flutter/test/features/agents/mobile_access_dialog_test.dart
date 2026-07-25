@@ -2,10 +2,18 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'package:rhythm_desktop/features/agents/data/mobile_access_data_source.dart';
 import 'package:rhythm_desktop/features/agents/views/mobile_access_dialog.dart';
+import 'package:rhythm_desktop/features/notifications/data/human_approval_signer.dart';
+
+class _TestHumanApprovalSigner extends HumanApprovalSigner {
+  @override
+  Future<String> humanApprovalCapability() async => 'signed-app-capability';
+}
 
 class _FakeMobileAccessDataSource extends MobileAccessDataSource {
   _FakeMobileAccessDataSource({
@@ -97,6 +105,41 @@ Future<void> disposeDialog(WidgetTester tester) async {
 }
 
 void main() {
+  test(
+    'mobile access admin requests include the Keychain capability',
+    () async {
+      late http.Request observed;
+      final client = MockClient((request) async {
+        observed = request;
+        return http.Response(
+          jsonEncode(<String, Object?>{
+            'state': 'healthy',
+            'gatewayUrl': 'https://rhythm-mac.tail1234.ts.net',
+            'message': 'Ready',
+            'canConfigure': false,
+          }),
+          200,
+          headers: <String, String>{'content-type': 'application/json'},
+        );
+      });
+      final dataSource = MobileAccessDataSource(
+        client: client,
+        baseUrl: 'http://127.0.0.1:4001',
+        tokenProvider: () => 'desktop-bearer',
+        humanApprovalSigner: _TestHumanApprovalSigner(),
+      );
+
+      await dataSource.fetchStatus();
+
+      expect(observed.headers['authorization'], 'Bearer desktop-bearer');
+      expect(
+        observed.headers['x-rhythm-human-approval'],
+        'signed-app-capability',
+      );
+      dataSource.close();
+    },
+  );
+
   group('issue-1171-c1: desktop Tailscale diagnostics', () {
     final cases = <(TailscaleAccessState, String)>[
       (TailscaleAccessState.missing, 'Tailscale not installed'),

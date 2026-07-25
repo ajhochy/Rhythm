@@ -6,6 +6,9 @@ import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AuthService } from '../services/auth_service';
 import type { GoogleIdentity } from '../services/auth_service';
+import {
+  GoogleAccountAuthorizationService,
+} from '../services/google_account_authorization_service';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
 import { UsersRepository } from '../repositories/users_repository';
@@ -57,6 +60,9 @@ describe('Auth and ownership flows', () => {
           picture: 'https://example.com/alice.png',
         }),
       } as never,
+      new GoogleAccountAuthorizationService({
+        allowedEmails: ['alice@example.com'],
+      }, usersRepo),
     );
 
     const session = await authService.loginWithGoogleIdToken('fake-id-token');
@@ -85,6 +91,9 @@ describe('Auth and ownership flows', () => {
               : null,
         }),
       } as never,
+      new GoogleAccountAuthorizationService({
+        allowedEmails: ['alice@example.com'],
+      }, usersRepo),
     );
 
     await authService.loginWithGoogleIdToken('with-picture');
@@ -170,6 +179,9 @@ describe('Auth and ownership flows', () => {
           picture: null,
         }),
       } as never,
+      new GoogleAccountAuthorizationService({
+        allowedEmails: ['alice@example.com'],
+      }, usersRepo),
     );
 
     const session = await authService.loginWithGoogleIdToken('fake-id-token');

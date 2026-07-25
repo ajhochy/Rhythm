@@ -74,6 +74,20 @@ export function canonicalHumanApprovalDecision(input: {
 
 export function requireHumanApprovalCapability(
   req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  requireDesktopHumanCapability(req, res, next);
+}
+
+/**
+ * Presence proof held only by the signed desktop app's Keychain. The child API
+ * receives the digest, never the raw capability, so a model with the ordinary
+ * Rhythm bearer token cannot administer approvals, pairing, Tailscale, or
+ * paired devices.
+ */
+export function requireDesktopHumanCapability(
+  req: Request,
   _res: Response,
   next: NextFunction,
 ): void {
@@ -94,7 +108,7 @@ export function requireHumanApprovalCapability(
       presentedDigest.length !== configuredDigest.length ||
       !timingSafeEqual(presentedDigest, configuredDigest)
     ) {
-      throw AppError.forbidden('Human approval capability is required');
+      throw AppError.forbidden('Desktop human capability is required');
     }
     next();
   } catch (error) {

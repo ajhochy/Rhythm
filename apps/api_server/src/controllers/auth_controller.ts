@@ -166,6 +166,7 @@ export class AuthController {
         email: profile.email,
         name: profile.name ?? profile.email,
         photoUrl: profile.picture ?? null,
+        hostedDomain: profile.hd ?? null,
       });
 
       await googleOAuth.storeDesktopIntegration(session.user.id, tokens, profile);
@@ -209,6 +210,7 @@ export class AuthController {
         email: profile.email,
         name: profile.name ?? profile.email,
         photoUrl: profile.picture ?? null,
+        hostedDomain: profile.hd ?? null,
       });
 
       res.status(200).json(session);

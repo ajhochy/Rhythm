@@ -5,12 +5,17 @@ import {
   GoogleIdentityService,
   type GoogleIdentity,
 } from './google_identity_service';
+import {
+  GoogleAccountAuthorizationService,
+} from './google_account_authorization_service';
 
 export class AuthService {
   constructor(
     private readonly usersRepo = new UsersRepository(),
     private readonly sessionsRepo = new SessionsRepository(),
     private readonly googleIdentityService = new GoogleIdentityService(),
+    private readonly googleAccountAuthorization =
+      new GoogleAccountAuthorizationService({}, usersRepo),
   ) {}
 
   async loginWithGoogleIdToken(
@@ -19,6 +24,7 @@ export class AuthService {
     const identity = await this.googleIdentityService.verifyIdToken(
       googleIdToken,
     );
+    await this.googleAccountAuthorization.authorize(identity);
     const user = await this.usersRepo.upsertGoogleUserAsync({
       googleSub: identity.sub,
       email: identity.email,
@@ -37,7 +43,13 @@ export class AuthService {
     email: string;
     name: string;
     photoUrl?: string | null;
+    hostedDomain?: string | null;
   }): Promise<{ sessionToken: string; user: User }> {
+    await this.googleAccountAuthorization.authorize({
+      sub: profile.googleSub,
+      email: profile.email,
+      hostedDomain: profile.hostedDomain,
+    });
     const user = await this.usersRepo.upsertGoogleUserAsync({
       googleSub: profile.googleSub,
       email: profile.email,

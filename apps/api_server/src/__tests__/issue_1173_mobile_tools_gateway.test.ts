@@ -18,6 +18,9 @@ import {
 } from '../routes/mobile_tools_routes';
 import * as AgentRunner from '../services/agent_runner';
 import { opencodeClient } from '../services/opencode_engine';
+import {
+  installHumanApprovalTestCredentials,
+} from './helpers/human_approval_test_credentials';
 import { startTestServer } from './helpers/real_server';
 
 describe('#1173 mobile tools gateway', () => {
@@ -25,6 +28,7 @@ describe('#1173 mobile tools gateway', () => {
   let baseUrl: string;
   let closeServer: () => Promise<void>;
   let sandboxRoot: string;
+  let humanCapabilityHeader: Record<string, string>;
 
   beforeEach(async () => {
     sandboxRoot = mkdtempSync(join(tmpdir(), 'rhythm-1175-tools-'));
@@ -36,6 +40,8 @@ describe('#1173 mobile tools gateway', () => {
     db.pragma('foreign_keys = ON');
     setDb(db);
     runMigrations(db);
+    humanCapabilityHeader =
+      installHumanApprovalTestCredentials().capabilityHeader;
     ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
   });
 
@@ -62,6 +68,7 @@ describe('#1173 mobile tools gateway', () => {
     const auth = {
       Authorization: `Bearer ${session.token}`,
       'Content-Type': 'application/json',
+      ...humanCapabilityHeader,
     };
     const codeResponse = await fetch(
       `${baseUrl}/mobile-gateway/pairing-codes`,

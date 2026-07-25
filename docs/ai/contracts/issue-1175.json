@@ -201,6 +201,46 @@
       "test_file": "apps/mobile/tests/issue-1175-adversarial-review.test.mjs",
       "test_id": "issue-1175-c25: mobile cannot create or expose public OpenCode transcript links",
       "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c26",
+      "text": "Paired OpenCode SDK sessions and PTYs have durable per-user ownership carried through HTTP, SSE, and WebSocket upgrades; legacy unowned resources fail closed, list/status/event streams are filtered, and every ID-addressed operation rejects a second paired user in the same project.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_corrective_security.test.ts",
+      "test_id": "issue-1175-c26: two paired users cannot cross HTTP SSE or PTY ownership boundaries",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c27",
+      "text": "Pairing-code creation, mobile-access diagnostics/configuration, and desktop device administration require the signed desktop app's Keychain-held human capability; a normal bearer or model-held API token receives 403 with no mutation, while a Device credential may revoke only itself.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_corrective_security.test.ts",
+      "test_id": "issue-1175-c27: bearer credentials cannot administer mobile access and Device self-revoke remains scoped",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c28",
+      "text": "Every Google login and OAuth exchange authorizes the verified account before user upsert or session creation using explicit allowed emails/hosted domains or a preprovisioned user; an unauthorized external verified account receives 403 and creates no user or session.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_corrective_security.test.ts",
+      "test_id": "issue-1175-c28: unauthorized Google identities are rejected before all persistence paths",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c29",
+      "text": "A paired-host replacement treats a changed hostId as a replacement even when gateway URL and user are unchanged, never sends the stale Device credential to a recycled endpoint, and preserves truthful recoverable state if secure storage fails.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/paired-host.test.mjs",
+      "test_id": "issue-1175-c29: recycled gateway endpoints replace by host identity without presenting stale credentials",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c30",
+      "text": "The aggregate compare-to-main diff contains no trailing whitespace or other git diff check failures.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c30: aggregate diff check is clean",
+      "status": "pending"
     }
   ],
   "stack": "typescript",
