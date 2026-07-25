@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentCookbookRepository } from '../repositories/agent_cookbook_repository';
 import * as AgentRunner from '../services/agent_runner';
 
@@ -99,6 +100,14 @@ export class AgentCookbookController {
     try {
       const recipe = await repo.findByIdAsync(req.params.id);
       if (!recipe) throw AppError.notFound('AgentCookbook');
+      if (
+        recipe.boundConfigId &&
+        !new AgentConfigsRepository().getById(recipe.boundConfigId)
+      ) {
+        throw AppError.badRequest(
+          `Bound agent profile "${recipe.boundConfigId}" no longer exists; update or clear the recipe binding`,
+        );
+      }
 
       // Compile description + steps_json into a prompt string
       const stepsText = _compileStepsToPrompt(recipe.stepsJson);
@@ -109,7 +118,17 @@ export class AgentCookbookController {
         .filter(Boolean)
         .join('\n\n');
 
-      const result = await AgentRunner.run({ prompt, outputTarget: 'session' });
+      const result = await AgentRunner.run({
+        prompt,
+        outputTarget: 'session',
+        sessionName: recipe.title,
+        ...(recipe.boundConfigId
+          ? {
+              agentConfigId: recipe.boundConfigId,
+              agentKind: recipe.boundConfigId,
+            }
+          : {}),
+      });
 
       res.status(202).json({ sessionId: result.sessionId, status: result.status });
     } catch (err) {

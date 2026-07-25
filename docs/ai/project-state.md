@@ -12,12 +12,9 @@ coordinator branch, then run the combined merge gate and open a draft PR.
 
 ## In progress
 
-- #1096 is integrated: semantic-memory settings and signed/live diagnostics.
-- #1123 is integrated: interactive async delegation with durable callbacks.
-- #1132 is integrated: complete generated SDK and compiled containment fix.
-- #1134 is integrated: session-bound external email approvals, outbound
-  injection defenses, fail-closed model routing, and live security probes.
-- #1135 is integrated: durable audit locks and reviewed re-enable.
+- Integrated and verified: #1096 semantic-memory Settings; #1123 async
+  delegation; #1132 generated SDK; #1134 email security; #1135 audit locks;
+  #1157 Anthropic schema sanitization; #1161 cookbook profile binding.
 - #1137 is integrated but under adversarial follow-up for a newly found fork UI
   post-selection gate and binary @mention containment path.
 - Other independently verified slices remain to be integrated.
@@ -34,14 +31,12 @@ coordinator branch, then run the combined merge gate and open a draft PR.
 
 ## Test status
 
-- #1096: API/Flutter, signed client, and live diagnostics pass.
-- #1123: API/MCP suites and real async parent wake pass.
-- #1132: SDK/API/containment/Docker and live compiled event smoke pass.
-- #1134: API build/full suite, six-criterion contract, rebuilt-engine security
-  smoke, and zero external-send counters pass.
-- #1135: API/full workflow, fork, and live 2/2 pass.
-- #1137: prior automated/live gates pass, but independent review is now FAIL
-  pending the P1 repair and rerun.
+- Every integrated slice has its issue contract and run log with focused/full
+  automated checks and live sandbox or signed-client evidence as applicable.
+- #1134 security smoke observed zero external sends across all malicious cases.
+- #1157 real Anthropic strict-schema call passed against the built fork.
+- #1161 live cookbook execution used the profile-bound engine/model/prompt.
+- #1137 is review-failed pending repair despite its earlier green gates.
 - Aggregate coordinator validation is pending after all slices land.
 
 ## Next step
