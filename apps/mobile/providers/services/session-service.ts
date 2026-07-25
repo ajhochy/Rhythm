@@ -1,6 +1,10 @@
 import type { OpencodeClient, PermissionRuleset } from '@opencode-ai/sdk/v2/client';
 
 import type { GlobalSession, Project } from '@/lib/opencode/types';
+import {
+  buildClient,
+  type OpencodeConnectionSettings,
+} from '@/lib/opencode/client';
 
 function requireData<T>(data: T | undefined, operation: string): T {
   if (data === undefined) {
@@ -58,6 +62,63 @@ export async function listArchivedSessions(client: OpencodeClient) {
     cursor = next ? Number(next) : undefined;
   } while (cursor !== undefined);
   return sessions;
+}
+
+export type ProjectSessionCatalogEntry = Record<string, unknown> & {
+  id: string;
+  projectId: string;
+  status: string;
+};
+
+function statusLabel(status: unknown): string {
+  if (typeof status === 'string') return status;
+  if (status && typeof status === 'object' && !Array.isArray(status)) {
+    const type = (status as Record<string, unknown>).type;
+    if (typeof type === 'string') return type;
+  }
+  return 'idle';
+}
+
+export async function listSessionsAcrossProjects(
+  settings: OpencodeConnectionSettings,
+  projectPaths: string[],
+): Promise<ProjectSessionCatalogEntry[]> {
+  const uniquePaths = [...new Set(projectPaths.filter(Boolean))];
+  const catalog: ProjectSessionCatalogEntry[] = [];
+
+  // Keep the paired Mac responsive when an organization has many worktrees.
+  for (let offset = 0; offset < uniquePaths.length; offset += 4) {
+    const batch = uniquePaths.slice(offset, offset + 4);
+    const results = await Promise.all(
+      batch.map(async (projectId) => {
+        const scopedClient = buildClient({ ...settings, directory: projectId });
+        const [{ sessions, statuses }, archived] = await Promise.all([
+          listSessions(scopedClient),
+          listArchivedSessions(scopedClient),
+        ]);
+        return [
+          ...sessions.map((session) => ({
+            ...(session as unknown as Record<string, unknown>),
+            id: session.id,
+            projectId,
+            status: statusLabel(statuses[session.id]),
+          })),
+          ...archived.map((session) => ({
+            ...(session as unknown as Record<string, unknown>),
+            id: session.id,
+            projectId,
+            status: 'archived',
+          })),
+        ] satisfies ProjectSessionCatalogEntry[];
+      }),
+    );
+    catalog.push(...results.flat());
+  }
+
+  return [...new Map(catalog.map((session) => [
+    `${session.projectId}:${session.id}`,
+    session,
+  ])).values()];
 }
 
 export async function getSessionMessages(client: OpencodeClient, sessionId: string) {

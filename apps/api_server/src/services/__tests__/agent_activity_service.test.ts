@@ -22,7 +22,14 @@ describe('#1172 agent activity aggregation', () => {
   beforeEach(() => {
     db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
+    setDb(db);
     runMigrations(db);
+    insert(
+      db,
+      `INSERT INTO projects (id, name, cwd, created_at)
+       VALUES (?, ?, ?, ?)`,
+      ['project-a', 'Project A', '/tmp/project-a', '2026-07-24T08:00:00.000Z'],
+    );
 
     insert(
       db,
@@ -104,8 +111,10 @@ describe('#1172 agent activity aggregation', () => {
 
   it('issue-1172-c6: canonical order filters and cursor remain stable and duplicate-free', async () => {
     const first = await listAgentActivity({ limit: 2 });
-    const second = await listAgentActivity({ limit: 2, cursor: first.nextCursor });
-    const repeated = await listAgentActivity({ limit: 2, cursor: first.nextCursor });
+    expect(first.nextCursor).not.toBeNull();
+    const cursor = first.nextCursor ?? undefined;
+    const second = await listAgentActivity({ limit: 2, cursor });
+    const repeated = await listAgentActivity({ limit: 2, cursor });
 
     expect(first.items).toHaveLength(2);
     expect(second.items).toEqual(repeated.items);

@@ -25,7 +25,7 @@ import { formatRelativeTime, getSessionSubtitle } from '@/lib/opencode/format';
 import type { Session } from '@/lib/opencode/types';
 import { useOpencode } from '@/providers/opencode-provider';
 
-export default function WorkspaceScreen() {
+export default function AgentWorkspaceScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -110,7 +110,13 @@ export default function WorkspaceScreen() {
     try {
       const session = await createSession();
       await openSession(session.id);
-      router.push('/(tabs)');
+      router.push({
+        pathname: '/agents/chats/[sessionId]',
+        params: {
+          sessionId: session.id,
+          projectId: activeProject?.path,
+        },
+      });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not create a session.');
     } finally {
@@ -211,7 +217,13 @@ export default function WorkspaceScreen() {
           description={sessionPreviewById[session.id] || getSessionSubtitle(session)}
           onPress={() => {
             void openSession(session.id)
-              .then(() => router.push('/(tabs)'))
+              .then(() => router.push({
+                pathname: '/agents/chats/[sessionId]',
+                params: {
+                  sessionId: session.id,
+                  projectId: session.directory,
+                },
+              }))
               .catch((reason) => setError(reason instanceof Error ? reason.message : 'Could not open the session.'));
           }}
           titleStyle={{ color: palette.text, fontWeight: currentSessionId === session.id ? '700' : '500' }}
@@ -251,6 +263,10 @@ export default function WorkspaceScreen() {
         style={[styles.header, { backgroundColor: palette.surface, paddingTop: insets.top, height: 64 + insets.top }]}
         statusBarHeight={0}
         elevated>
+        <Appbar.BackAction
+          accessibilityLabel="Back to Agents"
+          onPress={() => router.replace('/(tabs)/agents')}
+        />
         <View style={styles.headerMain}>
           <Menu
             visible={projectMenuVisible}

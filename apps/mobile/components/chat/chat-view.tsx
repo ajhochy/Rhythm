@@ -1,5 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, View } from 'react-native';
 import { Button, Card, Snackbar, Text } from 'react-native-paper';
@@ -19,6 +20,7 @@ import { useSpeechInput } from '@/lib/voice/use-speech-input';
 import { useOpencode } from '@/providers/opencode-provider';
 
 export function ChatView() {
+  const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
   const insets = useSafeAreaInsets();
@@ -433,6 +435,7 @@ export function ChatView() {
           isUsageLoading={isRefreshingMessages}
           insetsTop={insets.top}
           isCreatingSession={isCreatingSession}
+          onBack={() => router.replace('/(tabs)/agents')}
           onCloseMenu={() => setSessionMenuVisible(false)}
           onConfirmStopConversation={handleConfirmStopConversation}
           onCreateSession={() => void handleNewSession()}

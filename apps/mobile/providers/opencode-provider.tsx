@@ -153,6 +153,10 @@ import {
   listTerminals,
   removeTerminal as svcRemoveTerminal,
 } from '@/providers/services/terminal-service';
+import {
+  getRecoveryDelayMs,
+  getStableRecoveryEventId,
+} from '@/providers/services/agent-chat-service';
 
 export type {
   AgentOption,
@@ -2038,6 +2042,18 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
     let mounted = true;
     let activeAbortController: AbortController | undefined;
+    const seenEventIds = new Set<string>();
+    const rememberEvent = (event: GlobalEvent['payload']) => {
+      const id = getStableRecoveryEventId(event);
+      if (!id) return true;
+      if (seenEventIds.has(id)) return false;
+      seenEventIds.add(id);
+      if (seenEventIds.size > 2048) {
+        const oldest = seenEventIds.values().next().value;
+        if (oldest) seenEventIds.delete(oldest);
+      }
+      return true;
+    };
 
     const handleEvent = (event: GlobalEvent['payload']) => {
       switch (event.type) {
@@ -2189,22 +2205,32 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     };
 
     const subscribe = async () => {
-      let retryDelay = 1000;
+      let retryAttempt = 0;
       while (mounted) {
         const abortController = new AbortController();
         activeAbortController = abortController;
-        setEventStreamStatus(retryDelay === 1000 ? 'connecting' : 'error');
+        setEventStreamStatus(retryAttempt === 0 ? 'connecting' : 'error');
 
         try {
           const subscription = await catalogClient.global.event({ signal: abortController.signal, sseMaxRetryAttempts: 1 });
+          setEventStreamStatus('connected');
+          await Promise.all([
+            refreshSessions(true),
+            refreshArchivedSessions(),
+            refreshPendingInteractions(),
+            refreshServerFeatures(),
+            refreshCurrentSession(true),
+          ]);
           for await (const envelope of subscription.stream) {
             if (!mounted || abortController.signal.aborted) {
               break;
             }
             if (envelope?.directory === activeProjectPath) {
               setEventStreamStatus('connected');
-              retryDelay = 1000;
-              handleEvent(envelope.payload);
+              retryAttempt = 0;
+              if (rememberEvent(envelope.payload)) {
+                handleEvent(envelope.payload);
+              }
             }
           }
           if (mounted && !abortController.signal.aborted) {
@@ -2215,8 +2241,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             break;
           }
           setEventStreamStatus('error');
+          const retryDelay = getRecoveryDelayMs(retryAttempt);
+          retryAttempt += 1;
           await new Promise((resolve) => setTimeout(resolve, retryDelay));
-          retryDelay = Math.min(retryDelay * 2, 15000);
         }
       }
     };
@@ -2227,7 +2254,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       mounted = false;
       activeAbortController?.abort();
     };
-  }, [activeProjectPath, catalogClient, connection.status, refreshArchivedSessions, refreshChatCapabilities, refreshDiagnostics, refreshMcpServers, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, scheduleSessionRefresh]);
+  }, [activeProjectPath, catalogClient, connection.status, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, scheduleSessionRefresh]);
 
   useEffect(
     () => () => {

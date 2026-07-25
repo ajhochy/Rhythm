@@ -32,25 +32,17 @@ export default function TabLayout() {
         tabBarButton: HapticTab,
       }}>
       <Tabs.Screen
-        name="index"
+        name="agents"
         options={{
-          title: 'OpenCode Mobile',
-          tabBarLabel: 'Chat',
+          title: 'Agents',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="message.fill" color={color} />,
         }}
       />
       <Tabs.Screen
-        name="terminal"
+        name="tools"
         options={{
-          title: 'Terminal',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="terminal.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="workspace"
-        options={{
-          title: 'Workspace',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="folder.fill" color={color} />,
+          title: 'Tools',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="wrench.and.screwdriver.fill" color={color} />,
         }}
       />
       <Tabs.Screen

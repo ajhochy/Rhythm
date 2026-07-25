@@ -12,16 +12,38 @@ async function resetScenario(request, scenario) {
 
 async function openReadyChat(page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
-  if (await page.getByText('Choose a workspace').isVisible().catch(() => false)) {
-    await page.getByRole('tab', { name: 'Workspace' }).click();
-    if (!await page.getByText('demo-project', { exact: true }).first().isVisible().catch(() => false)) {
-      await page.getByText('Workspace', { exact: true }).first().click();
-      await page.getByTestId('menu-item-title').filter({ hasText: 'demo-project' }).click();
-    }
-    await page.getByRole('tab', { name: 'Chat' }).click();
-  }
+  await expect(page.getByRole('tab', { name: 'Agents' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create chat' })).toBeEnabled({
+    timeout: 30_000,
+  });
+  await page.getByRole('button', { name: 'Create chat' }).click();
+  await expect(page.getByLabel('Chat title')).toBeVisible();
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.getByText('Start a new task')).toBeVisible({ timeout: 30_000 });
   await expect(page.getByPlaceholder('Ask anything...')).toBeVisible();
+}
+
+async function backToAgents(page) {
+  await page.getByRole('button', { name: 'Back to Agents' }).click();
+  await expect(page.getByRole('tab', { name: 'Agents' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open workspace' })).toBeVisible();
+}
+
+async function openWorkspace(page) {
+  await backToAgents(page);
+  await page.getByRole('button', { name: 'Open workspace' }).click();
+  await expect(page.getByRole('button', { name: 'Back to Agents' })).toBeVisible();
+}
+
+async function openTerminal(page) {
+  await backToAgents(page);
+  await page.getByRole('button', { name: 'Open terminal' }).click();
+  await expect(page.getByRole('button', { name: 'Back to Agents' })).toBeVisible();
+}
+
+async function openSettings(page) {
+  await backToAgents(page);
+  await page.getByRole('tab', { name: 'Settings' }).click();
 }
 
 async function sendPrompt(page, prompt) {
@@ -60,10 +82,10 @@ test('happy path keeps the main chat flow stable', async ({ page, request }) => 
   await expect(page.getByText('1 files changed, +6 / -1', { exact: true })).toBeVisible();
   await page.getByText('app/(tabs)/index.tsx', { exact: true }).click();
   await expect(page.getByText(/export default function ChatLandingScreen/)).toBeVisible();
-  await page.getByRole('tab', { name: 'Workspace' }).click();
+  await openWorkspace(page);
   await page.getByRole('button', { name: 'Files' }).click();
   await expect(page.getByText('2 changed files', { exact: true })).toBeVisible();
-  await expect(page.getByText('Chats', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Chats' }).click();
   await expect(page.getByText('Stabilize the chat flow', { exact: true }).last()).toBeVisible();
   await expect(page.getByText('idle', { exact: true }).first()).toBeVisible();
 });
@@ -114,7 +136,7 @@ test('sessions can be renamed', async ({ page, request }) => {
 
   await sendPrompt(page, 'Create a session to rename');
   await expect(page.getByText(/Finished:/).first()).toBeVisible({ timeout: 20_000 });
-  await page.getByRole('tab', { name: 'Workspace' }).click();
+  await openWorkspace(page);
   await page.getByLabel(/Actions for/).first().click();
   await page.getByRole('menuitem', { name: 'Rename' }).click();
   await expect(page.getByRole('menuitem', { name: 'Delete' })).not.toBeVisible();
@@ -129,7 +151,7 @@ test('sessions require confirmation before deletion', async ({ page, request }) 
   await openReadyChat(page);
   await sendPrompt(page, 'Delete this session safely');
   await expect(page.getByText(/Finished:/).first()).toBeVisible({ timeout: 20_000 });
-  await page.getByRole('tab', { name: 'Workspace' }).click();
+  await openWorkspace(page);
   page.once('dialog', (dialog) => void dialog.accept());
   await page.getByLabel(/Actions for/).first().click();
   await page.getByRole('menuitem', { name: 'Delete' }).click();
@@ -148,7 +170,7 @@ test('workspace file search opens deterministic file content', async ({ page, re
   await resetScenario(request, 'happy-path');
   await openReadyChat(page);
 
-  await page.getByRole('tab', { name: 'Workspace' }).click();
+  await openWorkspace(page);
   await page.getByText('Files', { exact: true }).click();
   await page.getByTestId('workspace-file-search').fill('demo');
   await page.getByText('Search', { exact: true }).click();
@@ -160,7 +182,7 @@ test('workspace file search opens deterministic file content', async ({ page, re
 test('workspace files save through a conflict-checked VCS patch', async ({ page, request }) => {
   await resetScenario(request, 'happy-path');
   await openReadyChat(page);
-  await page.getByRole('tab', { name: 'Workspace' }).click();
+  await openWorkspace(page);
   await page.getByText('Files', { exact: true }).click();
   await page.getByTestId('workspace-file-search').fill('demo');
   await page.getByText('Search', { exact: true }).click();
@@ -176,10 +198,10 @@ test('sessions archive and restore without deletion', async ({ page, request }) 
   await openReadyChat(page);
   await sendPrompt(page, 'Archive this session safely');
   await expect(page.getByText(/Finished:/).first()).toBeVisible({ timeout: 20_000 });
-  await page.getByRole('tab', { name: 'Workspace' }).click();
+  await openWorkspace(page);
   await page.getByLabel(/Actions for/).first().click();
   await page.getByRole('menuitem', { name: 'Archive' }).click();
-  await page.getByLabel('Show archived chats').click();
+  await page.getByRole('button', { name: 'Show archived chats' }).click();
   await expect(page.getByText('Archive this session safely', { exact: true }).last()).toBeVisible();
   await page.getByLabel(/Restore Archive this session safely/).click();
   await expect(page.getByText('No archived chats.', { exact: true })).toBeVisible();
@@ -188,12 +210,13 @@ test('sessions archive and restore without deletion', async ({ page, request }) 
 test('worktrees and MCP servers can be created', async ({ page, request }) => {
   await resetScenario(request, 'happy-path');
   await openReadyChat(page);
-  await page.getByRole('tab', { name: 'Workspace' }).click();
-  await page.getByText('Tools', { exact: true }).click();
+  await openWorkspace(page);
+  await page.getByRole('button', { name: 'Tools' }).click();
   await page.getByTestId('workspace-worktree-name').fill('mobile-test');
   await page.getByTestId('workspace-worktree-create').click();
   await expect(page.getByText('mobile-test', { exact: true })).toBeVisible();
 
+  await page.getByRole('button', { name: 'Back to Agents' }).click();
   await page.getByRole('tab', { name: 'Settings' }).click();
   await page.getByText('Advanced', { exact: true }).click();
   await page.getByText('Remote', { exact: true }).click();
@@ -206,7 +229,7 @@ test('worktrees and MCP servers can be created', async ({ page, request }) => {
 test('terminal streams input and output over the PTY websocket', async ({ page, request }) => {
   await resetScenario(request, 'happy-path');
   await openReadyChat(page);
-  await page.getByRole('tab', { name: 'Terminal' }).click();
+  await openTerminal(page);
   await page.getByTestId('terminal-create-button').click();
   await page.getByTestId('terminal-line-input').fill('echo web');
   await page.getByLabel('Send command').click();
@@ -217,7 +240,7 @@ test('settings can configure an additional provider against the fake server', as
   await resetScenario(request, 'happy-path');
   await openReadyChat(page);
 
-  await page.getByRole('tab', { name: 'Settings' }).click();
+  await openSettings(page);
   await expect(page.getByText('AI defaults')).toBeVisible();
   await page.getByTestId('settings-add-provider-button').click();
   await expect(page.getByRole('button', { name: 'OpenRouter', exact: true })).toBeVisible();
@@ -258,7 +281,7 @@ test('settings explain root-vs-api mismatches and reconnect through a prefixed A
     await waitForServer(request, `http://127.0.0.1:${port}/api/path`);
     await openReadyChat(page);
 
-    await page.getByRole('tab', { name: 'Settings' }).click();
+    await openSettings(page);
     await expect(page.getByText('Connection')).toBeVisible();
     await page.getByRole('button', { name: /Connection Connected/ }).click();
 

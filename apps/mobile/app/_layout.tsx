@@ -11,6 +11,7 @@ import { getPaperTheme } from '@/constants/paper-theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { OpencodeProvider } from '@/providers/opencode-provider';
 import { RhythmAccountProvider } from '@/providers/rhythm-account-provider';
+import { AgentChatProvider } from '@/providers/agent-chat-provider';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -39,14 +40,16 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <RhythmAccountProvider>
       <OpencodeProvider>
+        <AgentChatProvider>
         <PaperProvider theme={paperTheme}>
           <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-            <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="(tabs)" />
             </Stack>
             <StatusBar style="auto" />
           </ThemeProvider>
         </PaperProvider>
+        </AgentChatProvider>
       </OpencodeProvider>
       </RhythmAccountProvider>
     </SafeAreaProvider>

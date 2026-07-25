@@ -23,6 +23,7 @@ type ChatHeaderProps = {
   };
   insetsTop: number;
   isCreatingSession: boolean;
+  onBack: () => void;
   onCloseMenu: () => void;
   onConfirmStopConversation: () => void;
   onCreateSession: () => void;
@@ -50,6 +51,7 @@ export function ChatHeader({
   isUsageLoading,
   insetsTop,
   isCreatingSession,
+  onBack,
   onCloseMenu,
   onConfirmStopConversation,
   onCreateSession,
@@ -84,6 +86,10 @@ export function ChatHeader({
         style={[styles.header, { backgroundColor: palette.surface, paddingTop: insetsTop, height: 64 + insetsTop }]}
         statusBarHeight={0}
         elevated>
+        <Appbar.BackAction
+          accessibilityLabel="Back to Agents"
+          onPress={onBack}
+        />
         <View style={styles.headerMain}>
           <Pressable onPress={onOpenSessionMenu} style={({ pressed }) => [styles.headerSessionAnchor, pressed && styles.headerSessionAnchorPressed]}>
             <View style={styles.headerSessionContent}>

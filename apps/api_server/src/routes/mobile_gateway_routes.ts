@@ -3,6 +3,7 @@ import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 
 import { MobileGatewayController } from '../controllers/mobile_gateway_controller';
+import { AgentActivityController } from '../controllers/agent_activity_controller';
 import { getDb } from '../database/db';
 import { AppError } from '../errors/app_error';
 import {
@@ -30,6 +31,7 @@ export function createMobileGatewayRouter(): Router {
   let pairingService: MobilePairingService | null = null;
   let controller: MobileGatewayController | null = null;
   const opencodeProxy = new MobileOpenCodeProxy();
+  const activityController = new AgentActivityController();
 
   const getPairingService = (): MobilePairingService => {
     if (pairingService) return pairingService;
@@ -104,6 +106,11 @@ export function createMobileGatewayRouter(): Router {
         next(error instanceof AppError ? error : AppError.internal());
       }
     },
+  );
+  router.get(
+    '/agent-activity',
+    requireMobileDevice(getPairingService),
+    (req, res, next) => activityController.list(req, res, next),
   );
   router.all(
     '/opencode/*',

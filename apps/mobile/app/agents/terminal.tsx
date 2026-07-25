@@ -27,7 +27,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import type { Pty } from '@/lib/opencode/types';
 import { useOpencode } from '@/providers/opencode-provider';
 
-export default function TerminalScreen() {
+export default function AgentTerminalScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme() ?? 'light';
@@ -134,7 +134,7 @@ export default function TerminalScreen() {
             mode="contained"
             loading={connection.status === 'connecting'}
             onPress={() => {
-              const action = connection.status !== 'connected' ? connect() : Promise.resolve(router.push('/(tabs)/workspace'));
+              const action = connection.status !== 'connected' ? connect() : Promise.resolve(router.push('/agents/workspace'));
               void action.catch((reason) => setError(message(reason, 'Could not connect.')));
             }}>
             {connection.status !== 'connected' ? 'Reconnect' : 'Open Workspaces'}
@@ -157,6 +157,10 @@ export default function TerminalScreen() {
           style={[styles.header, { backgroundColor: palette.surface, paddingTop: insets.top, height: 64 + insets.top }]}
           statusBarHeight={0}
           elevated>
+          <Appbar.BackAction
+            accessibilityLabel="Back to Agents"
+            onPress={() => router.replace('/(tabs)/agents')}
+          />
           <View style={styles.headerMain}>
             <Menu
               visible={terminalMenuVisible}

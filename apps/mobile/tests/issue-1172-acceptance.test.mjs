@@ -12,6 +12,7 @@ import {
 import {
   getActivityDeepLink,
   normalizeActivityStatus,
+  sanitizeActivityCache,
 } from '../providers/services/activity-service.ts';
 
 const tabsSource = await readFile(
@@ -95,6 +96,24 @@ test('issue-1172-c7: activity feed normalizes states and only emits valid deep l
     getActivityDeepLink({ source: 'webhook', sessionId: null, resultUrl: 'https://attacker.example' }),
     null,
   );
+  const cached = sanitizeActivityCache([{
+    id: 'human:session-1',
+    source: 'human',
+    status: 'completed',
+    title: 'Visible',
+    summary: 'Safe summary',
+    occurredAt: '2026-07-25T10:00:00.000Z',
+    startedAt: null,
+    completedAt: '2026-07-25T10:00:00.000Z',
+    sessionId: 'session-1',
+    resultUrl: '/agent-sessions/session-1',
+    profileId: null,
+    projectId: 'project-1',
+    deviceToken: 'must-not-persist',
+    authorization: 'Bearer must-not-persist',
+  }]);
+  assert.equal(cached.length, 1);
+  assert.doesNotMatch(JSON.stringify(cached), /token|authorization/i);
 });
 
 test('issue-1172-c8: reusable screen states cover the full resilient state set', () => {

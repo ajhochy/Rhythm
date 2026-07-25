@@ -59,6 +59,7 @@ import { agentApprovalsRouter } from './routes/agent_approvals_routes';
 import { systemRouter } from './routes/system_routes';
 import { engraphManagerRouter } from './routes/engraph_manager_routes';
 import { createMobileGatewayRouter } from './routes/mobile_gateway_routes';
+import { agentActivityRouter } from './routes/agent_activity_routes';
 
 export function createApp() {
   const app = express();
@@ -163,6 +164,7 @@ export function createApp() {
     app.use('/agent-webhooks', agentWebhookRouter);
     app.use('/agent-research', agentResearchRouter);
     app.use('/agent-cookbook', agentCookbookRouter);
+    app.use('/agent-activity', agentActivityRouter);
     // org-optimizer-10 (#826): human-gate review queue — exception path for
     // new-agent + external-adoption/webhook-wiring proposals, plus an
     // audit-trail/rollback view of auto-applied ones (2026-07-02 policy).
