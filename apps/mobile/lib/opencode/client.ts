@@ -292,8 +292,7 @@ export async function requestOpenCodeRoute<T>(
     },
   });
   if (!response.ok) {
-    const detail = (await response.text()).trim();
-    throw new Error(`OpenCode request failed (${response.status})${detail ? `: ${detail}` : '.'}`);
+    throw new Error(`OpenCode request failed (${response.status}).`);
   }
   if (response.status === 204) {
     return undefined as T;

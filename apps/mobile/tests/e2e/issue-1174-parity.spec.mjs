@@ -38,7 +38,7 @@ async function openTool(page, name) {
   await page.getByRole('button', { name: new RegExp(`^${name}\\.`) }).click();
 }
 
-test('issue-1174: workspace exposes adapter search, VCS inspection, and project metadata', async ({ page, request }) => {
+test('issue-1174: workspace exposes adapter search, VCS inspection, and project metadata', async ({ page, request }, testInfo) => {
   await openReadyChat(page, request);
   await openWorkspace(page);
   await page.getByRole('button', { name: 'Files', exact: true }).first().click();
@@ -63,9 +63,15 @@ test('issue-1174: workspace exposes adapter search, VCS inspection, and project 
     const response = await request.get(`${fakeServer}/project/current`);
     return (await response.json()).name;
   }).toBe('Parity project');
+  if (process.env.RHYTHM_CAPTURE_SCREENSHOTS === '1') {
+    await page.screenshot({
+      path: testInfo.outputPath('workspace.png'),
+      fullPage: true,
+    });
+  }
 });
 
-test('issue-1174: chat session maintenance initializes, shells, edits, and deletes', async ({ page, request }) => {
+test('issue-1174: chat session maintenance initializes, shells, edits, and deletes', async ({ page, request }, testInfo) => {
   await openReadyChat(page, request);
   await page.getByPlaceholder('Ask anything...').fill('Create an editable message');
   await page.getByTestId('chat-primary-button').click();
@@ -107,9 +113,15 @@ test('issue-1174: chat session maintenance initializes, shells, edits, and delet
   await expect.poll(async () => (
     await (await request.get(`${fakeServer}/session/${sessionId}/message`)).json()
   ).length).toBe(messageCount - 1);
+  if (process.env.RHYTHM_CAPTURE_SCREENSHOTS === '1') {
+    await page.screenshot({
+      path: testInfo.outputPath('chat-maintenance.png'),
+      fullPage: true,
+    });
+  }
 });
 
-test('issue-1174: terminal detail and resize use the PTY adapter surface', async ({ page, request }) => {
+test('issue-1174: terminal detail and resize use the PTY adapter surface', async ({ page, request }, testInfo) => {
   await openReadyChat(page, request);
   await backToAgents(page);
   await page.getByRole('button', { name: 'Open terminal' }).click();
@@ -122,15 +134,27 @@ test('issue-1174: terminal detail and resize use the PTY adapter surface', async
     const terminals = await (await request.get(`${fakeServer}/pty`)).json();
     return terminals[0]?.size;
   }).toEqual({ rows: 32, cols: 120 });
+  if (process.env.RHYTHM_CAPTURE_SCREENSHOTS === '1') {
+    await page.screenshot({
+      path: testInfo.outputPath('terminal.png'),
+      fullPage: true,
+    });
+  }
 });
 
-test('issue-1174: runtime skills, schemas, resources, config reload, and OAuth removal are surfaced', async ({ page, request }) => {
+test('issue-1174: runtime skills, schemas, resources, config reload, and OAuth removal are surfaced', async ({ page, request }, testInfo) => {
   await reset(page, request);
   await openTool(page, 'Skills');
   await page.getByTestId('opencode-skills-reload-button').click();
   await expect(page.getByText('Reloaded 1 runtime skills.', { exact: true })).toBeVisible();
   await page.getByTestId('opencode-runtime-inspect-button').click();
   await expect(page.getByTestId('opencode-runtime-skills')).toContainText('mobile-parity');
+  if (process.env.RHYTHM_CAPTURE_SCREENSHOTS === '1') {
+    await page.screenshot({
+      path: testInfo.outputPath('skills.png'),
+      fullPage: true,
+    });
+  }
 
   await page.getByRole('button', { name: 'Back to Tools' }).click();
   await page.getByRole('button', { name: /^Providers & Models\./ }).click();
@@ -141,12 +165,30 @@ test('issue-1174: runtime skills, schemas, resources, config reload, and OAuth r
   await expect(page.getByTestId('opencode-runtime-config')).toContainText('[redacted]');
   await expect(page.getByTestId('opencode-runtime-config')).not.toContainText('sk-fake-secret');
   await expect(page.getByTestId('opencode-runtime-config')).not.toContainText('plain-fake-secret');
+  if (process.env.RHYTHM_CAPTURE_SCREENSHOTS === '1') {
+    await page.screenshot({
+      path: testInfo.outputPath('models-config.png'),
+      fullPage: true,
+    });
+  }
 
   await page.getByRole('button', { name: 'Back to Tools' }).click();
   await page.getByRole('button', { name: /^MCP\./ }).click();
   await page.getByTestId('opencode-runtime-inspect-button').click();
   await expect(page.getByTestId('opencode-runtime-resources')).toContainText('filesystem:readme');
+  const oauthStart = await request.post(`${fakeServer}/mcp/filesystem/auth`, { data: {} });
+  expect(oauthStart.ok()).toBeTruthy();
   page.once('dialog', (dialog) => void dialog.accept());
   await page.getByTestId('mcp-remove-oauth-filesystem').click();
   await expect(page.getByText('MCP authorization removed.', { exact: true })).toBeVisible();
+  const staleCallback = await request.post(`${fakeServer}/mcp/filesystem/auth/callback`, {
+    data: { code: 'must-not-persist' },
+  });
+  expect(staleCallback.status()).toBe(400);
+  if (process.env.RHYTHM_CAPTURE_SCREENSHOTS === '1') {
+    await page.screenshot({
+      path: testInfo.outputPath('mcp.png'),
+      fullPage: true,
+    });
+  }
 });
