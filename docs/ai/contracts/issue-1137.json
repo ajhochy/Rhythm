@@ -102,6 +102,22 @@
       "test_file": "apps/api_server/src/__tests__/live_e2e_1137_any_file_reader_discovery.test.ts",
       "test_id": "extracts a known marker from a valid DOCX through the existing document reader",
       "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1137-c12",
+      "text": "Parse RHYTHM_LIVE_URL and RHYTHM_LIVE_ENGINE_URL robustly; refuse shared ports 4001, 4096, 4097, 4098 before any health/API request.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1137_any_file_reader_discovery.test.ts",
+      "test_id": "refuses all shared API and engine ports before any request",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1137-c13",
+      "text": "Add a non-live regression covering each four denied ports and an allowed dedicated pair.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1137_any_file_reader_discovery.test.ts",
+      "test_id": "allows a dedicated API and engine port pair",
+      "status": "pass"
     }
   ],
   "stack": "dart/typescript",

@@ -55,6 +55,14 @@ by #1172 and #1173.
   The full suite's only failure is the unchanged #723 Vitest VM dynamic-import
   callback defect, reproduced on the reviewed base.
 - #1172's pre-integration acceptance, browser, API, and live checks pass.
+- `ai-workflow checks --level issue` passes.
+- `ai-workflow checks --level pr` passes every Flutter, API, MCP, fork, and
+  mobile static/contract/fake-server/web-E2E sub-gate.
+- Focused correction gates pass: browser 16/16, mobile proxy 11/11, issue-723
+  2/2, mobile Playwright 15/15.
+- Fresh real-engine sandbox gates pass: mobile containment 1/1 and the
+  structured-proof #1137 file 6/6. Dedicated ports 5497/5498 are free and the
+  sandbox was removed.
 - Aggregate coordinator validation is pending after all slices land.
 
 ## Next step
@@ -69,3 +77,20 @@ aggregate behavioral gate.
   matching with completed structured tool-part and transcript-order assertions;
   red mention-only regression reproduced, focused build passed, and dedicated
   live sandbox passed 4/4 before clean teardown.
+
+### 2026-07-25 — #1137 shared-port live guard
+
+- Files modified: `live_e2e_1137_any_file_reader_discovery.test.ts` for robust
+  API/engine endpoint parsing and pre-request rejection;
+  `docs/ai/contracts/issue-1137.json` for criteria c12-c13; the #1137 run log
+  for exact red/green, listener, sandbox, and teardown evidence.
+- Checks run: focused red produced one failing and three passing non-live tests;
+  focused green passed 4/4 with two live tests skipped; API build passed;
+  dedicated 5497/5498 live gate passed 6/6 in 33.22s and the sandbox was
+  removed.
+- Decisions made: kept the stricter endpoint guard local to #1137 so unrelated
+  live suites retain their existing #1001 isolation behavior; fail closed on
+  malformed, non-HTTP, non-loopback, implicit-port, and shared-port URLs.
+- Deviations from spec: none.
+- Concerns: cumulative compare-to-main risk remains inherited from the
+  #1076-#1175 integration branch; this correction changes no production symbol.

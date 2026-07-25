@@ -26,6 +26,7 @@ import { assertLiveE2EIsolation } from './_live_e2e_guard';
 
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
 const BASE = process.env.RHYTHM_LIVE_URL ?? 'http://127.0.0.1:5098';
+const ENGINE_BASE = process.env.RHYTHM_LIVE_ENGINE_URL ?? 'http://127.0.0.1:5097';
 const describeLive = LIVE ? describe : describe.skip;
 
 const createdAgentIds: string[] = [];
@@ -121,6 +122,56 @@ async function apiJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   const text = await response.text();
   if (!response.ok) throw new Error(`${path} -> ${response.status}: ${text}`);
   return text ? (JSON.parse(text) as T) : (undefined as T);
+}
+
+const SHARED_LIVE_PORTS = new Set(['4001', '4096', '4097', '4098']);
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+function parseIssue1137DedicatedLiveEndpoint(
+  environmentName: 'RHYTHM_LIVE_URL' | 'RHYTHM_LIVE_ENGINE_URL',
+  value: string,
+): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${environmentName} must be a valid absolute HTTP URL; received "${value}"`);
+  }
+  if (parsed.protocol !== 'http:') {
+    throw new Error(`${environmentName} must use http:, got ${parsed.protocol}`);
+  }
+  if (!LOOPBACK_HOSTS.has(parsed.hostname)) {
+    throw new Error(`${environmentName} must target loopback, got ${parsed.hostname}`);
+  }
+  if (!parsed.port) {
+    throw new Error(`${environmentName} must use an explicit dedicated port`);
+  }
+  if (SHARED_LIVE_PORTS.has(parsed.port)) {
+    throw new Error(
+      `${environmentName} uses shared port ${parsed.port}; use a dedicated #1137 sandbox pair`,
+    );
+  }
+  return parsed;
+}
+
+function assertIssue1137DedicatedLiveEndpoints(apiUrl: string, engineUrl: string): void {
+  parseIssue1137DedicatedLiveEndpoint('RHYTHM_LIVE_URL', apiUrl);
+  parseIssue1137DedicatedLiveEndpoint('RHYTHM_LIVE_ENGINE_URL', engineUrl);
+}
+
+async function assertIssue1137LivePreflight(
+  apiUrl: string,
+  engineUrl: string,
+  request: typeof api = api,
+): Promise<void> {
+  assertIssue1137DedicatedLiveEndpoints(apiUrl, engineUrl);
+  const health = await request('/health');
+  if (!health.ok) throw new Error(`sandbox server is not reachable at ${apiUrl}`);
+  const engine = await request('/opencode/health');
+  const engineBody = (await engine.json()) as { status?: string };
+  if (!engine.ok || engineBody.status !== 'ready') {
+    throw new Error(`fork engine is not ready: ${String(engineBody.status)}`);
+  }
 }
 
 async function poll<T>(
@@ -280,6 +331,72 @@ describe('issue #1137 structured DOCX reader proof', () => {
   });
 });
 
+describe('issue #1137 live endpoint isolation', () => {
+  it('refuses all shared API and engine ports before any request', async () => {
+    const sharedPorts = [4001, 4096, 4097, 4098];
+
+    for (const port of sharedPorts) {
+      for (const target of ['api', 'engine'] as const) {
+        let requestCount = 0;
+        const request: typeof api = async () => {
+          requestCount += 1;
+          return new Response(JSON.stringify({ status: 'ready' }), { status: 200 });
+        };
+        const apiUrl =
+          target === 'api' ? `http://127.0.0.1:${port}` : 'http://127.0.0.1:5498';
+        const engineUrl =
+          target === 'engine' ? `http://127.0.0.1:${port}` : 'http://127.0.0.1:5497';
+
+        await expect(
+          assertIssue1137LivePreflight(apiUrl, engineUrl, request),
+        ).rejects.toThrow(
+          new RegExp(
+            `${target === 'api' ? 'RHYTHM_LIVE_URL' : 'RHYTHM_LIVE_ENGINE_URL'} uses shared port ${port}`,
+          ),
+        );
+        expect(requestCount).toBe(0);
+      }
+    }
+
+    for (const target of ['api', 'engine'] as const) {
+      let malformedRequestCount = 0;
+      const apiUrl = target === 'api' ? 'not a URL' : 'http://127.0.0.1:5498';
+      const engineUrl = target === 'engine' ? 'not a URL' : 'http://127.0.0.1:5497';
+      await expect(
+        assertIssue1137LivePreflight(apiUrl, engineUrl, async () => {
+          malformedRequestCount += 1;
+          return new Response(JSON.stringify({ status: 'ready' }), { status: 200 });
+        }),
+      ).rejects.toThrow(
+        new RegExp(
+          `${target === 'api' ? 'RHYTHM_LIVE_URL' : 'RHYTHM_LIVE_ENGINE_URL'} must be a valid`,
+        ),
+      );
+      expect(malformedRequestCount).toBe(0);
+    }
+  });
+
+  it('allows a dedicated API and engine port pair', async () => {
+    const requestedPaths: string[] = [];
+    const request: typeof api = async (path) => {
+      requestedPaths.push(path);
+      return new Response(
+        JSON.stringify(path === '/health' ? { status: 'ok' } : { status: 'ready' }),
+        { status: 200 },
+      );
+    };
+
+    await expect(
+      assertIssue1137LivePreflight(
+        'http://127.0.0.1:5498',
+        'http://127.0.0.1:5497',
+        request,
+      ),
+    ).resolves.toBeUndefined();
+    expect(requestedPaths).toEqual(['/health', '/opencode/health']);
+  });
+});
+
 afterEach(async () => {
   for (const id of createdSessionIds.splice(0)) {
     await api(`/agent-sessions/${id}/hard`, { method: 'DELETE' }).catch(() => undefined);
@@ -295,13 +412,7 @@ afterEach(async () => {
 describeLive('live E2E — #1137 arbitrary file reader discovery', () => {
   beforeAll(async () => {
     assertLiveE2EIsolation();
-    if (BASE.includes(':4001') || BASE.includes(':4096')) {
-      throw new Error('refusing to run #1137 against the installed app; use an isolated sandbox');
-    }
-    const health = await api('/health');
-    if (!health.ok) throw new Error(`sandbox server is not reachable at ${BASE}`);
-    const engine = await apiJson<{ status: string }>('/opencode/health');
-    if (engine.status !== 'ready') throw new Error(`fork engine is not ready: ${engine.status}`);
+    await assertIssue1137LivePreflight(BASE, ENGINE_BASE);
   });
 
   it(

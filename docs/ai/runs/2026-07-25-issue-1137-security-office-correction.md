@@ -208,6 +208,167 @@ The foreign listener PIDs were unchanged; the dedicated ports were free and
   processes. This is the inherited #1076–#1175 integration delta; the new
   correction contains no production symbol change.
 
+### Shared-port guard correction
+
+Red command, run from `apps/api_server`:
+
+```bash
+npx vitest run src/__tests__/live_e2e_1137_any_file_reader_discovery.test.ts --reporter=verbose
+```
+
+Observed before robust URL parsing:
+
+```text
+✓ issue #1137 structured DOCX reader proof > rejects serialized mentions without completed skill and bash tool parts 1ms
+✓ issue #1137 structured DOCX reader proof > requires completed exact tool inputs before the assistant marker 1ms
+× issue #1137 live endpoint isolation > refuses all shared API and engine ports before any request 13ms
+  → promise resolved "undefined" instead of rejecting
+✓ issue #1137 live endpoint isolation > allows a dedicated API and engine port pair 1ms
+Test Files  1 failed (1)
+Tests  1 failed | 3 passed | 2 skipped (6)
+Duration  185ms
+```
+
+Focused green commands, run from `apps/api_server`:
+
+```bash
+npx vitest run src/__tests__/live_e2e_1137_any_file_reader_discovery.test.ts --reporter=verbose
+npm run build
+```
+
+Observed:
+
+```text
+✓ issue #1137 structured DOCX reader proof > rejects serialized mentions without completed skill and bash tool parts 1ms
+✓ issue #1137 structured DOCX reader proof > requires completed exact tool inputs before the assistant marker 1ms
+✓ issue #1137 live endpoint isolation > refuses all shared API and engine ports before any request 2ms
+✓ issue #1137 live endpoint isolation > allows a dedicated API and engine port pair 8ms
+Test Files  1 passed (1)
+Tests  4 passed | 2 skipped (6)
+Duration  199ms
+> rhythm-api-server@0.1.0 build
+> tsc -p tsconfig.json
+> rhythm-api-server@0.1.0 postbuild
+> node -e "require('fs').mkdirSync('dist/security',{recursive:true});require('fs').copyFileSync('src/security/advisories.json','dist/security/advisories.json')"
+```
+
+Preflight command, run from the repository root:
+
+```bash
+for port in 4001 4096 4097 4098 5497 5498; do pids=$(lsof -nP -t -iTCP:$port -sTCP:LISTEN 2>/dev/null || true); if [ -n "$pids" ]; then echo "$port LISTENING $pids"; else echo "$port FREE"; fi; done
+RHYTHM_SANDBOX_DIR=/tmp/rhythm-dev-sandbox-1137-url-guard RHYTHM_SANDBOX_ENGINE_PORT=5497 RHYTHM_SANDBOX_API_PORT=5498 tools/dev/sandbox.sh status
+```
+
+Observed:
+
+```text
+4001 LISTENING 58644
+4096 FREE
+4097 LISTENING 47510
+4098 LISTENING 47484
+5497 FREE
+5498 FREE
+sandbox: /tmp/rhythm-dev-sandbox-1137-url-guard
+api :5498 listener:
+engine :5497 listener:
+```
+
+Launch command, run from the repository root in a persistent terminal:
+
+```bash
+RHYTHM_SANDBOX_DIR=/tmp/rhythm-dev-sandbox-1137-url-guard RHYTHM_SANDBOX_ENGINE_PORT=5497 RHYTHM_SANDBOX_API_PORT=5498 tools/dev/sandbox.sh up
+```
+
+Observed terminal tail:
+
+```text
+Smoke test passed: 0.0.0-codex/1137-final-corrective-202607251104
+> rhythm-api-server@0.1.0 build
+> tsc -p tsconfig.json
+> rhythm-api-server@0.1.0 postbuild
+> node -e "require('fs').mkdirSync('dist/security',{recursive:true});require('fs').copyFileSync('src/security/advisories.json','dist/security/advisories.json')"
+curl: (7) Failed to connect to 127.0.0.1 port 5498 after 0 ms: Couldn't connect to server
+curl: (7) Failed to connect to 127.0.0.1 port 5498 after 0 ms: Couldn't connect to server
+Sandbox ready: http://127.0.0.1:5498 (engine :5497)
+```
+
+Health and listener commands:
+
+```bash
+RHYTHM_SANDBOX_DIR=/tmp/rhythm-dev-sandbox-1137-url-guard RHYTHM_SANDBOX_ENGINE_PORT=5497 RHYTHM_SANDBOX_API_PORT=5498 tools/dev/sandbox.sh status
+curl -fsS http://127.0.0.1:5498/health
+curl -fsS http://127.0.0.1:5498/opencode/health
+for port in 5497 5498; do pids=$(lsof -nP -t -iTCP:$port -sTCP:LISTEN 2>/dev/null || true); if [ -n "$pids" ]; then echo "$port LISTENING $pids"; else echo "$port FREE"; fi; done
+```
+
+Observed:
+
+```text
+sandbox: /tmp/rhythm-dev-sandbox-1137-url-guard
+api :5498 listener: 55983
+engine :5497 listener: 56004
+{"status":"ok","service":"rhythm-api-server","commit":"dev"}
+{"status":"ready","message":"Opencode SDK ready","websearchConfigured":false}
+5497 LISTENING 56004
+5498 LISTENING 55983
+```
+
+Live command, run from `apps/api_server`:
+
+```bash
+RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:5498 RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:5497 RHYTHM_LIVE_DB_PATH=/tmp/rhythm-dev-sandbox-1137-url-guard/rhythm.db RHYTHM_SANDBOX_DIR=/tmp/rhythm-dev-sandbox-1137-url-guard DB_PATH=/tmp/rhythm-dev-sandbox-1137-url-guard/rhythm.db RHYTHM_MANAGED_SKILLS_DIR=/tmp/rhythm-dev-sandbox-1137-url-guard/home/.config/opencode/skills npx vitest run src/__tests__/live_e2e_1137_any_file_reader_discovery.test.ts --reporter=verbose
+```
+
+Observed:
+
+```text
+RUN  v4.1.1 /Users/ajhochhalter/Documents/rhythm-worktrees/run0724-review-1137-final/apps/api_server
+✓ issue #1137 structured DOCX reader proof > rejects serialized mentions without completed skill and bash tool parts 1ms
+✓ issue #1137 structured DOCX reader proof > requires completed exact tool inputs before the assistant marker 1ms
+✓ issue #1137 live endpoint isolation > refuses all shared API and engine ports before any request 2ms
+✓ issue #1137 live endpoint isolation > allows a dedicated API and engine port pair 8ms
+✓ live E2E — #1137 arbitrary file reader discovery > asserts native and browser reader discovery independently after rejecting a symlink escape 6806ms
+✓ live E2E — #1137 arbitrary file reader discovery > extracts a known marker from a valid DOCX through the existing document reader 26220ms
+Test Files  1 passed (1)
+Tests  6 passed (6)
+Start at  04:05:02
+Duration  33.22s (transform 42ms, setup 0ms, import 73ms, tests 33.05s, environment 0ms)
+```
+
+Teardown command, run from the repository root in the same persistent terminal:
+
+```bash
+RHYTHM_SANDBOX_DIR=/tmp/rhythm-dev-sandbox-1137-url-guard RHYTHM_SANDBOX_ENGINE_PORT=5497 RHYTHM_SANDBOX_API_PORT=5498 tools/dev/sandbox.sh down
+```
+
+Observed:
+
+```text
+Sandbox removed: /tmp/rhythm-dev-sandbox-1137-url-guard
+```
+
+Postflight command:
+
+```bash
+for port in 4001 4096 4097 4098 5497 5498; do pids=$(lsof -nP -t -iTCP:$port -sTCP:LISTEN 2>/dev/null || true); if [ -n "$pids" ]; then echo "$port LISTENING $pids"; else echo "$port FREE"; fi; done
+if [ -e /tmp/rhythm-dev-sandbox-1137-url-guard ]; then echo "sandbox path still exists"; else echo "sandbox path removed"; fi
+```
+
+Observed:
+
+```text
+4001 LISTENING 58644
+4096 FREE
+4097 LISTENING 47510
+4098 LISTENING 47484
+5497 FREE
+5498 FREE
+sandbox path removed
+```
+
+The foreign listener PIDs were unchanged and no foreign process or worktree
+was modified.
+
 ## Notes
 
 - The first live launch was reaped when its non-interactive shell exited.
