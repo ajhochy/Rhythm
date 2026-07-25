@@ -1,0 +1,41 @@
+{
+  "issue": 1174,
+  "generated": "2026-07-25",
+  "criteria": [
+    {
+      "criterion_id": "issue-1174-c1",
+      "text": "Coverage test fails for any unclassified operation",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/issue-1174-opencode-parity-contract.test.mjs",
+      "test_id": "issue-1174-c1: every bundled operation has exactly one classification and reason",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1174-c2",
+      "text": "Mobile contract is generated/pinned from Rhythm's bundled OpenCode 1.14.49, never floating npm latest",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/issue-1174-opencode-parity-contract.test.mjs",
+      "test_id": "issue-1174-c2: mobile contract is generated from bundled OpenCode 1.14.49",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1174-c3",
+      "text": "Gateway allowlist and mobile classifications agree",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/issue-1174-opencode-parity-contract.test.mjs",
+      "test_id": "issue-1174-c3: gateway allowlist exactly matches mobile classifications",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1174-c4",
+      "text": "Contract, fake-server, E2E, lint, typecheck, and independent security review pass",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "The full automated suites are implementation-time commands, while an independent security review requires a separate reviewer and cannot be truthfully asserted by a self-contained contract test."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-1174-c4"
+  ]
+}
