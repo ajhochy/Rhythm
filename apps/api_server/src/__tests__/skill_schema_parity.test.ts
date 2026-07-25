@@ -138,11 +138,14 @@ describe('#792 agent_skills dual-DB schema parity', () => {
       join(__dirname, '..', '..', '..', '..', '.github', 'workflows', 'desktop_release.yml'),
       'utf8',
     );
+    // PR #1180: CommonJS output may use `foo(server)` or `(0, foo)(server)`.
+    expect(workflow).toContain('assert_grep() {');
+    expect(workflow).toContain('grep -qE "$pattern" "$file"');
     for (const guard of [
       '9a2d3e4f-5b6c-4d7e-8f9a-1b2c3d4e5f6a',
-      'registerCreativePlatformTools(server',
-      'registerSetupReadinessTool(server',
-      'registerOrgOptimizerTools(server',
+      "assert_grep 'creative platform tool registration' \"$DEST/dist/index.js\" 'registerCreativePlatformTools\\)?[[:space:]]*\\([[:space:]]*server'",
+      "assert_grep 'setup readiness tool registration' \"$DEST/dist/index.js\" 'registerSetupReadinessTool\\)?[[:space:]]*\\([[:space:]]*server'",
+      "assert_grep 'org optimizer tool registration' \"$DEST/dist/index.js\" 'registerOrgOptimizerTools\\)?[[:space:]]*\\([[:space:]]*server'",
       'rhythm_list_creative_capabilities',
       'rhythm_install_creative_capability',
       'rhythm_creative_capability_status',
