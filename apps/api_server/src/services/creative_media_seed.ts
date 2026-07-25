@@ -1,30 +1,33 @@
-import { env } from '../config/env';
-import { AgentConfigsRepository, type AgentConfig } from '../repositories/agent_configs_repository';
-import { logger } from '../utils/logger';
-import { writeAgentProfileFile } from './opencode_agent_writer';
+import { env } from "../config/env";
+import {
+  AgentConfigsRepository,
+  type AgentConfig,
+} from "../repositories/agent_configs_repository";
+import { logger } from "../utils/logger";
+import { writeAgentProfileFile } from "./opencode_agent_writer";
 
-export const CREATIVE_MEDIA_AGENT_ID = 'creative-media';
+export const CREATIVE_MEDIA_AGENT_ID = "creative-media";
 
 export const CREATIVE_MEDIA_MCPS = [
-  'comfyui-mcp',
-  'blender-mcp',
-  'openmontage',
-  'canva',
-  'rhythm',
-  'memory',
-  'obsidian',
+  "comfyui-mcp",
+  "blender-mcp",
+  "openmontage",
+  "canva",
+  "rhythm",
+  "memory",
+  "obsidian",
 ] as const;
 
 export const CREATIVE_MEDIA_SKILLS = [
-  'document-creation',
-  'humanizer',
-  'claude-design',
-  'baoyu-infographic',
-  'popular-web-designs',
-  'excalidraw',
-  'design-md',
-  'social-video-pipeline',
-  'hallmark',
+  "document-creation",
+  "humanizer",
+  "claude-design",
+  "baoyu-infographic",
+  "popular-web-designs",
+  "excalidraw",
+  "design-md",
+  "social-video-pipeline",
+  "hallmark",
 ] as const;
 
 export const CREATIVE_MEDIA_PROMPT = `You are Rhythm's Creative Media Agent.
@@ -42,7 +45,7 @@ export interface CreativeMediaSeedResult {
 
 /** Seed only when missing. Existing rows are user-owned and are never changed. */
 export function seedCreativeMediaProfile(): CreativeMediaSeedResult {
-  if (!env.agentExecutionEnabled || env.dbClient === 'postgres') {
+  if (!env.agentExecutionEnabled || env.dbClient === "postgres") {
     return { created: false, config: null };
   }
 
@@ -55,22 +58,22 @@ export function seedCreativeMediaProfile(): CreativeMediaSeedResult {
 
   const config = repo.insert({
     id: CREATIVE_MEDIA_AGENT_ID,
-    label: 'Creative Media Agent',
-    icon: 'palette',
+    label: "Creative Media Agent",
+    icon: "palette",
     enabled: true,
     isAgent: true,
     isManager: false,
     systemPrompt: CREATIVE_MEDIA_PROMPT,
     allowedMcpsJson: JSON.stringify([...CREATIVE_MEDIA_MCPS]),
     allowedSkillsJson: JSON.stringify([...CREATIVE_MEDIA_SKILLS]),
-    modelProvider: 'anthropic',
-    modelId: 'claude-opus-4-8',
+    modelProvider: "anthropic",
+    modelId: "claude-opus-4-8",
     sessionSelectable: true,
     schedulable: false,
     imageGenerationEnabled: true,
-    reasoningEffort: 'medium',
+    reasoningEffort: "medium",
   });
   writeAgentProfileFile(config);
-  logger.info('[creative-media] seeded Creative Media Agent profile');
+  logger.info("[creative-media] seeded Creative Media Agent profile");
   return { created: true, config };
 }
