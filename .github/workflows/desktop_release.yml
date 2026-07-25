@@ -364,7 +364,7 @@ jobs:
           # profiles and exactly one enabled task for each role.
           for i in $(seq 1 60); do
             if SMOKE_DB="$SMOKE_DB" BUNDLED_API_SERVER="$APP/Contents/Resources/api_server" "$BUNDLED_NODE" -e '
-              const Database = require(process.env.BUNDLED_API_SERVER + "/node_modules/better-sqlite3");
+              const Database = require(require("path").resolve(process.env.BUNDLED_API_SERVER, "node_modules/better-sqlite3"));
               const db = new Database(process.env.SMOKE_DB, { readonly: true });
               const profiles = db.prepare("SELECT COUNT(*) AS n FROM agent_configs WHERE id IN (?, ?)").get("8f1c2d3e-4a5b-4c6d-9e7f-0a1b2c3d4e5f", "9a2d3e4f-5b6c-4d7e-8f9a-1b2c3d4e5f6a").n;
               const tasks = db.prepare("SELECT name, COUNT(*) AS n FROM agent_scheduled_tasks WHERE enabled = 1 AND name IN (?, ?) GROUP BY name").all("Org Self-Optimizer", "Org External Discovery");
