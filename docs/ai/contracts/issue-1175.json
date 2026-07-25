@@ -129,6 +129,78 @@
       "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
       "test_id": "issue-1175-c16: Activity query columns exist in both SQLite and Postgres bootstrap schemas",
       "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c17",
+      "text": "AGENT_LOCAL auth bypass is structurally confined to loopback: the primary API binds 127.0.0.1, refuses a non-loopback override, and a live IPv4/IPv6 check proves non-loopback interfaces cannot reach it.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
+      "test_id": "issue-1175-c17: AGENT_LOCAL cannot expose the unauthenticated primary API beyond loopback",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c18",
+      "text": "Pairing never sends a Rhythm Cloud bearer to a QR-selected origin; public health is non-sensitive, the one-time pairing row is the sole user authority, the response is account-bound, and replacement/rollback use only Device credentials.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-adversarial-review.test.mjs",
+      "test_id": "issue-1175-c18: hostile QR origins never receive cloud credentials and cannot choose pairing identity",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c19",
+      "text": "Every mobile Tool surface has an explicit tenant policy: user-owned resources are owner-scoped for list/read/update/delete/run, Mac-global execution policy requires a workspace/global administrator, and decision actors are server-derived.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
+      "test_id": "issue-1175-c19: two paired users cannot cross tenant or let staff mutate Mac-global agent policy",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c20",
+      "text": "Approval listing and decisions require a UI-held Keychain-backed Bearer capability unavailable to the API child/model shell or Device tokens, and the server derives the human actor instead of accepting actor text.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
+      "test_id": "issue-1175-c20: loopback shell and paired-device callers cannot self-approve a human gate",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c21",
+      "text": "All external or user-authored reads, including message threads and calendar events, are scanned, fenced, and durably tainted fail-closed; every role combining those reads with consequential writes remains payload-bound to real human approval.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
+      "test_id": "issue-1175-c21: church-admin message and calendar prompt injection cannot immediately send outbound content",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c22",
+      "text": "Production mobile configuration rejects E2E mode, missing or mismatched OAuth settings, and unapproved Cloud origins; its resolved native config and exported bundle contain no test credentials, fake identity, __control transport, or test gateway override.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-adversarial-review.test.mjs",
+      "test_id": "issue-1175-c22: a production app cannot compile in test mode or with unusable authentication",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c23",
+      "text": "Google mobile OAuth pins the exact configured Rhythm client and redirect server-side and validates signed ID-token audience, authorized party, nonce, issuer, expiry, and verified email; a code for a caller-selected client is rejected.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
+      "test_id": "issue-1175-c23: caller-chosen Google clients cannot mint Rhythm sessions",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c24",
+      "text": "The committed iOS production build command is repository-portable, version-pinned, non-interactive, performs authenticated credential/project preflight, and has no private absolute launcher path.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-adversarial-review.test.mjs",
+      "test_id": "issue-1175-c24: clean-shell production build command is pinned and unattended",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c25",
+      "text": "Public OpenCode transcript share/unshare is disabled across the gateway contract, generated manifest, provider/service surface, and mobile UI until a private Rhythm-owned sharing design exists.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-adversarial-review.test.mjs",
+      "test_id": "issue-1175-c25: mobile cannot create or expose public OpenCode transcript links",
+      "status": "pending"
     }
   ],
   "stack": "typescript",
