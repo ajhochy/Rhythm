@@ -1,0 +1,215 @@
+{
+  "run_id": "2026-07-24-issue-1096",
+  "issue": 1096,
+  "date": "2026-07-24",
+  "smoke_result": "pass",
+  "verification_claimed": "FAIL",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1096-c1",
+      "text": "With no Engraph executable, Rhythm remains fully functional on FTS; setup/status reports a clear install path without requiring shell or environment-variable edits.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract; not repeated manually."
+    },
+    {
+      "criterion_id": "issue-1096-c2",
+      "text": "Discovery checks `PATH` and supported common Homebrew locations; a binary picker can choose another executable and persists only a validated path.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract; not repeated manually."
+    },
+    {
+      "criterion_id": "issue-1096-c3",
+      "text": "Rhythm creates and uses only its Application Support HOME/index; `~/.engraph` remains untouched in verified tests/manual inspection.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Real Engraph live test used only the isolated sandbox Application Support HOME and returned to fail-safe retrieval after disable."
+    },
+    {
+      "criterion_id": "issue-1096-c4",
+      "text": "Only the canonical agent-memory directory is indexable; arbitrary, traversal, symlink-escape, and whole-vault paths are rejected or safely normalized to the approved root.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract; not repeated manually."
+    },
+    {
+      "criterion_id": "issue-1096-c5",
+      "text": "Setup/indexing is asynchronous and does not block app startup or normal requests.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The signed client stayed responsive while the real sandbox lifecycle advanced to Ready."
+    },
+    {
+      "criterion_id": "issue-1096-c6",
+      "text": "Managed service access is loopback-only, authenticated, and read-only; external/non-loopback and unauthenticated access fail.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract; not repeated manually."
+    },
+    {
+      "criterion_id": "issue-1096-c7",
+      "text": "The health state requires a real authenticated search to complete within one second. Process existence or an open port alone is insufficient.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The env-gated HTTP test reached Ready only after the real authenticated search assertion passed."
+    },
+    {
+      "criterion_id": "issue-1096-c8",
+      "text": "Disabled, missing, unhealthy, timeout, malformed-result, or permission-blocked Engraph always falls back safely to FTS without breaking prompt construction.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The signed permission-denied state remained usable and explicitly reassured that standard memory search was active."
+    },
+    {
+      "criterion_id": "issue-1096-c9",
+      "text": "Start, shutdown, retry, and rebuild affect only the exact process Rhythm owns; no unrelated process can be terminated.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Unrelated PID 37322 survived real start, retry, rebuild, health, and disable actions."
+    },
+    {
+      "criterion_id": "issue-1096-c10",
+      "text": "Stored settings, logs, API responses, and UI-safe diagnostics contain no secrets, indexed memory content, user query text, or unnecessary sensitive path details.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The signed client exposed fixed category guidance only; no backend failure detail or indexed content rendered."
+    },
+    {
+      "criterion_id": "issue-1096-c11",
+      "text": "Signed-app behavior accounts for expected Gatekeeper/TCC/notarization/signing failures without bypassing macOS protections.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Apple Development-signed app rendered sandbox-only permission_denied as Privacy & Security guidance plus an explicit instruction not to bypass macOS protection, then recovered through Enable to Ready."
+    },
+    {
+      "criterion_id": "issue-1096-c12",
+      "text": "Settings presents Semantic Memory as optional, local, and fail-safe; staff can understand the status without developer knowledge.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The signed UI rendered the optional/private/fail-safe description and plain-language Off, Needs attention, and Ready states."
+    },
+    {
+      "criterion_id": "issue-1096-c13",
+      "text": "Users can enable/disable semantic memory, request a health check/retry, open install guidance, select a binary, and request a confirmed rebuild through supported backend APIs.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Signed-client Enable and Disable actions were exercised against the real isolated backend; the full action set was visible."
+    },
+    {
+      "criterion_id": "issue-1096-c14",
+      "text": "The UI renders each required state/copy above from backend state and stays responsive during validation/indexing/rebuild.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Backend-injected permission state and real lifecycle Ready/Off states rendered without a client stall."
+    },
+    {
+      "criterion_id": "issue-1096-c15",
+      "text": "No UI flow asks the user to edit environment variables, shell configuration, ports, tokens, or `~/.engraph`.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The signed UI exposed only supported buttons and plain-language setup guidance."
+    },
+    {
+      "criterion_id": "issue-1096-c16",
+      "text": "The binary picker follows existing app conventions and only submits the selected path to backend validation; the client does not trust it as healthy.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract; not repeated manually."
+    },
+    {
+      "criterion_id": "issue-1096-c17",
+      "text": "Failure views are sanitized, actionable, accessible, and explicitly reassure users that standard memory search remains active.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The signed accessibility tree contained the sanitized actionable sentence and standard-search reassurance."
+    },
+    {
+      "criterion_id": "issue-1096-c18",
+      "text": "macOS permission/security failures have clear, safe guidance and do not suggest bypassing system protection.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The signed accessibility tree contained 'Do not bypass macOS protection.'"
+    },
+    {
+      "criterion_id": "issue-1096-c19",
+      "text": "Rebuild copy and behavior make clear that only Rhythm’s Application Support index is affected.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the automated contract and real HTTP rebuild; confirmation dialog was not repeated manually."
+    },
+    {
+      "criterion_id": "issue-1096-c20",
+      "text": "UI never displays indexed content, queries, auth data, secrets, or unnecessary sensitive paths.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The signed Settings surface displayed only fixed status copy and Engraph version."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "sandbox-port-isolation",
+      "description": "The issue branch predated the alternate-port sandbox patch, so the coordinator temporarily applied that already-reviewed patch to run on 4398/4397 and restored it byte-for-byte afterward.",
+      "detected_by": "Occupied-port inspection plus git diff/hash checks before and after the live run."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/__tests__/live_e2e_1096_engraph_manager_http.test.ts",
+    "apps/desktop_flutter/lib/features/settings/controllers/semantic_memory_controller.dart",
+    "apps/desktop_flutter/lib/features/settings/data/semantic_memory_data_source.dart",
+    "apps/desktop_flutter/lib/features/settings/views/settings_view.dart",
+    "apps/desktop_flutter/lib/features/settings/widgets/semantic_memory_section.dart",
+    "apps/desktop_flutter/test/contract/goldens/issue_1096_semantic_memory_indexing.png",
+    "apps/desktop_flutter/test/contract/goldens/issue_1096_semantic_memory_permission_error.png",
+    "apps/desktop_flutter/test/contract/goldens/issue_1096_semantic_memory_ready.png",
+    "apps/desktop_flutter/test/contract/issue_1096_semantic_memory_test.dart",
+    "docs/ai/contracts/issue-1096.json",
+    "docs/ai/project-state.md",
+    "docs/ai/runs/2026-07-24-1096-semantic-memory-settings.md"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Land the coordinator's alternate-port sandbox commit before running other branch-isolated live gates."
+}

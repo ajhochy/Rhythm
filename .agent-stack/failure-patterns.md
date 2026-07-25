@@ -261,3 +261,11 @@
 - **Root cause**: Selection-time allow-lists made arbitrary formats unreachable, while the engine's fallback pretended Read had run and forwarded opaque binary bytes to the provider. The first live launch was also reaped after reporting healthy, and the first full Flutter run exhausted disk after 812 passes.
 - **Suggested fix**: Keep selection unrestricted, resolve local binaries through the real Read tool, persist an actionable reader-discovery task, add a foreground sandbox mode, and retain serial full-suite fallback under disk pressure.
 - See `.agent-stack/postmortems/2026-07-25-issue-1137.json`.
+
+## 2026-07-24 — Issue 1096 — signed Semantic Memory sandbox smoke
+
+- **Result**: smoke PASS (verification had correctly remained incomplete pending the live and signed-client gates)
+- **Category**: none — no correctness divergence; process: sandbox-port-isolation
+- **Criteria affected**: c3, c5, c7-c15, c17-c18, c20 passed in the live/signed smoke; the remaining criteria retained automated contract evidence
+- **Root cause**: the feature branch predated alternate sandbox-port support, so the already-reviewed coordinator patch was applied only for the isolated run and restored byte-for-byte afterward.
+- **Suggested fix**: land alternate-port sandbox support before the next parallel live workstream so branch verification never needs a temporary launcher patch.
