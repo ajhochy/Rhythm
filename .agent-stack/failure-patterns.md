@@ -260,6 +260,7 @@
 - **Criteria affected**: issue-1137-c1 and issue-1137-c2.
 - **Root cause**: The contract stopped at empty picker filters and persistence of a synthetic instruction. It never drove an arbitrary browser binary through `createPromptAttachments`, never checked Flutter's binary `@mention` fast path against traversal/symlink input, and never asserted a concrete reader candidate. The fork still rejected arbitrary binaries after selection, while Flutter bypassed the API realpath guard.
 - **Suggested fix**: Picker contracts must drive post-selection consumption through request construction and the built engine. Binary workspace references must use a server-returned canonical contained path. Reader-discovery live gates must install and observe a concrete matching reader, plus cover browser data URLs and pre-prompt symlink rejection.
+- **Repair result**: The expanded built live gate caught a second defect after the independent-review fixes: generic `rhythm` token matches alphabetically crowded the exact `rhythmfixture-reader` out of the surfaced top five. A noisy-catalog regression now forces exact extension/MIME matches to rank first; the final standalone-engine gate passed native + browser consumption, exact reader surfacing, and symlink rejection.
 - See `.agent-stack/postmortems/2026-07-25-issue-1137.json`.
 
 ## 2026-07-24 — Issue 1096 — signed Semantic Memory sandbox smoke

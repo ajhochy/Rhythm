@@ -1,10 +1,10 @@
 ---
 date: 2026-07-25
 repo: Rhythm
-branch: codex/1137-any-file-reader-discovery
+branch: codex/issues-1076-1175-2026-07-24
 pr: null
 issues: [1137]
-status: verified
+status: live-verified
 tags: [run, Rhythm]
 ---
 
@@ -118,3 +118,55 @@ whose workspace links target the coordinator and therefore report known
 cross-worktree type identities plus pre-#1161 `ws_gateway` errors. The
 authoritative built/type/live gate must run after this corrective commit lands
 on the coordinator's reviewed dependency lineage.
+
+## Corrected coordinator live gate
+
+The corrective slice landed on the reviewed coordinator lineage at
+`6730156f8`, then the production-sized sandbox exposed one final real defect:
+the reader existed in the project-local engine catalog, but generic MIME token
+`rhythm` matched many unrelated skills. Alphabetical five-item truncation hid
+`rhythmfixture-reader` from the persisted discovery guidance.
+
+Failure and repair evidence:
+
+- Retained-shell live attempt on the corrected coordinator failed in 8.90s:
+  the transcript contained `Compatible skills already available` but did not
+  contain `rhythmfixture-reader`.
+- A noisy-catalog regression was added with six unrelated “Rhythm” skills. It
+  failed before the repair at the exact reader assertion.
+- Exact extension/MIME matches now outrank generic token coincidences, and weak
+  candidates are omitted when a strong match exists (`14118ce8e`).
+- `bun test test/session/prompt.test.ts` — 56/56 pass, including the new noisy
+  catalog regression.
+- `bun run typecheck` in `packages/opencode` — pass.
+- GitNexus staged detection — 2 files / 5 symbols / 0 affected processes /
+  LOW risk.
+
+The required launcher rebuilt the standalone fork binary
+`0.0.0-codex/issues-1076-1175-2026-07-24-202607250852` and API. The final
+command was:
+
+```text
+RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 \
+RHYTHM_LIVE_URL=http://127.0.0.1:5198 \
+DB_PATH=/tmp/rhythm-run0724-1137-final/rhythm.db \
+./node_modules/.bin/vitest run \
+  src/__tests__/live_e2e_1137_any_file_reader_discovery.test.ts \
+  --reporter=verbose
+```
+
+Final result: 1/1 pass; the behavioral case completed in 10.10s (10.42s total).
+It observed both native and browser binary consumption, the exact installed
+reader name and description in the persisted guidance, and a symlink escape
+rejected before prompt dispatch.
+
+Final cleanup:
+
+- sandbox rows matching `live1137reader%` / `Live 1137 reader %`: 0 / 0;
+- no `rhythm-live-1137-*` scratch directory remained;
+- `/tmp/rhythm-run0724-1137-final` removed;
+- ports 5198 and 5197 verified free.
+
+The initial false-green remains recorded as a divergence in
+`.agent-stack/postmortems/2026-07-25-issue-1137.json`; the final live result
+does not erase that evidence.

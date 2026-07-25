@@ -17,15 +17,15 @@ coordinator branch, then run the combined merge gate and open a draft PR.
 - The mobile app/gateway foundation is consolidated; #1168 enforces
   authenticated, project-scoped, allowlisted device access, while #1169
   exposes the generated operation allowlist through the hardened proxy.
-- #1137's regression-first corrective slice is integrated; the fork now
+- #1137's regression-first corrective slice is integrated and live-verified; the fork now
   consumes browser binaries after selection, Flutter binary `@` mentions use
   the API's canonical contained path, native reads sample before loading, and
-  real skill/MCP reader matches are surfaced.
+  exact skill/MCP reader matches outrank generic catalog coincidences.
 
 ## Risks / known issues
 
 - #1137's initial evidence remains explicitly invalidated; the expanded built
-  live gate and independent immutable re-review are pending.
+  live gate now passes and independent immutable re-review is pending.
 - Mobile compare-to-main impact is expected HIGH because the previously
   unfinished app/gateway foundation is now consolidated into Rhythm.
 - Fork-wide typecheck has one unrelated `GlobalBusEmitter.emit` base failure;
@@ -42,12 +42,12 @@ coordinator branch, then run the combined merge gate and open a draft PR.
 - #1169 passed independent security review, the serialized 3,207-test API
   suite, and a real gateway/engine smoke covering pairing, session lifecycle,
   contained file access, and denied operations.
-- #1137 corrective focused gates pass (Flutter 32/32 plus analyze, fork prompt
-  56/56, app 21/21, API containment 10/10); built live verification is next.
+- #1137 corrective gates pass (Flutter 32/32 plus analyze, fork prompt 56/56,
+  app 21/21, API containment 10/10, and final standalone-engine live 1/1).
 - Aggregate coordinator validation is pending after all slices land.
 
 ## Next step
 
-Run #1137's expanded built live gate and independent re-review while #1170 and
-#1171 continue in parallel, then complete the remaining mobile slices,
-combined gates, and draft PRs.
+Run #1137's independent immutable re-review while #1170 and #1171 continue in
+parallel, then complete the remaining mobile slices, combined gates, and draft
+PRs.

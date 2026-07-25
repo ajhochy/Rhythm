@@ -2,25 +2,25 @@
   "run_id": "2026-07-25-issue-1137",
   "issue": 1137,
   "date": "2026-07-25",
-  "smoke_result": "fail",
-  "verification_claimed": "PASS (initial; invalidated by independent review)",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS (initial claim invalidated; repaired implementation passed the expanded built live gate)",
   "divergence": true,
   "criteria_results": [
     {
       "criterion_id": "issue-1137-c1",
       "text": "Attachment pickers do not gate on file type; any selected file reaches the consumption path.",
       "contract_status": "pass",
-      "smoke_status": "fail",
+      "smoke_status": "pass",
       "category": "C1 — missing contract",
-      "notes": "The initial tests proved unrestricted selection but not post-selection consumption: createPromptAttachments still rejected arbitrary browser binaries. Flutter binary @mentions also bypassed the API containment proxy."
+      "notes": "The initial tests proved unrestricted selection but not post-selection consumption: createPromptAttachments still rejected arbitrary browser binaries and Flutter binary @mentions bypassed the API containment proxy. The repaired live gate consumed both native and browser binaries, while traversal/symlink inputs were rejected before prompt dispatch."
     },
     {
       "criterion_id": "issue-1137-c2",
       "text": "An agent receiving a file with no built-in reader searches or surfaces a compatible skill, MCP tool/server, or trusted external reader instead of silently failing.",
       "contract_status": "pass",
-      "smoke_status": "fail",
+      "smoke_status": "pass",
       "category": "C1 — missing contract",
-      "notes": "The initial live gate observed only an injected procedure. It did not prove that a compatible reader was actually searched or surfaced, and it never exercised browser binary consumption."
+      "notes": "The initial live gate observed only an injected procedure. The repaired built-engine gate installed a project-local rhythmfixture-reader and asserted its exact name and description in the persisted guidance. A first repaired live attempt then caught generic Rhythm matches crowding the reader out; exact extension/MIME ranking fixed that final defect and the rerun passed."
     }
   ],
   "process_issues": [
@@ -43,6 +43,11 @@
       "process_category": "acceptance-surface-gap",
       "description": "The initial acceptance tests stopped at unrestricted picker configuration and synthetic instruction persistence instead of driving post-selection consumption, containment, and a concrete surfaced reader.",
       "detected_by": "Independent SPEC/security review reproduced browser binary rejection and showed Flutter's binary @mention fast path bypassing containsReal."
+    },
+    {
+      "process_category": "candidate-ranking-false-positive",
+      "description": "The first repaired live run still alphabetically truncated matching skills after treating generic MIME token 'rhythm' as equivalent to exact extension 'rhythmfixture', hiding the installed reader behind unrelated catalog entries.",
+      "detected_by": "Retained-shell built live gate failed the exact rhythmfixture-reader transcript assertion; a six-noise-skill regression reproduced the failure before the ranking repair."
     }
   ],
   "workflow_adherence": {
@@ -79,7 +84,7 @@
     "docs/ai/attachment-fallback.md",
     "docs/ai/contracts/issue-1137.json"
   ],
-  "failure_output": "",
+  "failure_output": "First retained-shell repaired live attempt: expected persisted transcript to contain rhythmfixture-reader, but Compatible skills listed five unrelated generic Rhythm matches. Final rebuilt rerun: 1/1 pass in 10.10s.",
   "overall_category": "C1 — missing contract",
   "suggested_follow_up": "Every unrestricted picker contract must drive the selected artifact through request construction and the built engine; binary @mention tests must include traversal and symlink cases; reader-discovery live gates must assert a concrete surfaced reader, not only an instruction."
 }
