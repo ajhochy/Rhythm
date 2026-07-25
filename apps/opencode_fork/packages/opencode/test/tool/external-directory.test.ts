@@ -1,5 +1,6 @@
 import { describe, expect } from "bun:test"
 import path from "path"
+import fsPromises from "fs/promises"
 import { Effect } from "effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import type { Tool } from "@/tool/tool"
@@ -105,6 +106,55 @@ describe("tool.assertExternalDirectory", () => {
       }),
     ),
   )
+
+  describe("symlink escape (in-root symlink pointing outside root)", () => {
+    it.instance("emits external_directory permission for a file reached via an in-root symlink to outside", () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const outer = yield* tmpdirScoped()
+        yield* Effect.promise(() => Bun.write(path.join(outer, "secret.txt"), "secret"))
+        yield* Effect.promise(() => fsPromises.symlink(outer, path.join(test.directory, "escape")))
+
+        const { requests, ctx } = makeCtx()
+        const target = path.join(test.directory, "escape", "secret.txt")
+
+        yield* assertExternalDirectoryEffect(ctx, target)
+
+        const req = requests.find((r) => r.permission === "external_directory")
+        expect(req).toBeDefined()
+      }),
+    )
+
+    it.instance(
+      "emits external_directory permission for a directory reached via an in-root symlink to outside",
+      () =>
+        Effect.gen(function* () {
+          const test = yield* TestInstance
+          const outer = yield* tmpdirScoped()
+          yield* Effect.promise(() => fsPromises.symlink(outer, path.join(test.directory, "escape-dir")))
+
+          const { requests, ctx } = makeCtx()
+          const target = path.join(test.directory, "escape-dir")
+
+          yield* assertExternalDirectoryEffect(ctx, target, { kind: "directory" })
+
+          const req = requests.find((r) => r.permission === "external_directory")
+          expect(req).toBeDefined()
+        }),
+    )
+
+    it.instance("no-ops for a legitimate in-root subdirectory reached through no symlink", () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const { requests, ctx } = makeCtx()
+        const target = path.join(test.directory, "sub", "file.txt")
+
+        yield* assertExternalDirectoryEffect(ctx, target)
+
+        expect(requests.length).toBe(0)
+      }),
+    )
+  })
 
   if (process.platform === "win32") {
     it.instance(

@@ -1,0 +1,3 @@
+# js-yaml is vendored here at release-bundle time (desktop_release.yml) and at
+# runtime by config_seeds_seeder.ts — never committed to the repo.
+node_modules/

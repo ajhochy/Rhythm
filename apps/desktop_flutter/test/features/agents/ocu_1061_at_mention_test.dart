@@ -333,4 +333,47 @@ void main() {
       expect(text, contains('truncated'));
     },
   );
+
+  // ── Issue #1137: Office docs route to a `file:` reference, not a SnackBar ──
+
+  testWidgets(
+    'REAL-SURFACE (#1137): picking a .docx attaches a file: ref, no '
+    'unsupported-type SnackBar',
+    (tester) async {
+      repo.findFilesResult = const ['report.docx'];
+      // The content proxy is never consulted for Office docs (short-circuited
+      // before fetchFileContent) — if this were used, the test would still
+      // pass only by accident, so leave it at a shape that would fail the
+      // old code path's assertions.
+      repo.fileContentResult = const {'type': 'binary', 'content': ''};
+
+      await tester.pumpWidget(_wrap(controller));
+      await tester.pump();
+
+      await tester.enterText(
+        find.byKey(const ValueKey('agent-composer-input')),
+        '@report',
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byKey(const ValueKey('at-mention-item-0')), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('at-mention-item-0')));
+      await tester.pump();
+      await tester.pump();
+
+      final part = controller.pendingAttachmentsFor('s1').single;
+      expect(part['type'], 'file');
+      expect(
+        part['mime'],
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+      // session cwd is '/tmp' (_makeSession) — the ref must point at the real
+      // path on disk, not a `data:` URI, so the engine's Read tool (and the
+      // docx skill) can read it.
+      expect(part['url'], 'file:///tmp/report.docx');
+
+      // No "unsupported file type" rejection SnackBar.
+      expect(find.textContaining('unsupported file type'), findsNothing);
+    },
+  );
 }

@@ -120,9 +120,11 @@ describe('backfillObsidianReadScope (real DB)', () => {
     const r = backfillObsidianReadScope();
 
     expect(r.alreadyDone).toBe(false);
-    // test-array-agent + the seeded Config Doctor + Rhythm Setup profiles are
-    // all granted (preset rows have null scope → skipped, never granted).
-    expect(r.arrayGranted).toBe(3); // test-array-agent, config-doctor, rhythm-setup
+    // test-array-agent + the seeded Rhythm Setup profile are granted (preset
+    // rows have null scope → skipped; the seeded Config Doctor profile now
+    // ships WITH obsidian already in its ["rhythm","obsidian"] array scope, so
+    // grantObsidianScope is idempotent for it → skipped, never granted).
+    expect(r.arrayGranted).toBe(2); // test-array-agent, rhythm-setup
     expect(r.objectGranted).toBe(1); // test-object-agent
 
     // test-array-agent: array gained obsidian, rhythm preserved + ordered.

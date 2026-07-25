@@ -249,6 +249,28 @@ async function main() {
       );
     }
 
+    // Seed the committed config assets (config-doctor tools +
+    // customize-rhythm skill) from apps/api_server/config_seeds/ onto disk
+    // under ~/.config/opencode/. The config-doctor runbook (seeded as the agent
+    // profile above) instructs the agent to run
+    // `node ~/.config/opencode/tools/classify.cjs` etc., so those tool files
+    // must exist on both new and existing installs. Version-gated by a
+    // schema_meta marker and force-pushing (overwrites the managed copies so a
+    // shipped fix propagates — mirrors the config_doctor_prompt_vN runOnce).
+    // Non-fatal — never blocks startup; no-op under Postgres.
+    try {
+      const { seedConfigAssets } = await import('./services/config_seeds_seeder');
+      const r = seedConfigAssets();
+      if (!r.alreadyDone) {
+        logger.info(
+          `[server] config-seeds: skillsCopied=${r.skillsCopied} ` +
+            `toolsCopied=${r.toolsCopied} jsYamlProvisioned=${r.jsYamlProvisioned}`,
+        );
+      }
+    } catch (err) {
+      logger.warn(`[server] config-seeds seeding failed (non-fatal): ${String(err)}`);
+    }
+
     // #846 — One-time seed of the three ministry recipe exemplars (Sunday
     // Service Prep / Volunteer Follow-up / Weekly Ministry Review), each a
     // scheduled task + managed skill pair bound to the correct scoped agent

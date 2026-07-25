@@ -1,6 +1,7 @@
 import type { Pool } from 'pg';
 
 import { env } from '../config/env';
+import { convertLegacyNumberedCorePermissions } from './core_permissions_repair';
 
 const UTC_TEXT_NOW =
   `to_char(timezone('utc', now()), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
@@ -961,6 +962,37 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `);
     await pool.query(
       `INSERT INTO schema_meta (key, value) VALUES ('nonmanager_delegates_wipe_v1', $1)
+       ON CONFLICT (key) DO NOTHING`,
+      [new Date().toISOString()],
+    );
+  }
+
+  // #1138 follow-up — one-time repair of legacy numbered-key
+  // core_permissions_json rows, marker-guarded (schema_meta) with the SAME
+  // key as the SQLite twin in migrations.ts
+  // ('numbered_core_permissions_repair_v1') per the postgres/sqlite schema
+  // drift pattern. Data repair only — flat/hand-repaired/garbage rows are
+  // left untouched by the shared converter (returns undefined).
+  const numberedPermsMarker = await pool.query(
+    `SELECT key FROM schema_meta WHERE key = 'numbered_core_permissions_repair_v1'`,
+  );
+  if ((numberedPermsMarker.rowCount ?? 0) === 0) {
+    const permRows = await pool.query(
+      `SELECT id, core_permissions_json FROM agent_configs WHERE core_permissions_json IS NOT NULL`,
+    );
+    for (const row of permRows.rows as { id: string; core_permissions_json: string }[]) {
+      const repaired = convertLegacyNumberedCorePermissions(row.core_permissions_json);
+      if (repaired === undefined) continue;
+      await pool.query(
+        `UPDATE agent_configs
+            SET core_permissions_json = $1
+          WHERE id = $2
+            AND core_permissions_json = $3`,
+        [repaired, row.id, row.core_permissions_json],
+      );
+    }
+    await pool.query(
+      `INSERT INTO schema_meta (key, value) VALUES ('numbered_core_permissions_repair_v1', $1)
        ON CONFLICT (key) DO NOTHING`,
       [new Date().toISOString()],
     );

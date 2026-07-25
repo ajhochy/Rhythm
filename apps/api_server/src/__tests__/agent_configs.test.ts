@@ -56,8 +56,20 @@ describe('agent_configs migration', () => {
     const configDoctor = db
       .prepare(`SELECT allowed_mcps_json, core_permissions_json FROM agent_configs WHERE id = 'config-doctor'`)
       .get() as { allowed_mcps_json: string | null; core_permissions_json: string | null };
-    expect(configDoctor.allowed_mcps_json).toBe(JSON.stringify(['rhythm']));
-    expect(JSON.parse(configDoctor.core_permissions_json!)).toEqual({ bash: 'ask' });
+    // config_doctor_prompt_v2 ships the validated live profile scope: MCP
+    // ["rhythm","obsidian"] and the widened core-permission block (was
+    // ["rhythm"] / {bash:'ask'} before the v2 revision).
+    expect(configDoctor.allowed_mcps_json).toBe(JSON.stringify(['rhythm', 'obsidian']));
+    expect(JSON.parse(configDoctor.core_permissions_json!)).toEqual({
+      read: 'allow',
+      glob: 'allow',
+      grep: 'allow',
+      edit: 'allow',
+      write: 'allow',
+      bash: 'allow',
+      webfetch: 'deny',
+      task: 'deny',
+    });
 
     const oldOrgOptimizerMcp = JSON.stringify({
       rhythm: {

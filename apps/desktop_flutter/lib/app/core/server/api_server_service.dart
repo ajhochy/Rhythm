@@ -35,12 +35,18 @@ typedef AgentServerStartResult = ({
 ///      non-empty explicit value for that key, in which case the explicit
 ///      env var wins (keeps `export MEMORY_VAULT_PATH=...` dev overrides
 ///      working).
+///   4. Overlay `MCP_ROLES_DIR` (#1154) with the same explicit-override
+///      precedence — [mcpRolesDir] is the bundle-relative `.mcp-roles`
+///      location computed by [ApiServerService] when running from the
+///      shipped `.app` (null in dev, where the server's own `__dirname`
+///      -relative default already resolves the repo-root `.mcp-roles/`).
 Map<String, String> buildApiServerEnvironment({
   required Map<String, String> baseEnv,
   required String port,
   required String dbPath,
   String? memoryVaultPath,
   String? memoryVaultSubdir,
+  String? mcpRolesDir,
 }) {
   final env = <String, String>{
     ...baseEnv,
@@ -55,6 +61,9 @@ Map<String, String> buildApiServerEnvironment({
   if (memoryVaultSubdir != null &&
       !baseEnv.containsKey('MEMORY_VAULT_SUBDIR')) {
     env['MEMORY_VAULT_SUBDIR'] = memoryVaultSubdir;
+  }
+  if (mcpRolesDir != null && !baseEnv.containsKey('MCP_ROLES_DIR')) {
+    env['MCP_ROLES_DIR'] = mcpRolesDir;
   }
 
   return env;
@@ -201,6 +210,7 @@ class ApiServerService {
           dbPath: dbPath,
           memoryVaultPath: _memoryVaultPath,
           memoryVaultSubdir: _memoryVaultSubdir,
+          mcpRolesDir: serverInfo.mcpRolesDir,
         ),
       );
     } catch (e) {
@@ -462,10 +472,10 @@ class ApiServerService {
     for (final candidate in candidates) {
       if (!File(candidate).existsSync()) continue;
       try {
-        final result = await Process.run(
-          candidate,
-          ['-e', "process.stdout.write(process.versions.modules)"],
-        );
+        final result = await Process.run(candidate, [
+          '-e',
+          "process.stdout.write(process.versions.modules)",
+        ]);
         if (result.exitCode == 0) {
           final abiStr = (result.stdout as String).trim();
           final abi = int.tryParse(abiStr);
@@ -488,6 +498,9 @@ class ApiServerService {
         executable: nodePath,
         args: [bundledScript],
         workingDir: '$resourcesDir/api_server',
+        // #1154 — Sibling of Resources/api_server, Resources/mcp_server,
+        // Resources/opencode_bin: bundled by the release workflow.
+        mcpRolesDir: '$resourcesDir/.mcp-roles',
       );
     }
 
@@ -608,9 +621,15 @@ class _ServerInfo {
   final List<String> args;
   final String workingDir;
 
+  /// #1154 — Bundle-relative `.mcp-roles` dir to inject as `MCP_ROLES_DIR`.
+  /// Null in dev: the server's own `__dirname`-relative default already
+  /// finds the repo-root `.mcp-roles/`.
+  final String? mcpRolesDir;
+
   const _ServerInfo({
     required this.executable,
     required this.args,
     required this.workingDir,
+    this.mcpRolesDir,
   });
 }

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect } from "bun:test"
 import { Cause, Effect, Exit, Layer } from "effect"
 import path from "path"
+import fsPromises from "fs/promises"
 import { Agent } from "../../src/agent/agent"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
@@ -167,6 +168,21 @@ describe("tool.read external_directory permission", () => {
 
       const result = yield* exec(dir, { filePath: path.join(dir, "subdir", "test.txt") })
       expect(result.output).toContain("nested content")
+    }),
+  )
+
+  it.live("asks for external_directory permission when reading through an in-root symlink to outside", () =>
+    Effect.gen(function* () {
+      const outer = yield* tmpdirScoped()
+      const dir = yield* tmpdirScoped({ git: true })
+      yield* put(path.join(outer, "secret.txt"), "secret data")
+      yield* Effect.promise(() => fsPromises.symlink(outer, path.join(dir, "escape")))
+
+      const { items, next } = asks()
+
+      yield* exec(dir, { filePath: path.join(dir, "escape", "secret.txt") }, next)
+      const ext = items.find((item) => item.permission === "external_directory")
+      expect(ext).toBeDefined()
     }),
   )
 
