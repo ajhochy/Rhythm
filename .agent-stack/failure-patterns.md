@@ -304,3 +304,12 @@
 - **Root cause**: product behavior passed after fatal SSE errors were made terminal, real engine session event shapes were recognized, and legacy unauthenticated WebSockets were restricted by the actual socket address; the live harness first needed ignored fork dependencies and a guardian process.
 - **Suggested fix**: add deterministic dependency bootstrap and a foreground/guardian mode to `tools/dev/sandbox.sh`.
 - See `.agent-stack/postmortems/2026-07-25-issue-1170.json`.
+
+## 2026-07-25 — Issue #1171 corrective — identity-bound transactional pairing
+
+- **Result**: smoke PASS (verification had not yet made a final claim; no correctness divergence)
+- **Category**: none; process: simulator-fixture-state
+- **Criteria affected**: issue-1171-c2 through issue-1171-c6 passed in the native iPhone SE smoke; c1 retained focused API evidence
+- **Root cause**: The first replacement probe deliberately preserved the existing local credential when a freshly reset fake gateway no longer contained that old device; resetting local and server fixture state together produced the expected old-device revoke, new-device activation, and final revoke.
+- **Suggested fix**: Reset simulator-local pairing and fake-gateway device state atomically before every native replacement smoke.
+- See `.agent-stack/postmortems/2026-07-25-issue-1171-corrective.json`.

@@ -1,7 +1,15 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import Constants from 'expo-constants';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Platform, StyleSheet, View } from 'react-native';
+import {
+  Alert,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import {
   Appbar,
   Button,
@@ -22,6 +30,7 @@ export default function PairScreen() {
   const palette = Colors[colorScheme];
   const account = useRhythmAccount();
   const pairedHost = usePairedHost();
+  const { height: windowHeight } = useWindowDimensions();
   const params = useLocalSearchParams<{ payload?: string }>();
   const [permission, requestPermission] = useCameraPermissions();
   const [manualPayload, setManualPayload] = useState('');
@@ -82,6 +91,14 @@ export default function PairScreen() {
   }, [pair, params.payload]);
 
   const signedIn = account.state === 'signedIn' && Boolean(account.user);
+  const e2eMode = Constants.expoConfig?.extra?.e2eMode === true;
+  const e2ePayload = JSON.stringify({
+    gatewayUrl: pairedHost.host
+      ? 'https://other-mac.tail1234.ts.net'
+      : 'https://rhythm-mac.tail1234.ts.net',
+    pairingCode: pairedHost.host ? 'b'.repeat(43) : 'a'.repeat(43),
+  });
+  const cameraHeight = Math.max(200, Math.min(300, windowHeight * 0.38));
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]}>
@@ -92,7 +109,9 @@ export default function PairScreen() {
         />
         <Appbar.Content title="Pair a Mac" />
       </Appbar.Header>
-      <View style={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled">
         <Text variant="headlineSmall" style={{ color: palette.text }}>
           Scan the code from Rhythm on your Mac
         </Text>
@@ -116,7 +135,10 @@ export default function PairScreen() {
           <View
             accessible
             accessibilityLabel="QR code scanner"
-            style={[styles.cameraFrame, { borderColor: palette.border }]}>
+            style={[
+              styles.cameraFrame,
+              { borderColor: palette.border, height: cameraHeight },
+            ]}>
             <CameraView
               barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
               onBarcodeScanned={
@@ -142,6 +164,16 @@ export default function PairScreen() {
             </Button>
           </View>
         )}
+        {e2eMode ? (
+          <Button
+            mode="contained"
+            testID="pair-simulate-qr"
+            accessibilityLabel="Scan test QR code"
+            disabled={!signedIn || pairedHost.state === 'pairing'}
+            onPress={() => void pair(e2ePayload)}>
+            Simulate QR scan
+          </Button>
+        ) : null}
         {Platform.OS === 'web' ? (
           <>
             <TextInput
@@ -172,7 +204,7 @@ export default function PairScreen() {
             {error}
           </HelperText>
         ) : null}
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -187,7 +219,7 @@ const styles = StyleSheet.create({
   },
   content: {
     alignSelf: 'center',
-    flex: 1,
+    flexGrow: 1,
     gap: 16,
     maxWidth: 520,
     padding: 20,

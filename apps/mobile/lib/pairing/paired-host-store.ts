@@ -13,7 +13,7 @@ export const CURRENT_MOBILE_VERSION = '1.0.8';
 export const EXPECTED_GATEWAY_VERSION = '1';
 export const EXPECTED_OPENCODE_VERSION = '1.14.49';
 export const EXPECTED_CONTRACT_FINGERPRINT =
-  'fd0aae2af9c69775409c399056cffeb39fd1f248f56abff7dae391895ca1add8';
+  '4d4e279ce858a0bdb33399b004ef1268e415b7fcbe5029eee93bee94e5759636';
 
 const REQUIRED_FEATURES = [
   'pairing',
@@ -28,11 +28,13 @@ export type PairedHostState =
   | 'connected'
   | 'offline'
   | 'tailscaleUnavailable'
+  | 'accountMismatch'
   | 'revoked'
   | 'incompatible'
   | 'unhealthy';
 
 export interface PairedHost {
+  rhythmUserId: number;
   gatewayUrl: string;
   deviceId: string;
   hostId: string;
@@ -57,6 +59,13 @@ export interface PairingPayload {
   pairingCode: string;
 }
 
+export interface PairedHostStoreOptions {
+  getCredential?: (key: string) => Promise<string | null>;
+  setCredential?: (key: string, value: string) => Promise<void>;
+  deleteCredential?: (key: string) => Promise<void>;
+  resolveGatewayUrl?: (gatewayUrl: string) => string;
+}
+
 interface PairingResponse {
   deviceId: string;
   hostId: string;
@@ -78,6 +87,7 @@ export class PairedHostError extends Error {
     public readonly kind:
       | 'invalidPayload'
       | 'replacementRequired'
+      | 'replacementFailed'
       | 'notSignedIn'
       | 'storage'
       | 'incompatible'
@@ -136,7 +146,8 @@ export function parsePairingPayload(raw: string): PairingPayload {
     keys[1] !== 'pairingCode' ||
     typeof record.pairingCode !== 'string' ||
     record.pairingCode.length < 32 ||
-    record.pairingCode.length > 128
+    record.pairingCode.length > 128 ||
+    !/^[A-Za-z0-9_-]+$/.test(record.pairingCode)
   ) {
     throw new PairedHostError('invalidPayload', 'This pairing QR code is invalid.');
   }
@@ -207,6 +218,9 @@ function isPairedHost(value: unknown): value is PairedHost {
   if (!value || typeof value !== 'object') return false;
   const host = value as Partial<PairedHost>;
   return (
+    typeof host.rhythmUserId === 'number' &&
+    Number.isSafeInteger(host.rhythmUserId) &&
+    host.rhythmUserId > 0 &&
     typeof host.gatewayUrl === 'string' &&
     typeof host.deviceId === 'string' &&
     typeof host.hostId === 'string' &&
@@ -222,12 +236,14 @@ function isPairedHost(value: unknown): value is PairedHost {
   );
 }
 
-async function neutralizeDeviceToken(): Promise<void> {
+async function neutralizeDeviceToken(options: PairedHostStoreOptions): Promise<void> {
+  const deleteCredential = options.deleteCredential ?? deleteItemAsync;
+  const setCredential = options.setCredential ?? setItemAsync;
   try {
-    await deleteItemAsync(PAIRED_DEVICE_SECURE_KEY);
+    await deleteCredential(PAIRED_DEVICE_SECURE_KEY);
   } catch (deleteError) {
     try {
-      await setItemAsync(PAIRED_DEVICE_SECURE_KEY, '');
+      await setCredential(PAIRED_DEVICE_SECURE_KEY, '');
     } catch {
       throw deleteError;
     }
@@ -248,6 +264,9 @@ export class PairedHostStore {
   private host: PairedHost | null = null;
   private message = 'Pair this iPhone with your Mac to use Rhythm Agents.';
   private operation = 0;
+  private accountUserId: number | null = null;
+
+  constructor(private readonly options: PairedHostStoreOptions = {}) {}
 
   snapshot(): PairedHostSnapshot {
     return { state: this.state, host: this.host, message: this.message };
@@ -257,8 +276,18 @@ export class PairedHostStore {
     this.operation += 1;
   }
 
+  setAccountUserId(userId: number | null): void {
+    if (this.accountUserId === userId) return;
+    this.accountUserId = userId;
+    this.cancelPending();
+  }
+
   supports(feature: string): boolean {
-    return this.host?.features.includes(feature) ?? false;
+    return (
+      this.state === 'connected' &&
+      this.host?.rhythmUserId === this.accountUserId &&
+      this.host.features.includes(feature)
+    );
   }
 
   private apply(
@@ -283,13 +312,29 @@ export class PairedHostStore {
     }
   }
 
+  private getCredential(key: string): Promise<string | null> {
+    return (this.options.getCredential ?? getItemAsync)(key);
+  }
+
+  private setCredential(key: string, value: string): Promise<void> {
+    return (this.options.setCredential ?? setItemAsync)(key, value);
+  }
+
+  private resolvedGatewayUrl(gatewayUrl: string): string {
+    return this.options.resolveGatewayUrl?.(gatewayUrl) ?? gatewayUrl;
+  }
+
+  private neutralizeDeviceToken(): Promise<void> {
+    return neutralizeDeviceToken(this.options);
+  }
+
   async restore(): Promise<PairedHostSnapshot> {
     const operation = ++this.operation;
     let token: string | null;
     let host: PairedHost | null;
     try {
       [token, host] = await Promise.all([
-        getItemAsync(PAIRED_DEVICE_SECURE_KEY),
+        this.getCredential(PAIRED_DEVICE_SECURE_KEY),
         this.loadHost(),
       ]);
     } catch {
@@ -302,7 +347,7 @@ export class PairedHostStore {
     }
     if (operation !== this.operation) return this.snapshot();
     if (!host) {
-      if (token) await neutralizeDeviceToken().catch(() => undefined);
+      if (token) await this.neutralizeDeviceToken().catch(() => undefined);
       return this.apply(
         'unpaired',
         'Pair this iPhone with your Mac to use Rhythm Agents.',
@@ -310,6 +355,17 @@ export class PairedHostStore {
       );
     }
     this.host = host;
+    if (
+      this.accountUserId === null ||
+      host.rhythmUserId !== this.accountUserId
+    ) {
+      return this.apply(
+        'accountMismatch',
+        this.accountUserId === null
+          ? 'Sign in to the Rhythm account that paired this Mac.'
+          : 'This Mac belongs to a different Rhythm account. Switch accounts or forget it before pairing again.',
+      );
+    }
     if (!token) {
       return this.apply(
         'revoked',
@@ -332,7 +388,18 @@ export class PairedHostStore {
         );
       }
       this.host = host;
-      const token = await getItemAsync(PAIRED_DEVICE_SECURE_KEY);
+      if (
+        this.accountUserId === null ||
+        host.rhythmUserId !== this.accountUserId
+      ) {
+        return this.apply(
+          'accountMismatch',
+          this.accountUserId === null
+            ? 'Sign in to the Rhythm account that paired this Mac.'
+            : 'This Mac belongs to a different Rhythm account. Switch accounts or forget it before pairing again.',
+        );
+      }
+      const token = await this.getCredential(PAIRED_DEVICE_SECURE_KEY);
       if (!token) {
         return this.apply(
           'revoked',
@@ -346,7 +413,7 @@ export class PairedHostStore {
         );
       }
       const client = new PairedMacClient({
-        baseUrl: host.gatewayUrl,
+        baseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
         getDeviceToken: async () => token,
       });
       const health = await client.request<HealthResponse>(
@@ -384,7 +451,7 @@ export class PairedHostStore {
       if (operation !== this.operation) return this.snapshot();
       if (error instanceof ApiError && error.status === 401) {
         try {
-          await neutralizeDeviceToken();
+          await this.neutralizeDeviceToken();
         } catch {
           return this.apply(
             'unhealthy',
@@ -423,10 +490,17 @@ export class PairedHostStore {
     this.apply('pairing', 'Pairing securely with your Mac…');
     let payload = parsePairingPayload(rawPayload);
     try {
+      if (this.accountUserId !== input.userId) {
+        throw new PairedHostError(
+          'notSignedIn',
+          'Sign in to your Rhythm account before pairing a Mac.',
+        );
+      }
       const existing = this.host ?? (await this.loadHost());
       if (
         existing &&
-        existing.gatewayUrl !== payload.gatewayUrl &&
+        (existing.gatewayUrl !== payload.gatewayUrl ||
+          existing.rhythmUserId !== input.userId) &&
         !input.replaceExisting
       ) {
         throw new PairedHostError(
@@ -434,7 +508,7 @@ export class PairedHostStore {
           `Replace ${existing.gatewayUrl.replace('https://', '')} with this Mac?`,
         );
       }
-      const cloudToken = await getItemAsync(RHYTHM_SESSION_SECURE_KEY);
+      const cloudToken = await this.getCredential(RHYTHM_SESSION_SECURE_KEY);
       if (!cloudToken) {
         throw new PairedHostError(
           'notSignedIn',
@@ -442,7 +516,7 @@ export class PairedHostStore {
         );
       }
       const client = new RhythmCloudClient({
-        baseUrl: payload.gatewayUrl,
+        baseUrl: this.resolvedGatewayUrl(payload.gatewayUrl),
         getToken: async () => cloudToken,
       });
       const health = await client.request<HealthResponse>(
@@ -510,6 +584,7 @@ export class PairedHostStore {
         throw new PairedHostError('incompatible', incompatibility);
       }
       const host: PairedHost = {
+        rhythmUserId: input.userId,
         gatewayUrl: payload.gatewayUrl,
         deviceId: response.deviceId,
         hostId: response.hostId,
@@ -522,13 +597,42 @@ export class PairedHostStore {
         features: [...response.features],
         pairedAt: new Date().toISOString(),
       };
+      if (
+        existing &&
+        existing.gatewayUrl !== payload.gatewayUrl &&
+        input.replaceExisting
+      ) {
+        const oldClient = new RhythmCloudClient({
+          baseUrl: this.resolvedGatewayUrl(existing.gatewayUrl),
+          getToken: async () => cloudToken,
+        });
+        try {
+          await oldClient.request(
+            `/mobile-gateway/devices/${encodeURIComponent(existing.deviceId)}`,
+            { method: 'DELETE' },
+          );
+        } catch {
+          await client
+            .request(
+              `/mobile-gateway/devices/${encodeURIComponent(response.deviceId)}`,
+              { method: 'DELETE' },
+            )
+            .catch(() => undefined);
+          throw new PairedHostError(
+            'replacementFailed',
+            'The previous Mac could not be revoked, so this iPhone kept its existing pairing. Bring the previous Mac online and try again.',
+          );
+        }
+      }
       let tokenWritten = false;
       try {
-        await setItemAsync(PAIRED_DEVICE_SECURE_KEY, response.deviceToken);
+        await this.setCredential(PAIRED_DEVICE_SECURE_KEY, response.deviceToken);
         tokenWritten = true;
         await AsyncStorage.setItem(PAIRED_HOST_META_KEY, JSON.stringify(host));
       } catch {
-        if (tokenWritten) await neutralizeDeviceToken().catch(() => undefined);
+        if (tokenWritten) {
+          await this.neutralizeDeviceToken().catch(() => undefined);
+        }
         await AsyncStorage.removeItem(PAIRED_HOST_META_KEY).catch(() => undefined);
         throw new PairedHostError(
           'storage',
@@ -566,7 +670,7 @@ export class PairedHostStore {
     const operation = ++this.operation;
     const host = this.host ?? (await this.loadHost());
     if (!host) return this.forget();
-    const cloudToken = await getItemAsync(RHYTHM_SESSION_SECURE_KEY);
+    const cloudToken = await this.getCredential(RHYTHM_SESSION_SECURE_KEY);
     if (!cloudToken) {
       throw new PairedHostError(
         'notSignedIn',
@@ -574,7 +678,7 @@ export class PairedHostStore {
       );
     }
     const client = new RhythmCloudClient({
-      baseUrl: host.gatewayUrl,
+      baseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
       getToken: async () => cloudToken,
     });
     await client.request(
@@ -588,7 +692,7 @@ export class PairedHostStore {
   async forget(): Promise<PairedHostSnapshot> {
     ++this.operation;
     try {
-      await neutralizeDeviceToken();
+      await this.neutralizeDeviceToken();
       await AsyncStorage.removeItem(PAIRED_HOST_META_KEY);
     } catch {
       throw new PairedHostError(

@@ -2,6 +2,7 @@
 
 import http from 'node:http';
 import { Buffer } from 'node:buffer';
+import { readFileSync } from 'node:fs';
 import { URL } from 'node:url';
 import { WebSocketServer } from 'ws';
 
@@ -23,6 +24,22 @@ const configuredBasePath = (process.env.FAKE_OPENCODE_BASE_PATH || '').trim();
 const basePath = configuredBasePath
   ? `/${configuredBasePath.replace(/^\/+/, '').replace(/\/+$/, '')}`
   : '';
+const mobileContract = JSON.parse(
+  readFileSync(new URL('../../contracts/rhythm-opencode-contract.json', import.meta.url)),
+);
+const mobileCompatibility = {
+  gatewayVersion: '1',
+  rhythmVersion: '0.1.0',
+  opencodeVersion: mobileContract.engineVersion,
+  contractFingerprint: mobileContract.openapiSha256,
+  minimumMobileVersion: '0.1.0',
+  features: [
+    'pairing',
+    'device-revocation',
+    'project-scope',
+    'opencode-http-proxy',
+  ],
+};
 
 if (!supportedScenarios.has(scenarioName)) {
   throw new Error(`Unsupported fake OpenCode scenario: ${scenarioName}`);
@@ -177,6 +194,125 @@ const server = http.createServer(async (req, res) => {
       }
       state = stateStore.resetState(nextScenario);
       sendJson(res, 200, { data: { scenario: state.scenario } });
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/__control/mobile') {
+      sendJson(res, 200, {
+        devices: [...state.mobileDevices.values()].map(({ token: _token, ...device }) => device),
+        events: state.mobileEvents,
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/__control/mobile-revoke-failure') {
+      const body = await readJson(req);
+      state.mobileOldRevokeFailure = body?.enabled === true;
+      sendJson(res, 200, { enabled: state.mobileOldRevokeFailure });
+      return;
+    }
+
+    const mobileMatch = pathname.match(
+      /^\/__mobile\/([^/]+)(\/mobile-gateway(?:\/.*)?)$/,
+    );
+    if (mobileMatch) {
+      const gatewayHost = decodeURIComponent(mobileMatch[1]);
+      const gatewayPath = mobileMatch[2];
+      const authorization = req.headers.authorization || '';
+      const bearerAuthorized = authorization === 'Bearer e2e-cloud-session';
+      const deviceToken = authorization.startsWith('Device ')
+        ? authorization.slice('Device '.length)
+        : '';
+      const deviceAuthorized = [...state.mobileDevices.values()].some(
+        (device) =>
+          !device.revoked &&
+          device.gatewayHost === gatewayHost &&
+          device.token === deviceToken,
+      );
+      state.mobileEvents.push({
+        method: req.method,
+        gatewayHost,
+        path: gatewayPath,
+      });
+
+      if (
+        req.method === 'GET' &&
+        gatewayPath === '/mobile-gateway/health'
+      ) {
+        if (!bearerAuthorized && !deviceAuthorized) {
+          sendJson(res, 401, { error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } });
+          return;
+        }
+        sendJson(res, 200, {
+          status: 'ready',
+          hostId: gatewayHost.startsWith('other-') ? 'host-2' : 'host-1',
+          ...mobileCompatibility,
+        });
+        return;
+      }
+
+      if (req.method === 'POST' && gatewayPath === '/mobile-gateway/pair') {
+        if (!bearerAuthorized) {
+          sendJson(res, 401, { error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } });
+          return;
+        }
+        const body = await readJson(req);
+        if (
+          body?.userId !== 7 ||
+          !['a'.repeat(43), 'b'.repeat(43)].includes(body?.pairingCode)
+        ) {
+          sendJson(res, 403, { error: { code: 'PAIRING_CODE_INVALID', message: 'Invalid code' } });
+          return;
+        }
+        const deviceId = `mobile-device-${state.nextMobileDeviceId++}`;
+        const device = {
+          deviceId,
+          gatewayHost,
+          hostId: gatewayHost.startsWith('other-') ? 'host-2' : 'host-1',
+          token: `e2e-device-token-${deviceId}`,
+          revoked: false,
+        };
+        state.mobileDevices.set(deviceId, device);
+        sendJson(res, 201, {
+          deviceId,
+          hostId: device.hostId,
+          deviceToken: device.token,
+          ...mobileCompatibility,
+        });
+        return;
+      }
+
+      const mobileDelete = gatewayPath.match(
+        /^\/mobile-gateway\/devices\/([^/]+)$/,
+      );
+      if (req.method === 'DELETE' && mobileDelete) {
+        if (!bearerAuthorized) {
+          sendJson(res, 401, { error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } });
+          return;
+        }
+        const deviceId = decodeURIComponent(mobileDelete[1]);
+        const device = state.mobileDevices.get(deviceId);
+        if (!device || device.gatewayHost !== gatewayHost) {
+          notFound(res);
+          return;
+        }
+        if (
+          state.mobileOldRevokeFailure &&
+          gatewayHost === 'rhythm-mac.tail1234.ts.net'
+        ) {
+          sendJson(res, 503, { error: { code: 'UNAVAILABLE', message: 'Old Mac offline' } });
+          return;
+        }
+        device.revoked = true;
+        res.writeHead(204, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        });
+        res.end();
+        return;
+      }
+
+      notFound(res);
       return;
     }
 

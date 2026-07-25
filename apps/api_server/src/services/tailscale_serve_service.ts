@@ -1,6 +1,10 @@
 import { execFile } from 'node:child_process';
 
-const EXPECTED_SERVE_TARGET = 'https+insecure://localhost:4001';
+import {
+  acceptedMobileGatewayServeTargets,
+  mobileGatewayServeTarget,
+} from '../mobile_gateway_config';
+
 const COMMAND_TIMEOUT_MS = 8_000;
 
 export type TailscaleServeState =
@@ -68,20 +72,20 @@ function cleanDnsName(value: unknown): string | null {
   return hostname;
 }
 
-function containsExpectedTarget(value: unknown): boolean {
-  if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase().replace(/\/$/, '');
-    return new Set([
-      EXPECTED_SERVE_TARGET,
-      'https://localhost:4001',
-      'https://127.0.0.1:4001',
-      'http://localhost:4001',
-      'http://127.0.0.1:4001',
-    ]).has(normalized);
-  }
-  if (Array.isArray(value)) return value.some(containsExpectedTarget);
-  if (!value || typeof value !== 'object') return false;
-  return Object.values(value).some(containsExpectedTarget);
+function hasExpectedPrivateRoot(value: unknown, hostname: string): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const payload = value as {
+    Web?: Record<string, {
+      Handlers?: Record<string, { Proxy?: unknown }>;
+    }>;
+    AllowFunnel?: Record<string, unknown>;
+  };
+  const authority = `${hostname}:443`;
+  if (payload.AllowFunnel?.[authority]) return false;
+  const proxy = payload.Web?.[authority]?.Handlers?.['/']?.Proxy;
+  if (typeof proxy !== 'string') return false;
+  const normalized = proxy.trim().toLowerCase().replace(/\/$/, '');
+  return acceptedMobileGatewayServeTargets().has(normalized);
 }
 
 function missingDiagnostic(): TailscaleServeDiagnostic {
@@ -190,7 +194,7 @@ export class TailscaleServeService {
     } catch {
       servePayload = null;
     }
-    if (!containsExpectedTarget(servePayload)) {
+    if (!hasExpectedPrivateRoot(servePayload, hostname)) {
       return {
         state: 'wrongTarget',
         gatewayUrl,
@@ -214,7 +218,7 @@ export class TailscaleServeService {
     const configured = await this.runCommand(this.executable, [
       'serve',
       '--bg',
-      EXPECTED_SERVE_TARGET,
+      mobileGatewayServeTarget(),
     ]);
     if (configured.exitCode !== 0) {
       return {

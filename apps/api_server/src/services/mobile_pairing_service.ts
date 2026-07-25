@@ -8,7 +8,7 @@ export const MOBILE_GATEWAY_COMPATIBILITY = {
   gatewayVersion: '1',
   rhythmVersion: '0.1.0',
   opencodeVersion: '1.14.49',
-  contractFingerprint: 'fd0aae2af9c69775409c399056cffeb39fd1f248f56abff7dae391895ca1add8',
+  contractFingerprint: '4d4e279ce858a0bdb33399b004ef1268e415b7fcbe5029eee93bee94e5759636',
   features: [
     'pairing',
     'device-revocation',

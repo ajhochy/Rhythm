@@ -1,0 +1,122 @@
+import { expect, test } from '@playwright/test';
+
+async function resetMobile(request) {
+  const response = await request.post(
+    'http://127.0.0.1:44096/__control/reset',
+    { data: { scenario: 'happy-path' } },
+  );
+  expect(response.ok()).toBeTruthy();
+}
+
+async function openPairingFromSettings(page) {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await page.getByRole('tab', { name: 'Settings' }).click();
+  await expect(page.getByText('Paired Mac', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Pair a Mac' }).click();
+  await expect(page.getByRole('heading', { name: 'Pair a Mac' })).toBeVisible();
+}
+
+async function scanTestQr(page) {
+  await page.getByRole('button', { name: 'Scan test QR code' }).click();
+}
+
+test.beforeEach(async ({ request }) => {
+  await resetMobile(request);
+});
+
+test('scanner pairing and Settings revocation work without exposing credentials', async ({
+  page,
+  request,
+}) => {
+  await openPairingFromSettings(page);
+  await scanTestQr(page);
+
+  await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
+  await expect(page.getByText('rhythm-mac.tail1234.ts.net').last()).toBeVisible();
+  await expect(page.locator('body')).not.toContainText('e2e-device-token');
+  await expect(page.locator('body')).not.toContainText('a'.repeat(43));
+
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page.getByRole('button', { name: 'Revoke this iPhone from the paired Mac' }).click();
+  await expect(page.getByLabel('Paired Mac status: Not paired').last()).toBeVisible();
+
+  const audit = await request.get('http://127.0.0.1:44096/__control/mobile');
+  const body = await audit.json();
+  expect(body.devices).toEqual([
+    expect.objectContaining({ gatewayHost: 'rhythm-mac.tail1234.ts.net', revoked: true }),
+  ]);
+});
+
+test('confirmed replacement revokes the old Mac before committing the new one', async ({
+  page,
+  request,
+}) => {
+  await openPairingFromSettings(page);
+  await scanTestQr(page);
+  await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
+
+  await page.getByRole('button', { name: 'Pair a different Mac' }).click();
+  page.once('dialog', (dialog) => void dialog.accept());
+  await scanTestQr(page);
+  await expect(page.getByText('other-mac.tail1234.ts.net').last()).toBeVisible();
+
+  const audit = await request.get('http://127.0.0.1:44096/__control/mobile');
+  const body = await audit.json();
+  const oldDelete = body.events.findIndex(
+    (event) =>
+      event.method === 'DELETE' &&
+      event.gatewayHost === 'rhythm-mac.tail1234.ts.net',
+  );
+  expect(oldDelete).toBeGreaterThan(-1);
+  expect(body.devices).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ gatewayHost: 'rhythm-mac.tail1234.ts.net', revoked: true }),
+      expect.objectContaining({ gatewayHost: 'other-mac.tail1234.ts.net', revoked: false }),
+    ]),
+  );
+});
+
+test('failed old-Mac revocation rolls back the new credential and remains usable', async ({
+  page,
+  request,
+}) => {
+  await openPairingFromSettings(page);
+  await scanTestQr(page);
+  await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
+  await request.post('http://127.0.0.1:44096/__control/mobile-revoke-failure', {
+    data: { enabled: true },
+  });
+
+  await page.getByRole('button', { name: 'Pair a different Mac' }).click();
+  page.once('dialog', (dialog) => void dialog.accept());
+  await scanTestQr(page);
+  await expect(page.getByText(/previous Mac could not be revoked/).last()).toBeVisible();
+
+  await page.getByLabel('Close pairing').click();
+  await page.getByRole('button', { name: 'Refresh paired Mac status' }).click();
+  await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
+  await expect(page.getByText('rhythm-mac.tail1234.ts.net').last()).toBeVisible();
+
+  const audit = await request.get('http://127.0.0.1:44096/__control/mobile');
+  const body = await audit.json();
+  expect(body.devices).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ gatewayHost: 'rhythm-mac.tail1234.ts.net', revoked: false }),
+      expect.objectContaining({ gatewayHost: 'other-mac.tail1234.ts.net', revoked: true }),
+    ]),
+  );
+});
+
+test('pairing remains reachable at a small phone viewport with enlarged text', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 480 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await openPairingFromSettings(page);
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '24px';
+  });
+  await expect(page.getByRole('button', { name: 'Scan test QR code' })).toBeVisible();
+  await scanTestQr(page);
+  await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
+});

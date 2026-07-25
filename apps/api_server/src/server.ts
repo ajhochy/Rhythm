@@ -37,6 +37,9 @@ async function main() {
     { agentMemoryService },
     { startMemoryVaultSyncJob },
     { sundayPrepService },
+    { createMobileGatewayRouter },
+    { createMobileGatewaySurface },
+    { mobileGatewayListenPort },
   ] = await Promise.all([
     import('./app'),
     import('./database/db'),
@@ -48,6 +51,9 @@ async function main() {
     import('./services/agentMemoryService'),
     import('./jobs/memory_vault_sync_job'),
     import('./services/sundayPrepService'),
+    import('./routes/mobile_gateway_routes'),
+    import('./mobile_gateway_surface'),
+    import('./mobile_gateway_config'),
   ]);
 
   const port = Number(process.env.PORT ?? 4000);
@@ -366,9 +372,15 @@ async function main() {
     );
   }
 
-  const app = createApp();
+  const mobileGatewayRouter = env.agentExecutionEnabled
+    ? createMobileGatewayRouter()
+    : undefined;
+  const app = createApp({ mobileGatewayRouter });
 
   const httpServer = http.createServer(app);
+  const mobileGatewayServer = mobileGatewayRouter
+    ? http.createServer(createMobileGatewaySurface(mobileGatewayRouter))
+    : null;
   const mobilePtyProxy = env.agentExecutionEnabled
     ? new MobilePtyProxy()
     : undefined;
@@ -610,6 +622,14 @@ async function main() {
   httpServer.listen(port, () => {
     logger.info(`Rhythm API listening on port ${port}`);
   });
+  if (mobileGatewayServer) {
+    const mobileGatewayPort = mobileGatewayListenPort();
+    mobileGatewayServer.listen(mobileGatewayPort, '127.0.0.1', () => {
+      logger.info(
+        `Rhythm mobile gateway listening on 127.0.0.1:${mobileGatewayPort}`,
+      );
+    });
+  }
 
   // #614 — Clean shutdown handler.
   // Registered once here so it applies to both SIGTERM (Flutter kill) and
@@ -658,10 +678,17 @@ async function main() {
       // Allow the timeout to be garbage-collected if the server closes cleanly.
       if (forceExit.unref) forceExit.unref();
 
-      httpServer.close(() => {
-        logger.info('[server] clean shutdown complete');
-        process.exit(0);
-      });
+      const closeHttpServer = () => {
+        httpServer.close(() => {
+          logger.info('[server] clean shutdown complete');
+          process.exit(0);
+        });
+      };
+      if (mobileGatewayServer) {
+        mobileGatewayServer.close(closeHttpServer);
+      } else {
+        closeHttpServer();
+      }
     });
   };
 

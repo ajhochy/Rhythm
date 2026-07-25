@@ -292,7 +292,7 @@ test('settings explain root-vs-api mismatches and reconnect through a prefixed A
 
     await page.getByTestId('settings-server-url-input').fill(`http://127.0.0.1:${port}/api`);
     await page.getByTestId('settings-reconnect-button').click();
-    await expect(page.getByText('Connected', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: 'Connection Connected' })).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: /Connection Connected/ }).click();
     await expect(page.getByText(new RegExp(`Connected to http://127.0.0.1:${port}/api`))).toBeVisible();
   } finally {

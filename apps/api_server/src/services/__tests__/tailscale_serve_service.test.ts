@@ -74,7 +74,7 @@ describe('issue-1171-c1: Tailscale Serve diagnostics', () => {
       .mockResolvedValueOnce(result(runningStatus))
       .mockResolvedValueOnce(
         result(JSON.stringify({
-          Web: { 'rhythm-mac.tail1234.ts.net:443': { Handlers: { '/': { Proxy: 'https://localhost:4001' } } } },
+          Web: { 'rhythm-mac.tail1234.ts.net:443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:4002' } } } },
         })),
       );
     await expect(new TailscaleServeService(runner).diagnose()).resolves.toEqual({
@@ -85,6 +85,46 @@ describe('issue-1171-c1: Tailscale Serve diagnostics', () => {
     });
   });
 
+  it('rejects an expected target hidden under a recursive decoy route', async () => {
+    const runner: CommandRunner = vi
+      .fn()
+      .mockResolvedValueOnce(result(runningStatus))
+      .mockResolvedValueOnce(
+        result(JSON.stringify({
+          Web: {
+            'rhythm-mac.tail1234.ts.net:443': {
+              Handlers: {
+                '/': { Proxy: 'http://localhost:9999' },
+                '/decoy': { Proxy: 'http://127.0.0.1:4002' },
+              },
+            },
+          },
+        })),
+      );
+    await expect(new TailscaleServeService(runner).diagnose()).resolves.toMatchObject({
+      state: 'wrongTarget',
+    });
+  });
+
+  it('rejects public Funnel even when the root Serve target is correct', async () => {
+    const runner: CommandRunner = vi
+      .fn()
+      .mockResolvedValueOnce(result(runningStatus))
+      .mockResolvedValueOnce(
+        result(JSON.stringify({
+          Web: {
+            'rhythm-mac.tail1234.ts.net:443': {
+              Handlers: { '/': { Proxy: 'http://127.0.0.1:4002' } },
+            },
+          },
+          AllowFunnel: { 'rhythm-mac.tail1234.ts.net:443': true },
+        })),
+      );
+    await expect(new TailscaleServeService(runner).diagnose()).resolves.toMatchObject({
+      state: 'wrongTarget',
+    });
+  });
+
   it('configures with an argument array, then verifies the resulting target', async () => {
     const calls: Array<{ executable: string; args: readonly string[] }> = [];
     const runner: CommandRunner = vi.fn(async (executable, args) => {
@@ -92,7 +132,13 @@ describe('issue-1171-c1: Tailscale Serve diagnostics', () => {
       if (calls.length === 1 || calls.length === 4) return result(runningStatus);
       if (calls.length === 2) return result(JSON.stringify({ Web: {} }));
       if (calls.length === 3) return result('');
-      return result(JSON.stringify({ Web: { host: { Handlers: { '/': { Proxy: 'https+insecure://localhost:4001' } } } } }));
+      return result(JSON.stringify({
+        Web: {
+          'rhythm-mac.tail1234.ts.net:443': {
+            Handlers: { '/': { Proxy: 'http://127.0.0.1:4002' } },
+          },
+        },
+      }));
     });
 
     const diagnostic = await new TailscaleServeService(
@@ -103,7 +149,7 @@ describe('issue-1171-c1: Tailscale Serve diagnostics', () => {
     expect(diagnostic.state).toBe('healthy');
     expect(calls[2]).toEqual({
       executable: '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
-      args: ['serve', '--bg', 'https+insecure://localhost:4001'],
+      args: ['serve', '--bg', 'http://127.0.0.1:4002'],
     });
     expect(calls.flatMap((call) => call.args).join(' ')).not.toContain(';');
   });
@@ -113,7 +159,13 @@ describe('issue-1171-c1: Tailscale Serve diagnostics', () => {
       .fn()
       .mockResolvedValueOnce(result(runningStatus))
       .mockResolvedValueOnce(
-        result(JSON.stringify({ Web: { host: { Handlers: { '/': { Proxy: 'https://localhost:4001' } } } } })),
+        result(JSON.stringify({
+          Web: {
+            'rhythm-mac.tail1234.ts.net:443': {
+              Handlers: { '/': { Proxy: 'http://127.0.0.1:4002' } },
+            },
+          },
+        })),
       );
     await expect(new TailscaleServeService(runner).ensureConfigured()).resolves.toMatchObject({
       state: 'healthy',

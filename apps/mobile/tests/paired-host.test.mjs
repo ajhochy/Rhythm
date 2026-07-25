@@ -43,7 +43,7 @@ class RhythmCloudClient {
   async request(path, init) {
     const token = await this.options.getToken();
     __cloudCalls.push({ baseUrl: this.options.baseUrl, path, init, token });
-    return __cloudHandler(path, init, token);
+    return __cloudHandler(path, init, token, this.options.baseUrl);
   }
 }
 class PairedMacClient {
@@ -51,7 +51,7 @@ class PairedMacClient {
   async request(path, init) {
     const token = await this.options.getDeviceToken();
     __macCalls.push({ baseUrl: this.options.baseUrl, path, init, token });
-    return __macHandler(path, init, token);
+    return __macHandler(path, init, token, this.options.baseUrl);
   }
 }
 export function __reset() {
@@ -136,6 +136,7 @@ async function pairedStore() {
   __setCloudHandler(async (path) =>
     path === '/mobile-gateway/health' ? healthResponse : pairResponse);
   const store = new PairedHostStore();
+  store.setAccountUserId(7);
   const result = await store.pair(PAYLOAD, { userId: 7, deviceName: 'AJ iPhone' });
   assert.equal(result.state, 'connected');
   return store;
@@ -151,6 +152,7 @@ async function pairedStore() {
     'not-json',
     JSON.stringify({ gatewayUrl: 'http://rhythm-mac.tail1234.ts.net', pairingCode: CODE }),
     JSON.stringify({ gatewayUrl: 'https://example.com', pairingCode: CODE }),
+    JSON.stringify({ gatewayUrl: 'https://rhythm-mac.tail1234.ts.net', pairingCode: '!'.repeat(43) }),
     JSON.stringify({ gatewayUrl: 'https://rhythm-mac.tail1234.ts.net', pairingCode: CODE, token: 'extra' }),
   ]) {
     assert.throws(() => parsePairingPayload(invalid), PairedHostError);
@@ -167,6 +169,7 @@ async function pairedStore() {
   assert.doesNotMatch(metadata, new RegExp(TOKEN));
   assert.doesNotMatch(metadata, new RegExp(CODE));
   assert.doesNotMatch(JSON.stringify(store.snapshot()), new RegExp(`${TOKEN}|${CODE}`));
+  assert.equal(JSON.parse(metadata).rhythmUserId, 7);
   assert.equal(__cloudRequests().length, 2);
   assert.equal(__cloudRequests()[0].path, '/mobile-gateway/health');
   const requestBody = JSON.parse(__cloudRequests()[1].init.body);
@@ -178,6 +181,7 @@ async function pairedStore() {
 {
   __reset();
   const emptyStore = new PairedHostStore();
+  emptyStore.setAccountUserId(7);
   assert.equal((await emptyStore.restore()).state, 'unpaired');
 
   primeCloudSession();
@@ -189,6 +193,7 @@ async function pairedStore() {
     });
   });
   const pendingStore = new PairedHostStore();
+  pendingStore.setAccountUserId(7);
   const pending = pendingStore.pair(PAYLOAD, { userId: 7, deviceName: 'AJ iPhone' });
   for (let attempt = 0; attempt < 10 && typeof release !== 'function'; attempt += 1) {
     await new Promise((resolve) => setImmediate(resolve));
@@ -280,6 +285,7 @@ async function pairedStore() {
     return { ...healthResponse, minimumMobileVersion: '99.0.0' };
   });
   const store = new PairedHostStore();
+  store.setAccountUserId(7);
   await assert.rejects(
     () => store.pair(PAYLOAD, { userId: 7, deviceName: 'AJ iPhone' }),
     (error) =>
@@ -288,6 +294,128 @@ async function pairedStore() {
   assert.equal(store.snapshot().state, 'incompatible');
   assert.equal(__cloudRequests().length, 1);
   assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
+}
+
+// issue-1171 security: a paired credential is usable only by its owning Rhythm
+// user. Switching accounts blocks all Mac calls without destroying offline
+// metadata, and switching back restores the same-user pairing.
+{
+  __reset();
+  const store = await pairedStore();
+  store.setAccountUserId(8);
+  const blocked = await store.refresh();
+  assert.equal(blocked.state, 'accountMismatch');
+  assert.equal(__macRequests().length, 0);
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
+
+  store.setAccountUserId(7);
+  __setMacHandler(async () => healthResponse);
+  assert.equal((await store.refresh()).state, 'connected');
+  assert.equal(__macRequests().length, 1);
+}
+
+// issue-1171 security: pre-binding metadata is rejected rather than silently
+// adopting a Keychain credential into whichever account signs in next.
+{
+  __reset();
+  __secure().set(PAIRED_DEVICE_SECURE_KEY, TOKEN);
+  __async().set(PAIRED_HOST_META_KEY, JSON.stringify({
+    gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
+    deviceId: 'legacy-device',
+    hostId: 'legacy-host',
+    deviceName: 'Legacy iPhone',
+    ...compatibility,
+    pairedAt: new Date().toISOString(),
+  }));
+  const store = new PairedHostStore();
+  store.setAccountUserId(7);
+  assert.equal((await store.restore()).state, 'unpaired');
+  assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
+  assert.equal(__macRequests().length, 0);
+}
+
+// issue-1171 security: confirmed cross-Mac replacement revokes the previous
+// Mac before committing the new credential.
+{
+  __reset();
+  const store = await pairedStore();
+  const oldMetadata = JSON.parse(__async().get(PAIRED_HOST_META_KEY));
+  const otherPayload = JSON.stringify({
+    gatewayUrl: 'https://other-mac.tail1234.ts.net',
+    pairingCode: 'b'.repeat(43),
+  });
+  __setCloudHandler(async (path, _init, _token, baseUrl) => {
+    if (path === '/mobile-gateway/health') {
+      return { ...healthResponse, hostId: baseUrl.includes('other') ? 'host-2' : 'host-1' };
+    }
+    if (path === '/mobile-gateway/pair') {
+      return {
+        ...pairResponse,
+        deviceId: 'device-2',
+        hostId: 'host-2',
+        deviceToken: 'new-device-token',
+      };
+    }
+    assert.equal(baseUrl, oldMetadata.gatewayUrl);
+    assert.equal(path, '/mobile-gateway/devices/device-1');
+    return undefined;
+  });
+  const replaced = await store.pair(otherPayload, {
+    userId: 7,
+    deviceName: 'AJ iPhone',
+    replaceExisting: true,
+  });
+  assert.equal(replaced.state, 'connected');
+  assert.equal(replaced.host.hostId, 'host-2');
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), 'new-device-token');
+  assert.ok(__cloudRequests().some(
+    (request) =>
+      request.baseUrl === oldMetadata.gatewayUrl &&
+      request.path === '/mobile-gateway/devices/device-1',
+  ));
+}
+
+// issue-1171 security: if the old Mac cannot be revoked, the newly minted
+// credential is rolled back and the original pairing remains intact.
+{
+  __reset();
+  const store = await pairedStore();
+  const oldMetadata = __async().get(PAIRED_HOST_META_KEY);
+  const otherPayload = JSON.stringify({
+    gatewayUrl: 'https://other-mac.tail1234.ts.net',
+    pairingCode: 'b'.repeat(43),
+  });
+  __setCloudHandler(async (path, _init, _token, baseUrl) => {
+    if (path === '/mobile-gateway/health') return { ...healthResponse, hostId: 'host-2' };
+    if (path === '/mobile-gateway/pair') {
+      return {
+        ...pairResponse,
+        deviceId: 'device-2',
+        hostId: 'host-2',
+        deviceToken: 'new-device-token',
+      };
+    }
+    if (baseUrl.includes('rhythm-mac')) throw new Error('old Mac unreachable');
+    assert.equal(path, '/mobile-gateway/devices/device-2');
+    return undefined;
+  });
+  await assert.rejects(
+    () => store.pair(otherPayload, {
+      userId: 7,
+      deviceName: 'AJ iPhone',
+      replaceExisting: true,
+    }),
+    (error) =>
+      error instanceof PairedHostError && error.kind === 'replacementFailed',
+  );
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
+  assert.equal(__async().get(PAIRED_HOST_META_KEY), oldMetadata);
+  assert.equal(store.snapshot().host.hostId, 'host-1');
+  assert.ok(__cloudRequests().some(
+    (request) =>
+      request.baseUrl.includes('other-mac') &&
+      request.path === '/mobile-gateway/devices/device-2',
+  ));
 }
 
 // issue-1171-c3/c6: explicit revoke calls the Mac with the cloud token, then
@@ -302,4 +430,4 @@ async function pairedStore() {
   assert.equal(__cloudRequests()[2].path, '/mobile-gateway/devices/device-1');
 }
 
-console.log('Paired-host security and state-machine tests passed (11 scenarios)');
+console.log('Paired-host security and state-machine tests passed (15 scenarios)');

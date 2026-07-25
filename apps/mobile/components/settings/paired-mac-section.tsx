@@ -15,6 +15,7 @@ const stateLabels: Record<PairedHostState, string> = {
   connected: 'Connected',
   offline: 'iPhone offline',
   tailscaleUnavailable: 'Tailscale unavailable',
+  accountMismatch: 'Different Rhythm account',
   revoked: 'Access revoked',
   incompatible: 'Update required',
   unhealthy: 'Mac unhealthy',

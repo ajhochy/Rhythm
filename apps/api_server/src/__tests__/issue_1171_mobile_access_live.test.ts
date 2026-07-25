@@ -6,8 +6,12 @@ import { describe, expect, it } from 'vitest';
 const LIVE = process.env.RHYTHM_LIVE_E2E === '1';
 const describeLive = LIVE ? describe : describe.skip;
 const baseUrl = (process.env.RHYTHM_LIVE_URL ?? '').replace(/\/$/, '');
+const mobileGatewayUrl = (
+  process.env.RHYTHM_LIVE_MOBILE_GATEWAY_URL ?? ''
+).replace(/\/$/, '');
 const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? '';
 const expectedPort = process.env.RHYTHM_SANDBOX_API_PORT ?? '';
+const expectedMobilePort = process.env.RHYTHM_MOBILE_GATEWAY_PORT ?? '';
 
 function bearer(token: string): Record<string, string> {
   return {
@@ -25,6 +29,15 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
     ) {
       throw new Error(
         'RHYTHM_LIVE_URL must use the declared isolated alternate sandbox API port',
+      );
+    }
+    if (
+      !/^\d{4,5}$/.test(expectedMobilePort) ||
+      ['4001', '4002', '4096', '4097', '4098'].includes(expectedMobilePort) ||
+      mobileGatewayUrl !== `http://127.0.0.1:${expectedMobilePort}`
+    ) {
+      throw new Error(
+        'RHYTHM_LIVE_MOBILE_GATEWAY_URL must use the declared isolated mobile gateway port',
       );
     }
     if (process.env.RHYTHM_LIVE_E2E_ISOLATED !== '1' || !dbPath.startsWith('/')) {
@@ -65,11 +78,11 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
       );
 
       const unauthenticatedAccess = await fetch(
-        `${baseUrl}/mobile-gateway/access`,
+        `${mobileGatewayUrl}/mobile-gateway/access`,
       );
       expect(unauthenticatedAccess.status).toBe(401);
 
-      const accessResponse = await fetch(`${baseUrl}/mobile-gateway/access`, {
+      const accessResponse = await fetch(`${mobileGatewayUrl}/mobile-gateway/access`, {
         headers: bearer(sessionToken),
       });
       expect(accessResponse.status).toBe(200);
@@ -89,7 +102,7 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
         expect(access.gatewayUrl).toMatch(/^https:\/\/[a-z0-9.-]+\.ts\.net$/);
       }
 
-      const preflight = await fetch(`${baseUrl}/mobile-gateway/health`, {
+      const preflight = await fetch(`${mobileGatewayUrl}/mobile-gateway/health`, {
         headers: bearer(sessionToken),
       });
       expect(preflight.status).toBe(200);
@@ -108,7 +121,7 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
       );
 
       const codeResponse = await fetch(
-        `${baseUrl}/mobile-gateway/pairing-codes`,
+        `${mobileGatewayUrl}/mobile-gateway/pairing-codes`,
         {
           method: 'POST',
           headers: bearer(sessionToken),
@@ -138,7 +151,7 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
         /deviceToken|sessionToken|userId|hostId/,
       );
 
-      const pairResponse = await fetch(`${baseUrl}/mobile-gateway/pair`, {
+      const pairResponse = await fetch(`${mobileGatewayUrl}/mobile-gateway/pair`, {
         method: 'POST',
         headers: bearer(sessionToken),
         body: JSON.stringify({
@@ -172,7 +185,7 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
       expect(deviceAtRest.token_verifier).toMatch(/^[a-f0-9]{64}$/);
       expect(JSON.stringify(deviceAtRest)).not.toContain(paired.deviceToken);
 
-      const connected = await fetch(`${baseUrl}/mobile-gateway/health`, {
+      const connected = await fetch(`${mobileGatewayUrl}/mobile-gateway/health`, {
         headers: { Authorization: `Device ${paired.deviceToken}` },
       });
       expect(connected.status).toBe(200);
@@ -181,17 +194,29 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
       );
 
       const revoke = await fetch(
-        `${baseUrl}/mobile-gateway/devices/${paired.deviceId}`,
+        `${mobileGatewayUrl}/mobile-gateway/devices/${paired.deviceId}`,
         {
           method: 'DELETE',
           headers: bearer(sessionToken),
         },
       );
       expect(revoke.status).toBe(204);
-      const revoked = await fetch(`${baseUrl}/mobile-gateway/health`, {
+      const revoked = await fetch(`${mobileGatewayUrl}/mobile-gateway/health`, {
         headers: { Authorization: `Device ${paired.deviceToken}` },
       });
       expect(revoked.status).toBe(401);
+
+      for (const legacyPath of [
+        '/health',
+        '/auth/me',
+        '/agent-configs',
+        '/agent-sessions',
+        '/opencode/auth/status',
+        '/system/refresh',
+      ]) {
+        const hidden = await fetch(`${mobileGatewayUrl}${legacyPath}`);
+        expect(hidden.status, legacyPath).toBe(404);
+      }
     } finally {
       if (deviceId) {
         db.prepare('DELETE FROM mobile_devices WHERE id = ?').run(deviceId);

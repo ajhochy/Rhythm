@@ -9,6 +9,7 @@ import {
   type PropsWithChildren,
 } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
+import Constants from 'expo-constants';
 
 import {
   PairedHostStore,
@@ -16,7 +17,12 @@ import {
   type PairedHostSnapshot,
   type PairedHostState,
 } from '@/lib/pairing/paired-host-store';
+import { RHYTHM_SESSION_SECURE_KEY } from '@/lib/auth/rhythm-session-store';
 import { useRhythmAccount } from '@/providers/rhythm-account-provider';
+
+const e2eCredentials = new Map<string, string>([
+  [RHYTHM_SESSION_SECURE_KEY, 'e2e-cloud-session'],
+]);
 
 export interface PairedHostContextValue {
   state: PairedHostState;
@@ -36,7 +42,24 @@ const PairedHostContext = createContext<PairedHostContextValue | null>(null);
 
 export function PairedHostProvider({ children }: PropsWithChildren) {
   const account = useRhythmAccount();
-  const [store] = useState(() => new PairedHostStore());
+  const [store] = useState(() => {
+    const e2eMode = Constants.expoConfig?.extra?.e2eMode === true;
+    const e2eServerUrl = Constants.expoConfig?.extra?.e2eServerUrl;
+    if (!e2eMode || typeof e2eServerUrl !== 'string') {
+      return new PairedHostStore();
+    }
+    return new PairedHostStore({
+      getCredential: async (key) => e2eCredentials.get(key) ?? null,
+      setCredential: async (key, value) => {
+        e2eCredentials.set(key, value);
+      },
+      deleteCredential: async (key) => {
+        e2eCredentials.delete(key);
+      },
+      resolveGatewayUrl: (gatewayUrl) =>
+        `${e2eServerUrl.replace(/\/$/, '')}/__mobile/${new URL(gatewayUrl).hostname}`,
+    });
+  });
   const [snapshot, setSnapshot] = useState<PairedHostSnapshot>(() =>
     store.snapshot(),
   );
@@ -49,12 +72,13 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     mountedRef.current = true;
+    store.setAccountUserId(account.user?.id ?? null);
     void store.restore().then(apply);
     return () => {
       mountedRef.current = false;
       store.cancelPending();
     };
-  }, [apply, store]);
+  }, [account.user?.id, apply, store]);
 
   useEffect(() => {
     const onStateChange = (state: AppStateStatus) => {

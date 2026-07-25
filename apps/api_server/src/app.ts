@@ -1,5 +1,5 @@
 import cors from 'cors';
-import express from 'express';
+import express, { type Router } from 'express';
 
 import { env } from './config/env';
 import { errorHandler } from './middleware/error_handler';
@@ -61,7 +61,7 @@ import { engraphManagerRouter } from './routes/engraph_manager_routes';
 import { createMobileGatewayRouter } from './routes/mobile_gateway_routes';
 import { agentActivityRouter } from './routes/agent_activity_routes';
 
-export function createApp() {
+export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   const app = express();
 
   app.use(
@@ -137,7 +137,10 @@ export function createApp() {
   // handlers) so concurrent handler-owning issues (#736/#765/#737) are left
   // untouched.
   if (env.agentExecutionEnabled) {
-    app.use('/mobile-gateway', createMobileGatewayRouter());
+    app.use(
+      '/mobile-gateway',
+      options.mobileGatewayRouter ?? createMobileGatewayRouter(),
+    );
     // NOTE: /agents/capabilities is unauthenticated for now; Phase 3.1 will add the AGENT_LOCAL bypass.
     app.use('/agents/capabilities', agentsCapabilitiesRouter);
     app.use('/agent-capability-status', agentCapabilityStatusRouter);

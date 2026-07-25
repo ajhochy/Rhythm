@@ -25,6 +25,7 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
+import Constants from 'expo-constants';
 
 import { startGoogleMobileOAuth } from '@/lib/auth/google-mobile-oauth';
 import {
@@ -94,8 +95,19 @@ function buildCloudClient(): RhythmCloudClient {
 // ---------------------------------------------------------------------------
 
 export function RhythmAccountProvider({ children }: PropsWithChildren) {
-  const [state, setState] = useState<RhythmAccountState>('signedOut');
-  const [user, setUser] = useState<RhythmUser | null>(null);
+  const e2eMode = Constants.expoConfig?.extra?.e2eMode === true;
+  const e2eUser: RhythmUser | null = e2eMode
+    ? {
+        id: 7,
+        email: 'mobile-e2e@example.com',
+        name: 'Mobile E2E',
+        photoUrl: null,
+      }
+    : null;
+  const [state, setState] = useState<RhythmAccountState>(
+    e2eMode ? 'signedIn' : 'signedOut',
+  );
+  const [user, setUser] = useState<RhythmUser | null>(e2eUser);
   const [error, setError] = useState<RhythmAccountError>();
   const operationRef = useRef(0);
 
@@ -113,6 +125,7 @@ export function RhythmAccountProvider({ children }: PropsWithChildren) {
 
   // Hydrate on mount
   useEffect(() => {
+    if (e2eMode) return;
     let cancelled = false;
     const operation = ++operationRef.current;
 
@@ -130,7 +143,7 @@ export function RhythmAccountProvider({ children }: PropsWithChildren) {
       operationRef.current += 1;
       store.cancelPending();
     };
-  }, [applyResult, store]);
+  }, [applyResult, e2eMode, store]);
 
   const signIn = useCallback(async (): Promise<void> => {
     const operation = ++operationRef.current;
