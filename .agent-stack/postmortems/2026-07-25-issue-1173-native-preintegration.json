@@ -1,0 +1,50 @@
+{
+  "run_id": "2026-07-25-issue-1173-native-preintegration",
+  "issue": 1173,
+  "date": "2026-07-25",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1173-c12",
+      "text": "Contract, fake-server, E2E, lint, typecheck, accessibility, and independent security/quality reviews pass.",
+      "contract_status": "fail",
+      "smoke_status": "fail",
+      "category": "C3",
+      "notes": "The iOS development client rendered the Tools catalog and Webhooks list, but opening New webhook surfaced a visible React Native development error banner: Invalid prop `index` supplied to `React.Fragment`. React.Fragment can only have `key` and `children` props."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/mobile/app/tools/[tool].tsx",
+    "apps/mobile/tests/issue-1173-corrective.test.mjs",
+    "apps/mobile/tests/e2e/issue-1173-corrective.spec.mjs"
+  ],
+  "failure_output": "Invalid prop `index` supplied to `React.Fragment`. React.Fragment can only have `key` and `children` props.",
+  "overall_category": "C3",
+  "suggested_follow_up": "Remove the Fragment prop leak in the active lifecycle corrective, add a focused runtime-source regression, and repeat the native Webhooks modal smoke without any development warning."
+}

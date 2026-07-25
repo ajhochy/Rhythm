@@ -380,3 +380,12 @@
 - **Root cause**: The native E2E activity transport requested `/mobile-gateway/agent-activity` directly, while the fake authenticated Mac gateway exposes that route under `/__mobile/:host/mobile-gateway/agent-activity`.
 - **Suggested fix**: Integrate the active lifecycle corrective, then retain a native development-client Activity smoke that requires the seeded activity item to render through the authenticated fake gateway.
 - See `.agent-stack/postmortems/2026-07-25-issue-1172-native-preintegration.json`.
+
+## 2026-07-25 — Issue #1173 — native Webhooks pre-integration smoke
+
+- **Result**: smoke FAIL (project state claimed the aggregate tools behavior was verified; the issue contract remained red)
+- **Category**: C3 — wrong implementation in the shared native tool screen
+- **Criteria affected**: issue-1173-c12
+- **Root cause**: Opening the New webhook modal passed an `index` prop through a mapped `React.Fragment`, causing React Native to render a visible development error banner even though static and browser automation gates were green.
+- **Suggested fix**: Remove the Fragment prop leak, retain a focused source/runtime regression, and repeat the native Webhooks modal smoke with no development warning.
+- See `.agent-stack/postmortems/2026-07-25-issue-1173-native-preintegration.json`.
