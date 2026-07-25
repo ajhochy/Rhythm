@@ -113,6 +113,7 @@ export async function executeResearchJob(id: string): Promise<void> {
       outputTarget: 'session',
       agentConfigId: 'research',
       agentKind: 'research',
+      ...(env.researchModel ? { modelOverride: env.researchModel } : {}),
       ownerUserId: job.requestedByUserId,
       sessionName: `Research: ${job.query}`,
       taskKind: 'research',

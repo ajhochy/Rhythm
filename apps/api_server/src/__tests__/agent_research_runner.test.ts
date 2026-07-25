@@ -13,17 +13,20 @@ import { startTestServer } from './helpers/real_server';
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { recoverStaleResearchJobs } from '../controllers/agentResearchController';
+import { env } from '../config/env';
 
 describe('Deep Research direct AgentRunner execution', () => {
   let db: Database.Database;
   let baseUrl: string;
   let close: () => Promise<void>;
   let vault: string;
+  const researchModel = env.researchModel;
 
   beforeEach(async () => {
     process.env.AGENT_LOCAL = 'true';
     vault = mkdtempSync(path.join(tmpdir(), 'research-runner-vault-'));
     process.env.MEMORY_VAULT_PATH = vault;
+    env.researchModel = null;
     db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     runMigrations(db);
@@ -37,6 +40,7 @@ describe('Deep Research direct AgentRunner execution', () => {
     rmSync(vault, { recursive: true, force: true });
     delete process.env.AGENT_LOCAL;
     delete process.env.MEMORY_VAULT_PATH;
+    env.researchModel = researchModel;
     vi.clearAllMocks();
   });
 
@@ -61,8 +65,22 @@ describe('Deep Research direct AgentRunner execution', () => {
     expect(runAgent).toHaveBeenCalledWith(expect.objectContaining({
       agentConfigId: 'research', agentKind: 'research', cwd: process.cwd(), prompt: expect.stringContaining(query),
     }));
+    expect(runAgent.mock.calls[0][0]).not.toHaveProperty('modelOverride');
     expect(db.prepare('SELECT COUNT(*) AS count FROM pending_claude_triggers').get()).toEqual({ count: 0 });
     await vi.waitFor(() => expect(existsSync(path.join(vault, 'Resources', 'theological-study', 'Research Database', 'Entries'))).toBe(true));
+  });
+
+  it('forwards the configured research model override to the runner', async () => {
+    env.researchModel = { providerID: 'openrouter', modelID: 'openrouter/free' };
+    const response = await fetch(`${baseUrl}/agent-research`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: 'Override case' }),
+    });
+    expect(response.status).toBe(201);
+    await vi.waitFor(() => expect(runAgent).toHaveBeenCalledOnce());
+    expect(runAgent).toHaveBeenCalledWith(expect.objectContaining({
+      agentConfigId: 'research',
+      modelOverride: { providerID: 'openrouter', modelID: 'openrouter/free' },
+    }));
   });
 
   it('marks runner failures retryable and the retry endpoint dispatches the same direct runner path', async () => {
