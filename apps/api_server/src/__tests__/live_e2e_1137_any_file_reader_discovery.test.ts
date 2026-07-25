@@ -32,6 +32,83 @@ const createdAgentIds: string[] = [];
 const createdSessionIds: string[] = [];
 const scratchDirs: string[] = [];
 
+interface StructuredMessage {
+  role?: string;
+  rawText?: string;
+  parts?: unknown[];
+}
+
+interface DocxReaderProof {
+  skillInputName: 'document-creation';
+  bashCommand: string;
+  assistantText: string;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function completedToolInput(
+  part: unknown,
+  tool: string,
+): Record<string, unknown> | null {
+  const partRecord = asRecord(part);
+  if (partRecord?.type !== 'tool' || partRecord.tool !== tool) return null;
+  const state = asRecord(partRecord.state);
+  if (state?.status !== 'completed') return null;
+  return asRecord(state.input);
+}
+
+function findDocxReaderProof(
+  messages: StructuredMessage[],
+  marker: string,
+): DocxReaderProof | null {
+  let skillInputName: 'document-creation' | null = null;
+  let bashCommand: string | null = null;
+  let bashMessageIndex = -1;
+
+  for (const [messageIndex, message] of messages.entries()) {
+    if (message.role !== 'output') continue;
+
+    for (const part of message.parts ?? []) {
+      const skillInput = completedToolInput(part, 'skill');
+      if (skillInputName === null && skillInput?.name === 'document-creation') {
+        skillInputName = 'document-creation';
+        continue;
+      }
+
+      const bashInput = completedToolInput(part, 'bash');
+      const command = bashInput?.command;
+      if (
+        skillInputName !== null &&
+        bashCommand === null &&
+        typeof command === 'string' &&
+        command.includes('read_office_docs.py')
+      ) {
+        bashCommand = command;
+        bashMessageIndex = messageIndex;
+      }
+    }
+
+    if (
+      skillInputName !== null &&
+      bashCommand !== null &&
+      messageIndex > bashMessageIndex &&
+      message.rawText?.includes(marker)
+    ) {
+      return {
+        skillInputName,
+        bashCommand,
+        assistantText: message.rawText,
+      };
+    }
+  }
+
+  return null;
+}
+
 async function api(path: string, init: RequestInit = {}): Promise<Response> {
   return fetch(`${BASE}${path}`, {
     ...init,
@@ -110,6 +187,98 @@ function createMinimalDocx(root: string, marker: string): string {
   execFileSync('zip', ['-q', '-r', output, '.'], { cwd: source });
   return output;
 }
+
+describe('issue #1137 structured DOCX reader proof', () => {
+  const marker = 'DOCX_READER_PROOF_STRUCTURED';
+
+  it('rejects serialized mentions without completed skill and bash tool parts', () => {
+    expect(
+      findDocxReaderProof(
+        [
+          {
+            role: 'output',
+            rawText: [
+              'I should call document-creation and read_office_docs.py.',
+              marker,
+            ].join(' '),
+            parts: [
+              {
+                type: 'text',
+                text: 'document-creation read_office_docs.py',
+              },
+            ],
+          },
+        ],
+        marker,
+      ),
+    ).toBeNull();
+  });
+
+  it('requires completed exact tool inputs before the assistant marker', () => {
+    const valid: StructuredMessage[] = [
+      {
+        role: 'output',
+        parts: [
+          {
+            type: 'tool',
+            tool: 'skill',
+            state: {
+              status: 'completed',
+              input: { name: 'document-creation' },
+            },
+          },
+        ],
+      },
+      {
+        role: 'output',
+        parts: [
+          {
+            type: 'tool',
+            tool: 'bash',
+            state: {
+              status: 'completed',
+              input: {
+                command:
+                  '/opt/rhythm/python /opt/rhythm/scripts/read_office_docs.py reader-proof.docx',
+              },
+            },
+          },
+        ],
+      },
+      {
+        role: 'output',
+        rawText: marker,
+        parts: [{ type: 'text', text: marker }],
+      },
+    ];
+
+    expect(findDocxReaderProof(valid, marker)).toEqual({
+      skillInputName: 'document-creation',
+      bashCommand:
+        '/opt/rhythm/python /opt/rhythm/scripts/read_office_docs.py reader-proof.docx',
+      assistantText: marker,
+    });
+
+    const markerBeforeTools = [valid[2], valid[0], valid[1]];
+    expect(findDocxReaderProof(markerBeforeTools, marker)).toBeNull();
+
+    const runningBash = structuredClone(valid);
+    (
+      runningBash[1].parts?.[0] as {
+        state: { status: string };
+      }
+    ).state.status = 'running';
+    expect(findDocxReaderProof(runningBash, marker)).toBeNull();
+
+    const wrongSkill = structuredClone(valid);
+    (
+      wrongSkill[0].parts?.[0] as {
+        state: { input: { name: string } };
+      }
+    ).state.input.name = 'document-creation-mentioned';
+    expect(findDocxReaderProof(wrongSkill, marker)).toBeNull();
+  });
+});
 
 afterEach(async () => {
   for (const id of createdSessionIds.splice(0)) {
@@ -307,24 +476,20 @@ describeLive('live E2E — #1137 arbitrary file reader discovery', () => {
 
         const proof = await poll(async () => {
           const snapshot = await apiJson<{
-            messages: Array<{
-              role?: string;
-              rawText?: string;
-              parts?: unknown[];
-            }>;
+            messages: StructuredMessage[];
           }>(`/agent-sessions/${session.id}`);
-          const output = snapshot.messages.filter((message) =>
-            message.role === 'output'
-          );
-          if (!output.some((message) => message.rawText?.includes(marker))) {
-            throw new Error('assistant has not returned the extracted DOCX marker');
+          const structuredProof = findDocxReaderProof(snapshot.messages, marker);
+          if (!structuredProof) {
+            throw new Error(
+              'completed document skill + reader command + later assistant marker not yet present',
+            );
           }
-          return JSON.stringify(output);
+          return structuredProof;
         }, 120_000);
 
-        expect(proof).toContain(marker);
-        expect(proof).toContain('document-creation');
-        expect(proof).toContain('read_office_docs.py');
+        expect(proof.skillInputName).toBe('document-creation');
+        expect(proof.bashCommand).toContain('read_office_docs.py');
+        expect(proof.assistantText).toContain(marker);
       } finally {
         ws.close();
       }

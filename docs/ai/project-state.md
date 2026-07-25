@@ -62,3 +62,10 @@ by #1172 and #1173.
 Finish the #1137 cherry-pick, independently approve and integrate #1171, then
 wire #1172/#1173 to the strict paired-device production surface before the
 aggregate behavioral gate.
+
+## Recent coding-agent runs
+
+- 2026-07-25 — #1137 review correction: replaced serialized Office-proof
+  matching with completed structured tool-part and transcript-order assertions;
+  red mention-only regression reproduced, focused build passed, and dedicated
+  live sandbox passed 4/4 before clean teardown.
