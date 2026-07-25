@@ -25,6 +25,8 @@ import {
 import { ToolScreenState } from '@/components/tools/tool-screen-state';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useOpencode } from '@/providers/opencode-provider';
+import type { OpenCodeInspection } from '@/providers/services/opencode-inspection-service';
 import {
   useRhythmTools,
   type ToolAction,
@@ -156,6 +158,13 @@ export default function RhythmToolScreen() {
   );
   const tool = manifest?.id;
   const { getState, perform, refresh } = useRhythmTools();
+  const {
+    chatPreferences,
+    loadOpenCodeInspection,
+    reloadOpenCodeConfig,
+    reloadOpenCodeSkills,
+    removeMcpOAuth,
+  } = useOpencode();
   const state = getState(tool ?? 'brain');
   const [dialog, setDialog] = useState<'create' | 'profile' | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
@@ -164,6 +173,7 @@ export default function RhythmToolScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [oneTimeSecret, setOneTimeSecret] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [runtimeInspection, setRuntimeInspection] = useState<OpenCodeInspection>();
 
   useEffect(() => {
     if (tool) void refresh(tool);
@@ -247,6 +257,25 @@ export default function RhythmToolScreen() {
     );
     setDialog(null);
     setForm({});
+  };
+
+  const inspectOpenCodeRuntime = async () => {
+    setSubmitting(true);
+    setNotice(null);
+    try {
+      const [provider, ...modelParts] = (chatPreferences.modelId || '').split('/');
+      const model = modelParts.join('/');
+      const inspection = await loadOpenCodeInspection(
+        provider || undefined,
+        model || undefined,
+      );
+      setRuntimeInspection(inspection);
+      setNotice('OpenCode runtime inspection refreshed.');
+    } catch (reason) {
+      setNotice(reason instanceof Error ? reason.message : 'Could not inspect the OpenCode runtime.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const openProfile = (item: ToolRecord) => {
@@ -417,6 +446,27 @@ export default function RhythmToolScreen() {
               onPress={() => void run('mcp:oauth', { name: item.name }, 'OAuth started.')}>
               Authenticate
             </Button>
+            <Button
+              testID={`mcp-remove-oauth-${String(item.name)}`}
+              disabled={state.offline || submitting}
+              onPress={async () => {
+                if (!(await confirmAction(
+                  'Remove MCP authorization?',
+                  `Remove saved OAuth authorization for ${String(item.name)}?`,
+                ))) return;
+                setSubmitting(true);
+                try {
+                  await removeMcpOAuth(String(item.name));
+                  await refresh('mcp');
+                  setNotice('MCP authorization removed.');
+                } catch (reason) {
+                  setNotice(reason instanceof Error ? reason.message : 'Could not remove MCP authorization.');
+                } finally {
+                  setSubmitting(false);
+                }
+              }}>
+              Remove auth
+            </Button>
           </View>
         );
       default:
@@ -441,6 +491,92 @@ export default function RhythmToolScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         {tool === 'skills' ? (
           <Text variant="titleMedium">Approved skills</Text>
+        ) : null}
+        {tool === 'skills' || tool === 'models' || tool === 'mcp' ? (
+          <Surface style={[styles.runtimeInspection, { backgroundColor: palette.surfaceAlt }]}>
+            <View style={styles.runtimeHeader}>
+              <View style={styles.runtimeCopy}>
+                <Text variant="titleMedium">OpenCode runtime</Text>
+                <Text variant="bodySmall" style={{ color: palette.muted }}>
+                  Read-only schemas, resources, and redacted configuration from the paired engine.
+                </Text>
+              </View>
+              <Button
+                testID="opencode-runtime-inspect-button"
+                compact
+                mode="outlined"
+                loading={submitting}
+                onPress={() => void inspectOpenCodeRuntime()}>
+                Inspect
+              </Button>
+            </View>
+            <View style={styles.actions}>
+              {tool === 'skills' ? (
+                <Button
+                  testID="opencode-skills-reload-button"
+                  compact
+                  mode="contained-tonal"
+                  disabled={submitting}
+                  onPress={() => {
+                    setSubmitting(true);
+                    void reloadOpenCodeSkills()
+                      .then((skills) => {
+                        setNotice(`Reloaded ${skills.length} runtime skills.`);
+                        return refresh('skills');
+                      })
+                      .catch((reason) => setNotice(reason instanceof Error ? reason.message : 'Could not reload skills.'))
+                      .finally(() => setSubmitting(false));
+                  }}>
+                  Reload skills
+                </Button>
+              ) : null}
+              {tool === 'models' ? (
+                <Button
+                  testID="opencode-config-reload-button"
+                  compact
+                  mode="contained-tonal"
+                  disabled={submitting}
+                  onPress={() => {
+                    setSubmitting(true);
+                    void reloadOpenCodeConfig()
+                      .then(() => setNotice('OpenCode configuration reloaded.'))
+                      .catch((reason) => setNotice(reason instanceof Error ? reason.message : 'Could not reload configuration.'))
+                      .finally(() => setSubmitting(false));
+                  }}>
+                  Reload config
+                </Button>
+              ) : null}
+            </View>
+            {runtimeInspection ? (
+              <>
+                {tool === 'skills' ? (
+                  <Text testID="opencode-runtime-skills" selectable>
+                    {runtimeInspection.skills.map((skill) => skill.name).join('\n') || 'No runtime skills.'}
+                  </Text>
+                ) : null}
+                {tool === 'mcp' ? (
+                  <Text testID="opencode-runtime-resources" selectable style={styles.mono}>
+                    {JSON.stringify(runtimeInspection.resources, null, 2)}
+                  </Text>
+                ) : null}
+                {tool === 'models' ? (
+                  <>
+                    <Text variant="labelLarge">Tool IDs and schemas</Text>
+                    <Text testID="opencode-runtime-tool-schemas" selectable style={styles.mono}>
+                      {JSON.stringify({
+                        ids: runtimeInspection.toolIds,
+                        schemas: runtimeInspection.toolSchemas,
+                      }, null, 2)}
+                    </Text>
+                    <Text variant="labelLarge">Redacted global config</Text>
+                    <Text testID="opencode-runtime-config" selectable style={styles.mono}>
+                      {JSON.stringify(runtimeInspection.globalConfig, null, 2)}
+                    </Text>
+                  </>
+                ) : null}
+              </>
+            ) : null}
+          </Surface>
         ) : null}
         {state.offline ? (
           <Surface style={styles.notice}>
@@ -793,5 +929,9 @@ const styles = StyleSheet.create({
   notice: { borderRadius: 12, padding: 14 },
   secret: { borderRadius: 16, gap: 10, padding: 16 },
   detail: { borderRadius: 16, gap: 12, padding: 16 },
+  runtimeInspection: { borderRadius: 16, gap: 10, padding: 14 },
+  runtimeHeader: { alignItems: 'center', flexDirection: 'row', gap: 10 },
+  runtimeCopy: { flex: 1, minWidth: 0 },
+  mono: { fontFamily: 'monospace', fontSize: 12 },
   dialogFields: { gap: 14, paddingVertical: 8 },
 });

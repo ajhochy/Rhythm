@@ -12,31 +12,31 @@ const outputPath = resolve(
   apiRoot,
   'src/services/mobile_opencode_operations.generated.ts',
 );
+const classificationPath = resolve(
+  apiRoot,
+  '../mobile/contracts/rhythm-opencode-classifications.json',
+);
 
-const BLOCKED_EXACT = new Map([
-  ['app.log', 'Mobile requests may not write arbitrary engine log payloads'],
-  ['event.subscribe', 'SSE is exposed only through the bounded realtime gateway'],
-  ['global.config.update', 'Unscoped global configuration mutation is not mobile-safe'],
-  ['global.dispose', 'Rhythm desktop owns the engine lifecycle'],
-  ['global.event', 'SSE is exposed only through the bounded realtime gateway'],
-  ['global.upgrade', 'Rhythm desktop owns fork upgrades'],
-  ['instance.dispose', 'Rhythm desktop owns engine instance disposal'],
-  ['pty.connect', 'PTY WebSocket traffic uses the authenticated realtime gateway'],
-]);
-
-const BLOCKED_PREFIXES = [
-  ['experimental.console.', 'Experimental Console APIs are not supported'],
-  ['experimental.workspace.', 'Experimental workspace/sync APIs are not supported'],
-  ['sync.', 'Experimental workspace/sync APIs are not supported'],
-  ['tui.', 'The mobile client controls the headless server, not the TUI'],
-  ['v2.', 'The mobile contract is pinned to the supported v1 API'],
-];
+const classificationInventory = JSON.parse(
+  readFileSync(classificationPath, 'utf8'),
+);
+const classifications = new Map(
+  classificationInventory.operations.map((operation) => [
+    operation.operationId,
+    operation,
+  ]),
+);
 
 function blockedReason(operationId) {
-  const exact = BLOCKED_EXACT.get(operationId);
-  if (exact) return exact;
-  return BLOCKED_PREFIXES.find(([prefix]) =>
-    operationId.startsWith(prefix))?.[1];
+  const classification = classifications.get(operationId);
+  if (!classification) {
+    throw new Error(`Missing mobile classification for ${operationId}`);
+  }
+  if (classification.gatewayAllowed) return undefined;
+  if (!classification.gatewayReason) {
+    throw new Error(`Missing mobile gateway denial reason for ${operationId}`);
+  }
+  return classification.gatewayReason;
 }
 
 const spec = JSON.parse(readFileSync(openApiPath, 'utf8'));
@@ -46,6 +46,15 @@ for (const [path, pathItem] of Object.entries(spec.paths)) {
   for (const method of methods) {
     const operation = pathItem[method];
     if (!operation?.operationId) continue;
+    const classification = classifications.get(operation.operationId);
+    if (
+      classification?.method !== method.toUpperCase() ||
+      classification?.path !== path
+    ) {
+      throw new Error(
+        `Mobile classification drifted for ${operation.operationId}`,
+      );
+    }
     const reason = blockedReason(operation.operationId);
     operations.push({
       operationId: operation.operationId,
@@ -58,6 +67,11 @@ for (const [path, pathItem] of Object.entries(spec.paths)) {
 }
 operations.sort((left, right) =>
   left.operationId.localeCompare(right.operationId));
+if (operations.length !== classifications.size) {
+  throw new Error(
+    `Mobile classification count ${classifications.size} does not match bundled operation count ${operations.length}`,
+  );
+}
 
 const lines = [
   '// GENERATED FILE — DO NOT EDIT.',

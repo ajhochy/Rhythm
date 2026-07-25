@@ -12,6 +12,7 @@ export type {
   McpLocalConfig,
   McpOAuthConfig,
   McpRemoteConfig,
+  McpResource,
   McpStatus,
   Message,
   Model,

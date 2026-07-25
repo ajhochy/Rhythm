@@ -10,7 +10,9 @@
       "summary": "List agents",
       "tags": [
         "instance"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The Chat agent selector lists configured agents."
     },
     {
       "method": "POST",
@@ -19,7 +21,9 @@
       "summary": "Reload config",
       "tags": [
         "instance"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The safe configuration inspection surface offers an explicit project-config reload action."
     },
     {
       "method": "POST",
@@ -28,7 +32,9 @@
       "summary": "Write log",
       "tags": [
         "control"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile requests may not write arbitrary engine log payloads."
     },
     {
       "method": "GET",
@@ -37,7 +43,9 @@
       "summary": "List skills",
       "tags": [
         "instance"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The Skills screen lists approved skill metadata and availability."
     },
     {
       "method": "POST",
@@ -46,7 +54,9 @@
       "summary": "Reload skills",
       "tags": [
         "instance"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The Skills screen offers an explicit approved-skill reload action."
     },
     {
       "method": "DELETE",
@@ -55,7 +65,9 @@
       "summary": "Remove auth credentials",
       "tags": [
         "control"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Provider settings can remove configured provider credentials with confirmation."
     },
     {
       "method": "PUT",
@@ -64,7 +76,9 @@
       "summary": "Set auth credentials",
       "tags": [
         "control"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Provider settings can configure provider credentials."
     },
     {
       "method": "GET",
@@ -73,7 +87,9 @@
       "summary": "List commands",
       "tags": [
         "instance"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat and Playbooks expose the server-provided command catalog."
     },
     {
       "method": "GET",
@@ -82,7 +98,9 @@
       "summary": "Get configuration",
       "tags": [
         "config"
-      ]
+      ],
+      "classification": "internal",
+      "reason": "The provider loads project configuration for capability discovery and settings state."
     },
     {
       "method": "GET",
@@ -91,7 +109,9 @@
       "summary": "List config providers",
       "tags": [
         "config"
-      ]
+      ],
+      "classification": "alternate",
+      "reason": "Provider and model discovery use provider.list plus provider.auth, which carry the approved mobile state."
     },
     {
       "method": "PATCH",
@@ -100,7 +120,9 @@
       "summary": "Update configuration",
       "tags": [
         "config"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Settings exposes bounded project configuration changes for providers, MCP enablement, and approvals."
     },
     {
       "method": "GET",
@@ -109,7 +131,9 @@
       "summary": "Subscribe to events",
       "tags": [
         "event"
-      ]
+      ],
+      "classification": "alternate",
+      "reason": "The bounded mobile SSE gateway uses the cross-project global event stream and enforces project filtering."
     },
     {
       "method": "GET",
@@ -118,7 +142,9 @@
       "summary": "Get active Console provider metadata",
       "tags": [
         "experimental"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental Console provider APIs are not an approved Rhythm mobile feature."
     },
     {
       "method": "GET",
@@ -127,7 +153,9 @@
       "summary": "List switchable Console orgs",
       "tags": [
         "experimental"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental Console organization switching is not an approved Rhythm mobile feature."
     },
     {
       "method": "POST",
@@ -136,7 +164,9 @@
       "summary": "Switch active Console org",
       "tags": [
         "experimental"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental Console organization switching is not an approved Rhythm mobile feature."
     },
     {
       "method": "GET",
@@ -145,7 +175,9 @@
       "summary": "Get MCP resources",
       "tags": [
         "experimental"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen provides read-only inspection of resources exposed by connected servers."
     },
     {
       "method": "GET",
@@ -154,7 +186,9 @@
       "summary": "List sessions",
       "tags": [
         "experimental"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The Chats screen lists archived and cross-project sessions."
     },
     {
       "method": "GET",
@@ -163,7 +197,9 @@
       "summary": "List workspace adapters",
       "tags": [
         "workspace"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
     },
     {
       "method": "POST",
@@ -172,7 +208,9 @@
       "summary": "Create workspace",
       "tags": [
         "workspace"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
     },
     {
       "method": "GET",
@@ -181,7 +219,9 @@
       "summary": "List workspaces",
       "tags": [
         "workspace"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
     },
     {
       "method": "DELETE",
@@ -190,7 +230,9 @@
       "summary": "Remove workspace",
       "tags": [
         "workspace"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
     },
     {
       "method": "GET",
@@ -199,7 +241,9 @@
       "summary": "Workspace status",
       "tags": [
         "workspace"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
     },
     {
       "method": "POST",
@@ -208,7 +252,9 @@
       "summary": "Sync workspace list",
       "tags": [
         "workspace"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
     },
     {
       "method": "POST",
@@ -217,7 +263,9 @@
       "summary": "Warp session into workspace",
       "tags": [
         "workspace"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
     },
     {
       "method": "GET",
@@ -226,7 +274,9 @@
       "summary": "List files",
       "tags": [
         "file"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The Workspace directory browser lists project-contained files and directories."
     },
     {
       "method": "GET",
@@ -235,7 +285,9 @@
       "summary": "Read file",
       "tags": [
         "file"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The Workspace file viewer reads project-contained files."
     },
     {
       "method": "GET",
@@ -244,7 +296,9 @@
       "summary": "Get file status",
       "tags": [
         "file"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The Workspace changed-files view exposes file status."
     },
     {
       "method": "GET",
@@ -253,7 +307,9 @@
       "summary": "Find files",
       "tags": [
         "file"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes project-contained filename search."
     },
     {
       "method": "GET",
@@ -262,7 +318,9 @@
       "summary": "Find symbols",
       "tags": [
         "file"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes project-contained symbol search."
     },
     {
       "method": "GET",
@@ -271,7 +329,9 @@
       "summary": "Find text",
       "tags": [
         "file"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes project-contained text search."
     },
     {
       "method": "GET",
@@ -280,7 +340,9 @@
       "summary": "Get formatter status",
       "tags": [
         "instance"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Settings diagnostics shows formatter status."
     },
     {
       "method": "GET",
@@ -289,7 +351,9 @@
       "summary": "Get global configuration",
       "tags": [
         "global"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Settings provides redacted, read-only global configuration inspection."
     },
     {
       "method": "PATCH",
@@ -298,7 +362,9 @@
       "summary": "Update global configuration",
       "tags": [
         "global"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Unscoped global configuration mutation is not mobile-safe."
     },
     {
       "method": "POST",
@@ -307,7 +373,9 @@
       "summary": "Dispose instance",
       "tags": [
         "global"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Rhythm desktop owns the engine lifecycle and mobile may not dispose all instances."
     },
     {
       "method": "GET",
@@ -316,7 +384,9 @@
       "summary": "Get global events",
       "tags": [
         "global"
-      ]
+      ],
+      "classification": "internal",
+      "reason": "The bounded realtime gateway consumes global events and filters them to the paired project."
     },
     {
       "method": "GET",
@@ -325,7 +395,9 @@
       "summary": "Get health",
       "tags": [
         "global"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Settings diagnostics displays engine health and compatibility."
     },
     {
       "method": "POST",
@@ -334,7 +406,9 @@
       "summary": "Upgrade opencode",
       "tags": [
         "global"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Rhythm desktop owns installation and upgrades of the bundled fork."
     },
     {
       "method": "POST",
@@ -343,7 +417,9 @@
       "summary": "Dispose instance",
       "tags": [
         "instance"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Rhythm desktop owns engine instance disposal."
     },
     {
       "method": "GET",
@@ -352,7 +428,9 @@
       "summary": "Get LSP status",
       "tags": [
         "instance"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Settings diagnostics shows language-server status."
     },
     {
       "method": "POST",
@@ -361,7 +439,9 @@
       "summary": "Add MCP server",
       "tags": [
         "mcp"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen can add an approved MCP server configuration."
     },
     {
       "method": "POST",
@@ -370,7 +450,9 @@
       "summary": "Authenticate MCP OAuth",
       "tags": [
         "mcp"
-      ]
+      ],
+      "classification": "alternate",
+      "reason": "Mobile completes MCP OAuth through the bounded start and callback flow."
     },
     {
       "method": "POST",
@@ -379,7 +461,9 @@
       "summary": "Complete MCP OAuth",
       "tags": [
         "mcp"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen completes an approved OAuth callback."
     },
     {
       "method": "DELETE",
@@ -388,7 +472,9 @@
       "summary": "Remove MCP OAuth",
       "tags": [
         "mcp"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen can revoke stored OAuth credentials with confirmation."
     },
     {
       "method": "POST",
@@ -397,7 +483,9 @@
       "summary": "Start MCP OAuth",
       "tags": [
         "mcp"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen starts an approved OAuth flow."
     },
     {
       "method": "POST",
@@ -406,7 +494,9 @@
       "summary": "",
       "tags": [
         "mcp"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen connects an approved server."
     },
     {
       "method": "POST",
@@ -415,7 +505,9 @@
       "summary": "",
       "tags": [
         "mcp"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen disconnects a server with visible state."
     },
     {
       "method": "GET",
@@ -424,7 +516,9 @@
       "summary": "Get MCP status",
       "tags": [
         "mcp"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen displays connected-server state."
     },
     {
       "method": "DELETE",
@@ -433,7 +527,9 @@
       "summary": "",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes confirmed deletion of an editable message part."
     },
     {
       "method": "PATCH",
@@ -442,7 +538,9 @@
       "summary": "",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes editing of a supported message part."
     },
     {
       "method": "GET",
@@ -451,7 +549,9 @@
       "summary": "Get paths",
       "tags": [
         "instance"
-      ]
+      ],
+      "classification": "internal",
+      "reason": "The provider resolves server roots during workspace discovery and containment checks."
     },
     {
       "method": "GET",
@@ -460,7 +560,9 @@
       "summary": "List pending permissions",
       "tags": [
         "permission"
-      ]
+      ],
+      "classification": "internal",
+      "reason": "The provider reconciles pending permissions for the active session."
     },
     {
       "method": "POST",
@@ -469,7 +571,9 @@
       "summary": "Respond to permission request",
       "tags": [
         "permission"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat permission cards expose allow-once, always-allow, and reject actions."
     },
     {
       "method": "POST",
@@ -478,7 +582,9 @@
       "summary": "Respond to permission",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "alternate",
+      "reason": "Mobile uses the request-scoped permission reply API for current OpenCode permission semantics."
     },
     {
       "method": "GET",
@@ -487,7 +593,9 @@
       "summary": "Get current project",
       "tags": [
         "project"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace displays the active project."
     },
     {
       "method": "POST",
@@ -496,7 +604,9 @@
       "summary": "Initialize git repository",
       "tags": [
         "project"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace offers confirmed Git initialization when no repository exists."
     },
     {
       "method": "GET",
@@ -505,7 +615,9 @@
       "summary": "List all projects",
       "tags": [
         "project"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes the project selector."
     },
     {
       "method": "PATCH",
@@ -514,7 +626,9 @@
       "summary": "Update project",
       "tags": [
         "project"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes bounded project metadata editing."
     },
     {
       "method": "GET",
@@ -523,7 +637,9 @@
       "summary": "Get provider auth methods",
       "tags": [
         "provider"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The Models screen renders supported authentication methods."
     },
     {
       "method": "GET",
@@ -532,7 +648,9 @@
       "summary": "List providers",
       "tags": [
         "provider"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The Models screen and Chat model picker list provider capabilities."
     },
     {
       "method": "POST",
@@ -541,7 +659,9 @@
       "summary": "Start OAuth authorization",
       "tags": [
         "provider"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The Models screen starts provider OAuth."
     },
     {
       "method": "POST",
@@ -550,7 +670,9 @@
       "summary": "Handle OAuth callback",
       "tags": [
         "provider"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The Models screen completes provider OAuth."
     },
     {
       "method": "GET",
@@ -559,7 +681,9 @@
       "summary": "Connect to PTY session",
       "tags": [
         "pty"
-      ]
+      ],
+      "classification": "internal",
+      "reason": "The authenticated realtime gateway upgrades the PTY WebSocket; generic HTTP forwarding is forbidden."
     },
     {
       "method": "POST",
@@ -568,7 +692,9 @@
       "summary": "Create PTY WebSocket token",
       "tags": [
         "pty"
-      ]
+      ],
+      "classification": "internal",
+      "reason": "The terminal provider obtains a short-lived ticket before opening the bounded PTY channel."
     },
     {
       "method": "POST",
@@ -577,7 +703,9 @@
       "summary": "Create PTY session",
       "tags": [
         "pty"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Terminal can create a project-scoped PTY."
     },
     {
       "method": "GET",
@@ -586,7 +714,9 @@
       "summary": "Get PTY session",
       "tags": [
         "pty"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Terminal displays detail for the selected PTY."
     },
     {
       "method": "GET",
@@ -595,7 +725,9 @@
       "summary": "List PTY sessions",
       "tags": [
         "pty"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Terminal lists project-scoped PTYs."
     },
     {
       "method": "DELETE",
@@ -604,7 +736,9 @@
       "summary": "Remove PTY session",
       "tags": [
         "pty"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Terminal can terminate the selected PTY with confirmation."
     },
     {
       "method": "GET",
@@ -613,7 +747,9 @@
       "summary": "List available shells",
       "tags": [
         "pty"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Terminal exposes available shells."
     },
     {
       "method": "PUT",
@@ -622,7 +758,9 @@
       "summary": "Update PTY session",
       "tags": [
         "pty"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Terminal resizes the selected PTY to the visible terminal dimensions."
     },
     {
       "method": "GET",
@@ -631,7 +769,9 @@
       "summary": "List pending questions",
       "tags": [
         "question"
-      ]
+      ],
+      "classification": "internal",
+      "reason": "The provider reconciles pending agent questions for the active session."
     },
     {
       "method": "POST",
@@ -640,7 +780,9 @@
       "summary": "Reject question request",
       "tags": [
         "question"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat question cards expose rejection."
     },
     {
       "method": "POST",
@@ -649,7 +791,9 @@
       "summary": "Reply to question request",
       "tags": [
         "question"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat question cards submit ordered answers."
     },
     {
       "method": "POST",
@@ -658,7 +802,9 @@
       "summary": "Abort session",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes a stop action for an active run."
     },
     {
       "method": "GET",
@@ -667,7 +813,9 @@
       "summary": "Get session children",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes child and subagent sessions for the active run."
     },
     {
       "method": "POST",
@@ -676,7 +824,9 @@
       "summary": "Send command",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat executes an exact server-provided slash command."
     },
     {
       "method": "POST",
@@ -685,7 +835,9 @@
       "summary": "Create session",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chats can create a project-scoped session."
     },
     {
       "method": "DELETE",
@@ -694,7 +846,9 @@
       "summary": "Delete session",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chats can permanently delete a session after confirmation."
     },
     {
       "method": "DELETE",
@@ -703,7 +857,9 @@
       "summary": "Delete message",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes confirmed deletion of a user-editable message."
     },
     {
       "method": "GET",
@@ -712,7 +868,9 @@
       "summary": "Get message diff",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat displays structured session and message diffs."
     },
     {
       "method": "POST",
@@ -721,7 +879,9 @@
       "summary": "Fork session",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat and Chats expose session forking."
     },
     {
       "method": "GET",
@@ -730,7 +890,9 @@
       "summary": "Get session",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "alternate",
+      "reason": "The provider derives the selected session from the project-scoped session list to preserve one authoritative cache."
     },
     {
       "method": "POST",
@@ -739,7 +901,9 @@
       "summary": "Initialize session",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes confirmed project initialization for the current session."
     },
     {
       "method": "GET",
@@ -748,7 +912,9 @@
       "summary": "List sessions",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chats displays project-scoped active, completed, and archived sessions."
     },
     {
       "method": "GET",
@@ -757,7 +923,9 @@
       "summary": "Get message",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "alternate",
+      "reason": "The provider refreshes the bounded session transcript instead of maintaining a second single-message fetch path."
     },
     {
       "method": "GET",
@@ -766,7 +934,9 @@
       "summary": "Get session messages",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat displays the session transcript."
     },
     {
       "method": "POST",
@@ -775,7 +945,9 @@
       "summary": "Send message",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "alternate",
+      "reason": "Chat uses asynchronous prompt submission so SSE and polling own completion consistently."
     },
     {
       "method": "POST",
@@ -784,7 +956,9 @@
       "summary": "Send async message",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat submits prompts through the provider-owned asynchronous lifecycle."
     },
     {
       "method": "POST",
@@ -793,7 +967,9 @@
       "summary": "Revert message",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes confirmed message revert."
     },
     {
       "method": "POST",
@@ -802,7 +978,9 @@
       "summary": "Share session",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chats can create a public session share after confirmation."
     },
     {
       "method": "POST",
@@ -811,7 +989,9 @@
       "summary": "Run shell command",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes high-risk-confirmed shell execution as a session message."
     },
     {
       "method": "GET",
@@ -820,7 +1000,9 @@
       "summary": "Get session status",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "internal",
+      "reason": "The provider reconciles running and idle session state for realtime recovery."
     },
     {
       "method": "POST",
@@ -829,7 +1011,9 @@
       "summary": "Summarize session",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "internal",
+      "reason": "The provider requests title generation after the first successful turn."
     },
     {
       "method": "GET",
@@ -838,7 +1022,9 @@
       "summary": "Get session todos",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat displays server-owned todo progress."
     },
     {
       "method": "POST",
@@ -847,7 +1033,9 @@
       "summary": "Restore reverted messages",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes restore after a revert."
     },
     {
       "method": "DELETE",
@@ -856,7 +1044,9 @@
       "summary": "Unshare session",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chats can revoke a public share after confirmation."
     },
     {
       "method": "PATCH",
@@ -865,7 +1055,9 @@
       "summary": "Update session",
       "tags": [
         "session"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Chats exposes rename, archive, and restore metadata updates."
     },
     {
       "method": "POST",
@@ -874,7 +1066,9 @@
       "summary": "List sync events",
       "tags": [
         "sync"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
     },
     {
       "method": "POST",
@@ -883,7 +1077,9 @@
       "summary": "Replay sync events",
       "tags": [
         "sync"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
     },
     {
       "method": "POST",
@@ -892,7 +1088,9 @@
       "summary": "Start workspace sync",
       "tags": [
         "sync"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
     },
     {
       "method": "POST",
@@ -901,7 +1099,9 @@
       "summary": "Steal session into workspace",
       "tags": [
         "sync"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
     },
     {
       "method": "GET",
@@ -910,7 +1110,9 @@
       "summary": "List tool IDs",
       "tags": [
         "experimental"
-      ]
+      ],
+      "classification": "internal",
+      "reason": "The Tools provider uses tool identifiers to populate schema inspection safely."
     },
     {
       "method": "GET",
@@ -919,7 +1121,9 @@
       "summary": "List tools",
       "tags": [
         "experimental"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "The Tools screen provides read-only inspection of tool schemas for the selected model."
     },
     {
       "method": "POST",
@@ -928,7 +1132,9 @@
       "summary": "Append TUI prompt",
       "tags": [
         "tui"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
     },
     {
       "method": "POST",
@@ -937,7 +1143,9 @@
       "summary": "Clear TUI prompt",
       "tags": [
         "tui"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
     },
     {
       "method": "GET",
@@ -946,7 +1154,9 @@
       "summary": "Get next TUI request",
       "tags": [
         "tui"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
     },
     {
       "method": "POST",
@@ -955,7 +1165,9 @@
       "summary": "Submit TUI response",
       "tags": [
         "tui"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
     },
     {
       "method": "POST",
@@ -964,7 +1176,9 @@
       "summary": "Execute TUI command",
       "tags": [
         "tui"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
     },
     {
       "method": "POST",
@@ -973,7 +1187,9 @@
       "summary": "Open help dialog",
       "tags": [
         "tui"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
     },
     {
       "method": "POST",
@@ -982,7 +1198,9 @@
       "summary": "Open models dialog",
       "tags": [
         "tui"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
     },
     {
       "method": "POST",
@@ -991,7 +1209,9 @@
       "summary": "Open sessions dialog",
       "tags": [
         "tui"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
     },
     {
       "method": "POST",
@@ -1000,7 +1220,9 @@
       "summary": "Open themes dialog",
       "tags": [
         "tui"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
     },
     {
       "method": "POST",
@@ -1009,7 +1231,9 @@
       "summary": "Publish TUI event",
       "tags": [
         "tui"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
     },
     {
       "method": "POST",
@@ -1018,7 +1242,9 @@
       "summary": "Select session",
       "tags": [
         "tui"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
     },
     {
       "method": "POST",
@@ -1027,7 +1253,9 @@
       "summary": "Show TUI toast",
       "tags": [
         "tui"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
     },
     {
       "method": "POST",
@@ -1036,7 +1264,9 @@
       "summary": "Submit TUI prompt",
       "tags": [
         "tui"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
     },
     {
       "method": "GET",
@@ -1045,7 +1275,9 @@
       "summary": "List v2 models",
       "tags": [
         "v2 models"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
     },
     {
       "method": "GET",
@@ -1054,7 +1286,9 @@
       "summary": "Get v2 provider",
       "tags": [
         "v2 providers"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
     },
     {
       "method": "GET",
@@ -1063,7 +1297,9 @@
       "summary": "List v2 providers",
       "tags": [
         "v2 providers"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
     },
     {
       "method": "POST",
@@ -1072,7 +1308,9 @@
       "summary": "Compact v2 session",
       "tags": [
         "v2"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
     },
     {
       "method": "GET",
@@ -1081,7 +1319,9 @@
       "summary": "Get v2 session context",
       "tags": [
         "v2"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
     },
     {
       "method": "GET",
@@ -1090,7 +1330,9 @@
       "summary": "List v2 sessions",
       "tags": [
         "v2"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
     },
     {
       "method": "GET",
@@ -1099,7 +1341,9 @@
       "summary": "Get v2 session messages",
       "tags": [
         "v2 messages"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
     },
     {
       "method": "POST",
@@ -1108,7 +1352,9 @@
       "summary": "Send v2 message",
       "tags": [
         "v2"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
     },
     {
       "method": "POST",
@@ -1117,7 +1363,9 @@
       "summary": "Wait for v2 session",
       "tags": [
         "v2"
-      ]
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
     },
     {
       "method": "POST",
@@ -1126,7 +1374,9 @@
       "summary": "Apply VCS patch",
       "tags": [
         "instance"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace saves conflict-checked project files through validated VCS patches."
     },
     {
       "method": "GET",
@@ -1135,7 +1385,9 @@
       "summary": "Get VCS diff",
       "tags": [
         "instance"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes structured repository diffs."
     },
     {
       "method": "GET",
@@ -1144,7 +1396,9 @@
       "summary": "Get raw VCS diff",
       "tags": [
         "instance"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes raw repository diffs for inspection."
     },
     {
       "method": "GET",
@@ -1153,7 +1407,9 @@
       "summary": "Get VCS info",
       "tags": [
         "instance"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace displays repository and branch metadata."
     },
     {
       "method": "GET",
@@ -1162,7 +1418,9 @@
       "summary": "Get VCS status",
       "tags": [
         "instance"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes structured working-tree status."
     },
     {
       "method": "POST",
@@ -1171,7 +1429,9 @@
       "summary": "Create worktree",
       "tags": [
         "experimental"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace can create an OpenCode worktree."
     },
     {
       "method": "GET",
@@ -1180,7 +1440,9 @@
       "summary": "List worktrees",
       "tags": [
         "experimental"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace lists OpenCode worktrees."
     },
     {
       "method": "DELETE",
@@ -1189,7 +1451,9 @@
       "summary": "Remove worktree",
       "tags": [
         "experimental"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace can remove a worktree after destructive confirmation."
     },
     {
       "method": "POST",
@@ -1198,7 +1462,9 @@
       "summary": "Reset worktree",
       "tags": [
         "experimental"
-      ]
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace can reset a worktree after destructive confirmation."
     }
   ]
 }

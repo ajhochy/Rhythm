@@ -121,6 +121,37 @@ describe('issue #1169 mobile OpenCode proxy contract', () => {
     ).toBeGreaterThan(60);
   });
 
+  it('issue-1174-c3: alternate-only SDK operations stay out of the generic gateway', async () => {
+    const proxy = await loadProxyModule();
+    expect(proxy).not.toBeNull();
+    const manifest = proxy?.MOBILE_OPENCODE_OPERATION_MANIFEST ?? [];
+    const alternateOnly = new Set([
+      'config.providers',
+      'mcp.auth.authenticate',
+      'permission.respond',
+      'session.get',
+      'session.message',
+      'session.prompt',
+    ]);
+
+    expect(
+      manifest
+        .filter((entry) => alternateOnly.has(entry.operationId))
+        .map((entry) => ({
+          operationId: entry.operationId,
+          allowed: entry.allowed,
+        }))
+        .sort((left, right) => left.operationId.localeCompare(right.operationId)),
+    ).toEqual(
+      [...alternateOnly]
+        .sort()
+        .map((operationId) => ({
+          operationId,
+          allowed: false,
+        })),
+    );
+  });
+
   it('issue-1169-c2: forwarding injects only the repository-owned directory and strips nested caller roots', async () => {
     const proxyModule = await loadProxyModule();
     expect(proxyModule, 'mobile_opencode_proxy.ts must exist').not.toBeNull();

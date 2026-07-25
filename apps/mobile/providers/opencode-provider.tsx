@@ -116,14 +116,20 @@ import {
   getSessionDiff as svcGetSessionDiff,
   getSessionTodos as svcGetSessionTodos,
   deleteSession as svcDeleteSession,
+  deleteSessionMessage as svcDeleteSessionMessage,
+  deleteSessionPart as svcDeleteSessionPart,
   executeCommand as svcExecuteCommand,
   forkSession as svcForkSession,
+  getSessionChildren as svcGetSessionChildren,
   listCommands as svcListCommands,
+  initializeSession as svcInitializeSession,
   revertSession as svcRevertSession,
+  runSessionShell as svcRunSessionShell,
   shareSession as svcShareSession,
   unrevertSession as svcUnrevertSession,
   unshareSession as svcUnshareSession,
   updateSessionTitle as svcUpdateSessionTitle,
+  updateSessionPart as svcUpdateSessionPart,
   restoreSession as svcRestoreSession,
 } from '@/providers/services/session-service';
 import { loadDiagnostics, type Diagnostics } from '@/providers/services/diagnostics-service';
@@ -131,8 +137,14 @@ import {
   applyVcsPatch,
   createWorktree as svcCreateWorktree,
   findFiles,
+  findSymbols,
+  findText,
   getFileStatus,
+  getRawVcsDiff,
+  getVcsDiff,
   getVcsInfo,
+  getVcsStatus,
+  listFiles,
   listWorktrees as svcListWorktrees,
   readFile,
   removeWorktree as svcRemoveWorktree,
@@ -144,17 +156,29 @@ import {
   connectMcpServer as svcConnectMcpServer,
   disconnectMcpServer as svcDisconnectMcpServer,
   getMcpStatus,
+  removeMcpOAuth as svcRemoveMcpOAuth,
   setMcpServerEnabled as svcSetMcpServerEnabled,
   startMcpOAuth as svcStartMcpOAuth,
 } from '@/providers/services/mcp-service';
 import {
   createTerminal as svcCreateTerminal,
   createTerminalConnectToken,
+  getTerminal as svcGetTerminal,
   getTerminalWebSocketUrl,
   listShells,
   listTerminals,
   removeTerminal as svcRemoveTerminal,
+  updateTerminal as svcUpdateTerminal,
 } from '@/providers/services/terminal-service';
+import {
+  loadOpenCodeInspection as svcLoadOpenCodeInspection,
+  reloadOpenCodeConfig as svcReloadOpenCodeConfig,
+  reloadOpenCodeSkills as svcReloadOpenCodeSkills,
+} from '@/providers/services/opencode-inspection-service';
+import {
+  initializeProjectGit as svcInitializeProjectGit,
+  updateProjectMetadata as svcUpdateProjectMetadata,
+} from '@/providers/services/project-service';
 import {
   getRecoveryDelayMs,
   getStableRecoveryEventId,
@@ -840,6 +864,62 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     await Promise.all([refreshSessions(true), refreshMessages(sessionId, true), refreshSessionDiff(sessionId, true)]);
   }, [client, refreshMessages, refreshSessionDiff, refreshSessions]);
 
+  const getSessionChildren = useCallback(
+    async (sessionId: string) => svcGetSessionChildren(client, sessionId),
+    [client],
+  );
+
+  const deleteSessionMessage = useCallback(async (sessionId: string, messageId: string) => {
+    await svcDeleteSessionMessage(client, sessionId, messageId);
+    await Promise.all([
+      refreshMessages(sessionId, true),
+      refreshSessionDiff(sessionId, true),
+      refreshSessions(true),
+    ]);
+  }, [client, refreshMessages, refreshSessionDiff, refreshSessions]);
+
+  const updateSessionTextPart = useCallback(
+    async (sessionId: string, messageId: string, partId: string, text: string) => {
+      const part = messagesBySession[sessionId]
+        ?.find((message) => message.info.id === messageId)
+        ?.parts.find((entry) => entry.id === partId);
+      if (!part || part.type !== 'text') {
+        throw new Error('The selected text part is no longer available. Refresh the chat and try again.');
+      }
+      await svcUpdateSessionPart(client, sessionId, messageId, { ...part, text });
+      await refreshMessages(sessionId, true);
+    },
+    [client, messagesBySession, refreshMessages],
+  );
+
+  const deleteSessionPart = useCallback(async (sessionId: string, messageId: string, partId: string) => {
+    await svcDeleteSessionPart(client, sessionId, messageId, partId);
+    await refreshMessages(sessionId, true);
+  }, [client, refreshMessages]);
+
+  const initializeSession = useCallback(async (sessionId: string) => {
+    const model = getSelectedModelParts(chatPreferences.modelId);
+    const messageId = messagesBySession[sessionId]
+      ?.findLast((message) => message.info.role === 'user')
+      ?.info.id;
+    if (!model || !messageId) {
+      throw new Error('Send a message and select a model before initializing this session.');
+    }
+    await svcInitializeSession(client, sessionId, model, messageId);
+    await Promise.all([refreshMessages(sessionId, true), refreshSessions(true)]);
+  }, [chatPreferences.modelId, client, messagesBySession, refreshMessages, refreshSessions]);
+
+  const runSessionShell = useCallback(async (sessionId: string, command: string) => {
+    const trimmed = command.trim();
+    if (!trimmed) throw new Error('Enter a shell command first.');
+    const model = getSelectedModelParts(chatPreferences.modelId);
+    await svcRunSessionShell(client, sessionId, trimmed, {
+      agent: chatPreferences.mode,
+      model,
+    });
+    await Promise.all([refreshMessages(sessionId, true), refreshSessions(true)]);
+  }, [chatPreferences.mode, chatPreferences.modelId, client, refreshMessages, refreshSessions]);
+
   const refreshServerFeatures = useCallback(async () => {
     if (!activeProjectPath) {
       setCommands([]);
@@ -875,6 +955,36 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     }
   }, [client]);
 
+  const listWorkspaceDirectory = useCallback(
+    async (path: string) => listFiles(client, path.trim() || '.'),
+    [client],
+  );
+
+  const searchWorkspaceText = useCallback(
+    async (pattern: string) => {
+      const trimmed = pattern.trim();
+      return trimmed ? findText(client, trimmed) : [];
+    },
+    [client],
+  );
+
+  const searchWorkspaceSymbols = useCallback(
+    async (query: string) => {
+      const trimmed = query.trim();
+      return trimmed ? findSymbols(client, trimmed) : [];
+    },
+    [client],
+  );
+
+  const getWorkspaceVcsStatus = useCallback(async () => getVcsStatus(client), [client]);
+
+  const getWorkspaceVcsDiff = useCallback(
+    async (mode: 'git' | 'branch') => getVcsDiff(client, mode),
+    [client],
+  );
+
+  const getWorkspaceRawVcsDiff = useCallback(async () => getRawVcsDiff(client), [client]);
+
   const openWorkspaceFile = useCallback(async (path: string) => {
     const content = await readFile(client, path);
     if (!content) {
@@ -901,6 +1011,21 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       await refreshServerFeatures();
     }
   }, [client, refreshServerFeatures]);
+
+  const updateProjectMetadata = useCallback(async (
+    projectId: string,
+    update: Parameters<typeof svcUpdateProjectMetadata>[2],
+  ) => {
+    const project = await svcUpdateProjectMetadata(client, projectId, update);
+    await refreshWorkspaceCatalog(true);
+    return project;
+  }, [client, refreshWorkspaceCatalog]);
+
+  const initializeProjectGit = useCallback(async () => {
+    const project = await svcInitializeProjectGit(client);
+    await Promise.all([refreshWorkspaceCatalog(true), refreshServerFeatures()]);
+    return project;
+  }, [client, refreshServerFeatures, refreshWorkspaceCatalog]);
 
   const refreshWorktrees = useCallback(async () => {
     const next = await svcListWorktrees(client);
@@ -955,6 +1080,29 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     await svcCompleteMcpOAuth(client, name, code.trim());
     await refreshMcpServers();
   }, [client, refreshMcpServers]);
+
+  const removeMcpOAuth = useCallback(async (name: string) => {
+    await svcRemoveMcpOAuth(client, name);
+    await refreshMcpServers();
+  }, [client, refreshMcpServers]);
+
+  const loadOpenCodeInspection = useCallback(
+    async (provider?: string, model?: string) => svcLoadOpenCodeInspection(client, provider, model),
+    [client],
+  );
+
+  const reloadOpenCodeSkills = useCallback(async () => svcReloadOpenCodeSkills({
+    ...settings,
+    directory: activeProjectPath || settings.directory,
+  }), [activeProjectPath, settings]);
+
+  const reloadOpenCodeConfig = useCallback(async () => {
+    await svcReloadOpenCodeConfig({
+      ...settings,
+      directory: activeProjectPath || settings.directory,
+    });
+    await refreshChatCapabilities();
+  }, [activeProjectPath, refreshChatCapabilities, settings]);
 
   const refreshTerminals = useCallback(async () => {
     const [nextTerminals, nextShells] = await Promise.all([listTerminals(client), listShells(client)]);
@@ -1060,6 +1208,17 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     await openTerminal(terminal.id);
     return terminal;
   }, [client, openTerminal, refreshTerminals]);
+
+  const getTerminalDetail = useCallback(async (ptyId: string) => svcGetTerminal(client, ptyId), [client]);
+
+  const resizeTerminal = useCallback(async (ptyId: string, rows: number, cols: number) => {
+    if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows < 2 || cols < 2) {
+      throw new Error('Terminal rows and columns must be whole numbers greater than one.');
+    }
+    const terminal = await svcUpdateTerminal(client, ptyId, { size: { rows, cols } });
+    await refreshTerminals();
+    return terminal;
+  }, [client, refreshTerminals]);
 
   const sendTerminalInput = useCallback((input: string) => {
     if (terminalSocketRef.current?.readyState !== WebSocket.OPEN) throw new Error('Terminal is not connected.');
@@ -2690,6 +2849,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       unshareSession,
       revertSession,
       unrevertSession,
+      getSessionChildren,
+      deleteSessionMessage,
+      updateSessionTextPart,
+      deleteSessionPart,
+      initializeSession,
+      runSessionShell,
       sendPrompt,
       abortSession,
       replyToPermission,
@@ -2702,8 +2867,16 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       selectedWorkspaceFile,
       vcsInfo,
       searchWorkspaceFiles,
+      listWorkspaceDirectory,
+      searchWorkspaceText,
+      searchWorkspaceSymbols,
+      getWorkspaceVcsStatus,
+      getWorkspaceVcsDiff,
+      getWorkspaceRawVcsDiff,
       openWorkspaceFile,
       saveWorkspaceFile,
+      updateProjectMetadata,
+      initializeProjectGit,
       worktrees,
       refreshWorktrees,
       createWorktree,
@@ -2717,6 +2890,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       setMcpServerEnabled,
       startMcpOAuth,
       completeMcpOAuth,
+      removeMcpOAuth,
+      loadOpenCodeInspection,
+      reloadOpenCodeSkills,
+      reloadOpenCodeConfig,
       terminals,
       terminalShells,
       activeTerminalId,
@@ -2724,6 +2901,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       terminalConnection,
       refreshTerminals,
       createTerminal,
+      getTerminalDetail,
+      resizeTerminal,
       openTerminal,
       sendTerminalInput,
       closeTerminal,
@@ -2750,6 +2929,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       unshareSession,
       revertSession,
       unrevertSession,
+      getSessionChildren,
+      deleteSessionMessage,
+      updateSessionTextPart,
+      deleteSessionPart,
+      initializeSession,
+      runSessionShell,
       configureProvider,
       completeAutomaticProviderOAuth,
       currentMessages,
@@ -2818,6 +3003,12 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       selectedWorkspaceFile,
       vcsInfo,
       searchWorkspaceFiles,
+      listWorkspaceDirectory,
+      searchWorkspaceText,
+      searchWorkspaceSymbols,
+      getWorkspaceVcsStatus,
+      getWorkspaceVcsDiff,
+      getWorkspaceRawVcsDiff,
       openWorkspaceFile,
       diagnostics,
       refreshDiagnostics,
@@ -2827,6 +3018,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       restoreSession,
       refreshArchivedSessions,
       saveWorkspaceFile,
+      updateProjectMetadata,
+      initializeProjectGit,
       worktrees,
       refreshWorktrees,
       createWorktree,
@@ -2840,6 +3033,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       setMcpServerEnabled,
       startMcpOAuth,
       completeMcpOAuth,
+      removeMcpOAuth,
+      loadOpenCodeInspection,
+      reloadOpenCodeSkills,
+      reloadOpenCodeConfig,
       terminals,
       terminalShells,
       activeTerminalId,
@@ -2847,6 +3044,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       terminalConnection,
       refreshTerminals,
       createTerminal,
+      getTerminalDetail,
+      resizeTerminal,
       openTerminal,
       sendTerminalInput,
       closeTerminal,

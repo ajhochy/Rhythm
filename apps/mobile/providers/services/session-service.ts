@@ -1,4 +1,4 @@
-import type { OpencodeClient, PermissionRuleset } from '@opencode-ai/sdk/v2/client';
+import type { OpencodeClient, Part, PermissionRuleset } from '@opencode-ai/sdk/v2/client';
 
 import type { GlobalSession, Project } from '@/lib/opencode/types';
 
@@ -167,6 +167,68 @@ export function restoreSession(client: OpencodeClient, sessionId: string) {
 
 export async function getSessionChildren(client: OpencodeClient, sessionId: string) {
   return requireData((await client.session.children({ sessionID: sessionId })).data, 'session children request');
+}
+
+export async function deleteSessionMessage(client: OpencodeClient, sessionId: string, messageId: string) {
+  return requireData(
+    (await client.session.deleteMessage({ sessionID: sessionId, messageID: messageId })).data,
+    'message deletion request',
+  );
+}
+
+export async function updateSessionPart(
+  client: OpencodeClient,
+  sessionId: string,
+  messageId: string,
+  part: Part,
+) {
+  return requireData(
+    (await client.part.update({
+      sessionID: sessionId,
+      messageID: messageId,
+      partID: part.id,
+      part,
+    })).data,
+    'message part update request',
+  );
+}
+
+export async function deleteSessionPart(
+  client: OpencodeClient,
+  sessionId: string,
+  messageId: string,
+  partId: string,
+) {
+  return requireData(
+    (await client.part.delete({ sessionID: sessionId, messageID: messageId, partID: partId })).data,
+    'message part deletion request',
+  );
+}
+
+export async function initializeSession(
+  client: OpencodeClient,
+  sessionId: string,
+  model?: { providerID: string; modelID: string },
+  messageId?: string,
+) {
+  return client.session.init({ sessionID: sessionId, ...model, messageID: messageId });
+}
+
+export async function runSessionShell(
+  client: OpencodeClient,
+  sessionId: string,
+  command: string,
+  options?: { agent?: string; model?: { providerID: string; modelID: string } },
+) {
+  return requireData(
+    (await client.session.shell({
+      sessionID: sessionId,
+      command,
+      agent: options?.agent,
+      model: options?.model,
+    })).data,
+    'session shell request',
+  );
 }
 
 export async function forkSession(client: OpencodeClient, sessionId: string, messageId?: string) {

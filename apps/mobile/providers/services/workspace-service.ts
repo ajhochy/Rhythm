@@ -19,6 +19,8 @@ export async function findText(client: OpencodeClient, pattern: string) {
   return requireData((await client.find.text({ pattern })).data, 'text search');
 }
 
+export type WorkspaceTextMatch = Awaited<ReturnType<typeof findText>>[number];
+
 export async function findSymbols(client: OpencodeClient, query: string) {
   return requireData((await client.find.symbols({ query })).data, 'symbol search');
 }

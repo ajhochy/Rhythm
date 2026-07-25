@@ -18,9 +18,40 @@ export function collectOperations(openapi) {
     .sort((left, right) => left.operationId.localeCompare(right.operationId));
 }
 
-export function buildManifest(enginePackage, openapi) {
+export function buildManifest(enginePackage, openapi, classificationInventory) {
   const canonicalOpenapi = `${JSON.stringify(openapi)}\n`;
-  const operations = collectOperations(openapi);
+  const classifications = new Map(
+    classificationInventory.operations.map((operation) => [
+      operation.operationId,
+      operation,
+    ]),
+  );
+  const operations = collectOperations(openapi).map((operation) => {
+    const classification = classifications.get(operation.operationId);
+    if (!classification) {
+      throw new Error(
+        `Missing mobile classification for ${operation.operationId}`,
+      );
+    }
+    if (
+      classification.method !== operation.method ||
+      classification.path !== operation.path
+    ) {
+      throw new Error(
+        `Mobile classification drifted for ${operation.operationId}`,
+      );
+    }
+    return {
+      ...operation,
+      classification: classification.classification,
+      reason: classification.reason,
+    };
+  });
+  if (classifications.size !== operations.length) {
+    throw new Error(
+      `Mobile classification count ${classifications.size} does not match bundled operation count ${operations.length}`,
+    );
+  }
   return {
     engineVersion: enginePackage.version,
     openapiSha256: createHash('sha256').update(canonicalOpenapi).digest('hex'),
@@ -36,9 +67,19 @@ if (!['--write', '--check'].includes(mode) || process.argv.length !== 3) {
 
 const mobileRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rhythmRoot = process.env.RHYTHM_REPO ?? path.resolve(mobileRoot, '../..');
+const classificationInventory = JSON.parse(
+  await readFile(
+    path.join(
+      mobileRoot,
+      'contracts/rhythm-opencode-classifications.json',
+    ),
+    'utf8',
+  ),
+);
 const manifest = buildManifest(
   JSON.parse(await readFile(path.join(rhythmRoot, 'apps/opencode_fork/packages/opencode/package.json'), 'utf8')),
   JSON.parse(await readFile(path.join(rhythmRoot, 'apps/opencode_fork/packages/sdk/openapi.json'), 'utf8')),
+  classificationInventory,
 );
 const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
 const manifestPath = path.join(mobileRoot, 'contracts/rhythm-opencode-contract.json');

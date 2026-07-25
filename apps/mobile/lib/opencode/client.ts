@@ -270,6 +270,38 @@ export function buildClient(
   );
 }
 
+export async function requestOpenCodeRoute<T>(
+  settings: OpencodeConnectionSettings,
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const server = normalizeServerUrl(settings.serverUrl);
+  if (!server.valid) {
+    throw new Error('Cannot call OpenCode with an invalid server URL.');
+  }
+  const request = createScopedFetch(
+    server.origin,
+    server.pathPrefix,
+    settings.directory.trim() || undefined,
+  );
+  const response = await request(`${server.origin}${path}`, {
+    ...init,
+    headers: {
+      ...getRequestHeaders(settings),
+      ...init.headers,
+    },
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).trim();
+    throw new Error(`OpenCode request failed (${response.status})${detail ? `: ${detail}` : '.'}`);
+  }
+  if (response.status === 204) {
+    return undefined as T;
+  }
+  const text = await response.text();
+  return (text ? JSON.parse(text) : undefined) as T;
+}
+
 export function buildPtyWebSocketUrl(
   settings: Pick<OpencodeConnectionSettings, 'serverUrl' | 'directory'>,
   ptyId: string,

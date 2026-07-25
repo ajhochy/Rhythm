@@ -2,8 +2,11 @@ import { expect, test } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 
+const fakePort = process.env.RHYTHM_MOBILE_E2E_FAKE_PORT || '44096';
+const fakeServer = `http://127.0.0.1:${fakePort}`;
+
 async function resetScenario(request, scenario) {
-  const response = await request.post('http://127.0.0.1:44096/__control/reset', {
+  const response = await request.post(`${fakeServer}/__control/reset`, {
     data: { scenario },
   });
 

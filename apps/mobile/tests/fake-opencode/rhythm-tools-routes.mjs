@@ -58,6 +58,7 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
       },
     ],
     mcp: [
+      { id: 'filesystem', name: 'filesystem', status: 'connected', enabled: true },
       { id: 'planning-center', name: 'planning-center', status: 'connected', enabled: true },
       { id: 'gmail', name: 'gmail', status: 'disabled', enabled: false },
     ],

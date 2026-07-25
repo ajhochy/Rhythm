@@ -104,6 +104,16 @@ try {
   const pathPayload = await request('/path');
   assert(pathPayload.directory === '/workspace', 'Missing fake path payload');
   assert((await request('/global/health')).version === '1.14.49', 'Unexpected health version');
+  assert((await request('/skill'))[0].name === 'mobile-parity', 'Expected runtime skill list');
+  assert((await request('/skill/reload', { method: 'POST' }))[0].name === 'mobile-parity', 'Expected runtime skill reload');
+  assert(await request('/config/reload', { method: 'POST' }), 'Expected config reload');
+  assert((await request('/global/config')).provider.openai.apiKey === 'sk-fake-secret', 'Expected global config fixture');
+  assert((await request('/experimental/resource'))['filesystem:readme'].client === 'filesystem', 'Expected MCP resource fixture');
+  assert((await request('/experimental/tool/ids')).includes('read'), 'Expected tool IDs');
+  assert((await request('/experimental/tool?provider=openai&model=gpt-4.1-mini'))[0].id === 'read', 'Expected tool schema');
+  await assertStatus('/experimental/tool', 400);
+  assert((await request('/project/project-demo', json('PATCH', { name: 'Parity demo' }))).name === 'Parity demo', 'Project update failed');
+  assert((await request('/project/git/init', { method: 'POST' })).id === 'project-demo', 'Project Git initialization failed');
   assert(Object.keys(await request('/mcp')).length === 1, 'Expected MCP diagnostic');
   assert((await request('/lsp')).length === 1, 'Expected LSP diagnostic');
   assert((await request('/formatter')).length === 1, 'Expected formatter diagnostic');
@@ -133,7 +143,8 @@ try {
   assert((await request('/pty/shells')).some((shell) => shell.name === 'bash'), 'Expected PTY shells');
   const pty = await request('/pty', json('POST', { command: '/bin/sh', args: ['-l'], title: 'Smoke terminal' }));
   assert((await request(`/pty/${pty.id}`)).command === '/bin/sh', 'PTY get failed');
-  assert((await request(`/pty/${pty.id}`, json('PUT', { title: 'Renamed terminal', size: { rows: 30, cols: 100 } }))).title === 'Renamed terminal', 'PTY update failed');
+  const resizedPty = await request(`/pty/${pty.id}`, json('PUT', { title: 'Renamed terminal', size: { rows: 30, cols: 100 } }));
+  assert(resizedPty.title === 'Renamed terminal' && resizedPty.size.rows === 30, 'PTY update failed');
   await assertStatus(`/pty/${pty.id}/connect-token`, 403, { method: 'POST' });
   const ptyTicket = (await request(`/pty/${pty.id}/connect-token`, { method: 'POST', headers: { 'x-opencode-ticket': '1' } })).ticket;
   assert(ptyTicket === `ticket-${pty.id}`, 'PTY token failed');
@@ -187,6 +198,22 @@ try {
 
   const commandMessage = await request(`/session/${sessionId}/command`, json('POST', { command: 'review', arguments: 'src' }));
   assert(commandMessage.parts[0].text.includes('/review src'), 'Command execution failed');
+  const editedPart = {
+    ...commandMessage.parts[0],
+    text: 'Edited command message',
+  };
+  assert((await request(
+    `/session/${sessionId}/message/${commandMessage.info.id}/part/${editedPart.id}`,
+    json('PATCH', editedPart),
+  )).text === 'Edited command message', 'Message part update failed');
+  assert(await request(
+    `/session/${sessionId}/message/${commandMessage.info.id}/part/${editedPart.id}`,
+    { method: 'DELETE' },
+  ), 'Message part delete failed');
+  assert(await request(
+    `/session/${sessionId}/message/${commandMessage.info.id}`,
+    { method: 'DELETE' },
+  ), 'Message delete failed');
   const forked = await request(`/session/${sessionId}/fork`, json('POST', {}));
   assert(forked.parentID === sessionId, 'Session fork failed');
   assert((await request(`/session/${sessionId}/children`)).some((child) => child.id === forked.id), 'Session children failed');

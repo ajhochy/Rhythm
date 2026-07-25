@@ -4,6 +4,7 @@ import type {
   File,
   FileContent,
   FileDiff,
+  FileNode,
   GlobalSession,
   McpLocalConfig,
   McpRemoteConfig,
@@ -14,7 +15,11 @@ import type {
   PtyShellsResponse,
   Session,
   SessionStatus,
+  Skills,
+  Symbol,
   Todo,
+  VcsFileDiff,
+  VcsFileStatus,
   VcsInfo,
   Worktree,
 } from '@/lib/opencode/types';
@@ -28,6 +33,9 @@ import type {
 import type { Diagnostics } from '@/providers/services/diagnostics-service';
 import type { SessionMessageRecord, TranscriptEntry } from '@/lib/opencode/format';
 import type { SessionUsage } from '@/lib/opencode/usage';
+import type { OpenCodeInspection } from '@/providers/services/opencode-inspection-service';
+import type { ProjectMetadataUpdate } from '@/providers/services/project-service';
+import type { WorkspaceTextMatch } from '@/providers/services/workspace-service';
 import type {
   AgentOption as ProviderAgentOption,
   ChatPreferences as ProviderChatPreferences,
@@ -164,6 +172,12 @@ export type OpencodeContextValue = {
   unshareSession: (sessionId: string) => Promise<Session>;
   revertSession: (sessionId: string, messageId: string) => Promise<void>;
   unrevertSession: (sessionId: string) => Promise<void>;
+  getSessionChildren: (sessionId: string) => Promise<Session[]>;
+  deleteSessionMessage: (sessionId: string, messageId: string) => Promise<void>;
+  updateSessionTextPart: (sessionId: string, messageId: string, partId: string, text: string) => Promise<void>;
+  deleteSessionPart: (sessionId: string, messageId: string, partId: string) => Promise<void>;
+  initializeSession: (sessionId: string) => Promise<void>;
+  runSessionShell: (sessionId: string, command: string) => Promise<void>;
   sendPrompt: (sessionId: string, prompt: string, attachments?: { uri: string; mime?: string; filename?: string }[]) => Promise<boolean>;
   abortSession: (sessionId: string) => Promise<void>;
   replyToPermission: (requestId: string, reply: 'once' | 'always' | 'reject') => Promise<void>;
@@ -176,8 +190,16 @@ export type OpencodeContextValue = {
   selectedWorkspaceFile?: { path: string; content: FileContent };
   vcsInfo?: VcsInfo;
   searchWorkspaceFiles: (query: string) => Promise<void>;
+  listWorkspaceDirectory: (path: string) => Promise<FileNode[]>;
+  searchWorkspaceText: (pattern: string) => Promise<WorkspaceTextMatch[]>;
+  searchWorkspaceSymbols: (query: string) => Promise<Symbol[]>;
+  getWorkspaceVcsStatus: () => Promise<VcsFileStatus[]>;
+  getWorkspaceVcsDiff: (mode: 'git' | 'branch') => Promise<VcsFileDiff[]>;
+  getWorkspaceRawVcsDiff: () => Promise<string>;
   openWorkspaceFile: (path: string) => Promise<void>;
   saveWorkspaceFile: (path: string, expectedContent: string, content: string) => Promise<void>;
+  updateProjectMetadata: (projectId: string, update: ProjectMetadataUpdate) => Promise<Project>;
+  initializeProjectGit: () => Promise<Project>;
   worktrees: (string | Worktree)[];
   refreshWorktrees: () => Promise<void>;
   createWorktree: (name?: string, startCommand?: string) => Promise<void>;
@@ -191,6 +213,10 @@ export type OpencodeContextValue = {
   setMcpServerEnabled: (name: string, enabled: boolean) => Promise<void>;
   startMcpOAuth: (name: string) => Promise<string>;
   completeMcpOAuth: (name: string, code: string) => Promise<void>;
+  removeMcpOAuth: (name: string) => Promise<void>;
+  loadOpenCodeInspection: (provider?: string, model?: string) => Promise<OpenCodeInspection>;
+  reloadOpenCodeSkills: () => Promise<Skills>;
+  reloadOpenCodeConfig: () => Promise<void>;
   terminals: Pty[];
   terminalShells: PtyShellsResponse;
   activeTerminalId?: string;
@@ -198,6 +224,8 @@ export type OpencodeContextValue = {
   terminalConnection: 'idle' | 'connecting' | 'connected' | 'error';
   refreshTerminals: () => Promise<void>;
   createTerminal: (command?: string, title?: string) => Promise<Pty>;
+  getTerminalDetail: (ptyId: string) => Promise<Pty>;
+  resizeTerminal: (ptyId: string, rows: number, cols: number) => Promise<Pty>;
   openTerminal: (ptyId: string) => Promise<void>;
   sendTerminalInput: (input: string) => void;
   closeTerminal: (ptyId: string) => Promise<void>;

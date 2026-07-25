@@ -38,9 +38,10 @@ export function createSessionHelpers({ getNow, getState, emitEvent }) {
 
   function createMessage(sessionId, role, parts, extra = {}) {
     const state = getState();
+    const messageId = `message-${state.nextMessageId++}`;
     const record = {
       info: {
-        id: `message-${state.nextMessageId++}`,
+        id: messageId,
         role,
         sessionID: sessionId,
         time: {
@@ -48,7 +49,12 @@ export function createSessionHelpers({ getNow, getState, emitEvent }) {
         },
         ...extra,
       },
-      parts,
+      parts: parts.map((part) => ({
+        id: part.id || `part-${state.nextPartId++}`,
+        sessionID: sessionId,
+        messageID: messageId,
+        ...part,
+      })),
     };
 
     state.messagesBySession[sessionId] = [...getMessages(sessionId), record];

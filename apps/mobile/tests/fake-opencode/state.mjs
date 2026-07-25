@@ -24,6 +24,7 @@ export function createState(scenario) {
     project,
     nextSessionId: 1,
     nextMessageId: 1,
+    nextPartId: 1,
     nextPendingId: 1,
     nextPtyId: 1,
     nextWorktreeId: 1,

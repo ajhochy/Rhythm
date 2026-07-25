@@ -1,7 +1,16 @@
 import { defineConfig, devices } from '@playwright/test';
 
-function portFromEnv(name, fallback) {
-  const raw = process.env[name]?.trim();
+function portFromEnv(names, fallback) {
+  const configured = names
+    .map((name) => [name, process.env[name]?.trim()])
+    .filter(([, raw]) => Boolean(raw));
+  const distinct = new Set(configured.map(([, raw]) => raw));
+  if (distinct.size > 1) {
+    throw new Error(
+      `${names.join(' and ')} must select the same TCP port when both are set`,
+    );
+  }
+  const [name, raw] = configured[0] ?? [names[0], undefined];
   if (!raw) return fallback;
   if (!/^\d+$/.test(raw)) {
     throw new Error(`${name} must be a TCP port`);
@@ -13,10 +22,21 @@ function portFromEnv(name, fallback) {
   return port;
 }
 
-const fakePort = portFromEnv('PLAYWRIGHT_FAKE_PORT', 44096);
-const webPort = portFromEnv('PLAYWRIGHT_WEB_PORT', 19006);
+const fakePort = portFromEnv(
+  ['PLAYWRIGHT_FAKE_PORT', 'RHYTHM_MOBILE_E2E_FAKE_PORT'],
+  44096,
+);
+const webPort = portFromEnv(
+  ['PLAYWRIGHT_WEB_PORT', 'RHYTHM_MOBILE_E2E_WEB_PORT'],
+  19006,
+);
 const fakeBaseUrl = `http://127.0.0.1:${fakePort}`;
 const webBaseUrl = `http://127.0.0.1:${webPort}`;
+
+process.env.PLAYWRIGHT_FAKE_PORT = String(fakePort);
+process.env.PLAYWRIGHT_WEB_PORT = String(webPort);
+process.env.RHYTHM_MOBILE_E2E_FAKE_PORT = String(fakePort);
+process.env.RHYTHM_MOBILE_E2E_WEB_PORT = String(webPort);
 
 export default defineConfig({
   testDir: './tests/e2e',

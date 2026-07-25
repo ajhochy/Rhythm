@@ -1,6 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -59,11 +59,19 @@ export default function AgentWorkspaceScreen() {
     shareSession,
     unshareSession,
     searchWorkspaceFiles,
+    listWorkspaceDirectory,
+    searchWorkspaceText,
+    searchWorkspaceSymbols,
+    getWorkspaceVcsStatus,
+    getWorkspaceVcsDiff,
+    getWorkspaceRawVcsDiff,
     openWorkspaceFile,
     workspaceFiles,
     workspaceFileStatuses,
     selectedWorkspaceFile,
     saveWorkspaceFile,
+    updateProjectMetadata,
+    initializeProjectGit,
     vcsInfo,
     worktrees,
     refreshWorktrees,
@@ -80,6 +88,13 @@ export default function AgentWorkspaceScreen() {
   const [renamingSessionId, setRenamingSessionId] = useState<string>();
   const [renameValue, setRenameValue] = useState('');
   const [fileQuery, setFileQuery] = useState('');
+  const [fileSearchMode, setFileSearchMode] = useState<'files' | 'text' | 'symbols' | 'directory'>('files');
+  const [workspaceSearchResults, setWorkspaceSearchResults] = useState<
+    { id: string; title: string; description?: string; path?: string }[]
+  >([]);
+  const [isSearchingWorkspace, setIsSearchingWorkspace] = useState(false);
+  const [vcsOutput, setVcsOutput] = useState<{ title: string; content: string }>();
+  const [isLoadingVcs, setIsLoadingVcs] = useState(false);
   const [editingFile, setEditingFile] = useState<{ path: string; original: string; value: string }>();
   const [isSavingFile, setIsSavingFile] = useState(false);
   const [updatingArchivedSessionId, setUpdatingArchivedSessionId] = useState<string>();
@@ -88,6 +103,8 @@ export default function AgentWorkspaceScreen() {
   const [isCreatingWorktree, setIsCreatingWorktree] = useState(false);
   const [isRefreshingWorktrees, setIsRefreshingWorktrees] = useState(false);
   const [updatingWorktree, setUpdatingWorktree] = useState<string>();
+  const [projectName, setProjectName] = useState(activeProject?.label || '');
+  const [isUpdatingProject, setIsUpdatingProject] = useState(false);
   const [error, setError] = useState<string>();
 
   const isRefreshing = isRefreshingSessions || isRefreshingWorkspaceCatalog;
@@ -99,6 +116,10 @@ export default function AgentWorkspaceScreen() {
     }),
     [currentSessionId, sessionStatuses, sessions],
   );
+
+  useEffect(() => {
+    setProjectName(activeProject?.label || '');
+  }, [activeProject?.label, activeProject?.path]);
 
   async function handleRefresh() {
     await Promise.all([refreshWorkspaceCatalog(), refreshSessions(), refreshWorkspaceStatus()])
@@ -122,6 +143,85 @@ export default function AgentWorkspaceScreen() {
     } finally {
       setIsCreating(false);
     }
+  }
+
+  async function handleWorkspaceSearch() {
+    setIsSearchingWorkspace(true);
+    try {
+      if (fileSearchMode === 'files') {
+        await searchWorkspaceFiles(fileQuery);
+        setWorkspaceSearchResults([]);
+        return;
+      }
+      if (fileSearchMode === 'directory') {
+        const entries = await listWorkspaceDirectory(fileQuery);
+        setWorkspaceSearchResults(entries.map((entry) => ({
+          id: `${entry.type}:${entry.absolute}`,
+          title: entry.path,
+          description: entry.type === 'directory' ? 'Directory' : 'File',
+          path: entry.type === 'file' ? entry.path : undefined,
+        })));
+        return;
+      }
+      if (fileSearchMode === 'text') {
+        const matches = await searchWorkspaceText(fileQuery);
+        setWorkspaceSearchResults(matches.map((match, index) => ({
+          id: `${match.path.text}:${match.line_number}:${index}`,
+          title: `${match.path.text}:${match.line_number}`,
+          description: match.lines.text.trim(),
+          path: match.path.text,
+        })));
+        return;
+      }
+      const symbols = await searchWorkspaceSymbols(fileQuery);
+      setWorkspaceSearchResults(symbols.map((symbol, index) => ({
+        id: `${symbol.location.uri}:${symbol.name}:${index}`,
+        title: symbol.name,
+        description: `${symbol.location.uri}:${symbol.location.range.start.line + 1}`,
+        path: symbol.location.uri.replace(/^file:\/\//, ''),
+      })));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not search the workspace.');
+    } finally {
+      setIsSearchingWorkspace(false);
+    }
+  }
+
+  async function handleVcsInspection(kind: 'status' | 'git' | 'branch' | 'raw') {
+    setIsLoadingVcs(true);
+    try {
+      const result = kind === 'status'
+        ? await getWorkspaceVcsStatus()
+        : kind === 'raw'
+          ? await getWorkspaceRawVcsDiff()
+          : await getWorkspaceVcsDiff(kind);
+      setVcsOutput({
+        title: kind === 'status' ? 'Working tree status' : `${kind === 'raw' ? 'Raw' : kind} diff`,
+        content: typeof result === 'string' ? result : JSON.stringify(result, null, 2),
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not inspect version control.');
+    } finally {
+      setIsLoadingVcs(false);
+    }
+  }
+
+  function confirmProjectGitInitialization() {
+    const run = () => {
+      setIsUpdatingProject(true);
+      void initializeProjectGit()
+        .catch((reason) => setError(reason instanceof Error ? reason.message : 'Could not initialize Git.'))
+        .finally(() => setIsUpdatingProject(false));
+    };
+    const detail = 'This creates a Git repository in the current project directory.';
+    if (Platform.OS === 'web') {
+      if (globalThis.confirm(`Initialize Git?\n\n${detail}`)) run();
+      return;
+    }
+    Alert.alert('Initialize Git?', detail, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Initialize', onPress: run },
+    ]);
   }
 
   async function handleDelete(sessionId: string) {
@@ -306,12 +406,65 @@ export default function AgentWorkspaceScreen() {
       {activePanel === 'files' ? <Card mode="contained" style={[styles.card, { backgroundColor: palette.surface }]}>
         <Card.Title title="Workspace files" subtitle={vcsInfo?.branch ? `Branch: ${vcsInfo.branch}` : 'Search and inspect files'} />
         <Card.Content style={styles.fileSection}>
+          <SegmentedButtons
+            value={fileSearchMode}
+            onValueChange={(value) => setFileSearchMode(value as typeof fileSearchMode)}
+            buttons={[
+              { value: 'files', label: 'Files' },
+              { value: 'text', label: 'Text' },
+              { value: 'symbols', label: 'Symbols' },
+              { value: 'directory', label: 'Folder' },
+            ]}
+          />
           <View style={[styles.renameRow, compact && styles.compactFormRow]}>
-            <TextInput testID="workspace-file-search" mode="outlined" dense placeholder="Search files" value={fileQuery} onChangeText={setFileQuery} style={styles.renameInput} />
-            <Button mode="contained" onPress={() => void searchWorkspaceFiles(fileQuery).catch((reason) => setError(reason instanceof Error ? reason.message : 'Could not search workspace files.'))}>Search</Button>
+            <TextInput
+              testID="workspace-file-search"
+              mode="outlined"
+              dense
+              placeholder={fileSearchMode === 'directory' ? 'Directory path (blank for root)' : `Search ${fileSearchMode}`}
+              value={fileQuery}
+              onChangeText={setFileQuery}
+              style={styles.renameInput}
+            />
+            <Button
+              testID="workspace-search-button"
+              mode="contained"
+              loading={isSearchingWorkspace}
+              disabled={isSearchingWorkspace || (fileSearchMode !== 'directory' && !fileQuery.trim())}
+              onPress={() => void handleWorkspaceSearch()}>
+              Search
+            </Button>
           </View>
           {workspaceFileStatuses.length > 0 ? <Text style={{ color: palette.muted }}>{workspaceFileStatuses.length} changed files</Text> : null}
-          {workspaceFiles.map((path) => <List.Item key={path} title={path} onPress={() => void openWorkspaceFile(path).catch((reason) => setError(reason instanceof Error ? reason.message : 'Could not open the file.'))} />)}
+          {fileSearchMode === 'files'
+            ? workspaceFiles.map((path) => <List.Item key={path} title={path} onPress={() => void openWorkspaceFile(path).catch((reason) => setError(reason instanceof Error ? reason.message : 'Could not open the file.'))} />)
+            : workspaceSearchResults.map((result) => (
+                <List.Item
+                  key={result.id}
+                  title={result.title}
+                  description={result.description}
+                  disabled={!result.path}
+                  onPress={result.path ? () => void openWorkspaceFile(result.path!)
+                    .catch((reason) => setError(reason instanceof Error ? reason.message : 'Could not open the file.')) : undefined}
+                />
+              ))}
+          <Divider />
+          <Text variant="titleSmall" style={[styles.sectionLabel, { color: palette.text }]}>Version control</Text>
+          <View style={styles.inlineActions}>
+            <Button compact mode="outlined" loading={isLoadingVcs} onPress={() => void handleVcsInspection('status')}>Status</Button>
+            <Button compact mode="outlined" disabled={isLoadingVcs} onPress={() => void handleVcsInspection('git')}>Git diff</Button>
+            <Button compact mode="outlined" disabled={isLoadingVcs} onPress={() => void handleVcsInspection('branch')}>Branch diff</Button>
+            <Button testID="workspace-vcs-raw-button" compact mode="outlined" disabled={isLoadingVcs} onPress={() => void handleVcsInspection('raw')}>Raw diff</Button>
+          </View>
+          {vcsOutput ? (
+            <View style={[styles.filePreview, { borderColor: palette.border, backgroundColor: palette.background }]}>
+              <View style={styles.titleRow}>
+                <Text variant="labelLarge" style={{ color: palette.text }}>{vcsOutput.title}</Text>
+                <IconButton icon="close" size={18} accessibilityLabel="Close version control inspection" onPress={() => setVcsOutput(undefined)} />
+              </View>
+              <Text testID="workspace-vcs-output" selectable style={[styles.code, { color: palette.text }]}>{vcsOutput.content || 'No changes.'}</Text>
+            </View>
+          ) : null}
           {selectedWorkspaceFile ? (
             <View style={[styles.filePreview, { borderColor: palette.border, backgroundColor: palette.background }]}>
               <Text variant="labelLarge" style={{ color: palette.text }}>{selectedWorkspaceFile.path}</Text>
@@ -366,8 +519,8 @@ export default function AgentWorkspaceScreen() {
 
       {activePanel === 'tools' ? <Card mode="contained" style={[styles.card, { backgroundColor: palette.surface }]}>
         <Card.Title
-          title="Worktrees"
-          subtitle="Create isolated working directories or manage existing ones."
+          title="Project and worktrees"
+          subtitle="Update bounded project metadata, initialize Git, or manage isolated worktrees."
           right={() => (
             isRefreshingWorktrees
               ? <ActivityIndicator style={styles.headerAction} color={palette.tint} />
@@ -385,6 +538,41 @@ export default function AgentWorkspaceScreen() {
           )}
         />
         <Card.Content style={styles.worktreeSection}>
+          <View style={[styles.worktreeForm, compact && styles.compactFormRow]}>
+            <TextInput
+              testID="workspace-project-name"
+              mode="outlined"
+              dense
+              label="Project name"
+              value={projectName}
+              onChangeText={setProjectName}
+              style={styles.renameInput}
+            />
+            <Button
+              testID="workspace-project-save"
+              mode="outlined"
+              loading={isUpdatingProject}
+              disabled={!activeProject?.id || !projectName.trim() || isUpdatingProject}
+              onPress={() => {
+                if (!activeProject?.id) return;
+                setIsUpdatingProject(true);
+                void updateProjectMetadata(activeProject.id, { name: projectName.trim() })
+                  .catch((reason) => setError(reason instanceof Error ? reason.message : 'Could not update the project.'))
+                  .finally(() => setIsUpdatingProject(false));
+              }}>
+              Save name
+            </Button>
+            <Button
+              testID="workspace-project-init-git"
+              mode="outlined"
+              loading={isUpdatingProject}
+              disabled={!activeProject || isUpdatingProject || Boolean(vcsInfo?.branch)}
+              onPress={confirmProjectGitInitialization}>
+              Initialize Git
+            </Button>
+          </View>
+          <Divider />
+          <Text variant="titleSmall" style={[styles.sectionLabel, { color: palette.text }]}>Worktrees</Text>
           <View style={[styles.worktreeForm, compact && styles.compactFormRow]}>
             <TextInput testID="workspace-worktree-name" mode="outlined" dense label="Name (optional)" value={worktreeName} onChangeText={setWorktreeName} style={styles.renameInput} />
             <TextInput testID="workspace-worktree-command" mode="outlined" dense label="Start command (optional)" value={worktreeStartCommand} onChangeText={setWorktreeStartCommand} style={styles.renameInput} />
@@ -485,6 +673,8 @@ const styles = StyleSheet.create({
   compactSessionMeta: { paddingHorizontal: 16, paddingBottom: 8, alignItems: 'flex-start' },
   sessionDetails: { flexDirection: 'row', gap: 8 },
   inlineActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  titleRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  sectionLabel: { paddingHorizontal: 16, paddingTop: 8 },
   iconActions: { flexDirection: 'row', alignItems: 'center' },
   renameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingBottom: 8 },
   compactFormRow: { flexDirection: 'column', alignItems: 'stretch' },

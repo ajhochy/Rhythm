@@ -2,8 +2,8 @@ import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, View } from 'react-native';
-import { Button, Card, Snackbar, Text } from 'react-native-paper';
+import { Alert, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { Button, Card, Snackbar, Text, TextInput } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ChatComposer } from '@/components/chat/chat-composer';
@@ -37,6 +37,7 @@ export function ChatView() {
     clearConversationFeedback,
     clearPromptError,
     currentDiffs,
+    currentMessages,
     currentPendingPermissions,
     currentPendingQuestions,
     currentTodos,
@@ -56,6 +57,12 @@ export function ChatView() {
     forkSession,
     revertSession,
     unrevertSession,
+    getSessionChildren,
+    deleteSessionMessage,
+    updateSessionTextPart,
+    deleteSessionPart,
+    initializeSession,
+    runSessionShell,
     sendPrompt,
     promptError,
     sendingState,
@@ -80,6 +87,13 @@ export function ChatView() {
   const [speakingMessageId, setSpeakingMessageId] = useState<string | undefined>(undefined);
   const [voiceFeedback, setVoiceFeedback] = useState<string | undefined>(undefined);
   const [sendFeedback, setSendFeedback] = useState<string | undefined>(undefined);
+  const [sessionToolsVisible, setSessionToolsVisible] = useState(false);
+  const [sessionChildren, setSessionChildren] = useState<{ id: string; title?: string }[]>([]);
+  const [sessionChildrenLoaded, setSessionChildrenLoaded] = useState(false);
+  const [sessionShellCommand, setSessionShellCommand] = useState('');
+  const [selectedEditableMessageId, setSelectedEditableMessageId] = useState<string>();
+  const [editablePartText, setEditablePartText] = useState('');
+  const [sessionToolBusy, setSessionToolBusy] = useState(false);
   const speechDraftPrefixRef = useRef('');
   const draftRef = useRef('');
   const attachmentsRef = useRef<{ uri: string; mime?: string; filename?: string }[]>([]);
@@ -148,6 +162,16 @@ export function ChatView() {
       ].join('\n')
     : '';
   const visibleSessions = sessions;
+  const editableMessages = useMemo(
+    () => currentMessages.filter((message) => (
+      message.info.role === 'user' && message.parts.some((part) => part.type === 'text')
+    )),
+    [currentMessages],
+  );
+  const selectedEditableMessage = editableMessages.find(
+    (message) => message.info.id === selectedEditableMessageId,
+  ) || editableMessages.at(-1);
+  const selectedEditablePart = selectedEditableMessage?.parts.find((part) => part.type === 'text');
 
   useEffect(() => {
     draftRef.current = draft;
@@ -156,6 +180,16 @@ export function ChatView() {
   useEffect(() => {
     attachmentsRef.current = attachments;
   }, [attachments]);
+
+  useEffect(() => {
+    const nextMessage = editableMessages.at(-1);
+    const nextPart = nextMessage?.parts.find((part) => part.type === 'text');
+    setSelectedEditableMessageId(nextMessage?.info.id);
+    setEditablePartText(nextPart?.type === 'text' ? nextPart.text : '');
+    setSessionChildren([]);
+    setSessionChildrenLoaded(false);
+    setSessionShellCommand('');
+  }, [currentSessionId, editableMessages]);
 
   const latestAssistantEntry = useMemo(
     () => [...displayTranscript].reverse().find((entry) => entry.role === 'assistant' && entry.text.trim()),
@@ -407,6 +441,35 @@ export function ChatView() {
     }
   }
 
+  async function runSessionTool(action: () => Promise<void>) {
+    setSessionToolBusy(true);
+    try {
+      setSendFeedback(undefined);
+      await action();
+    } catch (error) {
+      setSendFeedback(error instanceof Error ? error.message : 'The session action failed.');
+    } finally {
+      setSessionToolBusy(false);
+    }
+  }
+
+  function confirmSessionAction(
+    title: string,
+    detail: string,
+    actionLabel: string,
+    action: () => Promise<void>,
+  ) {
+    const run = () => void runSessionTool(action);
+    if (Platform.OS === 'web') {
+      if (globalThis.confirm(`${title}\n\n${detail}`)) run();
+      return;
+    }
+    Alert.alert(title, detail, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: actionLabel, style: actionLabel === 'Delete' ? 'destructive' : 'default', onPress: run },
+    ]);
+  }
+
   function handleConfirmStopConversation() {
     Alert.alert('Stop conversation?', 'This will stop conversation mode and OpenCode will stop listening for your next turn.', [
       { style: 'cancel', text: 'Keep going' },
@@ -456,7 +519,165 @@ export function ChatView() {
         <View style={[styles.tabsRow, { backgroundColor: palette.surface, borderBottomColor: palette.border }]}>
           <TopTab active={activeTab === 'session'} label="Session" onPress={() => setActiveTab('session')} />
           <TopTab active={activeTab === 'changes'} label={`${diffCount} Files Changed`} onPress={() => setActiveTab('changes')} />
+          <Button
+            testID="chat-session-tools-toggle"
+            compact
+            icon={sessionToolsVisible ? 'chevron-up' : 'wrench-outline'}
+            onPress={() => setSessionToolsVisible((visible) => !visible)}>
+            Manage
+          </Button>
         </View>
+
+        {sessionToolsVisible && currentSessionId ? (
+          <Card mode="contained" style={{ margin: 10, marginBottom: 0 }}>
+            <Card.Title
+              title="Session maintenance"
+              subtitle="Inspect children, initialize the project, run a confirmed shell command, or edit your own message."
+            />
+            <ScrollView style={{ maxHeight: 300 }} keyboardShouldPersistTaps="handled">
+              <Card.Content style={{ gap: 10 }}>
+              <View style={{ alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                <Button
+                  testID="chat-session-children-button"
+                  compact
+                  mode="outlined"
+                  loading={sessionToolBusy}
+                  onPress={() => void runSessionTool(async () => {
+                    setSessionChildren(await getSessionChildren(currentSessionId));
+                    setSessionChildrenLoaded(true);
+                  })}>
+                  Children
+                </Button>
+                <Button
+                  testID="chat-session-init-button"
+                  compact
+                  mode="outlined"
+                  disabled={sessionToolBusy}
+                  onPress={() => confirmSessionAction(
+                    'Initialize this session?',
+                    'OpenCode will inspect the project and may create or update AGENTS.md.',
+                    'Initialize',
+                    () => initializeSession(currentSessionId),
+                  )}>
+                  Initialize
+                </Button>
+                {sessionChildren.length > 0 ? (
+                  <Text variant="bodySmall" style={{ color: palette.muted }}>
+                    {sessionChildren.map((session) => session.title || session.id).join(' · ')}
+                  </Text>
+                ) : sessionChildrenLoaded ? (
+                  <Text variant="bodySmall" style={{ color: palette.muted }}>No child sessions.</Text>
+                ) : null}
+              </View>
+              <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
+                <TextInput
+                  testID="chat-session-shell-input"
+                  mode="outlined"
+                  dense
+                  label="Shell command"
+                  value={sessionShellCommand}
+                  onChangeText={setSessionShellCommand}
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  testID="chat-session-shell-button"
+                  compact
+                  mode="outlined"
+                  disabled={sessionToolBusy || !sessionShellCommand.trim()}
+                  onPress={() => confirmSessionAction(
+                    'Run shell command?',
+                    `OpenCode will execute this in the session workspace:\n\n${sessionShellCommand.trim()}`,
+                    'Run',
+                    async () => {
+                      await runSessionShell(currentSessionId, sessionShellCommand);
+                      setSessionShellCommand('');
+                    },
+                  )}>
+                  Run
+                </Button>
+              </View>
+              {selectedEditableMessage && selectedEditablePart?.type === 'text' ? (
+                <>
+                  <View style={{ alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    <Text variant="labelMedium">Your message:</Text>
+                    {editableMessages.slice(-3).map((message, index) => (
+                      <Button
+                        key={message.info.id}
+                        compact
+                        mode={message.info.id === selectedEditableMessage.info.id ? 'contained-tonal' : 'text'}
+                        onPress={() => {
+                          const part = message.parts.find((entry) => entry.type === 'text');
+                          setSelectedEditableMessageId(message.info.id);
+                          setEditablePartText(part?.type === 'text' ? part.text : '');
+                        }}>
+                        {editableMessages.length - Math.min(3, editableMessages.length) + index + 1}
+                      </Button>
+                    ))}
+                  </View>
+                  <TextInput
+                    testID="chat-message-part-input"
+                    mode="outlined"
+                    dense
+                    multiline
+                    label="Editable text part"
+                    value={editablePartText}
+                    onChangeText={setEditablePartText}
+                  />
+                  <View style={{ alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    <Button
+                      testID="chat-message-part-save"
+                      compact
+                      mode="contained-tonal"
+                      disabled={sessionToolBusy || !editablePartText.trim()}
+                      onPress={() => void runSessionTool(() => updateSessionTextPart(
+                        currentSessionId,
+                        selectedEditableMessage.info.id,
+                        selectedEditablePart.id,
+                        editablePartText,
+                      ))}>
+                      Save part
+                    </Button>
+                    <Button
+                      testID="chat-message-part-delete"
+                      compact
+                      textColor={palette.danger}
+                      disabled={sessionToolBusy}
+                      onPress={() => confirmSessionAction(
+                        'Delete this message part?',
+                        'The selected text part will be permanently removed.',
+                        'Delete',
+                        () => deleteSessionPart(
+                          currentSessionId,
+                          selectedEditableMessage.info.id,
+                          selectedEditablePart.id,
+                        ),
+                      )}>
+                      Delete part
+                    </Button>
+                    <Button
+                      testID="chat-message-delete"
+                      compact
+                      textColor={palette.danger}
+                      disabled={sessionToolBusy}
+                      onPress={() => confirmSessionAction(
+                        'Delete this message?',
+                        'The selected message and all of its parts will be permanently removed.',
+                        'Delete',
+                        () => deleteSessionMessage(currentSessionId, selectedEditableMessage.info.id),
+                      )}>
+                      Delete message
+                    </Button>
+                  </View>
+                </>
+              ) : (
+                <Text variant="bodySmall" style={{ color: palette.muted }}>
+                  Send a user message to enable message and part editing.
+                </Text>
+              )}
+              </Card.Content>
+            </ScrollView>
+          </Card>
+        ) : null}
 
         <ChatContent
           activeSession={activeSession}

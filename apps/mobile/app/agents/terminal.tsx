@@ -40,9 +40,11 @@ export default function AgentTerminalScreen() {
     connect,
     connection,
     createTerminal,
+    getTerminalDetail,
     openTerminal,
     refreshTerminals,
     sendTerminalInput,
+    resizeTerminal,
     terminalConnection,
     terminalOutput,
     terminals,
@@ -51,6 +53,10 @@ export default function AgentTerminalScreen() {
   const [busyId, setBusyId] = useState<string>();
   const [isCreating, setIsCreating] = useState(false);
   const [terminalMenuVisible, setTerminalMenuVisible] = useState(false);
+  const [terminalDetail, setTerminalDetail] = useState<Pty>();
+  const [terminalRows, setTerminalRows] = useState('24');
+  const [terminalColumns, setTerminalColumns] = useState('80');
+  const [isResizing, setIsResizing] = useState(false);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
@@ -77,7 +83,8 @@ export default function AgentTerminalScreen() {
   async function handleOpen(id: string) {
     setBusyId(id);
     try {
-      await openTerminal(id);
+      const [, detail] = await Promise.all([openTerminal(id), getTerminalDetail(id)]);
+      setTerminalDetail(detail);
     } catch (reason) {
       setError(message(reason, 'Could not open the terminal.'));
     } finally {
@@ -85,10 +92,28 @@ export default function AgentTerminalScreen() {
     }
   }
 
+  async function handleResize() {
+    if (!activeTerminalId) return;
+    setIsResizing(true);
+    try {
+      const terminal = await resizeTerminal(
+        activeTerminalId,
+        Number(terminalRows),
+        Number(terminalColumns),
+      );
+      setTerminalDetail(terminal);
+    } catch (reason) {
+      setError(message(reason, 'Could not resize the terminal.'));
+    } finally {
+      setIsResizing(false);
+    }
+  }
+
   async function handleTerminate(id: string) {
     setBusyId(id);
     try {
       await closeTerminal(id);
+      setTerminalDetail(undefined);
     } catch (reason) {
       setError(message(reason, 'Could not terminate the terminal.'));
     } finally {
@@ -222,6 +247,51 @@ export default function AgentTerminalScreen() {
           </View>
         </Appbar.Header>
 
+        {activeTerminal ? (
+          <Surface
+            testID="terminal-detail-panel"
+            style={[styles.detailPanel, { backgroundColor: palette.surface, borderBottomColor: palette.border }]}
+            elevation={0}>
+            <View style={styles.detailCopy}>
+              <Text numberOfLines={1} variant="labelMedium" style={{ color: palette.text }}>
+                {terminalDetail?.cwd || activeTerminal.cwd}
+              </Text>
+              <Text variant="bodySmall" style={{ color: palette.muted }}>
+                PID {terminalDetail?.pid || activeTerminal.pid} · {terminalDetail?.status || activeTerminal.status}
+              </Text>
+            </View>
+            <TextInput
+              testID="terminal-rows-input"
+              mode="outlined"
+              dense
+              label="Rows"
+              keyboardType="number-pad"
+              value={terminalRows}
+              onChangeText={setTerminalRows}
+              style={styles.sizeInput}
+            />
+            <TextInput
+              testID="terminal-columns-input"
+              mode="outlined"
+              dense
+              label="Columns"
+              keyboardType="number-pad"
+              value={terminalColumns}
+              onChangeText={setTerminalColumns}
+              style={styles.sizeInput}
+            />
+            <Button
+              testID="terminal-resize-button"
+              compact
+              mode="outlined"
+              loading={isResizing}
+              disabled={isResizing}
+              onPress={() => void handleResize()}>
+              Resize
+            </Button>
+          </Surface>
+        ) : null}
+
         <ScrollView ref={outputRef} style={styles.output} contentContainerStyle={styles.outputContent} nestedScrollEnabled>
           <Text testID="terminal-output" selectable style={[styles.outputText, { color: activeTerminalId ? palette.text : palette.muted }]}> 
             {activeTerminalId ? terminalOutput || 'Connected. Waiting for output...' : 'Open or create a terminal to begin.'}
@@ -284,6 +354,9 @@ const styles = StyleSheet.create({
   headerCopy: { flex: 1, minWidth: 0 },
   headerTitle: { fontFamily: Fonts.display, fontWeight: '700' },
   output: { flex: 1 },
+  detailPanel: { alignItems: 'center', borderBottomWidth: 1, flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  detailCopy: { flex: 1, minWidth: 0 },
+  sizeInput: { width: 80 },
   outputContent: { flexGrow: 1, padding: 16 },
   outputText: { fontFamily: Fonts.mono, fontSize: 14, lineHeight: 21 },
   composer: { borderTopWidth: 1, paddingHorizontal: 12, paddingTop: 10 },

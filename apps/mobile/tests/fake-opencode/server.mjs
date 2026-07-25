@@ -476,8 +476,54 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'PATCH' && /^\/project\/[^/]+$/.test(pathname)) {
+      const projectId = pathname.split('/')[2];
+      const body = await readJson(req);
+      if (projectId !== state.project.id) {
+        notFound(res);
+        return;
+      }
+      if (body?.name !== undefined) {
+        if (typeof body.name !== 'string' || !body.name.trim()) {
+          badRequest(res, 'Project name must not be empty');
+          return;
+        }
+        state.project.name = body.name.trim();
+      }
+      if (body?.icon !== undefined) state.project.icon = body.icon;
+      if (body?.commands !== undefined) state.project.commands = body.commands;
+      state.project.time.updated = getNow();
+      sendJson(res, 200, state.project);
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/project/git/init') {
+      state.project.time.initialized = getNow();
+      sendJson(res, 200, state.project);
+      return;
+    }
+
     if (req.method === 'GET' && pathname === '/config') {
       sendJson(res, 200, state.config);
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/config/reload') {
+      sendJson(res, 200, true);
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/global/config') {
+      sendJson(res, 200, {
+        ...state.config,
+        provider: {
+          openai: {
+            apiKey: 'sk-fake-secret',
+            key: 'plain-fake-secret',
+            baseURL: 'https://api.openai.example.test',
+          },
+        },
+      });
       return;
     }
 
@@ -558,6 +604,69 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, [
         { name: 'build', description: 'Default build agent' },
         { name: 'general', description: 'General-purpose agent' },
+      ]);
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/skill') {
+      sendJson(res, 200, [
+        {
+          name: 'mobile-parity',
+          description: 'Exercises the pinned OpenCode mobile contract.',
+          location: '/workspace/.opencode/skills/mobile-parity/SKILL.md',
+          content: '# Mobile parity',
+        },
+      ]);
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/skill/reload') {
+      sendJson(res, 200, [
+        {
+          name: 'mobile-parity',
+          description: 'Exercises the pinned OpenCode mobile contract.',
+          location: '/workspace/.opencode/skills/mobile-parity/SKILL.md',
+          content: '# Mobile parity',
+        },
+      ]);
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/experimental/resource') {
+      sendJson(res, 200, {
+        'filesystem:readme': {
+          name: 'README',
+          uri: 'file:///workspace/demo-project/README.md',
+          description: 'Demo project readme',
+          mimeType: 'text/markdown',
+          client: 'filesystem',
+        },
+      });
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/experimental/tool/ids') {
+      sendJson(res, 200, ['read', 'grep', 'bash']);
+      return;
+    }
+
+    if (req.method === 'GET' && pathname === '/experimental/tool') {
+      const provider = requestUrl.searchParams.get('provider');
+      const model = requestUrl.searchParams.get('model');
+      if (!provider || !model) {
+        badRequest(res, 'Tool schemas require provider and model');
+        return;
+      }
+      sendJson(res, 200, [
+        {
+          id: 'read',
+          description: 'Read a workspace file',
+          parameters: {
+            type: 'object',
+            properties: { filePath: { type: 'string' } },
+            required: ['filePath'],
+          },
+        },
       ]);
       return;
     }
@@ -837,6 +946,44 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'DELETE' && /^\/session\/[^/]+\/message\/[^/]+$/.test(pathname)) {
+      const [, , sessionId, , messageId] = pathname.split('/');
+      const messages = getMessages(sessionId);
+      const index = messages.findIndex((message) => message.info.id === messageId);
+      if (index < 0) {
+        notFound(res);
+        return;
+      }
+      messages.splice(index, 1);
+      sendJson(res, 200, true);
+      return;
+    }
+
+    if (/^\/session\/[^/]+\/message\/[^/]+\/part\/[^/]+$/.test(pathname)) {
+      const [, , sessionId, , messageId, , partId] = pathname.split('/');
+      const message = getMessages(sessionId).find((record) => record.info.id === messageId);
+      const partIndex = message?.parts.findIndex((part) => part.id === partId) ?? -1;
+      if (!message || partIndex < 0) {
+        notFound(res);
+        return;
+      }
+      if (req.method === 'PATCH') {
+        const body = await readJson(req);
+        if (!body || body.id !== partId || body.messageID !== messageId || body.sessionID !== sessionId) {
+          badRequest(res, 'Updated part identifiers must match the route');
+          return;
+        }
+        message.parts[partIndex] = body;
+        sendJson(res, 200, body);
+        return;
+      }
+      if (req.method === 'DELETE') {
+        message.parts.splice(partIndex, 1);
+        sendJson(res, 200, true);
+        return;
+      }
+    }
+
     if (req.method === 'GET' && /^\/session\/[^/]+\/children$/.test(pathname)) {
       const sessionId = pathname.split('/')[2];
       if (!getSession(sessionId)) {
@@ -1076,6 +1223,7 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         if (body.title !== undefined) state.ptys[index].title = body.title.trim();
+        if (body.size !== undefined) state.ptys[index].size = body.size;
         sendJson(res, 200, state.ptys[index]);
         return;
       }
