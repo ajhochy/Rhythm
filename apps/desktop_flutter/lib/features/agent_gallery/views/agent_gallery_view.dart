@@ -34,7 +34,7 @@ class _AgentGalleryViewState extends State<AgentGalleryView> {
       // '' → 400 "cwd is required" (the #863 smoke bug).
       cwd: Platform.environment['HOME'] ?? '/',
       name: 'Graphic Designer',
-      mcpRole: 'graphic-designer',
+      agentId: 'creative-media',
     );
     if (!context.mounted) return;
     if (session == null) {

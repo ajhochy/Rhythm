@@ -5,7 +5,7 @@
 ///   2. Empty-state widget renders when designs list is empty.
 ///   3. "Launch designer" button is present.
 ///   4. "Open in Canva" link is present for a design with a canvaUrl.
-///   5. Tapping the button calls createSession with mcpRole 'graphic-designer'.
+///   5. Tapping the button launches the creative-media agent without an MCP role.
 ///   6. Tapping the button calls selectSession on the returned session.
 ///   7. Tapping the button stages a composer draft for the new session.
 library;
@@ -71,6 +71,7 @@ class _StubAgentsRepository implements AgentsRepository {
 
   String? lastMcpRole;
   String? lastCwd;
+  String? lastAgentId;
 
   @override
   Stream<AgentWsMessage> get messages => _msgCtrl.stream;
@@ -135,6 +136,7 @@ class _StubAgentsRepository implements AgentsRepository {
   }) async {
     lastMcpRole = mcpRole;
     lastCwd = cwd;
+    lastAgentId = agentId;
     final now = DateTime.now();
     return AgentSession(
       id: 'test-session-id',
@@ -348,40 +350,44 @@ void main() {
       galleryController.dispose();
     });
 
-    testWidgets(
-      'tapping launch button calls createSession with mcpRole graphic-designer',
-      (tester) async {
-        final dataSource = _FakeGalleryDataSource([]);
-        final galleryController = AgentGalleryController(
-          AgentGalleryRepository(dataSource),
-        );
+    testWidgets('tapping launch button creates a creative-media session', (
+      tester,
+    ) async {
+      final dataSource = _FakeGalleryDataSource([]);
+      final galleryController = AgentGalleryController(
+        AgentGalleryRepository(dataSource),
+      );
 
-        await tester.pumpWidget(
-          await _buildApp(
-            galleryController: galleryController,
-            agentsController: agentsController,
-          ),
-        );
-        await tester.pump();
+      await tester.pumpWidget(
+        await _buildApp(
+          galleryController: galleryController,
+          agentsController: agentsController,
+        ),
+      );
+      await tester.pump();
 
-        await tester.tap(find.byKey(const ValueKey('launch-designer-btn')));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('launch-designer-btn')));
+      await tester.pumpAndSettle();
 
-        expect(
-          stubRepo.lastMcpRole,
-          equals('graphic-designer'),
-          reason: 'createSession must be called with mcpRole graphic-designer',
-        );
-        expect(
-          stubRepo.lastCwd,
-          isNotEmpty,
-          reason: 'createSession must be called with a non-empty cwd (#1153: '
-              'empty cwd triggers the "cwd is required" 400 banner)',
-        );
+      expect(
+        stubRepo.lastAgentId,
+        equals('creative-media'),
+        reason: 'createSession must launch the creative-media agent',
+      );
+      expect(
+        stubRepo.lastMcpRole,
+        isNull,
+        reason: 'createSession must not pass an MCP role',
+      );
+      expect(
+        stubRepo.lastCwd,
+        isNotEmpty,
+        reason: 'createSession must be called with a non-empty cwd (#1153: '
+            'empty cwd triggers the "cwd is required" 400 banner)',
+      );
 
-        galleryController.dispose();
-      },
-    );
+      galleryController.dispose();
+    });
 
     testWidgets(
       'tapping launch button selects the new session via selectSession',
