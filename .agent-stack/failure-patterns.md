@@ -371,3 +371,12 @@
   accepted by the API.
 - See
   `.agent-stack/postmortems/2026-07-25-issue-1175-wildcard-security-correction.json`.
+
+## 2026-07-25 — Issue #1172 — native Activity pre-integration smoke
+
+- **Result**: smoke FAIL (project state claimed the aggregate Activity behavior was verified; the issue contract remained red)
+- **Category**: C3 — wrong implementation in the deterministic native E2E runtime
+- **Criteria affected**: issue-1172-c7 failed; issue-1172-c8's retryable-error state rendered correctly
+- **Root cause**: The native E2E activity transport requested `/mobile-gateway/agent-activity` directly, while the fake authenticated Mac gateway exposes that route under `/__mobile/:host/mobile-gateway/agent-activity`.
+- **Suggested fix**: Integrate the active lifecycle corrective, then retain a native development-client Activity smoke that requires the seeded activity item to render through the authenticated fake gateway.
+- See `.agent-stack/postmortems/2026-07-25-issue-1172-native-preintegration.json`.
