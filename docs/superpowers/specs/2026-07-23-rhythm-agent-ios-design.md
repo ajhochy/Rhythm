@@ -51,12 +51,13 @@ definitions, not user task-management records.
 
 ## Repository layout
 
-- Desktop/API/engine changes remain in `/Users/aj/Documents/Rhythm`.
-- The mobile fork lives in `/Users/aj/Documents/opencode-mobile` and tracks:
-  - `origin`: `https://github.com/ajhochy/opencode-mobile.git`
-  - `upstream`: `https://github.com/alvarolorentedev/opencode-mobile.git`
-- GitNexus indexes both repositories and groups them as `rhythm-mobile` with
-  `host=Rhythm` and `client=opencode-mobile`.
+- Desktop, API, engine, and mobile changes live in the Rhythm monorepo.
+- The shipping Expo app is located at `apps/mobile`.
+- The original `/Users/aj/Documents/opencode-mobile` checkout is source ancestry
+  only. Rhythm is adapting that code for its own product, not preparing an
+  upstream contribution or maintaining a separate shipping repository.
+- Mobile build/test/release commands remain scoped to `apps/mobile`; cross-layer
+  changes are reviewed together in one Rhythm PR.
 
 ## Information architecture
 
