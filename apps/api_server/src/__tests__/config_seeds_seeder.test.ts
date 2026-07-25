@@ -14,12 +14,12 @@
  *  5. Postgres no-op.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   seedConfigAssets,
   CONFIG_SEEDS_MARKER,
-} from '../services/config_seeds_seeder';
-import { slugForSkillName } from '../services/rhythm_managed_skills';
+} from "../services/config_seeds_seeder";
+import { slugForSkillName } from "../services/rhythm_managed_skills";
 import {
   mkdtempSync,
   mkdirSync,
@@ -27,9 +27,9 @@ import {
   readFileSync,
   existsSync,
   rmSync,
-} from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
+} from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 const tmpDirs: string[] = [];
 function tmp(prefix: string): string {
@@ -40,16 +40,28 @@ function tmp(prefix: string): string {
 
 /** Build a config_seeds-shaped source dir with one skill + the four tool files. */
 function makeSourceDir(skillBody: string): string {
-  const root = tmp('rhythm-config-seeds-src-');
-  mkdirSync(join(root, 'skills', 'customize-rhythm'), { recursive: true });
-  writeFileSync(join(root, 'skills', 'customize-rhythm', 'SKILL.md'), skillBody);
-  mkdirSync(join(root, 'tools'), { recursive: true });
-  writeFileSync(join(root, 'tools', 'classify.cjs'), '#!/usr/bin/env node\n// classify\n');
-  writeFileSync(join(root, 'tools', 'mcp-scan.cjs'), '#!/usr/bin/env node\n// scan\n');
-  writeFileSync(join(root, 'tools', 'config-doctor.sh'), '#!/usr/bin/env bash\n# doctor\n');
-  writeFileSync(join(root, 'tools', 'package.json'), '{"name":"x"}\n');
+  const root = tmp("rhythm-config-seeds-src-");
+  mkdirSync(join(root, "skills", "customize-rhythm"), { recursive: true });
+  writeFileSync(
+    join(root, "skills", "customize-rhythm", "SKILL.md"),
+    skillBody,
+  );
+  mkdirSync(join(root, "tools"), { recursive: true });
+  writeFileSync(
+    join(root, "tools", "classify.cjs"),
+    "#!/usr/bin/env node\n// classify\n",
+  );
+  writeFileSync(
+    join(root, "tools", "mcp-scan.cjs"),
+    "#!/usr/bin/env node\n// scan\n",
+  );
+  writeFileSync(
+    join(root, "tools", "config-doctor.sh"),
+    "#!/usr/bin/env bash\n# doctor\n",
+  );
+  writeFileSync(join(root, "tools", "package.json"), '{"name":"x"}\n');
   // a dotfile that must NOT be copied
-  writeFileSync(join(root, 'tools', '.gitignore'), 'node_modules/\n');
+  writeFileSync(join(root, "tools", ".gitignore"), "node_modules/\n");
   return root;
 }
 
@@ -83,10 +95,10 @@ afterEach(() => {
   }
 });
 
-describe('config_seeds_seeder.seedConfigAssets', () => {
-  it('TEST-ENV GUARD: a bare call (no injected sourceDir) copies nothing', () => {
-    const skillsDest = tmp('rhythm-seeds-skills-');
-    const toolsDest = tmp('rhythm-seeds-tools-');
+describe("config_seeds_seeder.seedConfigAssets", () => {
+  it("TEST-ENV GUARD: a bare call (no injected sourceDir) copies nothing", () => {
+    const skillsDest = tmp("rhythm-seeds-skills-");
+    const toolsDest = tmp("rhythm-seeds-tools-");
     const marker = markerSeam();
 
     // VITEST=true is set by the runner → sourceDir resolves to null.
@@ -101,15 +113,15 @@ describe('config_seeds_seeder.seedConfigAssets', () => {
     expect(r.skillsCopied).toBe(0);
     expect(r.toolsCopied).toBe(0);
     // No dest files written.
-    expect(existsSync(join(toolsDest, 'classify.cjs'))).toBe(false);
+    expect(existsSync(join(toolsDest, "classify.cjs"))).toBe(false);
     // Marker is still written (a clean no-source pass is "done").
     expect(marker.isDone()).toBe(true);
   });
 
-  it('copies the skill (keyed by frontmatter name) and every tool file', () => {
+  it("copies the skill (keyed by frontmatter name) and every tool file", () => {
     const src = makeSourceDir(SKILL);
-    const skillsDest = tmp('rhythm-seeds-skills-');
-    const toolsDest = tmp('rhythm-seeds-tools-');
+    const skillsDest = tmp("rhythm-seeds-skills-");
+    const toolsDest = tmp("rhythm-seeds-tools-");
     const marker = markerSeam();
 
     const r = seedConfigAssets({
@@ -127,29 +139,36 @@ describe('config_seeds_seeder.seedConfigAssets', () => {
 
     const skillFile = join(
       skillsDest,
-      slugForSkillName('customize-rhythm'),
-      'SKILL.md',
+      slugForSkillName("customize-rhythm"),
+      "SKILL.md",
     );
     expect(existsSync(skillFile)).toBe(true);
-    expect(readFileSync(skillFile, 'utf8')).toContain('name: customize-rhythm');
+    expect(readFileSync(skillFile, "utf8")).toContain("name: customize-rhythm");
 
-    for (const f of ['classify.cjs', 'mcp-scan.cjs', 'config-doctor.sh', 'package.json']) {
-      expect(existsSync(join(toolsDest, f)), `${f} should be copied`).toBe(true);
+    for (const f of [
+      "classify.cjs",
+      "mcp-scan.cjs",
+      "config-doctor.sh",
+      "package.json",
+    ]) {
+      expect(existsSync(join(toolsDest, f)), `${f} should be copied`).toBe(
+        true,
+      );
     }
     // Dotfile must be skipped.
-    expect(existsSync(join(toolsDest, '.gitignore'))).toBe(false);
+    expect(existsSync(join(toolsDest, ".gitignore"))).toBe(false);
     expect(marker.isDone()).toBe(true);
   });
 
-  it('short-circuits when the version marker is already set', () => {
+  it("short-circuits when the version marker is already set", () => {
     const src = makeSourceDir(SKILL);
-    const skillsDest = tmp('rhythm-seeds-skills-');
-    const toolsDest = tmp('rhythm-seeds-tools-');
+    const skillsDest = tmp("rhythm-seeds-skills-");
+    const toolsDest = tmp("rhythm-seeds-tools-");
 
     const r = seedConfigAssets({
       alreadyDone: () => true, // marker current
       markDone: () => {
-        throw new Error('markDone must not run when already done');
+        throw new Error("markDone must not run when already done");
       },
       sourceDir: src,
       skillsDestRoot: skillsDest,
@@ -159,20 +178,20 @@ describe('config_seeds_seeder.seedConfigAssets', () => {
 
     expect(r.alreadyDone).toBe(true);
     expect(r.skillsCopied).toBe(0);
-    expect(existsSync(join(toolsDest, 'classify.cjs'))).toBe(false);
+    expect(existsSync(join(toolsDest, "classify.cjs"))).toBe(false);
   });
 
-  it('force-pushes: overwrites an existing managed copy so a shipped fix propagates', () => {
+  it("force-pushes: overwrites an existing managed copy so a shipped fix propagates", () => {
     const src = makeSourceDir(SKILL);
-    const skillsDest = tmp('rhythm-seeds-skills-');
-    const toolsDest = tmp('rhythm-seeds-tools-');
+    const skillsDest = tmp("rhythm-seeds-skills-");
+    const toolsDest = tmp("rhythm-seeds-tools-");
 
     // Pre-existing stale copies at the dests.
-    const skillDir = join(skillsDest, slugForSkillName('customize-rhythm'));
+    const skillDir = join(skillsDest, slugForSkillName("customize-rhythm"));
     mkdirSync(skillDir, { recursive: true });
-    writeFileSync(join(skillDir, 'SKILL.md'), 'STALE');
+    writeFileSync(join(skillDir, "SKILL.md"), "STALE");
     mkdirSync(toolsDest, { recursive: true });
-    writeFileSync(join(toolsDest, 'classify.cjs'), 'STALE');
+    writeFileSync(join(toolsDest, "classify.cjs"), "STALE");
 
     const marker = markerSeam();
     seedConfigAssets({
@@ -184,45 +203,47 @@ describe('config_seeds_seeder.seedConfigAssets', () => {
       provisionJsYaml: false,
     });
 
-    expect(readFileSync(join(skillDir, 'SKILL.md'), 'utf8')).toContain(
-      'name: customize-rhythm',
+    expect(readFileSync(join(skillDir, "SKILL.md"), "utf8")).toContain(
+      "name: customize-rhythm",
     );
-    expect(readFileSync(join(toolsDest, 'classify.cjs'), 'utf8')).not.toBe('STALE');
+    expect(readFileSync(join(toolsDest, "classify.cjs"), "utf8")).not.toBe(
+      "STALE",
+    );
   });
 
-  it('never throws on a missing source dir and returns the empty result', () => {
+  it("never throws on a missing source dir and returns the empty result", () => {
     const marker = markerSeam();
     expect(() =>
       seedConfigAssets({
         alreadyDone: marker.alreadyDone,
         markDone: marker.markDone,
-        sourceDir: join(tmpdir(), 'does-not-exist-' + Math.random()),
-        skillsDestRoot: tmp('rhythm-seeds-skills-'),
-        toolsDestDir: tmp('rhythm-seeds-tools-'),
+        sourceDir: join(tmpdir(), "does-not-exist-" + Math.random()),
+        skillsDestRoot: tmp("rhythm-seeds-skills-"),
+        toolsDestDir: tmp("rhythm-seeds-tools-"),
         provisionJsYaml: false,
       }),
     ).not.toThrow();
   });
 
-  it('is a no-op under Postgres', async () => {
-    vi.stubEnv('DB_CLIENT', 'postgres');
+  it("is a no-op under Postgres", async () => {
+    vi.stubEnv("DB_CLIENT", "postgres");
     vi.resetModules();
-    const mod = await import('../services/config_seeds_seeder');
+    const mod = await import("../services/config_seeds_seeder");
     const r = mod.seedConfigAssets({
       alreadyDone: () => false,
       markDone: () => {
-        throw new Error('markDone must not run under postgres');
+        throw new Error("markDone must not run under postgres");
       },
       sourceDir: makeSourceDir(SKILL),
-      skillsDestRoot: tmp('rhythm-seeds-skills-'),
-      toolsDestDir: tmp('rhythm-seeds-tools-'),
+      skillsDestRoot: tmp("rhythm-seeds-skills-"),
+      toolsDestDir: tmp("rhythm-seeds-tools-"),
       provisionJsYaml: false,
     });
     expect(r.alreadyDone).toBe(true);
     expect(r.skillsCopied).toBe(0);
   });
 
-  it('exports a stable version marker key', () => {
-    expect(CONFIG_SEEDS_MARKER).toBe('config_seeds_v1');
+  it("exports a stable version marker key", () => {
+    expect(CONFIG_SEEDS_MARKER).toBe("config_seeds_v2");
   });
 });

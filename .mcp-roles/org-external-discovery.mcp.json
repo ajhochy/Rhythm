@@ -1,7 +1,7 @@
 {
   "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
   "role": "org-external-discovery",
-  "description": "Org Self-Optimizer — external discovery pass (#830, org-optimizer-14; decision doc §6). A separate, less-frequent (weekly) run that scouts mcp-registry / npm / GitHub / web sources for a candidate MCP server or skill that fills a DETECTED audit gap, and writes an external-adoption proposal (always HIGH risk, always queued, never auto-applied). Composes existing discovery sources only — no bespoke crawler code.",
+  "description": "Org Self-Optimizer — external discovery pass (#830, org-optimizer-14; decision doc §6). A separate, less-frequent (weekly) bounded pass that searches configured sources only for a candidate MCP server or skill filling a DETECTED audit gap, and queues an external-adoption proposal (always HIGH risk, always human-approved, never auto-applied).",
   "agentConfigId": "9a2d3e4f-5b6c-4d7e-8f9a-1b2c3d4e5f6a",
   "mcpServers": {
     "rhythm": {
@@ -12,7 +12,8 @@
         "rhythm_list_scheduled_tasks",
         "rhythm_search_memory",
         "rhythm_remember_memory",
-        "rhythm_request_approval"
+        "rhythm_request_approval",
+        "rhythm_run_external_discovery"
       ]
     },
     "mcp-registry": {
@@ -29,15 +30,16 @@
     "computer",
     "editor",
     "filesystem",
+    "mcp-registry",
     "obsidian"
   ],
   "notes": {
-    "registeredMcps": ["rhythm", "mcp-registry"],
+    "registeredMcps": ["rhythm"],
     "hardExclusions": [
       "No install tool — approved candidates flow through the EXISTING curated-MCP install path (ensureCuratedMcps) or the skill-create path, invoked server-side only after a human approves the queued proposal.",
       "Every suggestion must cite a concrete audit gap id (signal_ref) — 'trending/popular with no matching gap' is dropped by the generator, not by this scope, but this role grants no tool that could write a proposal bypassing that rule."
     ],
     "cadence": "Weekly (less frequent than the daily internal audit) — external search is expensive and noisy; results are capped per run and deduped against the already-suggested/rejected set."
   },
-  "allowedSkills": ["deep-research"]
+  "allowedSkills": []
 }

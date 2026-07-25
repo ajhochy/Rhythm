@@ -8,10 +8,9 @@
  *   4. 'synthesizing' → agent writes the final report
  *   5. 'done' → report stored in agent_research_jobs.report
  *
- * The pipeline runs via the normal agent trigger path: creating a research
- * job inserts a pending_claude_triggers row with a structured prompt that
- * instructs the agent to execute the pipeline and call rhythm_update_research_job
- * at each step.
+ * The pipeline runs locally through AgentRunner. The job remains durable while
+ * the runner executes, and its recorded AgentRunner session is linked back for
+ * inspection in the Chats UI.
  */
 
 import type { NextFunction, Request, Response } from 'express';
@@ -20,7 +19,8 @@ import { AppError } from '../errors/app_error';
 import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
-import { writeResearchNoteToVault } from '../services/researchVaultWriteService';
+import { writeGenericResearchReport } from '../services/generic_research_report';
+import * as AgentRunner from '../services/agent_runner';
 
 interface ResearchJob {
   id: string;
@@ -29,6 +29,13 @@ interface ResearchJob {
   sourcesJson: string;
   report: string | null;
   error: string | null;
+  agentSessionId: string | null;
+  researchType: 'generic' | 'ai-trends' | 'theological';
+  title: string;
+  agentProfileId: string | null;
+  origin: 'page' | 'specialist-run';
+  vaultPath: string | null;
+  canRetry: boolean;
   requestedByUserId: number | null;
   createdAt: string;
   updatedAt: string;
@@ -42,6 +49,13 @@ function rowToModel(row: Record<string, unknown>): ResearchJob {
     sourcesJson: (row.sources_json as string) ?? '[]',
     report: (row.report as string | null) ?? null,
     error: (row.error as string | null) ?? null,
+    agentSessionId: (row.agent_session_id as string | null) ?? null,
+    researchType: ((row.research_type as ResearchJob['researchType']) ?? 'generic'),
+    title: (row.title as string | null) ?? (row.query as string),
+    agentProfileId: (row.agent_profile_id as string | null) ?? null,
+    origin: ((row.origin as ResearchJob['origin']) ?? 'page'),
+    vaultPath: (row.vault_path as string | null) ?? null,
+    canRetry: row.status === 'error' && (row.origin ?? 'page') === 'page' && (row.research_type ?? 'generic') === 'generic',
     requestedByUserId: (row.requested_by_user_id as number | null) ?? null,
     createdAt:
       typeof row.created_at === 'string' ? row.created_at : (row.created_at as Date).toISOString(),
@@ -54,17 +68,111 @@ async function insertJob(job: Omit<ResearchJob, 'createdAt' | 'updatedAt'>): Pro
   const now = new Date().toISOString();
   if (env.dbClient === 'postgres') {
     const r = await getPostgresPool().query(
-      `INSERT INTO agent_research_jobs (id, query, status, sources_json, report, error, requested_by_user_id, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [job.id, job.query, job.status, job.sourcesJson, job.report, job.error, job.requestedByUserId, now, now],
+       `INSERT INTO agent_research_jobs (id, query, status, sources_json, report, error, agent_session_id, research_type, title, agent_profile_id, origin, vault_path, requested_by_user_id, created_at, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+       [job.id, job.query, job.status, job.sourcesJson, job.report, job.error, job.agentSessionId, job.researchType, job.title, job.agentProfileId, job.origin, job.vaultPath, job.requestedByUserId, now, now],
     );
     return rowToModel(r.rows[0]);
   }
   getDb().prepare(
-    `INSERT INTO agent_research_jobs (id, query, status, sources_json, report, error, requested_by_user_id, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?)`,
-  ).run(job.id, job.query, job.status, job.sourcesJson, job.report, job.error, job.requestedByUserId, now, now);
+    `INSERT INTO agent_research_jobs (id, query, status, sources_json, report, error, agent_session_id, research_type, title, agent_profile_id, origin, vault_path, requested_by_user_id, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(job.id, job.query, job.status, job.sourcesJson, job.report, job.error, job.agentSessionId, job.researchType, job.title, job.agentProfileId, job.origin, job.vaultPath, job.requestedByUserId, now, now);
   return { ...job, createdAt: now, updatedAt: now };
+}
+
+async function updateJob(id: string, patch: Partial<Pick<ResearchJob, 'status' | 'sourcesJson' | 'report' | 'error' | 'agentSessionId' | 'vaultPath'>>): Promise<ResearchJob | null> {
+  const current = await findJobById(id);
+  if (!current) return null;
+  const next = { ...current, ...patch };
+  const now = new Date().toISOString();
+  if (env.dbClient === 'postgres') {
+    await getPostgresPool().query(
+      `UPDATE agent_research_jobs SET status=$1, sources_json=$2, report=$3, error=$4, agent_session_id=$5, vault_path=$6, updated_at=$7 WHERE id=$8`,
+      [next.status, next.sourcesJson, next.report, next.error, next.agentSessionId, next.vaultPath, now, id],
+    );
+  } else {
+    getDb().prepare(
+      `UPDATE agent_research_jobs SET status=?, sources_json=?, report=?, error=?, agent_session_id=?, vault_path=?, updated_at=? WHERE id=?`,
+    ).run(next.status, next.sourcesJson, next.report, next.error, next.agentSessionId, next.vaultPath, now, id);
+  }
+  return findJobById(id);
+}
+
+function researchPrompt(job: ResearchJob): string {
+  return `You are running a Deep Research pipeline for query: "${job.query}"
+
+Research job ID: ${job.id}
+
+Research 3-5 authoritative sources using your available research tools. Read and compare them, then return a comprehensive cited markdown report. Include source URLs and distinguish facts from uncertainty. Keep the report under 2000 words. Return only the final report; Rhythm persists it at Areas/Research/General/Reports/<date>-<slug>.md.`;
+}
+
+/** Run asynchronously after the API has returned the durable pending job. */
+export async function executeResearchJob(id: string): Promise<void> {
+  const job = await findJobById(id);
+  if (!job) return;
+  if (!env.agentExecutionEnabled) {
+    await updateJob(id, { status: 'error', error: 'Research execution is unavailable on this server. Retry from a local desktop agent server.' });
+    return;
+  }
+
+  await updateJob(id, { status: 'gathering', error: null });
+  await updateJob(id, { status: 'reading' });
+  try {
+    const result = await AgentRunner.run({
+      prompt: researchPrompt(job),
+      cwd: process.cwd(),
+      outputTarget: 'session',
+      agentConfigId: 'research',
+      agentKind: 'research',
+      ...(env.researchModel ? { modelOverride: env.researchModel } : {}),
+      ownerUserId: job.requestedByUserId,
+      sessionName: `Research: ${job.query}`,
+      taskKind: 'research',
+    });
+    await updateJob(id, { agentSessionId: result.sessionId || null });
+    if (result.status !== 'done' || !result.result.trim()) {
+      await updateJob(id, {
+        status: 'error',
+        error: result.error ?? 'Research agent returned no report. Check the research profile model and provider connection, then retry.',
+      });
+      return;
+    }
+    await updateJob(id, { status: 'synthesizing' });
+    const vaultPath = await writeCompletedResearchNote({ ...job, report: result.result });
+    await updateJob(id, { status: 'done', report: result.result, error: null, vaultPath });
+  } catch (err) {
+    await updateJob(id, { status: 'error', error: `Research runner failed: ${String(err)}` });
+  }
+}
+
+/** Mark jobs interrupted by a prior process as retryable instead of spinning. */
+export async function recoverStaleResearchJobs(): Promise<number> {
+  const active = ['pending', 'gathering', 'reading', 'synthesizing'];
+  const error = 'Research interrupted by server restart. Retry this job to run it again.';
+  if (env.dbClient === 'postgres') {
+    const result = await getPostgresPool().query(
+      `UPDATE agent_research_jobs SET status='error', error=$1, updated_at=$2 WHERE status = ANY($3)`,
+      [error, new Date().toISOString(), active],
+    );
+    return result.rowCount ?? 0;
+  }
+  return getDb().prepare(
+    `UPDATE agent_research_jobs SET status='error', error=?, updated_at=? WHERE status IN ('pending','gathering','reading','synthesizing')`,
+  ).run(error, new Date().toISOString()).changes;
+}
+
+async function writeCompletedResearchNote(job: ResearchJob): Promise<string | null> {
+  try {
+    return await writeGenericResearchReport({
+      jobId: job.id,
+      topic: job.query,
+      report: job.report ?? '',
+    });
+  } catch (vaultErr) {
+    logger.warn(`[Research] vault note write failed for job ${job.id}: ${String(vaultErr)}`);
+    return null;
+  }
 }
 
 async function findJobById(id: string): Promise<ResearchJob | null> {
@@ -181,7 +289,7 @@ export class AgentResearchController {
         return;
       }
       const rows = getDb().prepare(
-        `SELECT * FROM agent_research_jobs WHERE requested_by_user_id = ? ORDER BY created_at DESC LIMIT 50`,
+        `SELECT * FROM agent_research_jobs WHERE requested_by_user_id IS ? ORDER BY created_at DESC LIMIT 50`,
       ).all(userId ?? null);
       res.json((rows as Record<string, unknown>[]).map(rowToModel));
     } catch (err) { next(err); }
@@ -206,14 +314,12 @@ export class AgentResearchController {
 
       const job = await insertJob({
         id, query, status: 'pending', sourcesJson: '[]',
-        report: null, error: null, requestedByUserId: userId,
+        report: null, error: null, agentSessionId: null, researchType: 'generic', title: query,
+        agentProfileId: 'research', origin: 'page', vaultPath: null, canRetry: false, requestedByUserId: userId,
       });
-
-      // Insert a pending trigger so the agent starts the research pipeline.
-      await enqueueResearchTrigger(job);
-
       logger.info(`[Research] Created job ${id} for query: "${query}"`);
       res.status(201).json(job);
+      void executeResearchJob(id);
     } catch (err) { next(err); }
   }
 
@@ -222,13 +328,18 @@ export class AgentResearchController {
       const job = await findJobById(req.params.id);
       if (!job) throw AppError.notFound('ResearchJob');
       requireOwnedJob(job, req);
-      if (job.status !== 'error') {
-        throw AppError.conflict('Only failed research jobs can be retried');
+      if (!job.canRetry) {
+        throw AppError.badRequest('Only failed page research jobs can be retried');
       }
-      const reset = await resetResearchJob(job);
-      await enqueueResearchTrigger(reset);
+      const reset = await updateJob(job.id, {
+        status: 'pending',
+        error: null,
+        report: null,
+        agentSessionId: null,
+      });
       logger.info(`[Research] Retrying job ${job.id}`);
-      res.json(reset);
+      res.status(202).json(reset);
+      void executeResearchJob(job.id);
     } catch (err) { next(err); }
   }
 
@@ -251,7 +362,6 @@ export class AgentResearchController {
       const job = await findJobById(id);
       if (!job) throw AppError.notFound('ResearchJob');
 
-      const now = new Date().toISOString();
       const validStatuses = ['pending', 'gathering', 'reading', 'synthesizing', 'done', 'error'];
       if (status && !validStatuses.includes(status as string)) {
         throw AppError.badRequest(`status must be one of: ${validStatuses.join(', ')}`);
@@ -262,22 +372,7 @@ export class AgentResearchController {
       const newReport = typeof report === 'string' ? report : job.report;
       const newError = typeof error === 'string' ? error : job.error;
 
-      if (env.dbClient === 'postgres') {
-        await getPostgresPool().query(
-          `UPDATE agent_research_jobs
-           SET status=$1, sources_json=$2, report=$3, error=$4, updated_at=$5
-           WHERE id=$6`,
-          [newStatus, newSources, newReport, newError, now, id],
-        );
-      } else {
-        getDb().prepare(
-          `UPDATE agent_research_jobs
-           SET status=?, sources_json=?, report=?, error=?, updated_at=?
-           WHERE id=?`,
-        ).run(newStatus, newSources, newReport, newError, now, id);
-      }
-
-      const updated = await findJobById(id);
+      const updated = await updateJob(id, { status: newStatus, sourcesJson: newSources, report: newReport, error: newError });
 
       // Issue #847: on completion, land the findings as Research Database
       // entries (maintainer intake format — see researchVaultConfig.ts).
@@ -289,14 +384,7 @@ export class AgentResearchController {
       // supported by the service for callers that have them.
       if (updated && newStatus === 'done' && typeof newReport === 'string' && newReport.trim() !== '') {
         try {
-          const sources = JSON.parse(updated.sourcesJson) as unknown;
-          await writeResearchNoteToVault({
-            jobId: updated.id,
-            topic: updated.query,
-            summary: newReport.split('\n').find((l) => l.trim() !== '')?.trim() ?? '',
-            findings: newReport,
-            sources: Array.isArray(sources) ? sources.map(String) : [],
-          });
+          await writeCompletedResearchNote(updated);
         } catch (vaultErr) {
           logger.warn(`[Research] vault note write failed for job ${id}: ${String(vaultErr)}`);
         }
@@ -305,4 +393,5 @@ export class AgentResearchController {
       res.json(updated);
     } catch (err) { next(err); }
   }
+
 }

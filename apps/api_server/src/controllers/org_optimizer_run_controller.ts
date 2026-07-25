@@ -16,6 +16,7 @@
 
 import type { NextFunction, Request, Response } from 'express';
 import { runOrgOptimizer, type RunOrgOptimizerOptions } from '../services/org_optimizer_run_service';
+import { runGapDrivenDiscoveryPass } from '../services/gap_discovery_scheduler';
 
 function parseOptions(body: unknown): RunOrgOptimizerOptions {
   if (!body || typeof body !== 'object') return {};
@@ -42,6 +43,18 @@ export class OrgOptimizerRunController {
       const options = parseOptions(req.body);
       const result = await runOrgOptimizer(options);
       res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /** Narrow actuator for the external-discovery role: the bounded, gap-driven
+   * pass only. Proposal risk, deduplication, injection checks, and human
+   * approval remain enforced by the existing generator/service path. */
+  async runExternalDiscovery(req: Request, res: Response, next: NextFunction) {
+    try {
+      req.socket?.setTimeout(0);
+      res.json(await runGapDrivenDiscoveryPass());
     } catch (err) {
       next(err);
     }

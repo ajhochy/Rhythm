@@ -23,6 +23,8 @@ import { registerOrgOptimizerTools } from './tools/orgOptimizer.js';
 import { registerAgentApprovalTools } from './tools/agentApprovals.js';
 import { registerFeedbackSensorTools } from './tools/feedbackSensors.js';
 import { registerAgentProfileTools } from './tools/agentProfiles.js';
+import { registerCreativePlatformTools } from './tools/creativePlatform.js';
+import { registerSetupReadinessTool } from './tools/setupReadiness.js';
 
 const RHYTHM_API_URL = process.env.RHYTHM_API_URL ?? 'https://api.vcrcapps.com';
 const RHYTHM_API_TOKEN = process.env.RHYTHM_API_TOKEN ?? '';
@@ -79,6 +81,8 @@ registerFeedbackSensorTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 // #911 — profile creation is agent-execution state (agent_configs), routed
 // at RHYTHM_AGENT_URL like the other local-agent-server tools above.
 registerAgentProfileTools(server, RHYTHM_AGENT_URL);
+registerCreativePlatformTools(server, RHYTHM_AGENT_URL);
+registerSetupReadinessTool(server, RHYTHM_AGENT_URL);
 registerAgentResearchTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 // #850 (org-optimizer-16) — the run-loop trigger is an agent-execution
 // surface backed by local SQLite (agent_org_proposals), routed at

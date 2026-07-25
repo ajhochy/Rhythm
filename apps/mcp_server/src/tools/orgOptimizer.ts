@@ -109,4 +109,17 @@ Call this once per scheduled audit run — it is idempotent for unchanged gaps (
       }
     },
   );
+
+  registerTool(server, 'rhythm_run_external_discovery',
+    `Run the bounded, gap-driven external discovery pass. It considers only current open capability gaps, applies the existing provenance, injection, and deduplication gates, and queues any external-adoption proposal for human approval. It never installs or applies a candidate.`,
+    {},
+    async () => {
+      try {
+        const result = await apiPost(agentUrl, apiToken, '/agent-org-optimizer/external-discovery', {}, {
+          timeoutMs: ORG_OPTIMIZER_RUN_TIMEOUT_MS,
+        });
+        return toolResult(JSON.stringify(result, null, 2));
+      } catch (err) { return toolError(err); }
+    },
+  );
 }

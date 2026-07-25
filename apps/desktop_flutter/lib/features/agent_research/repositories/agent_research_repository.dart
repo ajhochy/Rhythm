@@ -12,4 +12,6 @@ class AgentResearchRepository {
 
   Future<AgentResearchJob> create(Map<String, dynamic> input) =>
       _dataSource.create(input);
+
+  Future<AgentResearchJob> retry(String id) => _dataSource.retry(id);
 }

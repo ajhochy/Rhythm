@@ -38,8 +38,8 @@
  *     a bare call from vitest can never touch a developer's real ~/.config.
  */
 
-import { homedir } from 'os';
-import { join, dirname } from 'path';
+import { homedir } from "os";
+import { join, dirname } from "path";
 import {
   chmodSync,
   copyFileSync,
@@ -48,23 +48,23 @@ import {
   readFileSync,
   readdirSync,
   statSync,
-} from 'fs';
-import { execFileSync } from 'child_process';
-import { logger } from '../utils/logger';
-import { env } from '../config/env';
-import { getDb } from '../database/db';
-import { managedSkillsRoot, slugForSkillName } from './rhythm_managed_skills';
-import { parseFrontmatter } from './skill_seed_importer';
+} from "fs";
+import { execFileSync } from "child_process";
+import { logger } from "../utils/logger";
+import { env } from "../config/env";
+import { getDb } from "../database/db";
+import { managedSkillsRoot, slugForSkillName } from "./rhythm_managed_skills";
+import { parseFrontmatter } from "./skill_seed_importer";
 
 /** schema_meta key for the version gate. Bump (v2, v3, …) to re-push a revision. */
-export const CONFIG_SEEDS_MARKER = 'config_seeds_v1';
+export const CONFIG_SEEDS_MARKER = "config_seeds_v2";
 
 /**
  * Never touch the real ~/.config from a test run. Mirrored VERBATIM from
  * skill_seed_importer.ts isTestEnv().
  */
 function isTestEnv(): boolean {
-  return process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
+  return process.env.VITEST === "true" || process.env.NODE_ENV === "test";
 }
 
 /**
@@ -77,15 +77,15 @@ function isTestEnv(): boolean {
  */
 export function configSeedsSourceDir(): string | null {
   const candidates = [
-    join(__dirname, '..', '..', 'config_seeds'), // dist/services or src/services → api_server root
-    join(__dirname, '..', 'config_seeds'), // flattened dist/ variant
+    join(__dirname, "..", "..", "config_seeds"), // dist/services or src/services → api_server root
+    join(__dirname, "..", "config_seeds"), // flattened dist/ variant
   ];
   return candidates.find((p) => existsSync(p)) ?? null;
 }
 
 /** Absolute path to the seeded config-doctor tools dir (~/.config/opencode/tools). */
 export function seededToolsDir(): string {
-  return join(homedir(), '.config', 'opencode', 'tools');
+  return join(homedir(), ".config", "opencode", "tools");
 }
 
 /** Default run-once check: a `schema_meta` marker row exists for {@link CONFIG_SEEDS_MARKER}. */
@@ -162,7 +162,7 @@ function copyDirRecursive(src: string, dest: string): number {
   let count = 0;
   mkdirSync(dest, { recursive: true });
   for (const entry of readdirSync(src, { withFileTypes: true })) {
-    if (entry.name.startsWith('.')) continue; // skip .gitignore/.DS_Store etc.
+    if (entry.name.startsWith(".")) continue; // skip .gitignore/.DS_Store etc.
     const from = join(src, entry.name);
     const to = join(dest, entry.name);
     if (entry.isDirectory()) {
@@ -182,17 +182,17 @@ function copyDirRecursive(src: string, dest: string): number {
  * Overwrites an existing managed file so a shipped skill fix propagates.
  */
 function seedSkills(srcRoot: string, destRoot: string): number {
-  const skillsSrc = join(srcRoot, 'skills');
+  const skillsSrc = join(srcRoot, "skills");
   if (!existsSync(skillsSrc)) return 0;
   let copied = 0;
   for (const entry of readdirSync(skillsSrc, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const srcFile = join(skillsSrc, entry.name, 'SKILL.md');
+    const srcFile = join(skillsSrc, entry.name, "SKILL.md");
     if (!existsSync(srcFile) || !statSync(srcFile).isFile()) continue;
 
     let name = entry.name;
     try {
-      const fm = parseFrontmatter(readFileSync(srcFile, 'utf8'));
+      const fm = parseFrontmatter(readFileSync(srcFile, "utf8"));
       if (fm.name) name = fm.name.trim();
     } catch {
       // Unreadable — fall back to the directory name.
@@ -206,7 +206,7 @@ function seedSkills(srcRoot: string, destRoot: string): number {
     }
     const destDir = join(destRoot, slug);
     mkdirSync(destDir, { recursive: true });
-    copyFileSync(srcFile, join(destDir, 'SKILL.md'));
+    copyFileSync(srcFile, join(destDir, "SKILL.md"));
     copied += 1;
   }
   return copied;
@@ -218,17 +218,19 @@ function seedSkills(srcRoot: string, destRoot: string): number {
  * copied along verbatim. The .cjs/.sh scripts are made executable after copy.
  */
 function seedTools(srcRoot: string, destDir: string): number {
-  const toolsSrc = join(srcRoot, 'tools');
+  const toolsSrc = join(srcRoot, "tools");
   if (!existsSync(toolsSrc)) return 0;
   const copied = copyDirRecursive(toolsSrc, destDir);
   // chmod +x the executable scripts (best-effort).
-  for (const name of ['classify.cjs', 'mcp-scan.cjs', 'config-doctor.sh']) {
+  for (const name of ["classify.cjs", "mcp-scan.cjs", "config-doctor.sh"]) {
     const p = join(destDir, name);
     if (existsSync(p)) {
       try {
         chmodSync(p, 0o755);
       } catch (err) {
-        logger.warn(`[config-seeds] chmod +x failed for ${p} (non-fatal): ${String(err)}`);
+        logger.warn(
+          `[config-seeds] chmod +x failed for ${p} (non-fatal): ${String(err)}`,
+        );
       }
     }
   }
@@ -244,15 +246,15 @@ function seedTools(srcRoot: string, destDir: string): number {
  * succeeded.
  */
 function ensureJsYaml(destDir: string): boolean {
-  if (existsSync(join(destDir, 'node_modules', 'js-yaml'))) return false;
-  if (!existsSync(join(destDir, 'package.json'))) return false;
+  if (existsSync(join(destDir, "node_modules", "js-yaml"))) return false;
+  if (!existsSync(join(destDir, "package.json"))) return false;
   try {
-    execFileSync('npm', ['install', '--omit=dev', '--no-audit', '--no-fund'], {
+    execFileSync("npm", ["install", "--omit=dev", "--no-audit", "--no-fund"], {
       cwd: destDir,
-      stdio: 'ignore',
+      stdio: "ignore",
       timeout: 120000,
     });
-    return existsSync(join(destDir, 'node_modules', 'js-yaml'));
+    return existsSync(join(destDir, "node_modules", "js-yaml"));
   } catch (err) {
     logger.warn(
       `[config-seeds] best-effort js-yaml provisioning failed (non-fatal — app-bundle fallback applies): ${String(err)}`,
@@ -269,7 +271,7 @@ function ensureJsYaml(destDir: string): boolean {
 export function seedConfigAssets(
   deps: SeedConfigAssetsDeps = {},
 ): SeedConfigAssetsResult {
-  if (env.dbClient === 'postgres') {
+  if (env.dbClient === "postgres") {
     return { ...EMPTY_RESULT, alreadyDone: true };
   }
 

@@ -47,6 +47,7 @@ let vaultRoot: string;
 let memoryDir: string;
 let repo: AgentMemoryRepository;
 let index: MemoryIndexService;
+let savedMemoryVaultSubdir: string | undefined;
 
 /** Recursively list `.md` files under the memory dir, vault-relative. */
 function noteFiles(dir = memoryDir, base = memoryDir): string[] {
@@ -60,6 +61,8 @@ function noteFiles(dir = memoryDir, base = memoryDir): string[] {
 }
 
 beforeEach(() => {
+  savedMemoryVaultSubdir = process.env.MEMORY_VAULT_SUBDIR;
+  delete process.env.MEMORY_VAULT_SUBDIR;
   delete process.env.AGENT_MEMORY_INJECTION_ENABLED;
   setDb(makeDb());
   repo = new AgentMemoryRepository();
@@ -71,6 +74,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (savedMemoryVaultSubdir === undefined) delete process.env.MEMORY_VAULT_SUBDIR;
+  else process.env.MEMORY_VAULT_SUBDIR = savedMemoryVaultSubdir;
   vi.restoreAllMocks();
   try {
     rmSync(vaultRoot, { recursive: true, force: true });

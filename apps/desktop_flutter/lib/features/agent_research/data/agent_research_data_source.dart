@@ -43,4 +43,14 @@ class AgentResearchDataSource {
       jsonDecode(response.body) as Map<String, dynamic>,
     );
   }
+
+  Future<AgentResearchJob> retry(String id) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/agent-research/$id/retry'),
+    );
+    assertOk(response);
+    return AgentResearchJob.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
 }

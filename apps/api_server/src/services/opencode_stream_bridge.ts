@@ -2,6 +2,7 @@ import { broadcast, broadcastSessionUpdated } from './ws_gateway';
 import { opencodeClient } from './opencode_engine';
 import { opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
+import { indexResearchSession } from './specialist_research_indexer';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { DeniedToolEventsRepository } from '../repositories/denied_tool_events_repository';
@@ -1380,7 +1381,6 @@ export class OpencodeStreamBridge {
               message: 'The model returned an empty response.',
             });
           }
-
           // #1123 — callback boundary for additive interactive async
           // delegation. Run only AFTER the existing assistant persistence and
           // transcript finalization above. The service ignores non-async child
@@ -1397,6 +1397,12 @@ export class OpencodeStreamBridge {
                 err,
               ),
             );
+
+          // Specialist reports are discovered from persisted session output; indexing
+          // is deliberately detached from event relay and can never delay a turn.
+          indexResearchSession(localSessionId).catch((err) =>
+            logger.warn(`[OpencodeStreamBridge] specialist research indexing failed: ${String(err)}`),
+          );
         }
         break;
       }
@@ -1611,6 +1617,9 @@ export class OpencodeStreamBridge {
             this.sessionsRepo.setErrorStatus(localSessionId, message);
             const updated = this.sessionsRepo.findById(localSessionId);
             if (updated) broadcastSessionUpdated(updated);
+            indexResearchSession(localSessionId).catch((indexErr) =>
+              logger.warn(`[OpencodeStreamBridge] specialist research indexing failed: ${String(indexErr)}`),
+            );
           } catch (err) {
             logger.error(
               '[OpencodeStreamBridge] Failed to persist session error:',

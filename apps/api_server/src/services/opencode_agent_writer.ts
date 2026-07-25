@@ -327,6 +327,15 @@ function setFrontmatterKey(fm: string, key: string, value: string): string {
   return fm.length > 0 ? `${fm}\n${line}` : line;
 }
 
+/** Quote permission keys that YAML would otherwise interpret as syntax. */
+function yamlPermissionKey(key: string): string {
+  return /^[A-Za-z_][A-Za-z0-9_-]*$/.test(key) ? key : JSON.stringify(key);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * Replace one direct child of the top-level permission block, including every
  * deeper-indented line in its existing subtree.
@@ -350,10 +359,13 @@ function replacePermissionSubtree(
     }
   }
 
+  const keyPattern = new RegExp(
+    `^  (?:${escapeRegExp(key)}|${escapeRegExp(JSON.stringify(key))}):`,
+  );
   let existingStart = -1;
   let existingEnd = blockEnd;
   for (let i = permissionIndex + 1; i < blockEnd; i += 1) {
-    if (lines[i].startsWith(`  ${key}:`)) {
+    if (keyPattern.test(lines[i])) {
       existingStart = i;
       existingEnd = i + 1;
       while (existingEnd < blockEnd && /^ {4}/.test(lines[existingEnd])) {
@@ -373,7 +385,9 @@ function replacePermissionSubtree(
 
 /** Ensure a scalar direct child exists inside the top-level permission block. */
 function setPermissionKey(fm: string, key: string, value: string): string {
-  return replacePermissionSubtree(fm, key, [`  ${key}: ${value}`]);
+  return replacePermissionSubtree(fm, key, [
+    `  ${yamlPermissionKey(key)}: ${value}`,
+  ]);
 }
 
 function setPermissionValue(fm: string, key: string, value: unknown): string {
@@ -383,7 +397,12 @@ function setPermissionValue(fm: string, key: string, value: unknown): string {
 }
 
 function permissionBlockLines(key: string, value: object): string[] {
-  return [`  ${key}:`, ...Object.entries(value).map(([pattern, action]) => `    ${JSON.stringify(pattern)}: ${action}`)];
+  return [
+    `  ${yamlPermissionKey(key)}:`,
+    ...Object.entries(value).map(
+      ([pattern, action]) => `    ${JSON.stringify(pattern)}: ${action}`,
+    ),
+  ];
 }
 
 /**
@@ -413,7 +432,7 @@ function pruneStalePermissionKeys(fm: string, keep: Set<string>): string {
   while (i < blockEnd) {
     const m = lines[i].match(/^  (\S[^:]*):/);
     if (m) {
-      const key = m[1];
+      const key = m[1].startsWith('"') ? JSON.parse(m[1]) : m[1];
       // Collect this sub-key line plus its deeper-indented pattern lines.
       let j = i + 1;
       while (j < blockEnd && /^ {4}/.test(lines[j])) j += 1;

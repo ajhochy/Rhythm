@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agents/controllers/agents_controller.dart';
 import '../controllers/agent_gallery_controller.dart';
@@ -34,7 +35,7 @@ class _AgentGalleryViewState extends State<AgentGalleryView> {
       // '' → 400 "cwd is required" (the #863 smoke bug).
       cwd: Platform.environment['HOME'] ?? '/',
       name: 'Graphic Designer',
-      mcpRole: 'graphic-designer',
+      agentId: 'creative-media',
     );
     if (!context.mounted) return;
     if (session == null) {
@@ -63,7 +64,7 @@ class _AgentGalleryViewState extends State<AgentGalleryView> {
             backgroundColor: context.rhythm.surface,
             elevation: 0,
             title: Text(
-              'Gallery',
+              'Creative Media',
               style: TextStyle(
                 color: context.rhythm.textPrimary,
                 fontWeight: FontWeight.w600,
@@ -84,7 +85,7 @@ class _AgentGalleryViewState extends State<AgentGalleryView> {
           ),
           body: Column(
             children: [
-              // Launch designer button always visible.
+              // Launch Creative Media always visible.
               Padding(
                 padding: const EdgeInsets.all(RhythmSpacing.md),
                 child: SizedBox(
@@ -93,7 +94,7 @@ class _AgentGalleryViewState extends State<AgentGalleryView> {
                     key: const ValueKey('launch-designer-btn'),
                     onPressed: () => _launchDesigner(context),
                     icon: const Icon(Icons.palette_outlined, size: 18),
-                    label: const Text('Launch designer'),
+                    label: const Text('Launch Creative Media'),
                     style: FilledButton.styleFrom(
                       backgroundColor: context.rhythm.accent,
                       foregroundColor: Colors.white,
@@ -167,7 +168,7 @@ class _AgentGalleryViewState extends State<AgentGalleryView> {
             ),
             const SizedBox(height: RhythmSpacing.md),
             Text(
-              'No designs yet',
+              'No artifacts yet',
               style: TextStyle(
                 color: context.rhythm.textSecondary,
                 fontSize: 16,
@@ -176,7 +177,7 @@ class _AgentGalleryViewState extends State<AgentGalleryView> {
             ),
             const SizedBox(height: RhythmSpacing.xs),
             Text(
-              'Launch the designer to create your first design',
+              'Launch Creative Media to create your first artifact',
               style: TextStyle(color: context.rhythm.textMuted, fontSize: 13),
             ),
           ],
@@ -210,9 +211,8 @@ class _DesignCard extends StatelessWidget {
 
   final AgentDesign design;
 
-  Future<void> _openInCanva(BuildContext context) async {
-    final url = design.canvaUrl;
-    if (url == null || url.isEmpty) return;
+  Future<void> _open(BuildContext context, String url) async {
+    if (url.isEmpty) return;
     final uri = Uri.tryParse(url);
     if (uri == null) return;
     if (await canLaunchUrl(uri)) {
@@ -226,6 +226,28 @@ class _DesignCard extends StatelessWidget {
       );
     }
   }
+
+  Future<void> _openArtifact(BuildContext context) => _open(
+        context,
+        design.artifactUrl ??
+            '${AppConstants.agentLocalBaseUrl}/agent-designs/${design.id}/artifact',
+      );
+
+  Future<void> _openProject(BuildContext context) =>
+      _open(context, design.projectUrl!);
+
+  bool get _isLocalArtifact =>
+      design.artifactUrl == null && design.artifactType != null;
+
+  bool get _canPreviewLocalImage =>
+      _isLocalArtifact &&
+      const {'png', 'jpg', 'jpeg', 'webp', 'gif'}.contains(design.artifactType);
+
+  String get _providerLabel => design.provider
+      .split('-')
+      .map((part) =>
+          part.isEmpty ? part : '${part[0].toUpperCase()}${part.substring(1)}')
+      .join(' ');
 
   @override
   Widget build(BuildContext context) {
@@ -241,23 +263,28 @@ class _DesignCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Thumbnail.
+          // Local previews use only the authenticated artifact route, never remote thumbnails.
           Expanded(
             child: ClipRRect(
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(RhythmRadius.md - 1),
               ),
-              child: design.thumbnailUrl != null
+              child: _canPreviewLocalImage
                   ? Image.network(
-                      design.thumbnailUrl!,
+                      '${AppConstants.agentLocalBaseUrl}/agent-designs/${design.id}/artifact',
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) =>
-                          _ThumbnailPlaceholder(rhythm: rhythm),
+                      errorBuilder: (_, __, ___) => _ArtifactPlaceholder(
+                        rhythm: rhythm,
+                        type: design.artifactType!,
+                      ),
                     )
-                  : _ThumbnailPlaceholder(rhythm: rhythm),
+                  : _ArtifactPlaceholder(
+                      rhythm: rhythm,
+                      type: design.artifactType,
+                    ),
             ),
           ),
-          // Title + Canva link.
+          // Title + safe artifact link.
           Padding(
             padding: const EdgeInsets.fromLTRB(
               RhythmSpacing.sm,
@@ -278,12 +305,32 @@ class _DesignCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                if (design.canvaUrl != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  _providerLabel,
+                  style: TextStyle(color: rhythm.textMuted, fontSize: 11),
+                ),
+                if (design.artifactUrl != null || _isLocalArtifact) ...[
                   const SizedBox(height: 2),
                   GestureDetector(
-                    onTap: () => _openInCanva(context),
+                    onTap: () => _openArtifact(context),
                     child: Text(
-                      'Open in Canva',
+                      'Open deliverable',
+                      style: TextStyle(
+                        color: rhythm.accent,
+                        fontSize: 11,
+                        decoration: TextDecoration.underline,
+                        decorationColor: rhythm.accent,
+                      ),
+                    ),
+                  ),
+                ],
+                if (design.projectUrl != null) ...[
+                  const SizedBox(height: 2),
+                  GestureDetector(
+                    onTap: () => _openProject(context),
+                    child: Text(
+                      'Open project',
                       style: TextStyle(
                         color: rhythm.accent,
                         fontSize: 11,
@@ -302,17 +349,44 @@ class _DesignCard extends StatelessWidget {
   }
 }
 
-class _ThumbnailPlaceholder extends StatelessWidget {
-  const _ThumbnailPlaceholder({required this.rhythm});
+class _ArtifactPlaceholder extends StatelessWidget {
+  const _ArtifactPlaceholder({required this.rhythm, this.type});
 
   final RhythmColorRoles rhythm;
+  final String? type;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       color: rhythm.surfaceMuted,
       child: Center(
-        child: Icon(Icons.image_outlined, color: rhythm.textMuted, size: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              type == 'pdf' ||
+                      type == 'pptx' ||
+                      type == 'docx' ||
+                      type == 'xlsx' ||
+                      type == 'csv'
+                  ? Icons.picture_as_pdf_outlined
+                  : type == 'mp4' || type == 'mov' || type == 'webm'
+                      ? Icons.video_file_outlined
+                      : type == 'glb' || type == 'gltf' || type == 'obj'
+                          ? Icons.view_in_ar_outlined
+                          : type == 'svg'
+                              ? Icons.interests_outlined
+                              : Icons.image_outlined,
+              color: rhythm.textMuted,
+              size: 32,
+            ),
+            if (type != null)
+              Text(
+                type!.toUpperCase(),
+                style: TextStyle(color: rhythm.textMuted, fontSize: 11),
+              ),
+          ],
+        ),
       ),
     );
   }

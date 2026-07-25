@@ -1494,6 +1494,12 @@ export function runMigrations(db: Database.Database): void {
       sources_json TEXT NOT NULL DEFAULT '[]',   -- JSON array of URLs fetched
       report TEXT,                               -- final synthesized report
       error TEXT,
+      agent_session_id TEXT,
+      research_type TEXT NOT NULL DEFAULT 'generic',
+      title TEXT,
+      agent_profile_id TEXT,
+      origin TEXT NOT NULL DEFAULT 'page',
+      vault_path TEXT,
       requested_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1501,6 +1507,17 @@ export function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_status
       ON agent_research_jobs(status);
   `);
+  const researchCols = (db.pragma('table_info(agent_research_jobs)') as { name: string }[]).map((c) => c.name);
+  if (!researchCols.includes('agent_session_id')) {
+    db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN agent_session_id TEXT`);
+  }
+  if (!researchCols.includes('research_type')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN research_type TEXT NOT NULL DEFAULT 'generic'`);
+  if (!researchCols.includes('title')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN title TEXT`);
+  if (!researchCols.includes('agent_profile_id')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN agent_profile_id TEXT`);
+  if (!researchCols.includes('origin')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN origin TEXT NOT NULL DEFAULT 'page'`);
+  if (!researchCols.includes('vault_path')) db.exec(`ALTER TABLE agent_research_jobs ADD COLUMN vault_path TEXT`);
+  db.exec(`UPDATE agent_research_jobs SET research_type = 'generic', title = query, agent_profile_id = 'research', origin = 'page' WHERE research_type IS NULL OR title IS NULL OR agent_profile_id IS NULL OR origin IS NULL`);
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_research_jobs_agent_session_id ON agent_research_jobs(agent_session_id) WHERE agent_session_id IS NOT NULL`);
 
   // Extend pending_claude_triggers with scheduler context columns (additive).
   // These are all nullable — existing human-triggered rows have NULL here.
@@ -1592,19 +1609,32 @@ export function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_cookbook_created_at ON agent_cookbook(created_at);
   `);
 
-  // D1 — agent_designs: records of Canva designs produced by Gallery agent sessions.
+  // D1 — agent_designs: provider-neutral finished creative-media artifacts.
   // session_id is a nullable logical FK to agent_sessions.id (not enforced at SQLite level).
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_designs (
       id TEXT PRIMARY KEY,
       title TEXT,
+      provider TEXT,
+      artifact_url TEXT,
+      project_url TEXT,
       canva_url TEXT,
+      artifact_type TEXT,
+      file_path TEXT,
       thumbnail_url TEXT,
       session_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_designs_created_at ON agent_designs(created_at);
   `);
+  const agentDesignCols = (db.pragma('table_info(agent_designs)') as { name: string }[]).map((c) => c.name);
+  if (!agentDesignCols.includes('artifact_type')) db.exec(`ALTER TABLE agent_designs ADD COLUMN artifact_type TEXT`);
+  if (!agentDesignCols.includes('file_path')) db.exec(`ALTER TABLE agent_designs ADD COLUMN file_path TEXT`);
+  if (!agentDesignCols.includes('provider')) db.exec(`ALTER TABLE agent_designs ADD COLUMN provider TEXT`);
+  if (!agentDesignCols.includes('artifact_url')) db.exec(`ALTER TABLE agent_designs ADD COLUMN artifact_url TEXT`);
+  if (!agentDesignCols.includes('project_url')) db.exec(`ALTER TABLE agent_designs ADD COLUMN project_url TEXT`);
+  db.exec(`UPDATE agent_designs SET project_url = canva_url, provider = COALESCE(provider, 'canva') WHERE canva_url IS NOT NULL AND project_url IS NULL`);
+  db.exec(`UPDATE agent_designs SET provider = 'local' WHERE file_path IS NOT NULL AND provider IS NULL`);
 
   // ── Agent Config Profile Extensions ──────────────────────────────────────
   // Add manager/specialist profile columns to agent_configs (additive).
@@ -2317,7 +2347,8 @@ Your job, in order:
    - allowedMcps: only the servers that match tools they said they use — "rhythm" always, plus "pco-services" if they mentioned Planning Center, "gmail-work" or "google-calendar" if they mentioned Gmail/Calendar (use your best judgment on the exact name; if unsure, ask them to confirm in Settings afterward rather than guessing wrong).
 5. After creating it, call rhythm_notify to let them know it's ready, and tell them in the chat where to find it: "You'll see '<label>' in your agent picker now — just start a new session with it whenever you want help with that."
 6. If they want more than one profile (e.g. one for admin tasks, one for Sunday prep), repeat steps 2-5 for each — but confirm each one individually before creating it. Never create more than one profile per confirmation.
-7. Keep the whole thing short and warm. This is someone's first impression of the product — do not overwhelm them with options they didn't ask about.`;
+7. Before recommending setup work, call rhythm_get_setup_readiness and explain only the relevant unavailable prerequisites in plain language. This is informational only: never change settings, install anything, or imply an integration is connected from this summary alone.
+8. Keep the whole thing short and warm. This is someone's first impression of the product — do not overwhelm them with options they didn't ask about.`;
 
   db.prepare(
     `INSERT OR IGNORE INTO agent_configs
@@ -2337,6 +2368,13 @@ Your job, in order:
     'claude-sonnet-4-6',
     5,
   );
+
+  runOnce('rhythm_setup_creative_installs_v1', () => {
+    db.prepare(`UPDATE agent_configs SET system_prompt = ?, allowed_mcps_json = ? WHERE id = 'rhythm-setup'`).run(
+      `${rhythmSetupSystemPrompt}\n\nIf someone asks for creative work that needs a local capability, explain the optional download plainly. Before starting it, call rhythm_request_approval with action install_creative_dependency:<capability>. After approval, use rhythm_install_creative_capability, then rhythm_verify_creative_capability. Never claim an install worked until verification says it is installed.`,
+      '["rhythm"]',
+    );
+  });
 
   // #916/#923 — scope contract repair before [] changes from fail-open to
   // deny-all. NULL is unrestricted; [] is now explicit deny-all. Existing rows

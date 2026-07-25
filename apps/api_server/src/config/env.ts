@@ -274,6 +274,23 @@ export function resolveWebsearchConfig(): {
   };
 }
 
+/**
+ * Optional sandbox/operator override for Deep Research runs. Model IDs may
+ * contain slashes (for example, `openrouter/openrouter/free`).
+ */
+export function parseResearchModel(value = process.env.RHYTHM_RESEARCH_MODEL) {
+  if (value === undefined || value.trim() === '') return null;
+  const slash = value.indexOf('/');
+  const providerID = value.slice(0, slash).trim();
+  const modelID = value.slice(slash + 1).trim();
+  if (slash <= 0 || !providerID || !modelID) {
+    throw new Error(
+      'Invalid RHYTHM_RESEARCH_MODEL. Expected a non-empty provider/modelId (for example, openrouter/openrouter/free).',
+    );
+  }
+  return { providerID, modelID };
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 4000),
@@ -286,6 +303,7 @@ export const env = {
    * on the same condition.
    */
   agentExecutionEnabled: deploymentRole !== 'cloud',
+  researchModel: parseResearchModel(),
   dbClient: parseDbClient(dbClientValue),
   dbPath: process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db'),
   dbHost: process.env.DB_HOST ?? 'localhost',

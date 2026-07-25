@@ -115,3 +115,28 @@ describe("rhythm_run_org_optimizer — #1115 undici timeout", () => {
     expect(result.content[0].text).toContain('"proposalsCreated": 0');
   }, 10_000);
 });
+
+describe('rhythm_run_external_discovery', () => {
+  it('calls only the bounded discovery endpoint and returns its proposal summary', async () => {
+    let requestedUrl = '';
+    const localServer = http.createServer((req, res) => {
+      requestedUrl = req.url ?? '';
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ emitted: 0, skipped: false }));
+    });
+    const agentUrl = await new Promise<string>((resolve) => {
+      localServer.listen(0, '127.0.0.1', () => {
+        resolve(`http://127.0.0.1:${(localServer.address() as AddressInfo).port}`);
+      });
+    });
+    const { server, tools } = makeStubServer();
+    registerOrgOptimizerTools(server as any, agentUrl, API_TOKEN);
+
+    const result = await tools.get('rhythm_run_external_discovery')!.handler({});
+
+    expect(result.isError).toBeUndefined();
+    expect(requestedUrl).toBe('/agent-org-optimizer/external-discovery');
+    expect(result.content[0].text).toContain('"emitted": 0');
+    await new Promise<void>((resolve) => localServer.close(() => resolve()));
+  });
+});
