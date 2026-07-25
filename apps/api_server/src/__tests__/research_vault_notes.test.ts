@@ -55,6 +55,7 @@ import {
   matchEntrySubfolder,
   researchEntryFilename,
 } from '../config/researchVaultConfig';
+import { GENERIC_RESEARCH_REPORTS_ROOT } from '../services/generic_research_report';
 import { logger } from '../utils/logger';
 
 function makeDb() {
@@ -409,10 +410,10 @@ describe('research-job completion hook (#847)', () => {
     vi.restoreAllMocks();
   });
 
-  /** All `.md` entries under the hook vault's Entries root. */
-  function hookEntryFiles(): string[] {
+  /** All `.md` reports under the generic Deep Research output root. */
+  function hookReportFiles(): string[] {
     const out: string[] = [];
-    const entriesAbs = path.join(hookVaultRoot, RESEARCH_ENTRIES_ROOT);
+    const reportsAbs = path.join(hookVaultRoot, GENERIC_RESEARCH_REPORTS_ROOT);
     function walk(dir: string) {
       if (!existsSync(dir)) return;
       for (const d of readdirSync(dir, { withFileTypes: true })) {
@@ -421,11 +422,11 @@ describe('research-job completion hook (#847)', () => {
         else if (d.name.endsWith('.md')) out.push(full);
       }
     }
-    walk(entriesAbs);
+    walk(reportsAbs);
     return out;
   }
 
-  it('issue-847-c5: AgentResearchController.updateStatus writes a Research Database entry on status=done and still returns the job', async () => {
+  it('writes a generic Deep Research report on status=done and still returns the job', async () => {
     seedJob('job-1', 'Best worship planning software');
 
     const doneRes = await fetch(`${baseUrl}/agent-research/job-1/status`, {
@@ -443,13 +444,12 @@ describe('research-job completion hook (#847)', () => {
     expect(updatedJob.status).toBe('done');
     expect(updatedJob.report).toContain('Final report line one.');
 
-    // The side effect: an entry now exists under the Entries root, with the
-    // load-bearing type: "entry" frontmatter.
-    const entries = hookEntryFiles();
-    expect(entries).toHaveLength(1);
-    const raw = readFileSync(entries[0], 'utf8');
-    expect(raw).toContain('type: "entry"');
-    expect(raw).toContain('job_id: job-1');
+    const reports = hookReportFiles();
+    expect(reports).toHaveLength(1);
+    expect(path.basename(reports[0])).toMatch(/^\d{4}-\d{2}-\d{2}-best-worship-planning-software\.md$/);
+    const raw = readFileSync(reports[0], 'utf8');
+    expect(raw).toContain('summary: "Final report line one. More detail follows."');
+    expect(raw).toContain('job_id: "job-1"');
 
     // FALSIFICATION: if the hook fired on every status (not just 'done'), a
     // second job left 'gathering' would ALSO produce an entry. It must not.
@@ -459,15 +459,15 @@ describe('research-job completion hook (#847)', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'gathering', sources: ['https://example.com/b'] }),
     });
-    expect(hookEntryFiles()).toHaveLength(1); // still just the 'done' job's entry
+    expect(hookReportFiles()).toHaveLength(1); // still just the 'done' job's report
   });
 
   it('issue-847-c5 (falsification): a vault-write failure does not fail the status-update response', async () => {
     // Force the vault write to fail by making the entries path unwritable:
     // pre-create a FILE where the write service needs a directory.
-    mkdirSync(path.join(hookVaultRoot, 'Resources'), { recursive: true });
+    mkdirSync(path.join(hookVaultRoot, 'Areas', 'Research', 'General'), { recursive: true });
     writeFileSync(
-      path.join(hookVaultRoot, 'Resources', 'theological-study'),
+      path.join(hookVaultRoot, 'Areas', 'Research', 'General', 'Reports'),
       'i am a file, not a dir',
       'utf8',
     );

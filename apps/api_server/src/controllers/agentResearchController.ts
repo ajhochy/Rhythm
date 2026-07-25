@@ -19,7 +19,7 @@ import { AppError } from '../errors/app_error';
 import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
-import { writeResearchNoteToVault } from '../services/researchVaultWriteService';
+import { writeGenericResearchReport } from '../services/generic_research_report';
 import * as AgentRunner from '../services/agent_runner';
 
 interface ResearchJob {
@@ -92,7 +92,7 @@ function researchPrompt(job: ResearchJob): string {
 
 Research job ID: ${job.id}
 
-Research 3-5 authoritative sources using your available research tools. Read and compare them, then return a comprehensive cited markdown report. Include source URLs and distinguish facts from uncertainty. Keep the report under 2000 words. Return only the final report; Rhythm persists the job progress and report.`;
+Research 3-5 authoritative sources using your available research tools. Read and compare them, then return a comprehensive cited markdown report. Include source URLs and distinguish facts from uncertainty. Keep the report under 2000 words. Return only the final report; Rhythm persists it at Areas/Research/General/Reports/<date>-<slug>.md.`;
 }
 
 /** Run asynchronously after the API has returned the durable pending job. */
@@ -152,13 +152,10 @@ export async function recoverStaleResearchJobs(): Promise<number> {
 
 async function writeCompletedResearchNote(job: ResearchJob): Promise<void> {
   try {
-    const sources = JSON.parse(job.sourcesJson) as unknown;
-    await writeResearchNoteToVault({
+    await writeGenericResearchReport({
       jobId: job.id,
       topic: job.query,
-      summary: job.report?.split('\n').find((line) => line.trim() !== '')?.trim() ?? '',
-      findings: job.report ?? '',
-      sources: Array.isArray(sources) ? sources.map(String) : [],
+      report: job.report ?? '',
     });
   } catch (vaultErr) {
     logger.warn(`[Research] vault note write failed for job ${job.id}: ${String(vaultErr)}`);

@@ -35,7 +35,7 @@ current state.
      packs), OpenMontage, Obsidian/plugin, document/media toolchains. This
      is the largest remaining piece and is security-sensitive.
    2. Self-improvement package audit.
-   3. Deep Research direct `AgentRunner` execution with a live report.
+   3. Deep Research external-provider E2E completion (profile seeding and engine projection are now fixed; the OpenRouter free provider returned a 502 tool-schema error).
 - Planning recommended splitting into 5 stacked draft PRs; AJ explicitly
   overrode this — all capabilities must ship together, external-runtime
   install stack cannot be dropped or deferred silently.
@@ -57,6 +57,9 @@ current state.
 - Flutter SDK is unavailable in this environment, so Gallery widget test and
   analyzer are pending a Flutter-equipped machine.
 - Full detail: `docs/ai/runs/2026-07-24-creative-platform-phase3-gallery-artifacts.md`.
+- Researcher: Node 22 build and focused tests pass. Sandbox E2E reached the
+  projected `research` agent (no `Agent not found`) but OpenRouter free stopped
+  on an upstream Darkbloom tool-schema 502 before producing a report.
 
 ## Next step
 

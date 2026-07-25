@@ -116,6 +116,15 @@ async function main() {
   let anthropicAccountsServiceRef: { stopRefreshLoop: () => void } | null = null;
 
   if (env.agentExecutionEnabled) {
+    // Seed and project Researcher before any scheduler or page-launched run can
+    // request the `research` engine agent.
+    try {
+      const { seedResearchProfile } = await import('./services/research_profile_seed');
+      seedResearchProfile();
+    } catch (err) {
+      logger.warn(`[server] research profile seed failed (non-fatal): ${String(err)}`);
+    }
+
     // Issue #805: rebuild the DERIVED memory index from the vault ONCE on
     // startup so a fresh boot has a correct, search-ready index without waiting
     // for the first cron tick. The vault (not this SQLite store) is the source
@@ -480,6 +489,16 @@ async function main() {
     opencodeClient
       .initialize()
       .then(async () => {
+      // The initial seed can run before the engine exists, when its reload is a
+      // no-op. Re-project now that reloadConfig can register `research` before
+      // the first page-launched AgentRunner job.
+      try {
+        const { seedResearchProfile } = await import('./services/research_profile_seed');
+        seedResearchProfile();
+      } catch (e) {
+        logger.warn(`[server] research profile engine projection failed (non-fatal): ${String(e)}`);
+      }
+
       // #746 — Notify the skill curator that the engine is ready so it can
       // begin deferring extraction work until the cold-start window passes.
       // Non-fatal: if notifyEngineReady throws for any reason, swallow and log.

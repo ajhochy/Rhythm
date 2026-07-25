@@ -65,9 +65,11 @@ describe('Deep Research direct AgentRunner execution', () => {
     expect(runAgent).toHaveBeenCalledWith(expect.objectContaining({
       agentConfigId: 'research', agentKind: 'research', cwd: process.cwd(), prompt: expect.stringContaining(query),
     }));
+    expect(runAgent.mock.calls[0][0].prompt).toContain('Areas/Research/General/Reports/<date>-<slug>.md');
+    expect(runAgent.mock.calls[0][0].prompt).not.toMatch(/theolog/i);
     expect(runAgent.mock.calls[0][0]).not.toHaveProperty('modelOverride');
     expect(db.prepare('SELECT COUNT(*) AS count FROM pending_claude_triggers').get()).toEqual({ count: 0 });
-    await vi.waitFor(() => expect(existsSync(path.join(vault, 'Resources', 'theological-study', 'Research Database', 'Entries'))).toBe(true));
+    await vi.waitFor(() => expect(existsSync(path.join(vault, 'Areas', 'Research', 'General', 'Reports'))).toBe(true));
   });
 
   it('forwards the configured research model override to the runner', async () => {
