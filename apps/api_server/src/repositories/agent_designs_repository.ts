@@ -6,6 +6,8 @@ export interface AgentDesign {
   id: string;
   title: string | null;
   canvaUrl: string | null;
+  artifactType: string | null;
+  filePath: string | null;
   thumbnailUrl: string | null;
   sessionId: string | null;
   createdAt: string;
@@ -14,6 +16,8 @@ export interface AgentDesign {
 export interface CreateAgentDesignInput {
   title?: string;
   canvaUrl?: string;
+  artifactType?: string;
+  filePath?: string;
   thumbnailUrl?: string;
   sessionId?: string;
 }
@@ -23,6 +27,8 @@ function rowToModel(row: Record<string, unknown>): AgentDesign {
     id: row.id as string,
     title: (row.title as string | null) ?? null,
     canvaUrl: (row.canva_url as string | null) ?? null,
+    artifactType: (row.artifact_type as string | null) ?? null,
+    filePath: (row.file_path as string | null) ?? null,
     thumbnailUrl: (row.thumbnail_url as string | null) ?? null,
     sessionId: (row.session_id as string | null) ?? null,
     createdAt:
@@ -40,13 +46,15 @@ export class AgentDesignsRepository {
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(
         `INSERT INTO agent_designs
-           (id, title, canva_url, thumbnail_url, session_id, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6)
+           (id, title, canva_url, artifact_type, file_path, thumbnail_url, session_id, created_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          RETURNING *`,
         [
           id,
           input.title ?? null,
           input.canvaUrl ?? null,
+          input.artifactType ?? null,
+          input.filePath ?? null,
           input.thumbnailUrl ?? null,
           input.sessionId ?? null,
           now,
@@ -58,13 +66,15 @@ export class AgentDesignsRepository {
     getDb()
       .prepare(
         `INSERT INTO agent_designs
-           (id, title, canva_url, thumbnail_url, session_id, created_at)
-         VALUES (?,?,?,?,?,?)`,
+           (id, title, canva_url, artifact_type, file_path, thumbnail_url, session_id, created_at)
+          VALUES (?,?,?,?,?,?,?,?)`,
       )
       .run(
         id,
         input.title ?? null,
         input.canvaUrl ?? null,
+        input.artifactType ?? null,
+        input.filePath ?? null,
         input.thumbnailUrl ?? null,
         input.sessionId ?? null,
         now,

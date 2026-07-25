@@ -14,6 +14,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { createApp } from '../app';
 import { startTestServer } from './helpers/real_server';
 import { runMigrations } from '../database/migrations';
@@ -113,6 +114,7 @@ describe('D1 — /agent-designs CRUD (authenticated)', () => {
       body: JSON.stringify({
         title: 'Church Banner',
         canvaUrl: 'https://canva.com/design/abc',
+        artifactType: 'png',
         thumbnailUrl: 'https://canva.com/thumb/abc.png',
       }),
     });
@@ -121,8 +123,64 @@ describe('D1 — /agent-designs CRUD (authenticated)', () => {
     expect(typeof body.id).toBe('string');
     expect(body.title).toBe('Church Banner');
     expect(body.canvaUrl).toBe('https://canva.com/design/abc');
+    expect(body.artifactType).toBe('png');
     expect(body.thumbnailUrl).toBe('https://canva.com/thumb/abc.png');
     expect(typeof body.createdAt).toBe('string');
+  });
+
+  it('records a local image under Rhythm Studio and serves it safely', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'rhythm-design-home-'));
+    const studio = path.join(home, 'Downloads', 'Rhythm Studio');
+    fs.mkdirSync(studio, { recursive: true });
+    const image = path.join(studio, 'slide.png');
+    fs.writeFileSync(image, 'synthetic-png');
+    vi.stubEnv('HOME', home);
+    try {
+      const create = await fetch(`${baseUrl}/agent-designs`, {
+        method: 'POST', headers: { ...authHeader, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Local slide', localPath: image }),
+      });
+      expect(create.status).toBe(201);
+      const design = (await create.json()) as { id: string; artifactType: string; filePath: string };
+      expect(design.artifactType).toBe('png');
+      expect(design.filePath).toBe(fs.realpathSync(image));
+      const artifact = await fetch(`${baseUrl}/agent-designs/${design.id}/artifact`, { headers: authHeader });
+      expect(artifact.status).toBe(200);
+      expect(await artifact.text()).toBe('synthetic-png');
+    } finally {
+      vi.unstubAllEnvs();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects traversal, symlink escape, unsupported local types, and non-Canva URLs', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'rhythm-design-home-'));
+    const studio = path.join(home, 'Downloads', 'Rhythm Studio');
+    const outside = path.join(home, 'outside');
+    fs.mkdirSync(studio, { recursive: true });
+    fs.mkdirSync(outside);
+    const secret = path.join(outside, 'secret.png');
+    fs.writeFileSync(secret, 'secret');
+    fs.symlinkSync(outside, path.join(studio, 'escape'));
+    vi.stubEnv('HOME', home);
+    try {
+      for (const finalPath of [path.join(studio, '..', '..', 'outside', 'secret.png'), path.join(studio, 'escape', 'secret.png'), path.join(studio, 'bad.txt')]) {
+        if (finalPath.endsWith('bad.txt')) fs.writeFileSync(finalPath, 'bad');
+        const response = await fetch(`${baseUrl}/agent-designs`, {
+          method: 'POST', headers: { ...authHeader, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: 'Unsafe', localPath: finalPath }),
+        });
+        expect(response.status).toBe(400);
+      }
+      const response = await fetch(`${baseUrl}/agent-designs`, {
+        method: 'POST', headers: { ...authHeader, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Unsafe URL', canvaUrl: 'file:///secret.png' }),
+      });
+      expect(response.status).toBe(400);
+    } finally {
+      vi.unstubAllEnvs();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it('GET /agent-designs/:id returns the design', async () => {

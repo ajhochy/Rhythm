@@ -184,11 +184,17 @@ class _FakeGalleryDataSource extends AgentGalleryDataSource {
 // Helpers
 // ---------------------------------------------------------------------------
 
-AgentDesign _makeDesign(String id, String title, {String? canvaUrl}) =>
+AgentDesign _makeDesign(
+  String id,
+  String title, {
+  String? canvaUrl,
+  String? artifactType,
+}) =>
     AgentDesign(
       id: id,
       title: title,
       canvaUrl: canvaUrl,
+      artifactType: artifactType,
       createdAt: DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
     );
 
@@ -347,6 +353,36 @@ void main() {
         reason: '"Open in Canva" link should render for design with canvaUrl',
       );
 
+      galleryController.dispose();
+    });
+
+    testWidgets('renders safe local artifact cards for image, PDF, video, and SVG', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1200, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final galleryController = AgentGalleryController(
+        AgentGalleryRepository(
+          _FakeGalleryDataSource([
+            _makeDesign('png', 'Image', artifactType: 'png'),
+            _makeDesign('pdf', 'PDF', artifactType: 'pdf'),
+            _makeDesign('mp4', 'Video', artifactType: 'mp4'),
+            _makeDesign('svg', 'SVG', artifactType: 'svg'),
+          ]),
+        ),
+      );
+      await galleryController.loadDesigns();
+      await tester.pumpWidget(
+        await _buildApp(
+          galleryController: galleryController,
+          agentsController: agentsController,
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Open PNG'), findsOneWidget);
+      expect(find.text('Open PDF'), findsOneWidget);
+      expect(find.text('Open MP4'), findsOneWidget);
+      expect(find.text('Open SVG'), findsOneWidget);
       galleryController.dispose();
     });
 

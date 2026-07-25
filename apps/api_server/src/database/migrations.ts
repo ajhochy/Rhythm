@@ -1599,12 +1599,17 @@ export function runMigrations(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       title TEXT,
       canva_url TEXT,
+      artifact_type TEXT,
+      file_path TEXT,
       thumbnail_url TEXT,
       session_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_designs_created_at ON agent_designs(created_at);
   `);
+  const agentDesignCols = (db.pragma('table_info(agent_designs)') as { name: string }[]).map((c) => c.name);
+  if (!agentDesignCols.includes('artifact_type')) db.exec(`ALTER TABLE agent_designs ADD COLUMN artifact_type TEXT`);
+  if (!agentDesignCols.includes('file_path')) db.exec(`ALTER TABLE agent_designs ADD COLUMN file_path TEXT`);
 
   // ── Agent Config Profile Extensions ──────────────────────────────────────
   // Add manager/specialist profile columns to agent_configs (additive).

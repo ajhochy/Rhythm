@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agents/controllers/agents_controller.dart';
 import '../controllers/agent_gallery_controller.dart';
@@ -210,9 +211,10 @@ class _DesignCard extends StatelessWidget {
 
   final AgentDesign design;
 
-  Future<void> _openInCanva(BuildContext context) async {
-    final url = design.canvaUrl;
-    if (url == null || url.isEmpty) return;
+  Future<void> _openArtifact(BuildContext context) async {
+    final url = design.canvaUrl ??
+        '${AppConstants.agentLocalBaseUrl}/agent-designs/${design.id}/artifact';
+    if (url.isEmpty) return;
     final uri = Uri.tryParse(url);
     if (uri == null) return;
     if (await canLaunchUrl(uri)) {
@@ -241,23 +243,40 @@ class _DesignCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Thumbnail.
+          // Local files are never exposed as file:// links; the API rechecks containment.
           Expanded(
             child: ClipRRect(
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(RhythmRadius.md - 1),
               ),
-              child: design.thumbnailUrl != null
+              child: design.artifactType == 'png' ||
+                      design.artifactType == 'jpg' ||
+                      design.artifactType == 'jpeg'
                   ? Image.network(
+                      '${AppConstants.agentLocalBaseUrl}/agent-designs/${design.id}/artifact',
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _ArtifactPlaceholder(
+                        rhythm: rhythm,
+                        type: design.artifactType!,
+                      ),
+                    )
+                  : design.thumbnailUrl != null
+                      ? Image.network(
                       design.thumbnailUrl!,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) =>
-                          _ThumbnailPlaceholder(rhythm: rhythm),
+                          _ArtifactPlaceholder(
+                            rhythm: rhythm,
+                            type: design.artifactType,
+                          ),
                     )
-                  : _ThumbnailPlaceholder(rhythm: rhythm),
+                      : _ArtifactPlaceholder(
+                          rhythm: rhythm,
+                          type: design.artifactType,
+                        ),
             ),
           ),
-          // Title + Canva link.
+          // Title + safe artifact link.
           Padding(
             padding: const EdgeInsets.fromLTRB(
               RhythmSpacing.sm,
@@ -278,12 +297,14 @@ class _DesignCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                if (design.canvaUrl != null) ...[
+                if (design.canvaUrl != null || design.artifactType != null) ...[
                   const SizedBox(height: 2),
                   GestureDetector(
-                    onTap: () => _openInCanva(context),
+                    onTap: () => _openArtifact(context),
                     child: Text(
-                      'Open in Canva',
+                      design.canvaUrl != null
+                          ? 'Open in Canva'
+                          : 'Open ${design.artifactType!.toUpperCase()}',
                       style: TextStyle(
                         color: rhythm.accent,
                         fontSize: 11,
@@ -302,17 +323,38 @@ class _DesignCard extends StatelessWidget {
   }
 }
 
-class _ThumbnailPlaceholder extends StatelessWidget {
-  const _ThumbnailPlaceholder({required this.rhythm});
+class _ArtifactPlaceholder extends StatelessWidget {
+  const _ArtifactPlaceholder({required this.rhythm, this.type});
 
   final RhythmColorRoles rhythm;
+  final String? type;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       color: rhythm.surfaceMuted,
       child: Center(
-        child: Icon(Icons.image_outlined, color: rhythm.textMuted, size: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              type == 'pdf'
+                  ? Icons.picture_as_pdf_outlined
+                  : type == 'mp4'
+                      ? Icons.video_file_outlined
+                      : type == 'svg'
+                          ? Icons.interests_outlined
+                          : Icons.image_outlined,
+              color: rhythm.textMuted,
+              size: 32,
+            ),
+            if (type != null)
+              Text(
+                type!.toUpperCase(),
+                style: TextStyle(color: rhythm.textMuted, fontSize: 11),
+              ),
+          ],
+        ),
       ),
     );
   }

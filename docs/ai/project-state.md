@@ -3,7 +3,7 @@
 
 ## Current focus
 
-**Creative platform integration — Phase 1 landed, Phase 2 API/MCP integration complete.** Working
+**Creative platform integration — Phases 1–3 complete.** Working
 in worktree `~/Documents/rhythm-worktrees/creative-platform`. No PR yet — AJ
 requires the full capability set (including real external-runtime
 installation) before this goes up for review; do not open a PR from the
@@ -31,19 +31,14 @@ current state.
      install + verify + rollback for Blender, ComfyUI (+ selectable model
      packs), OpenMontage, Obsidian/plugin, document/media toolchains. This
      is the largest remaining piece and is security-sensitive.
-  2. Gallery artifact recording / local file rendering.
-  3. Self-improvement package audit.
-  4. Deep Research direct `AgentRunner` execution with a live report.
+   2. Self-improvement package audit.
+   3. Deep Research direct `AgentRunner` execution with a live report.
 - Planning recommended splitting into 5 stacked draft PRs; AJ explicitly
   overrode this — all capabilities must ship together, external-runtime
   install stack cannot be dropped or deferred silently.
 
 ## Risks / known issues
 
-- **Implementation blocker:** several coding-agent task sessions returned
-  empty (no changes) for Phase 2, including a narrowed registry-only task.
-  Root cause not diagnosed — need a working coding-agent session or manual
-  implementation.
 - The installer must not be improvised with arbitrary shell execution,
   unpinned downloads, or fake/manual-only recipes — needs pinned, verifiable
   install/verify/rollback recipes per external tool.
@@ -54,22 +49,16 @@ current state.
 
 ## Test status
 
-Phase 1 only, gate PASS on current branch HEAD:
-- api_server: `npm run build` clean; 3 seed tests, 2 packaging tests, 7
-  config-seed tests, 41 curated-adapter tests all passed.
-- Flutter: Gallery widget tests 7/7; `flutter analyze --no-fatal-infos` exit
-  0 (pre-existing infos only, run by orchestrator).
-- Sandbox `:4098`: health + creative-media profile endpoint both PASS.
-- No personal paths/secrets in diff; `git status` clean.
-- Full detail: `docs/ai/runs/2026-07-24-creative-platform-checkpoint.md`.
+- Phase 3: API artifact tests 9/9, API and MCP builds clean, MCP focused test
+  passed, and a sandbox E2E created/listed/served a synthetic local PNG.
+- Flutter SDK is unavailable in this environment, so Gallery widget test and
+  analyzer are pending a Flutter-equipped machine.
+- Full detail: `docs/ai/runs/2026-07-24-creative-platform-phase3-gallery-artifacts.md`.
 
 ## Next step
 
-1. Continue the remaining creative-platform stacks (artifact rendering,
-   self-improvement package audit, and Deep Research live execution).
-2. Then continue remaining stacks: Gallery artifact recording/local file
-   rendering, self-improvement package audit, Deep Research live
-   `AgentRunner` execution.
+1. Continue self-improvement package audit and Deep Research live execution.
+2. Re-run Flutter formatting, widget tests, and analyzer on a Flutter-equipped machine.
 3. Only after all stacks land: push branch, open draft PR, hand off for
    manual smoke per `docs/testing/manual-smoke.md`.
 </content>

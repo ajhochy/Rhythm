@@ -9,7 +9,9 @@ describe('registerCreativePlatformTools', () => {
     registerCreativePlatformTools(server as never, 'http://localhost:4098');
     await tools.get('rhythm_install_creative_capability')!.handler({ id: 'openmontage', sessionId: 's1' });
     expect(fetchMock).toHaveBeenCalledWith('http://localhost:4098/creative-platform/openmontage/request-or-start', expect.objectContaining({ method: 'POST' }));
-    expect([...tools]).toHaveLength(4);
+    await tools.get('rhythm_record_design')!.handler({ title: 'Sunday slide', provider: 'canva', canvaUrl: 'https://www.canva.com/design/abc' });
+    expect(fetchMock).toHaveBeenLastCalledWith('http://localhost:4098/agent-designs', expect.objectContaining({ method: 'POST' }));
+    expect([...tools]).toHaveLength(5);
     vi.unstubAllGlobals();
   });
 });

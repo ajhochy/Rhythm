@@ -612,11 +612,15 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       id TEXT PRIMARY KEY,
       title TEXT,
       canva_url TEXT,
+      artifact_type TEXT,
+      file_path TEXT,
       thumbnail_url TEXT,
       session_id TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE agent_designs ADD COLUMN IF NOT EXISTS artifact_type TEXT`);
+  await pool.query(`ALTER TABLE agent_designs ADD COLUMN IF NOT EXISTS file_path TEXT`);
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_agent_designs_created_at ON agent_designs(created_at)`,
   );
