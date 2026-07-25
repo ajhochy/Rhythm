@@ -90,6 +90,7 @@ export default function SettingsScreen() {
   const [isConfiguringProvider, setIsConfiguringProvider] = useState(false);
   const [providerDialogError, setProviderDialogError] = useState<string>();
   const [providerFeedback, setProviderFeedback] = useState<{ type: 'success' | 'info' | 'error'; message: string }>();
+  const [pairedMacFeedback, setPairedMacFeedback] = useState<string>();
   const [expandedProviderId, setExpandedProviderId] = useState<string>();
   const [notificationStatus, setNotificationStatus] = useState<NotificationDebugStatus>();
   const [isRefreshingNotificationStatus, setIsRefreshingNotificationStatus] = useState(false);
@@ -157,6 +158,21 @@ export default function SettingsScreen() {
       await connect();
     } finally {
       setIsConnecting(false);
+    }
+  }
+
+  async function runPairedMacAction(
+    action: () => Promise<unknown>,
+  ): Promise<void> {
+    setPairedMacFeedback(undefined);
+    try {
+      await action();
+    } catch (error) {
+      setPairedMacFeedback(
+        error instanceof Error
+          ? error.message
+          : 'The paired Mac action failed. Retry from Settings.',
+      );
     }
   }
 
@@ -373,8 +389,21 @@ export default function SettingsScreen() {
         statusBarHeight={0}
         elevated>
         <View style={styles.headerMain}>
-          <Text variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}>Settings</Text>
-          <Text numberOfLines={1} variant="bodySmall" style={{ color: palette.muted }}>{connection.status === 'connected' ? 'Connected to OpenCode' : connection.message}</Text>
+          <Text
+            maxFontSizeMultiplier={1.4}
+            variant="titleMedium"
+            style={[styles.headerTitle, { color: palette.text }]}>
+            Settings
+          </Text>
+          <Text
+            maxFontSizeMultiplier={1.4}
+            numberOfLines={1}
+            variant="bodySmall"
+            style={{ color: palette.muted }}>
+            {connection.status === 'connected'
+              ? 'Connected to OpenCode'
+              : connection.message}
+          </Text>
         </View>
         <View style={styles.headerActions}>
           <Appbar.Action icon="refresh" accessibilityLabel="Reconnect" loading={isConnecting} disabled={isConnecting} onPress={() => void handleConnect()} />
@@ -395,9 +424,9 @@ export default function SettingsScreen() {
           host={pairedHost.host}
           message={pairedHost.message}
           onPair={() => router.push('/pair')}
-          onRefresh={() => void pairedHost.refresh()}
+          onRefresh={() => void runPairedMacAction(pairedHost.refresh)}
           onRevoke={() => {
-            const revoke = () => void pairedHost.revoke().catch(() => undefined);
+            const revoke = () => void runPairedMacAction(pairedHost.revoke);
             if (Platform.OS === 'web') {
               if (globalThis.confirm('Revoke this iPhone from the paired Mac?')) revoke();
               return;
@@ -411,7 +440,7 @@ export default function SettingsScreen() {
               ],
             );
           }}
-          onForget={() => void pairedHost.forget()}
+          onForget={() => void runPairedMacAction(pairedHost.forget)}
           palette={palette}
         />
         <List.AccordionGroup expandedId={expandedSection} onAccordionPress={(id) => setExpandedSection(expandedSection === String(id) ? '' : String(id))}>
@@ -538,6 +567,12 @@ export default function SettingsScreen() {
         onDismiss={() => setProviderFeedback(undefined)}
         duration={4000}>
         {providerFeedback?.message}
+      </Snackbar>
+      <Snackbar
+        visible={Boolean(pairedMacFeedback)}
+        onDismiss={() => setPairedMacFeedback(undefined)}
+        duration={6000}>
+        {pairedMacFeedback}
       </Snackbar>
       <Snackbar
         visible={Boolean(notificationFeedback)}

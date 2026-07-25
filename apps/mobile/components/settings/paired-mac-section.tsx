@@ -54,11 +54,15 @@ export function PairedMacSection({
       ]}>
       <View style={styles.heading}>
         <View style={styles.titleBlock}>
-          <Text variant="titleMedium" style={{ color: palette.text }}>
+          <Text
+            maxFontSizeMultiplier={1.6}
+            variant="titleMedium"
+            style={{ color: palette.text }}>
             Paired Mac
           </Text>
           <Text
             accessibilityLiveRegion="polite"
+            maxFontSizeMultiplier={1.6}
             variant="labelMedium"
             style={{
               color: state === 'connected' ? palette.success : palette.muted,
@@ -74,6 +78,7 @@ export function PairedMacSection({
         <>
           <Text
             selectable
+            maxFontSizeMultiplier={1.6}
             numberOfLines={1}
             variant="bodySmall"
             style={{ color: palette.text }}>
@@ -86,6 +91,7 @@ export function PairedMacSection({
       ) : null}
       <View style={styles.actions}>
         <Button
+          maxFontSizeMultiplier={1.8}
           mode={host ? 'outlined' : 'contained'}
           icon="qrcode-scan"
           disabled={busy}
@@ -95,6 +101,7 @@ export function PairedMacSection({
         </Button>
         {host ? (
           <Button
+            maxFontSizeMultiplier={1.8}
             icon="refresh"
             disabled={busy}
             accessibilityLabel="Refresh paired Mac status"
@@ -104,6 +111,7 @@ export function PairedMacSection({
         ) : null}
         {host && state !== 'revoked' ? (
           <Button
+            maxFontSizeMultiplier={1.8}
             textColor={palette.danger}
             accessibilityLabel="Revoke this iPhone from the paired Mac"
             onPress={onRevoke}>
@@ -112,6 +120,7 @@ export function PairedMacSection({
         ) : null}
         {host ? (
           <Button
+            maxFontSizeMultiplier={1.8}
             accessibilityLabel="Forget the paired Mac on this iPhone"
             onPress={onForget}>
             Forget

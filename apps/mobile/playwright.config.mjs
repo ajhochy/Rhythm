@@ -1,5 +1,23 @@
 import { defineConfig, devices } from '@playwright/test';
 
+function portFromEnv(name, fallback) {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`${name} must be a TCP port`);
+  }
+  const port = Number(raw);
+  if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) {
+    throw new Error(`${name} must be between 1024 and 65535`);
+  }
+  return port;
+}
+
+const fakePort = portFromEnv('PLAYWRIGHT_FAKE_PORT', 44096);
+const webPort = portFromEnv('PLAYWRIGHT_WEB_PORT', 19006);
+const fakeBaseUrl = `http://127.0.0.1:${fakePort}`;
+const webBaseUrl = `http://127.0.0.1:${webPort}`;
+
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 60_000,
@@ -7,7 +25,7 @@ export default defineConfig({
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://127.0.0.1:19006',
+    baseURL: webBaseUrl,
     trace: 'on-first-retry',
   },
   projects: [
@@ -21,24 +39,24 @@ export default defineConfig({
   webServer: [
     {
       command: 'node ./tests/fake-opencode/server.mjs',
-      url: 'http://127.0.0.1:44096/path',
+      url: `${fakeBaseUrl}/path`,
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
       env: {
         ...process.env,
-        FAKE_OPENCODE_PORT: '44096',
+        FAKE_OPENCODE_PORT: String(fakePort),
       },
     },
     {
-      command: 'npm run serve:web:ci',
-      url: 'http://127.0.0.1:19006',
+      command: `npm run build:web:ci -- --clear && serve -s dist-e2e -l ${webPort}`,
+      url: webBaseUrl,
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
       env: {
         ...process.env,
         CI: '1',
         EXPO_PUBLIC_E2E_MODE: '1',
-        EXPO_PUBLIC_E2E_SERVER_URL: 'http://127.0.0.1:44096',
+        EXPO_PUBLIC_E2E_SERVER_URL: fakeBaseUrl,
       },
     },
   ],

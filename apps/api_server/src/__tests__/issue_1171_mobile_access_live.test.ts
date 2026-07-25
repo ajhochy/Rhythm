@@ -77,12 +77,10 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
         new Date(Date.now() + 10 * 60_000).toISOString(),
       );
 
-      const unauthenticatedAccess = await fetch(
-        `${mobileGatewayUrl}/mobile-gateway/access`,
-      );
+      const unauthenticatedAccess = await fetch(`${baseUrl}/mobile-gateway/access`);
       expect(unauthenticatedAccess.status).toBe(401);
 
-      const accessResponse = await fetch(`${mobileGatewayUrl}/mobile-gateway/access`, {
+      const accessResponse = await fetch(`${baseUrl}/mobile-gateway/access`, {
         headers: bearer(sessionToken),
       });
       expect(accessResponse.status).toBe(200);
@@ -121,7 +119,7 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
       );
 
       const codeResponse = await fetch(
-        `${mobileGatewayUrl}/mobile-gateway/pairing-codes`,
+        `${baseUrl}/mobile-gateway/pairing-codes`,
         {
           method: 'POST',
           headers: bearer(sessionToken),
@@ -205,6 +203,19 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
         headers: { Authorization: `Device ${paired.deviceToken}` },
       });
       expect(revoked.status).toBe(401);
+
+      for (const [method, privatePath] of [
+        ['POST', '/mobile-gateway/pairing-codes'],
+        ['GET', '/mobile-gateway/devices'],
+        ['GET', '/mobile-gateway/access'],
+        ['POST', '/mobile-gateway/access/enable'],
+      ] as const) {
+        const hidden = await fetch(`${mobileGatewayUrl}${privatePath}`, {
+          method,
+          headers: bearer(sessionToken),
+        });
+        expect(hidden.status, `${method} ${privatePath}`).toBe(404);
+      }
 
       for (const legacyPath of [
         '/health',

@@ -13,6 +13,7 @@ import Constants from 'expo-constants';
 
 import {
   PairedHostStore,
+  PAIRED_DEVICE_SECURE_KEY,
   type PairedHost,
   type PairedHostSnapshot,
   type PairedHostState,
@@ -48,12 +49,31 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
     if (!e2eMode || typeof e2eServerUrl !== 'string') {
       return new PairedHostStore();
     }
+    const storageFailureEnabled = async () => {
+      const response = await fetch(
+        `${e2eServerUrl.replace(/\/$/, '')}/__control/mobile-storage-failure`,
+      );
+      if (!response.ok) return false;
+      return ((await response.json()) as { enabled?: boolean }).enabled === true;
+    };
     return new PairedHostStore({
       getCredential: async (key) => e2eCredentials.get(key) ?? null,
       setCredential: async (key, value) => {
+        if (
+          key === PAIRED_DEVICE_SECURE_KEY &&
+          await storageFailureEnabled()
+        ) {
+          throw new Error('E2E secure storage write failure');
+        }
         e2eCredentials.set(key, value);
       },
       deleteCredential: async (key) => {
+        if (
+          key === PAIRED_DEVICE_SECURE_KEY &&
+          await storageFailureEnabled()
+        ) {
+          throw new Error('E2E secure storage delete failure');
+        }
         e2eCredentials.delete(key);
       },
       resolveGatewayUrl: (gatewayUrl) =>
@@ -119,11 +139,25 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
     [apply, store],
   );
   const revoke = useCallback(
-    async () => apply(await store.revoke()),
+    async () => {
+      try {
+        return apply(await store.revoke());
+      } catch (error) {
+        apply(store.snapshot());
+        throw error;
+      }
+    },
     [apply, store],
   );
   const forget = useCallback(
-    async () => apply(await store.forget()),
+    async () => {
+      try {
+        return apply(await store.forget());
+      } catch (error) {
+        apply(store.snapshot());
+        throw error;
+      }
+    },
     [apply, store],
   );
 

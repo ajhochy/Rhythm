@@ -13,13 +13,17 @@ index: "[[Rhythm]]"
 
 ## Files
 
-- Added a loopback-only mobile gateway listener with an allowlisted Express
-  surface, separate from the full API listener.
+- Restricted the phone-facing listener to health, pair, project, owner revoke,
+  and device-scoped OpenCode routes. Pairing-code administration, device
+  listing, access toggles, and the full legacy API remain loopback-only.
 - Hardened Tailscale Serve validation to require the exact root proxy target
   and reject Funnel or recursive decoy handlers.
-- Bound paired-host metadata to the signed-in Rhythm user and made Mac
-  replacement transactional: the old Mac is revoked before the new credential
-  becomes authoritative, with rollback when that revoke fails.
+- Made Mac replacement transactional through local storage failure: after the
+  old device is revoked, failure to persist the new host revokes the newly
+  paired device and reports a truthful revoked or unhealthy state. Rollback
+  failure preserves enough metadata for an actionable owner revoke.
+- Made revoke and forget failures visible and retryable in Settings without
+  swallowed or unhandled promise rejections.
 - Added real pairing/replacement/rollback/revoke Playwright coverage, small
   viewport and enlarged-text coverage, fake-gateway device auditing, and
   expanded credential/state-machine tests.
@@ -32,28 +36,26 @@ index: "[[Rhythm]]"
 - `cd apps/api_server && npx vitest run
   src/services/__tests__/tailscale_serve_service.test.ts
   src/services/__tests__/mobile_gateway_surface.test.ts
-  src/services/__tests__/mobile_pairing_service.test.ts
-  src/__tests__/security_live_behavior.test.ts
-  src/__tests__/mobile_pairing_contract.test.ts` — 19/19 pass.
+  src/services/__tests__/mobile_pairing_service.test.ts` — 19/19 pass.
 - Rebuilt the vendored fork with
   `cd apps/opencode_fork/packages/opencode && bun run build --single`; standalone
   binary smoke passed.
-- Guarded live sandbox run on API `:5297`, real fork engine `:5298`, and
-  loopback-only mobile gateway `:5299`:
+- Guarded live sandbox run on API `:5597`, real fork engine `:5598`, and
+  loopback-only mobile gateway `:5599`:
 
   `RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1
-  RHYTHM_LIVE_URL=http://127.0.0.1:5297
-  RHYTHM_SANDBOX_API_PORT=5297
-  RHYTHM_LIVE_MOBILE_GATEWAY_URL=http://127.0.0.1:5299
-  RHYTHM_MOBILE_GATEWAY_PORT=5299
-  RHYTHM_LIVE_DB_PATH=/tmp/rhythm-dev-sandbox-issue-1171/rhythm.db
+  RHYTHM_LIVE_URL=http://127.0.0.1:5597
+  RHYTHM_SANDBOX_API_PORT=5597
+  RHYTHM_LIVE_MOBILE_GATEWAY_URL=http://127.0.0.1:5599
+  RHYTHM_MOBILE_GATEWAY_PORT=5599
+  RHYTHM_LIVE_DB_PATH=/tmp/rhythm-dev-sandbox-issue-1171-round2/rhythm.db
   npx vitest run src/__tests__/issue_1171_mobile_access_live.test.ts`
   — 1/1 pass. The test observed unauthenticated rejection, diagnostic and
   compatibility health, exact two-field one-time QR exchange, hashed-at-rest
   verifier, device authentication, legacy-route 404s on the mobile listener,
   and revocation.
-- Clean shutdown completed; `/tmp/rhythm-dev-sandbox-issue-1171` was removed
-  and `:5297/:5298/:5299` were verified free. Foreign listeners on `:4001`,
+- Clean shutdown completed; `/tmp/rhythm-dev-sandbox-issue-1171-round2` was
+  removed and `:5597/:5598/:5599` were verified free. Foreign listeners on `:4001`,
   `:4097`, and `:4098` retained the same PIDs.
 - `cd apps/api_server && npx vitest run --exclude
   src/__tests__/issue_723_mcp_remove_reconcile.test.ts` — 374 files / 3,247
@@ -63,7 +65,14 @@ index: "[[Rhythm]]"
   implementation have no diff from `main`; the same failure reproduces alone.
 - `cd apps/mobile && npm run verify:foundation` — pass, including contract
   fingerprint, lint, TypeScript, transport/account/OAuth/credential/persistence
-  suites, fake server, and Playwright 19/19.
+  suites, fake server, and Playwright 21/21.
+- Final storage cleanup regressions: `npm run test:paired-host` — 20/20 pass;
+  `npm run lint` and `npm run typecheck` — pass.
+- The Playwright harness now validates configurable ports and clears Expo's
+  bundler cache before each isolated build. A final run with
+  `PLAYWRIGHT_WEB_PORT=19171 PLAYWRIGHT_FAKE_PORT=44171 npx playwright test
+  tests/e2e/pairing.spec.mjs` passed 6/6 without reusing another worktree's
+  server.
 - `cd apps/desktop_flutter && dart format . --set-exit-if-changed` — pass,
   432 files checked and 0 changed.
 - `cd apps/desktop_flutter && flutter analyze --no-fatal-infos` — exit 0 with
@@ -74,18 +83,26 @@ index: "[[Rhythm]]"
   `Rhythm-1171-iPhone-SE`
   (`27E23B6E-2DEF-4563-90B4-820A1820AA6B`). Build log:
   `/Users/ajhochhalter/Library/Developer/XcodeBuildMCP/workspaces/Rhythm-4c790f0c2895/logs/build_run_sim_2026-07-25T10-10-25-336Z_pid62811_c0626165.log`.
-- Native accessibility smoke drove Settings → Pair a Mac → QR callback →
-  Connected → confirmed Replace → Connected to the second Mac → Revoke →
-  Not paired. The fake gateway audited:
-  `GET old`, `POST pair old`, `GET new`, `POST pair new`,
-  `DELETE old`, `DELETE new`; both devices ended revoked and no credential was
-  rendered. The dedicated simulator was shut down without touching the foreign
-  booted simulator.
+- Native accessibility smoke used
+  `accessibility-extra-extra-extra-large`. The first screenshot exposed compact
+  title/status overlap; after correction, the Pair header and Paired Mac card
+  rendered cleanly, every action was scroll-reachable, and the accessibility
+  tree exposed pair, scan, refresh, revoke, and forget labels. Activating the
+  test QR control and confirming replacement returned Settings to Connected.
+  Retained evidence:
+  `docs/ai/runs/artifacts/issue-1171/native-accessibility.json`,
+  `native-accessibility-tree.txt`, `native-large-text-pair-top.png`, and
+  `native-large-text-connected.png`. The dedicated simulator was reset and shut
+  down without touching the foreign booted simulator.
+- `node tests/contract/issue-1171.mjs all` — all six executable criteria pass;
+  this reruns API security/surface tests, Flutter behavior/format/analyze,
+  paired-host state/rollback tests, failure-state/computed-font Playwright, and
+  retained native evidence validation.
 - `git diff --check` — pass.
 - GitNexus `detect-changes --scope unstaged` — MEDIUM, 18 indexed files /
-  46 symbols / 3 affected mobile-gateway diagnostic flows.
+  26 symbols / 4 affected Settings notification flows.
 - GitNexus `detect-changes --scope compare --base-ref main` — CRITICAL,
-  468 files / 2,465 symbols / 18 flows. This is long-lived worktree divergence;
+  474 files / 2,465 symbols / 18 flows. This is long-lived worktree divergence;
   integration should cherry-pick the corrective commit rather than merge the
   branch wholesale.
 
@@ -97,6 +114,11 @@ index: "[[Rhythm]]"
 - The sandbox script's detached child was reaped by the execution environment
   after initially reporting healthy. The successful live run kept the built
   API in an owned foreground PTY and performed an explicit clean shutdown.
+- A final Playwright rerun initially loaded another worktree's app from the
+  legacy shared `:19006`, then exposed Expo's cached `:44096` manifest after
+  moving only the server. Parameterized, validated web/fake ports plus
+  `expo export --clear` made the test and compiled app use the same isolated
+  endpoints.
 - The fork worktree had broken workspace dependency links. A local ignored
   dependency symlink to the canonical cache restored the pinned packages; the
   build's incidental one-line `bun.lock` rewrite was reverted before the diff

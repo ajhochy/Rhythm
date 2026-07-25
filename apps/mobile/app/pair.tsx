@@ -107,7 +107,10 @@ export default function PairScreen() {
           accessibilityLabel="Close pairing"
           onPress={() => router.back()}
         />
-        <Appbar.Content title="Pair a Mac" />
+        <Appbar.Content
+          title="Pair a Mac"
+          titleMaxFontSizeMultiplier={1.4}
+        />
       </Appbar.Header>
       <ScrollView
         contentContainerStyle={styles.content}
@@ -127,7 +130,9 @@ export default function PairScreen() {
               Sign in to the same Rhythm account on this iPhone and Mac before
               pairing.
             </Text>
-            <Button onPress={() => router.replace('/(tabs)/settings')}>
+            <Button
+              maxFontSizeMultiplier={1.8}
+              onPress={() => router.replace('/(tabs)/settings')}>
               Open Settings
             </Button>
           </View>
@@ -158,6 +163,7 @@ export default function PairScreen() {
             </Text>
             <Button
               mode="contained"
+              maxFontSizeMultiplier={1.8}
               accessibilityLabel="Allow camera for QR pairing"
               onPress={() => void requestPermission()}>
               Allow camera
@@ -167,6 +173,7 @@ export default function PairScreen() {
         {e2eMode ? (
           <Button
             mode="contained"
+            maxFontSizeMultiplier={1.8}
             testID="pair-simulate-qr"
             accessibilityLabel="Scan test QR code"
             disabled={!signedIn || pairedHost.state === 'pairing'}
@@ -188,6 +195,7 @@ export default function PairScreen() {
             />
             <Button
               mode="contained"
+              maxFontSizeMultiplier={1.8}
               disabled={!manualPayload.trim() || !signedIn}
               onPress={() => void pair(manualPayload)}>
               Pair securely

@@ -42,6 +42,7 @@ export function createState(scenario) {
     mobileDevices: new Map(),
     mobileEvents: [],
     mobileOldRevokeFailure: false,
+    mobileStorageFailure: false,
     ptys: [],
     worktrees: [],
     mcpStatuses: { filesystem: { status: 'connected' } },

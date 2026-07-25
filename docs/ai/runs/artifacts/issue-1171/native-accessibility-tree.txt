@@ -1,0 +1,28 @@
+Issue #1171 native accessibility snapshot
+Captured: 2026-07-25T11:10:16Z
+Simulator: Rhythm-1171-iPhone-SE (iOS 18.3)
+Content size: accessibility-extra-extra-extra-large
+
+Pair screen:
+- button: Close pairing
+- heading: Pair a Mac
+- text: Scan the code from Rhythm on your Mac
+- element: QR code scanner
+- button: Scan test QR code
+
+Connected Settings state:
+- text: Paired Mac
+- text: Connected
+- text: Connected securely to your Mac over Tailscale.
+- button: Pair a different Mac
+- button: Refresh paired Mac status
+- button: Revoke this iPhone from the paired Mac
+- button: Forget the paired Mac on this iPhone
+
+Observed result:
+- The pairing control remained reachable and activatable through the native
+  accessibility tree.
+- The Pair header and compact controls remained legible at the largest text
+  category.
+- The Paired Mac content and all actions remained available by scrolling,
+  without overlapping or clipped labels.

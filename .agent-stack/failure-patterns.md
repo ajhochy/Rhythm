@@ -313,3 +313,19 @@
 - **Root cause**: The first replacement probe deliberately preserved the existing local credential when a freshly reset fake gateway no longer contained that old device; resetting local and server fixture state together produced the expected old-device revoke, new-device activation, and final revoke.
 - **Suggested fix**: Reset simulator-local pairing and fake-gateway device state atomically before every native replacement smoke.
 - See `.agent-stack/postmortems/2026-07-25-issue-1171-corrective.json`.
+
+## 2026-07-25 — Issue #1171 final corrective — browser font proof missed native Dynamic Type overlap
+
+- **Result**: native smoke FAIL→fixed in-run; final verification PASS
+  (divergence=true).
+- **Category**: C2 — wrong contract boundary.
+- **Criteria affected**: issue-1171-c6.
+- **Root cause**: the browser regression proved that computed DOM font size
+  changed, but it could not exercise React Native Paper's fixed-height compact
+  header/status layout. The first iOS screenshot at maximum accessibility text
+  size showed overlapping Settings and Paired Mac labels.
+- **Suggested fix**: treat computed browser typography as supplemental. Retain
+  a native maximum-Dynamic-Type screenshot and accessibility-tree traversal for
+  compact headers, status labels, and every scroll-reachable action.
+- See
+  `.agent-stack/postmortems/2026-07-25-issue-1171-final-corrective.json`.

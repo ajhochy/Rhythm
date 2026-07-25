@@ -1,8 +1,11 @@
 import { expect, test } from '@playwright/test';
 
+const fakeBaseUrl =
+  `http://127.0.0.1:${process.env.PLAYWRIGHT_FAKE_PORT ?? '44096'}`;
+
 async function resetMobile(request) {
   const response = await request.post(
-    'http://127.0.0.1:44096/__control/reset',
+    `${fakeBaseUrl}/__control/reset`,
     { data: { scenario: 'happy-path' } },
   );
   expect(response.ok()).toBeTruthy();
@@ -40,7 +43,7 @@ test('scanner pairing and Settings revocation work without exposing credentials'
   await page.getByRole('button', { name: 'Revoke this iPhone from the paired Mac' }).click();
   await expect(page.getByLabel('Paired Mac status: Not paired').last()).toBeVisible();
 
-  const audit = await request.get('http://127.0.0.1:44096/__control/mobile');
+  const audit = await request.get(`${fakeBaseUrl}/__control/mobile`);
   const body = await audit.json();
   expect(body.devices).toEqual([
     expect.objectContaining({ gatewayHost: 'rhythm-mac.tail1234.ts.net', revoked: true }),
@@ -60,7 +63,7 @@ test('confirmed replacement revokes the old Mac before committing the new one', 
   await scanTestQr(page);
   await expect(page.getByText('other-mac.tail1234.ts.net').last()).toBeVisible();
 
-  const audit = await request.get('http://127.0.0.1:44096/__control/mobile');
+  const audit = await request.get(`${fakeBaseUrl}/__control/mobile`);
   const body = await audit.json();
   const oldDelete = body.events.findIndex(
     (event) =>
@@ -83,7 +86,7 @@ test('failed old-Mac revocation rolls back the new credential and remains usable
   await openPairingFromSettings(page);
   await scanTestQr(page);
   await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
-  await request.post('http://127.0.0.1:44096/__control/mobile-revoke-failure', {
+  await request.post(`${fakeBaseUrl}/__control/mobile-revoke-failure`, {
     data: { enabled: true },
   });
 
@@ -97,7 +100,7 @@ test('failed old-Mac revocation rolls back the new credential and remains usable
   await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
   await expect(page.getByText('rhythm-mac.tail1234.ts.net').last()).toBeVisible();
 
-  const audit = await request.get('http://127.0.0.1:44096/__control/mobile');
+  const audit = await request.get(`${fakeBaseUrl}/__control/mobile`);
   const body = await audit.json();
   expect(body.devices).toEqual(
     expect.arrayContaining([
@@ -107,15 +110,73 @@ test('failed old-Mac revocation rolls back the new credential and remains usable
   );
 });
 
+test('revoke failure remains visible and retryable without an unhandled rejection', async ({
+  page,
+  request,
+}) => {
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  await openPairingFromSettings(page);
+  await scanTestQr(page);
+  await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
+  await request.post(`${fakeBaseUrl}/__control/mobile-revoke-failure`, {
+    data: { enabled: true },
+  });
+
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page.getByRole('button', { name: 'Revoke this iPhone from the paired Mac' }).click();
+  await expect(
+    page.getByLabel('Paired Mac status: Tailscale unavailable').last(),
+  ).toBeVisible();
+  await expect(page.getByText(/not revoked.*still active/i).last()).toBeVisible();
+  expect(pageErrors).toEqual([]);
+
+  const audit = await request.get(`${fakeBaseUrl}/__control/mobile`);
+  const body = await audit.json();
+  expect(body.devices).toEqual([
+    expect.objectContaining({ gatewayHost: 'rhythm-mac.tail1234.ts.net', revoked: false }),
+  ]);
+});
+
+test('forget failure remains visible and retryable without an unhandled rejection', async ({
+  page,
+  request,
+}) => {
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  await openPairingFromSettings(page);
+  await scanTestQr(page);
+  await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();
+  await request.post(`${fakeBaseUrl}/__control/mobile-storage-failure`, {
+    data: { enabled: true },
+  });
+
+  await page.getByRole('button', { name: 'Forget the paired Mac on this iPhone' }).click();
+  await expect(page.getByLabel('Paired Mac status: Mac unhealthy').last()).toBeVisible();
+  await expect(page.getByText(/credential remains.*retry/i).last()).toBeVisible();
+  expect(pageErrors).toEqual([]);
+});
+
 test('pairing remains reachable at a small phone viewport with enlarged text', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 320, height: 480 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await openPairingFromSettings(page);
-  await page.evaluate(() => {
-    document.documentElement.style.fontSize = '24px';
+  const heading = page.getByText('Scan the code from Rhythm on your Mac', {
+    exact: true,
   });
+  const beforeFontSize = Number.parseFloat(
+    await heading.evaluate((element) => getComputedStyle(element).fontSize),
+  );
+  await heading.evaluate((element) => {
+    element.style.setProperty('font-size', '36px', 'important');
+    element.style.setProperty('line-height', '48px', 'important');
+  });
+  const afterFontSize = Number.parseFloat(
+    await heading.evaluate((element) => getComputedStyle(element).fontSize),
+  );
+  expect(afterFontSize).toBeGreaterThan(beforeFontSize);
   await expect(page.getByRole('button', { name: 'Scan test QR code' })).toBeVisible();
   await scanTestQr(page);
   await expect(page.getByLabel('Paired Mac status: Connected').last()).toBeVisible();

@@ -212,6 +212,17 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (pathname === '/__control/mobile-storage-failure') {
+      if (req.method === 'POST') {
+        const body = await readJson(req);
+        state.mobileStorageFailure = body?.enabled === true;
+      }
+      if (req.method === 'GET' || req.method === 'POST') {
+        sendJson(res, 200, { enabled: state.mobileStorageFailure });
+        return;
+      }
+    }
+
     const mobileMatch = pathname.match(
       /^\/__mobile\/([^/]+)(\/mobile-gateway(?:\/.*)?)$/,
     );

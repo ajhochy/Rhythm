@@ -1,0 +1,39 @@
+{
+  "issue": 1171,
+  "capturedAt": "2026-07-25T11:10:16Z",
+  "simulator": {
+    "name": "Rhythm-1171-iPhone-SE",
+    "udid": "27E23B6E-2DEF-4563-90B4-820A1820AA6B",
+    "runtime": "iOS 18.3",
+    "foreignSimulatorTouched": false
+  },
+  "dynamicType": {
+    "contentSizeCategory": "accessibility-extra-extra-extra-large",
+    "pairButtonReachable": true,
+    "layoutClipped": false
+  },
+  "accessibilityLabels": [
+    "Pair a Mac",
+    "Close pairing",
+    "Scan the code from Rhythm on your Mac",
+    "QR code scanner",
+    "Scan test QR code",
+    "Paired Mac",
+    "Connected",
+    "Pair a different Mac",
+    "Refresh paired Mac status",
+    "Revoke this iPhone from the paired Mac",
+    "Forget the paired Mac on this iPhone"
+  ],
+  "observedFlow": [
+    "Opened Settings in the native development build at the maximum accessibility text size.",
+    "Scrolled the Paired Mac card from its heading through every action without clipped labels.",
+    "Opened Pair a Mac and activated the accessibility-labelled test QR control.",
+    "Confirmed replacement and observed the Paired Mac state return to Connected.",
+    "Verified the native accessibility tree exposes refresh, revoke, forget, and pair-again actions."
+  ],
+  "screenshots": [
+    "docs/ai/runs/artifacts/issue-1171/native-large-text-pair-top.png",
+    "docs/ai/runs/artifacts/issue-1171/native-large-text-connected.png"
+  ]
+}

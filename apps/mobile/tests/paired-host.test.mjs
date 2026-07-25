@@ -17,17 +17,40 @@ const __asyncStore = new Map();
 let __network = { isConnected: true, isInternetReachable: true };
 let __cloudHandler = async () => { throw new Error('cloud handler missing'); };
 let __macHandler = async () => { throw new Error('Mac handler missing'); };
+let __asyncSetFailure = false;
+let __asyncRemoveFailure = false;
+let __secureCleanupFailure = false;
 const __cloudCalls = [];
 const __macCalls = [];
 const AsyncStorage = {
   getItem: async (key) => __asyncStore.get(key) ?? null,
-  setItem: async (key, value) => { __asyncStore.set(key, value); },
-  removeItem: async (key) => { __asyncStore.delete(key); },
+  setItem: async (key, value) => {
+    if (__asyncSetFailure) throw new Error('metadata write failed');
+    __asyncStore.set(key, value);
+  },
+  removeItem: async (key) => {
+    if (__asyncRemoveFailure) throw new Error('metadata removal failed');
+    __asyncStore.delete(key);
+  },
 };
 const getNetworkStateAsync = async () => __network;
 const getItemAsync = async (key) => __secureStore.get(key) ?? null;
-const setItemAsync = async (key, value) => { __secureStore.set(key, value); };
-const deleteItemAsync = async (key) => { __secureStore.delete(key); };
+const setItemAsync = async (key, value) => {
+  if (
+    __secureCleanupFailure &&
+    key === 'rhythm.paired.device' &&
+    value === ''
+  ) {
+    throw new Error('secure write failed');
+  }
+  __secureStore.set(key, value);
+};
+const deleteItemAsync = async (key) => {
+  if (__secureCleanupFailure && key === 'rhythm.paired.device') {
+    throw new Error('secure delete failed');
+  }
+  __secureStore.delete(key);
+};
 const RHYTHM_SESSION_SECURE_KEY = 'rhythm.cloud.session';
 class ApiError extends Error {
   constructor({ source = 'paired-mac', status = 0, code = 'UNKNOWN', message = 'request failed', retryable = false }) {
@@ -60,9 +83,15 @@ export function __reset() {
   __network = { isConnected: true, isInternetReachable: true };
   __cloudCalls.length = 0;
   __macCalls.length = 0;
+  __asyncSetFailure = false;
+  __asyncRemoveFailure = false;
+  __secureCleanupFailure = false;
   __cloudHandler = async () => { throw new Error('cloud handler missing'); };
   __macHandler = async () => { throw new Error('Mac handler missing'); };
 }
+export function __failAsyncSet(value = true) { __asyncSetFailure = value; }
+export function __failAsyncRemove(value = true) { __asyncRemoveFailure = value; }
+export function __failSecureCleanup(value = true) { __secureCleanupFailure = value; }
 export function __setCloudHandler(handler) { __cloudHandler = handler; }
 export function __setMacHandler(handler) { __macHandler = handler; }
 export function __setNetwork(value) { __network = value; }
@@ -92,6 +121,9 @@ const {
   parsePairingPayload,
   __async,
   __cloudRequests,
+  __failAsyncRemove,
+  __failAsyncSet,
+  __failSecureCleanup,
   __macRequests,
   __reset,
   __secure,
@@ -418,6 +450,161 @@ async function pairedStore() {
   ));
 }
 
+// issue-1171 transactional storage: after the old Mac is revoked, a local
+// metadata failure revokes the newly minted device and exposes the old host as
+// revoked rather than falsely claiming that it remains usable.
+{
+  __reset();
+  const store = await pairedStore();
+  const oldMetadata = __async().get(PAIRED_HOST_META_KEY);
+  const otherPayload = JSON.stringify({
+    gatewayUrl: 'https://other-mac.tail1234.ts.net',
+    pairingCode: 'b'.repeat(43),
+  });
+  __setCloudHandler(async (path, _init, _token, baseUrl) => {
+    if (path === '/mobile-gateway/health') return { ...healthResponse, hostId: 'host-2' };
+    if (path === '/mobile-gateway/pair') {
+      return {
+        ...pairResponse,
+        deviceId: 'device-2',
+        hostId: 'host-2',
+        deviceToken: 'new-device-token',
+      };
+    }
+    assert.ok([
+      '/mobile-gateway/devices/device-1',
+      '/mobile-gateway/devices/device-2',
+    ].includes(path));
+    return undefined;
+  });
+  __failAsyncSet();
+  await assert.rejects(
+    () => store.pair(otherPayload, {
+      userId: 7,
+      deviceName: 'AJ iPhone',
+      replaceExisting: true,
+    }),
+    (error) => error instanceof PairedHostError && error.kind === 'storage',
+  );
+  const rollbackRequests = __cloudRequests().slice(-2);
+  assert.deepEqual(
+    rollbackRequests.map((request) => request.path),
+    [
+      '/mobile-gateway/devices/device-1',
+      '/mobile-gateway/devices/device-2',
+    ],
+  );
+  assert.equal(store.snapshot().state, 'revoked');
+  assert.equal(store.snapshot().host.hostId, 'host-1');
+  assert.match(store.snapshot().message, /previous Mac was revoked.*rolled back/i);
+  assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
+  assert.equal(__async().get(PAIRED_HOST_META_KEY), oldMetadata);
+}
+
+// issue-1171 transactional storage: if the new-device rollback itself fails,
+// the store retains the new device identity in memory, clears local credentials,
+// and exposes an actionable unhealthy state for owner revocation.
+{
+  __reset();
+  const store = await pairedStore();
+  const otherPayload = JSON.stringify({
+    gatewayUrl: 'https://other-mac.tail1234.ts.net',
+    pairingCode: 'b'.repeat(43),
+  });
+  __setCloudHandler(async (path) => {
+    if (path === '/mobile-gateway/health') return { ...healthResponse, hostId: 'host-2' };
+    if (path === '/mobile-gateway/pair') {
+      return {
+        ...pairResponse,
+        deviceId: 'device-2',
+        hostId: 'host-2',
+        deviceToken: 'new-device-token',
+      };
+    }
+    if (path === '/mobile-gateway/devices/device-2') {
+      throw new Error('new Mac cleanup failed');
+    }
+    return undefined;
+  });
+  __failAsyncSet();
+  await assert.rejects(
+    () => store.pair(otherPayload, {
+      userId: 7,
+      deviceName: 'AJ iPhone',
+      replaceExisting: true,
+    }),
+    (error) =>
+      error instanceof PairedHostError &&
+      error.kind === 'storageRollbackFailed',
+  );
+  assert.equal(store.snapshot().state, 'unhealthy');
+  assert.equal(store.snapshot().host.hostId, 'host-2');
+  assert.equal(store.snapshot().host.deviceId, 'device-2');
+  assert.match(store.snapshot().message, /new Mac.*revoke this iPhone/i);
+  assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
+}
+
+// issue-1171 transactional storage: an initial pairing whose metadata write
+// and Keychain rollback both fail must retain an actionable host snapshot
+// rather than hiding the credential behind an unpaired state.
+{
+  __reset();
+  primeCloudSession();
+  __setCloudHandler(async (path) => {
+    if (path === '/mobile-gateway/health') return healthResponse;
+    if (path === '/mobile-gateway/pair') return pairResponse;
+    assert.equal(path, '/mobile-gateway/devices/device-1');
+    return undefined;
+  });
+  __failAsyncSet();
+  __failSecureCleanup();
+  const store = new PairedHostStore();
+  store.setAccountUserId(7);
+  await assert.rejects(
+    () => store.pair(PAYLOAD, { userId: 7, deviceName: 'AJ iPhone' }),
+    (error) =>
+      error instanceof PairedHostError &&
+      error.kind === 'storageRollbackFailed',
+  );
+  assert.equal(store.snapshot().state, 'unhealthy');
+  assert.equal(store.snapshot().host.deviceId, 'device-1');
+  assert.match(store.snapshot().message, /credential remains in Keychain.*Forget/i);
+  assert.equal(__secure().get(PAIRED_DEVICE_SECURE_KEY), TOKEN);
+  assert.equal(__async().has(PAIRED_HOST_META_KEY), false);
+}
+
+// issue-1171 actions: revoke and forget failures become actionable snapshots
+// instead of leaving the UI connected or producing an unhandled rejection.
+{
+  __reset();
+  const revokeStore = await pairedStore();
+  __setCloudHandler(async () => {
+    throw new ApiError({ code: 'NETWORK_ERROR', status: 0, retryable: true });
+  });
+  await assert.rejects(() => revokeStore.revoke(), PairedHostError);
+  assert.equal(revokeStore.snapshot().state, 'tailscaleUnavailable');
+  assert.match(revokeStore.snapshot().message, /not revoked.*still active/i);
+
+  __reset();
+  const forgetStore = await pairedStore();
+  __failSecureCleanup();
+  await assert.rejects(() => forgetStore.forget(), PairedHostError);
+  assert.equal(forgetStore.snapshot().state, 'unhealthy');
+  assert.match(forgetStore.snapshot().message, /credential remains.*retry/i);
+
+  __reset();
+  const metadataForgetStore = await pairedStore();
+  __failAsyncRemove();
+  await assert.rejects(() => metadataForgetStore.forget(), PairedHostError);
+  assert.equal(metadataForgetStore.snapshot().state, 'unhealthy');
+  assert.match(
+    metadataForgetStore.snapshot().message,
+    /credential was removed.*details.*retry/i,
+  );
+  assert.equal(__secure().has(PAIRED_DEVICE_SECURE_KEY), false);
+  assert.equal(__async().has(PAIRED_HOST_META_KEY), true);
+}
+
 // issue-1171-c3/c6: explicit revoke calls the Mac with the cloud token, then
 // clears both Keychain and secret-free metadata.
 {
@@ -430,4 +617,4 @@ async function pairedStore() {
   assert.equal(__cloudRequests()[2].path, '/mobile-gateway/devices/device-1');
 }
 
-console.log('Paired-host security and state-machine tests passed (15 scenarios)');
+console.log('Paired-host security and state-machine tests passed (20 scenarios)');

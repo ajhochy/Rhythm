@@ -88,6 +88,7 @@ export class PairedHostError extends Error {
       | 'invalidPayload'
       | 'replacementRequired'
       | 'replacementFailed'
+      | 'storageRollbackFailed'
       | 'notSignedIn'
       | 'storage'
       | 'incompatible'
@@ -597,6 +598,7 @@ export class PairedHostStore {
         features: [...response.features],
         pairedAt: new Date().toISOString(),
       };
+      let existingRevoked = false;
       if (
         existing &&
         existing.gatewayUrl !== payload.gatewayUrl &&
@@ -611,6 +613,7 @@ export class PairedHostStore {
             `/mobile-gateway/devices/${encodeURIComponent(existing.deviceId)}`,
             { method: 'DELETE' },
           );
+          existingRevoked = true;
         } catch {
           await client
             .request(
@@ -630,13 +633,54 @@ export class PairedHostStore {
         tokenWritten = true;
         await AsyncStorage.setItem(PAIRED_HOST_META_KEY, JSON.stringify(host));
       } catch {
-        if (tokenWritten) {
-          await this.neutralizeDeviceToken().catch(() => undefined);
+        let newDeviceRevoked = false;
+        try {
+          await client.request(
+            `/mobile-gateway/devices/${encodeURIComponent(response.deviceId)}`,
+            { method: 'DELETE' },
+          );
+          newDeviceRevoked = true;
+        } catch {
+          newDeviceRevoked = false;
+        }
+        let credentialCleared = true;
+        if (tokenWritten || existingRevoked) {
+          try {
+            await this.neutralizeDeviceToken();
+          } catch {
+            credentialCleared = false;
+          }
+        }
+        if (existingRevoked) {
+          if (newDeviceRevoked && credentialCleared) {
+            const message =
+              'The previous Mac was revoked, but the new pairing could not be saved and was rolled back. Generate a new code and pair again.';
+            this.apply('revoked', message, existing);
+            throw new PairedHostError('storage', message);
+          }
+          const message = credentialCleared
+            ? 'The new Mac still lists this iPhone because pairing cleanup failed. Revoke this iPhone from the new Mac, then pair again.'
+            : 'The new Mac still lists this iPhone and its credential may remain in Keychain. Unlock this iPhone, revoke it from the new Mac, and retry.';
+          this.apply('unhealthy', message, host);
+          throw new PairedHostError('storageRollbackFailed', message);
         }
         await AsyncStorage.removeItem(PAIRED_HOST_META_KEY).catch(() => undefined);
+        const rollbackComplete = newDeviceRevoked && credentialCleared;
+        const message = rollbackComplete
+          ? 'Secure pairing storage is unavailable. The new Mac pairing was rolled back; unlock this iPhone and try again.'
+          : newDeviceRevoked
+            ? 'Secure pairing storage failed. The new pairing was revoked, but its credential remains in Keychain. Unlock this iPhone and retry Forget.'
+            : credentialCleared
+              ? 'Secure pairing storage failed and the new Mac still lists this iPhone. Revoke it from the Mac before trying again.'
+              : 'Secure pairing storage failed, the new Mac still lists this iPhone, and its credential remains in Keychain. Unlock this iPhone, revoke it from the Mac, and retry Forget.';
+        this.apply(
+          rollbackComplete ? 'unpaired' : 'unhealthy',
+          message,
+          rollbackComplete ? null : host,
+        );
         throw new PairedHostError(
-          'storage',
-          'Secure pairing storage is unavailable. Unlock this iPhone and try again.',
+          rollbackComplete ? 'storage' : 'storageRollbackFailed',
+          message,
         );
       }
       return this.apply(
@@ -648,6 +692,11 @@ export class PairedHostStore {
       if (error instanceof PairedHostError) {
         if (error.kind === 'incompatible') {
           this.apply('incompatible', error.message, this.host);
+        } else if (
+          (error.kind === 'storage' && this.state === 'revoked') ||
+          error.kind === 'storageRollbackFailed'
+        ) {
+          // Storage rollback already selected a truthful, actionable state.
         } else {
           this.apply(this.host ? 'offline' : 'unpaired', error.message, this.host);
         }
@@ -672,32 +721,60 @@ export class PairedHostStore {
     if (!host) return this.forget();
     const cloudToken = await this.getCredential(RHYTHM_SESSION_SECURE_KEY);
     if (!cloudToken) {
+      const message =
+        'Sign in to Rhythm to revoke this iPhone. Access remains active on the paired Mac.';
+      this.apply('unhealthy', message, host);
       throw new PairedHostError(
         'notSignedIn',
-        'Sign in to Rhythm to revoke this iPhone from the Mac.',
+        message,
       );
     }
     const client = new RhythmCloudClient({
       baseUrl: this.resolvedGatewayUrl(host.gatewayUrl),
       getToken: async () => cloudToken,
     });
-    await client.request(
-      `/mobile-gateway/devices/${encodeURIComponent(host.deviceId)}`,
-      { method: 'DELETE' },
-    );
+    try {
+      await client.request(
+        `/mobile-gateway/devices/${encodeURIComponent(host.deviceId)}`,
+        { method: 'DELETE' },
+      );
+    } catch (error) {
+      const tailnetUnavailable =
+        error instanceof ApiError &&
+        (
+          error.code === 'NETWORK_ERROR' ||
+          error.retryable ||
+          error.status >= 500
+        );
+      const message = tailnetUnavailable
+        ? 'This iPhone was not revoked and access is still active. Bring the paired Mac online in Tailscale and retry.'
+        : 'This iPhone was not revoked and access is still active. Retry, or revoke it from Rhythm on the Mac.';
+      this.apply(
+        tailnetUnavailable ? 'tailscaleUnavailable' : 'unhealthy',
+        message,
+        host,
+      );
+      throw new PairedHostError('request', message);
+    }
     if (operation !== this.operation) return this.snapshot();
     return this.forget();
   }
 
   async forget(): Promise<PairedHostSnapshot> {
     ++this.operation;
+    let credentialCleared = false;
     try {
       await this.neutralizeDeviceToken();
+      credentialCleared = true;
       await AsyncStorage.removeItem(PAIRED_HOST_META_KEY);
     } catch {
+      const message = credentialCleared
+        ? 'The Mac credential was removed, but paired-Mac details could not be cleared. Retry Forget.'
+        : 'The paired Mac credential remains in Keychain. Unlock this iPhone and retry Forget.';
+      this.apply('unhealthy', message, this.host);
       throw new PairedHostError(
         'storage',
-        'Could not remove the Mac credential from Keychain. Unlock this iPhone and retry.',
+        message,
       );
     }
     return this.apply(
