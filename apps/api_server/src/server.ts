@@ -65,6 +65,13 @@ async function main() {
 
   await initDb();
   logger.info('Database initialized');
+  try {
+    const { recoverStaleResearchJobs } = await import('./controllers/agentResearchController');
+    const recovered = await recoverStaleResearchJobs();
+    if (recovered) logger.warn(`[server] marked ${recovered} interrupted research job(s) retryable`);
+  } catch (err) {
+    logger.warn(`[server] research-job recovery failed (non-fatal): ${String(err)}`);
+  }
 
   const recurrenceJob = startRecurrenceGenerationJob();
   const syncJob = startSyncOrchestratorJob();
@@ -109,6 +116,15 @@ async function main() {
   let anthropicAccountsServiceRef: { stopRefreshLoop: () => void } | null = null;
 
   if (env.agentExecutionEnabled) {
+    // Seed and project Researcher before any scheduler or page-launched run can
+    // request the `research` engine agent.
+    try {
+      const { seedResearchProfile } = await import('./services/research_profile_seed');
+      seedResearchProfile();
+    } catch (err) {
+      logger.warn(`[server] research profile seed failed (non-fatal): ${String(err)}`);
+    }
+
     // Issue #805: rebuild the DERIVED memory index from the vault ONCE on
     // startup so a fresh boot has a correct, search-ready index without waiting
     // for the first cron tick. The vault (not this SQLite store) is the source
@@ -336,6 +352,16 @@ async function main() {
       logger.warn(`[server] org-optimizer seed failed (non-fatal): ${String(err)}`);
     }
 
+    // Gallery is a first-run surface: seed its backing profile instead of
+    // depending on a hand-authored file from one developer machine.
+    try {
+      const { seedCreativeMediaProfile } = await import('./services/creative_media_seed');
+      const r = seedCreativeMediaProfile();
+      logger.info(`[server] creative-media seed: created=${r.created}`);
+    } catch (err) {
+      logger.warn(`[server] creative-media seed failed (non-fatal): ${String(err)}`);
+    }
+
     // #794 + #795 — Crash recovery for the auto-apply self-improvement loop. A
     // revision applied before a crash leaves its sidecar row at
     // `status='measuring'`; if the process died before the measure step ran,
@@ -463,6 +489,16 @@ async function main() {
     opencodeClient
       .initialize()
       .then(async () => {
+      // The initial seed can run before the engine exists, when its reload is a
+      // no-op. Re-project now that reloadConfig can register `research` before
+      // the first page-launched AgentRunner job.
+      try {
+        const { seedResearchProfile } = await import('./services/research_profile_seed');
+        seedResearchProfile();
+      } catch (e) {
+        logger.warn(`[server] research profile engine projection failed (non-fatal): ${String(e)}`);
+      }
+
       // #746 — Notify the skill curator that the engine is ready so it can
       // begin deferring extraction work until the cold-start window passes.
       // Non-fatal: if notifyEngineReady throws for any reason, swallow and log.

@@ -9,8 +9,8 @@ api_server startup right after the config-doctor agent-file ensure block in
 ```
 config_seeds/
 ├── skills/
-│   └── customize-rhythm/
-│       └── SKILL.md      → copied to  <managedSkillsRoot()>/customize-rhythm/SKILL.md
+│   ├── customize-rhythm/
+│   └── <bundled skills>/  → copied to <managedSkillsRoot()>/<name>/
 │                            (managedSkillsRoot() == ~/.config/opencode/skills)
 └── tools/
     ├── classify.cjs      ┐
@@ -53,3 +53,8 @@ Edit the live validated copies under `~/.config/opencode/` first, confirm they
 work, then port them here (keeping them free of any hardcoded `/Users/...` path —
 the seeder does NO `$HOME` substitution; committed content ships byte-for-byte).
 Bump the seeder's `schema_meta` marker so existing installs pick up the change.
+
+The v2 bundle includes the creative-media skill set so Gallery works on an
+offline first run: document-creation, humanizer, claude-design,
+baoyu-infographic, popular-web-designs, excalidraw, design-md,
+social-video-pipeline, and hallmark.

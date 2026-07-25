@@ -4,6 +4,19 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentConfig } from '../../repositories/agent_configs_repository';
 
+function parsePermissionYaml(text: string): Record<string, string> {
+  const block = text.match(/^permission:\n((?:  .*\n?)*)/m)?.[1] ?? '';
+  const permissions: Record<string, string> = {};
+
+  for (const line of block.trimEnd().split('\n')) {
+    const match = line.match(/^  (?:"([^"]+)"|([a-z_]+)): (allow|ask|deny)$/);
+    if (!match) throw new Error(`Invalid permission YAML: ${line}`);
+    permissions[match[1] ?? match[2]] = match[3];
+  }
+
+  return permissions;
+}
+
 const state = vi.hoisted(() => ({ home: '' }));
 const { mockReloadConfig } = vi.hoisted(() => ({ mockReloadConfig: vi.fn() }));
 
@@ -571,6 +584,26 @@ describe('#1138: corePermissions projection is defensive and self-healing', () =
     expect(projected).toMatch(/ {4}"git push\*": ask\n/);
   });
 
+  it('quotes wildcard scalar permission keys, parses them, and stays stable on re-projection', () => {
+    state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
+    process.env.VITEST = 'false';
+    process.env.NODE_ENV = 'development';
+
+    const config = {
+      ...agentConfig('research', 'Research'),
+      corePermissionsJson: JSON.stringify({ '*': 'allow', read: 'ask' }),
+    };
+    writeAgentProfileFile(config);
+    const first = readProjected('research');
+
+    expect(first).toContain('  "*": allow');
+    expect(first).toContain('  read: ask');
+    expect(parsePermissionYaml(first)).toEqual({ '*': 'allow', read: 'ask' });
+
+    writeAgentProfileFile(config);
+    expect(readProjected('research')).toBe(first);
+  });
+
   it('skips only the bad entries, keeping the valid ones in a mixed payload', () => {
     state.home = join('/tmp', `rhythm-agent-writer-${randomUUID()}`);
     process.env.VITEST = 'false';
@@ -649,4 +682,3 @@ describe('#1138: corePermissions projection is defensive and self-healing', () =
     expect(readProjected('workflow-orchestrator')).toContain('write: allow');
   });
 });
-

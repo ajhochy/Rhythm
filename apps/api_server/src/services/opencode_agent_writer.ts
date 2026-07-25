@@ -315,12 +315,22 @@ function setFrontmatterKey(fm: string, key: string, value: string): string {
   return fm.length > 0 ? `${fm}\n${line}` : line;
 }
 
+/** Quote permission keys that YAML would otherwise interpret as syntax. */
+function yamlPermissionKey(key: string): string {
+  return /^[A-Za-z_][A-Za-z0-9_-]*$/.test(key) ? key : JSON.stringify(key);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /** Ensure a direct child entry exists inside the top-level permission block. */
 function setPermissionKey(fm: string, key: string, value: string): string {
+  const yamlKey = yamlPermissionKey(key);
   const lines = fm.split('\n');
   const permissionIndex = lines.findIndex((line) => /^permission:\s*$/.test(line));
   if (permissionIndex === -1) {
-    return `${fm}${fm.length > 0 ? '\n' : ''}permission:\n  ${key}: ${value}`;
+    return `${fm}${fm.length > 0 ? '\n' : ''}permission:\n  ${yamlKey}: ${value}`;
   }
 
   let blockEnd = lines.length;
@@ -331,14 +341,14 @@ function setPermissionKey(fm: string, key: string, value: string): string {
     }
   }
 
-  const keyPattern = new RegExp(`^  ${key}:`);
+  const keyPattern = new RegExp(`^  (?:${escapeRegExp(key)}|${escapeRegExp(JSON.stringify(key))}):`);
   const existingIndex = lines
     .slice(permissionIndex + 1, blockEnd)
     .findIndex((line) => keyPattern.test(line));
   if (existingIndex >= 0) {
-    lines[permissionIndex + 1 + existingIndex] = `  ${key}: ${value}`;
+    lines[permissionIndex + 1 + existingIndex] = `  ${yamlKey}: ${value}`;
   } else {
-    lines.splice(blockEnd, 0, `  ${key}: ${value}`);
+    lines.splice(blockEnd, 0, `  ${yamlKey}: ${value}`);
   }
   return lines.join('\n');
 }
@@ -411,7 +421,7 @@ function pruneStalePermissionKeys(fm: string, keep: Set<string>): string {
   while (i < blockEnd) {
     const m = lines[i].match(/^  (\S[^:]*):/);
     if (m) {
-      const key = m[1];
+      const key = m[1].startsWith('"') ? JSON.parse(m[1]) : m[1];
       // Collect this sub-key line plus its deeper-indented pattern lines.
       let j = i + 1;
       while (j < blockEnd && /^ {4}/.test(lines[j])) j += 1;

@@ -583,12 +583,26 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       sources_json TEXT NOT NULL DEFAULT '[]',
       report TEXT,
       error TEXT,
+      agent_session_id TEXT,
+      research_type TEXT NOT NULL DEFAULT 'generic',
+      title TEXT,
+      agent_profile_id TEXT,
+      origin TEXT NOT NULL DEFAULT 'page',
+      vault_path TEXT,
       requested_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS agent_session_id TEXT`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS research_type TEXT NOT NULL DEFAULT 'generic'`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS title TEXT`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS agent_profile_id TEXT`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'page'`);
+  await pool.query(`ALTER TABLE agent_research_jobs ADD COLUMN IF NOT EXISTS vault_path TEXT`);
+  await pool.query(`UPDATE agent_research_jobs SET research_type = 'generic', title = query, agent_profile_id = 'research', origin = 'page' WHERE research_type IS NULL OR title IS NULL OR agent_profile_id IS NULL OR origin IS NULL`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_status ON agent_research_jobs(status)`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_research_jobs_agent_session_id ON agent_research_jobs(agent_session_id) WHERE agent_session_id IS NOT NULL`);
 
   // B1 — agent_cookbook: reusable recipe/skill library for the agent scheduler.
   await pool.query(`
@@ -606,17 +620,29 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_agent_cookbook_created_at ON agent_cookbook(created_at)`,
   );
 
-  // D1 — agent_designs: records of Canva designs produced by Gallery agent sessions.
+  // D1 — agent_designs: provider-neutral finished creative-media artifacts.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_designs (
       id TEXT PRIMARY KEY,
       title TEXT,
+      provider TEXT,
+      artifact_url TEXT,
+      project_url TEXT,
       canva_url TEXT,
+      artifact_type TEXT,
+      file_path TEXT,
       thumbnail_url TEXT,
       session_id TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pool.query(`ALTER TABLE agent_designs ADD COLUMN IF NOT EXISTS artifact_type TEXT`);
+  await pool.query(`ALTER TABLE agent_designs ADD COLUMN IF NOT EXISTS file_path TEXT`);
+  await pool.query(`ALTER TABLE agent_designs ADD COLUMN IF NOT EXISTS provider TEXT`);
+  await pool.query(`ALTER TABLE agent_designs ADD COLUMN IF NOT EXISTS artifact_url TEXT`);
+  await pool.query(`ALTER TABLE agent_designs ADD COLUMN IF NOT EXISTS project_url TEXT`);
+  await pool.query(`UPDATE agent_designs SET project_url = canva_url, provider = COALESCE(provider, 'canva') WHERE canva_url IS NOT NULL AND project_url IS NULL`);
+  await pool.query(`UPDATE agent_designs SET provider = 'local' WHERE file_path IS NOT NULL AND provider IS NULL`);
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_agent_designs_created_at ON agent_designs(created_at)`,
   );

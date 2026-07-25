@@ -1,8 +1,9 @@
 import {
   existsSync as nodeExistsSync,
   readFileSync as nodeReadFileSync,
-} from 'node:fs';
-import { join } from 'node:path';
+} from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 /**
  * MCP-2 — Curated MCP server registry.
@@ -77,7 +78,7 @@ import { join } from 'node:path';
  * persisted into opencode.json (only `id/name/type/command|url/environment`
  * are). See `CuratedMcpServer.tokenProvider` / `.tokenEnvKey`.
  */
-export type CuratedTokenProvider = 'google' | 'pco';
+export type CuratedTokenProvider = "google" | "pco";
 
 /**
  * A curated MCP server definition.
@@ -95,7 +96,7 @@ export interface CuratedMcpServer {
   /** Human-readable display name. */
   name: string;
   /** Transport kind. */
-  type: 'local' | 'remote';
+  type: "local" | "remote";
   /** argv for local stdio servers (required when type === 'local'). */
   command?: string[];
   /** endpoint for remote servers (required when type === 'remote'). */
@@ -123,54 +124,54 @@ export interface CuratedMcpServer {
 
 export interface CuratedMcpLoaderDeps {
   existsSync: (path: string) => boolean;
-  readFileSync: (path: string, encoding: 'utf8') => string;
+  readFileSync: (path: string, encoding: "utf8") => string;
   warn: (message: string) => void;
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
   return (
-    typeof value === 'object' &&
+    typeof value === "object" &&
     value !== null &&
     !Array.isArray(value) &&
-    Object.values(value).every((entry) => typeof entry === 'string')
+    Object.values(value).every((entry) => typeof entry === "string")
   );
 }
 
 function isCuratedMcpServer(value: unknown): value is CuratedMcpServer {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
   }
 
   const server = value as Record<string, unknown>;
   const hasCommonFields =
-    typeof server.id === 'string' &&
+    typeof server.id === "string" &&
     server.id.length > 0 &&
-    typeof server.name === 'string' &&
+    typeof server.name === "string" &&
     server.name.length > 0 &&
     Array.isArray(server.requiredEnv) &&
-    server.requiredEnv.every((entry) => typeof entry === 'string') &&
+    server.requiredEnv.every((entry) => typeof entry === "string") &&
     (server.environment === undefined || isStringRecord(server.environment)) &&
     (server.tokenProvider === undefined ||
-      server.tokenProvider === 'google' ||
-      server.tokenProvider === 'pco') &&
+      server.tokenProvider === "google" ||
+      server.tokenProvider === "pco") &&
     (server.tokenEnvKey === undefined ||
-      typeof server.tokenEnvKey === 'string');
+      typeof server.tokenEnvKey === "string");
 
   if (!hasCommonFields) return false;
 
-  if (server.type === 'local') {
+  if (server.type === "local") {
     return (
       Array.isArray(server.command) &&
       server.command.length > 0 &&
       server.command.every(
-        (entry) => typeof entry === 'string' && entry.length > 0,
+        (entry) => typeof entry === "string" && entry.length > 0,
       )
     );
   }
 
   return (
-    server.type === 'remote' &&
-    typeof server.url === 'string' &&
+    server.type === "remote" &&
+    typeof server.url === "string" &&
     server.url.length > 0
   );
 }
@@ -193,12 +194,7 @@ export function resolveLocalCuratedMcpServersPath(
   const override = options.env.RHYTHM_LOCAL_MCP_SERVERS_PATH?.trim();
   return (
     override ||
-    join(
-      options.cwd,
-      'src',
-      'config',
-      'curated_mcp_servers.local.json',
-    )
+    join(options.cwd, "src", "config", "curated_mcp_servers.local.json")
   );
 }
 
@@ -209,9 +205,9 @@ export function loadLocalCuratedMcpServers(
   if (!deps.existsSync(path)) return [];
 
   try {
-    const parsed: unknown = JSON.parse(deps.readFileSync(path, 'utf8'));
+    const parsed: unknown = JSON.parse(deps.readFileSync(path, "utf8"));
     if (!Array.isArray(parsed) || !parsed.every(isCuratedMcpServer)) {
-      throw new Error('expected an array of valid MCP server definitions');
+      throw new Error("expected an array of valid MCP server definitions");
     }
     return parsed;
   } catch (error) {
@@ -225,60 +221,150 @@ export function loadLocalCuratedMcpServers(
 
 export const CURATED_MCP_SERVERS: CuratedMcpServer[] = [
   {
-    id: 'pdf-tools',
-    name: 'PDF Tools',
-    type: 'local',
+    id: "pdf-tools",
+    name: "PDF Tools",
+    type: "local",
     // Verified: @modelcontextprotocol/server-pdf@1.7.4. The package DEFAULTS to
     // an HTTP transport, so the MCP stdio handshake requires `--stdio` (its
     // absence was the prior "Connection closed"). `--silent` keeps npx noise off
     // the stdio channel. Zero-auth → requiredEnv: [] (never gated by the
     // needs-credentials UI).
     command: [
-      'npx',
-      '-y',
-      '--silent',
-      '@modelcontextprotocol/server-pdf',
-      '--stdio',
+      "npx",
+      "-y",
+      "--silent",
+      "@modelcontextprotocol/server-pdf",
+      "--stdio",
     ],
     requiredEnv: [],
   },
   {
-    id: 'canva',
-    name: 'Canva',
-    type: 'remote',
+    id: "canva",
+    name: "Canva",
+    type: "remote",
     // Verified official Canva hosted MCP (OAuth/DCR on first use by opencode —
     // no API key, hence requiredEnv: []).
-    url: 'https://mcp.canva.com/mcp',
+    url: "https://mcp.canva.com/mcp",
     requiredEnv: [],
   },
   {
-    id: 'notion',
-    name: 'Notion',
-    type: 'remote',
+    id: "comfyui-mcp",
+    name: "ComfyUI",
+    type: "local",
+    command: ["npx", "-y", "@peleke.s/comfyui-mcp"],
+    environment: { COMFYUI_BASE_URL: "http://127.0.0.1:8188" },
+    requiredEnv: [],
+  },
+  {
+    id: "blender-mcp",
+    name: "Blender",
+    type: "local",
+    command: [
+      join(
+        homedir(),
+        "Library",
+        "Application Support",
+        "Rhythm",
+        "creative-tools",
+        "bin",
+        "uvx",
+      ),
+      "--python",
+      "3.11",
+      "blender-mcp",
+    ],
+    environment: {
+      DISABLE_TELEMETRY: "true",
+      BLENDER_HOST: "127.0.0.1",
+      BLENDER_PORT: "9876",
+      UV_PYTHON_PREFERENCE: "only-managed",
+    },
+    requiredEnv: [],
+  },
+  {
+    id: "openmontage",
+    name: "OpenMontage",
+    type: "local",
+    command: [
+      join(
+        homedir(),
+        "Library",
+        "Application Support",
+        "Rhythm",
+        "creative-tools",
+        "openmontage",
+        ".venv",
+        "bin",
+        "python",
+      ),
+      join(
+        homedir(),
+        "Library",
+        "Application Support",
+        "Rhythm",
+        "creative-tools",
+        "openmontage-mcp",
+        "openmontage_mcp_server.py",
+      ),
+    ],
+    environment: {
+      OPENMONTAGE_ROOT: join(
+        homedir(),
+        "Library",
+        "Application Support",
+        "Rhythm",
+        "creative-tools",
+        "openmontage",
+      ),
+    },
+    requiredEnv: [],
+  },
+  {
+    id: "obsidian",
+    name: "Obsidian",
+    type: "local",
+    command: [
+      join(
+        homedir(),
+        "Library",
+        "Application Support",
+        "Rhythm",
+        "creative-tools",
+        "bin",
+        "mcp-obsidian",
+      ),
+    ],
+    environment: { OBSIDIAN_API_URL: "http://127.0.0.1:27123" },
+    requiredEnv: ["OBSIDIAN_API_KEY"],
+  },
+  {
+    id: "notion",
+    name: "Notion",
+    type: "remote",
     // Verified official Notion hosted MCP (OAuth/DCR on first use by opencode).
-    url: 'https://mcp.notion.com/mcp',
+    url: "https://mcp.notion.com/mcp",
     requiredEnv: [],
   },
   {
-    id: 'stripe',
-    name: 'Stripe',
-    type: 'local',
+    id: "stripe",
+    name: "Stripe",
+    type: "local",
     // Verified: @stripe/mcp@0.3.3. Reads its restricted secret key from
     // STRIPE_SECRET_KEY in the environment (alternatively `--api-key=`);
     // supplied via the needs-credentials secrets UI.
-    command: ['npx', '-y', '@stripe/mcp', '--tools=all'],
-    requiredEnv: ['STRIPE_SECRET_KEY'],
+    command: ["npx", "-y", "@stripe/mcp", "--tools=all"],
+    requiredEnv: ["STRIPE_SECRET_KEY"],
   },
   {
-    id: 'mailchimp',
-    name: 'Mailchimp',
-    type: 'local',
+    id: "mailchimp",
+    name: "Mailchimp",
+    type: "local",
     // Verified: @agentx-ai/mailchimp-mcp-server@1.1.1. Reads MAILCHIMP_API_KEY
     // from the environment; the key MUST include its data-center suffix
     // (e.g. `<key>-us21`), so no separate server-prefix env var is needed.
     // Supplied via the needs-credentials secrets UI.
-    command: ['npx', '-y', '@agentx-ai/mailchimp-mcp-server'],
-    requiredEnv: ['MAILCHIMP_API_KEY'],
+    command: ["npx", "-y", "@agentx-ai/mailchimp-mcp-server"],
+    requiredEnv: ["MAILCHIMP_API_KEY"],
   },
   ...loadLocalCuratedMcpServers(),
 ];

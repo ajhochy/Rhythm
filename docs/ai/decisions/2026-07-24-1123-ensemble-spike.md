@@ -117,7 +117,7 @@ Real trace (from `GET /session/{sid}/message`):
 
 ```
 assistant: team_create({name:"spike-1123"}) → "Team spike-1123 created..."
-assistant: team_tasks_add(...) → error "Missing key priority" → retried with priority → 
+assistant: team_tasks_add(...) → error "Missing key priority" → retried with priority →
            "Added 2 tasks: task_mrzl32qh_0002_s0q0n4, task_mrzl32qh_0003_y7twf2"
 assistant: team_spawn({name:"alpha", agent:"general", ...}) → "Teammate alpha spawned..."
 assistant: team_spawn({name:"beta",  agent:"general", ...}) → "Teammate beta spawned..."

@@ -36,6 +36,28 @@ touch occupied sandbox ports, and `down` only signals the PID recorded inside
 its own sandbox directory. Do not enable copied scheduled tasks unless the
 specific task is being tested.
 
+### Deep Research sandbox model override
+
+For sandbox/ops verification only, `RHYTHM_RESEARCH_MODEL=provider/modelId`
+temporarily overrides the Deep Research runner model without changing the
+seeded `research` profile assignment. Model IDs may contain slashes; for
+example `openrouter/openrouter/free` selects provider `openrouter` and model
+`openrouter/free`. Restart the sandbox so the startup-validated value is read:
+
+```bash
+tools/dev/sandbox.sh down
+RHYTHM_RESEARCH_MODEL=openrouter/openrouter/free tools/dev/sandbox.sh up
+cd apps/api_server
+RHYTHM_LIVE_E2E=1 \
+RHYTHM_LIVE_API_URL=http://127.0.0.1:4098 \
+RHYTHM_LIVE_VAULT_PATH="$TMPDIR/rhythm-dev-sandbox/vault" \
+npx vitest run src/__tests__/agent_research_live_e2e.test.ts
+```
+
+Unset `RHYTHM_RESEARCH_MODEL` and restart to restore the normal `research`
+profile model. Invalid values fail startup with the required `provider/modelId`
+format and never print the configured value.
+
 ### Live inert-regression contracts (#1014, #1007, #997)
 
 `src/__tests__/live_e2e_inert_regressions.test.ts` drives the real api_server,

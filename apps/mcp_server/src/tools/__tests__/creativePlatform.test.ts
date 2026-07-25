@@ -1,0 +1,17 @@
+import { describe, expect, it, vi } from 'vitest';
+import { registerCreativePlatformTools } from '../creativePlatform.js';
+
+describe('registerCreativePlatformTools', () => {
+  it('uses only the local creative-platform API surface', async () => {
+    const tools = new Map<string, { handler: (input: Record<string, unknown>) => Promise<{ content: Array<{ text: string }> }> }>();
+    const server = { tool: (name: string, _description: string, _shape: unknown, handler: (input: Record<string, unknown>) => Promise<{ content: Array<{ text: string }> }>) => tools.set(name, { handler }) };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => [{ id: 'openmontage' }] }); vi.stubGlobal('fetch', fetchMock);
+    registerCreativePlatformTools(server as never, 'http://localhost:4098');
+    await tools.get('rhythm_install_creative_capability')!.handler({ id: 'openmontage', sessionId: 's1' });
+    expect(fetchMock).toHaveBeenCalledWith('http://localhost:4098/creative-platform/openmontage/request-or-start', expect.objectContaining({ method: 'POST' }));
+    await tools.get('rhythm_record_design')!.handler({ title: 'Sunday slide', provider: 'comfyui', artifactUrl: 'https://example.test/slide.png', projectUrl: 'https://example.test/workflow' });
+    expect(fetchMock).toHaveBeenLastCalledWith('http://localhost:4098/agent-designs', expect.objectContaining({ method: 'POST' }));
+    expect([...tools]).toHaveLength(5);
+    vi.unstubAllGlobals();
+  });
+});

@@ -14,6 +14,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { createApp } from '../app';
 import { startTestServer } from './helpers/real_server';
 import { runMigrations } from '../database/migrations';
@@ -27,6 +28,15 @@ function makeDb() {
   runMigrations(db);
   return db;
 }
+
+it('backfills legacy Canva and local artifact rows without losing their compatibility fields', () => {
+  const db = new Database(':memory:');
+  db.exec(`CREATE TABLE agent_designs (id TEXT PRIMARY KEY, title TEXT, canva_url TEXT, artifact_type TEXT, file_path TEXT, thumbnail_url TEXT, session_id TEXT, created_at TEXT)`);
+  db.prepare(`INSERT INTO agent_designs (id, canva_url, file_path) VALUES ('canva', 'https://www.canva.com/design/legacy', NULL), ('local', NULL, '/tmp/legacy.png')`).run();
+  runMigrations(db);
+  expect(db.prepare(`SELECT provider, project_url FROM agent_designs WHERE id = 'canva'`).get()).toEqual({ provider: 'canva', project_url: 'https://www.canva.com/design/legacy' });
+  expect(db.prepare(`SELECT provider FROM agent_designs WHERE id = 'local'`).get()).toEqual({ provider: 'local' });
+});
 
 // ── graphic-designer.mcp.json role-file validation ────────────────────────
 
@@ -106,30 +116,126 @@ describe('D1 — /agent-designs CRUD (authenticated)', () => {
     expect(body).toEqual([]);
   });
 
-  it('POST /agent-designs creates a design record and returns it', async () => {
+  it('persists provider-neutral remote artifacts and legacy Canva project URLs', async () => {
     const res = await fetch(`${baseUrl}/agent-designs`, {
       method: 'POST',
       headers: { ...authHeader, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        title: 'Church Banner',
+        title: ' Church Banner ',
+        provider: 'canva',
+        artifactUrl: 'https://cdn.example.test/banner.png',
         canvaUrl: 'https://canva.com/design/abc',
-        thumbnailUrl: 'https://canva.com/thumb/abc.png',
       }),
     });
     expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
     expect(typeof body.id).toBe('string');
     expect(body.title).toBe('Church Banner');
+    expect(body.provider).toBe('canva');
+    expect(body.artifactUrl).toBe('https://cdn.example.test/banner.png');
+    expect(body.projectUrl).toBe('https://canva.com/design/abc');
     expect(body.canvaUrl).toBe('https://canva.com/design/abc');
-    expect(body.thumbnailUrl).toBe('https://canva.com/thumb/abc.png');
+    expect(body.artifactType).toBe('png');
     expect(typeof body.createdAt).toBe('string');
+  });
+
+  it('records a local image under Rhythm Studio and serves it safely', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'rhythm-design-home-'));
+    const studio = path.join(home, 'Downloads', 'Rhythm Studio');
+    fs.mkdirSync(studio, { recursive: true });
+    const image = path.join(studio, 'slide.png');
+    fs.writeFileSync(image, 'synthetic-png');
+    vi.stubEnv('HOME', home);
+    try {
+      const create = await fetch(`${baseUrl}/agent-designs`, {
+        method: 'POST', headers: { ...authHeader, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Local slide', provider: 'comfyui', localPath: image }),
+      });
+      expect(create.status).toBe(201);
+      const design = (await create.json()) as { id: string; artifactType: string; provider: string; filePath?: string };
+      expect(design.artifactType).toBe('png');
+      expect(design.provider).toBe('comfyui');
+      expect(design.filePath).toBeUndefined();
+      const artifact = await fetch(`${baseUrl}/agent-designs/${design.id}/artifact`, { headers: authHeader });
+      expect(artifact.status).toBe(200);
+      expect(await artifact.text()).toBe('synthetic-png');
+    } finally {
+      vi.unstubAllEnvs();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects unsafe paths, editable sources, and unsafe URL schemes', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'rhythm-design-home-'));
+    const studio = path.join(home, 'Downloads', 'Rhythm Studio');
+    const outside = path.join(home, 'outside');
+    fs.mkdirSync(studio, { recursive: true });
+    fs.mkdirSync(outside);
+    const secret = path.join(outside, 'secret.png');
+    fs.writeFileSync(secret, 'secret');
+    fs.symlinkSync(outside, path.join(studio, 'escape'));
+    vi.stubEnv('HOME', home);
+    try {
+      for (const finalPath of [path.join(studio, '..', '..', 'outside', 'secret.png'), path.join(studio, 'escape', 'secret.png'), path.join(studio, 'bad.txt')]) {
+        if (finalPath.endsWith('bad.txt')) fs.writeFileSync(finalPath, 'bad');
+        const response = await fetch(`${baseUrl}/agent-designs`, {
+          method: 'POST', headers: { ...authHeader, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: 'Unsafe', provider: 'local', localPath: finalPath }),
+        });
+        expect(response.status).toBe(400);
+      }
+      for (const body of [
+        { title: 'Unsafe URL', provider: 'built-in', artifactUrl: 'http://example.test/file.png' },
+        { title: 'Unsafe URL', provider: 'built-in', artifactUrl: 'file:///secret.png' },
+        { title: 'Unsafe URL', provider: 'built-in', artifactUrl: 'javascript:alert(1)' },
+        { title: 'Unsafe URL', provider: 'built-in', artifactUrl: 'https://example.test/edit.blend' },
+        { title: 'Unsafe URL', provider: 'built-in', artifactUrl: 'https://example.test/workflow.json' },
+        { title: 'Unsafe URL', provider: 'built-in', artifactUrl: 'https://example.test/file.png', projectUrl: 'file:///project' },
+      ]) {
+        const response = await fetch(`${baseUrl}/agent-designs`, {
+          method: 'POST', headers: { ...authHeader, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        expect(response.status).toBe(400);
+      }
+    } finally {
+      vi.unstubAllEnvs();
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('validates required title, provider, and exactly one deliverable locator', async () => {
+    for (const body of [
+      { provider: 'local', artifactUrl: 'https://example.test/file.png' },
+      { title: 'Title', artifactUrl: 'https://example.test/file.png' },
+      { title: 'Title', provider: 'local' },
+      { title: 'Title', provider: 'local', artifactUrl: 'https://example.test/file.png', localPath: '/tmp/file.png' },
+      { title: 'Title', provider: 'Not A Provider', artifactUrl: 'https://example.test/file.png' },
+    ]) {
+      const response = await fetch(`${baseUrl}/agent-designs`, {
+        method: 'POST', headers: { ...authHeader, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(400);
+    }
+  });
+
+  it.each([
+    ['built-in', 'webp'], ['comfyui', 'exr'], ['blender', 'glb'], ['openmontage', 'mov'], ['document-tools', 'docx'],
+    ['built-in', 'png'], ['built-in', 'jpg'], ['built-in', 'jpeg'], ['built-in', 'gif'], ['built-in', 'svg'], ['built-in', 'tif'], ['built-in', 'tiff'], ['built-in', 'pdf'], ['built-in', 'pptx'],
+    ['built-in', 'xlsx'], ['built-in', 'csv'], ['built-in', 'mp4'], ['built-in', 'webm'], ['built-in', 'gltf'], ['built-in', 'obj'],
+  ])('accepts %s finished %s output', async (provider, extension) => {
+    const response = await fetch(`${baseUrl}/agent-designs`, {
+      method: 'POST', headers: { ...authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: `${provider} ${extension}`, provider, artifactUrl: `https://example.test/output.${extension}` }),
+    });
+    expect(response.status).toBe(201);
+    expect((await response.json() as { artifactType: string }).artifactType).toBe(extension);
   });
 
   it('GET /agent-designs/:id returns the design', async () => {
     const createRes = await fetch(`${baseUrl}/agent-designs`, {
       method: 'POST',
       headers: { ...authHeader, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'My Design' }),
+      body: JSON.stringify({ title: 'My Design', provider: 'built-in', artifactUrl: 'https://example.test/my-design.png' }),
     });
     const created = (await createRes.json()) as { id: string };
 
@@ -146,7 +252,7 @@ describe('D1 — /agent-designs CRUD (authenticated)', () => {
     const createRes = await fetch(`${baseUrl}/agent-designs`, {
       method: 'POST',
       headers: { ...authHeader, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'To delete' }),
+      body: JSON.stringify({ title: 'To delete', provider: 'built-in', artifactUrl: 'https://example.test/to-delete.png' }),
     });
     const created = (await createRes.json()) as { id: string };
 

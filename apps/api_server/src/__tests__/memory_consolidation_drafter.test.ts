@@ -48,6 +48,7 @@ let vaultRoot: string;
 let memoryDir: string;
 let repo: AgentMemoryRepository;
 let index: MemoryIndexService;
+let savedMemoryVaultSubdir: string | undefined;
 
 function allNoteFiles(): string[] {
   const out: string[] = [];
@@ -68,6 +69,8 @@ function fileFor(rel: string): string {
 }
 
 beforeEach(() => {
+  savedMemoryVaultSubdir = process.env.MEMORY_VAULT_SUBDIR;
+  delete process.env.MEMORY_VAULT_SUBDIR;
   setDb(makeDb());
   repo = new AgentMemoryRepository();
   index = new MemoryIndexService(repo);
@@ -76,6 +79,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (savedMemoryVaultSubdir === undefined) delete process.env.MEMORY_VAULT_SUBDIR;
+  else process.env.MEMORY_VAULT_SUBDIR = savedMemoryVaultSubdir;
   try {
     rmSync(vaultRoot, { recursive: true, force: true });
   } catch {

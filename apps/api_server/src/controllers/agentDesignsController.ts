@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
-import { AgentDesignsRepository } from '../repositories/agent_designs_repository';
+import { AgentDesignsRepository, publicAgentDesign } from '../repositories/agent_designs_repository';
+import { resolveLocalArtifact, validateAgentDesignInput } from '../services/agent_design_artifacts';
 
 const repo = new AgentDesignsRepository();
 
@@ -8,7 +9,7 @@ export class AgentDesignsController {
   async list(_req: Request, res: Response, next: NextFunction) {
     try {
       const designs = await repo.listAllAsync();
-      res.json(designs);
+      res.json(designs.map(publicAgentDesign));
     } catch (err) {
       next(err);
     }
@@ -18,7 +19,7 @@ export class AgentDesignsController {
     try {
       const design = await repo.findByIdAsync(req.params.id);
       if (!design) throw AppError.notFound('AgentDesign');
-      res.json(design);
+      res.json(publicAgentDesign(design));
     } catch (err) {
       next(err);
     }
@@ -26,18 +27,39 @@ export class AgentDesignsController {
 
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const { title, canvaUrl, thumbnailUrl, sessionId } =
-        req.body as Record<string, unknown>;
+      let input;
+      try { input = validateAgentDesignInput(req.body as Record<string, unknown>); }
+      catch (error) { throw AppError.badRequest(error instanceof Error ? error.message : 'Invalid artifact'); }
 
       const design = await repo.createAsync({
-        title: typeof title === 'string' ? title : undefined,
-        canvaUrl: typeof canvaUrl === 'string' ? canvaUrl : undefined,
-        thumbnailUrl:
-          typeof thumbnailUrl === 'string' ? thumbnailUrl : undefined,
-        sessionId: typeof sessionId === 'string' ? sessionId : undefined,
+        title: input.title,
+        provider: input.provider,
+        artifactUrl: input.artifactUrl,
+        projectUrl: input.projectUrl,
+        canvaUrl: input.provider === 'canva' ? input.projectUrl : undefined,
+        artifactType: input.artifactType,
+        filePath: input.localPath,
+        sessionId: input.sessionId,
       });
 
-      res.status(201).json(design);
+      res.status(201).json(publicAgentDesign(design));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async artifact(req: Request, res: Response, next: NextFunction) {
+    try {
+      const design = await repo.findByIdAsync(req.params.id);
+      if (!design?.filePath) throw AppError.notFound('AgentDesign artifact');
+      let artifact: { path: string; artifactType: string };
+      try {
+        artifact = resolveLocalArtifact(design.filePath, true);
+      } catch {
+        throw AppError.notFound('AgentDesign artifact');
+      }
+      res.type(artifact.artifactType === 'jpg' ? 'jpeg' : artifact.artifactType);
+      res.sendFile(artifact.path);
     } catch (err) {
       next(err);
     }
