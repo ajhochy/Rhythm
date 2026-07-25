@@ -58,6 +58,7 @@ import { agentCapabilityStatusRouter } from './routes/agent_capability_status_ro
 import { agentApprovalsRouter } from './routes/agent_approvals_routes';
 import { systemRouter } from './routes/system_routes';
 import { engraphManagerRouter } from './routes/engraph_manager_routes';
+import { creativePlatformRouter } from './routes/creative_platform_routes';
 
 export function createApp() {
   const app = express();
@@ -138,6 +139,7 @@ export function createApp() {
     // NOTE: /agents/capabilities is unauthenticated for now; Phase 3.1 will add the AGENT_LOCAL bypass.
     app.use('/agents/capabilities', agentsCapabilitiesRouter);
     app.use('/agent-capability-status', agentCapabilityStatusRouter);
+    app.use('/creative-platform', creativePlatformRouter);
     app.use('/agent-approvals', agentApprovalsRouter);
     app.use('/agents/usage-budget', usageBudgetRouter);
     app.use('/agents/run-quality', runQualityRouter);

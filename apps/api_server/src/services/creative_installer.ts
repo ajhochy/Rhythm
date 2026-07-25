@@ -49,6 +49,7 @@ export interface CreativeInstallerDeps {
 export interface CreativeInstallRequest { id: CreativeCapabilityId; sessionId?: string | null; modelLicenseAccepted?: boolean; signal?: AbortSignal; }
 
 const rootFor = () => join(homedir(), 'Library', 'Application Support', 'Rhythm', 'creative-tools');
+const openMontageBridge = () => join(process.env.RHYTHM_CREATIVE_RESOURCES_DIR ?? join(process.cwd(), 'resources'), 'openmontage-mcp', 'openmontage_mcp_server.py');
 const defaultFs: CreativeInstallerFs = {
   exists: async (p) => nodeFs.access(p).then(() => true).catch(() => false),
   mkdir: async (p) => { await nodeFs.mkdir(p, { recursive: true }); },
@@ -92,6 +93,11 @@ export async function installCreativeDependency(request: CreativeInstallRequest,
     checkAbort(request.signal); const digest = createHash('sha256').update(bytes).digest('hex');
     if (digest !== recipe.sha256) throw new Error('Pinned download checksum did not match.');
     await fs.writeFile(artifact, bytes); await (deps.runner ?? defaultRunner)([...recipe.argv, artifact], { cwd: staging, signal: request.signal });
+    if (recipe.id === 'openmontage') {
+      const bridgeDir = join(staging, 'openmontage-mcp');
+      await fs.mkdir(bridgeDir);
+      await fs.writeFile(join(bridgeDir, 'openmontage_mcp_server.py'), await fs.readFile(openMontageBridge()));
+    }
     await fs.writeFile(join(staging, '.rhythm-installed.json'), JSON.stringify({ id: recipe.id, version: recipe.version, commit: recipe.commit ?? null }));
     await fs.rename(staging, final); created = false;
     return recipe.awaitingUser ? { status: 'awaiting-user', id: request.id, detail: recipe.awaitingUser } : { status: 'installed', id: request.id, detail: 'Pinned recipe installed.' };

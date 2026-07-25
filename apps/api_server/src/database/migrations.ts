@@ -2254,6 +2254,13 @@ Your job, in order:
     5,
   );
 
+  runOnce('rhythm_setup_creative_installs_v1', () => {
+    db.prepare(`UPDATE agent_configs SET system_prompt = ?, allowed_mcps_json = ? WHERE id = 'rhythm-setup'`).run(
+      `${rhythmSetupSystemPrompt}\n\nIf someone asks for creative work that needs a local capability, explain the optional download plainly. Before starting it, call rhythm_request_approval with action install_creative_dependency:<capability>. After approval, use rhythm_install_creative_capability, then rhythm_verify_creative_capability. Never claim an install worked until verification says it is installed.`,
+      '["rhythm"]',
+    );
+  });
+
   // #916/#923 — scope contract repair before [] changes from fail-open to
   // deny-all. NULL is unrestricted; [] is now explicit deny-all. Existing rows
   // that stored [] to mean "unrestricted" must be normalized so they do not

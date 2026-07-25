@@ -3,7 +3,7 @@
 
 ## Current focus
 
-**Creative platform integration — Phase 1 landed, Phase 2 blocked.** Working
+**Creative platform integration — Phase 1 landed, Phase 2 API/MCP integration complete.** Working
 in worktree `~/Documents/rhythm-worktrees/creative-platform`. No PR yet — AJ
 requires the full capability set (including real external-runtime
 installation) before this goes up for review; do not open a PR from the
@@ -23,7 +23,10 @@ current state.
 
 - **Phase 1 (done, verified):** Gallery launcher wiring, creative-media
   local profile seed, and bundled/curated creative skills + adapters.
-- **Phase 2 (blocked, not started/incomplete):**
+- **Phase 2 integration (complete):** approval-gated local API + Rhythm MCP
+  surfaces, Setup prompt wiring, packaged OpenMontage stdio bridge, and
+  sandbox proof are committed on this branch.
+- **Remaining epic work:**
   1. Approval-gated Setup Agent external-runtime installer — real
      install + verify + rollback for Blender, ComfyUI (+ selectable model
      packs), OpenMontage, Obsidian/plugin, document/media toolchains. This
@@ -62,10 +65,8 @@ Phase 1 only, gate PASS on current branch HEAD:
 
 ## Next step
 
-1. Resume Phase 2 with a working coding-agent session, or manually implement
-   pinned installer recipes (install + verify + rollback) for Blender,
-   ComfyUI + model packs, OpenMontage, Obsidian/plugin, document/media
-   toolchains, gated behind Setup Agent approval.
+1. Continue the remaining creative-platform stacks (artifact rendering,
+   self-improvement package audit, and Deep Research live execution).
 2. Then continue remaining stacks: Gallery artifact recording/local file
    rendering, self-improvement package audit, Deep Research live
    `AgentRunner` execution.

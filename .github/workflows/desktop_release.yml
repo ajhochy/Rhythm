@@ -118,7 +118,8 @@ jobs:
           # Config seed assets (config-doctor tools + customize-rhythm skill) —
           # seeded to ~/.config/opencode/ at boot by config_seeds_seeder.ts,
           # resolved at runtime as a sibling of dist/.
-          cp -r ../api_server/config_seeds "$DEST/"
+           cp -r ../api_server/config_seeds "$DEST/"
+          cp -r ../api_server/resources "$DEST/"
           cp ../api_server/package.json "$DEST/"
           cp ../api_server/package-lock.json "$DEST/"
           (
@@ -153,7 +154,8 @@ jobs:
           test -f "$DEST/node_modules/better-sqlite3/package.json"
           test -f "$DEST/config_seeds/skills/customize-rhythm/SKILL.md"
           test -f "$DEST/config_seeds/tools/classify.cjs"
-          test -f "$DEST/config_seeds/tools/node_modules/js-yaml/package.json"
+           test -f "$DEST/config_seeds/tools/node_modules/js-yaml/package.json"
+          test -f "$DEST/resources/openmontage-mcp/openmontage_mcp_server.py"
 
       - name: Bundle MCP role files into app (#1154)
         working-directory: apps/desktop_flutter

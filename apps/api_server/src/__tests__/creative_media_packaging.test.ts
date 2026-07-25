@@ -35,4 +35,8 @@ describe("creative-media package assets", () => {
       expect(ids.has(id), id).toBe(true);
     }
   });
+
+  it("ships the Rhythm-owned OpenMontage stdio bridge", () => {
+    expect(existsSync(join(__dirname, "..", "..", "resources", "openmontage-mcp", "openmontage_mcp_server.py"))).toBe(true);
+  });
 });

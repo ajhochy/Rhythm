@@ -163,7 +163,9 @@ export async function listCreativeCapabilities(
 
   return Promise.all(
     DEFINITIONS.map(async ({ relativePath, localhostPort, ...capability }) => {
-      let status: CreativeCapabilityStatus = existsSync(join(root, ...relativePath))
+      // The installer atomically writes this sentinel; the executable layout is
+      // recipe-owned and may differ from the downloaded upstream archive.
+      let status: CreativeCapabilityStatus = (existsSync(join(root, capability.id, '.rhythm-installed.json')) || existsSync(join(root, ...relativePath)))
         ? 'installed'
         : 'missing';
       if (status === 'installed' && localhostPort !== undefined) {
