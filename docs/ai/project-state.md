@@ -1,72 +1,43 @@
-
 # Project State
 
 ## Current focus
 
-**Creative platform integration — Phases 1–4 complete locally.** Working
-in worktree `~/Documents/rhythm-worktrees/creative-platform`. No PR yet — AJ
-requires the full capability set (including real external-runtime
-installation) before this goes up for review; do not open a PR from the
-current state.
+Creative-platform integration is complete and automatically verified at HEAD
+`f3e8caa76`. Manual visual smoke testing and review handoff remain.
 
 ## Active branch / PR
 
-- `feature/creative-platform-integration` off `origin/main` — not pushed, no
-  PR opened yet.
-- Commits so far: `9b02641da` (Gallery launches `agentId` creative-media),
-  `4521219c8` (idempotent creative-media local profile seed with
-  generalized prompt/model/image-gen/MCP+skill allowlists), `a7d5cb84d`
-  (bundles all 9 creative skills offline + curated adapters for
-  Canva/ComfyUI/Blender/OpenMontage/Obsidian).
+- Branch: `feature/creative-platform-integration`.
+- HEAD: `f3e8caa76`; final fixes: `4b41613d8`, `8f1e3f1c5`, and `f3e8caa76`.
+- The branch is 1 commit behind `origin/main`; it has not been pushed and no PR
+  exists.
 
 ## In progress
 
-- **Phase 1 (done, verified):** Gallery launcher wiring, creative-media
-  local profile seed, and bundled/curated creative skills + adapters.
-- **Phase 2 integration (complete):** approval-gated local API + Rhythm MCP
-  surfaces, Setup prompt wiring, packaged OpenMontage stdio bridge, and
-  sandbox proof are committed on this branch.
-- **Phase 4:** bounded external-discovery actuator,
-  retry-safe workflow-skill population, release payload guards, and
-  informational Setup readiness are implemented.
-- **Remaining epic work:**
-  1. Approval-gated Setup Agent external-runtime installer — real
-     install + verify + rollback for Blender, ComfyUI (+ selectable model
-     packs), OpenMontage, Obsidian/plugin, document/media toolchains. This
-     is the largest remaining piece and is security-sensitive.
-   2. Self-improvement package audit.
-   3. Deep Research external-provider E2E completion (profile seeding and engine projection are now fixed; the OpenRouter free provider returned a 502 tool-schema error).
-- Planning recommended splitting into 5 stacked draft PRs; AJ explicitly
-  overrode this — all capabilities must ship together, external-runtime
-  install stack cannot be dropped or deferred silently.
+- No implementation work remains from the verified integration scope.
+- Pending: manual visual smoke, push, and draft PR creation.
 
 ## Risks / known issues
 
-- The installer must not be improvised with arbitrary shell execution,
-  unpinned downloads, or fake/manual-only recipes — needs pinned, verifiable
-  install/verify/rollback recipes per external tool.
-- Sandbox Phase 1 verification copied an existing user-owned `creative-media`
-  row rather than seeding fresh from empty DB — this correctly preserved
-  that row, but do **not** claim "live registry == seed defaults" from this;
-  that equivalence hasn't actually been verified from a clean DB.
+- Manual visual smoke is still required before merge handoff.
+- The `ai-workflow` wrapper reports a root-level fake npm `tsc` failure. This is
+  tooling-only: repository instructions require package-local
+  `node_modules/.bin/tsc`, which passed through the API build. Product status is
+  not blocked.
 
 ## Test status
 
-- Provider-neutral Creative Media artifacts are complete locally: API/MCP and
-  Flutter support named providers, finished deliverables, separate projects,
-  additive SQLite/Postgres backfills, and legacy Canva compatibility.
-- Node 22 API full suite (3238 passed, 52 skipped), MCP full suite (98 passed,
-  1 skipped), Flutter full suite (979 passed), and sandbox API/MCP artifact
-  E2E all pass. Flutter analyze exits 0 with 273 pre-existing infos.
-- Full detail: `docs/ai/runs/2026-07-24-creative-media-artifacts.md`.
-- Researcher: Node 22 build and focused tests pass. Sandbox E2E reached the
-  projected `research` agent (no `Agent not found`) but OpenRouter free stopped
-  on an upstream Darkbloom tool-schema 502 before producing a report.
+- Automated verification is green: API 3240 passed/52 skipped; MCP 98 passed/1
+  skipped with 81 runtime tools; Flutter 979 passed, format clean, and analyze
+  exited 0 with 273 infos.
+- Live checks passed for generic research (2/2 completed with nonempty reports
+  and matching vault notes), Gallery ComfyUI MCP→API PNG, and unified
+  generic/AI-Trend/Theological indexing, deduplication, and restart fixtures.
+- Packaging, release, and schema gates passed. GitNexus reported medium branch
+  impact and low risk for the final focused changes.
+- Full evidence: `docs/ai/runs/2026-07-25-creative-platform-final-verification.md`.
 
 ## Next step
 
-1. Do not push/open PR yet; continue the remaining creative-platform epic work.
-2. Re-run Flutter formatting, widget tests, and analyzer on a Flutter-equipped machine.
-3. Only after all stacks land: push branch, open draft PR, hand off for
-   manual smoke per `docs/testing/manual-smoke.md`.
-</content>
+Run the manual visual smoke, then push the branch and open a draft PR. Do not
+merge without human review.
