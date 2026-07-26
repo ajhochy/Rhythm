@@ -42,6 +42,19 @@ Pass the same three variables to `status` and `down`. The launcher validates
 that both ports are unprivileged, distinct integers and still refuses to touch
 an occupied port.
 
+Stateful live suites that share one sandbox database must run as separate
+Vitest invocations, or with `--no-file-parallelism`. Do not pass multiple
+pairing/device live-test files to one default Vitest invocation: file workers
+can create temporary rows concurrently and invalidate isolation assertions
+even though each suite cleans up its own records.
+
+Live suites that exercise desktop-human approval must also start the sandbox
+with `HUMAN_APPROVAL_CAPABILITY_SHA256` set to the SHA-256 digest of a
+throwaway test capability and `HUMAN_APPROVAL_PUBLIC_KEY` set to a throwaway
+P-256 public key. Pass the original capability value to Vitest as
+`RHYTHM_LIVE_HUMAN_CAPABILITY`. Generate the values locally without printing
+them; never reuse or record a real capability or private key.
+
 The live SQLite source defaults to
 `~/Library/Application Support/Rhythm/rhythm.db`; override it only with
 `RHYTHM_LIVE_DB_PATH=/absolute/path/to/rhythm.db`. The sandbox directory

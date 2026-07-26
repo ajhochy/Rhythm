@@ -12,11 +12,20 @@ const mobileGatewayUrl = (
 const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? '';
 const expectedPort = process.env.RHYTHM_SANDBOX_API_PORT ?? '';
 const expectedMobilePort = process.env.RHYTHM_MOBILE_GATEWAY_PORT ?? '';
+const humanCapability =
+  process.env.RHYTHM_LIVE_HUMAN_CAPABILITY ?? '';
 
 function bearer(token: string): Record<string, string> {
   return {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
+  };
+}
+
+function humanBearer(token: string): Record<string, string> {
+  return {
+    ...bearer(token),
+    'X-Rhythm-Human-Approval': humanCapability,
   };
 }
 
@@ -40,9 +49,13 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
         'RHYTHM_LIVE_MOBILE_GATEWAY_URL must use the declared isolated mobile gateway port',
       );
     }
-    if (process.env.RHYTHM_LIVE_E2E_ISOLATED !== '1' || !dbPath.startsWith('/')) {
+    if (
+      process.env.RHYTHM_LIVE_E2E_ISOLATED !== '1' ||
+      !dbPath.startsWith('/') ||
+      humanCapability.length < 24
+    ) {
       throw new Error(
-        'Live mobile-access test requires an attested isolated absolute DB path',
+        'Live mobile-access test requires an attested isolated DB and throwaway human capability',
       );
     }
     if (dbPath.includes('/Library/Application Support/Rhythm/')) {
@@ -81,7 +94,7 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
       expect(unauthenticatedAccess.status).toBe(401);
 
       const accessResponse = await fetch(`${baseUrl}/mobile-gateway/access`, {
-        headers: bearer(sessionToken),
+        headers: humanBearer(sessionToken),
       });
       expect(accessResponse.status).toBe(200);
       const access = (await accessResponse.json()) as {
@@ -122,7 +135,7 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
         `${baseUrl}/mobile-gateway/pairing-codes`,
         {
           method: 'POST',
-          headers: bearer(sessionToken),
+          headers: humanBearer(sessionToken),
           body: JSON.stringify({}),
         },
       );
@@ -198,11 +211,11 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
         `${mobileGatewayUrl}/mobile-gateway/devices/${paired.deviceId}`,
         {
           method: 'DELETE',
-          headers: bearer(sessionToken),
+          headers: { Authorization: `Device ${paired.deviceToken}` },
         },
       );
       expect(revoke.status).toBe(204);
-      const revoked = await fetch(`${mobileGatewayUrl}/mobile-gateway/health`, {
+      const revoked = await fetch(`${mobileGatewayUrl}/mobile-gateway/projects`, {
         headers: { Authorization: `Device ${paired.deviceToken}` },
       });
       expect(revoked.status).toBe(401);

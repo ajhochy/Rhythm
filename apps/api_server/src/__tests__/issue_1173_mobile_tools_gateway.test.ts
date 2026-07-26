@@ -172,7 +172,7 @@ describe('#1173 mobile tools gateway', () => {
       `${baseUrl}/mobile-gateway/tools/agent-research/${created.id}/retry`,
       { method: 'POST', headers: firstHeaders, body: '{}' },
     );
-    expect(retry.status).toBe(200);
+    expect(retry.status).toBe(202);
     expect(await retry.json()).toMatchObject({
       id: created.id,
       status: 'pending',

@@ -301,13 +301,14 @@ describeLive('live E2E — issue #1174 mobile OpenCode parity', () => {
       expect(initializedGit.status).toBe(200);
       const initializedProject = await initializedGit.json() as {
         id: string;
-        worktree: string;
         vcs?: string;
       };
-      expect(initializedProject).toMatchObject({
-        worktree: realpathSync(projectRoot),
-        vcs: 'git',
-      });
+      expect(initializedProject.vcs).toBe('git');
+      expect(initializedProject).not.toHaveProperty('worktree');
+      expect(JSON.stringify(initializedProject)).not.toContain(
+        realpathSync(projectRoot),
+      );
+      expect(JSON.stringify(initializedProject)).not.toContain(sandboxDir);
 
       const renamedProject = await gatewayRequest(
         paired.deviceToken,
@@ -355,13 +356,13 @@ describeLive('live E2E — issue #1174 mobile OpenCode parity', () => {
       const pty = (await createdPty.json()) as {
         id: string;
         title: string;
-        cwd: string;
       };
       ptyId = pty.id;
-      expect(pty).toMatchObject({
-        title: 'Issue 1174 resize',
-        cwd: realpathSync(projectRoot),
-      });
+      expect(pty.title).toBe('Issue 1174 resize');
+      expect(pty).not.toHaveProperty('cwd');
+      expect(pty).not.toHaveProperty('env');
+      expect(JSON.stringify(pty)).not.toContain(realpathSync(projectRoot));
+      expect(JSON.stringify(pty)).not.toContain(sandboxDir);
 
       const resizedPty = await gatewayRequest(
         paired.deviceToken,

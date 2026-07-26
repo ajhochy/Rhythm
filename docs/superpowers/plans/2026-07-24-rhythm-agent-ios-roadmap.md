@@ -38,52 +38,43 @@ remaining implementation, map the relative path into `apps/mobile/...` in the
 Rhythm repository. Do not open or merge a PR in the separate opencode-mobile
 repository.
 
-## Execution status — stopped for incomplete draft PR 2026-07-24
+## Execution status — automated implementation complete through the human release boundary 2026-07-25
 
-**Current state:** Feature implementation stopped at AJ's request. The completed
-and partial work is being consolidated into one explicitly unfinished draft PR
-in `ajhochy/Rhythm`. Nothing has been merged into `main`.
+**Current state:** Tasks 1–16 are implemented in the Rhythm monorepo. Task 17's
+automated implementation, current-head regression gates, focused independent
+audits, and final in-process review are complete; the immutable whole-branch
+human review, push/CI evidence, and merge decision remain. Task 18 has green
+rebuilt-engine coverage on both dedicated alternate ports and the exact
+`4098/4097` plan ports, but remains intentionally open for Apple signing, a
+registered physical iPhone, subjective acceptance, production build, and
+TestFlight. Nothing has been merged into `main`; PR #1165 remains draft.
 
-**Worktrees:**
+**Active worktree and PR:**
 
-- Shipping/integration worktree: `/Users/aj/Documents/Rhythm-ios-mobile-gateway`
-  on `feat/rhythm-agent-ios-roadmap`; mobile source now lives at `apps/mobile`.
-- Historical source worktree: `/Users/aj/Documents/opencode-mobile-rhythm-ios-foundation`
-  on `feat/rhythm-agent-ios-foundation`; do not create a PR from this repository.
+- `/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172`
+- local branch `codex/mobile-1172-agents-activity`
+- remote PR branch `feat/rhythm-agent-ios-roadmap`
+- draft PR #1165
 
-**Completed and independently reviewed:**
+**Review and live status:**
 
-- **Task 1 — Foundation verification:** complete at `cfbf29f`. The unified
-  `npm run verify:foundation` gate passes, including 15 Playwright flows.
-  Implementer session: `ses_06b23c546ffeKvxRA4LDt3pLic`; reviewer session:
-  `ses_06a49c83fffebTDjBXfYIK3a89`.
-- **Task 2 — Cloud/paired-Mac transports:** complete through security fix
-  `cc306b9`. Credential redaction, normalized errors, auth-scheme isolation,
-  URL-only SSE/PTY helpers, and architecture documentation passed independent
-  re-review. Implementer session: `ses_06a463f4dffe1EMslYP4KC2GCn`; reviewer
-  session: `ses_06a3d75a1ffeZKqxqWXbq91sAJ`.
+- Whole-branch review found two Important creative-path trust defects:
+  cross-session install approval reuse and a model-controlled Gallery path
+  override. Both are corrected. The final security pass also replaced an
+  environment bearer that was visible through same-user process inspection
+  with an engine-held Ed25519 proof, and removed request-time public-key
+  re-pinning.
+- Corrective iOS 18.3 iPhone SE simulator smoke in dark appearance at maximum
+  Dynamic Type passes for the Agents/Activity heading and Webhooks card
+  actions.
+- The rebuilt API/engine/mobile-gateway matrix passes on dedicated isolated
+  ports and on the exact `4098/4097` plan ports without changing the installed
+  desktop listeners on `4001/4096`.
 
-**Implemented but not review-clean:**
-
-- **Task 3 — Rhythm mobile account shell:** implemented through fix commit
-  `48e1875` before monorepo import. Focused/static/foundation checks passed, but
-  independent re-review still found three important unresolved cases: stale
-  OAuth completion can persist after sign-out/unmount; offline/error UI does not
-  expose local sign-out; failed SecureStore rollback can leave a hidden token.
-  Implementer session: `ses_06a2d9f6affeQ25O9K5tED9okm`; reviewer session:
-  `ses_06903513bffeNbBpT2ulthlDnb`.
-- **Task 4 — Pairing persistence:** implemented at Rhythm commit `9963db3c`.
-  Focused result: 74 passed, one gated live test skipped, API build passed, and
-  GitNexus reported LOW changed-scope risk. Independent code review was started
-  but interrupted and is not complete. The mandatory live test could not run
-  because `bun` was unavailable; no direct API server was launched. Implementer
-  session: `ses_069035125ffeIOWklYY5oCr4o0`.
-
-**Remaining work:** Resolve and re-review the three Task 3 findings; complete
-Task 4 code review and run its live test only through `tools/dev/sandbox.sh`
-(API 4098, engine 4097); then execute Tasks 5–18. The linked GitHub issues are
-the continuation record. Never start an API server directly or touch the live
-desktop ports 4001/4096.
+The task-by-task closure ledger is
+`docs/superpowers/plans/2026-07-24-rhythm-agent-ios-ledger.md`; exact commands
+and evidence are recorded in
+`docs/ai/runs/2026-07-25-mobile-roadmap-finalization.md`.
 
 ### Task 1: Foundation verification and contract baseline
 
@@ -157,11 +148,11 @@ desktop ports 4001/4096.
 - Produces: `POST /mobile-gateway/pairing-codes`, `POST /mobile-gateway/pair`, `GET /mobile-gateway/devices`, `DELETE /mobile-gateway/devices/:id`, `GET /mobile-gateway/health`.
 - Pair response: `{ deviceId, hostId, deviceToken, gatewayVersion, rhythmVersion, opencodeVersion, contractFingerprint, features, minimumMobileVersion }`.
 
-- [ ] Run GitNexus upstream impact analysis for `createApp` and database bootstrap symbols; stop and report before editing if risk is HIGH/CRITICAL.
-- [ ] Write failing tests for one-time use, expiry, user mismatch, token hashing, one-active-host replacement, and revocation.
-- [ ] Implement SQLite tables `mobile_pairing_codes` and `mobile_devices`; add additive Postgres bootstrap definitions even though pairing remains local-only, preventing schema drift in shared repository code.
-- [ ] Generate 32-byte random codes/tokens with `crypto.randomBytes`; persist only SHA-256 verifiers and constant-time compare presented values.
-- [ ] Mount the router inside `agentExecutionEnabled`, ensure logs redact secrets, then run focused tests and API build.
+- [x] Run GitNexus upstream impact analysis for `createApp` and database bootstrap symbols; stop and report before editing if risk is HIGH/CRITICAL.
+- [x] Write failing tests for one-time use, expiry, user mismatch, token hashing, one-active-host replacement, and revocation.
+- [x] Implement SQLite tables `mobile_pairing_codes` and `mobile_devices`; add additive Postgres bootstrap definitions even though pairing remains local-only, preventing schema drift in shared repository code.
+- [x] Generate 32-byte random codes/tokens with `crypto.randomBytes`; persist only SHA-256 verifiers and constant-time compare presented values.
+- [x] Mount the router inside `agentExecutionEnabled`, ensure logs redact secrets, then run focused tests and API build.
 
 ### Task 5: Mobile gateway authentication and project allowlist
 
@@ -176,11 +167,11 @@ desktop ports 4001/4096.
 - Produces: `requireMobileDevice`, `resolveMobileProject(projectId): { id, root }`.
 - Request contract: `Authorization: Device <token>` and `X-Rhythm-Project-ID: <registered project id>`.
 
-- [ ] Write failing tests rejecting missing/revoked tokens, arbitrary roots, unknown projects, sibling-prefix tricks, `..`, symlink escape, and user mismatch.
-- [ ] Run focused tests and confirm failures.
-- [ ] Implement authorization before project lookup; resolve roots only through Rhythm's projects repository and `realpath` containment checks.
-- [ ] Add a gated live test that creates a disposable project, pairs, accesses it, and proves traversal and unregistered roots fail.
-- [ ] Run API typecheck/unit tests; defer the live run until the rebuilt real backend is available in Task 18.
+- [x] Write failing tests rejecting missing/revoked tokens, arbitrary roots, unknown projects, sibling-prefix tricks, `..`, symlink escape, and user mismatch.
+- [x] Run focused tests and confirm failures.
+- [x] Implement authorization before project lookup; resolve roots only through Rhythm's projects repository and `realpath` containment checks.
+- [x] Add a gated live test that creates a disposable project, pairs, accesses it, and proves traversal and unregistered roots fail.
+- [x] Run API typecheck/unit tests; defer the live run until the rebuilt real backend is available in Task 18.
 
 ### Task 6: Allowlisted HTTP proxy and compatibility report
 
@@ -194,11 +185,11 @@ desktop ports 4001/4096.
 - Produces: `/mobile-gateway/opencode/*` for explicitly classified operations only.
 - Allowlist source: generated operation IDs from `apps/opencode_fork/packages/sdk/openapi.json` plus Rhythm route adapters; methods outside the set return `403 OPERATION_NOT_ALLOWED`.
 
-- [ ] Write failing table tests for all approved operation IDs and explicit rejection tests for `global.dispose`, `global.upgrade`, instance disposal, TUI, v2, workspace/sync, and experimental Console families.
-- [ ] Implement method/path matching from a static generated manifest, inject the server-resolved project directory, strip caller roots, and cap request/response bodies.
-- [ ] Return a stable compatibility payload containing versions, fingerprint, feature IDs, and minimum mobile version.
-- [ ] Add a gated real-engine test for health, session list/create, file read, and a rejected upgrade request.
-- [ ] Run focused unit tests and API build.
+- [x] Write failing table tests for all approved operation IDs and explicit rejection tests for `global.dispose`, `global.upgrade`, instance disposal, TUI, v2, workspace/sync, and experimental Console families.
+- [x] Implement method/path matching from a static generated manifest, inject the server-resolved project directory, strip caller roots, and cap request/response bodies.
+- [x] Return a stable compatibility payload containing versions, fingerprint, feature IDs, and minimum mobile version.
+- [x] Add a gated real-engine test for health, session list/create, file read, and a rejected upgrade request.
+- [x] Run focused unit tests and API build.
 
 ### Task 7: SSE and PTY WebSocket gateway
 
@@ -213,11 +204,11 @@ desktop ports 4001/4096.
 **Interfaces:**
 - Produces: `GET /mobile-gateway/events`, `GET /mobile-gateway/sessions/:id/events`, `GET /mobile-gateway/pty/:id/connect`.
 
-- [ ] Impact-analyze the HTTP server upgrade handler and existing PTY bridge before edits.
-- [ ] Write failing tests for authentication before upgrade, close propagation, heartbeat forwarding, reconnect, revoked-token rejection, and binary/text PTY frames.
-- [ ] Implement streaming proxies with abort cleanup, bounded buffers, no payload logging, and existing OpenCode connect-ticket semantics.
-- [ ] Add gated live tests that observe one real SSE session event and one PTY input/output round trip.
-- [ ] Run focused tests, API build, and existing PTY/SSE suites.
+- [x] Impact-analyze the HTTP server upgrade handler and existing PTY bridge before edits.
+- [x] Write failing tests for authentication before upgrade, close propagation, heartbeat forwarding, reconnect, revoked-token rejection, and binary/text PTY frames.
+- [x] Implement streaming proxies with abort cleanup, bounded buffers, no payload logging, and existing OpenCode connect-ticket semantics.
+- [x] Add gated live tests that observe one real SSE session event and one PTY input/output round trip.
+- [x] Run focused tests, API build, and existing PTY/SSE suites.
 
 ### Task 8: Desktop Enable Mobile Access and Tailscale orchestration
 
@@ -232,11 +223,11 @@ desktop ports 4001/4096.
 **Interfaces:**
 - Produces desktop flow: health check → validate/configure Serve → create code → display QR containing `{ gatewayUrl, pairingCode }`.
 
-- [ ] Impact-analyze the Agents settings/action entry point before editing.
-- [ ] Write failing service tests using injected `tailscale` command execution; cover not-installed, logged-out, wrong Serve target, success, and secret-free errors.
-- [ ] Implement idempotent `tailscale serve --bg https+insecure://localhost:4001` orchestration using argument arrays, never a shell string.
-- [ ] Add Flutter tests for diagnostics, QR expiry, regenerate, revoke, and one-active-host replacement warning.
-- [ ] Run API checks plus required Dart format, Flutter analyze, and focused Flutter tests.
+- [x] Impact-analyze the Agents settings/action entry point before editing.
+- [x] Write failing service tests using injected `tailscale` command execution; cover not-installed, logged-out, wrong Serve target, success, and secret-free errors.
+- [x] Implement idempotent `tailscale serve --bg https+insecure://localhost:4001` orchestration using argument arrays, never a shell string.
+- [x] Add Flutter tests for diagnostics, QR expiry, regenerate, revoke, and one-active-host replacement warning.
+- [x] Run API checks plus required Dart format, Flutter analyze, and focused Flutter tests.
 
 ### Task 9: iOS pairing, compatibility, and independent connection states
 
@@ -251,11 +242,11 @@ desktop ports 4001/4096.
 **Interfaces:**
 - Produces: `usePairedHost(): { state, host, pair, revoke, refresh }`; token stored in SecureStore, metadata in AsyncStorage.
 
-- [ ] Write failing tests for QR parsing, user mismatch, version incompatibility, revoked token, offline host retention, and token redaction.
-- [ ] Implement pairing state `unpaired | pairing | connected | offline | tailscaleUnavailable | revoked | incompatible | unhealthy` independently from cloud auth.
-- [ ] Hide/disable unsupported features from the server feature list and present actionable diagnostics.
-- [ ] Wire Settings and pair route; do not expose raw token/code after success.
-- [ ] Run focused tests, lint, typecheck, and web E2E pairing scenarios.
+- [x] Write failing tests for QR parsing, user mismatch, version incompatibility, revoked token, offline host retention, and token redaction.
+- [x] Implement pairing state `unpaired | pairing | connected | offline | tailscaleUnavailable | revoked | incompatible | unhealthy` independently from cloud auth.
+- [x] Hide/disable unsupported features from the server feature list and present actionable diagnostics.
+- [x] Wire Settings and pair route; do not expose raw token/code after success.
+- [x] Run focused tests, lint, typecheck, and web E2E pairing scenarios.
 
 ### Task 10: Three-tab information architecture and reusable tool shell
 
@@ -270,11 +261,11 @@ desktop ports 4001/4096.
 **Interfaces:**
 - Produces primary tabs `Agents`, `Tools`, `Settings`; terminal/workspace become contextual Agent routes.
 
-- [ ] Write failing E2E assertions for exactly three tabs and navigation to Chats, Activity, every approved Tool, and Settings diagnostics.
-- [ ] Replace the old four-tab labels/routes while preserving existing chat/workspace/terminal components behind nested Agents routes.
-- [ ] Add `ToolScreenState` variants for loading, empty, offline-cache, expired-auth, forbidden, and retryable server error.
-- [ ] Verify accessibility labels, Dynamic Type-safe layouts, dark mode, and destructive confirmation patterns.
-- [ ] Run lint, typecheck, and navigation E2E.
+- [x] Write failing E2E assertions for exactly three tabs and navigation to Chats, Activity, every approved Tool, and Settings diagnostics.
+- [x] Replace the old four-tab labels/routes while preserving existing chat/workspace/terminal components behind nested Agents routes.
+- [x] Add `ToolScreenState` variants for loading, empty, offline-cache, expired-auth, forbidden, and retryable server error.
+- [x] Verify accessibility labels, Dynamic Type-safe layouts, dark mode, and destructive confirmation patterns.
+- [x] Run lint, typecheck, and navigation E2E.
 
 ### Task 11: Chats, project grouping, child sessions, and recovery
 
@@ -288,11 +279,11 @@ desktop ports 4001/4096.
 **Interfaces:**
 - Produces all/project-filtered chats, active/completed/archived filters, nested child sessions, and authoritative refresh after SSE reconnect.
 
-- [ ] Write failing E2E flows for create/open/rename/archive/restore/fork/delete, project filtering, children, approvals/questions, reconnect dedupe, and Mac-offline cached list.
-- [ ] Reuse existing transcript, permission, question, diff, todo, usage, file, and terminal components; do not duplicate their state in screens.
-- [ ] Add stable-ID event dedupe and on-reconnect transcript/status refresh with bounded exponential backoff.
-- [ ] Persist only secret-free read models for offline display; disable mutations while offline.
-- [ ] Run fake-server self-test, chat E2E, lint, and typecheck.
+- [x] Write failing E2E flows for create/open/rename/archive/restore/fork/delete, project filtering, children, approvals/questions, reconnect dedupe, and Mac-offline cached list.
+- [x] Reuse existing transcript, permission, question, diff, todo, usage, file, and terminal components; do not duplicate their state in screens.
+- [x] Add stable-ID event dedupe and on-reconnect transcript/status refresh with bounded exponential backoff.
+- [x] Persist only secret-free read models for offline display; disable mutations while offline.
+- [x] Run fake-server self-test, chat E2E, lint, and typecheck.
 
 ### Task 12: Unified execution Activity feed
 
@@ -309,11 +300,11 @@ desktop ports 4001/4096.
 **Interfaces:**
 - Produces `GET /agent-activity?source=&profileId=&projectId=&status=&cursor=` returning `{ items, nextCursor }` from sessions, scheduler, webhooks, research, cookbook, and optimizer records.
 
-- [ ] Impact-analyze repositories used by the aggregate before editing.
-- [ ] Write failing tests for canonical ordering, source/status normalization, cursor stability, and no duplicate execution.
-- [ ] Implement a read-only aggregation service; do not create a second execution table.
-- [ ] Render active/waiting/failed/completed states and deep-link to transcript/result when present.
-- [ ] Run API tests/build and mobile Activity E2E.
+- [x] Impact-analyze repositories used by the aggregate before editing.
+- [x] Write failing tests for canonical ordering, source/status normalization, cursor stability, and no duplicate execution.
+- [x] Implement a read-only aggregation service; do not create a second execution table.
+- [x] Render active/waiting/failed/completed states and deep-link to transcript/result when present.
+- [x] Run API tests/build and mobile Activity E2E.
 
 ### Task 13: Brain, Research, Scheduled Jobs, and Webhooks
 
@@ -328,11 +319,11 @@ desktop ports 4001/4096.
 **Interfaces:**
 - Consumes paired-Mac routes `/agent-memory`, `/agent-research`, `/agent-schedules`, `/agent-webhooks` through `PairedMacClient`.
 
-- [ ] Write failing service contract tests for list/detail/create/edit/delete/search, research progress, schedule enable/run-now, and webhook create/revoke/copy URL.
-- [ ] Implement typed service methods and focused screens using `ToolScreenState` and existing server validation messages.
-- [ ] Store secret-free read caches only; webhook secrets may be shown once and copied but never persisted.
-- [ ] Require confirmations for memory/webhook deletion and schedule run-now.
-- [ ] Run core-tools E2E, lint, and typecheck.
+- [x] Write failing service contract tests for list/detail/create/edit/delete/search, research progress, schedule enable/run-now, and webhook create/revoke/copy URL.
+- [x] Implement typed service methods and focused screens using `ToolScreenState` and existing server validation messages.
+- [x] Store secret-free read caches only; webhook secrets may be shown once and copied but never persisted.
+- [x] Require confirmations for memory/webhook deletion and schedule run-now.
+- [x] Run core-tools E2E, lint, and typecheck.
 
 ### Task 14: Profiles, Cookbook, Review Queue, and Report Card
 
@@ -347,11 +338,11 @@ desktop ports 4001/4096.
 **Interfaces:**
 - Consumes `/agent-configs`, `/agent-delegation`, `/agent-cookbook`, `/agent-org-proposals`, `/agents/run-quality`.
 
-- [ ] Write failing flows for profile prompt/model/scope/delegation edits, recipe CRUD/run, proposal approve/reject details, and report-card summaries.
-- [ ] Implement typed service methods; preserve null-versus-empty permission-scope semantics.
-- [ ] Show local projection status for profile edits and refresh only after server confirmation.
-- [ ] Require confirmation for profile/recipe deletion and high-risk proposal approval.
-- [ ] Run admin-tools E2E, lint, and typecheck.
+- [x] Write failing flows for profile prompt/model/scope/delegation edits, recipe CRUD/run, proposal approve/reject details, and report-card summaries.
+- [x] Implement typed service methods; preserve null-versus-empty permission-scope semantics.
+- [x] Show local projection status for profile edits and refresh only after server confirmation.
+- [x] Require confirmation for profile/recipe deletion and high-risk proposal approval.
+- [x] Run admin-tools E2E, lint, and typecheck.
 
 ### Task 15: Email, Gallery, Skills, Playbooks, MCP, and models
 
@@ -369,11 +360,11 @@ desktop ports 4001/4096.
 - Cloud: Gmail signals and Canva-backed designs through authenticated production routes.
 - Paired Mac: `/opencode/skills`, `/opencode/commands`, `/opencode/mcp`, `/opencode/models`, `/opencode/auth`.
 
-- [ ] Write failing tests proving cloud Email/Gallery remain available when the Mac is offline while paired-host tools show cached read-only state.
-- [ ] Implement Email and Gallery with least-privilege summaries; never persist full email bodies or OAuth credentials.
-- [ ] Implement Skills metadata/history/availability, Playbook CRUD, MCP lifecycle/OAuth, and provider/model diagnostics by reusing existing provider services.
-- [ ] Add compatibility-feature gating and destructive confirmations.
-- [ ] Run integration-tools E2E, lint, typecheck, and provider tests.
+- [x] Write failing tests proving cloud Email/Gallery remain available when the Mac is offline while paired-host tools show cached read-only state.
+- [x] Implement Email and Gallery with least-privilege summaries; never persist full email bodies or OAuth credentials.
+- [x] Implement Skills metadata/history/availability, Playbook CRUD, MCP lifecycle/OAuth, and provider/model diagnostics by reusing existing provider services.
+- [x] Add compatibility-feature gating and destructive confirmations.
+- [x] Run integration-tools E2E, lint, typecheck, and provider tests.
 
 ### Task 16: Approved OpenCode parity completion
 
@@ -388,11 +379,11 @@ desktop ports 4001/4096.
 **Interfaces:**
 - Produces classifications `surfaced | internal | alternate | intentionally-omitted` for all 133 bundled operations.
 
-- [ ] Write a failing coverage assertion requiring every bundled operation to have one classification and reason.
-- [ ] Wire the ten existing adapter-only operations into provider actions: directory list, text/symbol search, VCS status/diff/raw, children, PTY detail/resize, and MCP auth removal.
-- [ ] Add approved adapters for skills/reload, project metadata/Git init, message/part edit/delete, session init/shell, tool schemas/resources, and safe config reload/inspection.
-- [ ] Keep upgrade/disposal/TUI/v2/workspace-sync/Console operations explicitly omitted and gateway-blocked.
-- [ ] Run contract sync/check, fake-server self-test, full E2E, lint, and typecheck.
+- [x] Write a failing coverage assertion requiring every bundled operation to have one classification and reason.
+- [x] Wire the ten existing adapter-only operations into provider actions: directory list, text/symbol search, VCS status/diff/raw, children, PTY detail/resize, and MCP auth removal.
+- [x] Add approved adapters for skills/reload, project metadata/Git init, message/part edit/delete, session init/shell, tool schemas/resources, and safe config reload/inspection.
+- [x] Keep upgrade/disposal/TUI/v2/workspace-sync/Console operations explicitly omitted and gateway-blocked.
+- [x] Run contract sync/check, fake-server self-test, full E2E, lint, and typecheck.
 
 ### Task 17: Cross-repository final review and regression gate
 
@@ -404,11 +395,11 @@ desktop ports 4001/4096.
 **Interfaces:**
 - Produces a traceable verification matrix from each design success criterion to test evidence.
 
-- [ ] Run `git diff main...HEAD` in each repository and GitNexus `detect_changes(scope="compare", base_ref="main")`; investigate unexpected flows.
+- [x] Run `git diff main...HEAD` in each repository and GitNexus `detect_changes(scope="compare", base_ref="main")`; investigate unexpected flows.
 - [ ] Dispatch a whole-branch code review covering spec compliance, security, accessibility, data ownership, error isolation, and test gaps; return every finding to the relevant coder.
-- [ ] Run API build/tests, required Flutter format/analyze/tests, mobile foundation/full E2E/contract tests, and secret scanning.
-- [ ] Verify no credentials, pairing codes, tokens, arbitrary-root proxy paths, destructive migrations, or unclassified endpoints entered either diff.
-- [ ] Record exact commands, pass/fail counts, known limits, and remaining manual evidence in the run log.
+- [x] Run API build/tests, required Flutter format/analyze/tests, mobile foundation/full E2E/contract tests, and secret scanning.
+- [x] Verify no credentials, pairing codes, tokens, arbitrary-root proxy paths, destructive migrations, or unclassified endpoints entered either diff.
+- [x] Record exact commands, pass/fail counts, known limits, and remaining manual evidence in the run log.
 
 ### Task 18: Live backend, EAS signing, physical-device, and TestFlight gate
 
@@ -420,8 +411,8 @@ desktop ports 4001/4096.
 **Interfaces:**
 - Produces real-engine gateway evidence, signed development artifact, physical-iPhone smoke result, and production/TestFlight artifact.
 
-- [ ] Rebuild bundled OpenCode and API server, launch the isolated backend with `RHYTHM_OPENCODE_BIN_DIR`, and run all `RHYTHM_LIVE_E2E=1` gateway tests serially.
-- [ ] Through secure tooling only, inspect existing EAS/Apple credential availability and GitHub signing workflows; reuse an existing valid distribution/development credential when compatible without exporting it to files or output.
+- [x] Rebuild bundled OpenCode and API server, launch the isolated backend with `RHYTHM_OPENCODE_BIN_DIR`, and run all `RHYTHM_LIVE_E2E=1` gateway tests serially.
+- [x] Through secure tooling only, inspect existing EAS/Apple credential availability and GitHub signing workflows; reuse an existing valid distribution/development credential when compatible without exporting it to files or output.
 - [ ] Run non-interactive EAS credential/project checks, then create signed development and production iOS builds; record only build IDs/URLs and redacted status.
 - [ ] Automate device-registration/profile preparation available through EAS. If Apple requires an on-device trust/install action, defer that single action until every automated signing step has succeeded.
 - [ ] Install the signed development build, verify pairing over Tailscale, cloud/Mac failure isolation, chat/SSE/PTy, approvals, every Tool, revocation, background/foreground recovery, and destructive confirmations on a physical iPhone.

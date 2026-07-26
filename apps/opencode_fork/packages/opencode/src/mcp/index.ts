@@ -31,6 +31,10 @@ import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import {
+  signRhythmMcpCall,
+  type RhythmMcpCallIdentity,
+} from "@/security/rhythm-mcp-proof"
 
 const log = Log.create({ service: "mcp" })
 const DEFAULT_TIMEOUT = 30_000
@@ -42,12 +46,7 @@ const DEFAULT_TIMEOUT = 30_000
  */
 export const RHYTHM_SECURITY_CONTEXT_META_KEY = "com.vcrc.rhythm/security-context"
 
-export interface RhythmMcpSecurityContext {
-  sdkSessionId: string
-  turnId: string
-  agentName: string
-  toolCallId: string
-}
+export type RhythmMcpSecurityContext = RhythmMcpCallIdentity
 
 const RHYTHM_SECURITY_CONTEXT = Symbol("rhythm-mcp-security-context")
 type RhythmToolExecutionOptions = ToolExecutionOptions & {
@@ -63,10 +62,18 @@ export function withRhythmSecurityContext(
 
 export function rhythmSecurityRequestMeta(
   options: ToolExecutionOptions,
+  toolName: string,
+  args: unknown,
 ): Record<string, unknown> | undefined {
   const context = (options as RhythmToolExecutionOptions)[RHYTHM_SECURITY_CONTEXT]
   if (!context) return undefined
-  return { [RHYTHM_SECURITY_CONTEXT_META_KEY]: context }
+  return {
+    [RHYTHM_SECURITY_CONTEXT_META_KEY]: signRhythmMcpCall(
+      context,
+      toolName,
+      args,
+    ),
+  }
 }
 
 const TolerantListToolsResultSchema = ListToolsResultSchema.extend({
@@ -200,7 +207,11 @@ function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number
     description: mcpTool.description ?? "",
     inputSchema: jsonSchema(schema),
     execute: async (args: unknown, options: ToolExecutionOptions) => {
-      const securityMeta = rhythmSecurityRequestMeta(options)
+      const securityMeta = rhythmSecurityRequestMeta(
+        options,
+        mcpTool.name,
+        args,
+      )
       return client.callTool(
         {
           name: mcpTool.name,

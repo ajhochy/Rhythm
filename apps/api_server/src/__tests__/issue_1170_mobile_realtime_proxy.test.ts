@@ -704,10 +704,12 @@ describe('issue #1170 mobile realtime proxy contract', () => {
       '',
       '',
     ].join('\n');
+    const upstreamPaths: string[] = [];
     const proxy = new sseModule.MobileSseProxy({
       ownershipRepository: permissiveOwnershipRepository,
       fetchFn: vi.fn(async (input) => {
         const url = new URL(String(input));
+        upstreamPaths.push(url.pathname);
         if (url.pathname === '/session') {
           return new Response(JSON.stringify([{
             id: 'ses-target',
@@ -747,6 +749,8 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     await streaming;
     expect(output).toContain('evt-target');
     expect(output).not.toContain('evt-other');
+    expect(upstreamPaths).toContain('/global/event');
+    expect(upstreamPaths).not.toContain('/event');
     expect(output).toContain('"directory":"project-contract"');
     expect(output).not.toContain('/sandbox/project');
   });

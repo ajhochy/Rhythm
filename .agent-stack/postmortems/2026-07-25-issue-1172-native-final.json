@@ -1,0 +1,62 @@
+{
+  "run_id": "2026-07-25-issue-1172-native-final",
+  "issue": 1172,
+  "date": "2026-07-25",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1172-c8",
+      "text": "Loading, empty, offline-cache, expired-auth, forbidden, and retryable-error states are accessible, dark-mode compatible, and Dynamic Type safe.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "The focused issue-1172 acceptance file passed 6/6 and the native Activity feed exposed meaningful accessibility labels for its seeded rows. On the iOS 18.3 iPhone SE simulator in dark appearance at accessibility-extra-extra-extra-large, the large Agents heading overlapped the Chats/Activity selector instead of contributing its full height to layout."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "smoke-test-writer",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "computer-use",
+      "adapt",
+      "impeccable",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [
+      "verification-gate",
+      "project-state-updater"
+    ],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "workflow-orchestrator",
+        "description": "The recovered aggregate run reached native smoke before its final verification-gate and project-state-updater passes. Those steps remain required after the corrective implementation and must not be treated as complete by this postmortem.",
+        "detected_by": "Transcript and active roadmap plan inspection."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/mobile/app/(tabs)/agents.tsx",
+    "apps/mobile/components/agents/activity-feed.tsx",
+    "apps/mobile/tests/issue-1172-acceptance.test.mjs",
+    "apps/mobile/tests/e2e/issue-1172-tool-deep-links.spec.mjs"
+  ],
+  "failure_output": "Native iOS 18.3 iPhone SE, dark appearance, accessibility-extra-extra-extra-large: the Agents heading overlaps the Chats/Activity segmented selector.",
+  "overall_category": "C2",
+  "suggested_follow_up": "Add a native maximum-Dynamic-Type Activity layout check and replace fixed-height heading/selector assumptions with content-measured spacing."
+}

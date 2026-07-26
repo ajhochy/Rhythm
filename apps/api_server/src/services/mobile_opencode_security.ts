@@ -457,7 +457,8 @@ export async function authorizeMobileOpenCodeOperation(
   const messageId =
     parameters.messageID ??
     query?.get('messageID') ??
-    (typeof bodyRecord.messageID === 'string'
+    (operation.operationId !== 'session.init' &&
+    typeof bodyRecord.messageID === 'string'
       ? bodyRecord.messageID
       : undefined);
   const partId =
@@ -562,12 +563,22 @@ function sanitizePathMetadata(
   project: MobileProjectScope,
   field: string,
 ): unknown {
-  if (typeof value !== 'string') return REDACTED_PATH;
+  const wrapped = isRecord(value) && typeof value.text === 'string';
+  const rawValue = typeof value === 'string'
+    ? value
+    : wrapped
+      ? value.text as string
+      : null;
+  if (rawValue === null) return REDACTED_PATH;
   const normalized = normalizedField(field);
-  if (normalized === 'uri' && /^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) {
-    return sanitizeUrl(value, project);
+  const safeValue =
+    normalized === 'uri' && /^[A-Za-z][A-Za-z0-9+.-]*:/.test(rawValue)
+      ? sanitizeUrl(rawValue, project)
+      : projectRelativePath(rawValue, project) ?? REDACTED_PATH;
+  if (wrapped) {
+    return { text: safeValue };
   }
-  return projectRelativePath(value, project) ?? REDACTED_PATH;
+  return safeValue;
 }
 
 function scrubDiagnosticText(

@@ -46,7 +46,7 @@ export interface CreativeInstallerDeps {
   runner?: (argv: readonly string[], options: { cwd: string; signal?: AbortSignal }) => Promise<void>;
   root?: string;
 }
-export interface CreativeInstallRequest { id: CreativeCapabilityId; sessionId?: string | null; modelLicenseAccepted?: boolean; signal?: AbortSignal; }
+export interface CreativeInstallRequest { id: CreativeCapabilityId; sessionId: string; modelLicenseAccepted?: boolean; signal?: AbortSignal; }
 
 const rootFor = () => join(homedir(), 'Library', 'Application Support', 'Rhythm', 'creative-tools');
 const openMontageBridge = () => join(process.env.RHYTHM_CREATIVE_RESOURCES_DIR ?? join(process.cwd(), 'resources'), 'openmontage-mcp', 'openmontage_mcp_server.py');
@@ -74,8 +74,8 @@ async function defaultRunner(argv: readonly string[], options: { cwd: string; si
     });
   });
 }
-function approved(approvals: AgentApproval[], id: CreativeCapabilityId, sessionId?: string | null): boolean {
-  return approvals.some((row) => row.action === `install_creative_dependency:${id}` && row.status === 'approved' && (!sessionId || row.sessionId === sessionId));
+function approved(approvals: AgentApproval[], id: CreativeCapabilityId, sessionId: string): boolean {
+  return approvals.some((row) => row.action === `install_creative_dependency:${id}` && row.status === 'approved' && row.sessionId === sessionId);
 }
 function checkAbort(signal?: AbortSignal): void { if (signal?.aborted) throw new DOMException('Installation aborted', 'AbortError'); }
 

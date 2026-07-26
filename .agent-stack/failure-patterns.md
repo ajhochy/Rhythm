@@ -389,3 +389,39 @@
 - **Root cause**: Opening the New webhook modal passed an `index` prop through a mapped `React.Fragment`, causing React Native to render a visible development error banner even though static and browser automation gates were green.
 - **Suggested fix**: Remove the Fragment prop leak, retain a focused source/runtime regression, and repeat the native Webhooks modal smoke with no development warning.
 - See `.agent-stack/postmortems/2026-07-25-issue-1173-native-preintegration.json`.
+
+## 2026-07-25 — Issue #1173 — browser accessibility contract missed native maximum Dynamic Type overflow
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C2 — wrong contract boundary
+- **Criteria affected**: issue-1173-c11
+- **Root cause**: the passing source/browser accessibility contract proved state declarations and labels but never exercised React Native card measurement on an iPhone SE at `accessibility-extra-extra-extra-large`; the Webhook card visually outgrew the scroll extent and left actions unreachable.
+- **Suggested fix**: retain a native maximum-Dynamic-Type Webhooks screenshot/tree probe and require expanded card content plus all Copy/Rotate/Delete actions to remain scroll-reachable.
+- See `.agent-stack/postmortems/2026-07-25-issue-1173-native-final.json`.
+
+## 2026-07-25 — Issue #1172 — browser state contract missed native Activity header overlap
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C2 — wrong contract boundary
+- **Criteria affected**: issue-1172-c8
+- **Root cause**: the passing acceptance test covered resilient state declarations and accessible Activity data, but never exercised native heading/selector measurement on an iPhone SE at `accessibility-extra-extra-extra-large`; the Agents heading overlapped the Chats/Activity selector.
+- **Suggested fix**: retain a native maximum-Dynamic-Type Activity screenshot/tree probe and require content-measured spacing between the heading and selector.
+- See `.agent-stack/postmortems/2026-07-25-issue-1172-native-final.json`.
+
+## 2026-07-25 — Issue #1172 — native maximum Dynamic Type corrective smoke
+
+- **Result**: smoke PASS (verification claimed PASS; no divergence)
+- **Category**: none
+- **Criteria affected**: issue-1172-c8
+- **Root cause**: The content-measured Agents header contributes its full maximum-Dynamic-Type height before the Chats/Activity selector.
+- **Suggested fix**: Retain the focused source contract and native maximum-Dynamic-Type screenshot check.
+- See `.agent-stack/postmortems/2026-07-25-issue-1172-native-corrective.json`.
+
+## 2026-07-25 — Issue #1173 — native Webhooks maximum Dynamic Type corrective smoke
+
+- **Result**: smoke PASS (verification claimed PASS; no divergence)
+- **Category**: none
+- **Criteria affected**: issue-1173-c11
+- **Root cause**: Content-measured card headers and action sections now expose the wrapped URL plus Copy, Rotate, and Delete without clipping.
+- **Suggested fix**: Retain the focused source contract and native maximum-Dynamic-Type accessibility-tree check.
+- See `.agent-stack/postmortems/2026-07-25-issue-1173-native-corrective.json`.

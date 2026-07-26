@@ -120,6 +120,11 @@ describe('rhythm_run_external_discovery', () => {
   it('calls only the bounded discovery endpoint and returns its proposal summary', async () => {
     let requestedUrl = '';
     const localServer = http.createServer((req, res) => {
+      if (req.url === '/agent-approvals/consume') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ allowed: true, consumed: false }));
+        return;
+      }
       requestedUrl = req.url ?? '';
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ emitted: 0, skipped: false }));
@@ -132,7 +137,19 @@ describe('rhythm_run_external_discovery', () => {
     const { server, tools } = makeStubServer();
     registerOrgOptimizerTools(server as any, agentUrl, API_TOKEN);
 
-    const result = await tools.get('rhythm_run_external_discovery')!.handler({});
+    const result = await tools.get('rhythm_run_external_discovery')!.handler(
+      {},
+      {
+        _meta: {
+          [RHYTHM_SECURITY_CONTEXT_META_KEY]: {
+            sdkSessionId: 'sdk-discovery-test',
+            turnId: 'turn-discovery-test',
+            agentName: 'org-external-discovery',
+            toolCallId: 'call-discovery-test',
+          },
+        },
+      },
+    );
 
     expect(result.isError).toBeUndefined();
     expect(requestedUrl).toBe('/agent-org-optimizer/external-discovery');

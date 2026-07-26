@@ -405,8 +405,9 @@ async function pairedStore() {
   assert.equal(__macRequests().length, 0);
 }
 
-// issue-1171/#1175 security: confirmed cross-Mac replacement commits the new
-// credential before revoking the previous Mac with its stored Device token.
+// issue-1166-c2: verifier-only device credentials are revocable and the
+// client-enforced one-active-host replacement commits the new credential before
+// revoking the previous Mac with its stored Device token.
 {
   __reset();
   const store = await pairedStore();

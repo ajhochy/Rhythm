@@ -8,7 +8,7 @@
       "mode": "ui",
       "test_file": "apps/mobile/tests/issue-1172-acceptance.test.mjs",
       "test_id": "issue-1172-c1: navigation exposes exactly Agents Tools and Settings",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1172-c2",
@@ -16,7 +16,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/issue-1172-acceptance.test.mjs",
       "test_id": "issue-1172-c2: chat read model filters projects and lifecycle states while preserving children",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1172-c3",
@@ -24,7 +24,7 @@
       "mode": "unit",
       "test_file": "apps/mobile/tests/issue-1172-acceptance.test.mjs",
       "test_id": "issue-1172-c3: recovery dedupes stable event IDs and bounds retry delays",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1172-c4",
@@ -32,7 +32,7 @@
       "mode": "security",
       "test_file": "apps/mobile/tests/issue-1172-acceptance.test.mjs",
       "test_id": "issue-1172-c4: offline cache strips secrets and mutation guard fails closed",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1172-c5",
@@ -40,7 +40,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/services/__tests__/agent_activity_service.test.ts",
       "test_id": "issue-1172-c5: aggregates all execution sources without a duplicate activity table",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1172-c6",
@@ -48,7 +48,7 @@
       "mode": "unit",
       "test_file": "apps/api_server/src/services/__tests__/agent_activity_service.test.ts",
       "test_id": "issue-1172-c6: canonical order filters and cursor remain stable and duplicate-free",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1172-c7",
@@ -56,7 +56,7 @@
       "mode": "ui",
       "test_file": "apps/mobile/tests/issue-1172-acceptance.test.mjs",
       "test_id": "issue-1172-c7: activity feed normalizes states and only emits valid deep links",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1172-c8",
@@ -64,7 +64,7 @@
       "mode": "ui",
       "test_file": "apps/mobile/tests/issue-1172-acceptance.test.mjs",
       "test_id": "issue-1172-c8: reusable screen states cover the full resilient state set",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1172-c9",
@@ -72,7 +72,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/live_e2e_1172_agent_activity.test.ts",
       "test_id": "issue-1172-c9: live sandbox returns authenticated persisted activity without duplicate pages",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1172-c10",

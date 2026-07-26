@@ -112,10 +112,33 @@ Call this once per scheduled audit run — it is idempotent for unchanged gaps (
 
   registerTool(server, 'rhythm_run_external_discovery',
     `Run the bounded, gap-driven external discovery pass. It considers only current open capability gaps, applies the existing provenance, injection, and deduplication gates, and queues any external-adoption proposal for human approval. It never installs or applies a candidate.`,
-    {},
-    async () => {
+    {
+      approval_id: z
+        .string()
+        .optional()
+        .describe(
+          "Security-bound approval id required only after reading untrusted content.",
+        ),
+    },
+    async ({ approval_id }: { approval_id?: string }, extra) => {
+      const payload = {};
+      const gate = await authorizeOutboundAction({
+        agentUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: "org-optimizer.external-discovery",
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: "text" as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
       try {
-        const result = await apiPost(agentUrl, apiToken, '/agent-org-optimizer/external-discovery', {}, {
+        const result = await apiPost(agentUrl, apiToken, '/agent-org-optimizer/external-discovery', payload, {
           timeoutMs: ORG_OPTIMIZER_RUN_TIMEOUT_MS,
         });
         return toolResult(JSON.stringify(result, null, 2));

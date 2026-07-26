@@ -8,7 +8,7 @@
       "mode": "security",
       "test_file": "apps/mobile/tests/issue-1173-tools-service.test.mjs",
       "test_id": "issue-1173-c1: tool transports stay origin and credential isolated",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1173-c2",
@@ -16,7 +16,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/e2e/rhythm-tools-core.spec.mjs",
       "test_id": "issue-1173-c2: Brain CRUD search and offline cache",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1173-c3",
@@ -24,7 +24,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/e2e/rhythm-tools-core.spec.mjs",
       "test_id": "issue-1173-c3: Research lifecycle",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1173-c4",
@@ -32,7 +32,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/e2e/rhythm-tools-core.spec.mjs",
       "test_id": "issue-1173-c4: Scheduled Job lifecycle and confirmations",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1173-c5",
@@ -40,7 +40,7 @@
       "mode": "security",
       "test_file": "apps/mobile/tests/issue-1173-tools-service.test.mjs",
       "test_id": "issue-1173-c5: webhook secrets remain one-time and uncached",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1173-c6",
@@ -48,7 +48,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/e2e/rhythm-tools-admin.spec.mjs",
       "test_id": "issue-1173-c6: Profile edits preserve scope and projection ordering",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1173-c7",
@@ -56,7 +56,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/e2e/rhythm-tools-admin.spec.mjs",
       "test_id": "issue-1173-c7: Cookbook CRUD and confirmed execution",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1173-c8",
@@ -64,7 +64,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/e2e/rhythm-tools-admin.spec.mjs",
       "test_id": "issue-1173-c8: Review Queue risk controls and Report Card",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1173-c9",
@@ -72,7 +72,7 @@
       "mode": "security",
       "test_file": "apps/mobile/tests/e2e/rhythm-tools-integrations.spec.mjs",
       "test_id": "issue-1173-c9: cloud tools survive paired host outage without sensitive caching",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1173-c10",
@@ -80,7 +80,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/e2e/rhythm-tools-integrations.spec.mjs",
       "test_id": "issue-1173-c10: paired integrations lifecycle and feature gating",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1173-c11",
@@ -88,7 +88,7 @@
       "mode": "ui",
       "test_file": "apps/mobile/tests/issue-1173-tools-service.test.mjs",
       "test_id": "issue-1173-c11: every screen declares resilient accessible states",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1173-c12",
@@ -96,7 +96,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/e2e/rhythm-tools-navigation.spec.mjs",
       "test_id": "issue-1173-c12: all fourteen tools are navigable and reviewed",
-      "status": "red"
+      "status": "green"
     },
     {
       "criterion_id": "issue-1173-c13",

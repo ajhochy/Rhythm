@@ -1097,12 +1097,16 @@ export default function RhythmToolScreen() {
                       : undefined
                 }
                 style={[styles.card, { borderColor: palette.border }]}>
-                <Card.Title
-                  subtitle={subtitle}
-                  subtitleNumberOfLines={3}
-                  title={title}
-                  titleNumberOfLines={2}
-                />
+                <Card.Content style={styles.cardHeader}>
+                  <Text variant="titleMedium">{title}</Text>
+                  {subtitle ? (
+                    <Text
+                      style={{ color: palette.muted }}
+                      variant="bodyMedium">
+                      {subtitle}
+                    </Text>
+                  ) : null}
+                </Card.Content>
                 {tool === 'brain' && item.content ? (
                   <Card.Content>
                     <Text>{String(item.content)}</Text>
@@ -1141,7 +1145,9 @@ export default function RhythmToolScreen() {
                   </Card.Content>
                 ) : null}
                 {actions ? <Divider /> : null}
-                {actions ? <Card.Actions>{actions}</Card.Actions> : null}
+                {actions ? (
+                  <Card.Content style={styles.cardActions}>{actions}</Card.Content>
+                ) : null}
               </Card>
             );
           })
@@ -1614,6 +1620,8 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { gap: 14, padding: 16, paddingBottom: 40 },
   card: { borderRadius: 16 },
+  cardHeader: { gap: 4, paddingTop: 16 },
+  cardActions: { paddingBottom: 16, paddingTop: 8 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   notice: { borderRadius: 12, padding: 14 },
   secret: { borderRadius: 16, gap: 10, padding: 16 },

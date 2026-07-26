@@ -7,12 +7,20 @@ on:
       - 'apps/mobile/**'
       - 'apps/opencode_fork/packages/opencode/package.json'
       - 'apps/opencode_fork/packages/sdk/openapi.json'
+      - 'docs/ai/evidence/**'
+      - 'docs/ai/runs/**'
+      - 'docs/ai/project-state.md'
+      - 'tests/contract/issue-1175.mjs'
       - '.github/workflows/mobile_ci.yml'
   pull_request:
     paths:
       - 'apps/mobile/**'
       - 'apps/opencode_fork/packages/opencode/package.json'
       - 'apps/opencode_fork/packages/sdk/openapi.json'
+      - 'docs/ai/evidence/**'
+      - 'docs/ai/runs/**'
+      - 'docs/ai/project-state.md'
+      - 'tests/contract/issue-1175.mjs'
       - '.github/workflows/mobile_ci.yml'
 
 jobs:

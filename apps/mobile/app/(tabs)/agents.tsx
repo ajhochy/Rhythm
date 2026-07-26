@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Appbar, SegmentedButtons } from 'react-native-paper';
+import { SegmentedButtons, Text } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ChatList } from '@/components/chat/chat-list';
 import { ActivityFeed } from '@/components/agents/activity-feed';
@@ -16,14 +17,13 @@ export default function AgentsScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}>
-      <Appbar.Header
-        elevated={false}
-        style={{ backgroundColor: palette.background }}>
-        <Appbar.Content
-          title="Agents"
-          titleStyle={{ color: palette.text }}
-        />
-      </Appbar.Header>
+      <SafeAreaView
+        edges={['top']}
+        style={[styles.header, { backgroundColor: palette.background }]}>
+        <Text accessibilityRole="header" variant="headlineSmall">
+          Agents
+        </Text>
+      </SafeAreaView>
       <SegmentedButtons
         buttons={[
           { value: 'chats', label: 'Chats', icon: 'message-outline', accessibilityLabel: 'Show chats' },
@@ -59,5 +59,6 @@ export default function AgentsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  header: { paddingBottom: 12, paddingHorizontal: 16, paddingTop: 12 },
   sections: { marginHorizontal: 16, marginBottom: 8 },
 });

@@ -45,6 +45,9 @@ export const SECURITY_ACTIONS = [
   "automation.resync",
   "agent-profile.create",
   "agent-profile.permissions.update",
+  "creative-capability.install",
+  "creative-artifact.record",
+  "org-optimizer.external-discovery",
 ] as const;
 
 export type SecurityAction = (typeof SECURITY_ACTIONS)[number];

@@ -19,6 +19,10 @@ import {
   detectAndUnloadCompetingOllamaModel,
 } from './local_omlx_provider';
 import { resolveWebsearchConfig } from '../config/env';
+import {
+  clearTrustedMcpVerifier,
+  initializeTrustedMcpVerifier,
+} from '../security/trusted_mcp_call';
 
 /**
  * MCP-6 — resolves a FRESH OAuth access token for a curated server's
@@ -735,6 +739,7 @@ export class OpencodeClientService {
       }
 
       const t5 = Date.now();
+      clearTrustedMcpVerifier();
       const { client, server } = await mod.createOpencode({ port: OPENCODE_ENGINE_PORT });
       logger.info(`[Opencode][timing] createOpencode (engine spawn) took ${Date.now() - t5}ms`);
 
@@ -743,6 +748,12 @@ export class OpencodeClientService {
       this.status = 'ready';
       this.error = null;
       logger.info('[OpencodeClientService] SDK initialized');
+      const trustedMcpVerifierReady = await initializeTrustedMcpVerifier().catch(() => false);
+      if (!trustedMcpVerifierReady) {
+        logger.warn(
+          '[OpencodeClientService] engine-signed MCP verifier unavailable; trusted local action routes will fail closed',
+        );
+      }
 
       // Phase 6: restore persisted auth credentials.
       // auth.json is written by client.auth.set() from previous runs but

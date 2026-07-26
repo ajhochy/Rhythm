@@ -32,19 +32,15 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/issue_1168_mobile_gateway_live.test.ts",
       "test_id": "issue-1168-c4: live sandbox enforces device auth and registered-project containment",
-      "status": "pending",
-      "reason": "The env-gated test is compile- and skip-verified. The parent orchestration run owns sandbox lifecycle and will execute it through tools/dev/sandbox.sh on 4098/4097."
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1168-c5",
       "text": "GitNexus impact/detect-changes and independent review pass",
       "mode": "manual",
-      "status": "pending",
-      "reason": "Pre-edit impact and #1168 unstaged detect-changes are LOW with zero affected indexed processes. Compare-to-main is HIGH from the cumulative #1166/#1167/mobile baseline (229 files, 1,750 symbols, nine flows), which was reported to the parent. The parent will schedule independent security/spec review before accepting the cumulative branch."
+      "status": "pass"
     }
   ],
   "stack": "typescript",
-  "not_tested": [
-    "issue-1168-c5"
-  ]
+  "not_tested": []
 }

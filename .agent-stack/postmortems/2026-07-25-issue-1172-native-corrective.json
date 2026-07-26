@@ -1,0 +1,60 @@
+{
+  "run_id": "2026-07-25-issue-1172-native-corrective",
+  "issue": 1172,
+  "date": "2026-07-25",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1172-c8",
+      "text": "Loading, empty, offline-cache, expired-auth, forbidden, and retryable-error states are accessible, dark-mode compatible, and Dynamic Type safe.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The corrective source contract passed 2/2. A rebuilt iOS 18.3 iPhone SE development client in dark appearance at accessibility-extra-extra-extra-large rendered the full Agents heading above the Chats/Activity selector with content-measured spacing and no overlap."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "smoke-test-writer",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "computer-use",
+      "adapt",
+      "impeccable",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [
+      "verification-gate",
+      "project-state-updater"
+    ],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "workflow-orchestrator",
+        "description": "The corrective native smoke completed before the aggregate branch verification-gate and project-state-updater passes, which remain required before push.",
+        "detected_by": "Active roadmap plan and transcript inspection at postmortem time."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/mobile/app/(tabs)/agents.tsx",
+    "apps/mobile/tests/issue-1181-1182-dynamic-type.test.mjs"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Retain both the focused content-measurement contract and a native maximum-Dynamic-Type screenshot check for compact tab headers."
+}

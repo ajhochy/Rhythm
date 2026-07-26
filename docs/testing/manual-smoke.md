@@ -290,3 +290,104 @@ When the flag is set to `1`, `AgentTriggerWatcher.start()` is a no-op and logs:
 
 **Verify:** the `flutter run` log contains the line above and **no**
 `DELETE /claude-triggers/*` lines for the duration of the smoke run.
+
+---
+
+## 14. Rhythm Agents iOS release gate (issues #1172–#1175)
+
+Run this section only after the aggregate automated gates, isolated real-engine
+tests, independent review, and signed development build are green for the exact
+source SHA recorded in `docs/ai/evidence/issue-1175-release.json`. Use a
+non-sensitive device model label in evidence (for example `iPhone 16 Pro`);
+never record a UDID, pairing code, device token, account token, Apple
+credential, or webhook secret.
+
+### Human prerequisites
+
+- [ ] AJ confirms the test iPhone is signed into the intended Apple test
+  account and Tailscale tailnet.
+- [ ] Install or trust the signed development build when iOS prompts. This is
+  the first intentionally human-gated step; do not bypass device trust or
+  signing controls.
+- [ ] On the Mac, open Rhythm's **Enable Mobile Access** flow and confirm
+  Tailscale Serve reports healthy. Do not expose the OpenCode port directly.
+- [ ] Keep PR #1165 draft and unmerged throughout the matrix.
+
+### Pairing and failure isolation
+
+- [ ] Scan the one-time QR and pair successfully. Confirm the code/token is not
+  shown again after pairing.
+- [ ] Confirm the app names the paired Mac and selected Rhythm project without
+  exposing a filesystem root.
+- [ ] Turn off only the Mac/Tailscale connection. Paired-Mac screens become
+  offline/read-only while production-owned Email and Gallery remain usable.
+- [ ] Restore the Mac connection and confirm cached views refresh without
+  duplicated Activity or transcript entries.
+- [ ] Revoke mobile access from the Mac. The phone loses gateway access and
+  cannot reconnect with the revoked credential.
+- [ ] Pair to a replacement Mac, confirm the new host works, and confirm the
+  previous host credential no longer works.
+
+### Agents, realtime, and Activity (#1172)
+
+- [ ] Confirm exactly three primary tabs: **Agents**, **Tools**, and
+  **Settings**.
+- [ ] Create, open, rename, archive, restore, fork, and delete a chat. Confirm
+  delete requires an explicit destructive confirmation.
+- [ ] Send a prompt and observe live SSE updates. Background the app during the
+  run, foreground it, and confirm authoritative refresh produces no duplicates.
+- [ ] Open a child session, answer a question, approve and deny a permission,
+  inspect diff/todo/file content, and open the PTY. Confirm PTY text input,
+  output, and resize work.
+- [ ] In Activity, verify active, waiting, failed, and completed rows; exercise
+  source/status filters and pagination; deep-link a session, research run,
+  schedule, webhook, and cookbook item to the exact target.
+- [ ] Force-quit during an active run, relaunch, and confirm the interrupted run
+  remains visible and recovers after reconnect.
+
+### Every Tool and destructive confirmations (#1173)
+
+- [ ] Open every Tool: Brain, Research, Scheduled Jobs, Webhooks, Profiles,
+  Cookbook, Review Queue, Report Card, Email, Gallery, Skills, Playbooks, MCP,
+  and Providers/Models.
+- [ ] For each screen, observe at least the applicable loading, empty, offline,
+  forbidden, expired-auth, and retryable-error state; retry must recover when
+  the dependency is restored.
+- [ ] Create/search/delete Brain memory; start/cancel/retry Research; enable,
+  disable, run-now, and delete a schedule. Delete and run-now require
+  confirmation.
+- [ ] Create a webhook, copy its receive URL, rotate/revoke it, and delete it
+  after confirmation. The replacement secret is visible exactly once and is
+  absent after leaving/reopening the screen.
+- [ ] Edit a Profile's prompt/model/scope/delegation and confirm projection
+  success precedes refresh. Verify inherited (`null`) scope remains distinct
+  from explicit empty scope.
+- [ ] Exercise Cookbook recipe CRUD/run, Review Queue approve/reject with
+  high-risk approval, and Report Card summaries. Destructive/high-risk actions
+  require confirmation.
+- [ ] Verify Email and Gallery still work while the Mac is offline. Verify
+  paired-Mac Tools are read-only from secret-free cache while offline.
+- [ ] Exercise Skills history/availability, Playbook CRUD/run, MCP
+  connect/disconnect/OAuth removal, and provider/model diagnostics.
+
+### Accessibility and appearance
+
+- [ ] Repeat the Agents, Activity, Webhooks, and confirmation paths in light
+  and dark appearance.
+- [ ] Set iOS text size to the largest accessibility size. No critical action,
+  status, secret warning, filter, or confirmation is clipped or unreachable.
+- [ ] With VoiceOver, traverse the three tabs, Activity filters/items, Webhook
+  actions, offline/error states, and destructive dialogs. Labels, traits,
+  reading order, focus return, and button hit targets are understandable.
+- [ ] Confirm color is not the only signal for active/waiting/failed/completed
+  state and reduced-motion mode does not hide status changes.
+
+### Release decision
+
+- [ ] Record pass/fail against the exact signed development build ID and source
+  SHA, using only the device model label.
+- [ ] If any item fails, stop: do not produce or submit the production build.
+- [ ] After the full physical matrix passes, AJ explicitly authorizes the
+  production EAS build and TestFlight submission.
+- [ ] Verify the submitted TestFlight artifact hash matches the recorded
+  production artifact, then leave PR #1165 draft for AJ's final approval.

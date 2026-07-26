@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   mkdirSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -17,6 +18,7 @@ const baseUrl = (process.env.RHYTHM_LIVE_URL ?? '').replace(/\/$/, '');
 const engineUrl = (process.env.RHYTHM_LIVE_ENGINE_URL ?? '').replace(/\/$/, '');
 const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? '';
 const sandboxDir = process.env.RHYTHM_SANDBOX_DIR ?? '';
+const humanCapability = process.env.RHYTHM_LIVE_HUMAN_CAPABILITY ?? '';
 
 function gatewayHeaders(
   deviceToken: string,
@@ -50,7 +52,8 @@ describeLive('live E2E — issue #1169 mobile OpenCode proxy', () => {
     if (
       process.env.RHYTHM_LIVE_E2E_ISOLATED !== '1' ||
       !sandboxDir.startsWith('/') ||
-      !dbPath.startsWith('/')
+      !dbPath.startsWith('/') ||
+      humanCapability.length < 24
     ) {
       throw new Error(
         'Issue #1169 live test requires an attested absolute sandbox and DB path',
@@ -118,6 +121,7 @@ describeLive('live E2E — issue #1169 mobile OpenCode proxy', () => {
           headers: {
             Authorization: `Bearer ${userToken}`,
             'Content-Type': 'application/json',
+            'X-Rhythm-Human-Approval': humanCapability,
           },
           body: '{}',
         },
@@ -204,7 +208,7 @@ describeLive('live E2E — issue #1169 mobile OpenCode proxy', () => {
         'http://127.0.0.1/private/local-file',
         'not-a-url',
       ]) {
-        const rejected = await prompt('message', rejectedUrl);
+        const rejected = await prompt('prompt_async', rejectedUrl);
         expect(rejected.status, rejectedUrl).toBe(403);
         expect(await rejected.json()).toMatchObject({
           error: { code: 'FORBIDDEN' },
@@ -218,11 +222,22 @@ describeLive('live E2E — issue #1169 mobile OpenCode proxy', () => {
       expect(await emptyMessages.json()).toEqual([]);
 
       const containedPrompt = await prompt(
-        'message',
-        pathToFileURL(join(projectRoot, fileName)).href,
+        'prompt_async',
+        pathToFileURL(realpathSync(join(projectRoot, fileName))).href,
       );
-      expect(containedPrompt.status).toBe(200);
-      expect(JSON.stringify(await containedPrompt.json())).toContain(marker);
+      expect(containedPrompt.status).toBe(204);
+      let containedTranscript = '';
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        const containedPersisted = await fetch(
+          `${baseUrl}/mobile-gateway/opencode/session/${encodeURIComponent(session.id)}/message`,
+          { headers: gatewayHeaders(paired.deviceToken, projectId) },
+        );
+        expect(containedPersisted.status).toBe(200);
+        containedTranscript = JSON.stringify(await containedPersisted.json());
+        if (containedTranscript.includes(marker)) break;
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
+      }
+      expect(containedTranscript).toContain(marker);
 
       const dataPrompt = await prompt(
         'prompt_async',

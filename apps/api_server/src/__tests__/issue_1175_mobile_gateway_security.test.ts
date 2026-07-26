@@ -183,6 +183,47 @@ describe('issue #1175 paired OpenCode gateway security regressions', () => {
     expect(forwarded).toEqual([]);
   });
 
+  it('allows session init to submit its required fresh message ID', async () => {
+    // Regression: session.init creates this message ID; treating it as an
+    // existing message reference rejects every valid initialization request.
+    const proxy = new MobileOpenCodeProxy({
+      baseUrl: 'http://opencode.test',
+      ownershipRepository: permissiveOwnershipRepository,
+      fetchFn: async (request, init) => {
+        const url = new URL(String(request));
+        if (url.pathname === '/session' && (init?.method ?? 'GET') === 'GET') {
+          return json([{
+            id: 'ses-owned',
+            title: 'Owned',
+            directory: project.root,
+          }]);
+        }
+        if (
+          url.pathname === '/session/ses-owned/init' &&
+          init?.method === 'POST'
+        ) {
+          return json(true);
+        }
+        return json({ error: 'unexpected boundary request' }, 500);
+      },
+    });
+
+    const response = await proxy.forward(input(
+      'POST',
+      '/session/ses-owned/init',
+      {
+        body: {
+          providerID: 'e2e-provider',
+          modelID: 'e2e-model',
+          messageID: 'msg_019f9a9ce0317f40aed533c537',
+        },
+      },
+    ));
+
+    expect(response.status).toBe(200);
+    expect(decode(response.body)).toBe(true);
+  });
+
   it('preserves token counters and project content while shaping secrets and nested path metadata', async () => {
     const payloads = new Map<string, unknown>([
       ['/config', {
@@ -335,6 +376,38 @@ describe('issue #1175 paired OpenCode gateway security regressions', () => {
     ))).body) as Record<string, { uri: string }>;
     expect(resources.docs.uri).not.toContain('secret-query');
     expect(resources.docs.uri).toContain('%5Bredacted%5D');
+  });
+
+  it('preserves safe bundled-engine search path text wrappers and redacts unsafe ones', async () => {
+    // Regression: OpenCode 1.14.49 returns find-result paths as { text },
+    // which must not be blanket-redacted merely because the wrapper is not a
+    // bare string.
+    const proxy = new MobileOpenCodeProxy({
+      baseUrl: 'http://opencode.test',
+      ownershipRepository: permissiveOwnershipRepository,
+      fetchFn: async () => json([{
+        path: {
+          text: 'src/inside.ts',
+          token: 'must-not-survive',
+        },
+        lines: { text: 'inside marker' },
+      }, {
+        path: {
+          text: '/private/other-project/outside.ts',
+          cwd: '/private/other-project',
+        },
+        lines: { text: 'outside marker' },
+      }]),
+    });
+
+    const results = decode((await proxy.forward(input('GET', '/find', {
+      query: new URLSearchParams({ pattern: 'marker' }),
+    }))).body) as Array<Record<string, unknown>>;
+
+    expect(results[0].path).toEqual({ text: 'src/inside.ts' });
+    expect(results[1].path).toEqual({ text: '[redacted-path]' });
+    expect(JSON.stringify(results)).not.toContain('/private/');
+    expect(JSON.stringify(results)).not.toContain('must-not-survive');
   });
 
   it('requires selected-project ownership evidence on every SSE resource event', () => {

@@ -8,7 +8,7 @@
       "mode": "unit",
       "test_file": "apps/mobile/tests/issue-1174-opencode-parity-contract.test.mjs",
       "test_id": "issue-1174-c1: every bundled operation has exactly one classification and reason",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1174-c2",
@@ -16,7 +16,7 @@
       "mode": "unit",
       "test_file": "apps/mobile/tests/issue-1174-opencode-parity-contract.test.mjs",
       "test_id": "issue-1174-c2: mobile contract is generated from bundled OpenCode 1.14.49",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1174-c3",
@@ -24,18 +24,16 @@
       "mode": "unit",
       "test_file": "apps/mobile/tests/issue-1174-opencode-parity-contract.test.mjs",
       "test_id": "issue-1174-c3: gateway allowlist exactly matches mobile classifications",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1174-c4",
       "text": "Contract, fake-server, E2E, lint, typecheck, and independent security review pass",
       "mode": "manual",
-      "status": "pending",
-      "reason": "The full automated suites are implementation-time commands, while an independent security review requires a separate reviewer and cannot be truthfully asserted by a self-contained contract test."
+      "status": "pass",
+      "reason": "The full aggregate mobile gate, rebuilt-engine parity live test, and final independent whole-branch security review passed."
     }
   ],
   "stack": "typescript",
-  "not_tested": [
-    "issue-1174-c4"
-  ]
+  "not_tested": []
 }

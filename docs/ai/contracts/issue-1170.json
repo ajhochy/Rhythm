@@ -50,8 +50,8 @@
       "criterion_id": "issue-1170-c6",
       "text": "GitNexus impact/detect-changes and independent review pass",
       "mode": "manual",
-      "status": "pending",
-      "reason": "Impact and detect-changes are complete (corrective slice LOW: 9 files, 19 symbols, 0 processes); an independent corrective reviewer verdict remains."
+      "status": "pass",
+      "reason": "Impact/change-scope checks and the final independent whole-branch review found no remaining #1170 Critical or Important finding."
     }
   ],
   "stack": "typescript",

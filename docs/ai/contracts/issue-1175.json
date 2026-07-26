@@ -24,7 +24,7 @@
       "mode": "integration",
       "test_file": "tests/contract/issue-1175.mjs",
       "test_id": "issue-1175-c3: every cumulative gate records exact command, head, exit code, and log hash",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c4",
@@ -32,7 +32,7 @@
       "mode": "integration",
       "test_file": "tests/contract/issue-1175.mjs",
       "test_id": "issue-1175-c4: exact sandbox launcher and listener snapshots prove isolation",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c5",
@@ -64,7 +64,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
       "test_id": "issue-1175-c8: async delegation rejects locked participants and never wakes a newly locked parent",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c9",
@@ -72,7 +72,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
       "test_id": "issue-1175-c9: dispatch and completion failures persist terminal state and stale claims recover exactly once",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c10",
@@ -80,7 +80,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
       "test_id": "issue-1175-c10: paired Activity is user-scoped across every source",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c11",
@@ -88,7 +88,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
       "test_id": "issue-1175-c11: paired HTTP and SSE shape or deny sensitive upstream fields recursively",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c12",
@@ -96,7 +96,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/issue-1175-security-review.test.mjs",
       "test_id": "issue-1175-c12: paired reload and inspection stay on Device auth plus opaque project scope",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c13",
@@ -104,7 +104,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/issue-1175-security-review.test.mjs",
       "test_id": "issue-1175-c13: production iOS ATS denies arbitrary HTTP while explicit dev and E2E remain local-capable",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c14",
@@ -120,7 +120,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
       "test_id": "issue-1175-c15: selected-project credentials cannot enumerate or operate on another project session",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c16",
@@ -128,7 +128,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
       "test_id": "issue-1175-c16: Activity query columns exist in both SQLite and Postgres bootstrap schemas",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c17",
@@ -136,7 +136,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
       "test_id": "issue-1175-c17: AGENT_LOCAL cannot expose the unauthenticated primary API beyond loopback",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c18",
@@ -144,7 +144,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/issue-1175-adversarial-review.test.mjs",
       "test_id": "issue-1175-c18: hostile QR origins never receive cloud credentials and cannot choose pairing identity",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c19",
@@ -152,7 +152,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
       "test_id": "issue-1175-c19: two paired users cannot cross tenant or let staff mutate Mac-global agent policy",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c20",
@@ -160,7 +160,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
       "test_id": "issue-1175-c20: loopback shell and paired-device callers cannot self-approve a human gate",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c21",
@@ -168,7 +168,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
       "test_id": "issue-1175-c21: church-admin message and calendar prompt injection cannot immediately send outbound content",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c22",
@@ -176,7 +176,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/issue-1175-adversarial-review.test.mjs",
       "test_id": "issue-1175-c22: a production app cannot compile in test mode or with unusable authentication",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c23",
@@ -184,7 +184,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
       "test_id": "issue-1175-c23: caller-chosen Google clients cannot mint Rhythm sessions",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c24",
@@ -192,7 +192,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/issue-1175-adversarial-review.test.mjs",
       "test_id": "issue-1175-c24: clean-shell production build command is pinned and unattended",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c25",
@@ -200,7 +200,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/issue-1175-adversarial-review.test.mjs",
       "test_id": "issue-1175-c25: mobile cannot create or expose public OpenCode transcript links",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c26",
@@ -208,7 +208,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1175_corrective_security.test.ts",
       "test_id": "issue-1175-c26: two paired users cannot cross HTTP SSE or PTY ownership boundaries",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c27",
@@ -216,7 +216,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1175_corrective_security.test.ts",
       "test_id": "issue-1175-c27: bearer credentials cannot administer mobile access and Device self-revoke remains scoped",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c28",
@@ -224,7 +224,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/contract/issue_1175_corrective_security.test.ts",
       "test_id": "issue-1175-c28: unauthorized Google identities are rejected before all persistence paths",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c29",
@@ -232,7 +232,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/paired-host.test.mjs",
       "test_id": "issue-1175-c29: recycled gateway endpoints replace by host identity without presenting stale credentials",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c30",
@@ -240,7 +240,7 @@
       "mode": "integration",
       "test_file": "tests/contract/issue-1175.mjs",
       "test_id": "issue-1175-c30: aggregate diff check is clean",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c31",

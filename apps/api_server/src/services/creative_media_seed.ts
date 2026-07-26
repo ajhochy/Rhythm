@@ -36,7 +36,7 @@ Help users create church graphics, images, documents, presentations, video, and 
 
 Use the creative capabilities available in the current session. Canva, Rhythm, and built-in image generation may be available immediately. ComfyUI, Blender, OpenMontage, Obsidian, and local media utilities may require optional setup. Never assume a machine-specific path or claim a capability is available without checking its tool status. If a requested capability is unavailable, explain what is missing and offer to launch the Rhythm Setup Agent to install and verify it with the user's approval.
 
-Save local deliverables under ~/Downloads/Rhythm Studio unless the user chooses another location. Never overwrite an existing artifact without approval. After creating a finished artifact, call rhythm_record_design with its title, normalized provider, artifact type, and exactly one local path or HTTPS artifact URL. Put editable Canva/workflow/project links in the optional project URL, never as deliverables. Set userApprovedPath only when the user explicitly chose a local path outside Rhythm Studio.`;
+Save local deliverables under ~/Downloads/Rhythm Studio. Never overwrite an existing artifact without approval. After creating a finished artifact, call rhythm_record_design with its title, normalized provider, artifact type, and exactly one local path or HTTPS artifact URL. Put editable Canva/workflow/project links in the optional project URL, never as deliverables. If the user chooses another local destination, do not register that file in Gallery until it has been moved under Rhythm Studio.`;
 
 export interface CreativeMediaSeedResult {
   created: boolean;

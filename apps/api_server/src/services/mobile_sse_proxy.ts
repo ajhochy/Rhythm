@@ -399,9 +399,13 @@ export class MobileSseProxy {
     try {
       while (!closed) {
         if (!deviceIsActive(input.isDeviceActive)) break;
+        // `/event` emits unwrapped payloads, so it lacks the authoritative
+        // directory evidence required by the fail-closed mobile project
+        // filter. `/global/event` wraps every non-server event with its source
+        // directory; the filters below then narrow it to the selected project,
+        // owner, and optional session.
         const query = new URLSearchParams();
-        const path = input.sessionId ? '/event' : '/global/event';
-        if (input.sessionId) query.set('directory', input.project.root);
+        const path = '/global/event';
         const url = `${this.baseUrl}${path}${
           query.size > 0 ? `?${query.toString()}` : ''
         }`;

@@ -2,38 +2,41 @@
 
 **Plan:** `docs/superpowers/plans/2026-07-24-rhythm-agent-ios-roadmap.md`
 
-**Rhythm worktree:** `/Users/aj/Documents/Rhythm-ios-mobile-gateway`
+**Active Rhythm worktree:** `/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172`
 
-**Mobile source worktree:** `/Users/aj/Documents/opencode-mobile-rhythm-ios-foundation`
+**Local branch:** `codex/mobile-1172-agents-activity`
+
+**Draft PR:** `#1165` from remote branch `feat/rhythm-agent-ios-roadmap`
 
 **Shipping location:** `apps/mobile` inside the Rhythm monorepo. Do not open a
 PR from the separate mobile source repository.
 
-| Task | Repository | Status | Coder task ID | Review status | Notes |
-| --- | --- | --- | --- | --- | --- |
-| 1 Foundation verification | Rhythm `apps/mobile` | complete | `ses_06b23c546ffeKvxRA4LDt3pLic` | clean | Imported through mobile commit `cfbf29f` |
-| 2 Transport contracts | Rhythm `apps/mobile` | complete | `ses_06a463f4dffe1EMslYP4KC2GCn` | clean after fix | Imported through mobile commit `cc306b9` |
-| 3 Rhythm account shell | Rhythm `apps/mobile` | incomplete | `ses_06a2d9f6affeQ25O9K5tED9okm` | 3 important findings open | Imported through mobile commit `48e1875` |
-| 4 Pairing persistence | Rhythm | incomplete | `ses_069035125ffeIOWklYY5oCr4o0` | review interrupted; live test blocked | Commit `9963db3c`; 74 pass, build pass |
-| 5 Gateway auth/project scope | Rhythm | pending | — | — | — |
-| 6 HTTP proxy/compatibility | Rhythm | pending | — | — | — |
-| 7 SSE/PTY proxy | Rhythm | pending | — | — | — |
-| 8 Desktop mobile access | Rhythm | pending | — | — | — |
-| 9 iOS pairing | mobile | pending | — | — | — |
-| 10 Information architecture | mobile | pending | — | — | — |
-| 11 Chats/recovery | mobile | pending | — | — | — |
-| 12 Activity feed | both | pending | — | — | — |
-| 13 Core tools | mobile | pending | — | — | — |
-| 14 Admin tools | mobile | pending | — | — | — |
-| 15 Integration/local tools | mobile | pending | — | — | — |
-| 16 OpenCode parity | mobile | pending | — | — | — |
-| 17 Final regression/review | both | pending | — | — | — |
-| 18 Live/EAS/device release | both | pending | — | — | — |
+| Task | Repository | Status | Review status | Current evidence / blocker |
+| --- | --- | --- | --- | --- |
+| 1 Foundation verification | Rhythm `apps/mobile` | complete | clean | Foundation/static/browser gate integrated |
+| 2 Transport contracts | Rhythm `apps/mobile` | complete | clean after fix | Cloud and paired-host credential isolation integrated |
+| 3 Rhythm account shell | Rhythm `apps/mobile` | complete | clean after corrective review | OAuth/sign-out/SecureStore findings resolved |
+| 4 Pairing persistence | Rhythm | complete | clean | Verifier-only, replacement, rollback, and live behavior covered |
+| 5 Gateway auth/project scope | Rhythm | complete | clean | Owner/project/auth negative cases covered |
+| 6 HTTP proxy/compatibility | Rhythm | complete | clean | Focused behavior and direct live containment pass on the plan-mandated `4098/4097` sandbox |
+| 7 SSE/PTY proxy | Rhythm | complete | clean after corrective review | Real SSE and PTY behavior pass in an isolated rebuilt stack |
+| 8 Desktop mobile access | Rhythm | complete | clean | Human-capability administration and safe diagnostics covered |
+| 9 iOS pairing | mobile | complete | clean | Native simulator replacement/revocation smoke and contracts pass |
+| 10 Information architecture | mobile | complete | clean | Exactly Agents, Tools, and Settings |
+| 11 Chats/recovery | mobile | complete | clean | Chat lifecycle, cache, reconnect, and nested sessions covered |
+| 12 Activity feed | both | complete | clean after corrective review | Live aggregation/deep links pass; maximum-Dynamic-Type native corrective smoke passes |
+| 13 Core tools | mobile | complete | clean after corrective review | Brain, Research, Scheduled Jobs, and Webhooks lifecycle covered |
+| 14 Admin tools | mobile | complete | clean after corrective review | Profiles, Cookbook, Review Queue, and Report Card covered |
+| 15 Integration/local tools | mobile | complete | clean after corrective review | Email, Gallery, Skills, Playbooks, MCP, and Models covered |
+| 16 OpenCode parity | mobile | complete | clean | Generated `1.14.49` contract, classifications, gateway parity, and rebuilt-engine live test pass |
+| 17 Final regression/review | both | source gates complete | Important findings corrected and re-tested | Full issue/PR gates, current-head live gaps, GitNexus scope, and focused audits pass; push/CI and immutable human whole-branch review remain |
+| 18 Live/EAS/device release | both | human-gated | automated exact/alternate-port live matrices pass | Apple login/signing, registered physical iPhone smoke, production build, and TestFlight require the human release gate |
 
-## Stop record — 2026-07-24
+## Current stop boundary — 2026-07-25
 
-AJ stopped feature implementation and requested one explicitly unfinished draft
-Rhythm PR plus linked issues for the remainder. No further roadmap tasks should
-be implemented in this run. The PR must not be merged until all linked issues,
-review findings, sandbox live tests, signing, and physical-device gates are
-complete.
+The source implementation and automated isolated live matrix, including the
+exact `4098/4097` rerun, are complete. PR #1165 stays draft and must not merge.
+The release phase stops at the human-controlled whole-branch PR review, Apple
+credentials/device registration, physical-iPhone smoke, subjective acceptance,
+and TestFlight gates. Current commands and evidence live in
+`docs/ai/runs/2026-07-25-mobile-roadmap-finalization.md`.

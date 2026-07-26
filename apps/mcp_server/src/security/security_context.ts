@@ -15,6 +15,22 @@ export interface TrustedSecurityContext {
   toolCallId: string;
 }
 
+export interface TrustedSecurityProof {
+  version: 1;
+  algorithm: 'Ed25519';
+  keyId: string;
+  issuedAt: number;
+  nonce: string;
+  toolName: string;
+  argumentsHash: string;
+  signature: string;
+}
+
+export interface TrustedSecurityCall {
+  context: TrustedSecurityContext;
+  proof: TrustedSecurityProof;
+}
+
 function safeIdentity(value: unknown, max: number): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= max;
 }
@@ -36,5 +52,44 @@ export function trustedSecurityContext(extra: ToolRequestExtra | undefined): Tru
     turnId: record.turnId,
     agentName: record.agentName,
     toolCallId: record.toolCallId,
+  };
+}
+
+export function trustedSecurityCall(
+  extra: ToolRequestExtra | undefined,
+): TrustedSecurityCall | null {
+  const context = trustedSecurityContext(extra);
+  if (!context) return null;
+  const raw = extra?._meta?.[RHYTHM_SECURITY_CONTEXT_META_KEY] as
+    | Record<string, unknown>
+    | undefined;
+  const proof = raw?.proof;
+  if (!proof || typeof proof !== 'object' || Array.isArray(proof)) return null;
+  const record = proof as Record<string, unknown>;
+  if (
+    record.version !== 1 ||
+    record.algorithm !== 'Ed25519' ||
+    !safeIdentity(record.keyId, 100) ||
+    typeof record.issuedAt !== 'number' ||
+    !Number.isSafeInteger(record.issuedAt) ||
+    !safeIdentity(record.nonce, 100) ||
+    !safeIdentity(record.toolName, 200) ||
+    !safeIdentity(record.argumentsHash, 100) ||
+    !safeIdentity(record.signature, 200)
+  ) {
+    return null;
+  }
+  return {
+    context,
+    proof: {
+      version: 1,
+      algorithm: 'Ed25519',
+      keyId: record.keyId,
+      issuedAt: record.issuedAt,
+      nonce: record.nonce,
+      toolName: record.toolName,
+      argumentsHash: record.argumentsHash,
+      signature: record.signature,
+    },
   };
 }

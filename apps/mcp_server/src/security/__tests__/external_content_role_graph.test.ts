@@ -65,7 +65,13 @@ const externalReads = new Map<string, string>([
   ["rhythm_pco_list_needed_positions", "pco.needed-positions"],
 ]);
 
-const trustedNonUserReads = new Set(["rhythm_ping"]);
+const trustedNonUserReads = new Set([
+  "rhythm_ping",
+  "rhythm_list_creative_capabilities",
+  "rhythm_creative_capability_status",
+  "rhythm_verify_creative_capability",
+  "rhythm_get_setup_readiness",
+]);
 
 const unavailableLegacyTools = new Set([
   "rhythm_remember",
@@ -228,6 +234,27 @@ const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
       {
         action: "agent-profile.permissions.update",
         sourceFile: "agentProfiles.ts",
+      },
+    ],
+    [
+      "rhythm_install_creative_capability",
+      {
+        action: "creative-capability.install",
+        sourceFile: "creativePlatform.ts",
+      },
+    ],
+    [
+      "rhythm_record_design",
+      {
+        action: "creative-artifact.record",
+        sourceFile: "creativePlatform.ts",
+      },
+    ],
+    [
+      "rhythm_run_external_discovery",
+      {
+        action: "org-optimizer.external-discovery",
+        sourceFile: "orgOptimizer.ts",
       },
     ],
   ],
