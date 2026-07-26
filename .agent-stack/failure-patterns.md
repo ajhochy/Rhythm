@@ -425,3 +425,21 @@
 - **Root cause**: Content-measured card headers and action sections now expose the wrapped URL plus Copy, Rotate, and Delete without clipping.
 - **Suggested fix**: Retain the focused source contract and native maximum-Dynamic-Type accessibility-tree check.
 - See `.agent-stack/postmortems/2026-07-25-issue-1173-native-corrective.json`.
+
+## 2026-07-25 — Issue #1175 — exact-port sandbox was reaped by the automation host
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C5 — environment issue; process: automation-process-lifetime
+- **Criteria affected**: issue-1175-c4
+- **Root cause**: `tools/dev/sandbox.sh up` backgrounds the API and returns; the Codex command-cell host reaped that descendant process when the launcher cell exited, so the live tests reached cleanup against a dead server.
+- **Suggested fix**: Add a foreground or automation-hold launcher mode and use it for agent-driven live smokes.
+- See `.agent-stack/postmortems/2026-07-25-issue-1175-final-sandbox-failed.json`.
+
+## 2026-07-25 — Issue #1175 — exact-port source-freeze smoke PASS
+
+- **Result**: smoke PASS (verification claimed PASS; no divergence)
+- **Category**: none
+- **Criteria affected**: issue-1175-c4
+- **Root cause**: No product failure; holding the launcher shell open kept the rebuilt API/fork alive for #1166, #1168, and #1170, all of which passed while protected listeners stayed unchanged.
+- **Suggested fix**: Retain the exact-port matrix and give automated callers an explicit foreground sandbox lifecycle.
+- See `.agent-stack/postmortems/2026-07-25-issue-1175-final-sandbox-pass.json`.

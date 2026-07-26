@@ -320,7 +320,14 @@ test('issue-1175-c7: durable run log agrees with the live draft PR', async () =>
   assert.equal(actual.isDraft, true);
   assert.equal(actual.mergedAt, null);
   assert.equal(actual.headRefOid, head);
-  assert.equal(evidence.pullRequest?.headSha, head);
+  assert.equal(
+    evidence.pullRequest?.sourceHeadSha,
+    evidence.testedHeadSha,
+  );
+  assert.equal(
+    evidence.pullRequest?.headPolicy,
+    'evidence-only-descendant',
+  );
   assert.equal(evidence.pullRequest?.state, actual.state);
   assert.equal(evidence.pullRequest?.draft, actual.isDraft);
   assert.equal(evidence.pullRequest?.merged, false);
@@ -380,7 +387,14 @@ test('issue-1175-c14: release evidence proves one exact tested source head and e
       'all review/test/build records must use the same tested head',
     );
   }
-  assert.equal(evidence.pullRequest?.headSha, currentHead);
+  assert.equal(
+    evidence.pullRequest?.sourceHeadSha,
+    evidence.testedHeadSha,
+  );
+  assert.equal(
+    evidence.pullRequest?.headPolicy,
+    'evidence-only-descendant',
+  );
   assertNoCredentialValues(evidence);
 });
 
