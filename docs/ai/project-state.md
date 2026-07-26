@@ -2,41 +2,40 @@
 
 ## Current focus
 
-Creative-platform integration is complete. Draft PR #1179 is fully green at
-HEAD `6a24e56aa`; manual visual smoke testing remains before merge.
+Repair the creative dependency installers so the desktop app produces verified,
+launchable local runtimes without relying on the user's shell environment.
 
 ## Active branch / PR
 
-- Branch: `feature/creative-platform-integration`.
-- HEAD: `6a24e56aa`.
-- Draft PR: [#1179](https://github.com/ajhochy/Rhythm/pull/1179).
-- The branch was pushed, the draft PR is open, and all latest CI checks pass.
+- Branch: `codex/fix-creative-installer`.
+- Draft PR: pending.
+- Related issue: #1201.
 
 ## In progress
 
-- No implementation work remains from the verified integration scope.
-- Pending: manual visual smoke before merge.
+- Implementation and automated verification are complete.
+- Commit, push, and draft PR creation remain.
 
 ## Risks / known issues
 
-- Manual visual smoke is still required before merge.
-- No automated or product blockers are known.
+- The reviewed Blender 5.2 application pin currently supports Apple silicon
+  only.
+- Blender, ComfyUI, and OpenMontage still need their documented user/runtime
+  startup steps and manual smoke testing before merge.
+- Production remains unchanged until a human reviews and merges the draft PR.
 
 ## Test status
 
-- Automated gate and latest GitHub CI: **PASS** at `6a24e56aa`.
-- Automated verification is green: API 3240 passed/52 skipped; MCP 98 passed/1
-  skipped with 81 runtime tools; Flutter 979 passed, format clean, and analyze
-  exited 0 with 273 infos.
-- Latest GitHub checks: Server passed in 3m39s, Desktop passed in 5m57s, and MCP
-  typecheck/build passed in 22s.
-- Live checks passed for generic research (2/2 completed with nonempty reports
-  and matching vault notes), Gallery ComfyUI MCP→API PNG, and unified
-  generic/AI-Trend/Theological indexing, deduplication, and restart fixtures.
-- Packaging, release, and schema gates passed. GitNexus reported medium branch
-  impact and low risk for the final focused changes.
-- Full evidence: `docs/ai/runs/2026-07-25-creative-platform-final-verification.md`.
+- API build: PASS.
+- API suite: PASS, 3,243 passed and 53 skipped.
+- Live isolated sandbox: PASS, FFmpeg install/execution and Obsidian MCP
+  initialization (2/2).
+- GitNexus branch comparison against `origin/main`: LOW risk, no affected
+  indexed execution processes.
+- Full evidence:
+  `docs/ai/runs/2026-07-26-creative-installer-repair.md`.
 
 ## Next step
 
-Run the manual visual smoke. Do not merge without human review.
+Open a draft PR, let CI run, then perform manual smoke testing for the heavy GUI
+integrations. Do not merge without human review.

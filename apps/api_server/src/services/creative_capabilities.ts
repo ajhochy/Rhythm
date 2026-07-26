@@ -2,6 +2,7 @@ import { existsSync as nodeExistsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createConnection } from 'node:net';
+import { creativeCapabilityLayout } from './creative_install_layout';
 
 export type CreativeCapabilityId =
   | 'blender'
@@ -39,7 +40,6 @@ export interface CreativeCapabilityListDeps {
 }
 
 interface CreativeCapabilityDefinition extends Omit<CreativeCapability, 'status'> {
-  relativePath: string[];
   localhostPort?: number;
 }
 
@@ -54,7 +54,6 @@ const DEFINITIONS: CreativeCapabilityDefinition[] = [
     advanced: false,
     dependencies: [],
     approval: { required: true, summary: 'Downloads Blender and starts its local MCP bridge.' },
-    relativePath: ['blender', 'Blender.app'],
     localhostPort: 9876,
   },
   {
@@ -67,7 +66,6 @@ const DEFINITIONS: CreativeCapabilityDefinition[] = [
     advanced: false,
     dependencies: [],
     approval: { required: true, summary: 'Downloads ComfyUI and runs a localhost-only service.' },
-    relativePath: ['comfyui', 'main.py'],
     localhostPort: 8188,
   },
   {
@@ -80,7 +78,6 @@ const DEFINITIONS: CreativeCapabilityDefinition[] = [
     advanced: true,
     dependencies: ['comfyui'],
     approval: { required: true, summary: 'Downloads large model files from their publishers.' },
-    relativePath: ['comfyui', 'models', '.rhythm-model-pack'],
   },
   {
     id: 'openmontage',
@@ -92,7 +89,6 @@ const DEFINITIONS: CreativeCapabilityDefinition[] = [
     advanced: false,
     dependencies: ['media-tools'],
     approval: { required: true, summary: 'Downloads the OpenMontage runtime and local voice assets.' },
-    relativePath: ['openmontage', '.venv', 'bin', 'python'],
   },
   {
     id: 'obsidian',
@@ -104,7 +100,6 @@ const DEFINITIONS: CreativeCapabilityDefinition[] = [
     advanced: true,
     dependencies: [],
     approval: { required: true, summary: 'Installs a local bridge; vault access still requires an API key.' },
-    relativePath: ['bin', 'mcp-obsidian'],
     localhostPort: 27123,
   },
   {
@@ -117,7 +112,6 @@ const DEFINITIONS: CreativeCapabilityDefinition[] = [
     advanced: false,
     dependencies: [],
     approval: { required: true, summary: 'Downloads a managed Python environment and document libraries.' },
-    relativePath: ['document-tools', '.venv', 'bin', 'python'],
   },
   {
     id: 'media-tools',
@@ -129,7 +123,6 @@ const DEFINITIONS: CreativeCapabilityDefinition[] = [
     advanced: false,
     dependencies: [],
     approval: { required: true, summary: 'Downloads managed FFmpeg media utilities.' },
-    relativePath: ['bin', 'ffmpeg'],
   },
 ];
 
@@ -162,10 +155,11 @@ export async function listCreativeCapabilities(
   );
 
   return Promise.all(
-    DEFINITIONS.map(async ({ relativePath, localhostPort, ...capability }) => {
-      // The installer atomically writes this sentinel; the executable layout is
-      // recipe-owned and may differ from the downloaded upstream archive.
-      let status: CreativeCapabilityStatus = (existsSync(join(root, capability.id, '.rhythm-installed.json')) || existsSync(join(root, ...relativePath)))
+    DEFINITIONS.map(async ({ localhostPort, ...capability }) => {
+      // A marker alone is never proof of a working installation. Every
+      // executable/runtime path shared with the curated MCP catalog must exist.
+      const layout = creativeCapabilityLayout(root, capability.id);
+      let status: CreativeCapabilityStatus = layout.requiredPaths.every(existsSync)
         ? 'installed'
         : 'missing';
       if (status === 'installed' && localhostPort !== undefined) {
