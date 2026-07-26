@@ -1,0 +1,52 @@
+{
+  "date": "2026-07-25",
+  "run": "PR #1165 mobile roadmap recovery, linked-issue integration, and final verification",
+  "smoke_result": "pass",
+  "criteria_results": [],
+  "process_issues": [],
+  "workflow_adherence": {
+    "expected_chain": [
+      "workflow-orchestrator",
+      "planning-agent",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "gh-fix-ci",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem",
+      "workflow-retrospective"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "planning-agent",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "gh-fix-ci",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem",
+      "workflow-retrospective"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W4",
+        "affected_skill": "verification-gate",
+        "description": "The first final sandbox smoke could not exercise product behavior because the command-cell host reaped the background sandbox after the launcher returned. The run was recorded as failed, rerun with the launcher shell held in the foreground, and passed without a product change; non-blocking issue #1186 tracks an automation-stable foreground mode.",
+        "detected_by": "failure triage plus the required failed/pass smoke postmortems"
+      },
+      {
+        "workflow_category": "W5",
+        "affected_skill": "acceptance-contract",
+        "description": "The first #1175 release contract required committed evidence to contain the SHA of the commit containing that evidence, an unsatisfiable self-reference. It was corrected to pin an immutable tested source and allow evidence-only descendants. A later positional acceptance-status edit temporarily marked human gates passed, but an explicit criterion-by-ID audit caught and corrected it before commit or push.",
+        "detected_by": "release-contract execution and semantic criterion-status audit before the evidence commit"
+      }
+    ],
+    "overall_score": "strict"
+  },
+  "notes": "Every repair-loop failure was classified, corrected, revalidated from the appropriate gate, and durably recorded. No global skill edit is proposed: the evidence-provenance rule is now executable in the repo contract, while the sandbox lifecycle gap is a repo tooling enhancement tracked by #1186."
+}
