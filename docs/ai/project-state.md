@@ -8,13 +8,13 @@ launchable local runtimes without relying on the user's shell environment.
 ## Active branch / PR
 
 - Branch: `codex/fix-creative-installer`.
-- Draft PR: pending.
+- Draft PR: [#1202](https://github.com/ajhochy/Rhythm/pull/1202).
 - Related issue: #1201.
 
 ## In progress
 
 - Implementation and automated verification are complete.
-- Commit, push, and draft PR creation remain.
+- Draft PR #1202 is open; CI and manual smoke remain.
 
 ## Risks / known issues
 
@@ -37,5 +37,5 @@ launchable local runtimes without relying on the user's shell environment.
 
 ## Next step
 
-Open a draft PR, let CI run, then perform manual smoke testing for the heavy GUI
-integrations. Do not merge without human review.
+Let CI run, then perform manual smoke testing for the heavy GUI integrations.
+Do not merge without human review.

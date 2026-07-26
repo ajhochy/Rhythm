@@ -2,7 +2,7 @@
 date: 2026-07-26
 repo: Rhythm
 branch: codex/fix-creative-installer
-pr: pending
+pr: 1202
 issues: [1201]
 status: passed
 tags: [run, Rhythm]
