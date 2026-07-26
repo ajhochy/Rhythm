@@ -2,8 +2,9 @@
 
 ## Current focus
 
-Hand draft PR #1165 to its human-only release gates. The cumulative mobile
-roadmap is complete through every automatable Task 17/18 check.
+Complete the four human iOS release gates split from umbrella #1175. The
+cumulative mobile roadmap is complete through every automatable Task 17/18
+check.
 
 ## Active branch / PR
 
@@ -13,25 +14,27 @@ roadmap is complete through every automatable Task 17/18 check.
 - Immutable tested source: `8701432480f585fe90119cbaee66382d062da879`
 - PR head policy: evidence-only descendants after the tested source
 
-## Completed
+## In progress
 
-- Mobile roadmap Tasks 1–16 are implemented and integrated through issues
-  #1166–#1174.
-- Task 17's source, security, live-sandbox, full-suite, secret-scan, GitNexus,
-  push/CI, and durable evidence gates are complete.
-- Task 18's rebuilt API/fork/gateway matrices and native simulator smokes are
-  complete through the Apple/physical-device boundary.
-- The branch also integrates closure-ready work for #1123, #1132, #1134,
-  #1135, #1137, #1157, #1161, #1162, #1164, #1181, and #1182.
-- Draft PR #1165 contains the closure metadata for those issues.
+- #1197: independent review of the exact PR #1165 release candidate.
+- #1198: signed EAS development build for a physical iPhone.
+- #1199: complete signed-build matrix on an isolated Mac sandbox and physical
+  iPhone.
+- #1200: production EAS build, exact-artifact TestFlight submission, and
+  bounded TestFlight install smoke.
+- Dependency order is #1197 → #1198 → #1199 → #1200. #1175 tracks the
+  umbrella gate and links the checklist.
 
-## Human gates / risks
+## Risks / known issues
 
-- #1175 remains open for the immutable independent whole-branch review, signed
-  physical-iPhone matrix, production archive/TestFlight provenance, and human
-  approval.
-- #1096 remains open for its signed/notarized clean-user checklist.
-- #1076 remains bounded by successor issues #1176, #1177, and #1178.
+- Any product, native configuration, dependency-lock, generated-runtime, or
+  release-script change invalidates downstream release evidence and restarts
+  the chain from the affected source SHA.
+- The physical-device run must use an isolated branch-built API/engine and
+  private Tailscale Serve gateway. It must not fall back to production staff
+  data or expose the OpenCode engine directly.
+- Credentials, signing assets, build artifacts, pairing/device tokens, private
+  hostnames, and iPhone UDIDs must never be committed or printed.
 - #1186 tracks a non-blocking automation improvement for a foreground sandbox
   lifecycle; the corrected final source smoke passed without a product change.
 - #1135's additive SQLite/Postgres change requires normal migration review.
@@ -62,7 +65,6 @@ roadmap is complete through every automatable Task 17/18 check.
 
 ## Next step
 
-Human completes #1175's immutable review, signed physical-iPhone checklist,
-production/TestFlight steps, and #1096's clean-user release checklist, then
-reviews `docs/testing/manual-smoke.md` and decides whether to approve/merge the
-draft.
+Complete #1197 against source `8701432480f585fe90119cbaee66382d062da879`,
+then proceed in order through #1198, #1199, and #1200. Keep PR #1165 draft and
+unmerged until the full chain and final human approval are complete.
