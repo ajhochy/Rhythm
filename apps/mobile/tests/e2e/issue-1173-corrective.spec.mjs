@@ -94,7 +94,9 @@ test('issue-1173-c17: Cookbook Skills and Playbooks edit and confirm destructive
   await expect(page.getByText('Summarize wins and follow-ups.').first()).toBeVisible();
   page.once('dialog', (dialog) => void dialog.accept());
   await page.getByRole('button', { name: 'Delete Weekly volunteer recap' }).click();
-  await expect(page.getByText('Weekly volunteer recap')).not.toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /^Weekly volunteer recap\./ }),
+  ).not.toBeVisible();
 
   await page.getByRole('button', { name: 'Back to Tools' }).click();
   await page.getByRole('button', { name: /^Skills\./ }).click();
