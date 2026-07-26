@@ -1079,7 +1079,7 @@ export declare class Session2 extends HeyApiClient {
         format?: OutputFormat;
         system?: string;
         variant?: string;
-        parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>;
+        parts?: Array<AgentPartInput | FilePartInput | SubtaskPartInput | TextPartInput>;
     }, options?: Options<never, ThrowOnError>): import("./client/types.gen.js").RequestResult<SessionPromptResponses, SessionPromptErrors, ThrowOnError, "fields">;
     /**
      * Delete message
@@ -1192,7 +1192,7 @@ export declare class Session2 extends HeyApiClient {
         format?: OutputFormat;
         system?: string;
         variant?: string;
-        parts?: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>;
+        parts?: Array<AgentPartInput | FilePartInput | SubtaskPartInput | TextPartInput>;
     }, options?: Options<never, ThrowOnError>): import("./client/types.gen.js").RequestResult<SessionPromptAsyncResponses, SessionPromptAsyncErrors, ThrowOnError, "fields">;
     /**
      * Send command
@@ -1559,7 +1559,7 @@ export declare class Tui extends HeyApiClient {
     publish<ThrowOnError extends boolean = false>(parameters?: {
         directory?: string;
         workspace?: string;
-        body?: EventTuiPromptAppend2 | EventTuiCommandExecute2 | EventTuiToastShow2 | EventTuiSessionSelect2;
+        body?: EventTuiCommandExecute2 | EventTuiPromptAppend2 | EventTuiSessionSelect2 | EventTuiToastShow2;
     }, options?: Options<never, ThrowOnError>): import("./client/types.gen.js").RequestResult<TuiPublishResponses, TuiPublishErrors, ThrowOnError, "fields">;
     /**
      * Select session

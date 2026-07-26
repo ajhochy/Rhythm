@@ -8,6 +8,7 @@ import { $ } from "bun"
 import path from "path"
 
 import { createClient } from "@hey-api/openapi-ts"
+import { canonicalizeOpenApi } from "./canonical-openapi"
 
 const opencode = path.resolve(dir, "../../opencode")
 
@@ -49,7 +50,7 @@ for (const name of ["mcpAllowlist", "skillAllowlist"]) {
     properties![name] = { anyOf: [schema, { type: "null" }] }
   }
 }
-const openapiText = `${JSON.stringify(openapi, null, 2)}\n`
+const openapiText = `${JSON.stringify(canonicalizeOpenApi(openapi), null, 2)}\n`
 await Bun.write("./openapi.json", openapiText)
 // Keep both checked-in specs identical to the schema that generated the SDK.
 await Bun.write("../openapi.json", openapiText)
