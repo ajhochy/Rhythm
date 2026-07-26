@@ -366,7 +366,7 @@ test('issue-1175-c14: release evidence proves one exact tested source head and e
   for (const file of filesAfterTestedHead) {
     assert.match(
       file,
-      /^(?:docs\/ai\/(?:evidence|runs)\/|docs\/ai\/project-state\.md$|\.agent-stack\/postmortems\/)/,
+      /^(?:docs\/ai\/(?:contracts|evidence|runs)\/|docs\/ai\/project-state\.md$|docs\/superpowers\/plans\/2026-07-24-rhythm-agent-ios-(?:roadmap|ledger)\.md$|\.agent-stack\/(?:failure-patterns\.md$|postmortems\/))/,
       `post-verification commit changed executable source: ${file}`,
     );
   }
