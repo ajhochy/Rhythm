@@ -963,6 +963,12 @@ export type Config = {
         primary_tools?: Array<string>;
         continue_loop_on_deny?: boolean;
         mcp_timeout?: number;
+        model_stream_scheduler?: {
+            max_concurrency?: number;
+            provider_limits?: {
+                [key: string]: number;
+            };
+        };
     };
 };
 export type Model = {

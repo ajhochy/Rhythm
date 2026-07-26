@@ -13949,6 +13949,23 @@
               "mcp_timeout": {
                 "type": "integer",
                 "exclusiveMinimum": 0
+              },
+              "model_stream_scheduler": {
+                "type": "object",
+                "properties": {
+                  "max_concurrency": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "provider_limits": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    }
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
