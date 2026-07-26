@@ -8,7 +8,7 @@
       "mode": "integration",
       "test_file": "tests/contract/issue-1175.mjs",
       "test_id": "issue-1175-c1: bounded GitNexus aggregate scope is durably tied to the tested head",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c2",
@@ -56,7 +56,7 @@
       "mode": "integration",
       "test_file": "tests/contract/issue-1175.mjs",
       "test_id": "issue-1175-c7: durable run log agrees with the live draft PR",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c8",
@@ -112,7 +112,7 @@
       "mode": "integration",
       "test_file": "tests/contract/issue-1175.mjs",
       "test_id": "issue-1175-c14: release evidence proves one exact tested source head and evidence-only final commits",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-1175-c15",

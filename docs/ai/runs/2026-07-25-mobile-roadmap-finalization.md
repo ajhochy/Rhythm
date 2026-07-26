@@ -139,4 +139,87 @@ were throwaway sandbox material and are intentionally not recorded.
 - Apple signing, device registration/trust/install, physical-iPhone validation,
   production build, and TestFlight remain human release gates.
 - Final aggregate verification, source/evidence commit SHAs, PR head, and CI
-  results will be appended after the source freeze and push.
+  results are recorded below.
+
+## Final source freeze and PR evidence
+
+The immutable tested source is
+`8701432480f585fe90119cbaee66382d062da879`. Every later repository change is
+restricted by the #1175 contract to evidence, run logs, project state,
+acceptance status, roadmap status, and smoke postmortems.
+
+GitNexus command:
+
+```bash
+node .gitnexus/run.cjs detect_changes --repo Rhythm-1172 --scope compare --base-ref main --limit 8
+```
+
+Observed: 987 files, 7,076 symbols, 21 affected flows, CRITICAL aggregate
+rating, and zero unexpected flows after mapping the results to the cumulative
+mobile roadmap, vendored engine, and explicitly linked issue work.
+
+Source-freeze CI command:
+
+```bash
+gh pr checks 1165
+```
+
+Observed on the tested source:
+
+- Type-check and build: PASS, run
+  `https://github.com/ajhochy/Rhythm/actions/runs/30182223114`
+- Desktop CI: PASS, run
+  `https://github.com/ajhochy/Rhythm/actions/runs/30182223148`
+- OpenCode Fork CI: PASS, run
+  `https://github.com/ajhochy/Rhythm/actions/runs/30182223161`
+- Mobile CI: PASS, runs
+  `https://github.com/ajhochy/Rhythm/actions/runs/30182221711` and
+  `https://github.com/ajhochy/Rhythm/actions/runs/30182223124`
+- Server CI: PASS, run
+  `https://github.com/ajhochy/Rhythm/actions/runs/30182223139`
+
+Focused source-freeze accessibility command:
+
+```bash
+cd apps/mobile && npm run test:dynamic-type
+```
+
+Observed: 2/2 passed.
+
+Final exact-port launcher and live command:
+
+```bash
+RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-pr1165-final-sandbox tools/dev/sandbox.sh up && RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4098 RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 RHYTHM_LIVE_DB_PATH=/private/tmp/rhythm-pr1165-final-sandbox/rhythm.db RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-pr1165-final-sandbox RHYTHM_LIVE_HUMAN_CAPABILITY=<throwaway-sandbox-capability> npx vitest run src/__tests__/issue_1166_pairing_live.test.ts src/__tests__/issue_1168_mobile_gateway_live.test.ts --no-file-parallelism
+```
+
+Observed: #1166 and #1168 passed 2/2. A separate
+`issue_1170_mobile_realtime_proxy_live.test.ts` invocation passed 2/2. Installed
+listeners `4001` and `4096` retained PIDs `964` and `1016` before and after.
+The first command-cell attempt was invalid because the automation host reaped
+the background sandbox after the launcher returned; the corrected foreground
+lifecycle passed without a source change. The failed/pass postmortems are
+committed, and non-blocking follow-up #1186 tracks a foreground launcher mode.
+
+The remaining commands are deliberately human-gated:
+
+Human gate: independently review git diff main...8701432480f585fe90119cbaee66382d062da879 and commit an immutable report with no unresolved Critical or Important findings.
+
+Human gate: run the signed physical-iPhone matrix in docs/testing/manual-smoke.md without recording a device UDID.
+
+Human gate: run npm run eas:production:ios and npm run eas:submit:ios through secure Apple/EAS credential tooling, recording only build/submission IDs and artifact hashes.
+
+Durable evidence is in `docs/ai/evidence/issue-1175-release.json`; its committed
+logs record SHA-256 hashes. #1175 criteria c1, c3, c4, c7–c31 are automated and
+green. Criteria c2 (immutable independent review), c5 (signed physical device),
+and c6 (production/TestFlight) remain pending by design.
+
+### CI repair loop
+
+The PR repair loop corrected five branch integration defects before the source
+freeze: a frozen Bun lock mismatch, stale generated scheduler SDK types, Node
+24 EventEmitter typing, mobile contract drift, and cross-platform OpenAPI
+ordering. The final Mobile CI failure then exposed a stale pinned pairing
+fingerprint after contract canonicalization plus one ambiguous Playwright
+locator. The fingerprint is now contract-tested against the generated
+manifest, the Cookbook assertion targets the deleted list item, and all 17
+affected E2E cases plus both complete Mobile CI runs pass.

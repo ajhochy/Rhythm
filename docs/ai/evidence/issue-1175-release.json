@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 2,
+  "testedHeadSha": "8701432480f585fe90119cbaee66382d062da879",
+  "runLog": "docs/ai/runs/2026-07-25-mobile-roadmap-finalization.md",
+  "gitnexus": {
+    "status": "pass",
+    "headSha": "8701432480f585fe90119cbaee66382d062da879",
+    "baseRef": "main",
+    "changedFiles": 987,
+    "changedSymbols": 7076,
+    "affectedFlows": 21,
+    "unexpectedFlows": 0,
+    "exitCode": 0,
+    "command": "node .gitnexus/run.cjs detect_changes --repo Rhythm-1172 --scope compare --base-ref main --limit 8",
+    "logPath": "docs/ai/evidence/logs/issue-1175-gitnexus.log",
+    "logSha256": "6c42960b4c8d0aa1fc85062b80cb08f828b2aed2faeafd6485101b9ecf4aac44"
+  },
+  "review": {
+    "status": "pending",
+    "independent": false,
+    "unresolvedCritical": 0,
+    "unresolvedImportant": 0,
+    "headSha": "8701432480f585fe90119cbaee66382d062da879",
+    "exitCode": null,
+    "command": "Human gate: independently review git diff main...8701432480f585fe90119cbaee66382d062da879 and commit an immutable report with no unresolved Critical or Important findings.",
+    "logPath": "docs/ai/evidence/logs/issue-1175-human-gates.log",
+    "logSha256": "65f18b00b8858e10056e259309ffd11248ef807cab2db6393c87f3b5242c968c"
+  },
+  "gates": [
+    {
+      "name": "api",
+      "status": "pass",
+      "headSha": "8701432480f585fe90119cbaee66382d062da879",
+      "exitCode": 0,
+      "command": "gh pr checks 1165",
+      "logPath": "docs/ai/evidence/logs/issue-1175-ci.log",
+      "logSha256": "0982d53f095902f28c8ae657f06e70606df8e1dc377041feada0c590c86665cb"
+    },
+    {
+      "name": "flutter",
+      "status": "pass",
+      "headSha": "8701432480f585fe90119cbaee66382d062da879",
+      "exitCode": 0,
+      "command": "gh pr checks 1165",
+      "logPath": "docs/ai/evidence/logs/issue-1175-ci.log",
+      "logSha256": "0982d53f095902f28c8ae657f06e70606df8e1dc377041feada0c590c86665cb"
+    },
+    {
+      "name": "mobile-static",
+      "status": "pass",
+      "headSha": "8701432480f585fe90119cbaee66382d062da879",
+      "exitCode": 0,
+      "command": "gh pr checks 1165",
+      "logPath": "docs/ai/evidence/logs/issue-1175-ci.log",
+      "logSha256": "0982d53f095902f28c8ae657f06e70606df8e1dc377041feada0c590c86665cb"
+    },
+    {
+      "name": "mobile-contract",
+      "status": "pass",
+      "headSha": "8701432480f585fe90119cbaee66382d062da879",
+      "exitCode": 0,
+      "command": "gh pr checks 1165",
+      "logPath": "docs/ai/evidence/logs/issue-1175-ci.log",
+      "logSha256": "0982d53f095902f28c8ae657f06e70606df8e1dc377041feada0c590c86665cb"
+    },
+    {
+      "name": "browser-e2e",
+      "status": "pass",
+      "headSha": "8701432480f585fe90119cbaee66382d062da879",
+      "exitCode": 0,
+      "command": "gh pr checks 1165",
+      "logPath": "docs/ai/evidence/logs/issue-1175-ci.log",
+      "logSha256": "0982d53f095902f28c8ae657f06e70606df8e1dc377041feada0c590c86665cb"
+    },
+    {
+      "name": "accessibility",
+      "status": "pass",
+      "headSha": "8701432480f585fe90119cbaee66382d062da879",
+      "exitCode": 0,
+      "command": "cd apps/mobile && npm run test:dynamic-type",
+      "logPath": "docs/ai/evidence/logs/issue-1175-accessibility.log",
+      "logSha256": "c0101e9b37ebba29dfebb222eca73d871fa8e27fa0f5051c634c0ceff7cb6e6e"
+    },
+    {
+      "name": "security",
+      "status": "pass",
+      "headSha": "8701432480f585fe90119cbaee66382d062da879",
+      "exitCode": 0,
+      "command": "gh pr checks 1165",
+      "logPath": "docs/ai/evidence/logs/issue-1175-ci.log",
+      "logSha256": "0982d53f095902f28c8ae657f06e70606df8e1dc377041feada0c590c86665cb"
+    },
+    {
+      "name": "secret-scan",
+      "status": "pass",
+      "headSha": "8701432480f585fe90119cbaee66382d062da879",
+      "exitCode": 0,
+      "command": "gh pr checks 1165",
+      "logPath": "docs/ai/evidence/logs/issue-1175-ci.log",
+      "logSha256": "0982d53f095902f28c8ae657f06e70606df8e1dc377041feada0c590c86665cb"
+    }
+  ],
+  "sandbox": {
+    "status": "pass",
+    "headSha": "8701432480f585fe90119cbaee66382d062da879",
+    "launcher": "tools/dev/sandbox.sh",
+    "apiPort": 4098,
+    "enginePort": 4097,
+    "listenersBefore": {
+      "port4001": {
+        "pid": 964
+      },
+      "port4096": {
+        "pid": 1016
+      }
+    },
+    "listenersAfter": {
+      "port4001": {
+        "pid": 964
+      },
+      "port4096": {
+        "pid": 1016
+      }
+    },
+    "exitCode": 0,
+    "command": "RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-pr1165-final-sandbox tools/dev/sandbox.sh up && RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4098 RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 RHYTHM_LIVE_DB_PATH=/private/tmp/rhythm-pr1165-final-sandbox/rhythm.db RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-pr1165-final-sandbox RHYTHM_LIVE_HUMAN_CAPABILITY=<throwaway-sandbox-capability> npx vitest run src/__tests__/issue_1166_pairing_live.test.ts src/__tests__/issue_1168_mobile_gateway_live.test.ts --no-file-parallelism",
+    "logPath": "docs/ai/evidence/logs/issue-1175-exact-port-sandbox.log",
+    "logSha256": "fda68f279402d7e9bb6408eab58af39e55f060b0c03d049f7710c0bd44cf30bd"
+  },
+  "developmentBuild": {
+    "status": "pending",
+    "buildId": "",
+    "signed": false,
+    "headSha": "8701432480f585fe90119cbaee66382d062da879",
+    "command": "Human gate: create a signed development iOS build through secure EAS credential tooling.",
+    "artifact": null
+  },
+  "physicalDevice": {
+    "status": "pending",
+    "headSha": "8701432480f585fe90119cbaee66382d062da879",
+    "deviceLabel": "",
+    "checks": {
+      "pairing": "pending",
+      "failure-isolation": "pending",
+      "chat-sse": "pending",
+      "pty": "pending",
+      "approvals": "pending",
+      "all-tools": "pending",
+      "revocation": "pending",
+      "background-recovery": "pending"
+    },
+    "exitCode": null,
+    "command": "Human gate: run the signed physical-iPhone matrix in docs/testing/manual-smoke.md without recording a device UDID.",
+    "logPath": "docs/ai/evidence/logs/issue-1175-human-gates.log",
+    "logSha256": "65f18b00b8858e10056e259309ffd11248ef807cab2db6393c87f3b5242c968c"
+  },
+  "productionBuild": {
+    "status": "pending",
+    "buildId": "",
+    "configuration": "Release",
+    "headSha": "8701432480f585fe90119cbaee66382d062da879",
+    "command": "Human gate: create the production iOS build through secure EAS credential tooling.",
+    "artifact": null
+  },
+  "testflight": {
+    "status": "pending",
+    "submissionId": "",
+    "buildNumber": "",
+    "artifactSha256": "",
+    "headSha": "8701432480f585fe90119cbaee66382d062da879",
+    "exitCode": null,
+    "command": "Human gate: run npm run eas:production:ios and npm run eas:submit:ios through secure Apple/EAS credential tooling, recording only build/submission IDs and artifact hashes.",
+    "logPath": "docs/ai/evidence/logs/issue-1175-human-gates.log",
+    "logSha256": "65f18b00b8858e10056e259309ffd11248ef807cab2db6393c87f3b5242c968c"
+  },
+  "pullRequest": {
+    "number": 1165,
+    "sourceHeadSha": "8701432480f585fe90119cbaee66382d062da879",
+    "headPolicy": "evidence-only-descendant",
+    "state": "OPEN",
+    "draft": true,
+    "merged": false,
+    "url": "https://github.com/ajhochy/Rhythm/pull/1165"
+  }
+}

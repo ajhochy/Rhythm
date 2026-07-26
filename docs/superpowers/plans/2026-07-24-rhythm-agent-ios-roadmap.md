@@ -42,8 +42,9 @@ repository.
 
 **Current state:** Tasks 1–16 are implemented in the Rhythm monorepo. Task 17's
 automated implementation, current-head regression gates, focused independent
-audits, and final in-process review are complete; the immutable whole-branch
-human review, push/CI evidence, and merge decision remain. Task 18 has green
+audits, final in-process review, source push/CI, and durable evidence are
+complete; the immutable whole-branch human review and merge decision remain.
+Task 18 has green
 rebuilt-engine coverage on both dedicated alternate ports and the exact
 `4098/4097` plan ports, but remains intentionally open for Apple signing, a
 registered physical iPhone, subjective acceptance, production build, and
@@ -55,6 +56,7 @@ TestFlight. Nothing has been merged into `main`; PR #1165 remains draft.
 - local branch `codex/mobile-1172-agents-activity`
 - remote PR branch `feat/rhythm-agent-ios-roadmap`
 - draft PR #1165
+- tested source `8701432480f585fe90119cbaee66382d062da879`
 
 **Review and live status:**
 

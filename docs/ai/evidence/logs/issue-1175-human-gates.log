@@ -1,0 +1,11 @@
+Source head: 8701432480f585fe90119cbaee66382d062da879
+Status: pending human-only gates
+
+Human gate: independently review git diff main...8701432480f585fe90119cbaee66382d062da879 and commit an immutable report with no unresolved Critical or Important findings.
+
+Human gate: run the signed physical-iPhone matrix in docs/testing/manual-smoke.md without recording a device UDID.
+
+Human gate: run npm run eas:production:ios and npm run eas:submit:ios through secure Apple/EAS credential tooling, recording only build/submission IDs and artifact hashes.
+
+No credential, signing key, device identifier, build artifact, or claimed pass
+result is recorded here. These commands remain deliberately pending.

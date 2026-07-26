@@ -12,7 +12,7 @@
       "contract_status": "pass",
       "smoke_status": "pass",
       "category": "none",
-      "notes": "With the sandbox launcher shell held open, the rebuilt source freeze passed #1166 pairing (1/1), #1168 authenticated project containment (1/1), and #1170 SSE/PTY plus isolation attestation (2/2). API 4098 and engine 4097 were healthy, and installed listeners 4001/4096 retained PIDs 964/1016 before and after teardown."
+      "notes": "With the sandbox launcher shell held open, final source freeze 8701432480f585fe90119cbaee66382d062da879 passed #1166 pairing (1/1), #1168 authenticated project containment (1/1), and #1170 SSE/PTY plus isolation attestation (2/2). API 4098 and engine 4097 were healthy, and installed listeners 4001/4096 retained PIDs 964/1016 before and after teardown."
     }
   ],
   "process_issues": [],
