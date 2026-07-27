@@ -10,43 +10,87 @@ import '../controllers/tasks_controller.dart';
 /// Due date defaults to today. On successful save, calls [onTaskCreated]
 /// so the parent shell can bounce back to the Today tab.
 class QuickAddView extends StatefulWidget {
-  const QuickAddView({super.key, required this.onTaskCreated});
+  const QuickAddView({
+    super.key,
+    required this.onTaskCreated,
+    this.now,
+  });
 
   final VoidCallback onTaskCreated;
+
+  /// Injectable wall clock for deterministic date-rollover verification.
+  ///
+  /// Production callers leave this null and use the device's local time.
+  final DateTime Function()? now;
 
   @override
   State<QuickAddView> createState() => QuickAddViewState();
 }
 
-class QuickAddViewState extends State<QuickAddView> {
+class QuickAddViewState extends State<QuickAddView>
+    with WidgetsBindingObserver {
   final _titleController = TextEditingController();
   final _notesController = TextEditingController();
   final _titleFocus = FocusNode();
 
-  DateTime? _dueDate = _today();
+  DateTime? _dueDate;
+  bool _tracksTodayDefault = true;
 
   bool _isSaving = false;
   String? _inlineError;
 
-  static DateTime _today() {
-    final now = DateTime.now();
+  DateTime _today() {
+    final now = widget.now?.call() ?? DateTime.now();
     return DateTime(now.year, now.month, now.day);
   }
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _dueDate = _today();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _titleController.dispose();
     _notesController.dispose();
     _titleFocus.dispose();
     super.dispose();
   }
 
-  /// Called by AppShell via a key or by didChangeDependencies when the Add
-  /// tab becomes active — requests focus so the keyboard opens automatically.
+  /// Called by AppShell via a key when the Add tab becomes active.
+  ///
+  /// Refreshes the implicit due-date default and requests focus so the
+  /// keyboard opens automatically.
   void requestTitleFocus() {
+    _refreshTrackedToday();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _titleFocus.requestFocus();
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshTrackedToday();
+    }
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  /// Advances only the implicit "today" default across midnight.
+  ///
+  /// A date chosen (or cleared) by the user is explicit state and must survive
+  /// tab changes and foreground resumes unchanged.
+  void _refreshTrackedToday() {
+    if (!_tracksTodayDefault || !mounted) return;
+    final today = _today();
+    final dueDate = _dueDate;
+    if (dueDate != null && _isSameDay(dueDate, today)) return;
+    setState(() => _dueDate = today);
   }
 
   bool get _canSave => _titleController.text.trim().isNotEmpty && !_isSaving;
@@ -85,15 +129,26 @@ class QuickAddViewState extends State<QuickAddView> {
       lastDate: DateTime(2100),
     );
     if (picked != null) {
-      setState(() => _dueDate = picked);
+      setState(() {
+        _dueDate = picked;
+        _tracksTodayDefault = false;
+      });
     }
   }
 
-  void _clearDate() => setState(() => _dueDate = null);
+  void _clearDate() => setState(() {
+        _dueDate = null;
+        _tracksTodayDefault = false;
+      });
 
   Future<void> _save() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
+
+    // The Add tab may remain visible across midnight without a lifecycle or
+    // tab-selection event. Refresh immediately before serializing as a final
+    // guard against submitting yesterday's implicit default.
+    _refreshTrackedToday();
 
     setState(() {
       _isSaving = true;
@@ -116,6 +171,7 @@ class QuickAddViewState extends State<QuickAddView> {
       _notesController.clear();
       setState(() {
         _dueDate = _today();
+        _tracksTodayDefault = true;
         _isSaving = false;
         _inlineError = null;
       });

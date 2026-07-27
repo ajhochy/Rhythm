@@ -2,55 +2,47 @@
 
 ## Current focus
 
-Creative installer repair is implemented and live-smoked across Blender,
-OpenMontage, ComfyUI, FFmpeg, and Obsidian.
+Issue #418: correct the retained legacy mobile Quick Add date default after a
+local-midnight rollover.
 
 ## Active branch / PR
 
-- Branch: `codex/fix-creative-installer`.
-- Draft PR: [#1202](https://github.com/ajhochy/Rhythm/pull/1202).
-- Related issue: #1201.
+- Branch: `codex/418-quick-add-rollover`.
+- Draft PR: not opened.
+- Related issue: #418.
 
 ## In progress
 
-- Draft PR #1202 is open for human review; Server CI passed.
-- Blender now uses a checksum-verified OCF mirror and includes the exact pinned
-  MCP add-on source.
-- OpenMontage resolves packaged resources from the built API layout and launches
-  through its managed Python interpreter.
-- Gated live coverage now exercises all three heavy integrations through the
-  real sandbox API.
+- The implementation and deterministic widget regression tests are complete.
+- The gated live Flutter behavior test passed through the real sandbox API and
+  verified the persisted rolled-over due date.
+- Work is ready for parent integration, commit, push, and a draft PR.
 
 ## Risks / known issues
 
-- The Blender and ComfyUI live installer coverage is Apple Silicon/macOS
-  specific.
-- Blender add-on persistence remains an explicit user action; the installer
-  does not silently modify Blender preferences.
-- The optional ComfyUI model pack and image generation were not part of this
-  smoke.
-- Production remains unchanged until a human reviews and merges the draft PR.
+- This code is in `apps/mobile_flutter`, the legacy mobile client rather than
+  the shipping desktop Flutter client.
+- `flutter analyze` is environment-blocked by a pre-existing `CardThemeData`
+  error under the installed Flutter 3.24.5 SDK; changed files have no analyzer
+  findings.
+- GitNexus returned a corrupt/stale CRITICAL blast radius containing unrelated
+  engine, desktop, and API symbols. Exact changed Dart methods were unindexed.
+- The live run reproduced the orphaned-engine teardown defect tracked by #1186;
+  ownership was verified before terminating the isolated process.
 
 ## Test status
 
-- API build: PASS.
-- API suite: PASS, 372 files passed and 33 skipped; 3,245 tests passed and 56
-  skipped.
-- Live isolated sandbox: PASS, FFmpeg install/execution and Obsidian MCP
-  initialization (2/2).
-- Heavy isolated smoke: PASS, 3/3. Blender installed, rendered a PNG, and
-  answered a real MCP `get_scene_info` call; OpenMontage installed and answered
-  `openmontage_status`; ComfyUI installed, started locally, verified healthy,
-  and answered `ping_comfyui`.
-- Focused Blender MCP bridge rerun: PASS, 1 passed and 2 skipped in 71.74
-  seconds.
-- GitNexus branch and staged comparisons: LOW risk, zero affected indexed
-  execution processes.
-- Full evidence:
-  `docs/ai/runs/2026-07-26-creative-installer-repair.md` and
-  `docs/ai/runs/2026-07-26-creative-heavy-smoke.md`.
+- Full mobile test suite: PASS, 4 passed and 1 gated live test skipped.
+- Focused rollover suite: PASS, 3 passed and 1 gated live test skipped.
+- Live isolated sandbox: PASS, 1/1 with persisted due date `2026-05-06`.
+- Mobile formatting: PASS.
+- API direct typecheck: PASS.
+- Previously flaky unrelated API test: PASS, 21/21 in isolation.
+- Mobile analyzer: BLOCKED only by the pre-existing SDK-incompatible
+  `CardThemeData` use.
+- Full evidence: `docs/ai/runs/2026-07-26-418-quick-add-rollover.md`.
 
 ## Next step
 
-Human manual review and product smoke of draft PR #1202. Do not merge
-automatically.
+Integrate the #418 patch, run GitNexus change detection from the parent branch
+index, then commit, push, and open a draft PR for human review.
