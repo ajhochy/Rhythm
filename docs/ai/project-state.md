@@ -2,47 +2,47 @@
 
 ## Current focus
 
-Issue #418: correct the retained legacy mobile Quick Add date default after a
-local-midnight rollover.
+Land issue #418's verified legacy mobile Quick Add midnight rollover fix as the
+second change in the post-`v0.18.51` release train.
 
 ## Active branch / PR
 
 - Branch: `codex/418-quick-add-rollover`.
-- Draft PR: [#1203](https://github.com/ajhochy/Rhythm/pull/1203).
-- Related issue: #418.
+- PR: [#1203](https://github.com/ajhochy/Rhythm/pull/1203).
+- Release guard #1185 is merged.
+- Queued after it: #1204 and #1205.
+- WIP PR #1165 is excluded because it is explicitly unfinished and conflicted.
 
 ## In progress
 
-- The implementation and deterministic widget regression tests are complete.
-- The gated live Flutter behavior test passed through the real sandbox API and
-  verified the persisted rolled-over due date.
-- The tested implementation is pushed to draft PR #1203 for human review.
+- Main is merged into #1203; the only conflict was this canonical state
+  snapshot.
+- Revalidate the focused rollover behavior, then merge sequentially.
+- Dispatch the next desktop patch release from the final main commit.
 
 ## Risks / known issues
 
 - This code is in `apps/mobile_flutter`, the legacy mobile client rather than
   the shipping desktop Flutter client.
-- `flutter analyze` is environment-blocked by a pre-existing `CardThemeData`
-  error under the installed Flutter 3.24.5 SDK; changed files have no analyzer
-  findings.
-- GitNexus returned a corrupt/stale CRITICAL blast radius containing unrelated
-  engine, desktop, and API symbols. Exact changed Dart methods were unindexed.
-- The live run reproduced the orphaned-engine teardown defect tracked by #1186;
-  ownership was verified before terminating the isolated process.
+- The host Flutter SDK is older than the current desktop dependency
+  requirement. The focused legacy mobile tests pass; GitHub release runners
+  install current stable Flutter.
+- API image publication updates GHCR only; Synology deployment remains a
+  separate manual pull and compose restart.
+- Human post-release verification remains required for the signed macOS build.
 
 ## Test status
 
-- Full mobile test suite: PASS, 4 passed and 1 gated live test skipped.
-- Focused rollover suite: PASS, 3 passed and 1 gated live test skipped.
-- Live isolated sandbox: PASS, 1/1 with persisted due date `2026-05-06`.
-- Mobile formatting: PASS.
-- API direct typecheck: PASS.
-- Previously flaky unrelated API test: PASS, 21/21 in isolation.
-- Mobile analyzer: BLOCKED only by the pre-existing SDK-incompatible
-  `CardThemeData` use.
-- Full evidence: `docs/ai/runs/2026-07-26-418-quick-add-rollover.md`.
+- #1185 focused release-smoke parity test: PASS, 9/9; merged.
+- #1203 full mobile suite: PASS, 4 passed and 1 gated live test skipped.
+- #1203 focused rollover suite: PASS, 3 passed and 1 gated live test skipped.
+- #1203 live isolated sandbox: PASS, 1/1 with persisted rolled-over due date.
+- #1203 formatting and API typecheck: PASS.
+- #1204 sandbox behavioral gate and Server CI: PASS.
+- #1205 full API/MCP/live sandbox gates and required CI: PASS.
 
 ## Next step
 
-Human review and manual product smoke of draft PR #1203. Do not merge
-automatically.
+Merge #1203 after its updated-head checks, then revalidate and merge #1204 and
+#1205. Trigger the next desktop patch release only from the resulting main
+commit.

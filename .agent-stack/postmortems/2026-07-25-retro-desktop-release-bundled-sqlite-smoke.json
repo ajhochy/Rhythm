@@ -1,0 +1,57 @@
+{
+  "run_id": "2026-07-25-retro-desktop-release-bundled-sqlite-smoke",
+  "issue": 0,
+  "date": "2026-07-25",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [],
+  "process_issues": [
+    {
+      "process_category": "test-flake",
+      "description": "The first full local PR check returned HTTP 404 instead of 204 in issue_1048_engine_session_delete.test.ts, but the unchanged test passed alone, across five repeats, in the next full local run, and in both PR CI runs.",
+      "detected_by": "ai-workflow checks --level pr failure followed by targeted repetition, a clean full-suite rerun, and Server CI runs 30179165647 and 30179296888."
+    },
+    {
+      "process_category": "concurrent-state-change",
+      "description": "PR #1184 merged the same one-line workflow fix while the verification run was in progress, requiring the follow-up branch to merge origin/main and narrow its remaining diff to regression coverage and run records.",
+      "detected_by": "git fetch origin, gh pr view 1184, and comparison of origin/main with the active branch."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "gh-fix-ci",
+      "failure-triage",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "gh-fix-ci",
+      "failure-triage",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    ".github/workflows/desktop_release.yml",
+    "apps/api_server/src/__tests__/skill_schema_parity.test.ts",
+    "docs/ai/project-state.md",
+    "docs/ai/runs/2026-07-25-desktop-release-bundled-sqlite-smoke.md"
+  ],
+  "failure_output": "Error: Cannot find module 'apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/api_server/node_modules/better-sqlite3' ... Fresh bundled boot did not seed both optimizer profiles and exactly one enabled task each",
+  "overall_category": "none",
+  "suggested_follow_up": "Keep the static path-resolution regression guard in the release parity test; no canonical skill change is warranted from this single strict run."
+}
