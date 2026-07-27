@@ -53,6 +53,7 @@ up() {
   DB_PATH="$SB/rhythm.db" \
   MEMORY_VAULT_PATH="$SB/vault" \
   RHYTHM_MANAGED_SKILLS_DIR="$SB/home/.config/opencode/skills" \
+  RHYTHM_CREATIVE_RESOURCES_DIR="$API_DIR/resources" \
   RHYTHM_OPENCODE_ENGINE_PORT="$ENGINE_PORT" \
   RHYTHM_OPENCODE_BIN_DIR="$ENGINE_DIR/dist/opencode-darwin-arm64/bin" \
   MAX_CONCURRENT_AGENT_RUNS=2 \

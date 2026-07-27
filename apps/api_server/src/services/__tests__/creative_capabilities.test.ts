@@ -46,7 +46,7 @@ describe('listCreativeCapabilities', () => {
     });
 
     expect(capabilities.every((capability) => capability.status === 'installed')).toBe(true);
-    expect(checkedPaths).toHaveLength(IDS.length);
+    expect(checkedPaths.length).toBeGreaterThan(IDS.length);
     expect(checkedPaths.every((path) => path.startsWith('/test-home/Library/Application Support/Rhythm/creative-tools/'))).toBe(true);
     expect(tcpProbe.mock.calls).toEqual([
       ['127.0.0.1', 9876],
@@ -57,7 +57,7 @@ describe('listCreativeCapabilities', () => {
 
   it('distinguishes an installed but unhealthy local service from missing software', async () => {
     const capabilities = await listCreativeCapabilities({
-      existsSync: (path) => path.endsWith('/blender/Blender.app'),
+      existsSync: (path) => path.includes('/blender/'),
       homeDir: '/test-home',
       tcpProbe: async () => false,
     });
@@ -68,7 +68,10 @@ describe('listCreativeCapabilities', () => {
 
   it('keeps the model pack separate, optional, and advanced', async () => {
     const capabilities = await listCreativeCapabilities({
-      existsSync: (path) => path.endsWith('/comfyui/main.py'),
+      existsSync: (path) =>
+        path.endsWith('/comfyui/main.py') ||
+        path.endsWith('/comfyui/.venv/bin/python') ||
+        path.endsWith('/comfyui/mcp/node_modules/@peleke.s/comfyui-mcp/dist/index.js'),
       homeDir: '/test-home',
       tcpProbe: async () => true,
     });
@@ -92,5 +95,15 @@ describe('listCreativeCapabilities', () => {
 
     expect(JSON.stringify(capabilities)).not.toContain('/Users/private-person');
     expect(JSON.stringify(capabilities)).not.toContain('creative-tools');
+  });
+
+  it('does not report a stale installer sentinel as installed', async () => {
+    const capabilities = await listCreativeCapabilities({
+      existsSync: (path) => path.endsWith('/.rhythm-installed.json'),
+      homeDir: '/test-home',
+      tcpProbe: async () => true,
+    });
+
+    expect(capabilities.every(({ status }) => status === 'missing')).toBe(true);
   });
 });

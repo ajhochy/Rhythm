@@ -135,3 +135,21 @@ describe('resolveLocalCuratedMcpServersPath', () => {
     ).toBe('/Users/me/.config/rhythm/mcps.json');
   });
 });
+
+describe('managed creative MCP commands', () => {
+  it('launches OpenMontage through its managed Python environment', () => {
+    const server = registry.CURATED_MCP_SERVERS.find(
+      ({ id }) => id === 'openmontage',
+    );
+
+    expect(server).toMatchObject({
+      type: 'local',
+      command: [
+        expect.stringMatching(/openmontage\/\.venv\/bin\/python$/),
+        expect.stringMatching(
+          /openmontage\/openmontage-mcp\/openmontage_mcp_server\.py$/,
+        ),
+      ],
+    });
+  });
+});

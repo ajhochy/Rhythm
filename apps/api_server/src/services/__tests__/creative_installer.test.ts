@@ -1,42 +1,348 @@
-import { describe, expect, it, vi } from 'vitest';
-import { createHash } from 'node:crypto';
-import { CREATIVE_INSTALL_RECIPES, installCreativeDependency } from '../creative_installer';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import {
+  CREATIVE_INSTALL_RECIPES,
+  installCreativeDependency,
+  type CreativeInstallArtifact,
+  type CreativeInstallerDeps,
+} from '../creative_installer';
 
-const approval = (id: keyof typeof CREATIVE_INSTALL_RECIPES, sessionId: string | null = 'session-1') => ({ id: 'approval', sessionId, agentConfigId: null, action: `install_creative_dependency:${id}`, preview: null, consequence: null, status: 'approved' as const, actor: null, decidedAt: null, createdAt: '' });
-function fakeFs(existing = false) {
-  const files = new Map<string, Uint8Array | string>();
-  return { files, exists: vi.fn(async (p: string) => existing || files.has(p)), mkdir: vi.fn(async () => {}), writeFile: vi.fn(async (p: string, d: Uint8Array | string) => { files.set(p, d); }), readFile: vi.fn(async (p: string) => new Uint8Array(files.get(p) as Uint8Array)), rename: vi.fn(async () => {}), rm: vi.fn(async () => {}) };
+const roots: string[] = [];
+
+const approval = (
+  id: keyof typeof CREATIVE_INSTALL_RECIPES,
+  sessionId: string | null = 'session-1',
+) => ({
+  id: 'approval',
+  sessionId,
+  agentConfigId: null,
+  action: `install_creative_dependency:${id}`,
+  preview: null,
+  consequence: null,
+  status: 'approved' as const,
+  actor: null,
+  decidedAt: null,
+  createdAt: '',
+});
+
+async function root(): Promise<string> {
+  const path = await mkdtemp(join(tmpdir(), 'rhythm-creative-installer-'));
+  roots.push(path);
+  return path;
 }
+
+async function fakeDownload(
+  item: CreativeInstallArtifact,
+  destination: string,
+): Promise<string> {
+  await mkdir(dirname(destination), { recursive: true });
+  await writeFile(destination, item.filename);
+  return item.sha256;
+}
+
+const resolveExecutable: NonNullable<CreativeInstallerDeps['resolveExecutable']> =
+  async (names) => `/resolved/${names[0]}`;
+
+afterEach(async () => {
+  await Promise.all(
+    roots.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+  );
+  vi.restoreAllMocks();
+});
+
 describe('installCreativeDependency', () => {
-  it('only exposes seven fixed reviewed recipes and excludes banned model packages', () => {
+  it('exposes only seven reviewed recipes with fixed, checksummed artifacts', () => {
     expect(Object.keys(CREATIVE_INSTALL_RECIPES)).toHaveLength(7);
-    expect(JSON.stringify(CREATIVE_INSTALL_RECIPES)).not.toMatch(/rembg|real-esrgan/i);
-    for (const recipe of Object.values(CREATIVE_INSTALL_RECIPES)) { expect(recipe.url).toMatch(/^https:\/\//); expect(recipe.sha256).toMatch(/^[a-f0-9]{64}$/); expect(recipe.argv.length).toBeGreaterThan(0); }
+    expect(JSON.stringify(CREATIVE_INSTALL_RECIPES)).not.toMatch(
+      /rembg|real-esrgan/i,
+    );
+    for (const recipe of Object.values(CREATIVE_INSTALL_RECIPES)) {
+      expect(recipe.installer).toBe(recipe.id);
+      for (const item of recipe.artifacts) {
+        expect(item.filename).not.toContain('/');
+        expect(item.url).toMatch(/^https:\/\//);
+        expect(item.sha256).toMatch(/^[a-f0-9]{64}$/);
+      }
+    }
+    expect(CREATIVE_INSTALL_RECIPES.blender).toMatchObject({
+      version: '5.2.0+mcp-1.6.0-r4',
+      artifacts: expect.arrayContaining([
+        expect.objectContaining({
+          url: expect.stringMatching(
+            /^https:\/\/mirrors\.ocf\.berkeley\.edu\/blender\/release\//,
+          ),
+          sha256:
+            'ed4d8390166dec5ea0a2813a03db6221f206ce016442be7f59f41d760972568a',
+        }),
+        expect.objectContaining({
+          filename: 'blender_mcp_addon.py',
+          url: expect.stringContaining(
+            '/ahujasid/blender-mcp/494fb5bba603fb650f20c507adce994dffbd6dae/addon.py',
+          ),
+          sha256:
+            'd43484fcd9a4a33f1561ab69676f5d33d0aa7c649d5e2f5fd34ddd78615ee734',
+        }),
+      ]),
+    });
   });
+
   it('requires a matching approved action and session before downloading', async () => {
-    const downloader = vi.fn(); const fs = fakeFs();
-    await expect(installCreativeDependency({ id: 'media-tools', sessionId: 'other' }, { approvals: { list: () => [approval('media-tools')] }, fs, downloader, root: '/fixed' })).resolves.toMatchObject({ status: 'denied' });
+    const downloader = vi.fn(fakeDownload);
+    await expect(
+      installCreativeDependency(
+        { id: 'media-tools', sessionId: 'other' },
+        {
+          approvals: { list: () => [approval('media-tools')] },
+          downloader,
+          root: await root(),
+        },
+      ),
+    ).resolves.toMatchObject({ status: 'denied' });
     expect(downloader).not.toHaveBeenCalled();
   });
-  it('keeps model license acceptance separate from approval', async () => {
-    const downloader = vi.fn(); const fs = fakeFs();
-    await expect(installCreativeDependency({ id: 'comfyui-model-pack', sessionId: 'session-1' }, { approvals: { list: () => [approval('comfyui-model-pack')] }, fs, downloader, root: '/fixed' })).resolves.toMatchObject({ status: 'awaiting-user' });
+
+  it('keeps model license acceptance separate from install approval', async () => {
+    const downloader = vi.fn(fakeDownload);
+    await expect(
+      installCreativeDependency(
+        { id: 'comfyui-model-pack', sessionId: 'session-1' },
+        {
+          approvals: { list: () => [approval('comfyui-model-pack')] },
+          downloader,
+          root: await root(),
+        },
+      ),
+    ).resolves.toMatchObject({ status: 'awaiting-user' });
     expect(downloader).not.toHaveBeenCalled();
   });
-  it('checks a downloaded artifact before argv-only runner and atomically promotes its sentinel', async () => {
-    const recipe = CREATIVE_INSTALL_RECIPES['media-tools']; const bytes = new TextEncoder().encode('artifact');
-    const original = recipe.sha256;
-    Object.assign(recipe, { sha256: createHash('sha256').update(bytes).digest('hex') });
-    const fs = fakeFs(); const runner = vi.fn(async () => {});
-    const result = await installCreativeDependency({ id: 'media-tools', sessionId: 'session-1' }, { approvals: { list: () => [approval('media-tools')] }, fs, downloader: async () => bytes, runner, root: '/fixed' });
-    recipe.sha256 = original;
-    expect(result.status).toBe('installed'); expect(runner).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ cwd: expect.stringContaining('.install-media-tools-') })); expect(fs.rename).toHaveBeenCalledTimes(1);
+
+  it('installs the REST-compatible Obsidian wheel into the exact curated command path', async () => {
+    const managedRoot = await root();
+    const runner: NonNullable<CreativeInstallerDeps['runner']> = vi.fn(
+      async (argv: readonly string[]) => {
+        if (argv.includes('venv')) {
+          const venv = argv.at(-1)!;
+          await mkdir(join(venv, 'bin'), { recursive: true });
+          await writeFile(join(venv, 'bin', 'python'), '');
+        }
+        if (argv.includes('pip')) {
+          const python = argv[0];
+          await writeFile(
+            join(dirname(python), 'mcp-obsidian'),
+            `#!/bin/sh\nexec "${python}" "$@"\n`,
+          );
+        }
+      },
+    );
+
+    const result = await installCreativeDependency(
+      { id: 'obsidian', sessionId: 'session-1' },
+      {
+        approvals: { list: () => [approval('obsidian')] },
+        downloader: fakeDownload,
+        runner,
+        resolveExecutable,
+        root: managedRoot,
+      },
+    );
+
+    expect(result).toMatchObject({ status: 'awaiting-user' });
+    await expect(
+      access(join(managedRoot, 'obsidian', '.venv', 'bin', 'mcp-obsidian')),
+    ).resolves.toBeUndefined();
+    const sentinel = JSON.parse(
+      await readFile(
+        join(managedRoot, 'obsidian', '.rhythm-installed.json'),
+        'utf8',
+      ),
+    ) as { version: string };
+    expect(sentinel.version).toBe('0.2.2-r2');
+    expect(
+      await readFile(
+        join(managedRoot, 'obsidian', '.venv', 'bin', 'mcp-obsidian'),
+        'utf8',
+      ),
+    ).not.toContain('.install-obsidian-');
+    expect(runner).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.stringContaining('.venv/bin/python'),
+        '-m',
+        'pip',
+        'install',
+        expect.stringContaining('mcp_obsidian-0.2.2-py3-none-any.whl'),
+      ]),
+      expect.objectContaining({
+        env: expect.objectContaining({
+          PATH: expect.stringContaining('/opt/homebrew/bin'),
+        }),
+        logPath: expect.stringContaining('creative-install.log'),
+      }),
+    );
   });
+
+  it('installs ffmpeg from the checksummed tarball instead of appending it to npm pack', async () => {
+    const managedRoot = await root();
+    const runner: NonNullable<CreativeInstallerDeps['runner']> = vi.fn(
+      async (argv: readonly string[]) => {
+        if (argv.some((part) => part.includes('npm-cli.js'))) {
+          const prefix = argv[argv.indexOf('--prefix') + 1];
+          const ffmpeg = join(
+            prefix,
+            'node_modules',
+            'ffmpeg-static',
+            'ffmpeg',
+          );
+          await mkdir(dirname(ffmpeg), { recursive: true });
+          await writeFile(ffmpeg, 'binary');
+        }
+      },
+    );
+
+    const result = await installCreativeDependency(
+      { id: 'media-tools', sessionId: 'session-1' },
+      {
+        approvals: { list: () => [approval('media-tools')] },
+        downloader: fakeDownload,
+        runner,
+        resolveExecutable,
+        root: managedRoot,
+      },
+    );
+
+    expect(result).toMatchObject({ status: 'installed' });
+    const npmArgv = vi
+      .mocked(runner)
+      .mock.calls.map(([argv]) => argv)
+      .find((argv) => argv.some((part) => part.includes('npm-cli.js')))!;
+    expect(npmArgv).toContainEqual(
+      expect.stringContaining('ffmpeg-static-5.3.0.tgz'),
+    );
+    expect(npmArgv).not.toContain('ffmpeg-static@5.3.0');
+    expect(
+      await readFile(join(managedRoot, 'media-tools', 'bin', 'ffmpeg'), 'utf8'),
+    ).toBe('binary');
+  });
+
+  it('finds the packaged OpenMontage bridge independently of process.cwd()', async () => {
+    const managedRoot = await root();
+    const previousResourceDir = process.env.RHYTHM_CREATIVE_RESOURCES_DIR;
+    delete process.env.RHYTHM_CREATIVE_RESOURCES_DIR;
+    vi.spyOn(process, 'cwd').mockReturnValue('/not-the-api-server');
+    const runner: NonNullable<CreativeInstallerDeps['runner']> = vi.fn(
+      async (argv: readonly string[]) => {
+        if (argv.includes('-xzf') && argv.includes('--strip-components=1')) {
+          const destination = argv[argv.indexOf('-C') + 1];
+          await mkdir(destination, { recursive: true });
+          if (argv.some((part) => part.includes('openmontage.tar.gz'))) {
+            await writeFile(join(destination, 'requirements.txt'), '');
+          } else {
+            await writeFile(join(destination, 'uv'), '');
+          }
+        }
+        if (argv.includes('venv')) {
+          const venv = argv.at(-1)!;
+          await mkdir(join(venv, 'bin'), { recursive: true });
+          await writeFile(join(venv, 'bin', 'python'), '');
+        }
+      },
+    );
+
+    try {
+      const result = await installCreativeDependency(
+        { id: 'openmontage', sessionId: 'session-1' },
+        {
+          approvals: { list: () => [approval('openmontage')] },
+          downloader: fakeDownload,
+          runner,
+          resolveExecutable,
+          root: managedRoot,
+        },
+      );
+
+      expect(result).toMatchObject({ status: 'installed' });
+      await expect(
+        access(
+          join(
+            managedRoot,
+            'openmontage',
+            'openmontage-mcp',
+            'openmontage_mcp_server.py',
+          ),
+        ),
+      ).resolves.toBeUndefined();
+    } finally {
+      if (previousResourceDir === undefined) {
+        delete process.env.RHYTHM_CREATIVE_RESOURCES_DIR;
+      } else {
+        process.env.RHYTHM_CREATIVE_RESOURCES_DIR = previousResourceDir;
+      }
+    }
+  });
+
+  it('does not trust a sentinel when required runtime files are absent', async () => {
+    const managedRoot = await root();
+    await mkdir(join(managedRoot, 'obsidian'), { recursive: true });
+    await writeFile(
+      join(managedRoot, 'obsidian', '.rhythm-installed.json'),
+      JSON.stringify({ version: '0.2.2-r2' }),
+    );
+    const downloader = vi.fn(fakeDownload);
+    const result = await installCreativeDependency(
+      { id: 'obsidian', sessionId: 'session-1' },
+      {
+        approvals: { list: () => [approval('obsidian')] },
+        downloader,
+        runner: async () => {},
+        resolveExecutable,
+        root: managedRoot,
+      },
+    );
+    expect(result.status).toBe('failed');
+    expect(downloader).toHaveBeenCalled();
+  });
+
   it('rolls back only its staging path on checksum failure and honors aborts', async () => {
-    const fs = fakeFs();
-    await expect(installCreativeDependency({ id: 'media-tools', sessionId: 'session-1' }, { approvals: { list: () => [approval('media-tools')] }, fs, downloader: async () => new Uint8Array(), root: '/fixed' })).resolves.toMatchObject({ status: 'failed' });
-    expect(fs.rm).toHaveBeenCalledWith(expect.stringContaining('.install-media-tools-'));
-    const controller = new AbortController(); controller.abort();
-    await expect(installCreativeDependency({ id: 'media-tools', sessionId: 'session-1', signal: controller.signal }, { approvals: { list: () => [approval('media-tools')] }, fs: fakeFs(), downloader: async () => new Uint8Array(), root: '/fixed' })).rejects.toMatchObject({ name: 'AbortError' });
+    const managedRoot = await root();
+    const result = await installCreativeDependency(
+      { id: 'media-tools', sessionId: 'session-1' },
+      {
+        approvals: { list: () => [approval('media-tools')] },
+        downloader: async (_item, destination) => {
+          await writeFile(destination, 'bad');
+          return '0'.repeat(64);
+        },
+        root: managedRoot,
+      },
+    );
+    expect(result).toMatchObject({ status: 'failed' });
+    expect((await readdir(managedRoot)).some((name) => name.startsWith('.install-')))
+      .toBe(false);
+
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      installCreativeDependency(
+        {
+          id: 'media-tools',
+          sessionId: 'session-1',
+          signal: controller.signal,
+        },
+        {
+          approvals: { list: () => [approval('media-tools')] },
+          downloader: fakeDownload,
+          root: managedRoot,
+        },
+      ),
+    ).rejects.toMatchObject({ name: 'AbortError' });
   });
 });
