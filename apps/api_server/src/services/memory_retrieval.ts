@@ -47,13 +47,18 @@ import type { AgentMemory } from '../repositories/agent_memory_repository';
 import {
   getAgentMemoryRetrievalMode,
   getSemanticSearchBudgetMs,
+  isMemoryLinkExpansionEnabled,
   resolveEngraphMemoryVaultRoot,
   resolveMemoryDirPath,
 } from '../config/env';
 import { EngraphHttpClient, mapEngraphFileToSourceId } from './engraph_client';
 import type { EngraphClient } from './engraph_client';
 import { engraphManager } from './engraph_manager';
-import { isActive } from './memory_note_format';
+import {
+  extractMemoryBodyLinks,
+  isActive,
+} from './memory_note_format';
+import { canonicalMemoryLinkSourceId } from './memoryVaultWriteService';
 
 const DEFAULT_TOP_N = 5;
 
@@ -451,6 +456,89 @@ export interface BuildMemoryPrefaceOptions {
     ownerUserId?: number | null,
     topN?: number,
   ) => Promise<AgentMemory[]>;
+  /** Injectable exact-lookup lane for one-hop link expansion tests. */
+  linkRepository?: MemoryRepository;
+  /** Override the memory-dir boundary used to resolve bundle-relative links. */
+  memoryDir?: string;
+}
+
+export async function expandLinkedMemories(
+  direct: AgentMemory[],
+  ownerUserId: number | null | undefined,
+  topN: number,
+  repo: MemoryRepository = new AgentMemoryRepository(),
+  memoryDir: string = resolveMemoryDirPath(),
+): Promise<AgentMemory[]> {
+  if (topN <= 0) return [];
+  const kept = direct.slice(0, topN);
+  if (kept.length >= topN) return kept;
+
+  const wanted = ownerUserId == null ? null : ownerUserId;
+  const directIds = new Set(kept.map((memory) => memory.id));
+  const directSourceIds = new Set(
+    kept
+      .map((memory) => memory.sourceId)
+      .filter((sourceId): sourceId is string => sourceId !== null),
+  );
+  const targetSourceIds: string[] = [];
+  const seenTargets = new Set<string>();
+  for (const memory of kept) {
+    if (
+      memory.ownerUserId !== wanted ||
+      memory.source !== 'obsidian-memory' ||
+      !memory.sourceId
+    ) {
+      continue;
+    }
+    for (const link of extractMemoryBodyLinks(memory.content)) {
+      const target = canonicalMemoryLinkSourceId(
+        memoryDir,
+        memory.sourceId,
+        link.target,
+      );
+      if (
+        !target ||
+        directSourceIds.has(target) ||
+        seenTargets.has(target)
+      ) {
+        continue;
+      }
+      seenTargets.add(target);
+      targetSourceIds.push(target);
+    }
+  }
+  if (targetSourceIds.length === 0) return kept;
+
+  const candidates = await repo.findBySourceIdsAsync(
+    'obsidian-memory',
+    targetSourceIds,
+    wanted ?? undefined,
+  );
+  const today = currentDate();
+  const bySourceId = new Map<string, AgentMemory>();
+  for (const memory of candidates) {
+    if (
+      memory.ownerUserId !== wanted ||
+      memory.source !== 'obsidian-memory' ||
+      !memory.sourceId ||
+      directIds.has(memory.id) ||
+      directSourceIds.has(memory.sourceId) ||
+      !isMemoryActive(memory, today) ||
+      bySourceId.has(memory.sourceId)
+    ) {
+      continue;
+    }
+    bySourceId.set(memory.sourceId, memory);
+  }
+  for (const sourceId of targetSourceIds) {
+    const expanded = bySourceId.get(sourceId);
+    if (!expanded) continue;
+    kept.push(expanded);
+    directIds.add(expanded.id);
+    directSourceIds.add(sourceId);
+    if (kept.length >= topN) break;
+  }
+  return kept;
 }
 
 /**
@@ -503,6 +591,19 @@ export async function buildMemoryPreface(
   // gating. Default FTS/semantic lanes already gate before truncation.
   const today = currentDate();
   matches = matches.filter((memory) => isMemoryActive(memory, today));
+  if (isMemoryLinkExpansionEnabled()) {
+    try {
+      matches = await expandLinkedMemories(
+        matches,
+        ownerUserId,
+        opts.topN ?? DEFAULT_TOP_N,
+        opts.linkRepository,
+        opts.memoryDir,
+      );
+    } catch {
+      // Link expansion is optional. Exact retrieval remains useful on failure.
+    }
+  }
   if (!matches || matches.length === 0) return { text: '', memoryIds: [], notePaths: [] };
 
   const lines = ['## Known context (facts & preferences)'];

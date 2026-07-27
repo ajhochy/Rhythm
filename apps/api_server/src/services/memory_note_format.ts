@@ -16,6 +16,7 @@
  * their original insertion order.
  */
 
+import path from 'node:path';
 import * as yaml from 'js-yaml';
 
 export const VALID_MEMORY_KINDS = [
@@ -704,4 +705,102 @@ export function frontmatterString(
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return undefined;
+}
+
+export interface MemoryBodyLink {
+  label: string;
+  target: string;
+  syntax: 'markdown' | 'wikilink';
+  start: number;
+  end: number;
+}
+
+function markdownLinkTarget(raw: string): string | null {
+  let target = raw.trim();
+  if (target.startsWith('<') && target.endsWith('>')) {
+    target = target.slice(1, -1).trim();
+  }
+  const hash = target.indexOf('#');
+  if (hash >= 0) target = target.slice(0, hash);
+  if (!target || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(target)) return null;
+  return target.toLowerCase().endsWith('.md') ? target : null;
+}
+
+/**
+ * Extract portable markdown links plus tolerant Obsidian wikilinks from a
+ * memory body. Attribution markers (`[^source-id]`) cannot match either form.
+ */
+export function extractMemoryBodyLinks(body: string): MemoryBodyLink[] {
+  const links: MemoryBodyLink[] = [];
+  const markdown = /\[([^\]]*)\]\(([^)]+)\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = markdown.exec(body)) !== null) {
+    if (match.index > 0 && body[match.index - 1] === '!') continue;
+    const target = markdownLinkTarget(match[2]);
+    if (!target) continue;
+    links.push({
+      label: match[1],
+      target,
+      syntax: 'markdown',
+      start: match.index,
+      end: match.index + match[0].length,
+    });
+  }
+
+  const wikilink = /\[\[([^\]]+)\]\]/g;
+  while ((match = wikilink.exec(body)) !== null) {
+    const [rawTarget, rawLabel] = match[1].split('|', 2);
+    let target = rawTarget.trim();
+    const hash = target.indexOf('#');
+    if (hash >= 0) target = target.slice(0, hash);
+    if (!target || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(target)) continue;
+    if (!target.toLowerCase().endsWith('.md')) target += '.md';
+    links.push({
+      label: rawLabel?.trim() || path.basename(target, path.extname(target)),
+      target,
+      syntax: 'wikilink',
+      start: match.index,
+      end: match.index + match[0].length,
+    });
+  }
+
+  const nonOverlapping: MemoryBodyLink[] = [];
+  for (const link of links.sort(
+    (a, b) => a.start - b.start || a.end - b.end,
+  )) {
+    const previous = nonOverlapping[nonOverlapping.length - 1];
+    if (!previous || link.start >= previous.end) nonOverlapping.push(link);
+  }
+  return nonOverlapping;
+}
+
+function escapeMemoryLinkLabel(label: string): string {
+  return label
+    .replace(/\\/g, '\\\\')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]');
+}
+
+/**
+ * Rewrite selected link targets without touching unrelated links or prose.
+ * A null callback result preserves the original bytes, including dangling
+ * links. Wikilinks that are rewritten become portable standard markdown.
+ */
+export function rewriteMemoryBodyLinks(
+  body: string,
+  targetFor: (link: MemoryBodyLink) => string | null,
+): string {
+  const links = extractMemoryBodyLinks(body);
+  if (links.length === 0) return body;
+  let cursor = 0;
+  let rewritten = '';
+  for (const link of links) {
+    rewritten += body.slice(cursor, link.start);
+    const target = targetFor(link);
+    rewritten += target === null
+      ? body.slice(link.start, link.end)
+      : `[${escapeMemoryLinkLabel(link.label)}](${target})`;
+    cursor = link.end;
+  }
+  return rewritten + body.slice(cursor);
 }

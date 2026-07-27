@@ -77,6 +77,10 @@ function mem(over: Partial<AgentMemory>): AgentMemory {
 describe('memory injection — buildMemoryPreface (toggle + format)', () => {
   beforeEach(() => {
     delete process.env.AGENT_MEMORY_INJECTION_ENABLED;
+    delete process.env.AGENT_MEMORY_LINK_EXPANSION_ENABLED;
+  });
+  afterEach(() => {
+    delete process.env.AGENT_MEMORY_LINK_EXPANSION_ENABLED;
   });
 
   it('enabled (default) + matching memory → preface contains "Known context" + the memory content + ids', async () => {
@@ -143,6 +147,124 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
         notePaths: [null],
       });
   });
+
+  it('#1195: expansion is default-off and performs no linked-row lookup', async () => {
+    const direct = mem({
+      id: 'direct',
+      content: 'Direct detail. [Linked](/person/linked.md)',
+      source: 'obsidian-memory',
+      sourceId: 'memory/fact/direct.md',
+      ownerUserId: 1,
+    });
+    const linkRepository = {
+      searchAsync: vi.fn(),
+      findBySourceIdsAsync: vi.fn(),
+    };
+
+    const preface = await buildMemoryPreface('detail', 1, {
+      getRelevant: vi.fn().mockResolvedValue([direct]),
+      linkRepository,
+      memoryDir: '/vault/memory',
+    });
+
+    expect(preface).toEqual({
+      text: [
+        '## Known context (facts & preferences)',
+        '- Direct detail. [Linked](/person/linked.md)',
+      ].join('\n'),
+      memoryIds: ['direct'],
+      notePaths: ['memory/fact/direct.md'],
+    });
+    expect(linkRepository.findBySourceIdsAsync).not.toHaveBeenCalled();
+  });
+
+  it('#1195: one-hop expansion fills topN while re-gating owner and lifecycle', async () => {
+    process.env.AGENT_MEMORY_LINK_EXPANSION_ENABLED = 'true';
+    const direct = mem({
+      id: 'direct',
+      content: [
+        'Direct detail.',
+        '[Linked](/person/linked.md)',
+        '[Stale](/person/stale.md)',
+        '[Deprecated](/person/deprecated.md)',
+        '[Private](/person/private.md)',
+      ].join(' '),
+      source: 'obsidian-memory',
+      sourceId: 'memory/fact/direct.md',
+      ownerUserId: 1,
+    });
+    const linked = mem({
+      id: 'linked',
+      content: 'Linked detail. [Third](/person/third.md)',
+      source: 'obsidian-memory',
+      sourceId: 'memory/person/linked.md',
+      ownerUserId: 1,
+    });
+    const stale = mem({
+      id: 'stale',
+      content: 'Stale detail',
+      source: 'obsidian-memory',
+      sourceId: 'memory/person/stale.md',
+      staleAfter: '2000-01-01',
+      ownerUserId: 1,
+    });
+    const otherOwner = mem({
+      id: 'private',
+      content: 'Bob private detail',
+      source: 'obsidian-memory',
+      sourceId: 'memory/person/private.md',
+      ownerUserId: 2,
+    });
+    const deprecated = mem({
+      id: 'deprecated',
+      content: 'Deprecated detail',
+      source: 'obsidian-memory',
+      sourceId: 'memory/person/deprecated.md',
+      status: 'deprecated',
+      ownerUserId: 1,
+    });
+    const third = mem({
+      id: 'third',
+      content: 'A second hop that must not appear',
+      source: 'obsidian-memory',
+      sourceId: 'memory/person/third.md',
+      ownerUserId: 1,
+    });
+    const linkRepository = {
+      searchAsync: vi.fn(),
+      findBySourceIdsAsync: vi.fn().mockResolvedValue([
+        otherOwner,
+        stale,
+        deprecated,
+        linked,
+        third,
+      ]),
+    };
+
+    const preface = await buildMemoryPreface('detail', 1, {
+      topN: 3,
+      getRelevant: vi.fn().mockResolvedValue([direct]),
+      linkRepository,
+      memoryDir: '/vault/memory',
+    });
+
+    expect(linkRepository.findBySourceIdsAsync).toHaveBeenCalledWith(
+      'obsidian-memory',
+      [
+        'memory/person/linked.md',
+        'memory/person/stale.md',
+        'memory/person/deprecated.md',
+        'memory/person/private.md',
+      ],
+      1,
+    );
+    expect(preface.memoryIds).toEqual(['direct', 'linked']);
+    expect(preface.text).toContain('Linked detail.');
+    expect(preface.text).not.toContain('Stale detail');
+    expect(preface.text).not.toContain('Deprecated detail');
+    expect(preface.text).not.toContain('Bob private detail');
+    expect(preface.text).not.toContain('A second hop');
+  });
 });
 
 // ── Layer 1b: real DB — owner scoping (the CRITICAL cross-user-leak guard) ───────
@@ -150,9 +272,11 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
 describe('memory injection — getRelevantMemories is OWNER-SCOPED (no cross-user leak)', () => {
   beforeEach(() => {
     delete process.env.AGENT_MEMORY_INJECTION_ENABLED;
+    delete process.env.AGENT_MEMORY_LINK_EXPANSION_ENABLED;
     makeDb();
   });
   afterEach(() => {
+    delete process.env.AGENT_MEMORY_LINK_EXPANSION_ENABLED;
     teardownDb();
     vi.restoreAllMocks();
   });
@@ -171,6 +295,34 @@ describe('memory injection — getRelevantMemories is OWNER-SCOPED (no cross-use
     const forB = await getRelevantMemories('standups', 2);
     expect(forB.map((m) => m.content)).toEqual(['Bob prefers afternoon standups']);
     expect(forB.some((m) => m.content.includes('Alice'))).toBe(false);
+  });
+
+  it('#1195: a link cannot expand owner B memory into owner A preface', async () => {
+    process.env.AGENT_MEMORY_LINK_EXPANSION_ENABLED = 'true';
+    const repo = new AgentMemoryRepository();
+    const direct = await repo.createAsync({
+      content: 'Alice direct context. [Private](/person/private.md)',
+      source: 'obsidian-memory',
+      sourceId: 'memory/fact/direct.md',
+      ownerUserId: 1,
+    });
+    await repo.createAsync({
+      content: 'Bob private linked content',
+      source: 'obsidian-memory',
+      sourceId: 'memory/person/private.md',
+      ownerUserId: 2,
+    });
+
+    const preface = await buildMemoryPreface('direct', 1, {
+      topN: 3,
+      getRelevant: vi.fn().mockResolvedValue([direct]),
+      linkRepository: repo,
+      memoryDir: '/vault/memory',
+    });
+
+    expect(preface.memoryIds).toEqual([direct.id]);
+    expect(preface.text).toContain('Alice direct context');
+    expect(preface.text).not.toContain('Bob private linked content');
   });
 
   it('null/unknown owner retrieves ONLY instance-global (null-owner) memory — never a user-owned fact', async () => {

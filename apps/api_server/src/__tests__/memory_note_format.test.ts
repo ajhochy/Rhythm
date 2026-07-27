@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   formatActor,
+  extractMemoryBodyLinks,
   isActive,
   isStale,
   memorySources,
@@ -10,6 +11,7 @@ import {
   parseActor,
   renderMemoryNote,
   renderParsedMemoryNote,
+  rewriteMemoryBodyLinks,
   trustTier,
   validateNoteSources,
 } from '../services/memory_note_format';
@@ -309,6 +311,43 @@ describe('MEM-OKF #1187 shared memory-note format', () => {
     expect(parsed.sources).toEqual([]);
     expect(parsed.usageWindow).toBeUndefined();
     expect(renderParsedMemoryNote(parsed)).toBe(raw);
+  });
+});
+
+describe('MEM-OKF #1195 memory body links', () => {
+  it('extracts markdown and tolerant wikilinks without confusing attribution/external links', () => {
+    const body = [
+      'Works with [Pastor Mike](/person/pastor-mike.md).',
+      'See [[../project/sunday-service|Sunday Service]] and [^session-1].',
+      'Ignore [website](https://example.com/file.md) and ![image](asset.md).',
+    ].join('\n');
+
+    expect(extractMemoryBodyLinks(body).map(({ label, target, syntax }) => ({
+      label,
+      target,
+      syntax,
+    }))).toEqual([
+      {
+        label: 'Pastor Mike',
+        target: '/person/pastor-mike.md',
+        syntax: 'markdown',
+      },
+      {
+        label: 'Sunday Service',
+        target: '../project/sunday-service.md',
+        syntax: 'wikilink',
+      },
+    ]);
+  });
+
+  it('rewrites selected links portably and preserves dangling links byte-for-byte', () => {
+    const body =
+      'See [retired](./retired.md), [[missing]], and [site](https://example.com).';
+    expect(rewriteMemoryBodyLinks(body, (link) =>
+      link.target === './retired.md' ? '/fact/survivor.md' : null,
+    )).toBe(
+      'See [retired](/fact/survivor.md), [[missing]], and [site](https://example.com).',
+    );
   });
 });
 

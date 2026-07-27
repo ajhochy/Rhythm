@@ -103,6 +103,26 @@ describe('#804 memory MCP tools resolve to the local agent server', () => {
     });
   });
 
+  it('rhythm_remember_memory forwards optional portable memory links', async () => {
+    const { bodies } = stubFetch();
+    const server = buildServer(LOCAL);
+    const handler = server.registered.get('rhythm_remember_memory');
+
+    await handler!({
+      content: 'Mike owns Sunday service.',
+      kind: 'project',
+      links: [
+        { target: '/person/pastor-mike.md', label: 'Pastor Mike' },
+      ],
+    });
+
+    expect(bodies[0]).toMatchObject({
+      links: [
+        { target: '/person/pastor-mike.md', label: 'Pastor Mike' },
+      ],
+    });
+  });
+
   it('rhythm_list_memories GETs from localhost:4001', async () => {
     const { calls } = stubFetch();
     const server = buildServer(LOCAL);

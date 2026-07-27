@@ -13,11 +13,14 @@ import path from 'node:path';
 
 import { logger } from '../utils/logger';
 import {
+  resolveVaultRootForMemoryDir,
   scanVaultNotes,
+  toVaultRelativeKey,
   type ParsedNote,
   type ScannedNote,
 } from './memoryVaultSyncService';
 import {
+  extractMemoryBodyLinks,
   VALID_MEMORY_KINDS,
   type MemoryKind,
 } from './memory_note_format';
@@ -56,6 +59,7 @@ interface NavigationEntry {
   description: string;
   deprecated: boolean;
   stale: boolean;
+  backlinks: Array<{ sourceId: string; title: string }>;
 }
 
 const navigationGenerationTails = new Map<string, Promise<void>>();
@@ -133,6 +137,7 @@ function toNavigationEntry(
     description: markdownText(description),
     deprecated: note.parsed.status === 'deprecated',
     stale: note.parsed.staleAfter !== undefined && note.parsed.staleAfter <= today,
+    backlinks: [],
   };
 }
 
@@ -184,8 +189,16 @@ function renderKindIndex(kind: MemoryKind, entries: NavigationEntry[]): string {
         entry.stale ? 'stale' : null,
       ].filter((marker): marker is string => marker !== null);
       const markerText = markers.length > 0 ? ` [${markers.join(', ')}]` : '';
+      const backlinks = entry.backlinks.length > 0
+        ? ` · Backlinks: ${entry.backlinks
+          .map((backlink) => {
+            const rel = markdownPath(path.relative(kind, backlink.sourceId));
+            return `[${backlink.title}](${rel})`;
+          })
+          .join(', ')}`
+        : '';
       lines.push(
-        `* [${entry.title}](${rel})${markerText} - ${entry.description}`,
+        `* [${entry.title}](${rel})${markerText} - ${entry.description}${backlinks}`,
       );
     }
   }
@@ -239,7 +252,10 @@ async function regenerateMemoryVaultNavigationUnlocked(
     // Dynamic import avoids a static cycle: memoryVaultWriteService invokes
     // this generator after canonical writes, while also owning the established
     // path-confinement helper required for derived index writes.
-    const { resolveWithinMemoryDir } = await import('./memoryVaultWriteService');
+    const {
+      canonicalMemoryLinkSourceId,
+      resolveWithinMemoryDir,
+    } = await import('./memoryVaultWriteService');
     const root = resolveWithinMemoryDir(memoryDir, '.');
     if (options.createIfMissing === false) {
       try {
@@ -265,12 +281,61 @@ async function regenerateMemoryVaultNavigationUnlocked(
       const entry = toNavigationEntry(note, today);
       grouped.get(entry.kind)!.push(entry);
     }
+    const entriesBySourceId = new Map(
+      [...grouped.values()].flat().map((entry) => [entry.sourceId, entry]),
+    );
+    const entriesByCanonicalSourceId = new Map(
+      [...entriesBySourceId.values()].map((entry) => [
+        toVaultRelativeKey(
+          resolveVaultRootForMemoryDir(root),
+          path.join(root, entry.sourceId),
+        ),
+        entry,
+      ]),
+    );
+    for (const note of notes) {
+      const source = entriesBySourceId.get(note.sourceId);
+      if (!source) continue;
+      const sourceCanonicalId = toVaultRelativeKey(
+        resolveVaultRootForMemoryDir(root),
+        path.join(root, note.sourceId),
+      );
+      for (const link of extractMemoryBodyLinks(note.parsed.content)) {
+        const targetSourceId = canonicalMemoryLinkSourceId(
+          root,
+          sourceCanonicalId,
+          link.target,
+        );
+        const target = targetSourceId
+          ? entriesByCanonicalSourceId.get(targetSourceId)
+          : undefined;
+        if (!target || target.sourceId === source.sourceId) continue;
+        if (
+          target.backlinks.some(
+            (backlink) => backlink.sourceId === source.sourceId,
+          )
+        ) {
+          continue;
+        }
+        target.backlinks.push({
+          sourceId: source.sourceId,
+          title: source.title,
+        });
+      }
+    }
     for (const entries of grouped.values()) {
       entries.sort(
         (a, b) =>
           (a.title < b.title ? -1 : a.title > b.title ? 1 : 0) ||
           (a.sourceId < b.sourceId ? -1 : a.sourceId > b.sourceId ? 1 : 0),
       );
+      for (const entry of entries) {
+        entry.backlinks.sort(
+          (a, b) =>
+            (a.title < b.title ? -1 : a.title > b.title ? 1 : 0) ||
+            (a.sourceId < b.sourceId ? -1 : a.sourceId > b.sourceId ? 1 : 0),
+        );
+      }
     }
 
     const outputs: Array<{ relPath: string; content: string }> = [

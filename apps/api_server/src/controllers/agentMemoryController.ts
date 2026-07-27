@@ -77,6 +77,7 @@ export class AgentMemoryController {
         sdkSessionId,
         sources,
         usageWindow,
+        links,
         tags,
       } = req.body as Record<string, unknown>;
       if (!content || typeof content !== 'string') throw AppError.badRequest('content is required');
@@ -102,6 +103,9 @@ export class AgentMemoryController {
         usageWindow: usageWindow && typeof usageWindow === 'object' &&
             !Array.isArray(usageWindow)
           ? usageWindow as RememberInput['usageWindow']
+          : undefined,
+        links: Array.isArray(links)
+          ? links as RememberInput['links']
           : undefined,
         tags: Array.isArray(tags) ? tags.map((t) => String(t)) : [],
       });

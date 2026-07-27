@@ -34,6 +34,7 @@ import path from 'node:path';
 import { resolveMemoryDirPath } from '../config/env';
 import {
   MEMORY_VAULT_SOURCE,
+  RESERVED_VAULT_FILENAMES,
   parseNote,
   resolveVaultRootForMemoryDir,
   toVaultRelativeKey,
@@ -55,6 +56,7 @@ import {
   MEMORY_SOURCE_ID_PATTERN,
   VALID_MEMORY_KINDS,
   VALID_MEMORY_STATUSES,
+  extractMemoryBodyLinks,
   frontmatterString,
   generatedMetadata,
   isReversedMemoryUsageWindow,
@@ -104,12 +106,19 @@ export interface RememberInput {
   sources?: MemorySource[];
   /** Optional OKF usage window, retained for round-trip fidelity. */
   usageWindow?: MemoryUsageWindow;
+  /** Optional portable links to existing memory notes. */
+  links?: MemoryLinkInput[];
   /** OKF lifecycle state. New notes default to stable. */
   status?: MemoryStatus;
   /** Optional YYYY-MM-DD shelf-life boundary. */
   staleAfter?: string;
   /** Optional machine/human confirmations with UTC timestamps. */
   verified?: VerificationEntry[];
+}
+
+export interface MemoryLinkInput {
+  target: string;
+  label?: string;
 }
 
 export interface RememberResult {
@@ -350,6 +359,182 @@ export function resolveWithinMemoryDir(memoryDir: string, relPath: string): stri
   return abs;
 }
 
+function decodeMemoryLinkTarget(target: string): string | null {
+  try {
+    let encoded = target.trim().replace(/\\/g, '/');
+    const hash = encoded.indexOf('#');
+    if (hash >= 0) encoded = encoded.slice(0, hash);
+    if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(encoded)) return null;
+    const decoded = encoded
+      .split('/')
+      .map((segment) => {
+        const value = decodeURIComponent(segment);
+        if (value.includes('/') || value.includes('\\') || value.includes('\0')) {
+          throw new Error('encoded path separator');
+        }
+        return value;
+      })
+      .join('/');
+    if (
+      !decoded.toLowerCase().endsWith('.md') ||
+      (RESERVED_VAULT_FILENAMES as readonly string[]).includes(
+        path.basename(decoded).toLowerCase(),
+      )
+    ) {
+      return null;
+    }
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Canonicalize a memory-body link target to the same vault-root-relative
+ * sourceId used by the derived index. This is lexical only: dangling links can
+ * still be represented. Escapes resolve to null through the established
+ * memory-dir boundary guard.
+ */
+export function canonicalMemoryLinkSourceId(
+  memoryDir: string,
+  fromSourceId: string,
+  target: string,
+): string | null {
+  const decoded = decodeMemoryLinkTarget(target);
+  if (!decoded) return null;
+  const fromRel = vaultKeyToMemoryDirRelative(memoryDir, fromSourceId);
+  try {
+    resolveWithinMemoryDir(memoryDir, fromRel);
+    const targetRel = decoded.startsWith('/')
+      ? decoded.slice(1)
+      : path.join(path.dirname(fromRel), decoded);
+    const abs = resolveWithinMemoryDir(memoryDir, targetRel);
+    return toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), abs);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve only real, regular, non-symlink note files. Broken or escaping links
+ * return null and are never opened/read.
+ */
+export async function resolveMemoryLinkTarget(
+  memoryDir: string,
+  fromSourceId: string,
+  target: string,
+): Promise<string | null> {
+  const sourceId = canonicalMemoryLinkSourceId(memoryDir, fromSourceId, target);
+  if (!sourceId) return null;
+  const rel = vaultKeyToMemoryDirRelative(memoryDir, sourceId);
+  let abs: string;
+  try {
+    abs = resolveWithinMemoryDir(memoryDir, rel);
+    const [rootReal, targetStat, targetReal] = await Promise.all([
+      fs.realpath(memoryDir),
+      fs.lstat(abs),
+      fs.realpath(abs),
+    ]);
+    if (
+      targetStat.isSymbolicLink() ||
+      !targetStat.isFile() ||
+      (targetReal !== rootReal && !targetReal.startsWith(`${rootReal}${path.sep}`))
+    ) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return sourceId;
+}
+
+function encodeMemoryLinkPathSegment(segment: string): string {
+  return encodeURIComponent(segment).replace(
+    /[!'()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+/** Render a canonical sourceId as an absolute path from the memory root. */
+export function absoluteMemoryLinkTarget(
+  memoryDir: string,
+  sourceId: string,
+): string | null {
+  const rel = vaultKeyToMemoryDirRelative(memoryDir, sourceId);
+  try {
+    resolveWithinMemoryDir(memoryDir, rel);
+  } catch {
+    return null;
+  }
+  return `/${rel
+    .split(path.sep)
+    .map(encodeMemoryLinkPathSegment)
+    .join('/')}`;
+}
+
+function escapeMemoryLinkLabel(label: string): string {
+  return label
+    .replace(/\\/g, '\\\\')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]');
+}
+
+async function appendResolvedMemoryLinks(
+  body: string,
+  links: MemoryLinkInput[] | undefined,
+  memoryDir: string,
+  fromSourceId: string,
+): Promise<string> {
+  if (!links || links.length === 0) return body;
+  const existing = new Set(
+    extractMemoryBodyLinks(body)
+      .map((link) =>
+        canonicalMemoryLinkSourceId(memoryDir, fromSourceId, link.target),
+      )
+      .filter((sourceId): sourceId is string => sourceId !== null),
+  );
+  const additions: string[] = [];
+  let unresolved = 0;
+  for (const link of links) {
+    if (!link || typeof link.target !== 'string' || link.target.trim() === '') {
+      unresolved += 1;
+      continue;
+    }
+    const sourceId = await resolveMemoryLinkTarget(
+      memoryDir,
+      fromSourceId,
+      link.target,
+    );
+    if (!sourceId) {
+      unresolved += 1;
+      continue;
+    }
+    if (existing.has(sourceId)) continue;
+    const target = absoluteMemoryLinkTarget(memoryDir, sourceId);
+    if (!target) {
+      unresolved += 1;
+      continue;
+    }
+    existing.add(sourceId);
+    const fallback = path.basename(
+      vaultKeyToMemoryDirRelative(memoryDir, sourceId),
+      '.md',
+    );
+    const label = typeof link.label === 'string' && link.label.trim() !== ''
+      ? link.label.trim()
+      : fallback;
+    additions.push(`[${escapeMemoryLinkLabel(label)}](${target})`);
+  }
+  if (unresolved > 0) {
+    logger.warn(
+      `[MemoryWrite] skipped ${unresolved} unresolved memory link${unresolved === 1 ? '' : 's'}`,
+    );
+  }
+  return additions.length === 0
+    ? body
+    : `${body.trimEnd()}\n\n${additions.join('\n')}`;
+}
+
 /** Today's date as YYYY-MM-DD (matches the existing frontmatter convention). */
 export function isoDate(d = new Date()): string {
   return d.toISOString().slice(0, 10);
@@ -563,6 +748,16 @@ export async function rememberToVault(
 
   // Path-traversal guard: resolve + assert BEFORE any filesystem mutation.
   const abs = resolveWithinMemoryDir(memoryDir, relPath);
+  const vaultRelKey = toVaultRelativeKey(
+    resolveVaultRootForMemoryDir(memoryDir),
+    abs,
+  );
+  contentToWrite = await appendResolvedMemoryLinks(
+    contentToWrite,
+    input.links,
+    memoryDir,
+    vaultRelKey,
+  );
 
   const now = isoDate();
   const incomingLifecycle: Record<string, unknown> = {
@@ -641,7 +836,6 @@ export async function rememberToVault(
   // Canonical index key = path relative to the VAULT ROOT (e.g.
   // `memory/fact/abc.md`), the SAME form the scan/rebuild path stamps. Keying
   // on this one form means a write-then-rebuild yields exactly one row, not two.
-  const vaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), abs);
   await index.upsertNote({
     sourceId: vaultRelKey,
     parsed: parseNote(rendered),

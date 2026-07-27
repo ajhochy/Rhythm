@@ -129,6 +129,14 @@ export function getSemanticSearchBudgetMs(): number {
   return parsed;
 }
 
+/** Optional one-hop memory-link expansion. Explicit opt-in; default OFF. */
+export function isMemoryLinkExpansionEnabled(): boolean {
+  const raw = (process.env.AGENT_MEMORY_LINK_EXPANSION_ENABLED ?? '')
+    .trim()
+    .toLowerCase();
+  return raw === 'true' || raw === '1';
+}
+
 /**
  * Google Cloud project ID used to enable the native Google Gemini provider in
  * the embedded opencode engine. The `opencode-gemini-auth` plugin only

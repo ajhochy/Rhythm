@@ -53,6 +53,8 @@ import {
   renderMemoryNote,
   resolveWithinMemoryDir,
   isoDate,
+  absoluteMemoryLinkTarget,
+  canonicalMemoryLinkSourceId,
   type NoteFrontmatter,
   type MemoryKind,
 } from './memoryVaultWriteService';
@@ -71,6 +73,7 @@ import {
   memoryUsageWindow,
   mergeLifecycleMetadata,
   parseMemoryNote,
+  rewriteMemoryBodyLinks,
   validateNoteSources,
 } from './memory_note_format';
 import { logger } from '../utils/logger';
@@ -223,6 +226,7 @@ export async function runMemoryConsolidation(
 
   let mergedClusters = 0;
   let retiredCount = 0;
+  const retiredToSurvivor = new Map<string, string>();
 
   for (const [, kindRecords] of byKind) {
     const clusters = clusterBySimilarity(kindRecords, threshold);
@@ -239,6 +243,9 @@ export async function runMemoryConsolidation(
       );
       const survivor = sorted[0];
       const retirees = sorted.slice(1);
+      for (const retiree of retirees) {
+        retiredToSurvivor.set(retiree.vaultRelKey, survivor.vaultRelKey);
+      }
 
       let attributedMerge: AttributedMemoryMergeResult = {
         body: survivor.body,
@@ -305,6 +312,44 @@ export async function runMemoryConsolidation(
       logger.info(
         `[MemoryConsolidation] merged cluster of ${cluster.length} (kind=${survivor.kind}) into ${survivor.vaultRelKey}`,
       );
+    }
+  }
+
+  // Retired-note content moved into the survivor, so rewrite every live
+  // backlink to that survivor. Unresolvable/dangling links are byte-preserved.
+  if (retiredToSurvivor.size > 0) {
+    for (const record of records) {
+      if (retiredToSurvivor.has(record.vaultRelKey)) continue;
+      let raw: string;
+      try {
+        raw = await fs.readFile(record.abs, 'utf8');
+      } catch {
+        continue;
+      }
+      const document = parseMemoryNote(raw);
+      const body = rewriteMemoryBodyLinks(document.body, (link) => {
+        const currentTarget = canonicalMemoryLinkSourceId(
+          memoryDir,
+          record.vaultRelKey,
+          link.target,
+        );
+        const survivorTarget = currentTarget
+          ? retiredToSurvivor.get(currentTarget)
+          : undefined;
+        return survivorTarget
+          ? absoluteMemoryLinkTarget(memoryDir, survivorTarget)
+          : null;
+      });
+      if (body === document.body) continue;
+      const rendered = renderMemoryNote(
+        { ...document.frontmatter, updated: isoDate() },
+        body,
+      );
+      await fs.writeFile(record.abs, rendered, 'utf8');
+      await index.upsertNote({
+        sourceId: record.vaultRelKey,
+        parsed: parseNote(rendered),
+      });
     }
   }
 

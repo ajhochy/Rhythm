@@ -27,6 +27,7 @@ export function registerAgentMemoryTools(server: McpServer, apiUrl: string, apiT
 kind: "fact" | "preference" | "decision" | "note" | "contact" | "project" (default: "fact")
 source: where this came from, e.g. "conversation", "research", "task:<id>" (default: "conversation")
 sessionId: when the fact came from an agent session, stamps a stable rhythm://agent-session source
+links: optional links to related memory notes as { target, label? } objects
 tags: optional array of string tags for later filtering`,
     {
       content: z.string().describe('The information to remember.'),
@@ -54,6 +55,12 @@ tags: optional array of string tags for later filtering`,
         to: z.string().optional(),
       }).passthrough().optional().describe(
         'Optional OKF usage window with YYYY-MM-DD from/to fields.',
+      ),
+      links: z.array(z.object({
+        target: z.string(),
+        label: z.string().optional(),
+      })).optional().describe(
+        'Optional links to existing memory notes. Rhythm stores resolved links as absolute bundle-relative markdown.',
       ),
       tags: z.array(z.string()).optional().describe('Tags for filtering.'),
     },
