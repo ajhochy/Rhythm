@@ -13,7 +13,7 @@
  */
 
 import { promises as fs } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import { logger } from '../utils/logger';
@@ -77,9 +77,20 @@ interface QueuedMemoryVaultLogEntry extends MemoryVaultLogEntry {
 
 const DATE_HEADING = /^# (\d{4}-\d{2}-\d{2})$/;
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_AUDIT_ACTOR_CHARS = 160;
+const MAX_AUDIT_NOTE_PATH_CHARS = 512;
+const MAX_RELATED_NOTE_LINKS = 12;
+const CREDENTIAL_LIKE_PATH_PATTERNS = [
+  /(?:^|[/_-])(?:sk|pk|rk)[_-][a-z0-9_-]{8,}/i,
+  /(?:^|[/_-])gh[pousr]_[a-z0-9]{20,}/i,
+  /(?:^|[/_-])xox[baprs]-[a-z0-9-]{10,}/i,
+  /(?:^|[/_-])aiza[a-z0-9_-]{20,}/i,
+  /(?:^|[/_-])akia[a-z0-9]{16}/i,
+  /(?:^|[/_-])(?:api[_-]?key|access[_-]?token|auth[_-]?token|password|passwd|bearer)[_=-]+[a-z0-9][a-z0-9_-]{5,}/i,
+] as const;
 const logWriteTails = new Map<string, Promise<void>>();
 
-function localCalendarDate(now = new Date()): string {
+export function localCalendarDate(now = new Date()): string {
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
@@ -119,6 +130,19 @@ function encodePathSegment(segment: string): string {
   );
 }
 
+function pseudonymousNoteLink(sourceId: string): string {
+  const pseudonym = createHash('sha256')
+    .update(sourceId)
+    .digest('hex')
+    .slice(0, 16);
+  return `[Redacted memory ${pseudonym}](#redacted-memory-${pseudonym})`;
+}
+
+function isUnsafeAuditPath(value: string): boolean {
+  return value.length > MAX_AUDIT_NOTE_PATH_CHARS ||
+    CREDENTIAL_LIKE_PATH_PATTERNS.some((pattern) => pattern.test(value));
+}
+
 async function noteLink(
   memoryDir: string,
   sourceId: string,
@@ -131,6 +155,9 @@ async function noteLink(
     resolveWithinMemoryDir(memoryDir, rel);
   } catch {
     return null;
+  }
+  if (isUnsafeAuditPath(rel)) {
+    return pseudonymousNoteLink(rel);
   }
   const label = markdownText(
     path.basename(rel, path.extname(rel))
@@ -148,7 +175,9 @@ async function noteLink(
 
 function safeActor(actor: string): string | null {
   const parsed = parseActor(actor);
-  return parsed ? markdownText(formatActor(parsed)) : null;
+  return parsed
+    ? markdownText(formatActor(parsed)).slice(0, MAX_AUDIT_ACTOR_CHARS)
+    : null;
 }
 
 async function renderEntryLine(
@@ -159,11 +188,16 @@ async function renderEntryLine(
   const note = await noteLink(memoryDir, entry.noteSourceId);
   if (!actor || !note) return null;
 
+  const relatedSourceIds = entry.relatedSourceIds ?? [];
   const related: string[] = [];
-  for (const sourceId of entry.relatedSourceIds ?? []) {
+  for (const sourceId of relatedSourceIds.slice(0, MAX_RELATED_NOTE_LINKS)) {
     const link = await noteLink(memoryDir, sourceId);
     if (link && !related.includes(link)) related.push(link);
   }
+  const omittedRelatedCount = Math.max(
+    0,
+    relatedSourceIds.length - MAX_RELATED_NOTE_LINKS,
+  );
 
   let line: string;
   switch (entry.reason) {
@@ -174,9 +208,7 @@ async function renderEntryLine(
       line = `**Update** ${note} - updated by ${actor}.`;
       break;
     case 'merge-on-capture':
-      line = related.length > 0
-        ? `**Update** ${note} - merged incoming ${related[0]} into this memory by ${actor}.`
-        : `**Update** ${note} - merged an overlapping capture into this memory by ${actor}.`;
+      line = `**Update** ${note} - merged an incoming capture into this memory by ${actor}.`;
       break;
     case 'verified':
       line = `**Update** ${note} - verified by ${actor}.`;
@@ -189,7 +221,7 @@ async function renderEntryLine(
       break;
     case 'consolidation-merge':
       line = related.length > 0
-        ? `**Update** ${note} - merged ${related.join(', ')} into this memory by ${actor}.`
+        ? `**Update** ${note} - merged ${related.join(', ')}${omittedRelatedCount > 0 ? ` and ${omittedRelatedCount} more` : ''} into this memory by ${actor}.`
         : `**Update** ${note} - consolidated by ${actor}.`;
       break;
     case 'consolidation-retirement':

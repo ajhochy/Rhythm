@@ -170,9 +170,135 @@ describe('MEM-OKF #1196 human-readable audit history', () => {
     expect(log).toContain('deprecated by human:auditor@example.test');
     expect(log).toContain('forgotten by agent:rhythm/1');
     expect(log).toContain(
-      'merged incoming [Aj Prefers Using The Sonnet Model For Code Agents Especially](/preference/aj-prefers-using-the-sonnet-model-for-code-agents-especially.md)',
+      'merged an incoming capture into this memory by agent:rhythm/1',
+    );
+    expect(log).not.toContain(
+      '/preference/aj-prefers-using-the-sonnet-model-for-code-agents-especially.md',
     );
     expect(log).not.toContain('PRIVATE_BODY_MARKER');
+  });
+
+  it('uses local calendar dates for lifecycle events across the UTC boundary', async () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = 'America/Los_Angeles';
+    try {
+      const created = await rememberToVault(
+        { kind: 'fact', content: 'Local audit date boundary.' },
+        { memoryDir, index },
+      );
+      await verifyMemory(created.path, 'human:before-midnight', {
+        memoryDir,
+        index,
+        at: '2026-07-27T02:00:00Z',
+      });
+      await verifyMemory(created.path, 'human:at-midnight', {
+        memoryDir,
+        index,
+        at: '2026-07-27T07:00:00Z',
+      });
+      await flushMemoryVaultLog(memoryDir);
+
+      const log = readLog();
+      const july27 = log.indexOf('# 2026-07-27');
+      const july26 = log.indexOf('# 2026-07-26');
+      expect(july27).toBeGreaterThanOrEqual(0);
+      expect(july26).toBeGreaterThan(july27);
+      expect(log.slice(july27, july26)).toContain(
+        'verified by human:at-midnight',
+      );
+      expect(log.slice(july26)).toContain(
+        'verified by human:before-midnight',
+      );
+    } finally {
+      if (previousTimezone === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTimezone;
+    }
+  });
+
+  it('does not append no-op lifecycle retries but records genuine transitions', async () => {
+    const created = await rememberToVault(
+      { kind: 'fact', content: 'Idempotent lifecycle audit.' },
+      { memoryDir, index },
+    );
+    const verifyAt = '2026-07-26T10:00:00Z';
+    const deprecateAt = '2026-07-26T11:00:00Z';
+
+    await verifyMemory(created.path, 'human:idempotency-test', {
+      memoryDir,
+      index,
+      at: verifyAt,
+    });
+    await verifyMemory(created.path, 'human:idempotency-test', {
+      memoryDir,
+      index,
+      at: verifyAt,
+    });
+    await deprecateMemory(created.path, 'human:idempotency-test', {
+      memoryDir,
+      index,
+      at: deprecateAt,
+    });
+    await deprecateMemory(created.path, 'human:idempotency-test', {
+      memoryDir,
+      index,
+      at: deprecateAt,
+    });
+    await verifyMemory(created.path, 'human:idempotency-test', {
+      memoryDir,
+      index,
+      at: verifyAt,
+      staleAfter: '2026-10-24',
+    });
+    await verifyMemory(created.path, 'human:idempotency-test', {
+      memoryDir,
+      index,
+      at: verifyAt,
+      staleAfter: '2026-10-24',
+    });
+    await flushMemoryVaultLog(memoryDir);
+
+    const log = readLog();
+    expect(log.match(/verified by human:idempotency-test/g)).toHaveLength(2);
+    expect(log.match(/deprecated by human:idempotency-test/g)).toHaveLength(1);
+  });
+
+  it('pseudonymously redacts credential-like content-derived note paths', async () => {
+    const created = await rememberToVault(
+      {
+        kind: 'fact',
+        content:
+          'credential sk_live_THISISASECRETTOKEN should never enter an audit log.',
+      },
+      { memoryDir, index },
+    );
+    await flushMemoryVaultLog(memoryDir);
+
+    expect(created.path.toLowerCase()).toContain('thisisasecrettoken');
+    const log = readLog();
+    expect(log.toLowerCase()).not.toContain('thisisasecrettoken');
+    expect(log.toLowerCase()).not.toContain('sk-live');
+    expect(log).toMatch(
+      /\[Redacted memory [a-f0-9]{16}\]\(#redacted-memory-[a-f0-9]{16}\)/,
+    );
+  });
+
+  it('bounds consolidation merge detail while preserving an omitted count', async () => {
+    enqueueMemoryVaultLog(memoryDir, {
+      reason: 'consolidation-merge',
+      actor: 'process:consolidation',
+      noteSourceId: 'memory/fact/survivor.md',
+      relatedSourceIds: Array.from(
+        { length: 30 },
+        (_, index) => `memory/fact/retiree-${index}.md`,
+      ),
+      date: '2026-07-26',
+    }, { maxDays: 10_000 });
+    await flushMemoryVaultLog(memoryDir);
+
+    const log = readLog();
+    expect(log).toContain('[Retiree 11](/fact/retiree-11.md)');
+    expect(log).toContain('and 18 more');
+    expect(log).not.toContain('retiree-12.md');
   });
 
   it('serializes concurrent appends and rotates by count without losing history', async () => {

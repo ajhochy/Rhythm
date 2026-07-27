@@ -42,7 +42,10 @@ import {
 } from './memoryVaultSyncService';
 import { MemoryIndexService } from './memory_index_service';
 import { regenerateMemoryVaultNavigation } from './memory_vault_index_writer';
-import { enqueueMemoryVaultLog } from './memory_vault_log';
+import {
+  enqueueMemoryVaultLog,
+  localCalendarDate as auditLocalCalendarDate,
+} from './memory_vault_log';
 import type { AgentMemory, AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { logger } from '../utils/logger';
 import {
@@ -648,7 +651,6 @@ export async function rememberToVault(
   let frontmatterToPreserve: Record<string, unknown> = {};
   let foundExisting = false;
   let semanticMerge = false;
-  let semanticMergeIncomingRelPath: string | undefined;
   let contentToWrite = content;
   let attributionMerge: AttributedMemoryMergeResult | undefined;
 
@@ -720,7 +722,6 @@ export async function rememberToVault(
               usageWindow: requestedUsageWindow,
             },
           );
-          semanticMergeIncomingRelPath = relPath;
           relPath = similar.relPath;
           id = similar.id;
           const meta2 = await readNoteMeta(
@@ -840,14 +841,6 @@ export async function rememberToVault(
         : 'captured',
     actor: DEFAULT_MEMORY_ACTOR,
     noteSourceId: vaultRelKey,
-    relatedSourceIds: semanticMergeIncomingRelPath
-      ? [
-          toVaultRelativeKey(
-            resolveVaultRootForMemoryDir(memoryDir),
-            resolveWithinMemoryDir(memoryDir, semanticMergeIncomingRelPath),
-          ),
-        ]
-      : undefined,
   });
 
   // --- DERIVED INDEX (only after the write succeeded) ------------------------
@@ -936,6 +929,13 @@ async function mutateMemoryLifecycle(
       .some((candidate) => (
         candidate.by === entry.by && candidate.at === entry.at
       ));
+    const lifecycleChanged =
+      !duplicate ||
+      (status !== undefined && document.status !== status) ||
+      (
+        options.staleAfter !== undefined &&
+        document.staleAfter !== replacementStaleAfter
+      );
     if (!duplicate) existingRaw.push(entry);
 
     const id = frontmatterString(document.frontmatter, 'id') ?? generateUlid();
@@ -960,12 +960,14 @@ async function mutateMemoryLifecycle(
     // Vault-first by construction: an index error is allowed to propagate only
     // after the canonical note contains the completed mutation.
     await fs.writeFile(abs, rendered, 'utf8');
-    enqueueMemoryVaultLog(memoryDir, {
-      reason: status === 'deprecated' ? 'deprecated' : 'verified',
-      actor,
-      noteSourceId: sourceId,
-      date: at.slice(0, 10),
-    });
+    if (lifecycleChanged) {
+      enqueueMemoryVaultLog(memoryDir, {
+        reason: status === 'deprecated' ? 'deprecated' : 'verified',
+        actor,
+        noteSourceId: sourceId,
+        date: auditLocalCalendarDate(new Date(at)),
+      });
+    }
     await index.upsertNote({
       sourceId,
       parsed: parseNote(rendered),
