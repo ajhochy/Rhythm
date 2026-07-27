@@ -43,12 +43,20 @@ import type { AgentMemory, AgentMemoryRepository } from '../repositories/agent_m
 import { logger } from '../utils/logger';
 import { MEMORY_MERGE_THRESHOLD, mergeMemoryContent, textSimilarity } from './memory_similarity';
 import {
+  DEFAULT_MEMORY_ACTOR,
   VALID_MEMORY_KINDS,
+  VALID_MEMORY_STATUSES,
   frontmatterString,
+  generatedMetadata,
+  mergeLifecycleMetadata,
   parseMemoryNote,
   renderMemoryNote,
+  staleAfter,
+  verificationEntries,
   type MemoryKind,
+  type MemoryStatus,
   type NoteFrontmatter,
+  type VerificationEntry,
 } from './memory_note_format';
 
 /** Allowed memory kinds — must match memoryVaultSyncService's VALID_KINDS. */
@@ -71,6 +79,12 @@ export interface RememberInput {
   tags?: string[];
   /** Informational `source` frontmatter (defaults to 'agent'). */
   source?: string;
+  /** OKF lifecycle state. New notes default to stable. */
+  status?: MemoryStatus;
+  /** Optional YYYY-MM-DD shelf-life boundary. */
+  staleAfter?: string;
+  /** Optional machine/human confirmations with UTC timestamps. */
+  verified?: VerificationEntry[];
 }
 
 export interface RememberResult {
@@ -146,6 +160,44 @@ function assertValidKind(kind: string): MemoryKind {
   throw new MemoryWriteError(
     `Invalid memory kind "${kind}". Allowed: ${VALID_MEMORY_KINDS.join('|')}.`,
   );
+}
+
+function assertValidStatus(status: unknown): MemoryStatus | undefined {
+  if (status === undefined) return undefined;
+  if (
+    typeof status === 'string' &&
+    (VALID_MEMORY_STATUSES as readonly string[]).includes(status)
+  ) {
+    return status as MemoryStatus;
+  }
+  throw new MemoryWriteError(
+    `Invalid memory status "${String(status)}". Allowed: ${VALID_MEMORY_STATUSES.join('|')}.`,
+  );
+}
+
+function assertValidStaleAfter(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  const normalized = staleAfter({ stale_after: value });
+  if (typeof value !== 'string' || normalized === undefined) {
+    throw new MemoryWriteError('staleAfter must be a valid YYYY-MM-DD date.');
+  }
+  return normalized;
+}
+
+function assertValidVerified(
+  value: unknown,
+): VerificationEntry[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new MemoryWriteError('verified must be an array.');
+  }
+  const normalized = verificationEntries({ verified: value });
+  if (normalized.length !== value.length) {
+    throw new MemoryWriteError(
+      'Each verified entry requires a valid OKF actor and ISO-8601 UTC timestamp.',
+    );
+  }
+  return normalized;
 }
 
 /**
@@ -235,6 +287,13 @@ export async function rememberToVault(
   const source = typeof input.source === 'string' && input.source.trim() !== ''
     ? input.source
     : 'agent';
+  const requestedStatus = assertValidStatus(input.status);
+  const requestedStaleAfter = assertValidStaleAfter(input.staleAfter);
+  const requestedVerified = assertValidVerified(input.verified);
+  const generated = {
+    by: DEFAULT_MEMORY_ACTOR,
+    at: new Date().toISOString(),
+  };
 
   const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
   const index = options.index ?? new MemoryIndexService();
@@ -254,6 +313,8 @@ export async function rememberToVault(
   let relPath: string;
   let createdToPreserve: string | undefined;
   let frontmatterToPreserve: Record<string, unknown> = {};
+  let foundExisting = false;
+  let semanticMerge = false;
   let contentToWrite = content;
 
   if (id) {
@@ -264,6 +325,7 @@ export async function rememberToVault(
       const full = await readNoteFull(resolveWithinMemoryDir(memoryDir, existingRel));
       createdToPreserve = full.created;
       frontmatterToPreserve = full.frontmatter;
+      foundExisting = true;
     } else {
       const slug = slugForNote(content.split('\n')[0] ?? content, id);
       relPath = path.join(kind, `${slug}.md`);
@@ -280,6 +342,7 @@ export async function rememberToVault(
       id = exact.id;
       createdToPreserve = exact.created;
       frontmatterToPreserve = exact.frontmatter;
+      foundExisting = true;
     } else {
       // No exact content-key match — look for a note that GENUINELY overlaps
       // in theme (same kind, high similarity) and merge onto it instead of
@@ -291,6 +354,8 @@ export async function rememberToVault(
         const meta2 = await readNoteMeta(resolveWithinMemoryDir(memoryDir, similar.relPath));
         createdToPreserve = meta2.created;
         frontmatterToPreserve = similar.frontmatter;
+        foundExisting = true;
+        semanticMerge = true;
         contentToWrite = mergeMemoryContent(similar.body, content);
       }
     }
@@ -306,6 +371,14 @@ export async function rememberToVault(
   const abs = resolveWithinMemoryDir(memoryDir, relPath);
 
   const now = isoDate();
+  const incomingLifecycle: Record<string, unknown> = {
+    status: requestedStatus ?? 'stable',
+    stale_after: requestedStaleAfter,
+    verified: requestedVerified,
+  };
+  const mergedLifecycle = semanticMerge
+    ? mergeLifecycleMetadata([frontmatterToPreserve, incomingLifecycle])
+    : undefined;
   const fm: NoteFrontmatter = {
     ...frontmatterToPreserve,
     id,
@@ -314,6 +387,35 @@ export async function rememberToVault(
     created: createdToPreserve ?? now,
     updated: now,
     source,
+    ...(!foundExisting
+      ? {
+          status: requestedStatus ?? 'stable',
+          stale_after: requestedStaleAfter,
+          generated,
+          verified: requestedVerified && requestedVerified.length > 0
+            ? requestedVerified
+            : undefined,
+        }
+      : {}),
+    ...(foundExisting && !semanticMerge && requestedStatus !== undefined
+      ? { status: requestedStatus }
+      : {}),
+    ...(foundExisting && !semanticMerge && requestedStaleAfter !== undefined
+      ? { stale_after: requestedStaleAfter }
+      : {}),
+    ...(foundExisting && !semanticMerge && input.verified !== undefined
+      ? {
+          verified: requestedVerified && requestedVerified.length > 0
+            ? requestedVerified
+            : undefined,
+        }
+      : {}),
+    ...(semanticMerge
+      ? {
+          ...mergedLifecycle,
+          generated: generatedMetadata(frontmatterToPreserve) ?? generated,
+        }
+      : {}),
   };
 
   // --- VAULT-FIRST WRITE -----------------------------------------------------

@@ -32,6 +32,7 @@ import { setDb } from '../database/db';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { MemoryIndexService } from '../services/memory_index_service';
 import { scanVaultNotes } from '../services/memoryVaultSyncService';
+import { parseMemoryNote } from '../services/memory_note_format';
 import {
   rememberToVault,
   forgetFromVault,
@@ -250,6 +251,78 @@ describe('vault-write helpers (#803)', () => {
     expect(slugForNote('Hello, World!', 'FALLBACK')).toBe('hello-world');
     expect(slugForNote('///', 'FALLBACKID')).toBe('fallbackid');
     expect(slugForNote('../etc', 'X').includes(path.sep)).toBe(false);
+  });
+});
+
+describe('MEM-OKF #1188 write defaults and validation', () => {
+  it('stamps new notes stable with the agent generator and omits empty optional keys', async () => {
+    const result = await rememberToVault(
+      { kind: 'fact', content: 'The welcome desk opens at eight.' },
+      { memoryDir, index },
+    );
+    const raw = readFileSync(fileFor(result.path), 'utf8');
+    const parsed = parseMemoryNote(raw);
+
+    expect(parsed.status).toBe('stable');
+    expect(parsed.generated).toMatchObject({ by: 'agent:rhythm/1' });
+    expect(parsed.generated?.at).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+    );
+    expect(raw).not.toMatch(/^stale_after:/m);
+    expect(raw).not.toMatch(/^verified:/m);
+  });
+
+  it('accepts valid lifecycle input and rejects malformed caller metadata before writing', async () => {
+    const result = await rememberToVault(
+      {
+        kind: 'context',
+        content: 'The youth schedule applies through August.',
+        status: 'draft',
+        staleAfter: '2026-09-01',
+        verified: [
+          { by: 'human:ajh@example.com', at: '2026-07-26T10:05:00Z' },
+        ],
+      },
+      { memoryDir, index },
+    );
+    expect(parseMemoryNote(readFileSync(fileFor(result.path), 'utf8')))
+      .toMatchObject({
+        status: 'draft',
+        staleAfter: '2026-09-01',
+        verified: [
+          {
+            by: 'human:ajh@example.com',
+            at: '2026-07-26T10:05:00.000Z',
+          },
+        ],
+      });
+
+    await expect(rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Bad status.',
+        status: 'unknown' as 'stable',
+      },
+      { memoryDir, index },
+    )).rejects.toThrow(MemoryWriteError);
+    await expect(rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Bad date.',
+        staleAfter: '2026-99-99',
+      },
+      { memoryDir, index },
+    )).rejects.toThrow(MemoryWriteError);
+    await expect(rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Bad verification.',
+        verified: [
+          { by: 'anonymous', at: 'yesterday' },
+        ],
+      },
+      { memoryDir, index },
+    )).rejects.toThrow(MemoryWriteError);
   });
 });
 

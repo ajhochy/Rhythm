@@ -23,7 +23,10 @@ import path from 'node:path';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
-import { syncMemoryVault } from '../services/memoryVaultSyncService';
+import {
+  scanVaultNotes,
+  syncMemoryVault,
+} from '../services/memoryVaultSyncService';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -85,6 +88,39 @@ describe('Memory-Vault mirror-sync (WI6)', () => {
     // frontmatter source_id field.
     expect(row.sourceId).toBe('aj-hochhalter.md');
     expect(JSON.parse(row.tagsJson)).toEqual(['staff', 'leadership']);
+  });
+
+  it('#1188: carries normalized lifecycle metadata through the scan result', async () => {
+    note(
+      'seasonal.md',
+      [
+        '---',
+        'kind: context',
+        'status: draft',
+        'stale_after: 2026-09-01',
+        'generated: { by: "agent:rhythm/1", at: 2026-07-26T10:00:00Z }',
+        'verified:',
+        '  - { by: "human:ajh", at: 2026-07-26T11:00:00Z }',
+        '---',
+        'Seasonal schedule.',
+      ].join('\n'),
+    );
+
+    const [scanned] = await scanVaultNotes(vaultDir);
+    expect(scanned.parsed).toMatchObject({
+      status: 'draft',
+      staleAfter: '2026-09-01',
+      generated: {
+        by: 'agent:rhythm/1',
+        at: '2026-07-26T10:00:00.000Z',
+      },
+      verified: [
+        {
+          by: 'human:ajh',
+          at: '2026-07-26T11:00:00.000Z',
+        },
+      ],
+    });
   });
 
   it('defaults kind to "fact" when frontmatter omits it', async () => {

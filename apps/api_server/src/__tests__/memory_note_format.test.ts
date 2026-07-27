@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  formatActor,
+  isActive,
+  isStale,
+  mergeLifecycleMetadata,
   parseMemoryNote,
+  parseActor,
   renderMemoryNote,
   renderParsedMemoryNote,
+  trustTier,
 } from '../services/memory_note_format';
 import { parseNote } from '../services/memoryVaultSyncService';
 
@@ -59,7 +65,7 @@ describe('MEM-OKF #1187 shared memory-note format', () => {
     });
     const reparsed = parseMemoryNote(rewritten);
     expect(reparsed.frontmatter.x_unknown).toEqual({ nested: 'value' });
-    expect(reparsed.frontmatter.updated).toBeInstanceOf(Date);
+    expect(reparsed.frontmatter.updated).toBe('2026-07-26');
     expect(reparsed.body).toBe('New body.');
   });
 
@@ -84,7 +90,7 @@ describe('MEM-OKF #1187 shared memory-note format', () => {
     ] as const;
 
     for (const fixture of corpus) {
-      expect(parseNote(fixture.raw)).toEqual(fixture.expected);
+      expect(parseNote(fixture.raw)).toMatchObject(fixture.expected);
     }
   });
 
@@ -157,5 +163,149 @@ describe('MEM-OKF #1187 shared memory-note format', () => {
       'z_unknown',
       'a_unknown',
     ]);
+  });
+});
+
+describe('MEM-OKF #1188 lifecycle and trust metadata', () => {
+  it('round-trips all lifecycle fields and normalizes their consumer view', () => {
+    const raw = [
+      '---',
+      'id: 01TEST',
+      'kind: context',
+      'tags: []',
+      'created: 2026-07-01',
+      'updated: 2026-07-26',
+      'source: agent',
+      'status: draft',
+      'stale_after: 2026-09-01',
+      'generated: { by: \"agent:rhythm/1\", at: 2026-07-26T10:00:00Z }',
+      'verified:',
+      '  - { by: \"agent:reviewer/2\", at: 2026-07-26T10:03:00Z }',
+      '  - { by: \"human:ajh@example.com\", at: 2026-07-26T10:05:00Z }',
+      '---',
+      'Seasonal staffing context.',
+      '',
+    ].join('\n');
+
+    const parsed = parseMemoryNote(raw);
+    expect(parsed).toMatchObject({
+      status: 'draft',
+      staleAfter: '2026-09-01',
+      generated: {
+        by: 'agent:rhythm/1',
+        at: '2026-07-26T10:00:00.000Z',
+      },
+      verified: [
+        {
+          by: 'agent:reviewer/2',
+          at: '2026-07-26T10:03:00.000Z',
+        },
+        {
+          by: 'human:ajh@example.com',
+          at: '2026-07-26T10:05:00.000Z',
+        },
+      ],
+    });
+    expect(renderParsedMemoryNote(parsed)).toBe(raw);
+  });
+
+  it('treats legacy notes as stable, unverified, never stale, and leaves bytes unchanged', () => {
+    const raw = '---\nkind: fact\ntags: []\n---\nLegacy fact.\n';
+    const parsed = parseMemoryNote(raw);
+    expect(parsed.status).toBe('stable');
+    expect(parsed.staleAfter).toBeUndefined();
+    expect(parsed.verified).toEqual([]);
+    expect(trustTier(parsed.frontmatter)).toBe('unverified');
+    expect(isStale(parsed.frontmatter, '2099-01-01')).toBe(false);
+    expect(isActive(parsed.frontmatter, '2099-01-01')).toBe(true);
+    expect(renderParsedMemoryNote(parsed)).toBe(raw);
+  });
+
+  it('fails open for unknown status and malformed stale_after', () => {
+    const parsed = parseMemoryNote(
+      '---\nstatus: experimental\nstale_after: 2026-99-99\n---\nKeep it active.',
+    );
+    expect(parsed.status).toBe('stable');
+    expect(parsed.staleAfter).toBeUndefined();
+    expect(isStale(parsed.frontmatter, '2099-01-01')).toBe(false);
+    expect(isActive(parsed.frontmatter, '2099-01-01')).toBe(true);
+  });
+
+  it.each([
+    [undefined, 'unverified'],
+    [[], 'unverified'],
+    [[{ by: 'agent:reviewer/2', at: '2026-07-26T10:00:00Z' }], 'machine'],
+    [[{ by: 'process:import', at: '2026-07-26T10:00:00Z' }], 'machine'],
+    [[{ by: 'human:ajh', at: '2026-07-26T10:00:00Z' }], 'human'],
+    [[
+      { by: 'agent:reviewer/2', at: '2026-07-26T10:00:00Z' },
+      { by: 'human:ajh', at: '2026-07-26T10:01:00Z' },
+    ], 'human'],
+  ])('derives trust tier %#', (verified, expected) => {
+    expect(trustTier({ verified })).toBe(expected);
+  });
+
+  it('marks the stale_after boundary itself stale and excludes deprecated notes', () => {
+    const fm = { status: 'stable', stale_after: '2026-09-01' };
+    expect(isStale(fm, '2026-08-31')).toBe(false);
+    expect(isStale(fm, '2026-09-01')).toBe(true);
+    expect(isActive(fm, '2026-09-01')).toBe(false);
+    expect(isActive({ status: 'deprecated' }, '2026-08-31')).toBe(false);
+  });
+
+  it('formats and parses actor strings centrally', () => {
+    expect(formatActor({ kind: 'agent', id: 'rhythm', version: '1' }))
+      .toBe('agent:rhythm/1');
+    expect(formatActor({ kind: 'human', id: 'ajh@example.com' }))
+      .toBe('human:ajh@example.com');
+    expect(formatActor({ kind: 'process', id: 'consolidation' }))
+      .toBe('process:consolidation');
+    expect(parseActor('agent:rhythm/1')).toEqual({
+      kind: 'agent',
+      id: 'rhythm',
+      version: '1',
+    });
+    expect(parseActor('human:ajh@example.com')).toEqual({
+      kind: 'human',
+      id: 'ajh@example.com',
+    });
+    expect(parseActor('unknown:actor')).toBeNull();
+  });
+
+  it('merges conservative status, earliest expiry, and verification union', () => {
+    expect(mergeLifecycleMetadata([
+      {
+        status: 'deprecated',
+        stale_after: '2026-10-01',
+        verified: [
+          { by: 'agent:reviewer/2', at: '2026-07-26T10:00:00Z' },
+        ],
+      },
+      {
+        status: 'draft',
+        stale_after: '2026-09-01',
+        verified: [
+          { by: 'agent:reviewer/2', at: '2026-07-26T10:00:00Z' },
+          { by: 'human:ajh', at: '2026-07-26T11:00:00Z' },
+        ],
+      },
+    ])).toEqual({
+      status: 'draft',
+      stale_after: '2026-09-01',
+      verified: [
+        {
+          by: 'agent:reviewer/2',
+          at: '2026-07-26T10:00:00.000Z',
+        },
+        {
+          by: 'human:ajh',
+          at: '2026-07-26T11:00:00.000Z',
+        },
+      ],
+    });
+    expect(mergeLifecycleMetadata([
+      { status: 'deprecated' },
+      { status: 'deprecated' },
+    ]).status).toBe('deprecated');
   });
 });

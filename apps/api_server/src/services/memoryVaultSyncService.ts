@@ -34,7 +34,12 @@ import path from 'node:path';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { resolveMemoryVaultPath } from '../config/env';
 import { logger } from '../utils/logger';
-import { parseMemoryNote } from './memory_note_format';
+import {
+  parseMemoryNote,
+  type GeneratedMetadata,
+  type MemoryStatus,
+  type VerificationEntry,
+} from './memory_note_format';
 
 /** The canonical storage source stamped on every mirrored row. */
 export const MEMORY_VAULT_SOURCE = 'obsidian-memory';
@@ -107,6 +112,10 @@ export interface ParsedNote {
   kind: string;
   tags: string[];
   content: string;
+  status?: MemoryStatus;
+  staleAfter?: string;
+  generated?: GeneratedMetadata;
+  verified?: VerificationEntry[];
 }
 
 /**
@@ -127,6 +136,10 @@ export function parseNote(raw: string): ParsedNote {
     kind: document.kind,
     tags: document.tags,
     content: document.body,
+    status: document.status,
+    staleAfter: document.staleAfter,
+    generated: document.generated,
+    verified: document.verified,
   };
 }
 

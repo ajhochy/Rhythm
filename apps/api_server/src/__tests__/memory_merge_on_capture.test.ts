@@ -41,6 +41,7 @@ import { setDb } from '../database/db';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { MemoryIndexService } from '../services/memory_index_service';
 import { rememberToVault } from '../services/memoryVaultWriteService';
+import { parseMemoryNote } from '../services/memory_note_format';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -194,5 +195,47 @@ describe('merge-on-capture (#859a)', () => {
     const rewritten = readFileSync(firstPath, 'utf8');
     expect(rewritten).toContain('future_extension:');
     expect(rewritten).toContain('enabled: true');
+  });
+
+  it('#1188: merge-on-capture folds lifecycle metadata conservatively', async () => {
+    const first = await rememberToVault(
+      {
+        kind: 'fact',
+        content: 'The reservation calendar lives in the facilities module.',
+        status: 'deprecated',
+        staleAfter: '2026-10-01',
+        verified: [
+          { by: 'agent:reviewer/2', at: '2026-07-26T10:00:00Z' },
+        ],
+      },
+      { memoryDir, index },
+    );
+    await rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Facilities module contains the reservation calendar feature for booking rooms.',
+        status: 'draft',
+        staleAfter: '2026-09-01',
+        verified: [
+          { by: 'agent:reviewer/2', at: '2026-07-26T10:00:00Z' },
+          { by: 'human:ajh', at: '2026-07-26T11:00:00Z' },
+        ],
+      },
+      { memoryDir, index },
+    );
+
+    const merged = parseMemoryNote(readFileSync(fileFor(first.path), 'utf8'));
+    expect(merged.status).toBe('draft');
+    expect(merged.staleAfter).toBe('2026-09-01');
+    expect(merged.verified).toEqual([
+      {
+        by: 'agent:reviewer/2',
+        at: '2026-07-26T10:00:00.000Z',
+      },
+      {
+        by: 'human:ajh',
+        at: '2026-07-26T11:00:00.000Z',
+      },
+    ]);
   });
 });

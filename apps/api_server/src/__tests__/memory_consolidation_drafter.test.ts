@@ -36,6 +36,7 @@ import {
   runMemoryConsolidation,
   revertMemoryConsolidation,
 } from '../services/memory_consolidation_drafter';
+import { parseMemoryNote } from '../services/memory_note_format';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -178,6 +179,9 @@ describe('memory consolidation pass (#859b)', () => {
   it('AC4: the pass is reversible via a before-snapshot', async () => {
     await seedPreExistingOverlappingNotes();
     const beforeFiles = allNoteFiles().slice().sort();
+    const beforeBytes = new Map(
+      beforeFiles.map((rel) => [rel, readFileSync(fileFor(rel), 'utf8')]),
+    );
     const beforeRows = await repo.listAsync(undefined, undefined, 100);
 
     const result = await runMemoryConsolidation({ memoryDir, index, repo });
@@ -188,6 +192,9 @@ describe('memory consolidation pass (#859b)', () => {
 
     const afterRevertFiles = allNoteFiles().slice().sort();
     expect(afterRevertFiles).toEqual(beforeFiles);
+    for (const rel of afterRevertFiles) {
+      expect(readFileSync(fileFor(rel), 'utf8')).toBe(beforeBytes.get(rel));
+    }
     const afterRevertRows = await repo.listAsync(undefined, undefined, 100);
     expect(afterRevertRows).toHaveLength(beforeRows.length);
   });
@@ -206,5 +213,58 @@ describe('memory consolidation pass (#859b)', () => {
     const rewritten = readFileSync(survivorPath, 'utf8');
     expect(rewritten).toContain('future_extension:');
     expect(rewritten).toContain('nested: retained');
+  });
+
+  it('#1188: consolidation merges lifecycle metadata and stamps its process actor', async () => {
+    await seedPreExistingOverlappingNotes();
+    const survivorPath = path.join(vaultRoot, 'memory', 'fact', 'note-a.md');
+    const retireePath = path.join(vaultRoot, 'memory', 'fact', 'note-b.md');
+    writeFileSync(
+      survivorPath,
+      readFileSync(survivorPath, 'utf8').replace(
+        /^source: agent$/m,
+        [
+          'source: agent',
+          'status: deprecated',
+          'stale_after: 2026-10-01',
+          'verified:',
+          '  - { by: "agent:reviewer/2", at: 2026-07-26T10:00:00Z }',
+        ].join('\n'),
+      ),
+      'utf8',
+    );
+    writeFileSync(
+      retireePath,
+      readFileSync(retireePath, 'utf8').replace(
+        /^source: agent$/m,
+        [
+          'source: agent',
+          'status: stable',
+          'stale_after: 2026-09-01',
+          'verified:',
+          '  - { by: "human:ajh", at: 2026-07-26T11:00:00Z }',
+        ].join('\n'),
+      ),
+      'utf8',
+    );
+
+    await runMemoryConsolidation({ memoryDir, index, repo });
+
+    const merged = parseMemoryNote(readFileSync(survivorPath, 'utf8'));
+    expect(merged.status).toBe('stable');
+    expect(merged.staleAfter).toBe('2026-09-01');
+    expect(merged.verified).toEqual([
+      {
+        by: 'agent:reviewer/2',
+        at: '2026-07-26T10:00:00.000Z',
+      },
+      {
+        by: 'human:ajh',
+        at: '2026-07-26T11:00:00.000Z',
+      },
+    ]);
+    expect(merged.generated).toMatchObject({
+      by: 'process:consolidation',
+    });
   });
 });

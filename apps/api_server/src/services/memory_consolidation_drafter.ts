@@ -53,6 +53,10 @@ import {
   type MemoryKind,
 } from './memoryVaultWriteService';
 import { MEMORY_MERGE_THRESHOLD, mergeMemoryContent, textSimilarity } from './memory_similarity';
+import {
+  CONSOLIDATION_MEMORY_ACTOR,
+  mergeLifecycleMetadata,
+} from './memory_note_format';
 import { logger } from '../utils/logger';
 
 export interface MemoryConsolidationOptions {
@@ -198,6 +202,9 @@ export async function runMemoryConsolidation(
         mergedBody = mergeMemoryContent(mergedBody, retiree.body);
         for (const t of retiree.tags) mergedTags.add(t);
       }
+      const lifecycle = mergeLifecycleMetadata(
+        sorted.map((record) => record.frontmatter),
+      );
 
       // Write the merged survivor note (bump `updated`, preserve `created`+`id`).
       const fm: NoteFrontmatter = {
@@ -208,6 +215,11 @@ export async function runMemoryConsolidation(
         created: survivor.created,
         updated: isoDate(),
         source: 'agent',
+        ...lifecycle,
+        generated: {
+          by: CONSOLIDATION_MEMORY_ACTOR,
+          at: new Date().toISOString(),
+        },
       };
       await fs.writeFile(survivor.abs, renderMemoryNote(fm, mergedBody), 'utf8');
       await index.upsertNote({
