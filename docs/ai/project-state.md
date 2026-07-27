@@ -7,7 +7,7 @@ Hand off the live-verified provider-stream inactivity recovery for #1211.
 ## Active branch / PR
 
 - Branch: `codex/issue-1211-stalled-stream`.
-- PR: pending draft (do not merge).
+- PR: [#1212](https://github.com/ajhochy/Rhythm/pull/1212) (draft only; do not merge).
 - Issue: [#1211](https://github.com/ajhochy/Rhythm/issues/1211).
 - The config-doctor work remains in draft PR #1207 and is outside this branch.
 - The separate MEM-OKF PR #1205 remains outside this branch and may require a
@@ -15,8 +15,7 @@ Hand off the live-verified provider-stream inactivity recovery for #1211.
 
 ## In progress
 
-- Open a draft PR for #1211 and leave it unmerged for human review/manual
-  smoke.
+- Keep draft PR #1212 unmerged pending human review/manual smoke.
 
 ## Risks / known issues
 

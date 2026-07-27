@@ -2,7 +2,7 @@
 date: 2026-07-27
 repo: Rhythm
 branch: codex/issue-1211-stalled-stream
-pr: pending
+pr: 1212
 issues: [1211]
 status: pass
 tags: [run, Rhythm]
