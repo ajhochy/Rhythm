@@ -117,6 +117,53 @@ npx vitest run src/__tests__/live_e2e_1082_skill_revert.test.ts
 Recon evidence and observed timing are recorded in
 `docs/ai/runs/2026-07-16-1082-skill-revert-ondisk-snapshot.md`.
 
+### Live config-doctor core-permission contract
+
+`src/__tests__/live_e2e_config_doctor_core_permissions.test.ts` drives the
+public config-create, proposal-approve, and config-read endpoints against the
+real api_server and fork engine. It creates an isolated agent config, seeds
+only a UUID proposal row into the copied SQLite database (there is no
+proposal-create HTTP route), approves it through
+`POST /agent-org-proposals/:id/approve`, then reads the result through
+`GET /agent-configs/:id`. The test cleans up only its generated IDs.
+
+Keep the foreground sandbox command attached for the entire test: automation
+hosts can reap a background sandbox's descendants after its launch command
+returns. Do not globally override `HOME` or `PATH` in the shell running
+Vitest; the sandbox itself owns its temporary HOME. When the test finishes,
+interrupt or close that foreground `up --foreground` shell first. If its
+scoped sandbox directory remains, run `down` from another shell, then confirm
+that both `:4098` and `:4097` have no listeners.
+
+```bash
+RHYTHM_SANDBOX_DIR=/tmp/rhythm-dev-sandbox-smoke-writer \
+  tools/dev/sandbox.sh up --foreground
+
+# In another shell, after "Sandbox ready" is printed:
+cd apps/api_server
+RHYTHM_LIVE_E2E=1 \
+RHYTHM_LIVE_E2E_ISOLATED=1 \
+RHYTHM_LIVE_URL=http://127.0.0.1:4098 \
+RHYTHM_SANDBOX_DB=/tmp/rhythm-dev-sandbox-smoke-writer/rhythm.db \
+DB_PATH=/tmp/rhythm-dev-sandbox-smoke-writer/rhythm.db \
+RHYTHM_LIVE_DB_PATH=/tmp/rhythm-dev-sandbox-smoke-writer/rhythm.db \
+  npx vitest run src/__tests__/live_e2e_config_doctor_core_permissions.test.ts
+
+# Interrupt or close the foreground shell above first. Then, if its sandbox
+# directory remains, run this scoped cleanup from another shell:
+RHYTHM_SANDBOX_DIR=/tmp/rhythm-dev-sandbox-smoke-writer \
+  tools/dev/sandbox.sh down
+
+lsof -nP -iTCP:4098 -sTCP:LISTEN
+lsof -nP -iTCP:4097 -sTCP:LISTEN
+```
+
+The three database-path variables must resolve to the sandbox's copied
+`rhythm.db`; the test rejects any mismatch. Recon response shapes and timing
+are recorded in `docs/testing/results/recon-config-doctor-core-permissions.md`.
+Playwright, computer-control, and manual-only coverage are N/A: this is a
+deterministic backend HTTP surface.
+
 ### api_server (Node.js/TypeScript)
 ```bash
 cd apps/api_server

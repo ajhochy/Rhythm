@@ -150,6 +150,8 @@ export function readAgentConfigField(config: AgentConfig, field: ConfigFieldName
       return config.allowedMcpsJson ?? null;
     case 'allowedSkillsJson':
       return config.allowedSkillsJson ?? null;
+    case 'corePermissionsJson':
+      return config.corePermissionsJson ?? null;
     case 'allowedDelegatesJson':
       return config.allowedDelegatesJson ?? null;
     case 'system_prompt':
@@ -181,6 +183,8 @@ export function agentConfigFieldPatch(
       return { allowedMcpsJson: value };
     case 'allowedSkillsJson':
       return { allowedSkillsJson: value };
+    case 'corePermissionsJson':
+      return { corePermissionsJson: value };
     case 'allowedDelegatesJson':
       return { allowedDelegatesJson: value };
     case 'system_prompt':
