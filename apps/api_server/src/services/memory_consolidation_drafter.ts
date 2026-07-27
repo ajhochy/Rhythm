@@ -78,6 +78,7 @@ import {
 } from './memory_note_format';
 import { logger } from '../utils/logger';
 import { regenerateMemoryVaultNavigation } from './memory_vault_index_writer';
+import { enqueueMemoryVaultLog } from './memory_vault_log';
 
 export interface MemoryConsolidationOptions {
   /** Override the memory dir (tests point this at a temp fixture). */
@@ -289,6 +290,12 @@ export async function runMemoryConsolidation(
       };
       const rendered = renderMemoryNote(fm, attributedMerge.body);
       await fs.writeFile(survivor.abs, rendered, 'utf8');
+      enqueueMemoryVaultLog(memoryDir, {
+        reason: 'consolidation-merge',
+        actor: CONSOLIDATION_MEMORY_ACTOR,
+        noteSourceId: survivor.vaultRelKey,
+        relatedSourceIds: retirees.map((retiree) => retiree.vaultRelKey),
+      });
       await index.upsertNote({
         sourceId: survivor.vaultRelKey,
         parsed: parseNote(rendered),
@@ -296,10 +303,20 @@ export async function runMemoryConsolidation(
 
       // Retire every other member: delete the vault file + index row.
       for (const retiree of retirees) {
+        let removed = false;
         try {
           await fs.unlink(retiree.abs);
+          removed = true;
         } catch {
           /* already gone — fine, still remove the index row */
+        }
+        if (removed) {
+          enqueueMemoryVaultLog(memoryDir, {
+            reason: 'consolidation-retirement',
+            actor: CONSOLIDATION_MEMORY_ACTOR,
+            noteSourceId: retiree.vaultRelKey,
+            relatedSourceIds: [survivor.vaultRelKey],
+          });
         }
         await repo.deleteAsync(retiree.id);
         // The index row keyed on vaultRelKey may carry a DIFFERENT internal
@@ -346,6 +363,11 @@ export async function runMemoryConsolidation(
         body,
       );
       await fs.writeFile(record.abs, rendered, 'utf8');
+      enqueueMemoryVaultLog(memoryDir, {
+        reason: 'updated',
+        actor: CONSOLIDATION_MEMORY_ACTOR,
+        noteSourceId: record.vaultRelKey,
+      });
       await index.upsertNote({
         sourceId: record.vaultRelKey,
         parsed: parseNote(rendered),
@@ -408,8 +430,21 @@ export async function revertMemoryConsolidation(
     } catch {
       continue;
     }
-    await fs.mkdir(path.dirname(abs), { recursive: true });
-    await fs.writeFile(abs, entry.fileContent, 'utf8');
+    let changed = true;
+    try {
+      changed = await fs.readFile(abs, 'utf8') !== entry.fileContent;
+    } catch {
+      // A missing/unreadable note needs restoration.
+    }
+    if (changed) {
+      await fs.mkdir(path.dirname(abs), { recursive: true });
+      await fs.writeFile(abs, entry.fileContent, 'utf8');
+      enqueueMemoryVaultLog(memoryDir, {
+        reason: 'consolidation-revert',
+        actor: CONSOLIDATION_MEMORY_ACTOR,
+        noteSourceId: entry.vaultRelKey,
+      });
+    }
 
     await index.upsertNote({
       sourceId: entry.vaultRelKey,

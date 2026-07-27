@@ -34,7 +34,7 @@ import path from 'node:path';
 import { resolveMemoryDirPath } from '../config/env';
 import {
   MEMORY_VAULT_SOURCE,
-  RESERVED_VAULT_FILENAMES,
+  isReservedVaultFilename,
   parseNote,
   resolveVaultRootForMemoryDir,
   toVaultRelativeKey,
@@ -42,6 +42,7 @@ import {
 } from './memoryVaultSyncService';
 import { MemoryIndexService } from './memory_index_service';
 import { regenerateMemoryVaultNavigation } from './memory_vault_index_writer';
+import { enqueueMemoryVaultLog } from './memory_vault_log';
 import type { AgentMemory, AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { logger } from '../utils/logger';
 import {
@@ -377,9 +378,7 @@ function decodeMemoryLinkTarget(target: string): string | null {
       .join('/');
     if (
       !decoded.toLowerCase().endsWith('.md') ||
-      (RESERVED_VAULT_FILENAMES as readonly string[]).includes(
-        path.basename(decoded).toLowerCase(),
-      )
+      isReservedVaultFilename(path.basename(decoded))
     ) {
       return null;
     }
@@ -649,6 +648,7 @@ export async function rememberToVault(
   let frontmatterToPreserve: Record<string, unknown> = {};
   let foundExisting = false;
   let semanticMerge = false;
+  let semanticMergeIncomingRelPath: string | undefined;
   let contentToWrite = content;
   let attributionMerge: AttributedMemoryMergeResult | undefined;
 
@@ -720,6 +720,7 @@ export async function rememberToVault(
               usageWindow: requestedUsageWindow,
             },
           );
+          semanticMergeIncomingRelPath = relPath;
           relPath = similar.relPath;
           id = similar.id;
           const meta2 = await readNoteMeta(
@@ -831,6 +832,23 @@ export async function rememberToVault(
   const rendered = renderMemoryNote(fm, contentToWrite);
   await fs.mkdir(path.dirname(abs), { recursive: true });
   await fs.writeFile(abs, rendered, 'utf8');
+  enqueueMemoryVaultLog(memoryDir, {
+    reason: semanticMerge
+      ? 'merge-on-capture'
+      : foundExisting
+        ? 'updated'
+        : 'captured',
+    actor: DEFAULT_MEMORY_ACTOR,
+    noteSourceId: vaultRelKey,
+    relatedSourceIds: semanticMergeIncomingRelPath
+      ? [
+          toVaultRelativeKey(
+            resolveVaultRootForMemoryDir(memoryDir),
+            resolveWithinMemoryDir(memoryDir, semanticMergeIncomingRelPath),
+          ),
+        ]
+      : undefined,
+  });
 
   // --- DERIVED INDEX (only after the write succeeded) ------------------------
   // Canonical index key = path relative to the VAULT ROOT (e.g.
@@ -942,6 +960,12 @@ async function mutateMemoryLifecycle(
     // Vault-first by construction: an index error is allowed to propagate only
     // after the canonical note contains the completed mutation.
     await fs.writeFile(abs, rendered, 'utf8');
+    enqueueMemoryVaultLog(memoryDir, {
+      reason: status === 'deprecated' ? 'deprecated' : 'verified',
+      actor,
+      noteSourceId: sourceId,
+      date: at.slice(0, 10),
+    });
     await index.upsertNote({
       sourceId,
       parsed: parseNote(rendered),
@@ -1086,13 +1110,22 @@ export async function forgetFromVault(
     ? vaultRelKey
     : vaultKeyToMemoryDirRelative(memoryDir, vaultRelKey);
   const abs = resolveWithinMemoryDir(memoryDir, relPath);
+  let removed = false;
   try {
     await fs.unlink(abs);
+    removed = true;
     logger.info(`[MemoryWrite] forgot note (path=${relPath})`);
   } catch (err: unknown) {
     // Missing file is fine — the index row removal is still attempted by the
     // caller. Any other error propagates.
     if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
+  }
+  if (removed) {
+    enqueueMemoryVaultLog(memoryDir, {
+      reason: 'forgotten',
+      actor: DEFAULT_MEMORY_ACTOR,
+      noteSourceId: vaultRelKey,
+    });
   }
   await regenerateMemoryVaultNavigation(memoryDir);
 }
@@ -1310,6 +1343,12 @@ export async function updateMemoryInVault(
   const rendered = renderMemoryNote(fm, newContent);
   await fs.mkdir(path.dirname(newAbs), { recursive: true });
   await fs.writeFile(newAbs, rendered, 'utf8');
+  const newVaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), newAbs);
+  enqueueMemoryVaultLog(memoryDir, {
+    reason: 'updated',
+    actor: DEFAULT_MEMORY_ACTOR,
+    noteSourceId: newVaultRelKey,
+  });
 
   if (kindChanged) {
     try {
@@ -1320,7 +1359,6 @@ export async function updateMemoryInVault(
     await index.removeNote(oldVaultRelKey);
   }
 
-  const newVaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), newAbs);
   await index.upsertNote({
     sourceId: newVaultRelKey,
     parsed: parseNote(rendered),

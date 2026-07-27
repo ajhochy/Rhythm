@@ -51,6 +51,7 @@ import {
   type NoteFrontmatter,
 } from '../services/memory_note_format';
 import { logger } from '../utils/logger';
+import { flushMemoryVaultLog } from '../services/memory_vault_log';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -98,7 +99,8 @@ beforeEach(() => {
   memoryDir = path.join(vaultRoot, 'memory');
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await flushMemoryVaultLog(memoryDir);
   if (savedMemoryVaultSubdir === undefined) delete process.env.MEMORY_VAULT_SUBDIR;
   else process.env.MEMORY_VAULT_SUBDIR = savedMemoryVaultSubdir;
   try {
@@ -248,6 +250,7 @@ describe('memory consolidation pass (#859b)', () => {
     expect(allNoteFiles()).toHaveLength(2);
 
     const result = await runMemoryConsolidation({ memoryDir, index, repo });
+    await flushMemoryVaultLog(memoryDir);
 
     expect(result.mergedClusters).toBeGreaterThanOrEqual(1);
     expect(result.retiredCount).toBeGreaterThanOrEqual(1);
@@ -259,6 +262,13 @@ describe('memory consolidation pass (#859b)', () => {
     const merged = readFileSync(fileFor(rows[0].sourceId!), 'utf8');
     // Nuance from the second note ("booking rooms") must survive the merge.
     expect(merged.toLowerCase()).toContain('booking');
+    const auditLog = readFileSync(path.join(memoryDir, 'log.md'), 'utf8');
+    expect(auditLog).toContain(
+      '**Update** [Note A](/fact/note-a.md) - merged [Note B](/fact/note-b.md)',
+    );
+    expect(auditLog).toContain(
+      '**Deprecation** [Note B](/fact/note-b.md) - superseded and merged into [Note A](/fact/note-a.md)',
+    );
   });
 
   it('AC2: distinct memories (different themes) are left completely untouched', async () => {
@@ -303,6 +313,7 @@ describe('memory consolidation pass (#859b)', () => {
     expect(afterMergeIndex).not.toContain('note-b.md');
 
     await revertMemoryConsolidation(result.beforeSnapshot, { memoryDir, index, repo });
+    await flushMemoryVaultLog(memoryDir);
 
     const afterRevertFiles = allNoteFiles().slice().sort();
     expect(afterRevertFiles).toEqual(beforeFiles);
@@ -317,6 +328,9 @@ describe('memory consolidation pass (#859b)', () => {
     expect(afterRevertIndex).toContain('[Note B](note-b.md)');
     const afterRevertRows = await repo.listAsync(undefined, undefined, 100);
     expect(afterRevertRows).toHaveLength(beforeRows.length);
+    const auditLog = readFileSync(path.join(memoryDir, 'log.md'), 'utf8');
+    expect(auditLog).toContain('merged [Note B](/fact/note-b.md)');
+    expect(auditLog.match(/reverted to its pre-consolidation state/g)).toHaveLength(2);
   });
 
   it('#1187: consolidation preserves unknown survivor frontmatter', async () => {

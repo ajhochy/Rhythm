@@ -50,6 +50,17 @@ export const MEMORY_VAULT_SOURCE = 'obsidian-memory';
 
 /** OKF navigation/audit artifacts are derived metadata, never memory notes. */
 export const RESERVED_VAULT_FILENAMES = ['index.md', 'log.md'] as const;
+export const RESERVED_VAULT_FILENAME_PATTERNS = [
+  /^log-archive-\d{4}\.md$/i,
+] as const;
+
+export function isReservedVaultFilename(filename: string): boolean {
+  const normalized = filename.toLowerCase();
+  return (
+    (RESERVED_VAULT_FILENAMES as readonly string[]).includes(normalized) ||
+    RESERVED_VAULT_FILENAME_PATTERNS.some((pattern) => pattern.test(filename))
+  );
+}
 
 /**
  * Canonical index identity for a memory note: its path RELATIVE TO THE VAULT
@@ -217,11 +228,7 @@ async function collectMarkdownFiles(root: string, dir: string): Promise<string[]
   for (const entry of entries) {
     // Skip Obsidian config / hidden dirs (e.g. .obsidian, .trash).
     if (entry.name.startsWith('.')) continue;
-    if (
-      RESERVED_VAULT_FILENAMES.some(
-        (reserved) => reserved.toLowerCase() === entry.name.toLowerCase(),
-      )
-    ) {
+    if (isReservedVaultFilename(entry.name)) {
       continue;
     }
     const full = path.join(dir, entry.name);

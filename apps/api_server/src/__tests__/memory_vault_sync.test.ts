@@ -32,6 +32,7 @@ import { setDb } from '../database/db';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import {
   RESERVED_VAULT_FILENAMES,
+  isReservedVaultFilename,
   scanVaultNotes,
   syncMemoryVault,
 } from '../services/memoryVaultSyncService';
@@ -240,6 +241,8 @@ describe('Memory-Vault mirror-sync (WI6)', () => {
     note('LOG.md', 'Reserved root audit history.');
     note(path.join('fact', 'Index.md'), 'Reserved nested navigation.');
     note(path.join('fact', 'log.md'), 'Reserved nested audit history.');
+    note('log-archive-2025.md', 'Reserved archived audit history.');
+    note(path.join('fact', 'LOG-ARCHIVE-2024.MD'), 'Reserved nested archive.');
 
     await repo.upsertBySourceAsync({
       kind: 'fact',
@@ -255,11 +258,19 @@ describe('Memory-Vault mirror-sync (WI6)', () => {
       sourceId: path.join('fact', 'log.md'),
       tagsJson: '[]',
     });
+    await repo.upsertBySourceAsync({
+      kind: 'fact',
+      content: 'Previously indexed audit archive.',
+      source: 'obsidian-memory',
+      sourceId: 'log-archive-2025.md',
+      tagsJson: '[]',
+    });
 
     const summary = await syncMemoryVault({ vaultPath: vaultDir });
 
     expect(RESERVED_VAULT_FILENAMES).toEqual(['index.md', 'log.md']);
-    expect(summary).toEqual({ scanned: 1, upserted: 1, deleted: 2 });
+    expect(isReservedVaultFilename('LOG-ARCHIVE-2025.MD')).toBe(true);
+    expect(summary).toEqual({ scanned: 1, upserted: 1, deleted: 3 });
     const rows = await repo.listAsync(undefined, undefined, 50);
     expect(rows).toHaveLength(1);
     expect(rows[0].sourceId).toBe('kept.md');
