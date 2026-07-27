@@ -2,55 +2,59 @@
 
 ## Current focus
 
-Creative installer repair is implemented and live-smoked across Blender,
-OpenMontage, ComfyUI, FFmpeg, and Obsidian.
+MEM-OKF memory format, lifecycle, trust, provenance, navigation, links, and
+audit history for issues #1187–#1196 are implemented and live-smoked.
 
-## Active branch / PR
+## Active branches / PRs
 
-- Branch: `codex/fix-creative-installer`.
-- Draft PR: [#1202](https://github.com/ajhochy/Rhythm/pull/1202).
-- Related issue: #1201.
+- `codex/mem-okf`: draft PR pending.
+- `codex/1186-sandbox-foreground`: draft PR
+  [#1204](https://github.com/ajhochy/Rhythm/pull/1204), clean to merge after
+  human review.
+- `codex/418-quick-add-rollover`: draft PR
+  [#1203](https://github.com/ajhochy/Rhythm/pull/1203), clean to merge after
+  human review.
+- Creative installer PR
+  [#1202](https://github.com/ajhochy/Rhythm/pull/1202) is merged.
 
 ## In progress
 
-- Draft PR #1202 is open for human review; Server CI passed.
-- Blender now uses a checksum-verified OCF mirror and includes the exact pinned
-  MCP add-on source.
-- OpenMontage resolves packaged resources from the built API layout and launches
-  through its managed Python interpreter.
-- Gated live coverage now exercises all three heavy integrations through the
-  real sandbox API.
+- Prepare and open the combined MEM-OKF draft PR.
+- Keep #1187–#1196 issue-atomic commits in their required sequence.
+- Tool count is 82 (one new `rhythm_verify_memory` MCP tool); the MCP monolithic
+  index file was not edited.
 
 ## Risks / known issues
 
-- The Blender and ComfyUI live installer coverage is Apple Silicon/macOS
-  specific.
-- Blender add-on persistence remains an explicit user action; the installer
-  does not silently modify Blender preferences.
-- The optional ComfyUI model pack and image generation were not part of this
-  smoke.
-- Production remains unchanged until a human reviews and merges the draft PR.
+- `buildMemoryPreface` and the audit enqueue path have broad upstream blast
+  radii; targeted, full-memory, full-API, and live sandbox gates passed.
+- Mechanical consolidation/revert has no public HTTP, WebSocket, or MCP trigger,
+  so those behaviors are real-filesystem/SQLite integration-tested rather than
+  live-route tested.
+- Exact caller-controlled `(by, at)` lifecycle replay and authenticated
+  owner/cross-owner verification have no credential-free live surface; their
+  integration coverage is recorded in the verification contract.
+- Flutter analyze is blocked before analysis by the host Dart 3.5.4 runtime;
+  current dependencies require Dart 3.7 or newer. Dart formatting passes.
 
 ## Test status
 
-- API build: PASS.
-- API suite: PASS, 372 files passed and 33 skipped; 3,245 tests passed and 56
-  skipped.
-- Live isolated sandbox: PASS, FFmpeg install/execution and Obsidian MCP
-  initialization (2/2).
-- Heavy isolated smoke: PASS, 3/3. Blender installed, rendered a PNG, and
-  answered a real MCP `get_scene_info` call; OpenMontage installed and answered
-  `openmontage_status`; ComfyUI installed, started locally, verified healthy,
-  and answered `ping_comfyui`.
-- Focused Blender MCP bridge rerun: PASS, 1 passed and 2 skipped in 71.74
-  seconds.
-- GitNexus branch and staged comparisons: LOW risk, zero affected indexed
+- API TypeScript build/typecheck: PASS.
+- Full API suite: PASS, 384 files and 3,380 tests; 34 files/61 tests skipped.
+- MCP build/tests: PASS, 101 passed and 1 skipped.
+- Combined live sandbox: PASS twice, 5/5 tests through real HTTP, WebSocket,
+  built MCP stdio, copied SQLite, sandbox vault, and fork engine.
+- Sandbox isolation: PASS; :4098/:4097 removed and live PIDs 965 (:4001) and
+  1011 (:4096) unchanged.
+- Agent-stack PR check: Dart format, API typecheck, and API suite PASS; Flutter
+  analyze blocked only by the documented host SDK mismatch.
+- GitNexus compare against `origin/main`: LOW risk, zero affected indexed
   execution processes.
-- Full evidence:
-  `docs/ai/runs/2026-07-26-creative-installer-repair.md` and
-  `docs/ai/runs/2026-07-26-creative-heavy-smoke.md`.
+- Evidence:
+  `docs/ai/runs/2026-07-26-mem-okf.md` and
+  `docs/ai/contracts/issue-1187-1196.json`.
 
 ## Next step
 
-Human manual review and product smoke of draft PR #1202. Do not merge
-automatically.
+Commit the behavioral gate and evidence, open a draft PR, wait for CI, and fix
+any repository-owned failure. Human review remains required before merge.
