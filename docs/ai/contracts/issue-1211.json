@@ -1,0 +1,56 @@
+{
+  "issue": 1211,
+  "generated": "2026-07-27",
+  "criteria": [
+    {
+      "criterion_id": "issue-1211-c1",
+      "text": "A simulated stream that emits no events past the inactivity threshold is aborted exactly once and the session becomes terminal with a timeout error.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/llm.test.ts",
+      "test_id": "issue-1211-c1: aborts a provider stream after the configured inactivity window",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1211-c2",
+      "text": "A parent delegating to that child exits its `task` call with the child timeout; neither remains busy.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/tool/task.test.ts",
+      "test_id": "issue-1211-c2: propagates a provider inactivity timeout from child to parent task",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1211-c3",
+      "text": "A healthy long-running stream that continues emitting events is not aborted.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/llm.test.ts",
+      "test_id": "issue-1211-c3: resets the inactivity timer whenever the provider emits a chunk",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1211-c4",
+      "text": "Existing user cancellation continues to work and is distinguishable from inactivity timeout.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/llm.test.ts",
+      "test_id": "service stream cancellation cancels provider response body promptly",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1211-c5",
+      "text": "Unit/integration coverage exercises timeout reset-on-activity, child propagation, cancellation, and reconciliation.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/session/llm.test.ts",
+      "test_id": "issue-1211 focused fork and api_server suites",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1211-c6",
+      "text": "An env-gated live behavioral test drives the real API + fork engine in `tools/dev/sandbox.sh`, reproduces a stalled stream, and verifies the observable terminal state through the API.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1211_live_e2e.test.ts",
+      "test_id": "issue-1211-c6: stalled provider stream becomes a terminal API session",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
