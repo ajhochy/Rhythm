@@ -12,6 +12,7 @@ import {
   MCP_MEMORY_ACTOR,
   formatActor,
 } from '../services/memory_note_format';
+import { logger } from '../utils/logger';
 
 const repo = new AgentMemoryRepository();
 const sessionsRepo = new AgentSessionsRepository();
@@ -82,6 +83,11 @@ export class AgentMemoryController {
       const ambientSession = typeof sdkSessionId === 'string'
         ? sessionsRepo.findBySdkSessionId(sdkSessionId)
         : null;
+      if (typeof sdkSessionId === 'string' && sdkSessionId !== '' && !ambientSession) {
+        logger.warn(
+          '[AgentMemory] ambient SDK session had no local mapping; provenance omitted',
+        );
+      }
       const result = await agentMemoryService.remember({
         kind: typeof kind === 'string' ? kind : 'fact',
         content,

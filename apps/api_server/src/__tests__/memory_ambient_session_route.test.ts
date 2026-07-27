@@ -6,7 +6,7 @@ const MEMORY_DIR = mkdtempSync(path.join(tmpdir(), 'memory-ambient-route-'));
 process.env.MEMORY_VAULT_PATH = MEMORY_DIR;
 process.env.MEMORY_VAULT_SUBDIR = '';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import type { AddressInfo } from 'node:net';
 
@@ -17,6 +17,7 @@ import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { UsersRepository } from '../repositories/users_repository';
+import { logger } from '../utils/logger';
 
 let baseUrl: string;
 let closeServer: () => Promise<void>;
@@ -103,5 +104,35 @@ describe('POST /agent-memory ambient session provenance (#1192)', () => {
     expect(
       sources.some(({ resource }) => resource.includes('forged-local-session')),
     ).toBe(false);
+  });
+
+  it('warns without leaking an unknown SDK id when ambient mapping is missing', async () => {
+    const warning = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const response = await fetch(`${baseUrl}/agent-memory`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        kind: 'fact',
+        content: 'Unknown ambient mapping remains observable.',
+        sdkSessionId: 'sdk-secret-unknown',
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(warning).toHaveBeenCalledWith(
+      '[AgentMemory] ambient SDK session had no local mapping; provenance omitted',
+    );
+    expect(warning.mock.calls.flat().join(' ')).not.toContain(
+      'sdk-secret-unknown',
+    );
+    const row = (await new AgentMemoryRepository().listAsync(
+      undefined,
+      undefined,
+      20,
+    )).find(({ content }) =>
+      content === 'Unknown ambient mapping remains observable.'
+    );
+    expect(JSON.parse(row?.sourcesJson ?? '[]')).toEqual([]);
+    warning.mockRestore();
   });
 });
