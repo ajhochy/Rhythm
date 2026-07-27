@@ -24,10 +24,10 @@ check.
   bounded TestFlight install smoke.
 - Dependency order is #1197 → #1198 → #1199 → #1200. #1175 tracks the
   umbrella gate and links the checklist.
-- A local Xcode-signed development-variant standalone app now installs and
-  launches on an iPhone 13 mini. Google sign-in is blocked because no real
-  Google iOS OAuth client/redirect was available to the build or local API
-  environment; #1198/#1199 remain pending.
+- A dedicated Google iOS development client now exists for the development
+  bundle. A local Xcode-signed standalone app with the client, redirect, and
+  callback scheme embedded is installed and running on an iPhone 13 mini;
+  physical Google sign-in remains the next manual checkpoint.
 
 ## Risks / known issues
 
@@ -39,10 +39,13 @@ check.
   data or expose the OpenCode engine directly.
 - Credentials, signing assets, build artifacts, pairing/device tokens, private
   hostnames, and iPhone UDIDs must never be committed or printed.
-- The real Google iOS OAuth client and matching reverse-client redirect must be
-  provisioned or revealed by a Google Cloud project administrator, then
-  supplied through secure build and isolated-API configuration. Do not
-  substitute the desktop/web client or a placeholder.
+- The development Google iOS client is stored outside the repository with
+  owner-only access and must be supplied through secure build and isolated-API
+  configuration. The production bundle still needs its own client at #1200.
+- The stale local prebuilt iOS project omitted the dynamic reverse URL scheme;
+  the installed artifact was repaired and re-signed after build. This does not
+  replace #1198's EAS build, where secure prebuild configuration must generate
+  the scheme before signing.
 - #1186 tracks a non-blocking automation improvement for a foreground sandbox
   lifecycle; the corrected final source smoke passed without a product change.
 - #1135's additive SQLite/Postgres change requires normal migration review.
@@ -74,6 +77,10 @@ check.
   `docs/ai/runs/2026-07-27-1175-google-ios-client-device-smoke.md`.
 - The evidence-only failed-smoke update passed current issue/PR workflow gates;
   GitNexus classified the working scope LOW with no affected process.
+- Google iOS client recovery passed plist relationship checks, embedded-bundle
+  checks, callback-scheme inspection, strict code-sign verification, physical
+  install, and physical launch. The exact sanitized record is
+  `docs/ai/runs/2026-07-27-1175-google-ios-client-recovery.md`.
 - Durable logs and hashes are under `docs/ai/evidence/`; exact commands and the
   repair loop are in
   `docs/ai/runs/2026-07-25-mobile-roadmap-finalization.md`.
@@ -81,7 +88,7 @@ check.
 ## Next step
 
 Complete #1197 against source `8701432480f585fe90119cbaee66382d062da879`.
-For #1198/#1199, securely provision or reveal the real Google iOS OAuth
-client/redirect, configure the matching isolated API, and rebuild before
-resuming the device matrix. Then proceed to #1200. Keep PR #1165 draft and
-unmerged until the full chain and final human approval are complete.
+Run the physical Google sign-in checkpoint on the installed local artifact.
+Then complete #1198 with the exact reviewed EAS build and proceed through the
+isolated #1199 matrix and #1200. Keep PR #1165 draft and unmerged until the full
+chain and final human approval are complete.
