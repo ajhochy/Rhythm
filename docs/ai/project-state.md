@@ -2,8 +2,8 @@
 
 ## Current focus
 
-Open a draft PR for the live-verified config-doctor fix: core-permission scope
-patches, diagnosis visibility, and simultaneous-abort attribution.
+Hand off the live-verified config-doctor fix: core-permission scope patches,
+diagnosis visibility, and simultaneous-abort attribution.
 
 ## Active branch / PR
 
@@ -14,7 +14,7 @@ patches, diagnosis visibility, and simultaneous-abort attribution.
 
 ## In progress
 
-- Monitor required GitHub checks on draft PR #1207.
+- Keep draft PR #1207 unmerged pending human review and manual smoke.
 - Keep the generated Flutter `.dart_tool` symlink and fork `bun.lock` build
   drift out of the commit.
 
@@ -38,8 +38,9 @@ patches, diagnosis visibility, and simultaneous-abort attribution.
 - Foreground sandbox live approval/readback: PASS, 1/1.
 - Sandbox probes: PASS, HTTP 200 for health, engine health, capabilities, and
   auth; ports 4097/4098 clear after teardown.
+- Server CI: PASS on the implementation head (run `30292591759`), including
+  lint, full tests, supply-chain scan, build, API smoke, and optimizer guards.
 
 ## Next step
 
-Watch required CI on draft PR #1207 and hand off for human review without
-merging.
+Human review and manual smoke of draft PR #1207; do not merge automatically.

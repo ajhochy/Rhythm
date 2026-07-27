@@ -35,6 +35,8 @@ index: "[[Rhythm]]"
 - `/health`, `/opencode/health`, `/agents/capabilities`, and `/opencode/auth/`:
   HTTP 200; no unavailable state.
 - Sandbox teardown: PASS; ports 4097 and 4098 listener-free.
+- Server CI run `30292591759`: PASS, including lint, full tests, supply-chain
+  scan, build, API smoke, and optimizer safety guards.
 - `git diff --check`: PASS.
 
 ## Notes
@@ -51,7 +53,11 @@ index: "[[Rhythm]]"
   dropped the existing `bash["git push*"]` rule or `webfetch` permission.
 - Playwright, screenshots, packaged-runtime parity, and manual-only coverage are
   N/A because this change is a deterministic backend HTTP surface.
+- The workflow retrospective recorded a strict, non-divergent pass in
+  `.agent-stack/postmortems/2026-07-27-retro-config-doctor-core-permissions.json`.
+  Pattern mining now includes 57 runs and produced no new C/P/W pattern; no
+  canonical skill or repo-orchestrator edit was warranted.
 
 ## Next
 
-Monitor required GitHub checks on draft PR #1207. Do not merge.
+Human review and manual smoke of draft PR #1207. Do not merge automatically.

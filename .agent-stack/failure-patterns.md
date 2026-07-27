@@ -1,5 +1,14 @@
 # Failure Patterns
 
+## 2026-07-27 — Config doctor core-permission patches — smoke PASS
+
+- **Result**: smoke PASS; verification claimed PASS; no divergence.
+- **Category**: none (correctness); process: `agent-transport`, `test-environment`, and one unrelated `test-flake`.
+- **Criteria affected**: core-permission deep merge passed live HTTP smoke; projection/revert, cross-layer validation, prompt visibility, abort-cohort collapse, and legacy allowlists passed deterministic contracts.
+- **Root cause**: the implementation and contract matched the runtime behavior; verification friction came from background-process lifetime and restricted-environment permissions rather than product defects.
+- **Suggested fix**: retain the documented foreground sandbox workflow and use unchanged-command approved reruns for environment restrictions; no canonical skill edit is warranted from this strict run.
+- See `.agent-stack/postmortems/2026-07-27-retro-config-doctor-core-permissions.json`.
+
 ## 2026-07-14 — Dev sandbox isolation lifecycle — smoke PASS
 
 - **Result**: smoke PASS; verification had not yet claimed PASS; no divergence.
