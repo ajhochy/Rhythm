@@ -1,0 +1,40 @@
+{
+  "issue": 418,
+  "generated": "2026-07-26",
+  "criteria": [
+    {
+      "criterion_id": "issue-418-c1",
+      "text": "A retained Quick Add view advances its implicit today due date after local midnight on tab re-entry, app resume, and immediately before save.",
+      "mode": "widget",
+      "test_file": "apps/mobile_flutter/test/features/tasks/quick_add_rollover_test.dart",
+      "test_id": "retained Quick Add state advances its implicit due date on tab re-entry; foreground resume advances the implicit due date after midnight",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-418-c2",
+      "text": "An explicitly selected or cleared due date is not replaced by automatic rollover handling.",
+      "mode": "widget",
+      "test_file": "apps/mobile_flutter/test/features/tasks/quick_add_rollover_test.dart",
+      "test_id": "an explicitly cleared due date survives rollover",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-418-c3",
+      "text": "Saving through the real mobile controller, repository, data source, sandbox HTTP API, and copied SQLite database persists the rolled-over local date.",
+      "mode": "live-e2e",
+      "test_file": "apps/mobile_flutter/test/features/tasks/quick_add_rollover_live_test.dart",
+      "test_id": "Quick Add persists the rolled-over due date through the live sandbox API",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-418-c4",
+      "text": "The live run leaves protected listeners unchanged and tears down the isolated sandbox without retaining test task data.",
+      "mode": "live-e2e",
+      "test_file": "apps/mobile_flutter/test/features/tasks/quick_add_rollover_live_test.dart",
+      "test_id": "Quick Add persists the rolled-over due date through the live sandbox API",
+      "status": "pass"
+    }
+  ],
+  "stack": "flutter",
+  "not_tested": []
+}

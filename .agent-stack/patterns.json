@@ -3,13 +3,20 @@
     {
       "id": "c2-wrong-contract",
       "category": "C2",
-      "description": "Wrong contract failures: 16 occurrence(s) across issues ['645', '651', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
-      "occurrences": 16,
+      "description": "Wrong contract failures: 35 occurrence(s) across issues ['1007', '1014', '645', '651', '882', '888', '891', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639', 'mcp-scope-04', 'secretary-profile-scope']",
+      "occurrences": 35,
       "affected_issues": [
+        "1007",
+        "1014",
         "645",
         "651",
+        "882",
+        "888",
+        "891",
         "batch:627,628,632,633",
-        "batch:627,628,632,633,634,636,637,638,639"
+        "batch:627,628,632,633,634,636,637,638,639",
+        "mcp-scope-04",
+        "secretary-profile-scope"
       ],
       "affected_skills": [
         "acceptance-contract"
@@ -32,16 +39,74 @@
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json"
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-mcp-scope-04.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-mcp-scope-04.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-secretary-profile-scope.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-secretary-profile-scope.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-888.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-888.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-891.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-891.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-891.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-1007.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-1007.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-1014.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-1014.json"
+      ]
+    },
+    {
+      "id": "c1-missing-contract",
+      "category": "C1",
+      "description": "Missing contract failures: 15 occurrence(s) across issues ['1002', '752', '882', '997', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'local-ollama-skill-guard']",
+      "occurrences": 15,
+      "affected_issues": [
+        "1002",
+        "752",
+        "882",
+        "997",
+        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625",
+        "batch:627,628,632,633",
+        "local-ollama-skill-guard"
+      ],
+      "affected_skills": [
+        "acceptance-contract"
+      ],
+      "reason": "A criterion was never made executable. The acceptance-contract skill should parse this criterion type more aggressively.",
+      "suggested_prompt_addition": "When parsing acceptance criteria, also look for implicit requirements expressed as negative conditions, edge cases, or 'should not' clauses.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-752.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-752.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-29-local-ollama-skill-guard.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-29-local-ollama-skill-guard.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-997.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-997.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-11-issue-1002.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-11-issue-1002.json"
       ]
     },
     {
       "id": "c5-environment-issue",
       "category": "C5",
-      "description": "Environment issue failures: 4 occurrence(s) across issues ['674', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
-      "occurrences": 4,
+      "description": "Environment issue failures: 8 occurrence(s) across issues ['1009', '674', '751', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
+      "occurrences": 8,
       "affected_issues": [
+        "1009",
         "674",
+        "751",
         "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
       ],
       "affected_skills": [
@@ -53,27 +118,32 @@
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json"
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-751.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-751.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-1009.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-1009.json"
       ]
     },
     {
-      "id": "c1-missing-contract",
-      "category": "C1",
-      "description": "Missing contract failures: 3 occurrence(s) across issues ['batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633']",
-      "occurrences": 3,
+      "id": "c6-dependency-failure",
+      "category": "C6",
+      "description": "Dependency failure failures: 4 occurrence(s) across issues ['759', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
+      "occurrences": 4,
       "affected_issues": [
-        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625",
-        "batch:627,628,632,633"
+        "759",
+        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
       ],
       "affected_skills": [
-        "acceptance-contract"
+        "coding-agent"
       ],
-      "reason": "A criterion was never made executable. The acceptance-contract skill should parse this criterion type more aggressively.",
-      "suggested_prompt_addition": "When parsing acceptance criteria, also look for implicit requirements expressed as negative conditions, edge cases, or 'should not' clauses.",
+      "reason": "A dependency failure was attributed to this PR. The coding-agent should isolate scope more carefully.",
+      "suggested_prompt_addition": "Before implementing, check whether the failing behavior exists on main. If yes, file a separate issue for the pre-existing bug rather than treating it as in-scope.",
       "evidence_files": [
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json"
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-759.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-759.json"
       ]
     },
     {
@@ -113,34 +183,17 @@
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json"
       ]
-    },
-    {
-      "id": "c6-dependency-failure",
-      "category": "C6",
-      "description": "Dependency failure failures: 2 occurrence(s) across issues ['batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
-      "occurrences": 2,
-      "affected_issues": [
-        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
-      ],
-      "affected_skills": [
-        "coding-agent"
-      ],
-      "reason": "A dependency failure was attributed to this PR. The coding-agent should isolate scope more carefully.",
-      "suggested_prompt_addition": "Before implementing, check whether the failing behavior exists on main. If yes, file a separate issue for the pre-existing bug rather than treating it as in-scope.",
-      "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json"
-      ]
     }
   ],
   "process_patterns": [
     {
       "id": "p2-test-infrastructure-conflict",
       "category": "P2",
-      "description": "Test infrastructure conflict failures: 3 occurrence(s) across issues ['645', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
-      "occurrences": 3,
+      "description": "Test infrastructure conflict failures: 4 occurrence(s) across issues ['645', '891', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
+      "occurrences": 4,
       "affected_issues": [
         "645",
+        "891",
         "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
       ],
       "affected_skills": [
@@ -151,7 +204,31 @@
       "evidence_files": [
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-run-642.json"
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-run-642.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-891.json"
+      ]
+    },
+    {
+      "id": "p4-async-timing-assumption",
+      "category": "P4",
+      "description": "Async timing assumption failures: 4 occurrence(s) across issues ['882', '891', 'A-prod-trigger-scope-model-parity', 'agent-question-hang (bug, no issue-writer ticket)']",
+      "occurrences": 4,
+      "affected_issues": [
+        "882",
+        "891",
+        "A-prod-trigger-scope-model-parity",
+        "agent-question-hang (bug, no issue-writer ticket)"
+      ],
+      "affected_skills": [
+        "acceptance-contract"
+      ],
+      "reason": "A test asserted on async state immediately after triggering an async operation, passing locally but failing in CI due to timing differences.",
+      "suggested_prompt_addition": "When generating contract tests for criteria involving state changes after POST/event triggers, require explicit async waiting (waitFor, polling, or settled promise) rather than immediate assertion. Flag any test that reads count/state within one tick of a write operation.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-agent-question-hang.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-retro-prod-trigger-scope-model-parity.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-891.json"
       ]
     },
     {
@@ -172,38 +249,26 @@
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-issue-645.json"
       ]
-    },
-    {
-      "id": "p4-async-timing-assumption",
-      "category": "P4",
-      "description": "Async timing assumption failures: 2 occurrence(s) across issues ['A-prod-trigger-scope-model-parity', 'agent-question-hang (bug, no issue-writer ticket)']",
-      "occurrences": 2,
-      "affected_issues": [
-        "A-prod-trigger-scope-model-parity",
-        "agent-question-hang (bug, no issue-writer ticket)"
-      ],
-      "affected_skills": [
-        "acceptance-contract"
-      ],
-      "reason": "A test asserted on async state immediately after triggering an async operation, passing locally but failing in CI due to timing differences.",
-      "suggested_prompt_addition": "When generating contract tests for criteria involving state changes after POST/event triggers, require explicit async waiting (waitFor, polling, or settled promise) rather than immediate assertion. Flag any test that reads count/state within one tick of a write operation.",
-      "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-agent-question-hang.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-retro-prod-trigger-scope-model-parity.json"
-      ]
     }
   ],
   "workflow_patterns": [
     {
       "id": "w1-required-skill-skipped",
       "category": "W1",
-      "description": "Required skill skipped failures: 13 occurrence(s) across issues ['A-prod-trigger-scope-model-parity', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
-      "occurrences": 13,
+      "description": "Required skill skipped failures: 21 occurrence(s) across issues ['1000', '1002', '742,743,745,746,747,748', '775', '891', '999', 'A-prod-trigger-scope-model-parity', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639', 'local-ollama-skill-guard']",
+      "occurrences": 21,
       "affected_issues": [
+        "1000",
+        "1002",
+        "742,743,745,746,747,748",
+        "775",
+        "891",
+        "999",
         "A-prod-trigger-scope-model-parity",
         "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625",
         "batch:627,628,632,633",
-        "batch:627,628,632,633,634,636,637,638,639"
+        "batch:627,628,632,633,634,636,637,638,639",
+        "local-ollama-skill-guard"
       ],
       "affected_skills": [
         "workflow-orchestrator"
@@ -223,20 +288,35 @@
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-retro-prod-trigger-scope-model-parity.json"
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-retro-prod-trigger-scope-model-parity.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-26-pr749-agent-fixes.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-28-issue-775.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-29-local-ollama-skill-guard.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-retro-advisor-parallel-tracks.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-891.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-1000.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-999.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-11-issue-1002.json"
       ]
     },
     {
       "id": "w5-premature-completion-claim",
       "category": "W5",
-      "description": "Premature completion claim failures: 8 occurrence(s) across issues ['645', '674', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
-      "occurrences": 8,
+      "description": "Premature completion claim failures: 15 occurrence(s) across issues ['645', '674', '742,743,745,746,747,748', '751', '752', '775', '882', '888', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639', 'secretary-profile-scope']",
+      "occurrences": 15,
       "affected_issues": [
         "645",
         "674",
+        "742,743,745,746,747,748",
+        "751",
+        "752",
+        "775",
+        "882",
+        "888",
         "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625",
         "batch:627,628,632,633",
-        "batch:627,628,632,633,634,636,637,638,639"
+        "batch:627,628,632,633,634,636,637,638,639",
+        "secretary-profile-scope"
       ],
       "affected_skills": [
         "verification-gate"
@@ -251,16 +331,26 @@
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-issue-645.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-10-retro-issues-674-675-pr-676.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json"
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-26-pr749-agent-fixes.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-751.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-752.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-secretary-profile-scope.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-28-issue-775.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-888.json"
       ]
     },
     {
       "id": "w3-todowrite-checklist-not-expanded",
       "category": "W3",
-      "description": "TodoWrite checklist not expanded failures: 2 occurrence(s) across issues ['agent-question-hang (bug, no issue-writer ticket)']",
-      "occurrences": 2,
+      "description": "TodoWrite checklist not expanded failures: 6 occurrence(s) across issues ['764', '882', 'agent-question-hang (bug, no issue-writer ticket)', 'local-ollama-skill-guard']",
+      "occurrences": 6,
       "affected_issues": [
-        "agent-question-hang (bug, no issue-writer ticket)"
+        "764",
+        "882",
+        "agent-question-hang (bug, no issue-writer ticket)",
+        "local-ollama-skill-guard"
       ],
       "affected_skills": [
         "workflow-orchestrator"
@@ -269,15 +359,20 @@
       "suggested_prompt_addition": "When dispatching any skill whose SKILL.md contains the phrase 'expand the Completion Checklist into TodoWrite items at start', include in the dispatch prompt: 'Your FIRST tool call must be TodoWrite, expanding the Completion Checklist verbatim. No other tool calls are permitted before this.'",
       "evidence_files": [
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-30-staff-guide.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-agent-question-hang.json"
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-agent-question-hang.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-764.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-29-local-ollama-skill-guard.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json"
       ]
     },
     {
       "id": "w4-source-of-truth-violation",
       "category": "W4",
-      "description": "Source-of-truth violation failures: 1 occurrence(s) across issues ['batch:627,628,632,633']",
-      "occurrences": 1,
+      "description": "Source-of-truth violation failures: 3 occurrence(s) across issues ['742,743,745,746,747,748', 'batch:627,628,632,633']",
+      "occurrences": 3,
       "affected_issues": [
+        "742,743,745,746,747,748",
         "batch:627,628,632,633"
       ],
       "affected_skills": [
@@ -286,7 +381,27 @@
       "reason": "Agent edited a sync target (~/.claude/skills/, ~/.codex/skills/) directly, or re-fetched content already inlined, or operated on the wrong repo.",
       "suggested_prompt_addition": "Add a Source-of-Truth Guard to dispatch prompts for any skill that edits SKILL.md or workflow scripts: '$AGENT_STACK_PATH is the only writeable canonical path. Any Edit/Write whose path starts with ~/.claude/skills/, ~/.codex/skills/, or ~/.config/opencode/skills/ must STOP. Verify origin remote before commit/push.' For coding-agent dispatches, inline the issue body verbatim and add: 'Do NOT call gh issue view \u2014 the body is above.'",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json"
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-26-pr749-agent-fixes.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-retro-advisor-parallel-tracks.json"
+      ]
+    },
+    {
+      "id": "w6-wrong-repo/branch-operation",
+      "category": "W6",
+      "description": "Wrong-repo/branch operation failures: 2 occurrence(s) across issues ['742,743,745,746,747,748']",
+      "occurrences": 2,
+      "affected_issues": [
+        "742,743,745,746,747,748"
+      ],
+      "affected_skills": [
+        "workflow-orchestrator"
+      ],
+      "reason": "Skill targeted agent-stack but commits/PRs went to target project (or vice versa), or branch was not confirmed before a visible operation.",
+      "suggested_prompt_addition": "Add a Repo+Branch Confirmation gate: every skill that performs git push, gh pr create, browser smoke against a deployed URL, or any operation visible outside the local checkout must first emit `git -C <path> remote get-url origin` and `git -C <path> rev-parse --abbrev-ref HEAD`, compare against the skill's intended target, and halt on mismatch.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-26-pr749-agent-fixes.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-retro-advisor-parallel-tracks.json"
       ]
     },
     {
@@ -305,8 +420,8 @@
       ]
     }
   ],
-  "last_updated": "2026-06-24",
-  "total_runs_analyzed": 25,
+  "last_updated": "2026-07-25",
+  "total_runs_analyzed": 56,
   "min_occurrences_threshold": 2,
   "process_min_occurrences_threshold": 1,
   "workflow_min_occurrences_threshold": 1
