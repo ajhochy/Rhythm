@@ -203,6 +203,100 @@ describe('hybrid memory retrieval', () => {
     expect(result.every(({ id }) => id.startsWith('live-'))).toBe(true);
   });
 
+  it('progressively widens past 25 inactive hits to recover 5 live rows', async () => {
+    const hits = Array.from({ length: 30 }, (_, index) => ({
+      file: `fact/${index + 1}.md`,
+    }));
+    const joinedBySourceId = new Map([
+      ...Array.from({ length: 25 }, (_, index) => {
+        const sourceId = `fact/${index + 1}.md`;
+        return [
+          sourceId,
+          memory({
+            id: `inactive-${index + 1}`,
+            sourceId,
+            staleAfter: '2000-01-01',
+          }),
+        ] as const;
+      }),
+      ...Array.from({ length: 5 }, (_, index) => {
+        const sourceId = `fact/${index + 26}.md`;
+        return [
+          sourceId,
+          memory({
+            id: `live-${index + 1}`,
+            sourceId,
+          }),
+        ] as const;
+      }),
+    ]);
+    const fakeRepo = {
+      searchAsync: vi.fn().mockResolvedValue([]),
+      findBySourceIdsAsync: vi.fn(
+        async (_source: string, sourceIds: string[]) =>
+          sourceIds.flatMap((sourceId) => {
+            const joined = joinedBySourceId.get(sourceId);
+            return joined ? [joined] : [];
+          }),
+      ),
+    };
+    const engraph = {
+      search: vi.fn(async (_query: string, limit: number) =>
+        hits.slice(0, limit)),
+    };
+
+    const result = await getRelevantMemoriesSemantic(
+      'query',
+      1,
+      5,
+      fakeRepo,
+      engraph,
+    );
+
+    expect(engraph.search.mock.calls.map(([, limit]) => limit))
+      .toEqual([20, 40]);
+    expect(result.map(({ id }) => id)).toEqual([
+      'live-1',
+      'live-2',
+      'live-3',
+      'live-4',
+      'live-5',
+    ]);
+  });
+
+  it('stops widening when Engraph reports that its result set is exhausted', async () => {
+    const hits = [
+      { file: 'fact/stale-1.md' },
+      { file: 'fact/stale-2.md' },
+      { file: 'fact/live.md' },
+    ];
+    const joined = [
+      memory({
+        id: 'stale-1',
+        sourceId: 'fact/stale-1.md',
+        staleAfter: '2000-01-01',
+      }),
+      memory({
+        id: 'stale-2',
+        sourceId: 'fact/stale-2.md',
+        staleAfter: '2000-01-01',
+      }),
+      memory({ id: 'live', sourceId: 'fact/live.md' }),
+    ];
+    const fakeRepo = repo([], joined);
+    const engraph = { search: vi.fn().mockResolvedValue(hits) };
+
+    await expect(getRelevantMemoriesSemantic(
+      'query',
+      1,
+      5,
+      fakeRepo,
+      engraph,
+    )).resolves.toMatchObject([{ id: 'live' }]);
+    expect(engraph.search).toHaveBeenCalledTimes(1);
+    expect(engraph.search).toHaveBeenCalledWith('query', 20);
+  });
+
   it('rejects an ambiguous source id before gating its stale duplicate', async () => {
     const active = memory({ id: 'active', sourceId: 'fact/shared.md' });
     const staleDuplicate = memory({

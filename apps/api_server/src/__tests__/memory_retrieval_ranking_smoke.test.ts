@@ -6,14 +6,15 @@
  *    accumulated — the old fill-and-break made the prompt's first word fill
  *    the whole preface).
  *  - Score each memory by how many DISTINCT probes returned it; more matched
- *    tokens = more relevant. Ties break by best in-probe rank, then first-seen.
+ *    tokens = more relevant. Ties break by best in-probe rank, trust, then
+ *    first-seen.
  *  - JUNK SUPPRESSION: when at least one memory matched ≥2 tokens, drop all
  *    single-token matches — a preface with one relevant fact beats five
  *    word-coincidence facts. When nothing matched ≥2 tokens, keep singles
  *    (recall preserved).
  *  - Owner defense-in-depth filtering is unchanged.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentMemory } from '../repositories/agent_memory_repository';
 import { getRelevantMemories } from '../services/memory_retrieval';
 
@@ -34,6 +35,14 @@ function repoByProbe(map: Record<string, AgentMemory[]>) {
     findBySourceIdsAsync: vi.fn().mockResolvedValue([]),
   };
 }
+
+const originalTimezone = process.env.TZ;
+
+afterEach(() => {
+  vi.useRealTimers();
+  if (originalTimezone === undefined) delete process.env.TZ;
+  else process.env.TZ = originalTimezone;
+});
 
 describe('multi-token FTS ranking (step 1 smoke)', () => {
   it('probes every significant token instead of stopping at the first full batch', async () => {
@@ -150,28 +159,51 @@ describe('multi-token FTS ranking (step 1 smoke)', () => {
     );
   });
 
-  it('treats stale_after equal to the current call date as stale', async () => {
-    const today = new Date().toISOString().slice(0, 10);
+  it('uses the call-time local calendar across an LA midnight boundary', async () => {
+    process.env.TZ = 'America/Los_Angeles';
+    vi.useFakeTimers();
     const repo = repoByProbe({
       boundary: [
-        memory('expires-today', { staleAfter: today }),
-        memory('future', { staleAfter: '2999-01-01' }),
+        memory('expires-at-local-midnight', { staleAfter: '2026-07-27' }),
+        memory('future', { staleAfter: '2026-07-28' }),
       ],
     });
 
+    // 2026-07-27 in UTC is still the evening of 2026-07-26 in Los Angeles.
+    vi.setSystemTime(new Date('2026-07-27T06:59:59.000Z'));
+    await expect(getRelevantMemories('boundary', 1, 5, repo))
+      .resolves.toMatchObject([
+        { id: 'expires-at-local-midnight' },
+        { id: 'future' },
+      ]);
+    expect(repo.searchAsync).toHaveBeenLastCalledWith(
+      'boundary',
+      1,
+      5,
+      expect.objectContaining({ today: '2026-07-26' }),
+    );
+
+    // The next call crosses local midnight without a restart or module reload.
+    vi.setSystemTime(new Date('2026-07-27T07:00:00.000Z'));
     await expect(getRelevantMemories('boundary', 1, 5, repo))
       .resolves.toMatchObject([{ id: 'future' }]);
+    expect(repo.searchAsync).toHaveBeenLastCalledWith(
+      'boundary',
+      1,
+      5,
+      expect.objectContaining({ today: '2026-07-27' }),
+    );
   });
 
-  it('uses trust below relevance and above per-probe rank', async () => {
+  it('orders by match count, best in-probe rank, trust, then first seen', async () => {
     const human = memory('human', { trustTier: 'human' });
     const machine = memory('machine', { trustTier: 'machine' });
     const unverified = memory('unverified');
-    const equalRelevance = repoByProbe({
+    const differentBestRank = repoByProbe({
       schedule: [unverified, machine, human],
     });
-    expect((await getRelevantMemories('schedule', 1, 5, equalRelevance))
-      .map(({ id }) => id)).toEqual(['human', 'machine', 'unverified']);
+    expect((await getRelevantMemories('schedule', 1, 5, differentBestRank))
+      .map(({ id }) => id)).toEqual(['unverified', 'machine', 'human']);
 
     const strongerUnverified = repoByProbe({
       alpha: [unverified, human],
@@ -184,5 +216,18 @@ describe('multi-token FTS ranking (step 1 smoke)', () => {
       5,
       strongerUnverified,
     )).map(({ id }) => id)).toEqual(['unverified', 'human']);
+
+    // Both match both probes and each has bestIndex=0. Machine is first-seen,
+    // so the human result proves trust is consulted before firstSeen.
+    const equalRelevance = repoByProbe({
+      alpha: [machine, human],
+      beta: [human, machine],
+    });
+    expect((await getRelevantMemories(
+      'alpha beta',
+      1,
+      5,
+      equalRelevance,
+    )).map(({ id }) => id)).toEqual(['human', 'machine']);
   });
 });
