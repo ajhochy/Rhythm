@@ -3,7 +3,7 @@ date: 2026-07-23
 repo: rhythm
 branch: claude/agent-skill-injection-semantic-0s6iv4
 pr:
-issues:
+issues: [1209]
 status: superseded
 tags: [decision, rhythm]
 ---
@@ -14,7 +14,7 @@ tags: [decision, rhythm]
 > replaced by a cheaper answer to the same question: **BM25 as a drop-in
 > replacement for the Jaccard scorer** in `skill_retrieval.ts`, plus wiring the
 > **already-built deferred dispatcher** beyond its current unscoped-Gemini-only
-> trigger. Tracked in the follow-up issue; see the Ratel addendum below for the
+> trigger. Tracked in **#1209**; see the Ratel addendum below for the
 > evidence. This document is retained for the architecture survey in "Context",
 > which is still accurate.
 
