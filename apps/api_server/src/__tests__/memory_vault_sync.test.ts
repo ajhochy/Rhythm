@@ -210,9 +210,18 @@ describe('Memory-Vault mirror-sync (WI6)', () => {
 
   it('missing vault path is a no-op (not an error)', async () => {
     const missing = path.join(vaultDir, 'does-not-exist');
+    await repo.upsertBySourceAsync({
+      kind: 'fact',
+      content: 'Cached while the vault is temporarily unavailable.',
+      source: 'obsidian-memory',
+      sourceId: 'cached.md',
+      tagsJson: '[]',
+    });
     const summary = await syncMemoryVault({ vaultPath: missing });
     expect(summary).toEqual({ scanned: 0, upserted: 0, deleted: 0 });
-    expect(await repo.listAsync(undefined, undefined, 50)).toHaveLength(0);
+    const rows = await repo.listAsync(undefined, undefined, 50);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].sourceId).toBe('cached.md');
     expect(existsSync(missing)).toBe(false);
   });
 

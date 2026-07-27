@@ -252,7 +252,24 @@ export async function syncMemoryVault(
   const vaultPath = options.vaultPath ?? resolveMemoryVaultPath();
   const ownerUserId = options.ownerUserId ?? null;
 
-  // A missing / non-directory vault path yields no notes (never an error).
+  // Missing/unmounted/non-directory is unavailable, not an authoritative empty
+  // vault. Preserve the derived cache until the canonical source is reachable
+  // again; otherwise a transient mount failure tombstones every memory row.
+  try {
+    const stat = await fs.stat(vaultPath);
+    if (!stat.isDirectory()) {
+      logger.warn(
+        `[MemoryVaultSync] vault unavailable; preserving cached rows (vault=${vaultPath})`,
+      );
+      return { scanned: 0, upserted: 0, deleted: 0 };
+    }
+  } catch {
+    logger.warn(
+      `[MemoryVaultSync] vault unavailable; preserving cached rows (vault=${vaultPath})`,
+    );
+    return { scanned: 0, upserted: 0, deleted: 0 };
+  }
+
   const notes = await scanVaultNotes(vaultPath);
   const presentSourceIds = new Set<string>();
   let upserted = 0;
