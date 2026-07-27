@@ -13,6 +13,16 @@
  * staying fast enough to run inline on every `remember()` call.
  */
 
+import { isDeepStrictEqual } from 'node:util';
+
+import {
+  memorySources,
+  memoryUsageWindow,
+  type MemorySource,
+  type MemoryUsageWindow,
+} from './memory_note_format';
+import { logger } from '../utils/logger';
+
 const STOPWORDS = new Set([
   'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'be',
   'been', 'to', 'of', 'in', 'on', 'for', 'with', 'as', 'at', 'by', 'from',
@@ -79,4 +89,134 @@ export function mergeMemoryContent(existingBody: string, newContent: string): st
   if (existing === '') return incoming;
   if (existing.toLowerCase().includes(incoming.toLowerCase())) return existing;
   return `${existing}\n\n${incoming}`;
+}
+
+export interface AttributedMemoryPart {
+  body: string;
+  sources?: MemorySource[];
+  usageWindow?: MemoryUsageWindow;
+}
+
+export interface AttributedMemoryMergeResult {
+  body: string;
+  sources: MemorySource[];
+  usageWindow?: MemoryUsageWindow;
+}
+
+function nextSourceId(
+  base: string,
+  reserved: Set<string>,
+): string {
+  let suffix = 2;
+  let candidate = `${base}-${suffix}`;
+  while (reserved.has(candidate)) {
+    suffix += 1;
+    candidate = `${base}-${suffix}`;
+  }
+  reserved.add(candidate);
+  return candidate;
+}
+
+function rewriteFootnoteIds(
+  body: string,
+  replacements: Map<string, string>,
+): string {
+  if (replacements.size === 0) return body;
+  return body.replace(
+    /\[\^([A-Za-z0-9_-]+)\]/g,
+    (marker, id: string) => {
+      const replacement = replacements.get(id);
+      return replacement ? `[^${replacement}]` : marker;
+    },
+  );
+}
+
+function widestUsageWindow(
+  survivor?: MemoryUsageWindow,
+  incoming?: MemoryUsageWindow,
+): MemoryUsageWindow | undefined {
+  const existing = memoryUsageWindow({ usage_window: survivor });
+  const added = memoryUsageWindow({ usage_window: incoming });
+  const from = [existing?.from, added?.from]
+    .filter((value): value is string => typeof value === 'string')
+    .sort()[0];
+  const to = [existing?.to, added?.to]
+    .filter((value): value is string => typeof value === 'string')
+    .sort()
+    .at(-1);
+  const merged = { ...added, ...existing };
+  if (from) merged.from = from;
+  else delete merged.from;
+  if (to) merged.to = to;
+  else delete merged.to;
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+/**
+ * Merge a folded-in note's attribution alongside its body.
+ *
+ * The survivor wins ordinary metadata conflicts. If the same note-local id
+ * names two different resources, the incoming source is rekeyed and only the
+ * incoming body's markers are rewritten before content is appended.
+ */
+export function mergeAttributedMemoryContent(
+  survivor: AttributedMemoryPart,
+  incoming: AttributedMemoryPart,
+): AttributedMemoryMergeResult {
+  const sources = memorySources({ sources: survivor.sources });
+  const incomingSources = memorySources({ sources: incoming.sources });
+  const byId = new Map(sources.map((source) => [source.id, source]));
+  const reserved = new Set([
+    ...sources.map(({ id }) => id),
+    ...incomingSources.map(({ id }) => id),
+  ]);
+  const replacements = new Map<string, string>();
+
+  for (const source of incomingSources) {
+    const existing = byId.get(source.id);
+    if (!existing) {
+      const copy = { ...source };
+      sources.push(copy);
+      byId.set(copy.id, copy);
+      continue;
+    }
+
+    const survivorResource = typeof existing.resource === 'string'
+      ? existing.resource
+      : undefined;
+    const incomingResource = typeof source.resource === 'string'
+      ? source.resource
+      : undefined;
+    if (
+      survivorResource !== undefined &&
+      incomingResource !== undefined &&
+      survivorResource !== incomingResource
+    ) {
+      const rekeyedId = nextSourceId(source.id, reserved);
+      const rekeyed = { ...source, id: rekeyedId };
+      sources.push(rekeyed);
+      byId.set(rekeyedId, rekeyed);
+      replacements.set(source.id, rekeyedId);
+      logger.warn(
+        `[MemoryMerge] source id collision rekeyed incoming ${source.id} as ${rekeyedId}`,
+      );
+      continue;
+    }
+
+    if (!isDeepStrictEqual(existing, source)) {
+      logger.warn(
+        `[MemoryMerge] source metadata conflict for ${source.id}; survivor entry retained`,
+      );
+    }
+  }
+
+  const rewrittenIncoming = rewriteFootnoteIds(incoming.body, replacements);
+  return {
+    body: mergeMemoryContent(survivor.body, rewrittenIncoming),
+    sources,
+    usageWindow: widestUsageWindow(
+      survivor.usageWindow,
+      incoming.usageWindow,
+    ),
+  };
 }

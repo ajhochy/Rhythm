@@ -21,7 +21,7 @@
  *        and undoes the merge — a full round-trip back to the pre-pass state.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -36,7 +36,12 @@ import {
   runMemoryConsolidation,
   revertMemoryConsolidation,
 } from '../services/memory_consolidation_drafter';
-import { parseMemoryNote } from '../services/memory_note_format';
+import {
+  parseMemoryNote,
+  validateNoteSources,
+  type NoteFrontmatter,
+} from '../services/memory_note_format';
+import { logger } from '../utils/logger';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -132,6 +137,95 @@ async function seedPreExistingOverlappingNotes() {
     sourceId: relB,
     parsed: { kind: 'fact', tags: [], content: 'Facilities module houses the reservation calendar feature for booking rooms.' },
   });
+}
+
+async function seedAttributedThreeNoteCluster(): Promise<Map<string, string>> {
+  const kindDir = path.join(memoryDir, 'fact');
+  mkdirSync(kindDir, { recursive: true });
+  const fixtures: Array<{
+    name: string;
+    body: string;
+    frontmatter: NoteFrontmatter;
+  }> = [
+    {
+      name: 'note-a.md',
+      body: 'The reservation calendar lives in the facilities module and supports room booking.[^X]',
+      frontmatter: {
+        id: generateUlid(1000),
+        kind: 'fact',
+        tags: ['survivor'],
+        created: '2026-01-01',
+        updated: '2026-01-01',
+        source: 'agent',
+        status: 'deprecated',
+        stale_after: '2026-10-01',
+        verified: [
+          { by: 'agent:reviewer/2', at: '2026-07-26T10:00:00Z' },
+        ],
+        sources: [
+          { id: 'X', resource: 'https://example.test/survivor' },
+        ],
+        usage_window: { from: '2026-03-01', to: '2026-04-01' },
+      },
+    },
+    {
+      name: 'note-b.md',
+      body: 'The reservation calendar in the facilities module supports room booking approvals.[^B]',
+      frontmatter: {
+        id: generateUlid(2000),
+        kind: 'fact',
+        tags: ['middle'],
+        created: '2026-01-02',
+        updated: '2026-01-02',
+        source: 'agent',
+        status: 'stable',
+        stale_after: '2026-09-01',
+        verified: [
+          { by: 'human:ajh', at: '2026-07-26T11:00:00Z' },
+        ],
+        sources: [{ id: 'B', resource: 'https://example.test/middle' }],
+        usage_window: { from: '2026-02-01', to: '2026-05-01' },
+      },
+    },
+    {
+      name: 'note-c.md',
+      body: [
+        'The facilities module reservation calendar supports room booking and setup.[^X]',
+        '',
+        'Unattributed setup detail.',
+      ].join('\n'),
+      frontmatter: {
+        id: generateUlid(3000),
+        kind: 'fact',
+        tags: ['newest'],
+        created: '2026-01-03',
+        updated: '2026-01-03',
+        source: 'agent',
+        status: 'draft',
+        stale_after: '2026-11-01',
+        sources: [
+          { id: 'X', resource: 'https://example.test/incoming' },
+        ],
+        usage_window: { from: '2026-01-01', to: '2026-06-01' },
+      },
+    },
+  ];
+  const before = new Map<string, string>();
+  for (const fixture of fixtures) {
+    const rel = path.join('memory', 'fact', fixture.name);
+    const rendered = renderMemoryNote(fixture.frontmatter, fixture.body);
+    writeFileSync(path.join(vaultRoot, rel), rendered, 'utf8');
+    before.set(rel, rendered);
+    await index.upsertNote({
+      sourceId: rel,
+      parsed: {
+        kind: 'fact',
+        tags: fixture.frontmatter.tags,
+        content: fixture.body,
+      },
+    });
+  }
+  return before;
 }
 
 describe('memory consolidation pass (#859b)', () => {
@@ -270,5 +364,175 @@ describe('memory consolidation pass (#859b)', () => {
     expect(merged.generated).toMatchObject({
       by: 'process:consolidation',
     });
+  });
+
+  it('#1193: merges a three-note attribution cluster and reverts byte-for-byte', async () => {
+    const before = await seedAttributedThreeNoteCluster();
+
+    const result = await runMemoryConsolidation({ memoryDir, index, repo });
+
+    expect(result.mergedClusters).toBe(1);
+    expect(result.retiredCount).toBe(2);
+    const survivorPath = path.join(vaultRoot, 'memory', 'fact', 'note-a.md');
+    const merged = parseMemoryNote(readFileSync(survivorPath, 'utf8'));
+    expect(merged.sources).toEqual([
+      { id: 'X', resource: 'https://example.test/survivor' },
+      { id: 'B', resource: 'https://example.test/middle' },
+      { id: 'X-2', resource: 'https://example.test/incoming' },
+    ]);
+    expect(merged.body).toContain('booking.[^X]');
+    expect(merged.body).toContain('approvals.[^B]');
+    expect(merged.body).toContain('setup.[^X-2]');
+    expect(merged.body).toContain('Unattributed setup detail.');
+    expect(merged.usageWindow).toEqual({
+      from: '2026-01-01',
+      to: '2026-06-01',
+    });
+    expect(validateNoteSources(merged).danglingFootnoteReferences).toEqual([]);
+    expect(merged.status).toBe('draft');
+    expect(merged.staleAfter).toBe('2026-09-01');
+    expect(merged.verified).toEqual([
+      {
+        by: 'agent:reviewer/2',
+        at: '2026-07-26T10:00:00.000Z',
+      },
+      {
+        by: 'human:ajh',
+        at: '2026-07-26T11:00:00.000Z',
+      },
+    ]);
+
+    await revertMemoryConsolidation(
+      result.beforeSnapshot,
+      { memoryDir, index, repo },
+    );
+    expect(allNoteFiles().slice().sort()).toEqual(
+      Array.from(before.keys()).sort(),
+    );
+    for (const [rel, bytes] of before) {
+      expect(readFileSync(fileFor(rel), 'utf8')).toBe(bytes);
+    }
+  });
+
+  it('#1193: skips and logs a malformed member without aborting the pass', async () => {
+    await seedPreExistingOverlappingNotes();
+    const badRel = path.join('memory', 'fact', 'bad.md');
+    writeFileSync(
+      fileFor(badRel),
+      ['---', 'id: [unterminated', '---', 'bad note'].join('\n'),
+      'utf8',
+    );
+    await index.upsertNote({
+      sourceId: badRel,
+      parsed: { kind: 'fact', tags: [], content: 'bad note' },
+    });
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+    const result = await runMemoryConsolidation({ memoryDir, index, repo });
+
+    expect(result.mergedClusters).toBe(1);
+    expect(existsSync(fileFor(badRel))).toBe(true);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('skipped unreadable or malformed note'),
+    );
+    warn.mockRestore();
+  });
+
+  it('#1193: capture and consolidation produce the same attribution merge', async () => {
+    const survivorBody =
+      'The reservation calendar lives in the facilities module and supports room booking.[^X]';
+    const incomingBody =
+      'The reservation calendar in the facilities module supports room booking approvals.[^X]';
+    const survivorSources = [
+      { id: 'X', resource: 'https://example.test/survivor' },
+    ];
+    const incomingSources = [
+      { id: 'X', resource: 'https://example.test/incoming' },
+    ];
+    const kindDir = path.join(memoryDir, 'fact');
+    mkdirSync(kindDir, { recursive: true });
+    const directNotes = [
+      {
+        name: 'survivor.md',
+        id: generateUlid(1000),
+        created: '2026-01-01',
+        body: survivorBody,
+        sources: survivorSources,
+        usageWindow: { from: '2026-03-01', to: '2026-04-01' },
+      },
+      {
+        name: 'incoming.md',
+        id: generateUlid(2000),
+        created: '2026-01-02',
+        body: incomingBody,
+        sources: incomingSources,
+        usageWindow: { from: '2026-02-01', to: '2026-05-01' },
+      },
+    ];
+    for (const note of directNotes) {
+      const rel = path.join('memory', 'fact', note.name);
+      writeFileSync(
+        fileFor(rel),
+        renderMemoryNote(
+          {
+            id: note.id,
+            kind: 'fact',
+            tags: [],
+            created: note.created,
+            updated: note.created,
+            source: 'agent',
+            sources: note.sources,
+            usage_window: note.usageWindow,
+          },
+          note.body,
+        ),
+        'utf8',
+      );
+      await index.upsertNote({
+        sourceId: rel,
+        parsed: { kind: 'fact', tags: [], content: note.body },
+      });
+    }
+    await runMemoryConsolidation({ memoryDir, index, repo });
+    const consolidation = parseMemoryNote(
+      readFileSync(fileFor(path.join('memory', 'fact', 'survivor.md')), 'utf8'),
+    );
+
+    rmSync(memoryDir, { recursive: true, force: true });
+    setDb(makeDb());
+    repo = new AgentMemoryRepository();
+    index = new MemoryIndexService(repo);
+    const first = await rememberToVault(
+      {
+        kind: 'fact',
+        content: survivorBody,
+        sources: survivorSources,
+        usageWindow: { from: '2026-03-01', to: '2026-04-01' },
+      },
+      { memoryDir, index },
+    );
+    await rememberToVault(
+      {
+        kind: 'fact',
+        content: incomingBody,
+        sources: incomingSources,
+        usageWindow: { from: '2026-02-01', to: '2026-05-01' },
+      },
+      { memoryDir, index },
+    );
+    const capture = parseMemoryNote(
+      readFileSync(fileFor(first.path), 'utf8'),
+    );
+
+    expect({
+      body: consolidation.body,
+      sources: consolidation.sources,
+      usageWindow: consolidation.usageWindow,
+    }).toEqual({
+      body: capture.body,
+      sources: capture.sources,
+      usageWindow: capture.usageWindow,
+    });
+    expect(validateNoteSources(capture).danglingFootnoteReferences).toEqual([]);
   });
 });

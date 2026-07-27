@@ -42,7 +42,12 @@ import {
 import { MemoryIndexService } from './memory_index_service';
 import type { AgentMemory, AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { logger } from '../utils/logger';
-import { MEMORY_MERGE_THRESHOLD, mergeMemoryContent, textSimilarity } from './memory_similarity';
+import {
+  MEMORY_MERGE_THRESHOLD,
+  mergeAttributedMemoryContent,
+  textSimilarity,
+  type AttributedMemoryMergeResult,
+} from './memory_similarity';
 import {
   DEFAULT_MEMORY_ACTOR,
   VALID_MEMORY_KINDS,
@@ -411,6 +416,7 @@ export async function rememberToVault(
   let foundExisting = false;
   let semanticMerge = false;
   let contentToWrite = content;
+  let attributionMerge: AttributedMemoryMergeResult | undefined;
 
   if (id) {
     // Find an existing note in this kind's dir carrying the same frontmatter id.
@@ -451,7 +457,19 @@ export async function rememberToVault(
         frontmatterToPreserve = similar.frontmatter;
         foundExisting = true;
         semanticMerge = true;
-        contentToWrite = mergeMemoryContent(similar.body, content);
+        attributionMerge = mergeAttributedMemoryContent(
+          {
+            body: similar.body,
+            sources: memorySources(similar.frontmatter),
+            usageWindow: memoryUsageWindow(similar.frontmatter),
+          },
+          {
+            body: content,
+            sources: requestedSources.sources,
+            usageWindow: requestedUsageWindow,
+          },
+        );
+        contentToWrite = attributionMerge.body;
       }
     }
   }
@@ -510,16 +528,20 @@ export async function rememberToVault(
       ? {
           ...mergedLifecycle,
           generated: generatedMetadata(frontmatterToPreserve) ?? generated,
+          sources: attributionMerge && attributionMerge.sources.length > 0
+            ? attributionMerge.sources
+            : undefined,
+          usage_window: attributionMerge?.usageWindow,
         }
       : {}),
-    ...(requestedSources.supplied
+    ...(!semanticMerge && requestedSources.supplied
       ? {
           sources: requestedSources.sources.length > 0
             ? requestedSources.sources
             : undefined,
         }
       : {}),
-    ...(input.usageWindow !== undefined
+    ...(!semanticMerge && input.usageWindow !== undefined
       ? { usage_window: requestedUsageWindow }
       : {}),
   };

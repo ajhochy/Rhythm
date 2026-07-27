@@ -57,9 +57,16 @@ import {
   type NoteFrontmatter,
   type MemoryKind,
 } from './memoryVaultWriteService';
-import { MEMORY_MERGE_THRESHOLD, mergeMemoryContent, textSimilarity } from './memory_similarity';
+import {
+  MEMORY_MERGE_THRESHOLD,
+  mergeAttributedMemoryContent,
+  textSimilarity,
+  type AttributedMemoryMergeResult,
+} from './memory_similarity';
 import {
   CONSOLIDATION_MEMORY_ACTOR,
+  memorySources,
+  memoryUsageWindow,
   mergeLifecycleMetadata,
 } from './memory_note_format';
 import { logger } from '../utils/logger';
@@ -139,7 +146,12 @@ export async function runMemoryConsolidation(
       continue; // a row pointing outside the memory dir is never touched
     }
     const full = await readNoteFull(abs);
-    if (!full.id) continue; // unreadable / malformed note — skip, not fatal
+    if (!full.id) {
+      logger.warn(
+        `[MemoryConsolidation] skipped unreadable or malformed note ${sourceId}`,
+      );
+      continue;
+    }
     let tags: string[] = [];
     try {
       tags = JSON.parse(row.tagsJson);
@@ -201,10 +213,21 @@ export async function runMemoryConsolidation(
       const survivor = sorted[0];
       const retirees = sorted.slice(1);
 
-      let mergedBody = survivor.body;
+      let attributedMerge: AttributedMemoryMergeResult = {
+        body: survivor.body,
+        sources: memorySources(survivor.frontmatter),
+        usageWindow: memoryUsageWindow(survivor.frontmatter),
+      };
       const mergedTags = new Set(survivor.tags);
       for (const retiree of retirees) {
-        mergedBody = mergeMemoryContent(mergedBody, retiree.body);
+        attributedMerge = mergeAttributedMemoryContent(
+          attributedMerge,
+          {
+            body: retiree.body,
+            sources: memorySources(retiree.frontmatter),
+            usageWindow: memoryUsageWindow(retiree.frontmatter),
+          },
+        );
         for (const t of retiree.tags) mergedTags.add(t);
       }
       const lifecycle = mergeLifecycleMetadata(
@@ -221,12 +244,16 @@ export async function runMemoryConsolidation(
         updated: isoDate(),
         source: 'agent',
         ...lifecycle,
+        sources: attributedMerge.sources.length > 0
+          ? attributedMerge.sources
+          : undefined,
+        usage_window: attributedMerge.usageWindow,
         generated: {
           by: CONSOLIDATION_MEMORY_ACTOR,
           at: new Date().toISOString(),
         },
       };
-      const rendered = renderMemoryNote(fm, mergedBody);
+      const rendered = renderMemoryNote(fm, attributedMerge.body);
       await fs.writeFile(survivor.abs, rendered, 'utf8');
       await index.upsertNote({
         sourceId: survivor.vaultRelKey,

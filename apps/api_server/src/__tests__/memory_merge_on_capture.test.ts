@@ -41,7 +41,10 @@ import { setDb } from '../database/db';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { MemoryIndexService } from '../services/memory_index_service';
 import { rememberToVault } from '../services/memoryVaultWriteService';
-import { parseMemoryNote } from '../services/memory_note_format';
+import {
+  parseMemoryNote,
+  validateNoteSources,
+} from '../services/memory_note_format';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -242,5 +245,51 @@ describe('merge-on-capture (#859a)', () => {
         at: '2026-07-26T11:00:00.000Z',
       },
     ]);
+  });
+
+  it('#1193: unions attribution, rekeys collisions, and widens usage windows', async () => {
+    const first = await rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Facilities reservation calendar in the facilities module supports room booking.[^X]',
+        sources: [
+          { id: 'X', resource: 'https://example.test/survivor' },
+        ],
+        usageWindow: { from: '2026-03-01', to: '2026-04-01' },
+      },
+      { memoryDir, index },
+    );
+    const second = await rememberToVault(
+      {
+        kind: 'fact',
+        content: [
+          'The reservation calendar in the facilities module supports room booking approvals.[^X]',
+          '',
+          'Room setup details remain unattributed.',
+        ].join('\n'),
+        sources: [
+          { id: 'X', resource: 'https://example.test/incoming' },
+        ],
+        usageWindow: { from: '2026-02-01', to: '2026-05-01' },
+      },
+      { memoryDir, index },
+    );
+
+    expect(second.id).toBe(first.id);
+    const merged = parseMemoryNote(
+      readFileSync(fileFor(first.path), 'utf8'),
+    );
+    expect(merged.sources).toEqual([
+      { id: 'X', resource: 'https://example.test/survivor' },
+      { id: 'X-2', resource: 'https://example.test/incoming' },
+    ]);
+    expect(merged.body).toContain('room booking.[^X]');
+    expect(merged.body).toContain('booking approvals.[^X-2]');
+    expect(merged.body).toContain('Room setup details remain unattributed.');
+    expect(merged.usageWindow).toEqual({
+      from: '2026-02-01',
+      to: '2026-05-01',
+    });
+    expect(validateNoteSources(merged).danglingFootnoteReferences).toEqual([]);
   });
 });
