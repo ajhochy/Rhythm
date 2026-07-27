@@ -4,11 +4,19 @@ repo: rhythm
 branch: claude/agent-skill-injection-semantic-0s6iv4
 pr:
 issues:
-status: parked
+status: superseded
 tags: [decision, rhythm]
 ---
 
 # Semantic prompt-scoped capability injection for agents
+
+> **SUPERSEDED (2026-07-27).** The MiniLM/ONNX embedder design below is
+> replaced by a cheaper answer to the same question: **BM25 as a drop-in
+> replacement for the Jaccard scorer** in `skill_retrieval.ts`, plus wiring the
+> **already-built deferred dispatcher** beyond its current unscoped-Gemini-only
+> trigger. Tracked in the follow-up issue; see the Ratel addendum below for the
+> evidence. This document is retained for the architecture survey in "Context",
+> which is still accurate.
 
 > **PARKED (2026-07-23).** Cost/benefit review: real surfaces are already
 > 2.9K–15K tokens per role; the cheap wins are scope-by-default for unscoped
@@ -16,6 +24,70 @@ tags: [decision, rhythm]
 > and tightening inherit-all role files. Revisit the semantic scorer only as a
 > drop-in replacement inside `skill_retrieval.ts` if paraphrase misses persist
 > after those. Effort redirected to semantic *memory* retrieval instead.
+
+## Addendum (2026-07-27): Ratel evaluation — do not adopt
+
+[`ratel-ai/ratel`](https://github.com/ratel-ai/ratel) (363★, Rust core +
+TS/Python SDKs, Apache-2.0 engine / MIT SDKs) indexes tools *and* skills into
+BM25/semantic catalogs; the agent calls `search_capabilities` per turn and only
+matching schemas enter context. Claims ~80% fewer tokens, no vector DB.
+Surfaced via r/LocalLLaMA 2026-07-22. Evaluated against Rhythm's
+`allowedMcps` / `allowedSkills` static scoping.
+
+**Verdict: do not adopt.** It is a re-implementation of layers Rhythm already
+ships, measured against a baseline Rhythm already left.
+
+### The ~80% is already banked
+
+| | Rhythm today |
+| --- | --- |
+| Unscoped tool surface | ~136K tokens (`tool_surface_estimator.ts`) |
+| Scoped per-role surface | 2.9K–15K (the cost/benefit figure above) |
+| Effective reduction | **~89–98%** |
+
+Ratel's ~80% is measured against a *load-everything* baseline. Rhythm exited
+that baseline when #842 (scoped-by-default sessions) closed 2026-07-03.
+Progressive disclosure would compete against 2.9K–15K, not 136K.
+
+### Feature-by-feature it is already built
+
+| Ratel | Rhythm equivalent | Status |
+| --- | --- | --- |
+| Progressive disclosure of tool schemas | `opencode_fork/.../session/mcp_deferred_tools.ts` dispatcher | Built; wired only for unscoped Gemini (`gemini_tool_cap.ts`, #952) |
+| `search_capabilities` per-turn relevance | `skill_retrieval.ts::buildSkillsPreface` (Jaccard, `THRESHOLD=0.3`, `DEFAULT_TOP_N=5`) | Built, lexical |
+| Tool + skill catalogs | `agent_skills_repository.ts` + `.mcp-roles/*.mcp.json` (16 roles) + `agent_configs` | Built, DB-backed |
+| Semantic / hybrid ranking | Engraph (`engraph_manager.ts`, `memory_retrieval.ts`, #1141) | Built for *memory*, not capabilities |
+| Static authorization gate | `resolveProfileScope` → fork `filterMcpToolsByAllowlist` (fail-closed) | **No Ratel equivalent** |
+
+### Why it is not just redundant but wrong for Rhythm
+
+Ratel makes capability selection **model-discretionary** — the agent searches,
+then receives schemas. Rhythm's allowlist is a **fail-closed authorization
+gate** enforced in the engine. With 10–15 production church-staff users and
+PCO / Gmail / ProPresenter tools in scope, swapping a gate for a search ranking
+is a security regression, not a token optimization. The two solve different
+problems that only look alike. Ratel is a retrieval layer; Rhythm's scoping is
+an authz boundary that happens to also save tokens.
+
+Secondary: `search_capabilities` costs a tool round-trip per turn (latency +
+result tokens), which eats the savings at Rhythm's already-small surfaces.
+
+Maturity: `ratel` is 8 months old with 15 open issues; `ratel-ai/ratel-mcp` —
+the drop-in path that would sit in front of Rhythm's MCP setup — is at 10★.
+Not a dependency to put in front of production MCP.
+
+### What is worth taking (neither needs the dependency)
+
+1. **BM25 over Jaccard** in `skill_retrieval.ts`. Ratel's real insight is that
+   BM25 beats naive set overlap for paraphrase recall with no embeddings — IDF
+   weighting plus document-length normalization, which is exactly where Jaccard
+   fails (long skill descriptions are penalized because the union grows). That
+   is a scorer swap behind the existing `THRESHOLD` / `DEFAULT_TOP_N` knobs, and
+   it makes the MiniLM + 90 MB ONNX + new SQLite table plan below unnecessary.
+   **Measure paraphrase misses first** — do not swap on principle.
+2. **Wire the deferred dispatcher beyond unscoped-Gemini** — for fat servers on
+   *scoped* profiles, on any provider. Named as a cheap win in the 2026-07-23
+   parking note, still not done. Pure wiring against code that already exists.
 
 ## Context
 
