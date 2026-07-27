@@ -63,6 +63,9 @@ tags: [run, Rhythm, creative-platform, smoke]
   56 skipped in 36.43 seconds. The first restricted run was discarded after
   loopback socket tests received sandbox `EPERM`; the identical suite passed
   with localhost binding enabled.
+- Draft PR #1202 `server-checks` — PASS in 3 minutes 45 seconds.
+- GitNexus staged change detection — LOW risk, zero affected indexed execution
+  processes.
 
 ## Notes
 

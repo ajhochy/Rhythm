@@ -13,7 +13,7 @@ OpenMontage, ComfyUI, FFmpeg, and Obsidian.
 
 ## In progress
 
-- Draft PR #1202 is open for human review.
+- Draft PR #1202 is open for human review; Server CI passed.
 - Blender now uses a checksum-verified OCF mirror and includes the exact pinned
   MCP add-on source.
 - OpenMontage resolves packaged resources from the built API layout and launches
@@ -44,12 +44,13 @@ OpenMontage, ComfyUI, FFmpeg, and Obsidian.
   and answered `ping_comfyui`.
 - Focused Blender MCP bridge rerun: PASS, 1 passed and 2 skipped in 71.74
   seconds.
-- GitNexus branch and staged comparisons are pending for the final commit.
+- GitNexus branch and staged comparisons: LOW risk, zero affected indexed
+  execution processes.
 - Full evidence:
   `docs/ai/runs/2026-07-26-creative-installer-repair.md` and
   `docs/ai/runs/2026-07-26-creative-heavy-smoke.md`.
 
 ## Next step
 
-Commit and push the passing repair to draft PR #1202, then wait for Server CI
-and human manual review. Do not merge automatically.
+Human manual review and product smoke of draft PR #1202. Do not merge
+automatically.
