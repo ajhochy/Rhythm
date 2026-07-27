@@ -164,6 +164,76 @@ describe('MEM-OKF #1187 shared memory-note format', () => {
       'a_unknown',
     ]);
   });
+
+  it('preserves YAML aliases as bounded references instead of expanding them', () => {
+    const aliases = ['node0: &node0 [leaf, leaf]'];
+    for (let level = 1; level <= 14; level += 1) {
+      aliases.push(
+        `node${level}: &node${level} [*node${level - 1}, *node${level - 1}]`,
+      );
+    }
+    const raw = [
+      '---',
+      'kind: fact',
+      ...aliases,
+      'payload: *node14',
+      '---',
+      'Alias amplification guard.',
+    ].join('\n');
+
+    const rendered = renderParsedMemoryNote(parseMemoryNote(raw), {
+      frontmatter: { updated: '2026-07-26' },
+    });
+
+    expect(rendered.length).toBeLessThan(4_096);
+    expect(rendered).toMatch(/&ref_\d+/);
+    expect(rendered).toMatch(/\*ref_\d+/);
+    expect(parseMemoryNote(rendered).body).toBe('Alias amplification guard.');
+  });
+
+  it('preserves a literal __proto__ frontmatter key during mutation', () => {
+    const raw = [
+      '---',
+      'kind: fact',
+      '__proto__:',
+      '  future: retained',
+      '---',
+      'Prototype-key guard.',
+    ].join('\n');
+    const parsed = parseMemoryNote(raw);
+    expect(Object.prototype.hasOwnProperty.call(
+      parsed.frontmatter,
+      '__proto__',
+    )).toBe(true);
+
+    const reparsed = parseMemoryNote(renderParsedMemoryNote(parsed, {
+      frontmatter: { updated: '2026-07-26' },
+    }));
+    expect(reparsed.frontmatter.__proto__).toEqual({
+      future: 'retained',
+    });
+  });
+
+  it('accepts safe default-schema timestamps without degrading the note', () => {
+    const raw = [
+      '---',
+      'kind: fact',
+      'future_timestamp: !!timestamp 2026-07-26T10:05:00Z',
+      '---',
+      'Default-schema timestamp.',
+    ].join('\n');
+
+    const parsed = parseMemoryNote(raw);
+    expect(parsed.hasValidFrontmatter).toBe(true);
+    expect(parsed.frontmatter.future_timestamp).toBeInstanceOf(Date);
+    expect(parsed.body).toBe('Default-schema timestamp.');
+
+    const reparsed = parseMemoryNote(renderParsedMemoryNote(parsed, {
+      frontmatter: { updated: '2026-07-26' },
+    }));
+    expect(reparsed.hasValidFrontmatter).toBe(true);
+    expect(reparsed.frontmatter.future_timestamp).toBeInstanceOf(Date);
+  });
 });
 
 describe('MEM-OKF #1188 lifecycle and trust metadata', () => {
@@ -278,7 +348,11 @@ describe('MEM-OKF #1188 lifecycle and trust metadata', () => {
         status: 'deprecated',
         stale_after: '2026-10-01',
         verified: [
-          { by: 'agent:reviewer/2', at: '2026-07-26T10:00:00Z' },
+          {
+            by: 'agent:reviewer/2',
+            at: '2026-07-26T10:00:00Z',
+            evidence: { source: 'review-run-1' },
+          },
         ],
       },
       {
@@ -296,6 +370,7 @@ describe('MEM-OKF #1188 lifecycle and trust metadata', () => {
         {
           by: 'agent:reviewer/2',
           at: '2026-07-26T10:00:00.000Z',
+          evidence: { source: 'review-run-1' },
         },
         {
           by: 'human:ajh',
@@ -307,5 +382,9 @@ describe('MEM-OKF #1188 lifecycle and trust metadata', () => {
       { status: 'deprecated' },
       { status: 'deprecated' },
     ]).status).toBe('deprecated');
+    expect(mergeLifecycleMetadata([
+      { status: 'stable' },
+      { status: 'draft' },
+    ]).status).toBe('draft');
   });
 });

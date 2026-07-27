@@ -205,7 +205,11 @@ describe('merge-on-capture (#859a)', () => {
         status: 'deprecated',
         staleAfter: '2026-10-01',
         verified: [
-          { by: 'agent:reviewer/2', at: '2026-07-26T10:00:00Z' },
+          {
+            by: 'agent:reviewer/2',
+            at: '2026-07-26T10:00:00Z',
+            evidence: { source: 'merge-review' },
+          },
         ],
       },
       { memoryDir, index },
@@ -231,6 +235,7 @@ describe('merge-on-capture (#859a)', () => {
       {
         by: 'agent:reviewer/2',
         at: '2026-07-26T10:00:00.000Z',
+        evidence: { source: 'merge-review' },
       },
       {
         by: 'human:ajh',

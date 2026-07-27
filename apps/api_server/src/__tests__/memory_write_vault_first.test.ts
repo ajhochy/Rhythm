@@ -324,6 +324,51 @@ describe('MEM-OKF #1188 write defaults and validation', () => {
       { memoryDir, index },
     )).rejects.toThrow(MemoryWriteError);
   });
+
+  it('unions verification history on exact-id dedup instead of replacing it', async () => {
+    const id = generateUlid();
+    const first = await rememberToVault(
+      {
+        id,
+        kind: 'fact',
+        content: 'The chapel projector uses input two.',
+        verified: [
+          {
+            by: 'human:ajh',
+            at: '2026-07-26T10:00:00Z',
+            evidence: { source: 'walkthrough' },
+          },
+        ],
+      },
+      { memoryDir, index },
+    );
+
+    await rememberToVault(
+      {
+        id,
+        kind: 'fact',
+        content: 'The chapel projector uses input two.',
+        verified: [
+          { by: 'agent:reviewer/2', at: '2026-07-26T11:00:00Z' },
+        ],
+      },
+      { memoryDir, index },
+    );
+
+    const parsed = parseMemoryNote(readFileSync(fileFor(first.path), 'utf8'));
+    expect(parsed.verified).toEqual([
+      {
+        by: 'human:ajh',
+        at: '2026-07-26T10:00:00.000Z',
+        evidence: { source: 'walkthrough' },
+      },
+      {
+        by: 'agent:reviewer/2',
+        at: '2026-07-26T11:00:00.000Z',
+      },
+    ]);
+    expect(await repo.listAsync(undefined, undefined, 100)).toHaveLength(1);
+  });
 });
 
 describe('falsification guard (#803)', () => {

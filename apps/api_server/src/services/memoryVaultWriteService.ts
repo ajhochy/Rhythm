@@ -202,6 +202,26 @@ function assertValidVerified(
   return normalized;
 }
 
+function appendVerificationHistory(
+  frontmatter: Record<string, unknown>,
+  incoming: VerificationEntry[],
+): VerificationEntry[] | undefined {
+  const combined = Array.isArray(frontmatter.verified)
+    ? [...frontmatter.verified] as VerificationEntry[]
+    : [];
+  const seen = new Set(
+    verificationEntries(frontmatter)
+      .map((entry) => `${entry.by}\u0000${entry.at}`),
+  );
+  for (const entry of incoming) {
+    const key = `${entry.by}\u0000${entry.at}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    combined.push(entry);
+  }
+  return combined.length > 0 ? combined : undefined;
+}
+
 /**
  * Resolve a vault-relative note path to an absolute path and assert it stays
  * inside the memory dir. Rejects `..`, absolute components, and any resolved
@@ -414,9 +434,10 @@ export async function rememberToVault(
       : {}),
     ...(foundExisting && !semanticMerge && input.verified !== undefined
       ? {
-          verified: requestedVerified && requestedVerified.length > 0
-            ? requestedVerified
-            : undefined,
+          verified: appendVerificationHistory(
+            frontmatterToPreserve,
+            requestedVerified ?? [],
+          ),
         }
       : {}),
     ...(semanticMerge

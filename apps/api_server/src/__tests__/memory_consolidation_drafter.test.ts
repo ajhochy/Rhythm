@@ -228,7 +228,10 @@ describe('memory consolidation pass (#859b)', () => {
           'status: deprecated',
           'stale_after: 2026-10-01',
           'verified:',
-          '  - { by: "agent:reviewer/2", at: 2026-07-26T10:00:00Z }',
+          '  - by: "agent:reviewer/2"',
+          '    at: 2026-07-26T10:00:00Z',
+          '    evidence:',
+          '      source: consolidation-review',
         ].join('\n'),
       ),
       'utf8',
@@ -257,6 +260,7 @@ describe('memory consolidation pass (#859b)', () => {
       {
         by: 'agent:reviewer/2',
         at: '2026-07-26T10:00:00.000Z',
+        evidence: { source: 'consolidation-review' },
       },
       {
         by: 'human:ajh',

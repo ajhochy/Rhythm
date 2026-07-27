@@ -43,7 +43,7 @@ export interface GeneratedMetadata {
   at: string;
 }
 
-export interface VerificationEntry {
+export interface VerificationEntry extends Record<string, unknown> {
   by: string;
   at: string;
 }
@@ -107,6 +107,89 @@ const KNOWN_KEY_ORDER = [
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const UTC_INSTANT_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+const YAML_CALENDAR_PREFIX =
+  /^(\d{4})-(\d{1,2})-(\d{1,2})(?:(?:[Tt]|[ \t]+)|$)/;
+const YAML_CLOCK =
+  /(?:[Tt]|[ \t]+)(\d{1,2}):(\d{2}):(\d{2})/;
+const YAML_TIMEZONE_OFFSET = /[+-](\d{1,2})(?::(\d{2}))?$/;
+
+const yamlTimestampLexemes = new WeakMap<Date, string>();
+const defaultTimestampType = (
+  yaml as typeof yaml & { types: { timestamp: yaml.Type } }
+).types.timestamp;
+
+function isValidYamlTimestamp(value: unknown): boolean {
+  if (
+    typeof value !== 'string' ||
+    !defaultTimestampType.resolve(value)
+  ) {
+    return false;
+  }
+  const calendar = YAML_CALENDAR_PREFIX.exec(value);
+  if (!calendar) return false;
+  const year = Number(calendar[1]);
+  const month = Number(calendar[2]);
+  const day = Number(calendar[3]);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [
+    31,
+    leap ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ];
+  if (
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > daysInMonth[month - 1]
+  ) {
+    return false;
+  }
+  const clock = YAML_CLOCK.exec(value);
+  if (
+    clock &&
+    (
+      Number(clock[1]) > 23 ||
+      Number(clock[2]) > 59 ||
+      Number(clock[3]) > 59
+    )
+  ) {
+    return false;
+  }
+  const offset = YAML_TIMEZONE_OFFSET.exec(value);
+  return !offset ||
+    (Number(offset[1]) <= 23 && Number(offset[2] ?? 0) <= 59);
+}
+
+const strictTimestampType = new yaml.Type(
+  'tag:yaml.org,2002:timestamp',
+  {
+    kind: 'scalar',
+    resolve: isValidYamlTimestamp,
+    construct: (value: string) => {
+      const parsed = defaultTimestampType.construct(value) as Date;
+      yamlTimestampLexemes.set(parsed, value);
+      return parsed;
+    },
+    instanceOf: Date as unknown as object,
+    represent: (value: object) => (value as Date).toISOString(),
+  },
+);
+
+// Start from js-yaml's safe default schema, replacing only its permissive
+// timestamp resolver so invalid calendar values cannot roll into future dates.
+const MEMORY_NOTE_SCHEMA = yaml.DEFAULT_SCHEMA.extend({
+  implicit: [strictTimestampType],
+  explicit: [strictTimestampType],
+});
 
 export function formatActor(actor: MemoryActor): string {
   const id = actor.id.trim();
@@ -183,7 +266,7 @@ function normalizeTags(value: unknown): string[] {
 function dateOnly(value: unknown): string | undefined {
   if (value instanceof Date && Number.isNaN(value.valueOf())) return undefined;
   const candidate = value instanceof Date
-    ? value.toISOString().slice(0, 10)
+    ? yamlTimestampLexemes.get(value) ?? value.toISOString().slice(0, 10)
     : typeof value === 'string'
       ? value
       : '';
@@ -198,7 +281,7 @@ function dateOnly(value: unknown): string | undefined {
 function utcInstant(value: unknown): string | undefined {
   if (value instanceof Date && Number.isNaN(value.valueOf())) return undefined;
   const candidate = value instanceof Date
-    ? value.toISOString()
+    ? yamlTimestampLexemes.get(value) ?? value.toISOString()
     : typeof value === 'string'
       ? value
       : '';
@@ -217,7 +300,7 @@ function metadataEntry(value: unknown): GeneratedMetadata | undefined {
   const by = typeof value.by === 'string' ? value.by : '';
   const at = utcInstant(value.at);
   if (!parseActor(by) || !at) return undefined;
-  return { by, at };
+  return { ...value, by, at };
 }
 
 export function memoryStatus(
@@ -299,9 +382,9 @@ export function mergeLifecycleMetadata(
   const status: MemoryStatus = statuses.length > 0 &&
     statuses.every((value) => value === 'deprecated')
     ? 'deprecated'
-    : statuses.some((value) => value === 'stable')
-      ? 'stable'
-      : 'draft';
+    : statuses.some((value) => value === 'draft')
+      ? 'draft'
+      : 'stable';
   const expiries = members
     .map(staleAfter)
     .filter((value): value is string => value !== undefined)
@@ -340,9 +423,10 @@ function splitFrontmatter(normalized: string): {
 /**
  * Parse a complete markdown note. Never throws.
  *
- * js-yaml's JSON schema is safe and deliberately leaves date-shaped scalars as
- * strings, allowing strict calendar validation instead of JavaScript's rollover
- * semantics. Executable tags such as `!!js/function` are never constructed.
+ * js-yaml's default schema is safe and supports standard YAML types such as
+ * timestamps. Date helpers below normalize constructed Date values before
+ * applying strict calendar validation. Executable JavaScript tags are not part
+ * of the default schema and are never constructed.
  * Any YAML error, missing/unterminated delimiter, or non-map root degrades to
  * the legacy behavior where the whole normalized file is the body.
  */
@@ -364,7 +448,7 @@ export function parseMemoryNote(raw: string): MemoryNoteDocument {
   }
 
   try {
-    const loaded = yaml.load(split.yamlText, { schema: yaml.JSON_SCHEMA });
+    const loaded = yaml.load(split.yamlText, { schema: MEMORY_NOTE_SCHEMA });
     if (!isPlainMapping(loaded)) {
       return {
         originalRaw,
@@ -376,6 +460,15 @@ export function parseMemoryNote(raw: string): MemoryNoteDocument {
         verified: [],
         hasValidFrontmatter: false,
       };
+    }
+    for (const key of ['created', 'updated', 'stale_after'] as const) {
+      const value = loaded[key];
+      const lexeme = value instanceof Date
+        ? yamlTimestampLexemes.get(value)
+        : undefined;
+      if (lexeme && DATE_ONLY_PATTERN.test(lexeme)) {
+        loaded[key] = lexeme;
+      }
     }
     return {
       originalRaw,
@@ -406,18 +499,21 @@ export function parseMemoryNote(raw: string): MemoryNoteDocument {
 function orderedFrontmatter(
   frontmatter: Record<string, unknown>,
 ): Record<string, unknown> {
-  const ordered: Record<string, unknown> = {};
+  const entries: Array<[string, unknown]> = [];
+  const seen = new Set<string>();
   for (const key of KNOWN_KEY_ORDER) {
     if (Object.prototype.hasOwnProperty.call(frontmatter, key)) {
-      ordered[key] = frontmatter[key];
+      entries.push([key, frontmatter[key]]);
+      seen.add(key);
     }
   }
   for (const [key, value] of Object.entries(frontmatter)) {
-    if (!Object.prototype.hasOwnProperty.call(ordered, key)) {
-      ordered[key] = value;
+    if (!seen.has(key)) {
+      entries.push([key, value]);
+      seen.add(key);
     }
   }
-  return ordered;
+  return Object.fromEntries(entries);
 }
 
 /** Deterministically render an arbitrary frontmatter mapping plus markdown body. */
@@ -427,7 +523,10 @@ export function renderMemoryNote(
 ): string {
   const dumped = yaml.dump(orderedFrontmatter(frontmatter), {
     noCompatMode: true,
-    noRefs: true,
+    // Preserve shared references as bounded YAML anchors. `noRefs: true`
+    // recursively expands alias graphs and can amplify a tiny user-authored
+    // frontmatter block into megabytes during any read-modify-write.
+    noRefs: false,
     lineWidth: -1,
     sortKeys: false,
   }).trimEnd().replace(
