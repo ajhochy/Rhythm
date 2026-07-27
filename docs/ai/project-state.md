@@ -2,55 +2,43 @@
 
 ## Current focus
 
-Creative installer repair is implemented and live-smoked across Blender,
-OpenMontage, ComfyUI, FFmpeg, and Obsidian.
+Prepare the post-`v0.18.51` release train by landing the bundled SQLite smoke
+regression guard before the already-verified feature PRs.
 
 ## Active branch / PR
 
-- Branch: `codex/fix-creative-installer`.
-- Draft PR: [#1202](https://github.com/ajhochy/Rhythm/pull/1202).
-- Related issue: #1201.
+- Branch: `codex/fix-desktop-release-sqlite-smoke`.
+- Draft PR: [#1185](https://github.com/ajhochy/Rhythm/pull/1185).
+- Queued after it: #1203, #1204, and #1205.
+- WIP PR #1165 is excluded because it is explicitly unfinished and conflicted.
 
 ## In progress
 
-- Draft PR #1202 is open for human review; Server CI passed.
-- Blender now uses a checksum-verified OCF mirror and includes the exact pinned
-  MCP add-on source.
-- OpenMontage resolves packaged resources from the built API layout and launches
-  through its managed Python interpreter.
-- Gated live coverage now exercises all three heavy integrations through the
-  real sandbox API.
+- Main has been merged into #1185; the only conflict was this canonical state
+  snapshot.
+- Rerun the release-smoke parity test and Server CI on the updated head.
+- Merge release-safe PRs sequentially, then dispatch the next desktop patch
+  release from the final main commit.
 
 ## Risks / known issues
 
-- The Blender and ComfyUI live installer coverage is Apple Silicon/macOS
-  specific.
-- Blender add-on persistence remains an explicit user action; the installer
-  does not silently modify Blender preferences.
-- The optional ComfyUI model pack and image generation were not part of this
-  smoke.
-- Production remains unchanged until a human reviews and merges the draft PR.
+- The host Flutter SDK remains older than the current dependency requirement;
+  GitHub release runners install current stable Flutter and are authoritative.
+- API image publication updates GHCR only; Synology deployment remains a
+  separate manual pull and compose restart.
+- Human post-release verification remains required for the signed macOS build.
 
 ## Test status
 
-- API build: PASS.
-- API suite: PASS, 372 files passed and 33 skipped; 3,245 tests passed and 56
-  skipped.
-- Live isolated sandbox: PASS, FFmpeg install/execution and Obsidian MCP
-  initialization (2/2).
-- Heavy isolated smoke: PASS, 3/3. Blender installed, rendered a PNG, and
-  answered a real MCP `get_scene_info` call; OpenMontage installed and answered
-  `openmontage_status`; ComfyUI installed, started locally, verified healthy,
-  and answered `ping_comfyui`.
-- Focused Blender MCP bridge rerun: PASS, 1 passed and 2 skipped in 71.74
-  seconds.
-- GitNexus branch and staged comparisons: LOW risk, zero affected indexed
-  execution processes.
-- Full evidence:
-  `docs/ai/runs/2026-07-26-creative-installer-repair.md` and
-  `docs/ai/runs/2026-07-26-creative-heavy-smoke.md`.
+- Previous #1185 Server CI: PASS.
+- Desktop release `v0.18.51`: PASS, including packaged SQLite smoke, signing,
+  notarization, upload, and publication.
+- #1203 live Quick Add rollover gate: PASS.
+- #1204 sandbox behavioral gate and Server CI: PASS.
+- #1205 full API/MCP/live sandbox gates and required CI: PASS.
+- Updated #1185 head checks: pending.
 
 ## Next step
 
-Human manual review and product smoke of draft PR #1202. Do not merge
-automatically.
+Validate and merge #1185, then revalidate and merge #1203, #1204, and #1205.
+Trigger the next desktop patch release only from the resulting main commit.
