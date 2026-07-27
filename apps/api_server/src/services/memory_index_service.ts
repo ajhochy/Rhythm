@@ -37,6 +37,10 @@ import {
   scanVaultNotes,
   type ParsedNote,
 } from './memoryVaultSyncService';
+import {
+  navigationMemoryDirForVaultRoot,
+  regenerateMemoryVaultNavigation,
+} from './memory_vault_index_writer';
 
 export interface MemoryIndexRebuildSummary {
   /** Number of `.md` notes scanned from the vault and indexed. */
@@ -86,6 +90,11 @@ export class MemoryIndexService {
       await this.upsertNote({ sourceId, parsed });
     }
 
+    await regenerateMemoryVaultNavigation(
+      navigationMemoryDirForVaultRoot(path),
+      { createIfMissing: false },
+    );
+
     logger.info(
       `[MemoryIndex] rebuild: cleared=${cleared} indexed=${notes.length} (vault=${path})`,
     );
@@ -105,6 +114,13 @@ export class MemoryIndexService {
       source: MEMORY_VAULT_SOURCE,
       sourceId: note.sourceId,
       tagsJson: JSON.stringify(note.parsed.tags),
+      status: note.parsed.status ?? 'stable',
+      staleAfter: note.parsed.staleAfter ?? null,
+      verifiedJson: JSON.stringify(note.parsed.verified ?? []),
+      sourcesJson: JSON.stringify(note.parsed.sources ?? []),
+      generatedBy: note.parsed.generated?.by ?? null,
+      generatedAt: note.parsed.generated?.at ?? null,
+      trustTier: note.parsed.trustTier ?? 'unverified',
       ownerUserId: this.ownerUserId,
     });
   }

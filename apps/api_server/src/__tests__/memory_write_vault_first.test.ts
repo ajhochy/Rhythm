@@ -32,6 +32,7 @@ import { setDb } from '../database/db';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { MemoryIndexService } from '../services/memory_index_service';
 import { scanVaultNotes } from '../services/memoryVaultSyncService';
+import { parseMemoryNote } from '../services/memory_note_format';
 import {
   rememberToVault,
   forgetFromVault,
@@ -66,7 +67,12 @@ function allNoteFiles(): string[] {
     for (const name of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, name.name);
       if (name.isDirectory()) walk(full);
-      else if (name.name.endsWith('.md')) out.push(path.relative(vaultRoot, full));
+      else if (
+        name.name.endsWith('.md') &&
+        !['index.md', 'log.md'].includes(name.name.toLowerCase())
+      ) {
+        out.push(path.relative(vaultRoot, full));
+      }
     }
   }
   walk(memoryDir);
@@ -137,6 +143,20 @@ describe('vault-first remember (#803)', () => {
     expect(hits.length).toBeGreaterThanOrEqual(1);
     expect(hits[0].source).toBe('obsidian-memory');
     expect(hits[0].content).toContain('reservation calendar');
+  });
+
+  it('#1194: an unwritable navigation file never fails canonical capture', async () => {
+    mkdirSync(path.join(memoryDir, 'index.md'), { recursive: true });
+
+    const result = await rememberToVault(
+      { kind: 'fact', content: 'Capture survives navigation failure.' },
+      { memoryDir, index },
+    );
+
+    expect(existsSync(fileFor(result.path))).toBe(true);
+    const rows = await repo.listAsync(undefined, undefined, 100);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].content).toBe('Capture survives navigation failure.');
   });
 
   it('AC3: dedup by id — second POST with same id updates in place, no second file', async () => {
@@ -250,6 +270,247 @@ describe('vault-write helpers (#803)', () => {
     expect(slugForNote('Hello, World!', 'FALLBACK')).toBe('hello-world');
     expect(slugForNote('///', 'FALLBACKID')).toBe('fallbackid');
     expect(slugForNote('../etc', 'X').includes(path.sep)).toBe(false);
+  });
+});
+
+describe('MEM-OKF #1188 write defaults and validation', () => {
+  it('stamps new notes stable with the agent generator and omits empty optional keys', async () => {
+    const result = await rememberToVault(
+      { kind: 'fact', content: 'The welcome desk opens at eight.' },
+      { memoryDir, index },
+    );
+    const raw = readFileSync(fileFor(result.path), 'utf8');
+    const parsed = parseMemoryNote(raw);
+
+    expect(parsed.status).toBe('stable');
+    expect(parsed.generated).toMatchObject({ by: 'agent:rhythm/1' });
+    expect(parsed.generated?.at).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+    );
+    expect(raw).not.toMatch(/^stale_after:/m);
+    expect(raw).not.toMatch(/^verified:/m);
+  });
+
+  it('accepts valid lifecycle input and rejects malformed caller metadata before writing', async () => {
+    const result = await rememberToVault(
+      {
+        kind: 'context',
+        content: 'The youth schedule applies through August.',
+        status: 'draft',
+        staleAfter: '2026-09-01',
+        verified: [
+          { by: 'human:ajh@example.com', at: '2026-07-26T10:05:00Z' },
+        ],
+      },
+      { memoryDir, index },
+    );
+    expect(parseMemoryNote(readFileSync(fileFor(result.path), 'utf8')))
+      .toMatchObject({
+        status: 'draft',
+        staleAfter: '2026-09-01',
+        verified: [
+          {
+            by: 'human:ajh@example.com',
+            at: '2026-07-26T10:05:00.000Z',
+          },
+        ],
+      });
+
+    await expect(rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Bad status.',
+        status: 'unknown' as 'stable',
+      },
+      { memoryDir, index },
+    )).rejects.toThrow(MemoryWriteError);
+    await expect(rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Bad date.',
+        staleAfter: '2026-99-99',
+      },
+      { memoryDir, index },
+    )).rejects.toThrow(MemoryWriteError);
+    await expect(rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Bad verification.',
+        verified: [
+          { by: 'anonymous', at: 'yesterday' },
+        ],
+      },
+      { memoryDir, index },
+    )).rejects.toThrow(MemoryWriteError);
+  });
+
+  it('unions verification history on exact-id dedup instead of replacing it', async () => {
+    const id = generateUlid();
+    const first = await rememberToVault(
+      {
+        id,
+        kind: 'fact',
+        content: 'The chapel projector uses input two.',
+        verified: [
+          {
+            by: 'human:ajh',
+            at: '2026-07-26T10:00:00Z',
+            evidence: { source: 'walkthrough' },
+          },
+          {
+            by: 'human:ajh',
+            at: '2026-07-26T10:00:00Z',
+            evidence: { source: 'duplicate-must-not-replace-first' },
+          },
+        ],
+      },
+      { memoryDir, index },
+    );
+    writeFileSync(
+      fileFor(first.path),
+      readFileSync(fileFor(first.path), 'utf8').replace(
+        /^verified:\n/m,
+        'verified:\n  - future_actor: retained\n',
+      ),
+      'utf8',
+    );
+
+    await rememberToVault(
+      {
+        id,
+        kind: 'fact',
+        content: 'The chapel projector uses input two.',
+        verified: [
+          { by: 'agent:reviewer/2', at: '2026-07-26T11:00:00Z' },
+        ],
+      },
+      { memoryDir, index },
+    );
+
+    const parsed = parseMemoryNote(readFileSync(fileFor(first.path), 'utf8'));
+    expect(parsed.verified).toEqual([
+      {
+        by: 'human:ajh',
+        at: '2026-07-26T10:00:00.000Z',
+        evidence: { source: 'walkthrough' },
+      },
+      {
+        by: 'agent:reviewer/2',
+        at: '2026-07-26T11:00:00.000Z',
+      },
+    ]);
+    expect(parsed.frontmatter.verified).toEqual([
+      { future_actor: 'retained' },
+      {
+        by: 'human:ajh',
+        at: '2026-07-26T10:00:00.000Z',
+        evidence: { source: 'walkthrough' },
+      },
+      {
+        by: 'agent:reviewer/2',
+        at: '2026-07-26T11:00:00.000Z',
+      },
+    ]);
+    expect(await repo.listAsync(undefined, undefined, 100)).toHaveLength(1);
+  });
+});
+
+describe('MEM-OKF #1192 source attribution writes', () => {
+  it('automatically stamps agent-session context and preserves footnotes in the index', async () => {
+    const { agentMemoryService } = await import('../services/agentMemoryService');
+    const result = await agentMemoryService.remember(
+      {
+        kind: 'fact',
+        content: 'Second service moved to 10:45.[^sess-01J8X]',
+        sessionId: '01J8X',
+        sources: [
+          {
+            id: 'email-1',
+            resource: 'mailto:staff@example.com',
+            title: 'Follow-up email',
+          },
+        ],
+        usageWindow: {
+          from: '2026-07-01',
+          to: '2026-07-26',
+        },
+      },
+      { memoryDir, index },
+    );
+
+    const parsed = parseMemoryNote(readFileSync(fileFor(result.path), 'utf8'));
+    expect(parsed.sources).toEqual([
+      {
+        id: 'email-1',
+        resource: 'mailto:staff@example.com',
+        title: 'Follow-up email',
+      },
+      {
+        id: 'sess-01J8X',
+        resource: 'rhythm://agent-session/01J8X',
+      },
+    ]);
+    expect(parsed.usageWindow).toEqual({
+      from: '2026-07-01',
+      to: '2026-07-26',
+    });
+
+    const [row] = await repo.listAsync(undefined, undefined, 10);
+    expect(row.content).toBe(
+      'Second service moved to 10:45.[^sess-01J8X]',
+    );
+    expect(JSON.parse(row.sourcesJson)).toEqual(parsed.sources);
+  });
+
+  it('canonical session provenance cannot be suppressed by a colliding source', async () => {
+    const result = await rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Canonical source marker.[^sess-source-session-42]',
+        sessionId: 'source-session-42',
+        sources: [
+          {
+            id: 'sess-source-session-42',
+            resource: 'https://attacker.example/spoofed',
+            title: 'Caller-supplied label',
+          },
+        ],
+      },
+      { memoryDir, index },
+    );
+
+    const parsed = parseMemoryNote(readFileSync(fileFor(result.path), 'utf8'));
+    expect(parsed.sources).toEqual([
+      {
+        id: 'sess-source-session-42',
+        resource: 'rhythm://agent-session/source-session-42',
+        title: 'Caller-supplied label',
+      },
+    ]);
+  });
+
+  it('stamps ambient context alongside an explicit historical source', async () => {
+    const result = await rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Two session contexts.',
+        contextSessionId: 'local-session-1',
+        sessionId: 'historical-session-2',
+      },
+      { memoryDir, index },
+    );
+
+    const parsed = parseMemoryNote(readFileSync(fileFor(result.path), 'utf8'));
+    expect(parsed.sources).toEqual([
+      {
+        id: 'sess-local-session-1',
+        resource: 'rhythm://agent-session/local-session-1',
+      },
+      {
+        id: 'sess-historical-session-2',
+        resource: 'rhythm://agent-session/historical-session-2',
+      },
+    ]);
   });
 });
 

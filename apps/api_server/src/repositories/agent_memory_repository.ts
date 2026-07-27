@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
+import type {
+  MemoryStatus,
+  MemoryTrustTier,
+} from '../services/memory_note_format';
 
 export interface AgentMemory {
   id: string;
@@ -9,6 +13,13 @@ export interface AgentMemory {
   source: string | null;
   sourceId: string | null;
   tagsJson: string;
+  status: MemoryStatus;
+  staleAfter: string | null;
+  verifiedJson: string;
+  sourcesJson: string;
+  generatedBy: string | null;
+  generatedAt: string | null;
+  trustTier: MemoryTrustTier;
   ownerUserId: number | null;
   createdAt: string;
   updatedAt: string;
@@ -23,6 +34,16 @@ export interface CreateAgentMemoryInput {
   ownerUserId?: number;
 }
 
+export interface MemorySearchOptions {
+  /**
+   * Automatic-injection-only lifecycle gate. Ordinary repository callers,
+   * including explicit MCP recall, leave this false and see inactive rows.
+   */
+  activeOnly?: boolean;
+  /** YYYY-MM-DD boundary captured at retrieval call time. */
+  today?: string;
+}
+
 function rowToModel(row: Record<string, unknown>): AgentMemory {
   return {
     id: row.id as string,
@@ -31,6 +52,13 @@ function rowToModel(row: Record<string, unknown>): AgentMemory {
     source: (row.source as string | null) ?? null,
     sourceId: (row.source_id as string | null) ?? null,
     tagsJson: (row.tags_json as string) ?? '[]',
+    status: (row.status as MemoryStatus) ?? 'stable',
+    staleAfter: (row.stale_after as string | null) ?? null,
+    verifiedJson: (row.verified_json as string) ?? '[]',
+    sourcesJson: (row.sources_json as string) ?? '[]',
+    generatedBy: (row.generated_by as string | null) ?? null,
+    generatedAt: (row.generated_at as string | null) ?? null,
+    trustTier: (row.trust_tier as MemoryTrustTier) ?? 'unverified',
     ownerUserId: (row.owner_user_id as number | null) ?? null,
     createdAt:
       typeof row.created_at === 'string'
@@ -96,11 +124,22 @@ export class AgentMemoryRepository {
       );
       return r.rows.length > 0 ? rowToModel(r.rows[0]) : null;
     }
-    const row = getDb().prepare(`SELECT id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at FROM agent_memory WHERE id = ?`).get(id);
+    const row = getDb().prepare(`
+      SELECT id, kind, content, source, source_id, tags_json,
+             status, stale_after, verified_json, sources_json,
+             generated_by, generated_at, trust_tier,
+             owner_user_id, created_at, updated_at
+      FROM agent_memory WHERE id = ?
+    `).get(id);
     return row ? rowToModel(row as Record<string, unknown>) : null;
   }
 
-  async searchAsync(query: string, ownerUserId?: number, limit = 20): Promise<AgentMemory[]> {
+  async searchAsync(
+    query: string,
+    ownerUserId?: number,
+    limit = 20,
+    options: MemorySearchOptions = {},
+  ): Promise<AgentMemory[]> {
     if (env.dbClient === 'postgres') {
       const params: unknown[] = [query];
       const ownerFilter = ownerUserId != null ? `AND owner_user_id = $2` : '';
@@ -121,14 +160,24 @@ export class AgentMemoryRepository {
     // SQLite: try FTS5 first, fall back to LIKE
     try {
       const ownerFilter = ownerUserId != null ? 'AND m.owner_user_id = ?' : '';
+      const activeFilter = options.activeOnly
+        ? `AND m.status != 'deprecated'
+           AND (m.stale_after IS NULL OR m.stale_after > ?)`
+        : '';
       const params: unknown[] = [query];
       if (ownerUserId != null) params.push(ownerUserId);
+      if (options.activeOnly) {
+        params.push(options.today ?? new Date().toISOString().slice(0, 10));
+      }
       params.push(limit);
       const rows = getDb().prepare(`
-        SELECT m.id, m.kind, m.content, m.source, m.source_id, m.tags_json, m.owner_user_id, m.created_at, m.updated_at
+        SELECT m.id, m.kind, m.content, m.source, m.source_id, m.tags_json,
+               m.status, m.stale_after, m.verified_json, m.sources_json,
+               m.generated_by, m.generated_at, m.trust_tier,
+               m.owner_user_id, m.created_at, m.updated_at
         FROM agent_memory m
         JOIN agent_memory_fts f ON m.rowid = f.rowid
-        WHERE agent_memory_fts MATCH ? ${ownerFilter}
+        WHERE agent_memory_fts MATCH ? ${ownerFilter} ${activeFilter}
         ORDER BY rank
         LIMIT ?
       `).all(...params);
@@ -137,12 +186,24 @@ export class AgentMemoryRepository {
       // FTS unavailable — fall back to LIKE
       const likeQuery = `%${query}%`;
       const ownerFilter = ownerUserId != null ? 'AND owner_user_id = ?' : '';
+      const activeFilter = options.activeOnly
+        ? `AND status != 'deprecated'
+           AND (stale_after IS NULL OR stale_after > ?)`
+        : '';
       const params: unknown[] = [likeQuery];
       if (ownerUserId != null) params.push(ownerUserId);
+      if (options.activeOnly) {
+        params.push(options.today ?? new Date().toISOString().slice(0, 10));
+      }
       params.push(limit);
       const rows = getDb().prepare(
-        `SELECT id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at
-         FROM agent_memory WHERE content LIKE ? ${ownerFilter} LIMIT ?`,
+        `SELECT id, kind, content, source, source_id, tags_json,
+                status, stale_after, verified_json, sources_json,
+                generated_by, generated_at, trust_tier,
+                owner_user_id, created_at, updated_at
+         FROM agent_memory
+         WHERE content LIKE ? ${ownerFilter} ${activeFilter}
+         LIMIT ?`,
       ).all(...params);
       return (rows as Record<string, unknown>[]).map(rowToModel);
     }
@@ -168,7 +229,10 @@ export class AgentMemoryRepository {
     const params: unknown[] = [source, ...sourceIds];
     if (ownerUserId != null) params.push(ownerUserId);
     const rows = getDb().prepare(
-      `SELECT id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at
+      `SELECT id, kind, content, source, source_id, tags_json,
+              status, stale_after, verified_json, sources_json,
+              generated_by, generated_at, trust_tier,
+              owner_user_id, created_at, updated_at
        FROM agent_memory WHERE source = ? AND source_id IN (${placeholders}) ${ownerFilter}`,
     ).all(...params);
     return (rows as Record<string, unknown>[]).map(rowToModel);
@@ -197,7 +261,10 @@ export class AgentMemoryRepository {
     params.push(limit);
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const rows = getDb().prepare(
-      `SELECT id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at
+      `SELECT id, kind, content, source, source_id, tags_json,
+              status, stale_after, verified_json, sources_json,
+              generated_by, generated_at, trust_tier,
+              owner_user_id, created_at, updated_at
        FROM agent_memory ${where} ORDER BY created_at DESC LIMIT ?`,
     ).all(...params);
     return (rows as Record<string, unknown>[]).map(rowToModel);
@@ -220,6 +287,13 @@ export class AgentMemoryRepository {
     source: string;
     sourceId: string;
     tagsJson: string;
+    status?: MemoryStatus;
+    staleAfter?: string | null;
+    verifiedJson?: string;
+    sourcesJson?: string;
+    generatedBy?: string | null;
+    generatedAt?: string | null;
+    trustTier?: MemoryTrustTier;
     ownerUserId?: number | null;
   }): Promise<boolean> {
     const now = new Date().toISOString();
@@ -263,9 +337,25 @@ export class AgentMemoryRepository {
       this._ftsDelete(existing.rowid, existing.content, existing.kind, existing.tags_json);
       getDb().prepare(`
         UPDATE agent_memory
-           SET kind = ?, content = ?, tags_json = ?, updated_at = ?
+           SET kind = ?, content = ?, tags_json = ?,
+               status = ?, stale_after = ?, verified_json = ?, sources_json = ?,
+               generated_by = ?, generated_at = ?, trust_tier = ?,
+               updated_at = ?
          WHERE id = ?
-      `).run(input.kind, input.content, input.tagsJson, now, existing.id);
+      `).run(
+        input.kind,
+        input.content,
+        input.tagsJson,
+        input.status ?? 'stable',
+        input.staleAfter ?? null,
+        input.verifiedJson ?? '[]',
+        input.sourcesJson ?? '[]',
+        input.generatedBy ?? null,
+        input.generatedAt ?? null,
+        input.trustTier ?? 'unverified',
+        now,
+        existing.id,
+      );
       this._ftsInsert(existing.rowid, input.content, input.kind, input.tagsJson);
       return false;
     }
@@ -273,11 +363,24 @@ export class AgentMemoryRepository {
     const id = randomUUID();
     getDb().prepare(`
       INSERT INTO agent_memory
-        (id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?)
+        (id, kind, content, source, source_id, tags_json,
+         status, stale_after, verified_json, sources_json,
+         generated_by, generated_at, trust_tier,
+         owner_user_id, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       id, input.kind, input.content, input.source, input.sourceId,
-      input.tagsJson, input.ownerUserId ?? null, now, now,
+      input.tagsJson,
+      input.status ?? 'stable',
+      input.staleAfter ?? null,
+      input.verifiedJson ?? '[]',
+      input.sourcesJson ?? '[]',
+      input.generatedBy ?? null,
+      input.generatedAt ?? null,
+      input.trustTier ?? 'unverified',
+      input.ownerUserId ?? null,
+      now,
+      now,
     );
     const inserted = getDb()
       .prepare(`SELECT rowid FROM agent_memory WHERE id = ?`)

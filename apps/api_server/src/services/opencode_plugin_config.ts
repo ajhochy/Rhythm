@@ -64,6 +64,19 @@ export function rhythmTelemetryPluginPath(): string | null {
 }
 
 /**
+ * Resolve the always-enabled session-context plugin. Unlike telemetry this
+ * has no disable flag: it is part of the memory provenance correctness
+ * boundary, not optional instrumentation.
+ */
+export function rhythmSessionContextPluginPath(): string | null {
+  const candidates = [
+    join(__dirname, '..', '..', 'opencode_plugins', 'rhythm-session-context'),
+    join(__dirname, '..', 'opencode_plugins', 'rhythm-session-context'),
+  ];
+  return candidates.find((p) => existsSync(p)) ?? null;
+}
+
+/**
  * Idempotently ensures the required community auth plugins are listed in
  * opencode.json, swapping the legacy npm anthropic plugin for the vendored
  * local one. Preserves unknown user entries. Returns true if the file was
@@ -94,6 +107,7 @@ export function ensureRequiredPlugins(
     : [];
   const pluginPath = rhythmAnthropicPluginPath();
   const telemetryPluginPath = rhythmTelemetryPluginPath();
+  const sessionContextPluginPath = rhythmSessionContextPluginPath();
   // #1069 — if telemetry was toggled off AFTER a prior run already wrote its
   // path, drop the now-stale entry rather than leaving a disabled-but-still-
   // loaded plugin behind. Any dir named `rhythm-telemetry` is treated as
@@ -107,6 +121,7 @@ export function ensureRequiredPlugins(
       ...REQUIRED_PLUGINS,
       ...(pluginPath ? [pluginPath] : []),
       ...(telemetryPluginPath ? [telemetryPluginPath] : []),
+      ...(sessionContextPluginPath ? [sessionContextPluginPath] : []),
     ]),
   );
   const changed =

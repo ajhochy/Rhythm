@@ -2,29 +2,30 @@
 
 ## Current focus
 
-Land issue #1186's live-verified automation-stable foreground sandbox as the
-third change in the post-`v0.18.51` release train.
+Land the live-verified MEM-OKF memory format, lifecycle, trust, provenance,
+navigation, links, and audit-history work for issues #1187–#1196, then release.
 
 ## Active branch / PR
 
-- Branch: `codex/1186-sandbox-foreground`.
-- PR: [#1204](https://github.com/ajhochy/Rhythm/pull/1204).
-- Release guard #1185 and Quick Add fix #1203 are merged.
-- Queued after it: #1205.
+- Branch: `codex/mem-okf`.
+- PR: [#1205](https://github.com/ajhochy/Rhythm/pull/1205).
+- Release guard #1185, Quick Add fix #1203, and sandbox fix #1204 are merged.
 - WIP PR #1165 is excluded because it is explicitly unfinished and conflicted.
 
 ## In progress
 
-- Main is merged into #1204; the only conflict was this canonical state
+- Main is merged into #1205; the only conflict was this canonical state
   snapshot.
-- Revalidate the focused sandbox process behavior and GitHub checks.
-- Dispatch the next desktop patch release after #1205 reaches main.
+- Revalidate the integrated API/MCP gates and required GitHub checks on the
+  exact updated head.
+- Dispatch the next desktop patch release from the resulting main commit.
 
 ## Risks / known issues
 
-- Fixed sandbox ports `:4097/:4098` remain a serialized local test resource.
-- GitNexus does not index the Bash lifecycle functions; focused process and real
-  lifecycle tests cover the behavior.
+- `buildMemoryPreface` and the audit enqueue path have broad upstream blast
+  radii; targeted, full-memory, full-API, and live sandbox gates passed.
+- Mechanical consolidation/revert has no public HTTP, WebSocket, or MCP trigger,
+  so those behaviors are real-filesystem/SQLite integration-tested.
 - The host Flutter SDK is older than the current desktop dependency
   requirement; GitHub release runners install current stable Flutter.
 - API image publication updates GHCR only; Synology deployment remains a
@@ -34,15 +35,17 @@ third change in the post-`v0.18.51` release train.
 ## Test status
 
 - #1185 focused release-smoke parity test: PASS, 9/9; merged.
-- #1203 focused rollover suite after main merge: PASS, 3 tests with the gated
-  live test skipped; prior live isolated sandbox gate PASS; merged.
-- #1204 Bash syntax and focused process suite: PASS, 7/7.
-- #1204 full API suite: PASS, 3,252 tests passed and 57 skipped.
-- #1204 live foreground/orphan lifecycle: PASS, 1/1 against the real sandbox.
-- #1204 previous Server CI: PASS.
-- #1205 full API/MCP/live sandbox gates and required CI: PASS.
+- #1203 focused updated-head rollover suite: PASS; prior live sandbox PASS;
+  merged.
+- #1204 focused updated-head process suite: PASS, 7/7; fresh Server CI PASS;
+  merged.
+- #1205 API TypeScript build/typecheck: PASS.
+- #1205 updated-head full API suite: PASS, 3,388 tests; MCP: PASS, 101 tests.
+- #1205 combined live sandbox: PASS three times, 5/5 through real HTTP, WebSocket,
+  built MCP stdio, copied SQLite, sandbox vault, and fork engine.
+- #1205 previous required GitHub CI: PASS.
 
 ## Next step
 
-Merge #1204 after its updated-head checks, then revalidate and merge #1205.
-Trigger the next desktop patch release only from the resulting main commit.
+Merge #1205 after its exact updated-head local and GitHub gates, then trigger
+and monitor the next desktop patch release from final `main`.

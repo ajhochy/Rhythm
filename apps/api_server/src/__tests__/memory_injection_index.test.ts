@@ -55,7 +55,12 @@ function noteFiles(dir = memoryDir, base = memoryDir): string[] {
   for (const ent of readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, ent.name);
     if (ent.isDirectory()) out.push(...noteFiles(full, base));
-    else if (ent.name.endsWith('.md')) out.push(path.relative(base, full));
+    else if (
+      ent.name.endsWith('.md') &&
+      !['index.md', 'log.md'].includes(ent.name.toLowerCase())
+    ) {
+      out.push(path.relative(base, full));
+    }
   }
   return out;
 }
@@ -196,6 +201,33 @@ describe('vault edits flow into injection after a re-index pass (#805)', () => {
 
     const after = await getRelevantMemories('choir practice wednesday', null);
     expect(after.some((m) => m.content.includes('Choir practice'))).toBe(false);
+  });
+
+  it('#1194: reserved index/log content is never indexed or injected', async () => {
+    mkdirSync(path.join(memoryDir, 'fact'), { recursive: true });
+    writeFileSync(
+      path.join(memoryDir, 'index.md'),
+      '# Memory\n\nNavigation uniquenavtoken.',
+      'utf8',
+    );
+    writeFileSync(
+      path.join(memoryDir, 'fact', 'Index.md'),
+      '# Facts\n\nNested uniquenavtoken.',
+      'utf8',
+    );
+    writeFileSync(
+      path.join(memoryDir, 'fact', 'log.md'),
+      '# Log\n\nAudit uniquenavtoken.',
+      'utf8',
+    );
+
+    await syncMemoryVault({ vaultPath: vaultRoot });
+
+    expect(await repo.listAsync(undefined, undefined, 100)).toEqual([]);
+    const preface = await buildMemoryPreface('uniquenavtoken', null);
+    expect(preface.text).toBe('');
+    expect(preface.memoryIds).toEqual([]);
+    expect(preface.notePaths).toEqual([]);
   });
 });
 

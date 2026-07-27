@@ -147,6 +147,7 @@ jobs:
           test -f "$DEST/scripts/postinstall.js"
           test -f "$DEST/opencode_plugins/rhythm-anthropic-accounts/dist/index.js"
           test -f "$DEST/opencode_plugins/rhythm-anthropic-accounts/dist/accounts.js"
+          test -f "$DEST/opencode_plugins/rhythm-session-context/index.js"
           test -f "$DEST/package.json"
           test -f "$DEST/package-lock.json"
           test -f "$DEST/.env"

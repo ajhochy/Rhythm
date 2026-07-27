@@ -15,6 +15,8 @@ function memory(overrides: Partial<AgentMemory>): AgentMemory {
   return {
     id: 'memory', kind: 'fact', content: 'memory', source: 'obsidian-memory',
     sourceId: 'fact/memory.md', tagsJson: '[]', ownerUserId: 1,
+    status: 'stable', staleAfter: null, verifiedJson: '[]', sourcesJson: '[]',
+    generatedBy: null, generatedAt: null, trustTier: 'unverified',
     createdAt: 'now', updatedAt: 'now', ...overrides,
   };
 }
@@ -88,7 +90,11 @@ describe('hybrid memory retrieval', () => {
     const engraph = { search: vi.fn().mockResolvedValue([{ file: 'fact/semantic.md' }]) };
 
     await expect(getRelevantMemoriesSemantic('query', 1, 2, fakeRepo, engraph)).resolves.toEqual([fresh]);
-    expect(fakeRepo.findBySourceIdsAsync).toHaveBeenCalledWith('obsidian-memory', ['fact/semantic.md'], 1);
+    expect(fakeRepo.findBySourceIdsAsync).toHaveBeenCalledWith(
+      'obsidian-memory',
+      ['fact/semantic.md'],
+      1,
+    );
   });
 
   it('keeps null-owner rows while excluding user-owned joined rows for a null owner', async () => {
@@ -102,7 +108,9 @@ describe('hybrid memory retrieval', () => {
 
     const result = await getRelevantMemoriesSemantic('query', undefined, 2, fakeRepo, engraph);
     expect(fakeRepo.findBySourceIdsAsync).toHaveBeenCalledWith(
-      'obsidian-memory', ['fact/private.md', 'fact/ownerless.md'], undefined,
+      'obsidian-memory',
+      ['fact/private.md', 'fact/ownerless.md'],
+      undefined,
     );
     expect(result.map(({ id }) => id)).toEqual(['ownerless']);
     expect(result.map(({ id }) => id)).not.toContain('private');
@@ -151,5 +159,162 @@ describe('hybrid memory retrieval', () => {
     const b = memory({ id: 'b' });
     const c = memory({ id: 'c' });
     expect(fuseMemoryRanks([a, b], [c, b], 3).map(({ id }) => id)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('gates each lane before RRF truncation and uses trust for equal-score ties', () => {
+    const inactiveFts = memory({ id: 'stale-fts', staleAfter: '2000-01-01' });
+    const inactiveSemantic = memory({ id: 'deprecated-semantic', status: 'deprecated' });
+    const unverified = memory({ id: 'unverified' });
+    const human = memory({ id: 'human', trustTier: 'human' });
+    const machine = memory({ id: 'machine', trustTier: 'machine' });
+
+    expect(fuseMemoryRanks(
+      [inactiveFts, unverified, machine],
+      [inactiveSemantic, human],
+      3,
+    ).map(({ id }) => id)).toEqual(['human', 'unverified', 'machine']);
+  });
+
+  it('overfetches semantic candidates and replaces inactive top hits with live rows', async () => {
+    const hits = Array.from({ length: 8 }, (_, index) => ({
+      file: `fact/${index + 1}.md`,
+    }));
+    const joined = [
+      memory({ id: 'stale', sourceId: 'fact/1.md', staleAfter: '2000-01-01' }),
+      memory({ id: 'deprecated', sourceId: 'fact/2.md', status: 'deprecated' }),
+      ...Array.from({ length: 6 }, (_, index) => memory({
+        id: `live-${index + 1}`,
+        sourceId: `fact/${index + 3}.md`,
+      })),
+    ];
+    const fakeRepo = repo([], joined);
+    const engraph = { search: vi.fn().mockResolvedValue(hits) };
+
+    const result = await getRelevantMemoriesSemantic(
+      'query',
+      1,
+      5,
+      fakeRepo,
+      engraph,
+    );
+
+    expect(engraph.search).toHaveBeenCalledWith('query', 20);
+    expect(result).toHaveLength(5);
+    expect(result.every(({ id }) => id.startsWith('live-'))).toBe(true);
+  });
+
+  it('progressively widens past 25 inactive hits to recover 5 live rows', async () => {
+    const hits = Array.from({ length: 30 }, (_, index) => ({
+      file: `fact/${index + 1}.md`,
+    }));
+    const joinedBySourceId = new Map([
+      ...Array.from({ length: 25 }, (_, index) => {
+        const sourceId = `fact/${index + 1}.md`;
+        return [
+          sourceId,
+          memory({
+            id: `inactive-${index + 1}`,
+            sourceId,
+            staleAfter: '2000-01-01',
+          }),
+        ] as const;
+      }),
+      ...Array.from({ length: 5 }, (_, index) => {
+        const sourceId = `fact/${index + 26}.md`;
+        return [
+          sourceId,
+          memory({
+            id: `live-${index + 1}`,
+            sourceId,
+          }),
+        ] as const;
+      }),
+    ]);
+    const fakeRepo = {
+      searchAsync: vi.fn().mockResolvedValue([]),
+      findBySourceIdsAsync: vi.fn(
+        async (_source: string, sourceIds: string[]) =>
+          sourceIds.flatMap((sourceId) => {
+            const joined = joinedBySourceId.get(sourceId);
+            return joined ? [joined] : [];
+          }),
+      ),
+    };
+    const engraph = {
+      search: vi.fn(async (_query: string, limit: number) =>
+        hits.slice(0, limit)),
+    };
+
+    const result = await getRelevantMemoriesSemantic(
+      'query',
+      1,
+      5,
+      fakeRepo,
+      engraph,
+    );
+
+    expect(engraph.search.mock.calls.map(([, limit]) => limit))
+      .toEqual([20, 40]);
+    expect(result.map(({ id }) => id)).toEqual([
+      'live-1',
+      'live-2',
+      'live-3',
+      'live-4',
+      'live-5',
+    ]);
+  });
+
+  it('stops widening when Engraph reports that its result set is exhausted', async () => {
+    const hits = [
+      { file: 'fact/stale-1.md' },
+      { file: 'fact/stale-2.md' },
+      { file: 'fact/live.md' },
+    ];
+    const joined = [
+      memory({
+        id: 'stale-1',
+        sourceId: 'fact/stale-1.md',
+        staleAfter: '2000-01-01',
+      }),
+      memory({
+        id: 'stale-2',
+        sourceId: 'fact/stale-2.md',
+        staleAfter: '2000-01-01',
+      }),
+      memory({ id: 'live', sourceId: 'fact/live.md' }),
+    ];
+    const fakeRepo = repo([], joined);
+    const engraph = { search: vi.fn().mockResolvedValue(hits) };
+
+    await expect(getRelevantMemoriesSemantic(
+      'query',
+      1,
+      5,
+      fakeRepo,
+      engraph,
+    )).resolves.toMatchObject([{ id: 'live' }]);
+    expect(engraph.search).toHaveBeenCalledTimes(1);
+    expect(engraph.search).toHaveBeenCalledWith('query', 20);
+  });
+
+  it('rejects an ambiguous source id before gating its stale duplicate', async () => {
+    const active = memory({ id: 'active', sourceId: 'fact/shared.md' });
+    const staleDuplicate = memory({
+      id: 'stale-duplicate',
+      sourceId: 'fact/shared.md',
+      staleAfter: '2000-01-01',
+    });
+    const fakeRepo = repo([], [active, staleDuplicate]);
+    const engraph = {
+      search: vi.fn().mockResolvedValue([{ file: 'fact/shared.md' }]),
+    };
+
+    await expect(getRelevantMemoriesSemantic(
+      'query',
+      1,
+      5,
+      fakeRepo,
+      engraph,
+    )).resolves.toEqual([]);
   });
 });

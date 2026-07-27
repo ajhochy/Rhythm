@@ -34,9 +34,33 @@ import path from 'node:path';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { resolveMemoryVaultPath } from '../config/env';
 import { logger } from '../utils/logger';
+import {
+  parseMemoryNote,
+  frontmatterString,
+  trustTier as deriveTrustTier,
+  type GeneratedMetadata,
+  type MemorySource,
+  type MemoryStatus,
+  type MemoryTrustTier,
+  type VerificationEntry,
+} from './memory_note_format';
 
 /** The canonical storage source stamped on every mirrored row. */
 export const MEMORY_VAULT_SOURCE = 'obsidian-memory';
+
+/** OKF navigation/audit artifacts are derived metadata, never memory notes. */
+export const RESERVED_VAULT_FILENAMES = ['index.md', 'log.md'] as const;
+export const RESERVED_VAULT_FILENAME_PATTERNS = [
+  /^log-archive-\d{4}\.md$/i,
+] as const;
+
+export function isReservedVaultFilename(filename: string): boolean {
+  const normalized = filename.toLowerCase();
+  return (
+    (RESERVED_VAULT_FILENAMES as readonly string[]).includes(normalized) ||
+    RESERVED_VAULT_FILENAME_PATTERNS.some((pattern) => pattern.test(filename))
+  );
+}
 
 /**
  * Canonical index identity for a memory note: its path RELATIVE TO THE VAULT
@@ -93,8 +117,6 @@ export function vaultKeyToMemoryDirRelative(memoryDir: string, vaultRelKey: stri
   return path.relative(path.resolve(memoryDir), abs);
 }
 
-const VALID_KINDS = new Set(['fact', 'person', 'project', 'preference', 'context']);
-
 export interface MemoryVaultSyncSummary {
   /** Number of `.md` notes found and processed in the vault. */
   scanned: number;
@@ -108,6 +130,14 @@ export interface ParsedNote {
   kind: string;
   tags: string[];
   content: string;
+  title?: string;
+  description?: string;
+  status?: MemoryStatus;
+  staleAfter?: string;
+  generated?: GeneratedMetadata;
+  verified?: VerificationEntry[];
+  sources?: MemorySource[];
+  trustTier?: MemoryTrustTier;
 }
 
 /**
@@ -123,94 +153,20 @@ export interface ParsedNote {
  *   • files with no frontmatter (the whole file becomes the body)
  */
 export function parseNote(raw: string): ParsedNote {
-  const normalized = raw.replace(/\r\n/g, '\n');
-  let frontmatter = '';
-  let body = normalized;
-
-  if (normalized.startsWith('---\n') || normalized === '---') {
-    // Find the closing delimiter line after the opening one.
-    const afterOpen = normalized.slice(4); // skip leading "---\n"
-    const closeIdx = afterOpen.search(/\n---\s*(\n|$)/);
-    if (closeIdx !== -1) {
-      frontmatter = afterOpen.slice(0, closeIdx);
-      // Advance past the closing delimiter line.
-      const rest = afterOpen.slice(closeIdx + 1); // at "---..."
-      const nl = rest.indexOf('\n');
-      body = nl === -1 ? '' : rest.slice(nl + 1);
-    }
-  }
-
-  const fm = parseFrontmatter(frontmatter);
-
-  const rawKind = typeof fm.kind === 'string' ? fm.kind.trim().toLowerCase() : '';
-  const kind = VALID_KINDS.has(rawKind) ? rawKind : 'fact';
-
-  let tags: string[] = [];
-  if (Array.isArray(fm.tags)) tags = fm.tags;
-
-  return { kind, tags, content: body.trim() };
-}
-
-type FrontmatterValue = string | string[];
-
-function parseFrontmatter(text: string): Record<string, FrontmatterValue> {
-  const out: Record<string, FrontmatterValue> = {};
-  if (!text.trim()) return out;
-
-  const lines = text.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line.trim() || line.trim().startsWith('#')) continue;
-
-    const colon = line.indexOf(':');
-    if (colon === -1) continue;
-    const key = line.slice(0, colon).trim();
-    let value = line.slice(colon + 1).trim();
-    if (!key) continue;
-
-    // Inline array: tags: [a, b, c]
-    if (value.startsWith('[') && value.endsWith(']')) {
-      out[key] = splitInlineArray(value.slice(1, -1));
-      continue;
-    }
-
-    // Block array: key: (empty) followed by "- item" lines.
-    if (value === '') {
-      const items: string[] = [];
-      let j = i + 1;
-      while (j < lines.length && /^\s*-\s+/.test(lines[j])) {
-        items.push(stripQuotes(lines[j].replace(/^\s*-\s+/, '').trim()));
-        j++;
-      }
-      if (items.length > 0) {
-        out[key] = items;
-        i = j - 1;
-        continue;
-      }
-      out[key] = '';
-      continue;
-    }
-
-    out[key] = stripQuotes(value);
-  }
-  return out;
-}
-
-function splitInlineArray(inner: string): string[] {
-  return inner
-    .split(',')
-    .map((s) => stripQuotes(s.trim()))
-    .filter((s) => s.length > 0);
-}
-
-function stripQuotes(s: string): string {
-  if (
-    (s.startsWith('"') && s.endsWith('"')) ||
-    (s.startsWith("'") && s.endsWith("'"))
-  ) {
-    return s.slice(1, -1);
-  }
-  return s;
+  const document = parseMemoryNote(raw);
+  return {
+    kind: document.kind,
+    tags: document.tags,
+    content: document.body,
+    title: frontmatterString(document.frontmatter, 'title'),
+    description: frontmatterString(document.frontmatter, 'description'),
+    status: document.status,
+    staleAfter: document.staleAfter,
+    generated: document.generated,
+    verified: document.verified,
+    sources: document.sources,
+    trustTier: deriveTrustTier(document.frontmatter),
+  };
 }
 
 /** A parsed vault note paired with its stable identity key (vault-relative path). */
@@ -272,6 +228,9 @@ async function collectMarkdownFiles(root: string, dir: string): Promise<string[]
   for (const entry of entries) {
     // Skip Obsidian config / hidden dirs (e.g. .obsidian, .trash).
     if (entry.name.startsWith('.')) continue;
+    if (isReservedVaultFilename(entry.name)) {
+      continue;
+    }
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       out.push(...(await collectMarkdownFiles(root, full)));
@@ -300,7 +259,24 @@ export async function syncMemoryVault(
   const vaultPath = options.vaultPath ?? resolveMemoryVaultPath();
   const ownerUserId = options.ownerUserId ?? null;
 
-  // A missing / non-directory vault path yields no notes (never an error).
+  // Missing/unmounted/non-directory is unavailable, not an authoritative empty
+  // vault. Preserve the derived cache until the canonical source is reachable
+  // again; otherwise a transient mount failure tombstones every memory row.
+  try {
+    const stat = await fs.stat(vaultPath);
+    if (!stat.isDirectory()) {
+      logger.warn(
+        `[MemoryVaultSync] vault unavailable; preserving cached rows (vault=${vaultPath})`,
+      );
+      return { scanned: 0, upserted: 0, deleted: 0 };
+    }
+  } catch {
+    logger.warn(
+      `[MemoryVaultSync] vault unavailable; preserving cached rows (vault=${vaultPath})`,
+    );
+    return { scanned: 0, upserted: 0, deleted: 0 };
+  }
+
   const notes = await scanVaultNotes(vaultPath);
   const presentSourceIds = new Set<string>();
   let upserted = 0;
@@ -313,6 +289,13 @@ export async function syncMemoryVault(
       source: MEMORY_VAULT_SOURCE,
       sourceId,
       tagsJson: JSON.stringify(parsed.tags),
+      status: parsed.status ?? 'stable',
+      staleAfter: parsed.staleAfter ?? null,
+      verifiedJson: JSON.stringify(parsed.verified ?? []),
+      sourcesJson: JSON.stringify(parsed.sources ?? []),
+      generatedBy: parsed.generated?.by ?? null,
+      generatedAt: parsed.generated?.at ?? null,
+      trustTier: parsed.trustTier ?? 'unverified',
       ownerUserId,
     });
     upserted += 1;
@@ -325,6 +308,15 @@ export async function syncMemoryVault(
 
   logger.info(
     `[MemoryVaultSync] scanned=${notes.length} upserted=${upserted} deleted=${deleted} (vault=${vaultPath})`,
+  );
+
+  const {
+    navigationMemoryDirForVaultRoot,
+    regenerateMemoryVaultNavigation,
+  } = await import('./memory_vault_index_writer');
+  await regenerateMemoryVaultNavigation(
+    navigationMemoryDirForVaultRoot(vaultPath),
+    { createIfMissing: false },
   );
 
   return { scanned: notes.length, upserted, deleted };

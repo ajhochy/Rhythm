@@ -13,6 +13,19 @@
  * staying fast enough to run inline on every `remember()` call.
  */
 
+import { isDeepStrictEqual } from 'node:util';
+
+import {
+  MEMORY_SOURCE_ID_PATTERN,
+  isReversedMemoryUsageWindow,
+  memorySources,
+  memoryUsageWindow,
+  validateNoteSources,
+  type MemorySource,
+  type MemoryUsageWindow,
+} from './memory_note_format';
+import { logger } from '../utils/logger';
+
 const STOPWORDS = new Set([
   'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'be',
   'been', 'to', 'of', 'in', 'on', 'for', 'with', 'as', 'at', 'by', 'from',
@@ -79,4 +92,169 @@ export function mergeMemoryContent(existingBody: string, newContent: string): st
   if (existing === '') return incoming;
   if (existing.toLowerCase().includes(incoming.toLowerCase())) return existing;
   return `${existing}\n\n${incoming}`;
+}
+
+export interface AttributedMemoryPart {
+  body: string;
+  sources?: MemorySource[];
+  usageWindow?: MemoryUsageWindow;
+}
+
+export interface AttributedMemoryMergeResult {
+  body: string;
+  sources: MemorySource[];
+  usageWindow?: MemoryUsageWindow;
+}
+
+export class MemoryAttributionMergeError extends Error {
+  constructor(side: 'survivor' | 'incoming', reason: string) {
+    super(`${side} attribution is unsafe to merge: ${reason}`);
+    this.name = 'MemoryAttributionMergeError';
+  }
+}
+
+function nextSourceId(
+  base: string,
+  reserved: Set<string>,
+): string {
+  let suffix = 2;
+  let candidate = `${base}-${suffix}`;
+  while (reserved.has(candidate)) {
+    suffix += 1;
+    candidate = `${base}-${suffix}`;
+  }
+  reserved.add(candidate);
+  return candidate;
+}
+
+function rewriteFootnoteIds(
+  body: string,
+  replacements: Map<string, string>,
+): string {
+  if (replacements.size === 0) return body;
+  return body.replace(
+    /\[\^([A-Za-z0-9_-]+)\]/g,
+    (marker, id: string) => {
+      const replacement = replacements.get(id);
+      return replacement ? `[^${replacement}]` : marker;
+    },
+  );
+}
+
+function widestUsageWindow(
+  survivor?: MemoryUsageWindow,
+  incoming?: MemoryUsageWindow,
+): MemoryUsageWindow | undefined {
+  const existing = memoryUsageWindow({ usage_window: survivor });
+  const added = memoryUsageWindow({ usage_window: incoming });
+  const from = [existing?.from, added?.from]
+    .filter((value): value is string => typeof value === 'string')
+    .sort()[0];
+  const to = [existing?.to, added?.to]
+    .filter((value): value is string => typeof value === 'string')
+    .sort()
+    .at(-1);
+  const merged = { ...added, ...existing };
+  if (from) merged.from = from;
+  else delete merged.from;
+  if (to) merged.to = to;
+  else delete merged.to;
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function assertAttributionSafe(
+  side: 'survivor' | 'incoming',
+  part: AttributedMemoryPart,
+): MemorySource[] {
+  const sources = memorySources({ sources: part.sources });
+  const invalidIds = sources
+    .map(({ id }) => id)
+    .filter((id) => !MEMORY_SOURCE_ID_PATTERN.test(id));
+  if (invalidIds.length > 0) {
+    throw new MemoryAttributionMergeError(side, 'invalid source id');
+  }
+  const validation = validateNoteSources({ body: part.body, sources });
+  if (validation.danglingFootnoteReferences.length > 0) {
+    throw new MemoryAttributionMergeError(
+      side,
+      'dangling footnote reference',
+    );
+  }
+  if (isReversedMemoryUsageWindow(part.usageWindow)) {
+    throw new MemoryAttributionMergeError(side, 'reversed usage window');
+  }
+  return sources;
+}
+
+/**
+ * Merge a folded-in note's attribution alongside its body.
+ *
+ * The survivor wins ordinary metadata conflicts. If the same note-local id
+ * names two different resources, the incoming source is rekeyed and only the
+ * incoming body's markers are rewritten before content is appended.
+ */
+export function mergeAttributedMemoryContent(
+  survivor: AttributedMemoryPart,
+  incoming: AttributedMemoryPart,
+): AttributedMemoryMergeResult {
+  const sources = assertAttributionSafe('survivor', survivor);
+  const incomingSources = assertAttributionSafe('incoming', incoming);
+  const byId = new Map(sources.map((source) => [source.id, source]));
+  const reserved = new Set([
+    ...sources.map(({ id }) => id),
+    ...incomingSources.map(({ id }) => id),
+  ]);
+  const replacements = new Map<string, string>();
+
+  for (const source of incomingSources) {
+    const existing = byId.get(source.id);
+    if (!existing) {
+      const copy = { ...source };
+      sources.push(copy);
+      byId.set(copy.id, copy);
+      continue;
+    }
+
+    const survivorResource = typeof existing.resource === 'string'
+      ? existing.resource
+      : undefined;
+    const incomingResource = typeof source.resource === 'string'
+      ? source.resource
+      : undefined;
+    if (survivorResource !== incomingResource) {
+      const rekeyedId = nextSourceId(source.id, reserved);
+      const rekeyed = { ...source, id: rekeyedId };
+      sources.push(rekeyed);
+      byId.set(rekeyedId, rekeyed);
+      replacements.set(source.id, rekeyedId);
+      logger.warn(
+        `[MemoryMerge] source id collision rekeyed incoming ${source.id} as ${rekeyedId}`,
+      );
+      continue;
+    }
+
+    if (!isDeepStrictEqual(existing, source)) {
+      logger.warn(
+        `[MemoryMerge] source metadata conflict for ${source.id}; survivor entry retained`,
+      );
+    }
+  }
+
+  const rewrittenIncoming = rewriteFootnoteIds(incoming.body, replacements);
+  const body = mergeMemoryContent(survivor.body, rewrittenIncoming);
+  const mergedValidation = validateNoteSources({ body, sources });
+  if (mergedValidation.danglingFootnoteReferences.length > 0) {
+    throw new MemoryAttributionMergeError(
+      'incoming',
+      'merged result has a dangling footnote reference',
+    );
+  }
+  return {
+    body,
+    sources,
+    usageWindow: widestUsageWindow(
+      survivor.usageWindow,
+      incoming.usageWindow,
+    ),
+  };
 }
