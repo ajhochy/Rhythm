@@ -2,55 +2,56 @@
 
 ## Current focus
 
-Creative installer repair is implemented and live-smoked across Blender,
-OpenMontage, ComfyUI, FFmpeg, and Obsidian.
+Issue #1186 is implemented and live-verified: the isolated dev sandbox now has
+an explicit foreground mode that remains stable under non-interactive
+automation hosts.
 
 ## Active branch / PR
 
-- Branch: `codex/fix-creative-installer`.
-- Draft PR: [#1202](https://github.com/ajhochy/Rhythm/pull/1202).
-- Related issue: #1201.
+- Branch: `codex/1186-sandbox-foreground`.
+- PR: none yet.
+- Related issue: #1186.
 
 ## In progress
 
-- Draft PR #1202 is open for human review; Server CI passed.
-- Blender now uses a checksum-verified OCF mirror and includes the exact pinned
-  MCP add-on source.
-- OpenMontage resolves packaged resources from the built API layout and launches
-  through its managed Python interpreter.
-- Gated live coverage now exercises all three heavy integrations through the
-  real sandbox API.
+- `tools/dev/sandbox.sh up --foreground` completes the normal build/readiness
+  sequence and then holds the real API process until `down`.
+- Both launch modes record the ready sandbox engine's exact PID and built-fork
+  executable identity; `down` safely removes that engine if API shutdown leaves
+  it orphaned.
+- The acceptance contract, focused process suite, gated live lifecycle test,
+  and testing-guide usage are complete.
+- The branch is ready for final diff review, commit, push, and a draft PR.
 
 ## Risks / known issues
 
-- The Blender and ComfyUI live installer coverage is Apple Silicon/macOS
-  specific.
-- Blender add-on persistence remains an explicit user action; the installer
-  does not silently modify Blender preferences.
-- The optional ComfyUI model pack and image generation were not part of this
-  smoke.
-- Production remains unchanged until a human reviews and merges the draft PR.
+- Fixed sandbox ports `:4097/:4098` remain a serialized local test resource.
+- GitNexus does not index the Bash lifecycle functions, so its impact result is
+  UNKNOWN; focused process and real lifecycle tests cover the behavior.
+- The repo-local Flutter analyze gate is environment-blocked: installed Flutter
+  3.24.5 supplies Dart 3.5.4, but current dependencies require Dart 3.7 or
+  newer. This branch changes no Flutter files.
 
 ## Test status
 
-- API build: PASS.
-- API suite: PASS, 372 files passed and 33 skipped; 3,245 tests passed and 56
-  skipped.
-- Live isolated sandbox: PASS, FFmpeg install/execution and Obsidian MCP
-  initialization (2/2).
-- Heavy isolated smoke: PASS, 3/3. Blender installed, rendered a PNG, and
-  answered a real MCP `get_scene_info` call; OpenMontage installed and answered
-  `openmontage_status`; ComfyUI installed, started locally, verified healthy,
-  and answered `ping_comfyui`.
-- Focused Blender MCP bridge rerun: PASS, 1 passed and 2 skipped in 71.74
-  seconds.
-- GitNexus branch and staged comparisons: LOW risk, zero affected indexed
-  execution processes.
-- Full evidence:
-  `docs/ai/runs/2026-07-26-creative-installer-repair.md` and
-  `docs/ai/runs/2026-07-26-creative-heavy-smoke.md`.
+- Bash syntax and focused process suite: PASS, 7/7, including 20 acknowledged
+  foreground cycles and fail-closed engine PID/executable mismatch coverage.
+- TypeScript and API build: PASS.
+- Full API suite: PASS, 373 files passed and 34 skipped; 3,252 tests passed and
+  57 skipped.
+- Fork single-binary build and binary smoke: PASS.
+- Live foreground/orphan lifecycle: PASS, 1/1 in 43.92 seconds on the final
+  rerun. API `:4098`, engine `:4097`, both health endpoints, exact engine
+  identity recording, forced API-exit orphan cleanup, protected listener
+  identities, unrelated-PID refusal, and teardown all passed.
+- Foreground shutdown acknowledgment stress: PASS, 20 consecutive lifecycle
+  iterations.
+- At #1186 teardown, `:4097/:4098` were free; protected `:4001` PID 965 and
+  `:4096` PID 1011 were unchanged. Parallel tracks may subsequently reuse the
+  fixed sandbox ports.
+- Full evidence: `docs/ai/runs/2026-07-26-1186-sandbox-foreground.md`.
 
 ## Next step
 
-Human manual review and product smoke of draft PR #1202. Do not merge
-automatically.
+Run final GitNexus/diff review, commit the intended #1186 files, push, and open
+a draft PR. Do not merge automatically.
