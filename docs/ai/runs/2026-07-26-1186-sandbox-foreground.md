@@ -2,7 +2,7 @@
 date: 2026-07-26
 repo: Rhythm
 branch: codex/1186-sandbox-foreground
-pr: null
+pr: 1204
 issues: [1186]
 status: passed
 tags: [run, Rhythm, dev-sandbox, live-e2e]

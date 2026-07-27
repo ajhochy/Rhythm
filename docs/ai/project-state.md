@@ -9,7 +9,7 @@ automation hosts.
 ## Active branch / PR
 
 - Branch: `codex/1186-sandbox-foreground`.
-- PR: none yet.
+- Draft PR: [#1204](https://github.com/ajhochy/Rhythm/pull/1204).
 - Related issue: #1186.
 
 ## In progress
@@ -21,7 +21,7 @@ automation hosts.
   it orphaned.
 - The acceptance contract, focused process suite, gated live lifecycle test,
   and testing-guide usage are complete.
-- The branch is ready for final diff review, commit, push, and a draft PR.
+- The tested implementation is pushed to draft PR #1204 for human review.
 
 ## Risks / known issues
 
@@ -53,5 +53,4 @@ automation hosts.
 
 ## Next step
 
-Run final GitNexus/diff review, commit the intended #1186 files, push, and open
-a draft PR. Do not merge automatically.
+Human review of draft PR #1204. Do not merge automatically.
