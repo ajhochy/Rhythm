@@ -191,4 +191,20 @@ describe('memory consolidation pass (#859b)', () => {
     const afterRevertRows = await repo.listAsync(undefined, undefined, 100);
     expect(afterRevertRows).toHaveLength(beforeRows.length);
   });
+
+  it('#1187: consolidation preserves unknown survivor frontmatter', async () => {
+    await seedPreExistingOverlappingNotes();
+    const survivorPath = path.join(vaultRoot, 'memory', 'fact', 'note-a.md');
+    const withUnknown = readFileSync(survivorPath, 'utf8').replace(
+      /^source: agent$/m,
+      ['source: agent', 'future_extension:', '  nested: retained'].join('\n'),
+    );
+    writeFileSync(survivorPath, withUnknown, 'utf8');
+
+    await runMemoryConsolidation({ memoryDir, index, repo });
+
+    const rewritten = readFileSync(survivorPath, 'utf8');
+    expect(rewritten).toContain('future_extension:');
+    expect(rewritten).toContain('nested: retained');
+  });
 });

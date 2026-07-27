@@ -98,6 +98,7 @@ interface NoteRecord {
   tags: string[];
   body: string;
   created: string;
+  frontmatter: Record<string, unknown>;
 }
 
 /**
@@ -145,6 +146,7 @@ export async function runMemoryConsolidation(
       tags,
       body: full.body,
       created: full.created ?? isoDate(),
+      frontmatter: full.frontmatter,
     });
   }
 
@@ -199,6 +201,7 @@ export async function runMemoryConsolidation(
 
       // Write the merged survivor note (bump `updated`, preserve `created`+`id`).
       const fm: NoteFrontmatter = {
+        ...survivor.frontmatter,
         id: survivor.id,
         kind: survivor.kind,
         tags: Array.from(mergedTags),

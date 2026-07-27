@@ -42,10 +42,18 @@ import { MemoryIndexService } from './memory_index_service';
 import type { AgentMemory, AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { logger } from '../utils/logger';
 import { MEMORY_MERGE_THRESHOLD, mergeMemoryContent, textSimilarity } from './memory_similarity';
+import {
+  VALID_MEMORY_KINDS,
+  frontmatterString,
+  parseMemoryNote,
+  renderMemoryNote,
+  type MemoryKind,
+  type NoteFrontmatter,
+} from './memory_note_format';
 
 /** Allowed memory kinds — must match memoryVaultSyncService's VALID_KINDS. */
-export const VALID_MEMORY_KINDS = ['fact', 'person', 'project', 'preference', 'context'] as const;
-export type MemoryKind = (typeof VALID_MEMORY_KINDS)[number];
+export { VALID_MEMORY_KINDS, renderMemoryNote };
+export type { MemoryKind, NoteFrontmatter };
 
 /** Thrown for any caller-input problem (bad kind, path escape, empty content). */
 export class MemoryWriteError extends Error {
@@ -162,38 +170,6 @@ export function isoDate(d = new Date()): string {
   return d.toISOString().slice(0, 10);
 }
 
-export interface NoteFrontmatter {
-  id: string;
-  kind: MemoryKind;
-  tags: string[];
-  created: string;
-  updated: string;
-  source: string;
-}
-
-/**
- * Render a note's frontmatter + body to markdown. The frontmatter is a flat
- * scalar block plus an inline `tags: [...]` array so the existing dependency-
- * free {@link parseNote} reads it back unchanged.
- */
-export function renderMemoryNote(fm: NoteFrontmatter, body: string): string {
-  const tagsInline = `[${fm.tags.map((t) => JSON.stringify(t)).join(', ')}]`;
-  const lines = [
-    '---',
-    `id: ${fm.id}`,
-    `kind: ${fm.kind}`,
-    `tags: ${tagsInline}`,
-    `created: ${fm.created}`,
-    `updated: ${fm.updated}`,
-    `source: ${JSON.stringify(fm.source)}`,
-    '---',
-    '',
-    body.trim(),
-    '',
-  ];
-  return lines.join('\n');
-}
-
 /** Minimal frontmatter read for dedup: extract `id` + `created` from a note. */
 async function readNoteMeta(abs: string): Promise<{ id?: string; created?: string }> {
   const full = await readNoteFull(abs);
@@ -206,40 +182,30 @@ async function readNoteMeta(abs: string): Promise<{ id?: string; created?: strin
  * Returns an empty body ('') alongside undefined metadata when the file is
  * missing or malformed — never throws.
  */
-export async function readNoteFull(
-  abs: string,
-): Promise<{ id?: string; created?: string; tags: string[]; body: string }> {
+export interface ReadMemoryNote {
+  id?: string;
+  created?: string;
+  tags: string[];
+  body: string;
+  /** Full arbitrary YAML mapping, retained for safe read-modify-write. */
+  frontmatter: Record<string, unknown>;
+}
+
+export async function readNoteFull(abs: string): Promise<ReadMemoryNote> {
   let raw: string;
   try {
     raw = await fs.readFile(abs, 'utf8');
   } catch {
-    return { tags: [], body: '' };
+    return { tags: [], body: '', frontmatter: {} };
   }
-  const norm = raw.replace(/\r\n/g, '\n');
-  if (!norm.startsWith('---\n')) return { tags: [], body: norm.trim() };
-  const closeIdx = norm.slice(4).search(/\n---\s*(\n|$)/);
-  if (closeIdx === -1) return { tags: [], body: norm.trim() };
-  const fm = norm.slice(4, 4 + closeIdx);
-  const rest = norm.slice(4 + closeIdx + 1);
-  const nl = rest.indexOf('\n');
-  const body = (nl === -1 ? '' : rest.slice(nl + 1)).trim();
-  const out: { id?: string; created?: string } = {};
-  let tags: string[] = [];
-  for (const line of fm.split('\n')) {
-    const idCreated = /^(id|created):\s*(.+)$/.exec(line.trim());
-    if (idCreated) {
-      out[idCreated[1] as 'id' | 'created'] = idCreated[2].trim().replace(/^["']|["']$/g, '');
-      continue;
-    }
-    const tagsMatch = /^tags:\s*\[(.*)\]$/.exec(line.trim());
-    if (tagsMatch) {
-      tags = tagsMatch[1]
-        .split(',')
-        .map((t) => t.trim().replace(/^["']|["']$/g, ''))
-        .filter((t) => t.length > 0);
-    }
-  }
-  return { ...out, tags, body };
+  const document = parseMemoryNote(raw);
+  return {
+    id: frontmatterString(document.frontmatter, 'id'),
+    created: frontmatterString(document.frontmatter, 'created'),
+    tags: document.tags,
+    body: document.body,
+    frontmatter: document.frontmatter,
+  };
 }
 
 export interface MemoryVaultWriteOptions {
@@ -287,6 +253,7 @@ export async function rememberToVault(
   let id = typeof input.id === 'string' && input.id.trim() !== '' ? input.id.trim() : '';
   let relPath: string;
   let createdToPreserve: string | undefined;
+  let frontmatterToPreserve: Record<string, unknown> = {};
   let contentToWrite = content;
 
   if (id) {
@@ -294,8 +261,9 @@ export async function rememberToVault(
     const existingRel = await findNoteByIdInKind(kindDir, memoryDir, id);
     if (existingRel) {
       relPath = existingRel;
-      const meta = await readNoteMeta(resolveWithinMemoryDir(memoryDir, existingRel));
-      createdToPreserve = meta.created;
+      const full = await readNoteFull(resolveWithinMemoryDir(memoryDir, existingRel));
+      createdToPreserve = full.created;
+      frontmatterToPreserve = full.frontmatter;
     } else {
       const slug = slugForNote(content.split('\n')[0] ?? content, id);
       relPath = path.join(kind, `${slug}.md`);
@@ -307,10 +275,11 @@ export async function rememberToVault(
     relPath = path.join(kind, `${slug}.md`);
     // Reuse the existing note's id + created if the slug file already exists.
     const abs = resolveWithinMemoryDir(memoryDir, relPath);
-    const meta = await readNoteMeta(abs);
-    if (meta.id) {
-      id = meta.id;
-      createdToPreserve = meta.created;
+    const exact = await readNoteFull(abs);
+    if (exact.id) {
+      id = exact.id;
+      createdToPreserve = exact.created;
+      frontmatterToPreserve = exact.frontmatter;
     } else {
       // No exact content-key match — look for a note that GENUINELY overlaps
       // in theme (same kind, high similarity) and merge onto it instead of
@@ -321,6 +290,7 @@ export async function rememberToVault(
         id = similar.id;
         const meta2 = await readNoteMeta(resolveWithinMemoryDir(memoryDir, similar.relPath));
         createdToPreserve = meta2.created;
+        frontmatterToPreserve = similar.frontmatter;
         contentToWrite = mergeMemoryContent(similar.body, content);
       }
     }
@@ -337,6 +307,7 @@ export async function rememberToVault(
 
   const now = isoDate();
   const fm: NoteFrontmatter = {
+    ...frontmatterToPreserve,
     id,
     kind,
     tags,
@@ -406,14 +377,25 @@ async function findBestSimilarNoteInKind(
   kindDir: string,
   memoryDir: string,
   content: string,
-): Promise<{ relPath: string; id: string; body: string } | null> {
+): Promise<{
+  relPath: string;
+  id: string;
+  body: string;
+  frontmatter: Record<string, unknown>;
+} | null> {
   let entries: string[];
   try {
     entries = await fs.readdir(kindDir);
   } catch {
     return null;
   }
-  let best: { relPath: string; id: string; body: string; score: number } | null = null;
+  let best: {
+    relPath: string;
+    id: string;
+    body: string;
+    frontmatter: Record<string, unknown>;
+    score: number;
+  } | null = null;
   for (const name of entries) {
     if (!name.toLowerCase().endsWith('.md')) continue;
     const abs = path.join(kindDir, name);
@@ -421,10 +403,23 @@ async function findBestSimilarNoteInKind(
     if (!full.id) continue;
     const score = textSimilarity(content, full.body);
     if (score >= MEMORY_MERGE_THRESHOLD && (!best || score > best.score)) {
-      best = { relPath: path.relative(memoryDir, abs), id: full.id, body: full.body, score };
+      best = {
+        relPath: path.relative(memoryDir, abs),
+        id: full.id,
+        body: full.body,
+        frontmatter: full.frontmatter,
+        score,
+      };
     }
   }
-  return best ? { relPath: best.relPath, id: best.id, body: best.body } : null;
+  return best
+    ? {
+        relPath: best.relPath,
+        id: best.id,
+        body: best.body,
+        frontmatter: best.frontmatter,
+      }
+    : null;
 }
 
 /**
@@ -508,7 +503,16 @@ async function findNoteAnywhereById(
   memoryDir: string,
   rememberId: string,
 ): Promise<
-  { kind: MemoryKind; relPath: string; abs: string; id: string; created?: string; tags: string[]; body: string } | null
+  {
+    kind: MemoryKind;
+    relPath: string;
+    abs: string;
+    id: string;
+    created?: string;
+    tags: string[];
+    body: string;
+    frontmatter: Record<string, unknown>;
+  } | null
 > {
   let kindDirs: string[];
   try {
@@ -534,6 +538,7 @@ async function findNoteAnywhereById(
       created: full.created,
       tags: full.tags,
       body: full.body,
+      frontmatter: full.frontmatter,
     };
   }
   return null;
@@ -558,6 +563,7 @@ async function readNoteAtRelPath(
   created?: string;
   tags: string[];
   body: string;
+  frontmatter: Record<string, unknown>;
 } | null> {
   const kind = relPath.split(path.sep)[0] ?? '';
   if (!(VALID_MEMORY_KINDS as readonly string[]).includes(kind)) return null;
@@ -577,6 +583,7 @@ async function readNoteAtRelPath(
     created: full.created,
     tags: full.tags,
     body: full.body,
+    frontmatter: full.frontmatter,
   };
 }
 
@@ -648,6 +655,7 @@ export async function updateMemoryInVault(
   }
 
   const fm: NoteFrontmatter = {
+    ...found.frontmatter,
     id: found.id,
     kind: newKind,
     tags: newTags,

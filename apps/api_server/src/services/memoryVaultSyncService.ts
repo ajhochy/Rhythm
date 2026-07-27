@@ -34,6 +34,7 @@ import path from 'node:path';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { resolveMemoryVaultPath } from '../config/env';
 import { logger } from '../utils/logger';
+import { parseMemoryNote } from './memory_note_format';
 
 /** The canonical storage source stamped on every mirrored row. */
 export const MEMORY_VAULT_SOURCE = 'obsidian-memory';
@@ -93,8 +94,6 @@ export function vaultKeyToMemoryDirRelative(memoryDir: string, vaultRelKey: stri
   return path.relative(path.resolve(memoryDir), abs);
 }
 
-const VALID_KINDS = new Set(['fact', 'person', 'project', 'preference', 'context']);
-
 export interface MemoryVaultSyncSummary {
   /** Number of `.md` notes found and processed in the vault. */
   scanned: number;
@@ -123,94 +122,12 @@ export interface ParsedNote {
  *   • files with no frontmatter (the whole file becomes the body)
  */
 export function parseNote(raw: string): ParsedNote {
-  const normalized = raw.replace(/\r\n/g, '\n');
-  let frontmatter = '';
-  let body = normalized;
-
-  if (normalized.startsWith('---\n') || normalized === '---') {
-    // Find the closing delimiter line after the opening one.
-    const afterOpen = normalized.slice(4); // skip leading "---\n"
-    const closeIdx = afterOpen.search(/\n---\s*(\n|$)/);
-    if (closeIdx !== -1) {
-      frontmatter = afterOpen.slice(0, closeIdx);
-      // Advance past the closing delimiter line.
-      const rest = afterOpen.slice(closeIdx + 1); // at "---..."
-      const nl = rest.indexOf('\n');
-      body = nl === -1 ? '' : rest.slice(nl + 1);
-    }
-  }
-
-  const fm = parseFrontmatter(frontmatter);
-
-  const rawKind = typeof fm.kind === 'string' ? fm.kind.trim().toLowerCase() : '';
-  const kind = VALID_KINDS.has(rawKind) ? rawKind : 'fact';
-
-  let tags: string[] = [];
-  if (Array.isArray(fm.tags)) tags = fm.tags;
-
-  return { kind, tags, content: body.trim() };
-}
-
-type FrontmatterValue = string | string[];
-
-function parseFrontmatter(text: string): Record<string, FrontmatterValue> {
-  const out: Record<string, FrontmatterValue> = {};
-  if (!text.trim()) return out;
-
-  const lines = text.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line.trim() || line.trim().startsWith('#')) continue;
-
-    const colon = line.indexOf(':');
-    if (colon === -1) continue;
-    const key = line.slice(0, colon).trim();
-    let value = line.slice(colon + 1).trim();
-    if (!key) continue;
-
-    // Inline array: tags: [a, b, c]
-    if (value.startsWith('[') && value.endsWith(']')) {
-      out[key] = splitInlineArray(value.slice(1, -1));
-      continue;
-    }
-
-    // Block array: key: (empty) followed by "- item" lines.
-    if (value === '') {
-      const items: string[] = [];
-      let j = i + 1;
-      while (j < lines.length && /^\s*-\s+/.test(lines[j])) {
-        items.push(stripQuotes(lines[j].replace(/^\s*-\s+/, '').trim()));
-        j++;
-      }
-      if (items.length > 0) {
-        out[key] = items;
-        i = j - 1;
-        continue;
-      }
-      out[key] = '';
-      continue;
-    }
-
-    out[key] = stripQuotes(value);
-  }
-  return out;
-}
-
-function splitInlineArray(inner: string): string[] {
-  return inner
-    .split(',')
-    .map((s) => stripQuotes(s.trim()))
-    .filter((s) => s.length > 0);
-}
-
-function stripQuotes(s: string): string {
-  if (
-    (s.startsWith('"') && s.endsWith('"')) ||
-    (s.startsWith("'") && s.endsWith("'"))
-  ) {
-    return s.slice(1, -1);
-  }
-  return s;
+  const document = parseMemoryNote(raw);
+  return {
+    kind: document.kind,
+    tags: document.tags,
+    content: document.body,
+  };
 }
 
 /** A parsed vault note paired with its stable identity key (vault-relative path). */

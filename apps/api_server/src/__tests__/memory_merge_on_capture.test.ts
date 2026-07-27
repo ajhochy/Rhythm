@@ -25,7 +25,14 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs';
+import {
+  mkdtempSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -162,5 +169,30 @@ describe('merge-on-capture (#859a)', () => {
     expect(c.id).toBe(a.id);
     expect(allNoteFiles()).toHaveLength(1);
     expect(await repo.listAsync(undefined, undefined, 100)).toHaveLength(1);
+  });
+
+  it('#1187: merge-on-capture preserves arbitrary nested frontmatter', async () => {
+    const first = await rememberToVault(
+      { kind: 'fact', content: 'The reservation calendar lives in the facilities module.' },
+      { memoryDir, index },
+    );
+    const firstPath = fileFor(first.path);
+    const withUnknown = readFileSync(firstPath, 'utf8').replace(
+      /^source: agent$/m,
+      ['source: agent', 'future_extension:', '  nested:', '    enabled: true'].join('\n'),
+    );
+    writeFileSync(firstPath, withUnknown, 'utf8');
+
+    await rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Facilities module contains the reservation calendar feature for booking rooms.',
+      },
+      { memoryDir, index },
+    );
+
+    const rewritten = readFileSync(firstPath, 'utf8');
+    expect(rewritten).toContain('future_extension:');
+    expect(rewritten).toContain('enabled: true');
   });
 });
