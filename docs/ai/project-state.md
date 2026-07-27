@@ -7,7 +7,8 @@ audit history for issues #1187–#1196 are implemented and live-smoked.
 
 ## Active branches / PRs
 
-- `codex/mem-okf`: draft PR pending.
+- `codex/mem-okf`: draft PR
+  [#1205](https://github.com/ajhochy/Rhythm/pull/1205), CI pending.
 - `codex/1186-sandbox-foreground`: draft PR
   [#1204](https://github.com/ajhochy/Rhythm/pull/1204), clean to merge after
   human review.
@@ -19,7 +20,7 @@ audit history for issues #1187–#1196 are implemented and live-smoked.
 
 ## In progress
 
-- Prepare and open the combined MEM-OKF draft PR.
+- Watch the combined MEM-OKF draft PR checks and fix repository-owned failures.
 - Keep #1187–#1196 issue-atomic commits in their required sequence.
 - Tool count is 82 (one new `rhythm_verify_memory` MCP tool); the MCP monolithic
   index file was not edited.
@@ -56,5 +57,5 @@ audit history for issues #1187–#1196 are implemented and live-smoked.
 
 ## Next step
 
-Commit the behavioral gate and evidence, open a draft PR, wait for CI, and fix
-any repository-owned failure. Human review remains required before merge.
+Wait for draft PR #1205 CI and fix any repository-owned failure. Human review
+remains required before merge.
