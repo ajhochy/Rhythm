@@ -338,9 +338,22 @@ describe('MEM-OKF #1188 write defaults and validation', () => {
             at: '2026-07-26T10:00:00Z',
             evidence: { source: 'walkthrough' },
           },
+          {
+            by: 'human:ajh',
+            at: '2026-07-26T10:00:00Z',
+            evidence: { source: 'duplicate-must-not-replace-first' },
+          },
         ],
       },
       { memoryDir, index },
+    );
+    writeFileSync(
+      fileFor(first.path),
+      readFileSync(fileFor(first.path), 'utf8').replace(
+        /^verified:\n/m,
+        'verified:\n  - future_actor: retained\n',
+      ),
+      'utf8',
     );
 
     await rememberToVault(
@@ -357,6 +370,18 @@ describe('MEM-OKF #1188 write defaults and validation', () => {
 
     const parsed = parseMemoryNote(readFileSync(fileFor(first.path), 'utf8'));
     expect(parsed.verified).toEqual([
+      {
+        by: 'human:ajh',
+        at: '2026-07-26T10:00:00.000Z',
+        evidence: { source: 'walkthrough' },
+      },
+      {
+        by: 'agent:reviewer/2',
+        at: '2026-07-26T11:00:00.000Z',
+      },
+    ]);
+    expect(parsed.frontmatter.verified).toEqual([
+      { future_actor: 'retained' },
       {
         by: 'human:ajh',
         at: '2026-07-26T10:00:00.000Z',

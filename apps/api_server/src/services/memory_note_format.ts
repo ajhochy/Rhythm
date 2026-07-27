@@ -372,8 +372,8 @@ export interface MergedLifecycleMetadata {
 /**
  * Fold lifecycle metadata for a semantic merge.
  *
- * A cluster is deprecated only when every member is deprecated. Otherwise a
- * stable member wins over draft, and an all-draft cluster remains draft.
+ * A cluster is deprecated only when every member is deprecated. Otherwise
+ * draft wins over stable so an unreviewed member cannot be promoted by merge.
  */
 export function mergeLifecycleMetadata(
   members: ReadonlyArray<Record<string, unknown>>,

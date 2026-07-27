@@ -206,13 +206,24 @@ function appendVerificationHistory(
   frontmatter: Record<string, unknown>,
   incoming: VerificationEntry[],
 ): VerificationEntry[] | undefined {
-  const combined = Array.isArray(frontmatter.verified)
-    ? [...frontmatter.verified] as VerificationEntry[]
+  const combined: VerificationEntry[] = [];
+  const seen = new Set<string>();
+  const existing = Array.isArray(frontmatter.verified)
+    ? frontmatter.verified
     : [];
-  const seen = new Set(
-    verificationEntries(frontmatter)
-      .map((entry) => `${entry.by}\u0000${entry.at}`),
-  );
+  for (const rawEntry of existing) {
+    const normalized = verificationEntries({ verified: [rawEntry] })[0];
+    if (!normalized) {
+      // Unknown entries are retained structurally for forward
+      // compatibility even though this version cannot interpret them.
+      combined.push(rawEntry as VerificationEntry);
+      continue;
+    }
+    const key = `${normalized.by}\u0000${normalized.at}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    combined.push(normalized);
+  }
   for (const entry of incoming) {
     const key = `${entry.by}\u0000${entry.at}`;
     if (seen.has(key)) continue;
