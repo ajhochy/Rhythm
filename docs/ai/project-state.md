@@ -8,7 +8,7 @@ audit history for issues #1187–#1196 are implemented and live-smoked.
 ## Active branches / PRs
 
 - `codex/mem-okf`: draft PR
-  [#1205](https://github.com/ajhochy/Rhythm/pull/1205), CI pending.
+  [#1205](https://github.com/ajhochy/Rhythm/pull/1205), required CI green.
 - `codex/1186-sandbox-foreground`: draft PR
   [#1204](https://github.com/ajhochy/Rhythm/pull/1204), clean to merge after
   human review.
@@ -20,7 +20,8 @@ audit history for issues #1187–#1196 are implemented and live-smoked.
 
 ## In progress
 
-- Watch the combined MEM-OKF draft PR checks and fix repository-owned failures.
+- Draft PR #1205 is ready for human review; no repository-owned check failures
+  remain.
 - Keep #1187–#1196 issue-atomic commits in their required sequence.
 - Tool count is 82 (one new `rhythm_verify_memory` MCP tool); the MCP monolithic
   index file was not edited.
@@ -49,6 +50,7 @@ audit history for issues #1187–#1196 are implemented and live-smoked.
   1011 (:4096) unchanged.
 - Agent-stack PR check: Dart format, API typecheck, and API suite PASS; Flutter
   analyze blocked only by the documented host SDK mismatch.
+- GitHub CI: Type-check and build PASS; server-checks PASS.
 - GitNexus compare against `origin/main`: LOW risk, zero affected indexed
   execution processes.
 - Evidence:
@@ -57,5 +59,4 @@ audit history for issues #1187–#1196 are implemented and live-smoked.
 
 ## Next step
 
-Wait for draft PR #1205 CI and fix any repository-owned failure. Human review
-remains required before merge.
+Human review of draft PRs #1203, #1204, and #1205. Do not merge automatically.
