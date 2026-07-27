@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { agentMemoryService } from '../services/agentMemoryService';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { syncMemoryVault } from '../services/memoryVaultSyncService';
 import {
   MemoryWriteError,
@@ -13,6 +14,7 @@ import {
 } from '../services/memory_note_format';
 
 const repo = new AgentMemoryRepository();
+const sessionsRepo = new AgentSessionsRepository();
 
 function resolveHumanActor(req: Request): {
   actor: string;
@@ -71,11 +73,15 @@ export class AgentMemoryController {
         source,
         sourceId,
         sessionId,
+        sdkSessionId,
         sources,
         usageWindow,
         tags,
       } = req.body as Record<string, unknown>;
       if (!content || typeof content !== 'string') throw AppError.badRequest('content is required');
+      const ambientSession = typeof sdkSessionId === 'string'
+        ? sessionsRepo.findBySdkSessionId(sdkSessionId)
+        : null;
       const result = await agentMemoryService.remember({
         kind: typeof kind === 'string' ? kind : 'fact',
         content,
@@ -83,6 +89,7 @@ export class AgentMemoryController {
         source: typeof source === 'string' ? source : 'agent',
         sourceId: typeof sourceId === 'string' ? sourceId : undefined,
         sessionId: typeof sessionId === 'string' ? sessionId : undefined,
+        contextSessionId: ambientSession?.id,
         sources: Array.isArray(sources)
           ? sources as RememberInput['sources']
           : undefined,

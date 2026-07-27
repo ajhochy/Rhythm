@@ -93,11 +93,13 @@ describe('#804 memory MCP tools resolve to the local agent server', () => {
       content: 'remember this',
       kind: 'fact',
       sessionId: 'source-session-42',
+      sdkSessionId: 'sdk-ambient-42',
     });
 
     expect(bodies[0]).toMatchObject({
       content: 'remember this',
       sessionId: 'source-session-42',
+      sdkSessionId: 'sdk-ambient-42',
     });
   });
 

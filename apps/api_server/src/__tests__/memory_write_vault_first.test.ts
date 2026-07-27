@@ -469,6 +469,30 @@ describe('MEM-OKF #1192 source attribution writes', () => {
       },
     ]);
   });
+
+  it('stamps ambient context alongside an explicit historical source', async () => {
+    const result = await rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Two session contexts.',
+        contextSessionId: 'local-session-1',
+        sessionId: 'historical-session-2',
+      },
+      { memoryDir, index },
+    );
+
+    const parsed = parseMemoryNote(readFileSync(fileFor(result.path), 'utf8'));
+    expect(parsed.sources).toEqual([
+      {
+        id: 'sess-local-session-1',
+        resource: 'rhythm://agent-session/local-session-1',
+      },
+      {
+        id: 'sess-historical-session-2',
+        resource: 'rhythm://agent-session/historical-session-2',
+      },
+    ]);
+  });
 });
 
 describe('falsification guard (#803)', () => {

@@ -36,6 +36,9 @@ tags: optional array of string tags for later filtering`,
       sessionId: z.string().optional().describe(
         'Originating agent-session ID; automatically recorded as an OKF source.',
       ),
+      sdkSessionId: z.string().optional().describe(
+        'Reserved runtime field. Rhythm overwrites this from authoritative execution context.',
+      ),
       sources: z.array(z.object({
         id: z.string(),
         resource: z.string().optional(),

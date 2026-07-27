@@ -97,6 +97,8 @@ export interface RememberInput {
   sourceId?: string;
   /** Explicit agent-session context; automatically stamps an OKF source. */
   sessionId?: string;
+  /** Service-resolved ambient Rhythm session; never accepted directly from HTTP. */
+  contextSessionId?: string;
   /** Optional OKF per-claim source records. Invalid/missing ids are ignored. */
   sources?: MemorySource[];
   /** Optional OKF usage window, retained for round-trip fidelity. */
@@ -250,31 +252,52 @@ function captureSources(
       ['agent-session', 'session', 'conversation'].includes(sourceKind)
     ? input.sourceId.trim()
     : '';
-  const sessionId = typeof input.sessionId === 'string' &&
+  const explicitSessionId = typeof input.sessionId === 'string' &&
       input.sessionId.trim() !== ''
     ? input.sessionId.trim()
     : sourceSessionId;
-  if (sessionId) {
-    const automatic: MemorySource = {
+  const ambientSessionId = typeof input.contextSessionId === 'string' &&
+      input.contextSessionId.trim() !== ''
+    ? input.contextSessionId.trim()
+    : '';
+  const sessionIds = Array.from(
+    new Set([ambientSessionId, explicitSessionId].filter(Boolean)),
+  );
+  const canonicalIds = new Set<string>();
+  for (const sessionId of sessionIds) {
+    let automatic: MemorySource = {
       id: sessionFootnoteId(sessionId),
       resource: `rhythm://agent-session/${encodeURIComponent(sessionId)}`,
     };
     const existingIndex = sources.findIndex(({ id }) => id === automatic.id);
     if (existingIndex >= 0) {
-      // The runtime-derived session resource is canonical. A caller may add
-      // descriptive metadata, but cannot spoof or suppress provenance by
-      // reusing the automatic id with a different resource.
-      sources[existingIndex] = {
-        ...sources[existingIndex],
-        resource: automatic.resource,
-      };
+      if (canonicalIds.has(automatic.id) &&
+          sources[existingIndex].resource !== automatic.resource) {
+        let suffix = 2;
+        while (sources.some(({ id }) => id === `${automatic.id}-${suffix}`)) {
+          suffix += 1;
+        }
+        automatic = { ...automatic, id: `${automatic.id}-${suffix}` };
+        sources.push(automatic);
+        canonicalIds.add(automatic.id);
+      } else {
+        // The runtime-derived session resource is canonical. A caller may add
+        // descriptive metadata, but cannot spoof or suppress provenance by
+        // reusing the automatic id with a different resource.
+        sources[existingIndex] = {
+          ...sources[existingIndex],
+          resource: automatic.resource,
+        };
+        canonicalIds.add(automatic.id);
+      }
     } else {
       sources.push(automatic);
+      canonicalIds.add(automatic.id);
     }
   }
   return {
     sources,
-    supplied: input.sources !== undefined || sessionId !== '',
+    supplied: input.sources !== undefined || sessionIds.length > 0,
   };
 }
 
