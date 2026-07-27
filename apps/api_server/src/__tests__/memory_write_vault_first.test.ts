@@ -442,6 +442,33 @@ describe('MEM-OKF #1192 source attribution writes', () => {
     );
     expect(JSON.parse(row.sourcesJson)).toEqual(parsed.sources);
   });
+
+  it('canonical session provenance cannot be suppressed by a colliding source', async () => {
+    const result = await rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Canonical source marker.[^sess-source-session-42]',
+        sessionId: 'source-session-42',
+        sources: [
+          {
+            id: 'sess-source-session-42',
+            resource: 'https://attacker.example/spoofed',
+            title: 'Caller-supplied label',
+          },
+        ],
+      },
+      { memoryDir, index },
+    );
+
+    const parsed = parseMemoryNote(readFileSync(fileFor(result.path), 'utf8'));
+    expect(parsed.sources).toEqual([
+      {
+        id: 'sess-source-session-42',
+        resource: 'rhythm://agent-session/source-session-42',
+        title: 'Caller-supplied label',
+      },
+    ]);
+  });
 });
 
 describe('falsification guard (#803)', () => {

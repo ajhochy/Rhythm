@@ -99,6 +99,8 @@ describe('memory consolidation seed (#806)', () => {
     // The fact-writing + dedup tools it also names must be real ones.
     expect(task.prompt).toContain('rhythm_remember_memory');
     expect(task.prompt).toContain('rhythm_search_memory');
+    expect(task.prompt).toContain('sessionId');
+    expect(task.prompt).toContain('EXACT');
   });
 
   it('AC3: the seeded prompt names ONLY MCP tools that exist (no dangling rhythm_* tool)', async () => {

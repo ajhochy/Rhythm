@@ -248,7 +248,16 @@ function captureSources(
       id: sessionFootnoteId(sessionId),
       resource: `rhythm://agent-session/${encodeURIComponent(sessionId)}`,
     };
-    if (!sources.some(({ id }) => id === automatic.id)) {
+    const existingIndex = sources.findIndex(({ id }) => id === automatic.id);
+    if (existingIndex >= 0) {
+      // The runtime-derived session resource is canonical. A caller may add
+      // descriptive metadata, but cannot spoof or suppress provenance by
+      // reusing the automatic id with a different resource.
+      sources[existingIndex] = {
+        ...sources[existingIndex],
+        resource: automatic.resource,
+      };
+    } else {
       sources.push(automatic);
     }
   }

@@ -32,11 +32,15 @@ function buildServer(base: string): FakeServer {
   return server;
 }
 
-/** Stub global fetch, capture the URL each memory tool actually hits. */
-function stubFetch(): { calls: string[] } {
+/** Stub global fetch, capture the URL/body each memory tool actually sends. */
+function stubFetch(): { calls: string[]; bodies: unknown[] } {
   const calls: string[] = [];
-  const fetchMock = vi.fn(async (url: string | URL) => {
+  const bodies: unknown[] = [];
+  const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
     calls.push(String(url));
+    bodies.push(
+      typeof init?.body === 'string' ? JSON.parse(init.body) : init?.body,
+    );
     return {
       ok: true,
       status: 200,
@@ -44,7 +48,7 @@ function stubFetch(): { calls: string[] } {
     } as unknown as Response;
   });
   vi.stubGlobal('fetch', fetchMock);
-  return { calls };
+  return { calls, bodies };
 }
 
 describe('#804 memory MCP tools resolve to the local agent server', () => {
@@ -78,6 +82,23 @@ describe('#804 memory MCP tools resolve to the local agent server', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].startsWith(`${LOCAL}/agent-memory/search`)).toBe(true);
     expect(calls[0]).not.toContain('vcrcapps.com');
+  });
+
+  it('rhythm_remember_memory threads known source-session context unchanged', async () => {
+    const { bodies } = stubFetch();
+    const server = buildServer(LOCAL);
+    const handler = server.registered.get('rhythm_remember_memory');
+
+    await handler!({
+      content: 'remember this',
+      kind: 'fact',
+      sessionId: 'source-session-42',
+    });
+
+    expect(bodies[0]).toMatchObject({
+      content: 'remember this',
+      sessionId: 'source-session-42',
+    });
   });
 
   it('rhythm_list_memories GETs from localhost:4001', async () => {

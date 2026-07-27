@@ -201,7 +201,10 @@ export const agentMemoryService = {
 Your job:
 1. Use rhythm_list_sessions (or the agent_session_messages table) to read recent session messages from the past 24 hours.
 2. Identify facts, preferences, and important context worth remembering long-term.
-3. For each item, call rhythm_remember_memory with kind='fact' or kind='preference' and the extracted content.
+3. For each item, call rhythm_remember_memory with kind='fact' or
+   kind='preference', the extracted content, and sessionId set to the EXACT
+   source-session id returned by rhythm_list_sessions for the message. Never
+   invent or omit that sessionId when the source session is known.
 4. Skip information that is transient, task-specific, or already stored.
 5. Deduplicate: before storing, search rhythm_search_memory for similar entries.
 
