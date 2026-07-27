@@ -72,7 +72,12 @@ function allNoteFiles(): string[] {
     for (const name of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, name.name);
       if (name.isDirectory()) walk(full);
-      else if (name.name.endsWith('.md')) out.push(path.relative(vaultRoot, full));
+      else if (
+        name.name.endsWith('.md') &&
+        !['index.md', 'log.md'].includes(name.name.toLowerCase())
+      ) {
+        out.push(path.relative(vaultRoot, full));
+      }
     }
   }
   walk(memoryDir);
@@ -290,6 +295,12 @@ describe('memory consolidation pass (#859b)', () => {
     const result = await runMemoryConsolidation({ memoryDir, index, repo });
     expect(result.beforeSnapshot).toBeDefined();
     expect(allNoteFiles()).toHaveLength(1);
+    const afterMergeIndex = readFileSync(
+      path.join(memoryDir, 'fact', 'index.md'),
+      'utf8',
+    );
+    expect(afterMergeIndex).toContain('[Note A](note-a.md)');
+    expect(afterMergeIndex).not.toContain('note-b.md');
 
     await revertMemoryConsolidation(result.beforeSnapshot, { memoryDir, index, repo });
 
@@ -298,6 +309,12 @@ describe('memory consolidation pass (#859b)', () => {
     for (const rel of afterRevertFiles) {
       expect(readFileSync(fileFor(rel), 'utf8')).toBe(beforeBytes.get(rel));
     }
+    const afterRevertIndex = readFileSync(
+      path.join(memoryDir, 'fact', 'index.md'),
+      'utf8',
+    );
+    expect(afterRevertIndex).toContain('[Note A](note-a.md)');
+    expect(afterRevertIndex).toContain('[Note B](note-b.md)');
     const afterRevertRows = await repo.listAsync(undefined, undefined, 100);
     expect(afterRevertRows).toHaveLength(beforeRows.length);
   });

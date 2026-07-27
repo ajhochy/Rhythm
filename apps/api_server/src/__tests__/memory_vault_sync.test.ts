@@ -16,7 +16,14 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -24,6 +31,7 @@ import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import {
+  RESERVED_VAULT_FILENAMES,
   scanVaultNotes,
   syncMemoryVault,
 } from '../services/memoryVaultSyncService';
@@ -205,6 +213,7 @@ describe('Memory-Vault mirror-sync (WI6)', () => {
     const summary = await syncMemoryVault({ vaultPath: missing });
     expect(summary).toEqual({ scanned: 0, upserted: 0, deleted: 0 });
     expect(await repo.listAsync(undefined, undefined, 50)).toHaveLength(0);
+    expect(existsSync(missing)).toBe(false);
   });
 
   it('ignores non-markdown files in the vault', async () => {
@@ -214,6 +223,38 @@ describe('Memory-Vault mirror-sync (WI6)', () => {
     const summary = await syncMemoryVault({ vaultPath: vaultDir });
     expect(summary.scanned).toBe(1);
     expect(await repo.listAsync(undefined, undefined, 50)).toHaveLength(1);
+  });
+
+  it('#1194: excludes reserved filenames everywhere and tombstones old reserved rows', async () => {
+    note('kept.md', ['---', 'kind: fact', '---', 'Keep this memory.'].join('\n'));
+    note('index.md', 'Reserved root navigation.');
+    note('LOG.md', 'Reserved root audit history.');
+    note(path.join('fact', 'Index.md'), 'Reserved nested navigation.');
+    note(path.join('fact', 'log.md'), 'Reserved nested audit history.');
+
+    await repo.upsertBySourceAsync({
+      kind: 'fact',
+      content: 'Previously indexed navigation.',
+      source: 'obsidian-memory',
+      sourceId: 'index.md',
+      tagsJson: '[]',
+    });
+    await repo.upsertBySourceAsync({
+      kind: 'fact',
+      content: 'Previously indexed nested history.',
+      source: 'obsidian-memory',
+      sourceId: path.join('fact', 'log.md'),
+      tagsJson: '[]',
+    });
+
+    const summary = await syncMemoryVault({ vaultPath: vaultDir });
+
+    expect(RESERVED_VAULT_FILENAMES).toEqual(['index.md', 'log.md']);
+    expect(summary).toEqual({ scanned: 1, upserted: 1, deleted: 2 });
+    const rows = await repo.listAsync(undefined, undefined, 50);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].sourceId).toBe('kept.md');
+    expect(rows[0].content).toBe('Keep this memory.');
   });
 
   it('does NOT touch agent_memory rows from other sources', async () => {

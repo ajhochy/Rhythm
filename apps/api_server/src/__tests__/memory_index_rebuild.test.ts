@@ -20,7 +20,14 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -62,6 +69,40 @@ afterEach(() => {
 });
 
 describe('MemoryIndexService.rebuildIndexFromVault (#802)', () => {
+  it('#1194: generates navigation after rebuild without ever indexing it', async () => {
+    note(
+      path.join('memory', 'fact', 'remembered.md'),
+      ['---', 'kind: fact', '---', 'Remembered content.'].join('\n'),
+    );
+
+    const first = await index.rebuildIndexFromVault(vaultDir);
+    expect(first).toEqual({ indexed: 1 });
+    expect(readFileSync(path.join(vaultDir, 'memory', 'index.md'), 'utf8'))
+      .toContain('okf_version: "0.2"');
+    expect(readFileSync(path.join(vaultDir, 'memory', 'fact', 'index.md'), 'utf8'))
+      .toContain('[Remembered](remembered.md) - Remembered content.');
+
+    const second = await index.rebuildIndexFromVault(vaultDir);
+    expect(second).toEqual({ indexed: 1 });
+    const rows = await repo.listAsync(undefined, undefined, 100);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].sourceId).toBe(path.join('memory', 'fact', 'remembered.md'));
+  });
+
+  it('#1194: an unwritable navigation file does not fail the rebuild', async () => {
+    note(
+      path.join('memory', 'fact', 'kept.md'),
+      ['---', 'kind: fact', '---', 'Kept content.'].join('\n'),
+    );
+    mkdirSync(path.join(vaultDir, 'memory', 'index.md'), { recursive: true });
+
+    await expect(index.rebuildIndexFromVault(vaultDir))
+      .resolves.toEqual({ indexed: 1 });
+    const rows = await repo.listAsync(undefined, undefined, 100);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].content).toBe('Kept content.');
+  });
+
   it('AC1: rebuild over N notes leaves exactly N rows matching parsed fields', async () => {
     note(
       'aj.md',
@@ -140,6 +181,7 @@ describe('MemoryIndexService.rebuildIndexFromVault (#802)', () => {
     const summary = await index.rebuildIndexFromVault(missing);
     expect(summary).toEqual({ indexed: 0 });
     expect(await repo.listAsync(undefined, undefined, 100)).toHaveLength(0);
+    expect(existsSync(missing)).toBe(false);
   });
 
   it('AC4: empty vault directory is a no-op (zero rows)', async () => {

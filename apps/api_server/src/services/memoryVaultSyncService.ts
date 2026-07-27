@@ -36,6 +36,7 @@ import { resolveMemoryVaultPath } from '../config/env';
 import { logger } from '../utils/logger';
 import {
   parseMemoryNote,
+  frontmatterString,
   trustTier as deriveTrustTier,
   type GeneratedMetadata,
   type MemorySource,
@@ -46,6 +47,9 @@ import {
 
 /** The canonical storage source stamped on every mirrored row. */
 export const MEMORY_VAULT_SOURCE = 'obsidian-memory';
+
+/** OKF navigation/audit artifacts are derived metadata, never memory notes. */
+export const RESERVED_VAULT_FILENAMES = ['index.md', 'log.md'] as const;
 
 /**
  * Canonical index identity for a memory note: its path RELATIVE TO THE VAULT
@@ -115,6 +119,8 @@ export interface ParsedNote {
   kind: string;
   tags: string[];
   content: string;
+  title?: string;
+  description?: string;
   status?: MemoryStatus;
   staleAfter?: string;
   generated?: GeneratedMetadata;
@@ -141,6 +147,8 @@ export function parseNote(raw: string): ParsedNote {
     kind: document.kind,
     tags: document.tags,
     content: document.body,
+    title: frontmatterString(document.frontmatter, 'title'),
+    description: frontmatterString(document.frontmatter, 'description'),
     status: document.status,
     staleAfter: document.staleAfter,
     generated: document.generated,
@@ -209,6 +217,13 @@ async function collectMarkdownFiles(root: string, dir: string): Promise<string[]
   for (const entry of entries) {
     // Skip Obsidian config / hidden dirs (e.g. .obsidian, .trash).
     if (entry.name.startsWith('.')) continue;
+    if (
+      RESERVED_VAULT_FILENAMES.some(
+        (reserved) => reserved.toLowerCase() === entry.name.toLowerCase(),
+      )
+    ) {
+      continue;
+    }
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       out.push(...(await collectMarkdownFiles(root, full)));
@@ -269,6 +284,15 @@ export async function syncMemoryVault(
 
   logger.info(
     `[MemoryVaultSync] scanned=${notes.length} upserted=${upserted} deleted=${deleted} (vault=${vaultPath})`,
+  );
+
+  const {
+    navigationMemoryDirForVaultRoot,
+    regenerateMemoryVaultNavigation,
+  } = await import('./memory_vault_index_writer');
+  await regenerateMemoryVaultNavigation(
+    navigationMemoryDirForVaultRoot(vaultPath),
+    { createIfMissing: false },
   );
 
   return { scanned: notes.length, upserted, deleted };

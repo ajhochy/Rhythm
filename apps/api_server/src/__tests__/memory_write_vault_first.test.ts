@@ -67,7 +67,12 @@ function allNoteFiles(): string[] {
     for (const name of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, name.name);
       if (name.isDirectory()) walk(full);
-      else if (name.name.endsWith('.md')) out.push(path.relative(vaultRoot, full));
+      else if (
+        name.name.endsWith('.md') &&
+        !['index.md', 'log.md'].includes(name.name.toLowerCase())
+      ) {
+        out.push(path.relative(vaultRoot, full));
+      }
     }
   }
   walk(memoryDir);
@@ -138,6 +143,20 @@ describe('vault-first remember (#803)', () => {
     expect(hits.length).toBeGreaterThanOrEqual(1);
     expect(hits[0].source).toBe('obsidian-memory');
     expect(hits[0].content).toContain('reservation calendar');
+  });
+
+  it('#1194: an unwritable navigation file never fails canonical capture', async () => {
+    mkdirSync(path.join(memoryDir, 'index.md'), { recursive: true });
+
+    const result = await rememberToVault(
+      { kind: 'fact', content: 'Capture survives navigation failure.' },
+      { memoryDir, index },
+    );
+
+    expect(existsSync(fileFor(result.path))).toBe(true);
+    const rows = await repo.listAsync(undefined, undefined, 100);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].content).toBe('Capture survives navigation failure.');
   });
 
   it('AC3: dedup by id — second POST with same id updates in place, no second file', async () => {

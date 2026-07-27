@@ -74,6 +74,7 @@ import {
   validateNoteSources,
 } from './memory_note_format';
 import { logger } from '../utils/logger';
+import { regenerateMemoryVaultNavigation } from './memory_vault_index_writer';
 
 export interface MemoryConsolidationOptions {
   /** Override the memory dir (tests point this at a temp fixture). */
@@ -307,6 +308,7 @@ export async function runMemoryConsolidation(
     }
   }
 
+  await regenerateMemoryVaultNavigation(memoryDir);
   return { mergedClusters, retiredCount, beforeSnapshot };
 }
 
@@ -369,4 +371,5 @@ export async function revertMemoryConsolidation(
       parsed: parseNote(entry.fileContent),
     });
   }
+  await regenerateMemoryVaultNavigation(memoryDir);
 }

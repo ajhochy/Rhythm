@@ -141,7 +141,12 @@ describe('simulated consolidation run writes to the vault, not prod (#806 AC4)',
       for (const ent of readdirSync(dir, { withFileTypes: true })) {
         const full = path.join(dir, ent.name);
         if (ent.isDirectory()) walk(full);
-        else if (ent.name.endsWith('.md')) noteFiles.push(full);
+        else if (
+          ent.name.endsWith('.md') &&
+          !['index.md', 'log.md'].includes(ent.name.toLowerCase())
+        ) {
+          noteFiles.push(full);
+        }
       }
     }
     walk(memoryDir);

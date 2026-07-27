@@ -66,7 +66,12 @@ function allNoteFiles(): string[] {
     for (const name of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, name.name);
       if (name.isDirectory()) walk(full);
-      else if (name.name.endsWith('.md')) out.push(path.relative(vaultRoot, full));
+      else if (
+        name.name.endsWith('.md') &&
+        !['index.md', 'log.md'].includes(name.name.toLowerCase())
+      ) {
+        out.push(path.relative(vaultRoot, full));
+      }
     }
   }
   walk(memoryDir);

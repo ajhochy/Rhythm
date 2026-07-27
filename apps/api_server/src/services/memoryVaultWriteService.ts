@@ -40,6 +40,7 @@ import {
   vaultKeyToMemoryDirRelative,
 } from './memoryVaultSyncService';
 import { MemoryIndexService } from './memory_index_service';
+import { regenerateMemoryVaultNavigation } from './memory_vault_index_writer';
 import type { AgentMemory, AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { logger } from '../utils/logger';
 import {
@@ -645,6 +646,7 @@ export async function rememberToVault(
     sourceId: vaultRelKey,
     parsed: parseNote(rendered),
   });
+  await regenerateMemoryVaultNavigation(memoryDir);
 
   logger.info(`[MemoryWrite] remembered note (kind=${kind} path=${vaultRelKey})`);
   return { id, path: vaultRelKey, kind };
@@ -750,6 +752,7 @@ async function mutateMemoryLifecycle(
       sourceId,
       parsed: parseNote(rendered),
     });
+    await regenerateMemoryVaultNavigation(memoryDir);
 
     return { id, path: sourceId, kind: document.kind };
   });
@@ -897,6 +900,7 @@ export async function forgetFromVault(
     // caller. Any other error propagates.
     if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
   }
+  await regenerateMemoryVaultNavigation(memoryDir);
 }
 
 /**
@@ -1127,6 +1131,7 @@ export async function updateMemoryInVault(
     sourceId: newVaultRelKey,
     parsed: parseNote(rendered),
   });
+  await regenerateMemoryVaultNavigation(memoryDir);
 
   logger.info(`[MemoryWrite] updated note (kind=${newKind} path=${newVaultRelKey})`);
   return { id: found.id, path: newVaultRelKey, kind: newKind };
