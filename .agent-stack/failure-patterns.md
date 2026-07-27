@@ -443,3 +443,22 @@
 - **Root cause**: No product failure; holding the launcher shell open kept the rebuilt API/fork alive for #1166, #1168, and #1170, all of which passed while protected listeners stayed unchanged.
 - **Suggested fix**: Retain the exact-port matrix and give automated callers an explicit foreground sandbox lifecycle.
 - See `.agent-stack/postmortems/2026-07-25-issue-1175-final-sandbox-pass.json`.
+
+## 2026-07-27 — Issue #1175 — signed local iPhone build omitted Google mobile OAuth configuration
+
+- **Result**: smoke FAIL (physical-device gate remained pending; no divergence
+  from a completed verification claim)
+- **Category**: C5 — environment/configuration issue; process:
+  release-build-config
+- **Criteria affected**: issue-1175-c5 and the #1198/#1199 signed-development
+  and physical-device gates
+- **Root cause**: the ad hoc Xcode build proved Apple signing, installation, and
+  launch but had no securely supplied Google iOS OAuth client or matching
+  redirect. The development variant permits that omission for ordinary
+  prototype commands, so the login flow reached its explicit runtime guard.
+- **Suggested fix**: provision or reveal the real Google iOS client through the
+  existing human gate, supply the matching build and isolated-API
+  configuration without printing or committing it, then rebuild and rerun
+  sign-in before the remaining device matrix.
+- See
+  `.agent-stack/postmortems/2026-07-27-issue-1175-google-ios-client-device-smoke.json`.

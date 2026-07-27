@@ -24,6 +24,10 @@ check.
   bounded TestFlight install smoke.
 - Dependency order is #1197 → #1198 → #1199 → #1200. #1175 tracks the
   umbrella gate and links the checklist.
+- A local Xcode-signed development-variant standalone app now installs and
+  launches on an iPhone 13 mini. Google sign-in is blocked because no real
+  Google iOS OAuth client/redirect was available to the build or local API
+  environment; #1198/#1199 remain pending.
 
 ## Risks / known issues
 
@@ -35,6 +39,10 @@ check.
   data or expose the OpenCode engine directly.
 - Credentials, signing assets, build artifacts, pairing/device tokens, private
   hostnames, and iPhone UDIDs must never be committed or printed.
+- The real Google iOS OAuth client and matching reverse-client redirect must be
+  provisioned or revealed by a Google Cloud project administrator, then
+  supplied through secure build and isolated-API configuration. Do not
+  substitute the desktop/web client or a placeholder.
 - #1186 tracks a non-blocking automation improvement for a foreground sandbox
   lifecycle; the corrected final source smoke passed without a product change.
 - #1135's additive SQLite/Postgres change requires normal migration review.
@@ -59,12 +67,21 @@ check.
 - Native iOS 18.3 simulator smokes passed at maximum and normal Dynamic Type
   for Agents/Activity and Webhooks; the focused corrective regression passed
   2/2 on the source freeze.
+- Physical iPhone signing/install/launch passed for a local standalone
+  development-variant build. The first account-flow smoke failed at the
+  intentional missing-client guard; bundle inspection confirmed no OAuth
+  client or redirect was embedded. This is recorded in
+  `docs/ai/runs/2026-07-27-1175-google-ios-client-device-smoke.md`.
+- The evidence-only failed-smoke update passed current issue/PR workflow gates;
+  GitNexus classified the working scope LOW with no affected process.
 - Durable logs and hashes are under `docs/ai/evidence/`; exact commands and the
   repair loop are in
   `docs/ai/runs/2026-07-25-mobile-roadmap-finalization.md`.
 
 ## Next step
 
-Complete #1197 against source `8701432480f585fe90119cbaee66382d062da879`,
-then proceed in order through #1198, #1199, and #1200. Keep PR #1165 draft and
+Complete #1197 against source `8701432480f585fe90119cbaee66382d062da879`.
+For #1198/#1199, securely provision or reveal the real Google iOS OAuth
+client/redirect, configure the matching isolated API, and rebuild before
+resuming the device matrix. Then proceed to #1200. Keep PR #1165 draft and
 unmerged until the full chain and final human approval are complete.
