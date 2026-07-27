@@ -396,6 +396,54 @@ describe('MEM-OKF #1188 write defaults and validation', () => {
   });
 });
 
+describe('MEM-OKF #1192 source attribution writes', () => {
+  it('automatically stamps agent-session context and preserves footnotes in the index', async () => {
+    const { agentMemoryService } = await import('../services/agentMemoryService');
+    const result = await agentMemoryService.remember(
+      {
+        kind: 'fact',
+        content: 'Second service moved to 10:45.[^sess-01J8X]',
+        sessionId: '01J8X',
+        sources: [
+          {
+            id: 'email-1',
+            resource: 'mailto:staff@example.com',
+            title: 'Follow-up email',
+          },
+        ],
+        usageWindow: {
+          from: '2026-07-01',
+          to: '2026-07-26',
+        },
+      },
+      { memoryDir, index },
+    );
+
+    const parsed = parseMemoryNote(readFileSync(fileFor(result.path), 'utf8'));
+    expect(parsed.sources).toEqual([
+      {
+        id: 'email-1',
+        resource: 'mailto:staff@example.com',
+        title: 'Follow-up email',
+      },
+      {
+        id: 'sess-01J8X',
+        resource: 'rhythm://agent-session/01J8X',
+      },
+    ]);
+    expect(parsed.usageWindow).toEqual({
+      from: '2026-07-01',
+      to: '2026-07-26',
+    });
+
+    const [row] = await repo.listAsync(undefined, undefined, 10);
+    expect(row.content).toBe(
+      'Second service moved to 10:45.[^sess-01J8X]',
+    );
+    expect(JSON.parse(row.sourcesJson)).toEqual(parsed.sources);
+  });
+});
+
 describe('falsification guard (#803)', () => {
   it('FALSIFY: if the write were index-first, a forced FS failure would still leave an index row — it must not', async () => {
     // Point at a memoryDir whose parent is a FILE, so mkdir of the kind dir

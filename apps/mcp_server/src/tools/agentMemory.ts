@@ -26,12 +26,32 @@ export function registerAgentMemoryTools(server: McpServer, apiUrl: string, apiT
 
 kind: "fact" | "preference" | "decision" | "note" | "contact" | "project" (default: "fact")
 source: where this came from, e.g. "conversation", "research", "task:<id>" (default: "conversation")
+sessionId: when the fact came from an agent session, stamps a stable rhythm://agent-session source
 tags: optional array of string tags for later filtering`,
     {
       content: z.string().describe('The information to remember.'),
       kind: z.string().optional().describe('Category: fact, preference, decision, note, contact, project.'),
       source: z.string().optional().describe('Where this came from.'),
       sourceId: z.string().optional().describe('ID of the source object if applicable.'),
+      sessionId: z.string().optional().describe(
+        'Originating agent-session ID; automatically recorded as an OKF source.',
+      ),
+      sources: z.array(z.object({
+        id: z.string(),
+        resource: z.string().optional(),
+        title: z.string().optional(),
+        author: z.string().optional(),
+        usage_count: z.number().optional(),
+        last_modified: z.string().optional(),
+      }).passthrough()).optional().describe(
+        'Optional per-claim OKF sources. Each entry requires a unique id.',
+      ),
+      usageWindow: z.object({
+        from: z.string().optional(),
+        to: z.string().optional(),
+      }).passthrough().optional().describe(
+        'Optional OKF usage window with YYYY-MM-DD from/to fields.',
+      ),
       tags: z.array(z.string()).optional().describe('Tags for filtering.'),
     },
     async (args: Record<string, unknown>) => {

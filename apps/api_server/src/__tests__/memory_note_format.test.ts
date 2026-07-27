@@ -4,12 +4,14 @@ import {
   formatActor,
   isActive,
   isStale,
+  memorySources,
   mergeLifecycleMetadata,
   parseMemoryNote,
   parseActor,
   renderMemoryNote,
   renderParsedMemoryNote,
   trustTier,
+  validateNoteSources,
 } from '../services/memory_note_format';
 import { parseNote } from '../services/memoryVaultSyncService';
 
@@ -233,6 +235,80 @@ describe('MEM-OKF #1187 shared memory-note format', () => {
     }));
     expect(reparsed.hasValidFrontmatter).toBe(true);
     expect(reparsed.frontmatter.future_timestamp).toBeInstanceOf(Date);
+  });
+
+  it('#1192: round-trips sources and usage_window with partial entries', () => {
+    const raw = [
+      '---',
+      'kind: fact',
+      'sources:',
+      '  - id: sess-01J8X',
+      '    resource: rhythm://agent-session/01J8X',
+      '    title: Staff sync conversation',
+      '    author: human:ajh@example.com',
+      '    last_modified: 2026-07-20',
+      '  - id: email-1',
+      'usage_window: { from: 2026-07-01, to: 2026-07-26 }',
+      '---',
+      'Second service moved to 10:45.[^sess-01J8X]',
+    ].join('\n');
+
+    const parsed = parseMemoryNote(raw);
+    expect(parsed.sources).toEqual([
+      {
+        id: 'sess-01J8X',
+        resource: 'rhythm://agent-session/01J8X',
+        title: 'Staff sync conversation',
+        author: 'human:ajh@example.com',
+        last_modified: '2026-07-20',
+      },
+      { id: 'email-1' },
+    ]);
+    expect(parsed.usageWindow).toEqual({
+      from: '2026-07-01',
+      to: '2026-07-26',
+    });
+    expect(renderParsedMemoryNote(parsed)).toBe(raw);
+
+    const reparsed = parseMemoryNote(renderParsedMemoryNote(parsed, {
+      frontmatter: { updated: '2026-07-26' },
+    }));
+    expect(reparsed.sources).toEqual(parsed.sources);
+    expect(reparsed.usageWindow).toEqual(parsed.usageWindow);
+    expect(reparsed.body).toContain('[^sess-01J8X]');
+  });
+
+  it('#1192: drops missing ids, keeps first duplicate, and reports link gaps', () => {
+    const parsed = parseMemoryNote([
+      '---',
+      'kind: fact',
+      'sources:',
+      '  - { title: Missing id }',
+      '  - { id: first, title: First wins }',
+      '  - { id: first, title: Duplicate loses }',
+      '  - { id: unused }',
+      '---',
+      'Declared link.[^first] Broken link.[^dangling] Again.[^dangling]',
+    ].join('\n'));
+
+    expect(parsed.sources).toEqual([
+      { id: 'first', title: 'First wins' },
+      { id: 'unused' },
+    ]);
+    expect(memorySources(parsed.frontmatter)).toEqual(parsed.sources);
+    expect(validateNoteSources(parsed)).toEqual({
+      danglingFootnoteReferences: ['dangling'],
+      unreferencedSourceIds: ['unused'],
+    });
+    expect(parsed.hasValidFrontmatter).toBe(true);
+  });
+
+  it('#1192: leaves a legacy note without sources byte-identical', () => {
+    const raw = '---\nkind: fact\ntags: []\n---\nLegacy fact.\n';
+    const parsed = parseMemoryNote(raw);
+    expect(parsed.sources).toEqual([]);
+    expect(parsed.usageWindow).toBeUndefined();
+    expect(renderParsedMemoryNote(parsed)).toBe(raw);
   });
 });
 

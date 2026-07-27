@@ -108,6 +108,7 @@ export class MemoryIndexService {
       status: note.parsed.status ?? 'stable',
       staleAfter: note.parsed.staleAfter ?? null,
       verifiedJson: JSON.stringify(note.parsed.verified ?? []),
+      sourcesJson: JSON.stringify(note.parsed.sources ?? []),
       generatedBy: note.parsed.generated?.by ?? null,
       generatedAt: note.parsed.generated?.at ?? null,
       trustTier: note.parsed.trustTier ?? 'unverified',

@@ -38,6 +38,7 @@ import {
   parseMemoryNote,
   trustTier as deriveTrustTier,
   type GeneratedMetadata,
+  type MemorySource,
   type MemoryStatus,
   type MemoryTrustTier,
   type VerificationEntry,
@@ -118,6 +119,7 @@ export interface ParsedNote {
   staleAfter?: string;
   generated?: GeneratedMetadata;
   verified?: VerificationEntry[];
+  sources?: MemorySource[];
   trustTier?: MemoryTrustTier;
 }
 
@@ -143,6 +145,7 @@ export function parseNote(raw: string): ParsedNote {
     staleAfter: document.staleAfter,
     generated: document.generated,
     verified: document.verified,
+    sources: document.sources,
     trustTier: deriveTrustTier(document.frontmatter),
   };
 }
@@ -250,6 +253,7 @@ export async function syncMemoryVault(
       status: parsed.status ?? 'stable',
       staleAfter: parsed.staleAfter ?? null,
       verifiedJson: JSON.stringify(parsed.verified ?? []),
+      sourcesJson: JSON.stringify(parsed.sources ?? []),
       generatedBy: parsed.generated?.by ?? null,
       generatedAt: parsed.generated?.at ?? null,
       trustTier: parsed.trustTier ?? 'unverified',

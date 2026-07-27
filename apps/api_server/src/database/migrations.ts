@@ -1313,6 +1313,7 @@ export function runMigrations(db: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'stable',
       stale_after TEXT,
       verified_json TEXT NOT NULL DEFAULT '[]',
+      sources_json TEXT NOT NULL DEFAULT '[]',
       generated_by TEXT,
       generated_at TEXT,
       trust_tier TEXT NOT NULL DEFAULT 'unverified',
@@ -1343,6 +1344,11 @@ export function runMigrations(db: Database.Database): void {
   if (!agentMemoryCols.includes('verified_json')) {
     db.exec(
       `ALTER TABLE agent_memory ADD COLUMN verified_json TEXT NOT NULL DEFAULT '[]'`,
+    );
+  }
+  if (!agentMemoryCols.includes('sources_json')) {
+    db.exec(
+      `ALTER TABLE agent_memory ADD COLUMN sources_json TEXT NOT NULL DEFAULT '[]'`,
     );
   }
   if (!agentMemoryCols.includes('generated_by')) {

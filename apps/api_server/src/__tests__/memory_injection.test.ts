@@ -61,6 +61,7 @@ function mem(over: Partial<AgentMemory>): AgentMemory {
     status: 'stable',
     staleAfter: null,
     verifiedJson: '[]',
+    sourcesJson: '[]',
     generatedBy: null,
     generatedAt: null,
     trustTier: 'unverified',

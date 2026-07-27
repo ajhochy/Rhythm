@@ -48,6 +48,20 @@ export interface VerificationEntry extends Record<string, unknown> {
   at: string;
 }
 
+export interface MemorySource extends Record<string, unknown> {
+  id: string;
+  resource?: string;
+  title?: string;
+  author?: string;
+  usage_count?: number;
+  last_modified?: string;
+}
+
+export interface MemoryUsageWindow extends Record<string, unknown> {
+  from?: string;
+  to?: string;
+}
+
 export interface NoteFrontmatter extends Record<string, unknown> {
   id: string;
   kind: MemoryKind;
@@ -59,6 +73,8 @@ export interface NoteFrontmatter extends Record<string, unknown> {
   stale_after?: string;
   generated?: GeneratedMetadata;
   verified?: VerificationEntry[];
+  sources?: MemorySource[];
+  usage_window?: MemoryUsageWindow;
 }
 
 export interface MemoryNoteDocument {
@@ -80,6 +96,10 @@ export interface MemoryNoteDocument {
   generated?: GeneratedMetadata;
   /** Valid verification entries; absent/malformed entries read as an empty array. */
   verified: VerificationEntry[];
+  /** Valid, first-wins source entries; missing ids are omitted. */
+  sources: MemorySource[];
+  /** Optional normalized OKF usage window. */
+  usageWindow?: MemoryUsageWindow;
   /** True only when a delimited YAML mapping parsed successfully. */
   hasValidFrontmatter: boolean;
 }
@@ -335,6 +355,69 @@ export function verificationEntries(
     .filter((entry): entry is VerificationEntry => entry !== undefined);
 }
 
+export function memorySources(
+  frontmatter: Record<string, unknown>,
+): MemorySource[] {
+  if (!Array.isArray(frontmatter.sources)) return [];
+  const seen = new Set<string>();
+  const sources: MemorySource[] = [];
+  for (const value of frontmatter.sources) {
+    if (!isPlainMapping(value)) continue;
+    const id = typeof value.id === 'string' ? value.id.trim() : '';
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const source = { ...value, id } as MemorySource;
+    if (value.last_modified instanceof Date) {
+      const normalized = dateOnly(value.last_modified);
+      if (normalized) source.last_modified = normalized;
+      else delete source.last_modified;
+    }
+    sources.push(source);
+  }
+  return sources;
+}
+
+export function memoryUsageWindow(
+  frontmatter: Record<string, unknown>,
+): MemoryUsageWindow | undefined {
+  if (!isPlainMapping(frontmatter.usage_window)) return undefined;
+  const window = { ...frontmatter.usage_window } as MemoryUsageWindow;
+  for (const key of ['from', 'to'] as const) {
+    const normalized = dateOnly(frontmatter.usage_window[key]);
+    if (normalized) window[key] = normalized;
+    else delete window[key];
+  }
+  return window;
+}
+
+const SOURCE_FOOTNOTE_PATTERN = /\[\^([A-Za-z0-9_-]+)\]/g;
+
+export interface NoteSourceValidation {
+  danglingFootnoteReferences: string[];
+  unreferencedSourceIds: string[];
+}
+
+/** Report source/footnote mismatches without mutating or rejecting the note. */
+export function validateNoteSources(
+  note: Pick<MemoryNoteDocument, 'body' | 'sources'>,
+): NoteSourceValidation {
+  const referenced: string[] = [];
+  const seenReferences = new Set<string>();
+  for (const match of note.body.matchAll(SOURCE_FOOTNOTE_PATTERN)) {
+    const id = match[1];
+    if (seenReferences.has(id)) continue;
+    seenReferences.add(id);
+    referenced.push(id);
+  }
+  const declared = new Set(note.sources.map(({ id }) => id));
+  return {
+    danglingFootnoteReferences: referenced.filter((id) => !declared.has(id)),
+    unreferencedSourceIds: note.sources
+      .map(({ id }) => id)
+      .filter((id) => !seenReferences.has(id)),
+  };
+}
+
 export function trustTier(
   frontmatter: Record<string, unknown>,
 ): MemoryTrustTier {
@@ -443,6 +526,7 @@ export function parseMemoryNote(raw: string): MemoryNoteDocument {
       body: normalized.trim(),
       status: 'stable',
       verified: [],
+      sources: [],
       hasValidFrontmatter: false,
     };
   }
@@ -458,6 +542,7 @@ export function parseMemoryNote(raw: string): MemoryNoteDocument {
         body: normalized.trim(),
         status: 'stable',
         verified: [],
+        sources: [],
         hasValidFrontmatter: false,
       };
     }
@@ -470,6 +555,29 @@ export function parseMemoryNote(raw: string): MemoryNoteDocument {
         loaded[key] = lexeme;
       }
     }
+    if (Array.isArray(loaded.sources)) {
+      for (const source of loaded.sources) {
+        if (!isPlainMapping(source)) continue;
+        const modified = source.last_modified;
+        const lexeme = modified instanceof Date
+          ? yamlTimestampLexemes.get(modified)
+          : undefined;
+        if (lexeme && DATE_ONLY_PATTERN.test(lexeme)) {
+          source.last_modified = lexeme;
+        }
+      }
+    }
+    if (isPlainMapping(loaded.usage_window)) {
+      for (const key of ['from', 'to'] as const) {
+        const value = loaded.usage_window[key];
+        const lexeme = value instanceof Date
+          ? yamlTimestampLexemes.get(value)
+          : undefined;
+        if (lexeme && DATE_ONLY_PATTERN.test(lexeme)) {
+          loaded.usage_window[key] = lexeme;
+        }
+      }
+    }
     return {
       originalRaw,
       frontmatter: loaded,
@@ -480,6 +588,8 @@ export function parseMemoryNote(raw: string): MemoryNoteDocument {
       staleAfter: staleAfter(loaded),
       generated: generatedMetadata(loaded),
       verified: verificationEntries(loaded),
+      sources: memorySources(loaded),
+      usageWindow: memoryUsageWindow(loaded),
       hasValidFrontmatter: true,
     };
   } catch {
@@ -491,6 +601,7 @@ export function parseMemoryNote(raw: string): MemoryNoteDocument {
       body: normalized.trim(),
       status: 'stable',
       verified: [],
+      sources: [],
       hasValidFrontmatter: false,
     };
   }

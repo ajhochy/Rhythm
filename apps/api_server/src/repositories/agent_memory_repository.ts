@@ -16,6 +16,7 @@ export interface AgentMemory {
   status: MemoryStatus;
   staleAfter: string | null;
   verifiedJson: string;
+  sourcesJson: string;
   generatedBy: string | null;
   generatedAt: string | null;
   trustTier: MemoryTrustTier;
@@ -54,6 +55,7 @@ function rowToModel(row: Record<string, unknown>): AgentMemory {
     status: (row.status as MemoryStatus) ?? 'stable',
     staleAfter: (row.stale_after as string | null) ?? null,
     verifiedJson: (row.verified_json as string) ?? '[]',
+    sourcesJson: (row.sources_json as string) ?? '[]',
     generatedBy: (row.generated_by as string | null) ?? null,
     generatedAt: (row.generated_at as string | null) ?? null,
     trustTier: (row.trust_tier as MemoryTrustTier) ?? 'unverified',
@@ -124,7 +126,8 @@ export class AgentMemoryRepository {
     }
     const row = getDb().prepare(`
       SELECT id, kind, content, source, source_id, tags_json,
-             status, stale_after, verified_json, generated_by, generated_at, trust_tier,
+             status, stale_after, verified_json, sources_json,
+             generated_by, generated_at, trust_tier,
              owner_user_id, created_at, updated_at
       FROM agent_memory WHERE id = ?
     `).get(id);
@@ -169,7 +172,7 @@ export class AgentMemoryRepository {
       params.push(limit);
       const rows = getDb().prepare(`
         SELECT m.id, m.kind, m.content, m.source, m.source_id, m.tags_json,
-               m.status, m.stale_after, m.verified_json,
+               m.status, m.stale_after, m.verified_json, m.sources_json,
                m.generated_by, m.generated_at, m.trust_tier,
                m.owner_user_id, m.created_at, m.updated_at
         FROM agent_memory m
@@ -195,7 +198,8 @@ export class AgentMemoryRepository {
       params.push(limit);
       const rows = getDb().prepare(
         `SELECT id, kind, content, source, source_id, tags_json,
-                status, stale_after, verified_json, generated_by, generated_at, trust_tier,
+                status, stale_after, verified_json, sources_json,
+                generated_by, generated_at, trust_tier,
                 owner_user_id, created_at, updated_at
          FROM agent_memory
          WHERE content LIKE ? ${ownerFilter} ${activeFilter}
@@ -226,7 +230,8 @@ export class AgentMemoryRepository {
     if (ownerUserId != null) params.push(ownerUserId);
     const rows = getDb().prepare(
       `SELECT id, kind, content, source, source_id, tags_json,
-              status, stale_after, verified_json, generated_by, generated_at, trust_tier,
+              status, stale_after, verified_json, sources_json,
+              generated_by, generated_at, trust_tier,
               owner_user_id, created_at, updated_at
        FROM agent_memory WHERE source = ? AND source_id IN (${placeholders}) ${ownerFilter}`,
     ).all(...params);
@@ -257,7 +262,8 @@ export class AgentMemoryRepository {
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const rows = getDb().prepare(
       `SELECT id, kind, content, source, source_id, tags_json,
-              status, stale_after, verified_json, generated_by, generated_at, trust_tier,
+              status, stale_after, verified_json, sources_json,
+              generated_by, generated_at, trust_tier,
               owner_user_id, created_at, updated_at
        FROM agent_memory ${where} ORDER BY created_at DESC LIMIT ?`,
     ).all(...params);
@@ -284,6 +290,7 @@ export class AgentMemoryRepository {
     status?: MemoryStatus;
     staleAfter?: string | null;
     verifiedJson?: string;
+    sourcesJson?: string;
     generatedBy?: string | null;
     generatedAt?: string | null;
     trustTier?: MemoryTrustTier;
@@ -331,7 +338,7 @@ export class AgentMemoryRepository {
       getDb().prepare(`
         UPDATE agent_memory
            SET kind = ?, content = ?, tags_json = ?,
-               status = ?, stale_after = ?, verified_json = ?,
+               status = ?, stale_after = ?, verified_json = ?, sources_json = ?,
                generated_by = ?, generated_at = ?, trust_tier = ?,
                updated_at = ?
          WHERE id = ?
@@ -342,6 +349,7 @@ export class AgentMemoryRepository {
         input.status ?? 'stable',
         input.staleAfter ?? null,
         input.verifiedJson ?? '[]',
+        input.sourcesJson ?? '[]',
         input.generatedBy ?? null,
         input.generatedAt ?? null,
         input.trustTier ?? 'unverified',
@@ -356,15 +364,17 @@ export class AgentMemoryRepository {
     getDb().prepare(`
       INSERT INTO agent_memory
         (id, kind, content, source, source_id, tags_json,
-         status, stale_after, verified_json, generated_by, generated_at, trust_tier,
+         status, stale_after, verified_json, sources_json,
+         generated_by, generated_at, trust_tier,
          owner_user_id, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       id, input.kind, input.content, input.source, input.sourceId,
       input.tagsJson,
       input.status ?? 'stable',
       input.staleAfter ?? null,
       input.verifiedJson ?? '[]',
+      input.sourcesJson ?? '[]',
       input.generatedBy ?? null,
       input.generatedAt ?? null,
       input.trustTier ?? 'unverified',

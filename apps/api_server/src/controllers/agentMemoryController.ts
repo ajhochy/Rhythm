@@ -3,7 +3,10 @@ import { AppError } from '../errors/app_error';
 import { agentMemoryService } from '../services/agentMemoryService';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { syncMemoryVault } from '../services/memoryVaultSyncService';
-import { MemoryWriteError } from '../services/memoryVaultWriteService';
+import {
+  MemoryWriteError,
+  type RememberInput,
+} from '../services/memoryVaultWriteService';
 import {
   MCP_MEMORY_ACTOR,
   formatActor,
@@ -61,13 +64,32 @@ export class AgentMemoryController {
    */
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const { kind, content, id, source, tags } = req.body as Record<string, unknown>;
+      const {
+        kind,
+        content,
+        id,
+        source,
+        sourceId,
+        sessionId,
+        sources,
+        usageWindow,
+        tags,
+      } = req.body as Record<string, unknown>;
       if (!content || typeof content !== 'string') throw AppError.badRequest('content is required');
       const result = await agentMemoryService.remember({
         kind: typeof kind === 'string' ? kind : 'fact',
         content,
         id: typeof id === 'string' ? id : undefined,
         source: typeof source === 'string' ? source : 'agent',
+        sourceId: typeof sourceId === 'string' ? sourceId : undefined,
+        sessionId: typeof sessionId === 'string' ? sessionId : undefined,
+        sources: Array.isArray(sources)
+          ? sources as RememberInput['sources']
+          : undefined,
+        usageWindow: usageWindow && typeof usageWindow === 'object' &&
+            !Array.isArray(usageWindow)
+          ? usageWindow as RememberInput['usageWindow']
+          : undefined,
         tags: Array.isArray(tags) ? tags.map((t) => String(t)) : [],
       });
       res.status(201).json(result);

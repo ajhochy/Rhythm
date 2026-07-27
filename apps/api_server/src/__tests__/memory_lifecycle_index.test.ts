@@ -87,13 +87,14 @@ describe('MEM-OKF #1189 lifecycle index projection', () => {
 
     expect(legacy.prepare(`
       SELECT content, status, stale_after, verified_json,
-             generated_by, generated_at, trust_tier
+             sources_json, generated_by, generated_at, trust_tier
       FROM agent_memory WHERE id = 'legacy'
     `).get()).toEqual({
       content: 'Preserve me.',
       status: 'stable',
       stale_after: null,
       verified_json: '[]',
+      sources_json: '[]',
       generated_by: null,
       generated_at: null,
       trust_tier: 'unverified',
@@ -223,5 +224,42 @@ describe('MEM-OKF #1189 lifecycle index projection', () => {
     // The vault stays the only durable source; rebuild never rewrites notes.
     expect(readFileSync(path.join(vaultDir, 'legacy.md'), 'utf8'))
       .not.toContain('status:');
+  });
+});
+
+describe('MEM-OKF #1192 source index projection', () => {
+  it('preserves footnote prose and sources_json across incremental sync and rebuild', async () => {
+    const raw = [
+      '---',
+      'kind: fact',
+      'sources:',
+      '  - id: sess-01J8X',
+      '    resource: rhythm://agent-session/01J8X',
+      '  - id: email-1',
+      'usage_window: { from: 2026-07-01, to: 2026-07-26 }',
+      '---',
+      'Second service moved to 10:45.[^sess-01J8X]',
+    ].join('\n');
+    writeNote('attributed.md', raw);
+
+    await syncMemoryVault({ vaultPath: vaultDir });
+    const [incremental] = await repo.listAsync(undefined, undefined, 10);
+    expect(incremental.content).toBe(
+      'Second service moved to 10:45.[^sess-01J8X]',
+    );
+    expect(JSON.parse(incremental.sourcesJson)).toEqual([
+      {
+        id: 'sess-01J8X',
+        resource: 'rhythm://agent-session/01J8X',
+      },
+      { id: 'email-1' },
+    ]);
+
+    await index.rebuildIndexFromVault(vaultDir);
+    const [rebuilt] = await repo.listAsync(undefined, undefined, 10);
+    expect(rebuilt.content).toBe(incremental.content);
+    expect(rebuilt.sourcesJson).toBe(incremental.sourcesJson);
+    expect(readFileSync(path.join(vaultDir, 'attributed.md'), 'utf8'))
+      .toBe(raw);
   });
 });

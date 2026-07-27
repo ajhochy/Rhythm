@@ -49,6 +49,8 @@ import {
   VALID_MEMORY_STATUSES,
   frontmatterString,
   generatedMetadata,
+  memorySources,
+  memoryUsageWindow,
   mergeLifecycleMetadata,
   parseActor,
   parseMemoryNote,
@@ -56,7 +58,9 @@ import {
   staleAfter,
   verificationEntries,
   type MemoryKind,
+  type MemorySource,
   type MemoryStatus,
+  type MemoryUsageWindow,
   type NoteFrontmatter,
   type VerificationEntry,
 } from './memory_note_format';
@@ -81,6 +85,14 @@ export interface RememberInput {
   tags?: string[];
   /** Informational `source` frontmatter (defaults to 'agent'). */
   source?: string;
+  /** Optional source-object id paired with `source` (for example a session id). */
+  sourceId?: string;
+  /** Explicit agent-session context; automatically stamps an OKF source. */
+  sessionId?: string;
+  /** Optional OKF per-claim source records. Invalid/missing ids are ignored. */
+  sources?: MemorySource[];
+  /** Optional OKF usage window, retained for round-trip fidelity. */
+  usageWindow?: MemoryUsageWindow;
   /** OKF lifecycle state. New notes default to stable. */
   status?: MemoryStatus;
   /** Optional YYYY-MM-DD shelf-life boundary. */
@@ -200,6 +212,45 @@ function assertValidVerified(
     );
   }
   return normalized;
+}
+
+function sessionFootnoteId(sessionId: string): string {
+  const safe = sessionId.replace(/[^A-Za-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const stable = safe || Buffer.from(sessionId).toString('base64url');
+  return stable.startsWith('sess-') ? stable : `sess-${stable}`;
+}
+
+function captureSources(
+  input: RememberInput,
+  source: string,
+): {
+  sources: MemorySource[];
+  supplied: boolean;
+} {
+  const sources = memorySources({ sources: input.sources });
+  const sourceKind = source.trim().toLowerCase();
+  const sourceSessionId = typeof input.sourceId === 'string' &&
+      ['agent-session', 'session', 'conversation'].includes(sourceKind)
+    ? input.sourceId.trim()
+    : '';
+  const sessionId = typeof input.sessionId === 'string' &&
+      input.sessionId.trim() !== ''
+    ? input.sessionId.trim()
+    : sourceSessionId;
+  if (sessionId) {
+    const automatic: MemorySource = {
+      id: sessionFootnoteId(sessionId),
+      resource: `rhythm://agent-session/${encodeURIComponent(sessionId)}`,
+    };
+    if (!sources.some(({ id }) => id === automatic.id)) {
+      sources.push(automatic);
+    }
+  }
+  return {
+    sources,
+    supplied: input.sources !== undefined || sessionId !== '',
+  };
 }
 
 function appendVerificationHistory(
@@ -330,6 +381,10 @@ export async function rememberToVault(
   const requestedStatus = assertValidStatus(input.status);
   const requestedStaleAfter = assertValidStaleAfter(input.staleAfter);
   const requestedVerified = assertValidVerified(input.verified);
+  const requestedSources = captureSources(input, source);
+  const requestedUsageWindow = input.usageWindow !== undefined
+    ? memoryUsageWindow({ usage_window: input.usageWindow })
+    : undefined;
   const generated = {
     by: DEFAULT_MEMORY_ACTOR,
     at: new Date().toISOString(),
@@ -456,6 +511,16 @@ export async function rememberToVault(
           ...mergedLifecycle,
           generated: generatedMetadata(frontmatterToPreserve) ?? generated,
         }
+      : {}),
+    ...(requestedSources.supplied
+      ? {
+          sources: requestedSources.sources.length > 0
+            ? requestedSources.sources
+            : undefined,
+        }
+      : {}),
+    ...(input.usageWindow !== undefined
+      ? { usage_window: requestedUsageWindow }
       : {}),
   };
 
