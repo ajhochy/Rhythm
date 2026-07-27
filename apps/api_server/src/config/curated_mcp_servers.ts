@@ -331,6 +331,7 @@ export const CURATED_MCP_SERVERS: CuratedMcpServer[] = [
         "creative-tools",
         "openmontage",
       ),
+      PEXELS_API_KEY: "{env:PEXELS_API_KEY}",
     },
     requiredEnv: [],
   },

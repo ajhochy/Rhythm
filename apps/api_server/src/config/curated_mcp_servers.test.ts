@@ -150,6 +150,8 @@ describe('managed creative MCP commands', () => {
           /openmontage\/openmontage-mcp\/openmontage_mcp_server\.py$/,
         ),
       ],
+      environment: { PEXELS_API_KEY: '{env:PEXELS_API_KEY}' },
+      requiredEnv: [],
     });
   });
 });
