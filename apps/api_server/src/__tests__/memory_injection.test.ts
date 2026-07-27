@@ -12,6 +12,14 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import Database from 'better-sqlite3';
 
 import { runMigrations } from '../database/migrations';
@@ -27,6 +35,27 @@ import { agentMemoryService } from '../services/agentMemoryService';
 // ── DB helpers ──────────────────────────────────────────────────────────────────
 
 let activeDb: Database.Database | null = null;
+const linkVaultRoots: string[] = [];
+
+function memoryDirWithNotes(sourceIds: string[]): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'memory-expansion-'));
+  linkVaultRoots.push(root);
+  for (const sourceId of sourceIds) {
+    const abs = path.join(root, sourceId);
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, '---\nkind: fact\n---\nLink target.', 'utf8');
+  }
+  const memoryDir = path.join(root, 'memory');
+  mkdirSync(memoryDir, { recursive: true });
+  return memoryDir;
+}
+
+afterEach(() => {
+  while (linkVaultRoots.length > 0) {
+    rmSync(linkVaultRoots.pop()!, { recursive: true, force: true });
+  }
+});
+
 function makeDb(): void {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
@@ -240,12 +269,18 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
         third,
       ]),
     };
+    const memoryDir = memoryDirWithNotes([
+      'memory/person/linked.md',
+      'memory/person/stale.md',
+      'memory/person/deprecated.md',
+      'memory/person/private.md',
+    ]);
 
     const preface = await buildMemoryPreface('detail', 1, {
       topN: 3,
       getRelevant: vi.fn().mockResolvedValue([direct]),
       linkRepository,
-      memoryDir: '/vault/memory',
+      memoryDir,
     });
 
     expect(linkRepository.findBySourceIdsAsync).toHaveBeenCalledWith(
@@ -264,6 +299,96 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
     expect(preface.text).not.toContain('Deprecated detail');
     expect(preface.text).not.toContain('Bob private detail');
     expect(preface.text).not.toContain('A second hop');
+  });
+
+  it('#1195: ignores a stale index row after its linked file is deleted', async () => {
+    process.env.AGENT_MEMORY_LINK_EXPANSION_ENABLED = 'true';
+    const direct = mem({
+      id: 'direct',
+      content: 'Direct detail. [Deleted](/person/deleted.md)',
+      source: 'obsidian-memory',
+      sourceId: 'memory/fact/direct.md',
+      ownerUserId: 1,
+    });
+    const linkRepository = {
+      searchAsync: vi.fn(),
+      findBySourceIdsAsync: vi.fn().mockResolvedValue([
+        mem({
+          id: 'deleted',
+          content: 'Deleted linked content',
+          source: 'obsidian-memory',
+          sourceId: 'memory/person/deleted.md',
+          ownerUserId: 1,
+        }),
+      ]),
+    };
+    const memoryDir = memoryDirWithNotes([]);
+
+    const preface = await buildMemoryPreface('detail', 1, {
+      topN: 2,
+      getRelevant: vi.fn().mockResolvedValue([direct]),
+      linkRepository,
+      memoryDir,
+    });
+
+    expect(preface.memoryIds).toEqual(['direct']);
+    expect(preface.text).not.toContain('Deleted linked content');
+    expect(linkRepository.findBySourceIdsAsync).not.toHaveBeenCalled();
+  });
+
+  it('#1195: batches linked lookups and keeps scanning until topN is filled', async () => {
+    process.env.AGENT_MEMORY_LINK_EXPANSION_ENABLED = 'true';
+    const sourceIds = Array.from(
+      { length: 201 },
+      (_, index) => `memory/person/linked-${index}.md`,
+    );
+    const direct = mem({
+      id: 'direct',
+      content: sourceIds
+        .map((sourceId, index) =>
+          `[Linked ${index}](/person/${path.basename(sourceId)})`,
+        )
+        .join(' '),
+      source: 'obsidian-memory',
+      sourceId: 'memory/fact/direct.md',
+      ownerUserId: 1,
+    });
+    const stale = mem({
+      id: 'stale',
+      content: 'Stale first-batch content',
+      source: 'obsidian-memory',
+      sourceId: sourceIds[0],
+      staleAfter: '2000-01-01',
+      ownerUserId: 1,
+    });
+    const late = mem({
+      id: 'late',
+      content: 'Late active content',
+      source: 'obsidian-memory',
+      sourceId: sourceIds[200],
+      ownerUserId: 1,
+    });
+    const linkRepository = {
+      searchAsync: vi.fn(),
+      findBySourceIdsAsync: vi.fn().mockImplementation(
+        async (_source: string, batch: string[]) =>
+          batch.includes(sourceIds[200]) ? [late] : [stale],
+      ),
+    };
+    const memoryDir = memoryDirWithNotes(sourceIds);
+
+    const preface = await buildMemoryPreface('detail', 1, {
+      topN: 2,
+      getRelevant: vi.fn().mockResolvedValue([direct]),
+      linkRepository,
+      memoryDir,
+    });
+
+    expect(preface.memoryIds).toEqual(['direct', 'late']);
+    expect(linkRepository.findBySourceIdsAsync).toHaveBeenCalledTimes(2);
+    for (const call of linkRepository.findBySourceIdsAsync.mock.calls) {
+      expect(call[1].length).toBeLessThanOrEqual(200);
+    }
   });
 });
 
@@ -312,12 +437,13 @@ describe('memory injection — getRelevantMemories is OWNER-SCOPED (no cross-use
       sourceId: 'memory/person/private.md',
       ownerUserId: 2,
     });
+    const memoryDir = memoryDirWithNotes(['memory/person/private.md']);
 
     const preface = await buildMemoryPreface('direct', 1, {
       topN: 3,
       getRelevant: vi.fn().mockResolvedValue([direct]),
       linkRepository: repo,
-      memoryDir: '/vault/memory',
+      memoryDir,
     });
 
     expect(preface.memoryIds).toEqual([direct.id]);

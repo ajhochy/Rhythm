@@ -58,9 +58,11 @@ import {
   extractMemoryBodyLinks,
   isActive,
 } from './memory_note_format';
-import { canonicalMemoryLinkSourceId } from './memoryVaultWriteService';
+import { resolveMemoryLinkTarget } from './memoryVaultWriteService';
 
 const DEFAULT_TOP_N = 5;
+/** Stay safely below SQLite's historical 999 bind-variable limit. */
+const MAX_LINK_LOOKUP_SOURCE_IDS = 200;
 
 /** Tokens shorter than this are dropped as noise. */
 const MIN_TOKEN_LEN = 3;
@@ -480,8 +482,7 @@ export async function expandLinkedMemories(
       .map((memory) => memory.sourceId)
       .filter((sourceId): sourceId is string => sourceId !== null),
   );
-  const targetSourceIds: string[] = [];
-  const seenTargets = new Set<string>();
+  const requestedLinks: Array<{ fromSourceId: string; target: string }> = [];
   for (const memory of kept) {
     if (
       memory.ownerUserId !== wanted ||
@@ -491,11 +492,32 @@ export async function expandLinkedMemories(
       continue;
     }
     for (const link of extractMemoryBodyLinks(memory.content)) {
-      const target = canonicalMemoryLinkSourceId(
-        memoryDir,
-        memory.sourceId,
-        link.target,
-      );
+      requestedLinks.push({
+        fromSourceId: memory.sourceId,
+        target: link.target,
+      });
+    }
+  }
+  if (requestedLinks.length === 0) return kept;
+
+  const today = currentDate();
+  const seenTargets = new Set<string>();
+  for (
+    let offset = 0;
+    offset < requestedLinks.length && kept.length < topN;
+    offset += MAX_LINK_LOOKUP_SOURCE_IDS
+  ) {
+    const requestedBatch = requestedLinks.slice(
+      offset,
+      offset + MAX_LINK_LOOKUP_SOURCE_IDS,
+    );
+    const resolvedBatch = await Promise.all(
+      requestedBatch.map(({ fromSourceId, target }) =>
+        resolveMemoryLinkTarget(memoryDir, fromSourceId, target),
+      ),
+    );
+    const targetSourceIds: string[] = [];
+    for (const target of resolvedBatch) {
       if (
         !target ||
         directSourceIds.has(target) ||
@@ -506,37 +528,36 @@ export async function expandLinkedMemories(
       seenTargets.add(target);
       targetSourceIds.push(target);
     }
-  }
-  if (targetSourceIds.length === 0) return kept;
+    if (targetSourceIds.length === 0) continue;
 
-  const candidates = await repo.findBySourceIdsAsync(
-    'obsidian-memory',
-    targetSourceIds,
-    wanted ?? undefined,
-  );
-  const today = currentDate();
-  const bySourceId = new Map<string, AgentMemory>();
-  for (const memory of candidates) {
-    if (
-      memory.ownerUserId !== wanted ||
-      memory.source !== 'obsidian-memory' ||
-      !memory.sourceId ||
-      directIds.has(memory.id) ||
-      directSourceIds.has(memory.sourceId) ||
-      !isMemoryActive(memory, today) ||
-      bySourceId.has(memory.sourceId)
-    ) {
-      continue;
+    const candidates = await repo.findBySourceIdsAsync(
+      'obsidian-memory',
+      targetSourceIds,
+      wanted ?? undefined,
+    );
+    const bySourceId = new Map<string, AgentMemory>();
+    for (const memory of candidates) {
+      if (
+        memory.ownerUserId !== wanted ||
+        memory.source !== 'obsidian-memory' ||
+        !memory.sourceId ||
+        directIds.has(memory.id) ||
+        directSourceIds.has(memory.sourceId) ||
+        !isMemoryActive(memory, today) ||
+        bySourceId.has(memory.sourceId)
+      ) {
+        continue;
+      }
+      bySourceId.set(memory.sourceId, memory);
     }
-    bySourceId.set(memory.sourceId, memory);
-  }
-  for (const sourceId of targetSourceIds) {
-    const expanded = bySourceId.get(sourceId);
-    if (!expanded) continue;
-    kept.push(expanded);
-    directIds.add(expanded.id);
-    directSourceIds.add(sourceId);
-    if (kept.length >= topN) break;
+    for (const sourceId of targetSourceIds) {
+      const expanded = bySourceId.get(sourceId);
+      if (!expanded) continue;
+      kept.push(expanded);
+      directIds.add(expanded.id);
+      directSourceIds.add(sourceId);
+      if (kept.length >= topN) break;
+    }
   }
   return kept;
 }

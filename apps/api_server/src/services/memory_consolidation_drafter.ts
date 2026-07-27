@@ -44,6 +44,8 @@ import { resolveMemoryDirPath } from '../config/env';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { MemoryIndexService } from './memory_index_service';
 import {
+  resolveVaultRootForMemoryDir,
+  scanVaultNotes,
   toVaultRelativeKey,
   vaultKeyToMemoryDirRelative,
   MEMORY_VAULT_SOURCE,
@@ -66,6 +68,7 @@ import {
 } from './memory_similarity';
 import {
   CONSOLIDATION_MEMORY_ACTOR,
+  VALID_MEMORY_KINDS,
   frontmatterString,
   invalidMemorySourceIds,
   isReversedMemoryUsageWindow,
@@ -73,6 +76,7 @@ import {
   memoryUsageWindow,
   mergeLifecycleMetadata,
   parseMemoryNote,
+  replaceMemoryNoteBody,
   rewriteMemoryBodyLinks,
   validateNoteSources,
 } from './memory_note_format';
@@ -125,6 +129,55 @@ interface NoteRecord {
   created: string;
   frontmatter: Record<string, unknown>;
   fileContent: string;
+}
+
+interface BacklinkRewriteNote {
+  vaultRelKey: string;
+  abs: string;
+  fileContent: string;
+  kind: MemoryKind;
+  tags: string[];
+}
+
+function isSafeBacklinkRewriteDocument(
+  document: ReturnType<typeof parseMemoryNote>,
+): boolean {
+  return document.hasValidFrontmatter;
+}
+
+async function scanSafeBacklinkRewriteNotes(
+  memoryDir: string,
+): Promise<BacklinkRewriteNote[]> {
+  const vaultRoot = resolveVaultRootForMemoryDir(memoryDir);
+  const notes = await scanVaultNotes(memoryDir);
+  const safe: BacklinkRewriteNote[] = [];
+  for (const note of notes) {
+    if (!(VALID_MEMORY_KINDS as readonly string[]).includes(note.parsed.kind)) {
+      continue;
+    }
+    let abs: string;
+    try {
+      abs = resolveWithinMemoryDir(memoryDir, note.sourceId);
+    } catch {
+      continue;
+    }
+    let fileContent: string;
+    try {
+      fileContent = await fs.readFile(abs, 'utf8');
+    } catch {
+      continue;
+    }
+    const document = parseMemoryNote(fileContent);
+    if (!isSafeBacklinkRewriteDocument(document)) continue;
+    safe.push({
+      vaultRelKey: toVaultRelativeKey(vaultRoot, abs),
+      abs,
+      fileContent,
+      kind: note.parsed.kind as MemoryKind,
+      tags: note.parsed.tags,
+    });
+  }
+  return safe;
 }
 
 /**
@@ -203,16 +256,30 @@ export async function runMemoryConsolidation(
     });
   }
 
-  // The exact bytes used to parse each eligible record are also its snapshot.
-  // This single-read design prevents a note whose snapshot read failed from
-  // remaining eligible for mutation or retirement.
+  // Backlink rewrites operate over every safe live vault note, independently
+  // from the derived-index query, its 10k cap, and merge eligibility (an id is
+  // required to merge/retire a note, but not to repair a link in one). Capture
+  // these exact bytes before any mutation so revert remains byte-perfect.
+  const backlinkRewriteNotes = await scanSafeBacklinkRewriteNotes(memoryDir);
+  const snapshotEntries = new Map<string, MemoryConsolidationSnapshotEntry>();
+  for (const record of records) {
+    snapshotEntries.set(record.vaultRelKey, {
+      vaultRelKey: record.vaultRelKey,
+      fileContent: record.fileContent,
+      kind: record.kind,
+      tags: record.tags,
+    });
+  }
+  for (const note of backlinkRewriteNotes) {
+    snapshotEntries.set(note.vaultRelKey, {
+      vaultRelKey: note.vaultRelKey,
+      fileContent: note.fileContent,
+      kind: note.kind,
+      tags: note.tags,
+    });
+  }
   const beforeSnapshot: MemoryConsolidationSnapshot = {
-    entries: records.map((r) => ({
-      vaultRelKey: r.vaultRelKey,
-      fileContent: r.fileContent,
-      kind: r.kind,
-      tags: r.tags,
-    })),
+    entries: [...snapshotEntries.values()],
   };
 
   // Group by kind — merging never crosses kind boundaries (#859 framing: a
@@ -335,19 +402,20 @@ export async function runMemoryConsolidation(
   // Retired-note content moved into the survivor, so rewrite every live
   // backlink to that survivor. Unresolvable/dangling links are byte-preserved.
   if (retiredToSurvivor.size > 0) {
-    for (const record of records) {
-      if (retiredToSurvivor.has(record.vaultRelKey)) continue;
+    for (const note of backlinkRewriteNotes) {
+      if (retiredToSurvivor.has(note.vaultRelKey)) continue;
       let raw: string;
       try {
-        raw = await fs.readFile(record.abs, 'utf8');
+        raw = await fs.readFile(note.abs, 'utf8');
       } catch {
         continue;
       }
       const document = parseMemoryNote(raw);
+      if (!isSafeBacklinkRewriteDocument(document)) continue;
       const body = rewriteMemoryBodyLinks(document.body, (link) => {
         const currentTarget = canonicalMemoryLinkSourceId(
           memoryDir,
-          record.vaultRelKey,
+          note.vaultRelKey,
           link.target,
         );
         const survivorTarget = currentTarget
@@ -358,18 +426,15 @@ export async function runMemoryConsolidation(
           : null;
       });
       if (body === document.body) continue;
-      const rendered = renderMemoryNote(
-        { ...document.frontmatter, updated: isoDate() },
-        body,
-      );
-      await fs.writeFile(record.abs, rendered, 'utf8');
+      const rendered = replaceMemoryNoteBody(document, body);
+      await fs.writeFile(note.abs, rendered, 'utf8');
       enqueueMemoryVaultLog(memoryDir, {
         reason: 'updated',
         actor: CONSOLIDATION_MEMORY_ACTOR,
-        noteSourceId: record.vaultRelKey,
+        noteSourceId: note.vaultRelKey,
       });
       await index.upsertNote({
-        sourceId: record.vaultRelKey,
+        sourceId: note.vaultRelKey,
         parsed: parseNote(rendered),
       });
     }

@@ -27,6 +27,7 @@ import {
   revertMemoryConsolidation,
 } from '../services/memory_consolidation_drafter';
 import { MemoryIndexService } from '../services/memory_index_service';
+import { extractMemoryBodyLinks } from '../services/memory_note_format';
 import {
   generateUlid,
   rememberToVault,
@@ -115,6 +116,15 @@ describe('MEM-OKF cross-link resolution and writes (#1195)', () => {
       memoryDir,
       from,
       `../person/${targetName}`,
+    )).resolves.toBe(target.path);
+    const [pathQualifiedWiki] = extractMemoryBodyLinks(
+      `[[person/${targetName}|Pastor Mike]]`,
+    );
+    expect(pathQualifiedWiki.target).toBe(`/person/${targetName}`);
+    await expect(resolveMemoryLinkTarget(
+      memoryDir,
+      from,
+      pathQualifiedWiki.target,
     )).resolves.toBe(target.path);
     await expect(resolveMemoryLinkTarget(
       memoryDir,
@@ -239,6 +249,36 @@ describe('MEM-OKF cross-link resolution and writes (#1195)', () => {
     expect(targetIndex).toContain('../project/');
   });
 
+  it('writes escaped labels that remain readable by every link consumer', async () => {
+    const target = await rememberToVault(
+      { kind: 'person', content: 'Escaped-label target.' },
+      { memoryDir, index },
+    );
+    const source = await rememberToVault(
+      {
+        kind: 'project',
+        content: 'Escaped-label source.',
+        links: [{
+          target: memoryAbsoluteTarget(target.path),
+          label: 'A ] [ \\ label',
+        }],
+      },
+      { memoryDir, index },
+    );
+
+    const body = parseNote(readFileSync(abs(source.path), 'utf8')).content;
+    expect(body).toContain('[A \\] \\[ \\\\ label]');
+    expect(extractMemoryBodyLinks(body).map(({ label, target }) => ({
+      label,
+      target,
+    }))).toEqual([{
+      label: 'A ] [ \\ label',
+      target: memoryAbsoluteTarget(target.path),
+    }]);
+    expect(readFileSync(path.join(memoryDir, 'person', 'index.md'), 'utf8'))
+      .toContain('Backlinks:');
+  });
+
   it('tolerates a dangling link through sync, indexing, injection, and consolidation', async () => {
     const remembered = await rememberToVault(
       {
@@ -337,6 +377,76 @@ describe('MEM-OKF consolidation link rewrites (#1195)', () => {
       repo,
     });
     expect(readFileSync(abs(referrer), 'utf8')).toBe(referrerBefore);
+    expect(existsSync(abs(survivor))).toBe(true);
+    expect(existsSync(abs(retiree))).toBe(true);
+  });
+
+  it('rewrites every parsed live backlink while leaving malformed bytes untouched', async () => {
+    const survivor = await seedNote(
+      path.join('fact', 'note-a.md'),
+      'Facilities booking uses the shared reservation calendar for rooms.',
+      '2026-01-01',
+    );
+    const retiree = await seedNote(
+      path.join('fact', 'note-b.md'),
+      'Facilities booking uses the shared reservation calendar for room requests.',
+      '2026-02-01',
+    );
+    const safeRel = path.join('memory', 'fact', 'safe-unindexed.md');
+    const mergeIneligibleRel = path.join(
+      'memory',
+      'fact',
+      'merge-ineligible-unindexed.md',
+    );
+    const malformedRel = path.join('memory', 'fact', 'malformed-unindexed.md');
+    const safeBefore = renderMemoryNote({
+      kind: 'fact',
+      tags: [],
+      created: '2026-03-01',
+      updated: '2026-03-01',
+      source: 'manual',
+    }, 'Safe backlink. [Booking](./note-b.md)');
+    const mergeIneligibleBefore = renderMemoryNote({
+      id: 'not-a-ulid',
+      kind: 'fact',
+      tags: [],
+      created: '2026-03-02',
+      updated: '2026-03-02',
+      source: 'manual',
+      sources: [{ title: 'missing required source id' }],
+      usage_window: { from: '2026-08-01', to: '2026-07-01' },
+    }, 'Dangling attribution.[^missing] [Booking](./note-b.md)');
+    const malformedBefore = [
+      '---',
+      'kind: [unterminated',
+      '---',
+      'Malformed backlink. [Booking](./note-b.md)',
+      '',
+    ].join('\n');
+    writeFileSync(abs(safeRel), safeBefore, 'utf8');
+    writeFileSync(abs(mergeIneligibleRel), mergeIneligibleBefore, 'utf8');
+    writeFileSync(abs(malformedRel), malformedBefore, 'utf8');
+
+    const result = await runMemoryConsolidation({ memoryDir, index, repo });
+
+    expect(result.retiredCount).toBe(1);
+    expect(existsSync(abs(retiree))).toBe(false);
+    expect(parseNote(readFileSync(abs(safeRel), 'utf8')).content)
+      .toContain('[Booking](/fact/note-a.md)');
+    expect(readFileSync(abs(mergeIneligibleRel), 'utf8')).toBe(
+      mergeIneligibleBefore.replace('./note-b.md', '/fact/note-a.md'),
+    );
+    expect(readFileSync(abs(malformedRel), 'utf8')).toBe(malformedBefore);
+
+    await revertMemoryConsolidation(result.beforeSnapshot, {
+      memoryDir,
+      index,
+      repo,
+    });
+    expect(readFileSync(abs(safeRel), 'utf8')).toBe(safeBefore);
+    expect(readFileSync(abs(mergeIneligibleRel), 'utf8'))
+      .toBe(mergeIneligibleBefore);
+    expect(readFileSync(abs(malformedRel), 'utf8')).toBe(malformedBefore);
     expect(existsSync(abs(survivor))).toBe(true);
     expect(existsSync(abs(retiree))).toBe(true);
   });

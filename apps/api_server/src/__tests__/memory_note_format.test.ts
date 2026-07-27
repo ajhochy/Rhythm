@@ -11,6 +11,7 @@ import {
   parseActor,
   renderMemoryNote,
   renderParsedMemoryNote,
+  replaceMemoryNoteBody,
   rewriteMemoryBodyLinks,
   trustTier,
   validateNoteSources,
@@ -347,6 +348,90 @@ describe('MEM-OKF #1195 memory body links', () => {
       link.target === './retired.md' ? '/fact/survivor.md' : null,
     )).toBe(
       'See [retired](/fact/survivor.md), [[missing]], and [site](https://example.com).',
+    );
+  });
+
+  it('ignores escaped links and links inside inline or fenced code', () => {
+    const body = [
+      String.raw`Literal \[not a link](/fact/retired.md).`,
+      'Inline `[sample](/fact/retired.md)`.',
+      '```md',
+      '[fenced](/fact/retired.md)',
+      '```',
+      '[live](/fact/retired.md)',
+    ].join('\n');
+
+    expect(extractMemoryBodyLinks(body).map(({ label }) => label))
+      .toEqual(['live']);
+    expect(rewriteMemoryBodyLinks(body, () => '/fact/survivor.md')).toBe(
+      body.replace(
+        '[live](/fact/retired.md)',
+        '[live](/fact/survivor.md)',
+      ),
+    );
+  });
+
+  it('round-trips escaped labels without accumulating escapes', () => {
+    const body = '[A \\] \\[ \\\\ label](/person/a.md)';
+    expect(extractMemoryBodyLinks(body)).toEqual([
+      {
+        label: 'A ] [ \\ label',
+        target: '/person/a.md',
+        syntax: 'markdown',
+        start: 0,
+        end: body.length,
+      },
+    ]);
+    expect(rewriteMemoryBodyLinks(body, () => '/person/b.md')).toBe(
+      '[A \\] \\[ \\\\ label](/person/b.md)',
+    );
+  });
+
+  it('supports encoded extensions, nested labels, and titled destinations', () => {
+    const body = '[Nested [label]](/person/pastor%2Emd "Pastor profile")';
+    expect(extractMemoryBodyLinks(body).map(({ label, target }) => ({
+      label,
+      target,
+    }))).toEqual([
+      {
+        label: 'Nested [label]',
+        target: '/person/pastor%2Emd',
+      },
+    ]);
+  });
+
+  it('root-resolves path-qualified wikilinks and documents bare same-dir policy', () => {
+    const body =
+      '[[person/pastor-mike|Pastor Mike]] [[neighbor]] [[../project/sunday]]';
+    expect(extractMemoryBodyLinks(body).map(({ label, target }) => ({
+      label,
+      target,
+    }))).toEqual([
+      { label: 'Pastor Mike', target: '/person/pastor-mike.md' },
+      { label: 'neighbor', target: 'neighbor.md' },
+      { label: 'sunday', target: '../project/sunday.md' },
+    ]);
+  });
+
+  it('replaces link bodies without reserializing frontmatter bytes', () => {
+    const raw = [
+      '---',
+      '# preserve this comment',
+      'kind: fact',
+      'future: { spacing: exact }',
+      '---',
+      '',
+      'Before [retired](./old.md) after.',
+      '',
+    ].join('\r\n');
+    const document = parseMemoryNote(raw);
+    const body = rewriteMemoryBodyLinks(
+      document.body,
+      () => '/fact/survivor.md',
+    );
+
+    expect(replaceMemoryNoteBody(document, body)).toBe(
+      raw.replace('./old.md', '/fact/survivor.md'),
     );
   });
 });

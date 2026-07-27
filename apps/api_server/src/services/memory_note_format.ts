@@ -696,6 +696,35 @@ export function renderParsedMemoryNote(
   );
 }
 
+/**
+ * Replace only the normalized body content of a parsed note while preserving
+ * the original frontmatter bytes, line endings, and surrounding body
+ * whitespace. Invalid-frontmatter documents are returned unchanged.
+ */
+export function replaceMemoryNoteBody(
+  document: MemoryNoteDocument,
+  body: string,
+): string {
+  if (!document.hasValidFrontmatter || body === document.body) {
+    return document.originalRaw;
+  }
+  const raw = document.originalRaw;
+  const opening = /^---(?:\r?\n)/.exec(raw);
+  if (!opening) return raw;
+  const afterOpening = opening[0].length;
+  const closing = /\r?\n---[ \t]*(?:\r?\n|$)/.exec(
+    raw.slice(afterOpening),
+  );
+  if (!closing || closing.index === undefined) return raw;
+  const bodyStart = afterOpening + closing.index + closing[0].length;
+  const originalBody = raw.slice(bodyStart);
+  const leading = originalBody.match(/^\s*/)?.[0] ?? '';
+  const trailing = originalBody.match(/\s*$/)?.[0] ?? '';
+  const lineEnding = raw.includes('\r\n') ? '\r\n' : '\n';
+  const replacement = body.replace(/\n/g, lineEnding);
+  return `${raw.slice(0, bodyStart)}${leading}${replacement}${trailing}`;
+}
+
 export function frontmatterString(
   frontmatter: Record<string, unknown>,
   key: string,
@@ -723,7 +752,281 @@ function markdownLinkTarget(raw: string): string | null {
   const hash = target.indexOf('#');
   if (hash >= 0) target = target.slice(0, hash);
   if (!target || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(target)) return null;
-  return target.toLowerCase().endsWith('.md') ? target : null;
+  try {
+    return decodeURIComponent(target).toLowerCase().endsWith('.md')
+      ? target
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+interface MemoryBodyRange {
+  start: number;
+  end: number;
+}
+
+function isEscapedAt(value: string, index: number): boolean {
+  let slashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) {
+    slashes += 1;
+  }
+  return slashes % 2 === 1;
+}
+
+function markdownUnescape(value: string): string {
+  return value.replace(
+    /\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_\x60{|}~])/g,
+    '$1',
+  );
+}
+
+function fencedCodeRanges(body: string): MemoryBodyRange[] {
+  const ranges: MemoryBodyRange[] = [];
+  let open:
+    | { character: '`' | '~'; length: number; start: number }
+    | undefined;
+  let offset = 0;
+
+  for (const lineWithEnding of body.match(/.*(?:\n|$)/g) ?? []) {
+    if (lineWithEnding === '' && offset === body.length) break;
+    const line = lineWithEnding.replace(/\r?\n$/, '');
+    const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (open) {
+      const closing = line.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
+      if (
+        closing &&
+        closing[1][0] === open.character &&
+        closing[1].length >= open.length
+      ) {
+        ranges.push({
+          start: open.start,
+          end: offset + lineWithEnding.length,
+        });
+        open = undefined;
+      }
+    } else if (
+      marker &&
+      !(marker[1][0] === '`' && marker[2].includes('`'))
+    ) {
+      open = {
+        character: marker[1][0] as '`' | '~',
+        length: marker[1].length,
+        start: offset,
+      };
+    }
+    offset += lineWithEnding.length;
+  }
+  if (open) ranges.push({ start: open.start, end: body.length });
+  return ranges;
+}
+
+function memoryCodeRanges(body: string): MemoryBodyRange[] {
+  const fenced = fencedCodeRanges(body);
+  const inline: MemoryBodyRange[] = [];
+  let fencedIndex = 0;
+
+  for (let cursor = 0; cursor < body.length;) {
+    while (
+      fencedIndex < fenced.length &&
+      cursor >= fenced[fencedIndex].end
+    ) {
+      fencedIndex += 1;
+    }
+    const currentFence = fenced[fencedIndex];
+    if (
+      currentFence &&
+      cursor >= currentFence.start &&
+      cursor < currentFence.end
+    ) {
+      cursor = currentFence.end;
+      continue;
+    }
+    if (body[cursor] !== '`' || isEscapedAt(body, cursor)) {
+      cursor += 1;
+      continue;
+    }
+
+    let runLength = 1;
+    while (body[cursor + runLength] === '`') runLength += 1;
+    let candidate = cursor + runLength;
+    let closedAt = -1;
+    while (candidate < body.length) {
+      candidate = body.indexOf('`', candidate);
+      if (candidate < 0) break;
+      let closeLength = 1;
+      while (body[candidate + closeLength] === '`') closeLength += 1;
+      if (closeLength === runLength) {
+        closedAt = candidate + closeLength;
+        break;
+      }
+      candidate += closeLength;
+    }
+    if (closedAt < 0) {
+      cursor += runLength;
+      continue;
+    }
+    inline.push({ start: cursor, end: closedAt });
+    cursor = closedAt;
+  }
+  return [...fenced, ...inline].sort((a, b) => a.start - b.start);
+}
+
+function matchingSquareBracket(body: string, start: number): number {
+  let depth = 0;
+  for (let cursor = start; cursor < body.length; cursor += 1) {
+    if (body[cursor] === '\\') {
+      cursor += 1;
+      continue;
+    }
+    if (body[cursor] === '[') depth += 1;
+    if (body[cursor] !== ']') continue;
+    depth -= 1;
+    if (depth === 0) return cursor;
+  }
+  return -1;
+}
+
+function matchingParenthesis(body: string, start: number): number {
+  let depth = 0;
+  let quote: '"' | "'" | undefined;
+  for (let cursor = start; cursor < body.length; cursor += 1) {
+    const character = body[cursor];
+    if (character === '\\') {
+      cursor += 1;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = undefined;
+      continue;
+    }
+    if (
+      (character === '"' || character === "'") &&
+      cursor > start &&
+      /\s/.test(body[cursor - 1])
+    ) {
+      quote = character;
+      continue;
+    }
+    if (character === '(') depth += 1;
+    if (character !== ')') continue;
+    depth -= 1;
+    if (depth === 0) return cursor;
+  }
+  return -1;
+}
+
+function validMarkdownLinkTitle(value: string): boolean {
+  const title = value.trim();
+  if (title === '') return true;
+  if (
+    (title.startsWith('"') && title.endsWith('"')) ||
+    (title.startsWith("'") && title.endsWith("'")) ||
+    (title.startsWith('(') && title.endsWith(')'))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function markdownDestination(contents: string): string | null {
+  const trimmed = contents.trim();
+  if (trimmed === '') return null;
+  if (trimmed.startsWith('<')) {
+    let close = 1;
+    while (close < trimmed.length) {
+      if (trimmed[close] === '\\') {
+        close += 2;
+        continue;
+      }
+      if (trimmed[close] === '>') break;
+      close += 1;
+    }
+    if (close >= trimmed.length) return null;
+    if (!validMarkdownLinkTitle(trimmed.slice(close + 1))) return null;
+    return markdownLinkTarget(markdownUnescape(trimmed.slice(1, close)));
+  }
+
+  let cursor = 0;
+  let nested = 0;
+  while (cursor < trimmed.length) {
+    const character = trimmed[cursor];
+    if (character === '\\') {
+      cursor += 2;
+      continue;
+    }
+    if (character === '(') nested += 1;
+    else if (character === ')' && nested > 0) nested -= 1;
+    else if (/\s/.test(character) && nested === 0) break;
+    cursor += 1;
+  }
+  if (!validMarkdownLinkTitle(trimmed.slice(cursor))) return null;
+  return markdownLinkTarget(markdownUnescape(trimmed.slice(0, cursor)));
+}
+
+function matchingWikiClose(body: string, start: number): number {
+  for (let cursor = start; cursor < body.length - 1; cursor += 1) {
+    if (body[cursor] === '\\') {
+      cursor += 1;
+      continue;
+    }
+    if (body[cursor] === ']' && body[cursor + 1] === ']') return cursor;
+  }
+  return -1;
+}
+
+function wikiTargetAndLabel(
+  raw: string,
+): { target: string; label: string } | null {
+  let separator = -1;
+  for (let cursor = 0; cursor < raw.length; cursor += 1) {
+    if (raw[cursor] === '\\') {
+      cursor += 1;
+      continue;
+    }
+    if (raw[cursor] === '|') {
+      separator = cursor;
+      break;
+    }
+  }
+  const rawTarget = separator >= 0 ? raw.slice(0, separator) : raw;
+  const rawLabel = separator >= 0 ? raw.slice(separator + 1) : '';
+  let target = markdownUnescape(rawTarget.trim());
+  const hash = target.indexOf('#');
+  if (hash >= 0) target = target.slice(0, hash);
+  if (!target || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(target)) return null;
+  try {
+    if (!decodeURIComponent(target).toLowerCase().endsWith('.md')) {
+      target += '.md';
+    }
+  } catch {
+    return null;
+  }
+
+  // Obsidian path-qualified wikilinks are vault-root-relative. Explicit ./ and
+  // ../ forms retain their portable relative meaning. Bare [[name]] links have
+  // no deterministic answer without a vault-wide ambiguity lookup, so the
+  // lightweight reader intentionally resolves them in the source note's dir.
+  if (
+    target.includes('/') &&
+    !target.startsWith('/') &&
+    !target.startsWith('./') &&
+    !target.startsWith('../')
+  ) {
+    target = `/${target}`;
+  }
+  let fallback = path.basename(target, path.extname(target));
+  try {
+    fallback = decodeURIComponent(fallback);
+  } catch {
+    // The target was already validated above; retain its encoded display form.
+  }
+  return {
+    target,
+    label: rawLabel.trim() === ''
+      ? fallback
+      : markdownUnescape(rawLabel.trim()),
+  };
 }
 
 /**
@@ -732,46 +1035,69 @@ function markdownLinkTarget(raw: string): string | null {
  */
 export function extractMemoryBodyLinks(body: string): MemoryBodyLink[] {
   const links: MemoryBodyLink[] = [];
-  const markdown = /\[([^\]]*)\]\(([^)]+)\)/g;
-  let match: RegExpExecArray | null;
-  while ((match = markdown.exec(body)) !== null) {
-    if (match.index > 0 && body[match.index - 1] === '!') continue;
-    const target = markdownLinkTarget(match[2]);
+  const codeRanges = memoryCodeRanges(body);
+  let codeRangeIndex = 0;
+  for (let cursor = 0; cursor < body.length; cursor += 1) {
+    while (
+      codeRangeIndex < codeRanges.length &&
+      cursor >= codeRanges[codeRangeIndex].end
+    ) {
+      codeRangeIndex += 1;
+    }
+    const codeRange = codeRanges[codeRangeIndex];
+    if (
+      codeRange &&
+      cursor >= codeRange.start &&
+      cursor < codeRange.end
+    ) {
+      cursor = codeRange.end - 1;
+      continue;
+    }
+    if (
+      body[cursor] !== '[' ||
+      isEscapedAt(body, cursor) ||
+      (
+        cursor > 0 &&
+        body[cursor - 1] === '!' &&
+        !isEscapedAt(body, cursor - 1)
+      )
+    ) {
+      continue;
+    }
+
+    if (body[cursor + 1] === '[') {
+      const close = matchingWikiClose(body, cursor + 2);
+      if (close < 0) continue;
+      const wiki = wikiTargetAndLabel(body.slice(cursor + 2, close));
+      if (!wiki) continue;
+      links.push({
+        ...wiki,
+        syntax: 'wikilink',
+        start: cursor,
+        end: close + 2,
+      });
+      cursor = close + 1;
+      continue;
+    }
+
+    const labelClose = matchingSquareBracket(body, cursor);
+    if (labelClose < 0 || body[labelClose + 1] !== '(') continue;
+    const targetClose = matchingParenthesis(body, labelClose + 1);
+    if (targetClose < 0) continue;
+    const target = markdownDestination(
+      body.slice(labelClose + 2, targetClose),
+    );
     if (!target) continue;
     links.push({
-      label: match[1],
+      label: markdownUnescape(body.slice(cursor + 1, labelClose)),
       target,
       syntax: 'markdown',
-      start: match.index,
-      end: match.index + match[0].length,
+      start: cursor,
+      end: targetClose + 1,
     });
+    cursor = targetClose;
   }
-
-  const wikilink = /\[\[([^\]]+)\]\]/g;
-  while ((match = wikilink.exec(body)) !== null) {
-    const [rawTarget, rawLabel] = match[1].split('|', 2);
-    let target = rawTarget.trim();
-    const hash = target.indexOf('#');
-    if (hash >= 0) target = target.slice(0, hash);
-    if (!target || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(target)) continue;
-    if (!target.toLowerCase().endsWith('.md')) target += '.md';
-    links.push({
-      label: rawLabel?.trim() || path.basename(target, path.extname(target)),
-      target,
-      syntax: 'wikilink',
-      start: match.index,
-      end: match.index + match[0].length,
-    });
-  }
-
-  const nonOverlapping: MemoryBodyLink[] = [];
-  for (const link of links.sort(
-    (a, b) => a.start - b.start || a.end - b.end,
-  )) {
-    const previous = nonOverlapping[nonOverlapping.length - 1];
-    if (!previous || link.start >= previous.end) nonOverlapping.push(link);
-  }
-  return nonOverlapping;
+  return links;
 }
 
 function escapeMemoryLinkLabel(label: string): string {
