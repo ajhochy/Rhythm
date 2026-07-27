@@ -319,6 +319,15 @@ describe.skipIf(!live)('creative platform heavy sandbox installer', () => {
             method: 'tools/call',
             params: { name: 'openmontage_status', arguments: {} },
           },
+          {
+            jsonrpc: '2.0',
+            id: 4,
+            method: 'tools/call',
+            params: {
+              name: 'openmontage_prepare_zero_key_assets',
+              arguments: { queries: ['modern congregation'], script_approved: false },
+            },
+          },
         ],
         { OPENMONTAGE_ROOT: root },
       );
@@ -326,6 +335,7 @@ describe.skipIf(!live)('creative platform heavy sandbox installer', () => {
         result: {
           tools: [
             expect.objectContaining({ name: 'openmontage_status' }),
+            expect.objectContaining({ name: 'openmontage_prepare_zero_key_assets' }),
           ],
         },
       });
@@ -335,6 +345,14 @@ describe.skipIf(!live)('creative platform heavy sandbox installer', () => {
             expect.objectContaining({
               text: expect.stringContaining('installed locally'),
             }),
+          ],
+        },
+      });
+      expect(responses.get(4)).toMatchObject({
+        result: {
+          isError: true,
+          content: [
+            expect.objectContaining({ text: expect.stringContaining('script_approved') }),
           ],
         },
       });
