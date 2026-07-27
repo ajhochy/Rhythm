@@ -27,6 +27,25 @@ tools/dev/sandbox.sh status
 tools/dev/sandbox.sh down
 ```
 
+For automation hosts that reap descendants when a command finishes, use the
+explicit foreground hold. It performs the same build and readiness checks as
+`up`, prints the ready message, and then remains attached to the API process.
+Keep that command active, run live tests from another command session, and use
+the unchanged `down` command to stop it:
+
+```bash
+tools/dev/sandbox.sh up --foreground
+# In another command session:
+tools/dev/sandbox.sh status
+tools/dev/sandbox.sh down
+```
+
+After readiness, both launch modes record the sole `:4097` listener only when
+its executable is the fork built in this worktree. If API shutdown leaves that
+exact engine PID behind, `down` terminates it before removing the sandbox. A
+missing record, changed PID, or executable mismatch fails closed without
+signaling the listener.
+
 The live SQLite source defaults to
 `~/Library/Application Support/Rhythm/rhythm.db`; override it only with
 `RHYTHM_LIVE_DB_PATH=/absolute/path/to/rhythm.db`. The sandbox directory

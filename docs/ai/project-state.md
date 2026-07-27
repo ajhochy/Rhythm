@@ -2,61 +2,50 @@
 
 ## Current focus
 
-MEM-OKF memory format, lifecycle, trust, provenance, navigation, links, and
-audit history for issues #1187–#1196 are implemented and live-smoked.
+Land the live-verified MEM-OKF memory format, lifecycle, trust, provenance,
+navigation, links, and audit-history work for issues #1187–#1196, then release.
 
-## Active branches / PRs
+## Active branch / PR
 
-- `codex/mem-okf`: draft PR
-  [#1205](https://github.com/ajhochy/Rhythm/pull/1205), required CI green.
-- `codex/1186-sandbox-foreground`: draft PR
-  [#1204](https://github.com/ajhochy/Rhythm/pull/1204), clean to merge after
-  human review.
-- `codex/418-quick-add-rollover`: draft PR
-  [#1203](https://github.com/ajhochy/Rhythm/pull/1203), clean to merge after
-  human review.
-- Creative installer PR
-  [#1202](https://github.com/ajhochy/Rhythm/pull/1202) is merged.
+- Branch: `codex/mem-okf`.
+- PR: [#1205](https://github.com/ajhochy/Rhythm/pull/1205).
+- Release guard #1185, Quick Add fix #1203, and sandbox fix #1204 are merged.
+- WIP PR #1165 is excluded because it is explicitly unfinished and conflicted.
 
 ## In progress
 
-- Draft PR #1205 is ready for human review; no repository-owned check failures
-  remain.
-- Keep #1187–#1196 issue-atomic commits in their required sequence.
-- Tool count is 82 (one new `rhythm_verify_memory` MCP tool); the MCP monolithic
-  index file was not edited.
+- Main is merged into #1205; the only conflict was this canonical state
+  snapshot.
+- Revalidate the integrated API/MCP gates and required GitHub checks on the
+  exact updated head.
+- Dispatch the next desktop patch release from the resulting main commit.
 
 ## Risks / known issues
 
 - `buildMemoryPreface` and the audit enqueue path have broad upstream blast
   radii; targeted, full-memory, full-API, and live sandbox gates passed.
 - Mechanical consolidation/revert has no public HTTP, WebSocket, or MCP trigger,
-  so those behaviors are real-filesystem/SQLite integration-tested rather than
-  live-route tested.
-- Exact caller-controlled `(by, at)` lifecycle replay and authenticated
-  owner/cross-owner verification have no credential-free live surface; their
-  integration coverage is recorded in the verification contract.
-- Flutter analyze is blocked before analysis by the host Dart 3.5.4 runtime;
-  current dependencies require Dart 3.7 or newer. Dart formatting passes.
+  so those behaviors are real-filesystem/SQLite integration-tested.
+- The host Flutter SDK is older than the current desktop dependency
+  requirement; GitHub release runners install current stable Flutter.
+- API image publication updates GHCR only; Synology deployment remains a
+  separate manual pull and compose restart.
+- Human post-release verification remains required for the signed macOS build.
 
 ## Test status
 
-- API TypeScript build/typecheck: PASS.
-- Full API suite: PASS, 384 files and 3,380 tests; 34 files/61 tests skipped.
-- MCP build/tests: PASS, 101 passed and 1 skipped.
-- Combined live sandbox: PASS twice, 5/5 tests through real HTTP, WebSocket,
+- #1185 focused release-smoke parity test: PASS, 9/9; merged.
+- #1203 focused updated-head rollover suite: PASS; prior live sandbox PASS;
+  merged.
+- #1204 focused updated-head process suite: PASS, 7/7; fresh Server CI PASS;
+  merged.
+- #1205 API TypeScript build/typecheck: PASS.
+- #1205 updated-head full API suite: PASS, 3,388 tests; MCP: PASS, 101 tests.
+- #1205 combined live sandbox: PASS three times, 5/5 through real HTTP, WebSocket,
   built MCP stdio, copied SQLite, sandbox vault, and fork engine.
-- Sandbox isolation: PASS; :4098/:4097 removed and live PIDs 965 (:4001) and
-  1011 (:4096) unchanged.
-- Agent-stack PR check: Dart format, API typecheck, and API suite PASS; Flutter
-  analyze blocked only by the documented host SDK mismatch.
-- GitHub CI: Type-check and build PASS; server-checks PASS.
-- GitNexus compare against `origin/main`: LOW risk, zero affected indexed
-  execution processes.
-- Evidence:
-  `docs/ai/runs/2026-07-26-mem-okf.md` and
-  `docs/ai/contracts/issue-1187-1196.json`.
+- #1205 previous required GitHub CI: PASS.
 
 ## Next step
 
-Human review of draft PRs #1203, #1204, and #1205. Do not merge automatically.
+Merge #1205 after its exact updated-head local and GitHub gates, then trigger
+and monitor the next desktop patch release from final `main`.
