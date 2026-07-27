@@ -53,6 +53,7 @@ import {
 import { EngraphHttpClient, mapEngraphFileToSourceId } from './engraph_client';
 import type { EngraphClient } from './engraph_client';
 import { engraphManager } from './engraph_manager';
+import { isActive } from './memory_note_format';
 
 const DEFAULT_TOP_N = 5;
 
@@ -63,6 +64,28 @@ const MAX_QUERY_TOKENS = 12;
 const RRF_K = 60;
 
 type MemoryRepository = Pick<AgentMemoryRepository, 'searchAsync' | 'findBySourceIdsAsync'>;
+
+function currentDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isMemoryActive(memory: AgentMemory, today: string): boolean {
+  return isActive({
+    status: memory.status,
+    stale_after: memory.staleAfter,
+  }, today);
+}
+
+function trustRank(memory: AgentMemory): number {
+  switch (memory.trustTier) {
+    case 'human':
+      return 2;
+    case 'machine':
+      return 1;
+    default:
+      return 0;
+  }
+}
 
 /**
  * Very common English words that carry no retrieval signal. Kept tiny on
@@ -138,10 +161,10 @@ export function isMemoryInjectionEnabled(): boolean {
  *
  * A memory is scored by the number of DISTINCT probes that returned it — more
  * matched tokens is a strong relevance signal an early-exit union can't see.
- * Rank order is: match count (desc), then the best (lowest) index the memory
- * held within any single probe's results (asc — a probe's own ranking is
- * itself a relevance signal), then first-seen order across probes (asc, for a
- * fully deterministic tie-break).
+ * Rank order is: match count (desc), trust tier (human > machine > unverified),
+ * then the best (lowest) index the memory held within any single probe's
+ * results (asc — a probe's own ranking is itself a relevance signal), then
+ * first-seen order across probes (asc, for a fully deterministic tie-break).
  *
  * JUNK SUPPRESSION: a memory that only shares ONE word with the prompt is easy
  * to hit by coincidence (e.g. a common noun) and crowds out genuinely relevant
@@ -168,6 +191,9 @@ export async function getRelevantMemories(
   // null-owner-only retrieval when no owner is known.
   const ownerArg = ownerUserId == null ? undefined : ownerUserId;
   const wanted = ownerUserId == null ? null : ownerUserId;
+  // Capture once per call, never at module load: a long-running process starts
+  // excluding a note on its stale_after boundary without restart or reindex.
+  const today = currentDate();
 
   // Probe each significant token. Fall back to the raw query when tokenization
   // yields nothing (e.g. all-stopword / non-latin input) — that fallback is
@@ -180,7 +206,10 @@ export async function getRelevantMemories(
   const probeResults = await Promise.all(
     probes.map(async (probe): Promise<AgentMemory[] | null> => {
       try {
-        return await repo.searchAsync(probe, ownerArg, topN);
+        return await repo.searchAsync(probe, ownerArg, topN, {
+          activeOnly: true,
+          today,
+        });
       } catch {
         return null; // one probe failing must not abort the rest
       }
@@ -203,6 +232,10 @@ export async function getRelevantMemories(
       // Defense in depth: enforce exact owner match (incl. null-owner-only when
       // no owner is known) regardless of the repo SQL filter.
       if (m.ownerUserId !== wanted) continue;
+      // Defense in depth for injected/fake repositories. The real SQLite
+      // repository applies this gate in SQL before LIMIT so inactive rows are
+      // replaced by the next-best live rows instead of shrinking the result.
+      if (!isMemoryActive(m, today)) continue;
       const existing = byId.get(m.id);
       if (existing) {
         existing.matchCount += 1;
@@ -219,6 +252,7 @@ export async function getRelevantMemories(
 
   ranked.sort((a, b) => (
     b.matchCount - a.matchCount
+    || trustRank(b.memory) - trustRank(a.memory)
     || a.bestIndex - b.bestIndex
     || a.firstSeen - b.firstSeen
   ));
@@ -232,9 +266,15 @@ export function fuseMemoryRanks(
   semantic: AgentMemory[],
   topN: number,
 ): AgentMemory[] {
+  const today = currentDate();
   const fused = new Map<string, { memory: AgentMemory; score: number; first: number }>();
   let first = 0;
-  for (const ranked of [fts, semantic]) {
+  // Gate each lane before calculating RRF positions and before topN slicing.
+  // A stale high-rank entry therefore cannot consume a rank or output slot.
+  for (const ranked of [
+    fts.filter((memory) => isMemoryActive(memory, today)),
+    semantic.filter((memory) => isMemoryActive(memory, today)),
+  ]) {
     ranked.forEach((memory, index) => {
       const current = fused.get(memory.id);
       const score = 1 / (RRF_K + index + 1);
@@ -243,7 +283,11 @@ export function fuseMemoryRanks(
     });
   }
   return [...fused.values()]
-    .sort((a, b) => b.score - a.score || a.first - b.first)
+    .sort((a, b) => (
+      b.score - a.score
+      || trustRank(b.memory) - trustRank(a.memory)
+      || a.first - b.first
+    ))
     .slice(0, topN)
     .map(({ memory }) => memory);
 }
@@ -266,7 +310,10 @@ export async function getRelevantMemoriesSemantic(
   engraph: EngraphClient = new EngraphHttpClient(undefined, undefined, getSemanticSearchBudgetMs()),
 ): Promise<AgentMemory[]> {
   const ftsPromise = getRelevantMemories(query, ownerUserId, topN, repo);
-  const hitsPromise = engraph.search(query, topN).catch(() => []);
+  // Engraph truncates its response to this limit. Overfetch before the active
+  // gate so stale hits can be replaced by lower-ranked live candidates.
+  const semanticCandidateLimit = Math.max(topN * 4, topN);
+  const hitsPromise = engraph.search(query, semanticCandidateLimit).catch(() => []);
   const [fts, hits] = await Promise.all([ftsPromise, hitsPromise]);
   if (hits.length === 0) return fts;
 
@@ -278,9 +325,14 @@ export async function getRelevantMemoriesSemantic(
   if (sourceIds.length === 0) return fts;
 
   const wanted = ownerUserId == null ? null : ownerUserId;
+  const today = currentDate();
   let joined: AgentMemory[];
   try {
-    joined = await repo.findBySourceIdsAsync('obsidian-memory', sourceIds, wanted ?? undefined);
+    joined = await repo.findBySourceIdsAsync(
+      'obsidian-memory',
+      sourceIds,
+      wanted ?? undefined,
+    );
   } catch {
     return fts;
   }
@@ -294,7 +346,10 @@ export async function getRelevantMemoriesSemantic(
   }
   const semantic = sourceIds.flatMap((sourceId) => {
     const candidates = candidatesBySourceId.get(sourceId);
-    return candidates?.length === 1 ? candidates : [];
+    return candidates?.length === 1 &&
+        isMemoryActive(candidates[0], today)
+      ? candidates
+      : [];
   });
   return semantic.length === 0 ? fts : fuseMemoryRanks(fts, semantic, topN);
 }
@@ -372,6 +427,10 @@ export async function buildMemoryPreface(
     // call sites also wrap this in try/catch as a second backstop.
     return { text: '', memoryIds: [], notePaths: [] };
   }
+  // Custom retrieval hooks and future lanes still cannot bypass lifecycle
+  // gating. Default FTS/semantic lanes already gate before truncation.
+  const today = currentDate();
+  matches = matches.filter((memory) => isMemoryActive(memory, today));
   if (!matches || matches.length === 0) return { text: '', memoryIds: [], notePaths: [] };
 
   const lines = ['## Known context (facts & preferences)'];

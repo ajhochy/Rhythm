@@ -33,6 +33,16 @@ export interface CreateAgentMemoryInput {
   ownerUserId?: number;
 }
 
+export interface MemorySearchOptions {
+  /**
+   * Automatic-injection-only lifecycle gate. Ordinary repository callers,
+   * including explicit MCP recall, leave this false and see inactive rows.
+   */
+  activeOnly?: boolean;
+  /** YYYY-MM-DD boundary captured at retrieval call time. */
+  today?: string;
+}
+
 function rowToModel(row: Record<string, unknown>): AgentMemory {
   return {
     id: row.id as string,
@@ -121,7 +131,12 @@ export class AgentMemoryRepository {
     return row ? rowToModel(row as Record<string, unknown>) : null;
   }
 
-  async searchAsync(query: string, ownerUserId?: number, limit = 20): Promise<AgentMemory[]> {
+  async searchAsync(
+    query: string,
+    ownerUserId?: number,
+    limit = 20,
+    options: MemorySearchOptions = {},
+  ): Promise<AgentMemory[]> {
     if (env.dbClient === 'postgres') {
       const params: unknown[] = [query];
       const ownerFilter = ownerUserId != null ? `AND owner_user_id = $2` : '';
@@ -142,8 +157,15 @@ export class AgentMemoryRepository {
     // SQLite: try FTS5 first, fall back to LIKE
     try {
       const ownerFilter = ownerUserId != null ? 'AND m.owner_user_id = ?' : '';
+      const activeFilter = options.activeOnly
+        ? `AND m.status != 'deprecated'
+           AND (m.stale_after IS NULL OR m.stale_after > ?)`
+        : '';
       const params: unknown[] = [query];
       if (ownerUserId != null) params.push(ownerUserId);
+      if (options.activeOnly) {
+        params.push(options.today ?? new Date().toISOString().slice(0, 10));
+      }
       params.push(limit);
       const rows = getDb().prepare(`
         SELECT m.id, m.kind, m.content, m.source, m.source_id, m.tags_json,
@@ -152,7 +174,7 @@ export class AgentMemoryRepository {
                m.owner_user_id, m.created_at, m.updated_at
         FROM agent_memory m
         JOIN agent_memory_fts f ON m.rowid = f.rowid
-        WHERE agent_memory_fts MATCH ? ${ownerFilter}
+        WHERE agent_memory_fts MATCH ? ${ownerFilter} ${activeFilter}
         ORDER BY rank
         LIMIT ?
       `).all(...params);
@@ -161,14 +183,23 @@ export class AgentMemoryRepository {
       // FTS unavailable — fall back to LIKE
       const likeQuery = `%${query}%`;
       const ownerFilter = ownerUserId != null ? 'AND owner_user_id = ?' : '';
+      const activeFilter = options.activeOnly
+        ? `AND status != 'deprecated'
+           AND (stale_after IS NULL OR stale_after > ?)`
+        : '';
       const params: unknown[] = [likeQuery];
       if (ownerUserId != null) params.push(ownerUserId);
+      if (options.activeOnly) {
+        params.push(options.today ?? new Date().toISOString().slice(0, 10));
+      }
       params.push(limit);
       const rows = getDb().prepare(
         `SELECT id, kind, content, source, source_id, tags_json,
                 status, stale_after, verified_json, generated_by, generated_at, trust_tier,
                 owner_user_id, created_at, updated_at
-         FROM agent_memory WHERE content LIKE ? ${ownerFilter} LIMIT ?`,
+         FROM agent_memory
+         WHERE content LIKE ? ${ownerFilter} ${activeFilter}
+         LIMIT ?`,
       ).all(...params);
       return (rows as Record<string, unknown>[]).map(rowToModel);
     }

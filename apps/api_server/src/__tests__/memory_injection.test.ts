@@ -22,6 +22,7 @@ import {
   buildMemoryPreface,
   getRelevantMemories,
 } from '../services/memory_retrieval';
+import { agentMemoryService } from '../services/agentMemoryService';
 
 // ── DB helpers ──────────────────────────────────────────────────────────────────
 
@@ -93,6 +94,11 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
     expect(preface.text).toContain('The senior pastor prefers Tuesday meetings');
     expect(preface.text).toContain('Budget approvals go through the elder board');
     expect(preface.memoryIds).toEqual(['mem-a', 'mem-b']);
+    expect(preface.text).toBe([
+      '## Known context (facts & preferences)',
+      '- The senior pastor prefers Tuesday meetings',
+      '- Budget approvals go through the elder board',
+    ].join('\n'));
   });
 
   it('toggle OFF (AGENT_MEMORY_INJECTION_ENABLED="false") → empty preface, retrieval NOT called', async () => {
@@ -120,6 +126,21 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
     const preface = await buildMemoryPreface('q', 1, { getRelevant: fakeGetRelevant });
     expect(preface.text).toBe('');
     expect(preface.memoryIds).toEqual([]);
+  });
+
+  it('defensively excludes inactive rows returned by a custom retrieval hook', async () => {
+    const fakeGetRelevant = vi.fn().mockResolvedValue([
+      mem({ id: 'stale', content: 'Expired detail', staleAfter: '2000-01-01' }),
+      mem({ id: 'deprecated', content: 'Deprecated detail', status: 'deprecated' }),
+      mem({ id: 'live', content: 'Current detail' }),
+    ]);
+
+    await expect(buildMemoryPreface('q', 1, { getRelevant: fakeGetRelevant }))
+      .resolves.toEqual({
+        text: '## Known context (facts & preferences)\n- Current detail',
+        memoryIds: ['live'],
+        notePaths: [null],
+      });
   });
 });
 
@@ -182,6 +203,57 @@ describe('memory injection — getRelevantMemories is OWNER-SCOPED (no cross-use
     const preface = await buildMemoryPreface('standups', 1);
     expect(preface.text).toBe('');
     expect(preface.memoryIds).toEqual([]);
+  });
+
+  it('filters in SQL before LIMIT so inactive rows do not consume live slots', async () => {
+    const repo = new AgentMemoryRepository();
+    const marker = `replacement${randomUUID().replaceAll('-', '')}`;
+    const rows = [];
+    for (let index = 0; index < 8; index += 1) {
+      rows.push(await repo.createAsync({
+        content: `${marker} candidate ${index}`,
+        ownerUserId: undefined,
+      }));
+    }
+    activeDb!.prepare(
+      `UPDATE agent_memory SET status = 'deprecated' WHERE id = ?`,
+    ).run(rows[0].id);
+    activeDb!.prepare(
+      `UPDATE agent_memory SET stale_after = '2000-01-01' WHERE id = ?`,
+    ).run(rows[1].id);
+
+    const matches = await getRelevantMemories(marker, null, 5, repo);
+    expect(matches).toHaveLength(5);
+    expect(matches.map(({ id }) => id)).not.toContain(rows[0].id);
+    expect(matches.map(({ id }) => id)).not.toContain(rows[1].id);
+  });
+
+  it('keeps inactive rows visible to explicit MCP-backed search', async () => {
+    const repo = new AgentMemoryRepository();
+    const marker = `explicit${randomUUID().replaceAll('-', '')}`;
+    const deprecated = await repo.createAsync({
+      content: `${marker} deprecated`,
+      ownerUserId: undefined,
+    });
+    const stale = await repo.createAsync({
+      content: `${marker} stale`,
+      ownerUserId: undefined,
+    });
+    activeDb!.prepare(
+      `UPDATE agent_memory SET status = 'deprecated' WHERE id = ?`,
+    ).run(deprecated.id);
+    activeDb!.prepare(
+      `UPDATE agent_memory SET stale_after = '2000-01-01' WHERE id = ?`,
+    ).run(stale.id);
+
+    // rhythm_search_memory calls agentMemoryService.search, which intentionally
+    // leaves the repository's activeOnly option unset.
+    const explicit = await agentMemoryService.search(marker, undefined, 20);
+    expect(new Set(explicit.map(({ id }) => id))).toEqual(
+      new Set([deprecated.id, stale.id]),
+    );
+    await expect(getRelevantMemories(marker, null, 5, repo))
+      .resolves.toEqual([]);
   });
 });
 

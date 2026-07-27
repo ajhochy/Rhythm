@@ -104,4 +104,85 @@ describe('multi-token FTS ranking (step 1 smoke)', () => {
     // m1 and m2 each matched both tokens; m3/m4 matched one and are suppressed.
     expect(result.map(({ id }) => id)).toEqual(['m1', 'm2']);
   });
+
+  it('gates inactive rows before topN so stale hits are replaced, not merely dropped', async () => {
+    const live = (id: string) => memory(id);
+    const stale = (id: string) => memory(id, { staleAfter: '2000-01-01' });
+    const deprecated = memory('deprecated', { status: 'deprecated' });
+
+    const threeLive = repoByProbe({
+      schedule: [
+        stale('stale-1'),
+        deprecated,
+        stale('stale-2'),
+        live('live-1'),
+        live('live-2'),
+        live('live-3'),
+      ],
+    });
+    await expect(getRelevantMemories('schedule', 1, 5, threeLive))
+      .resolves.toMatchObject([
+        { id: 'live-1' },
+        { id: 'live-2' },
+        { id: 'live-3' },
+      ]);
+
+    const sixLive = repoByProbe({
+      schedule: [
+        stale('stale-3'),
+        deprecated,
+        ...Array.from({ length: 6 }, (_, index) => live(`replacement-${index + 1}`)),
+      ],
+    });
+    const result = await getRelevantMemories('schedule', 1, 5, sixLive);
+    expect(result.map(({ id }) => id)).toEqual([
+      'replacement-1',
+      'replacement-2',
+      'replacement-3',
+      'replacement-4',
+      'replacement-5',
+    ]);
+    expect(sixLive.searchAsync).toHaveBeenCalledWith(
+      'schedule',
+      1,
+      5,
+      expect.objectContaining({ activeOnly: true, today: expect.any(String) }),
+    );
+  });
+
+  it('treats stale_after equal to the current call date as stale', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const repo = repoByProbe({
+      boundary: [
+        memory('expires-today', { staleAfter: today }),
+        memory('future', { staleAfter: '2999-01-01' }),
+      ],
+    });
+
+    await expect(getRelevantMemories('boundary', 1, 5, repo))
+      .resolves.toMatchObject([{ id: 'future' }]);
+  });
+
+  it('uses trust below relevance and above per-probe rank', async () => {
+    const human = memory('human', { trustTier: 'human' });
+    const machine = memory('machine', { trustTier: 'machine' });
+    const unverified = memory('unverified');
+    const equalRelevance = repoByProbe({
+      schedule: [unverified, machine, human],
+    });
+    expect((await getRelevantMemories('schedule', 1, 5, equalRelevance))
+      .map(({ id }) => id)).toEqual(['human', 'machine', 'unverified']);
+
+    const strongerUnverified = repoByProbe({
+      alpha: [unverified, human],
+      beta: [unverified, human],
+      gamma: [unverified],
+    });
+    expect((await getRelevantMemories(
+      'alpha beta gamma',
+      1,
+      5,
+      strongerUnverified,
+    )).map(({ id }) => id)).toEqual(['unverified', 'human']);
+  });
 });
