@@ -62,6 +62,9 @@ export interface MemoryUsageWindow extends Record<string, unknown> {
   to?: string;
 }
 
+/** Source ids must be valid markdown footnote labels. */
+export const MEMORY_SOURCE_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
+
 export interface NoteFrontmatter extends Record<string, unknown> {
   id: string;
   kind: MemoryKind;
@@ -377,6 +380,22 @@ export function memorySources(
   return sources;
 }
 
+/** Report non-empty source ids that cannot be referenced by OKF footnotes. */
+export function invalidMemorySourceIds(
+  frontmatter: Record<string, unknown>,
+): string[] {
+  if (!Array.isArray(frontmatter.sources)) return [];
+  const invalid: string[] = [];
+  for (const value of frontmatter.sources) {
+    if (!isPlainMapping(value) || typeof value.id !== 'string') continue;
+    const id = value.id.trim();
+    if (id && !MEMORY_SOURCE_ID_PATTERN.test(id) && !invalid.includes(id)) {
+      invalid.push(id);
+    }
+  }
+  return invalid;
+}
+
 export function memoryUsageWindow(
   frontmatter: Record<string, unknown>,
 ): MemoryUsageWindow | undefined {
@@ -388,6 +407,17 @@ export function memoryUsageWindow(
     else delete window[key];
   }
   return window;
+}
+
+export function isReversedMemoryUsageWindow(
+  usageWindow: MemoryUsageWindow | undefined,
+): boolean {
+  const normalized = memoryUsageWindow({ usage_window: usageWindow });
+  return Boolean(
+    normalized?.from &&
+    normalized?.to &&
+    normalized.from > normalized.to
+  );
 }
 
 const SOURCE_FOOTNOTE_PATTERN = /\[\^([A-Za-z0-9_-]+)\]/g;

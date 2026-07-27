@@ -44,16 +44,19 @@ import type { AgentMemory, AgentMemoryRepository } from '../repositories/agent_m
 import { logger } from '../utils/logger';
 import {
   MEMORY_MERGE_THRESHOLD,
+  MemoryAttributionMergeError,
   mergeAttributedMemoryContent,
   textSimilarity,
   type AttributedMemoryMergeResult,
 } from './memory_similarity';
 import {
   DEFAULT_MEMORY_ACTOR,
+  MEMORY_SOURCE_ID_PATTERN,
   VALID_MEMORY_KINDS,
   VALID_MEMORY_STATUSES,
   frontmatterString,
   generatedMetadata,
+  isReversedMemoryUsageWindow,
   memorySources,
   memoryUsageWindow,
   mergeLifecycleMetadata,
@@ -233,6 +236,14 @@ function captureSources(
   sources: MemorySource[];
   supplied: boolean;
 } {
+  for (const candidate of input.sources ?? []) {
+    const id = typeof candidate?.id === 'string' ? candidate.id.trim() : '';
+    if (id && !MEMORY_SOURCE_ID_PATTERN.test(id)) {
+      throw new MemoryWriteError(
+        'Each source id must match [A-Za-z0-9_-]+.',
+      );
+    }
+  }
   const sources = memorySources({ sources: input.sources });
   const sourceKind = source.trim().toLowerCase();
   const sourceSessionId = typeof input.sourceId === 'string' &&
@@ -399,6 +410,11 @@ export async function rememberToVault(
   const requestedUsageWindow = input.usageWindow !== undefined
     ? memoryUsageWindow({ usage_window: input.usageWindow })
     : undefined;
+  if (isReversedMemoryUsageWindow(requestedUsageWindow)) {
+    throw new MemoryWriteError(
+      'usageWindow.from must not be later than usageWindow.to.',
+    );
+  }
   const generated = {
     by: DEFAULT_MEMORY_ACTOR,
     at: new Date().toISOString(),
@@ -426,6 +442,7 @@ export async function rememberToVault(
   let semanticMerge = false;
   let contentToWrite = content;
   let attributionMerge: AttributedMemoryMergeResult | undefined;
+  let attributionMergeBlocked = false;
 
   if (id) {
     // Find an existing note in this kind's dir carrying the same frontmatter id.
@@ -453,24 +470,12 @@ export async function rememberToVault(
       createdToPreserve = exact.created;
       frontmatterToPreserve = exact.frontmatter;
       foundExisting = true;
-    } else {
-      // No exact content-key match — look for a note that GENUINELY overlaps
-      // in theme (same kind, high similarity) and merge onto it instead of
-      // creating a near-duplicate file.
-      const similar = await findBestSimilarNoteInKind(kindDir, memoryDir, content);
-      if (similar) {
-        relPath = similar.relPath;
-        id = similar.id;
-        const meta2 = await readNoteMeta(resolveWithinMemoryDir(memoryDir, similar.relPath));
-        createdToPreserve = meta2.created;
-        frontmatterToPreserve = similar.frontmatter;
-        foundExisting = true;
-        semanticMerge = true;
+      try {
         attributionMerge = mergeAttributedMemoryContent(
           {
-            body: similar.body,
-            sources: memorySources(similar.frontmatter),
-            usageWindow: memoryUsageWindow(similar.frontmatter),
+            body: exact.body,
+            sources: memorySources(exact.frontmatter),
+            usageWindow: memoryUsageWindow(exact.frontmatter),
           },
           {
             body: content,
@@ -479,6 +484,48 @@ export async function rememberToVault(
           },
         );
         contentToWrite = attributionMerge.body;
+      } catch (err) {
+        if (!(err instanceof MemoryAttributionMergeError)) throw err;
+        attributionMergeBlocked = true;
+        logger.warn(
+          `[MemoryWrite] skipped attribution merge for ${relPath}: ${err.message}`,
+        );
+      }
+    } else {
+      // No exact content-key match — look for a note that GENUINELY overlaps
+      // in theme (same kind, high similarity) and merge onto it instead of
+      // creating a near-duplicate file.
+      const similar = await findBestSimilarNoteInKind(kindDir, memoryDir, content);
+      if (similar) {
+        try {
+          attributionMerge = mergeAttributedMemoryContent(
+            {
+              body: similar.body,
+              sources: memorySources(similar.frontmatter),
+              usageWindow: memoryUsageWindow(similar.frontmatter),
+            },
+            {
+              body: content,
+              sources: requestedSources.sources,
+              usageWindow: requestedUsageWindow,
+            },
+          );
+          relPath = similar.relPath;
+          id = similar.id;
+          const meta2 = await readNoteMeta(
+            resolveWithinMemoryDir(memoryDir, similar.relPath),
+          );
+          createdToPreserve = meta2.created;
+          frontmatterToPreserve = similar.frontmatter;
+          foundExisting = true;
+          semanticMerge = true;
+          contentToWrite = attributionMerge.body;
+        } catch (err) {
+          if (!(err instanceof MemoryAttributionMergeError)) throw err;
+          logger.warn(
+            `[MemoryWrite] skipped unsafe candidate ${similar.relPath}: ${err.message}`,
+          );
+        }
       }
     }
   }
@@ -537,20 +584,25 @@ export async function rememberToVault(
       ? {
           ...mergedLifecycle,
           generated: generatedMetadata(frontmatterToPreserve) ?? generated,
-          sources: attributionMerge && attributionMerge.sources.length > 0
-            ? attributionMerge.sources
-            : undefined,
-          usage_window: attributionMerge?.usageWindow,
         }
       : {}),
-    ...(!semanticMerge && requestedSources.supplied
+    ...(attributionMerge
+      ? {
+          sources: attributionMerge.sources.length > 0
+            ? attributionMerge.sources
+            : undefined,
+          usage_window: attributionMerge.usageWindow,
+        }
+      : {}),
+    ...(!attributionMerge && !attributionMergeBlocked && requestedSources.supplied
       ? {
           sources: requestedSources.sources.length > 0
             ? requestedSources.sources
             : undefined,
         }
       : {}),
-    ...(!semanticMerge && input.usageWindow !== undefined
+    ...(!attributionMerge && !attributionMergeBlocked &&
+        input.usageWindow !== undefined
       ? { usage_window: requestedUsageWindow }
       : {}),
   };

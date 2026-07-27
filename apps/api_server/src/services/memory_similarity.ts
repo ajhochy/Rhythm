@@ -16,8 +16,11 @@
 import { isDeepStrictEqual } from 'node:util';
 
 import {
+  MEMORY_SOURCE_ID_PATTERN,
+  isReversedMemoryUsageWindow,
   memorySources,
   memoryUsageWindow,
+  validateNoteSources,
   type MemorySource,
   type MemoryUsageWindow,
 } from './memory_note_format';
@@ -103,6 +106,13 @@ export interface AttributedMemoryMergeResult {
   usageWindow?: MemoryUsageWindow;
 }
 
+export class MemoryAttributionMergeError extends Error {
+  constructor(side: 'survivor' | 'incoming', reason: string) {
+    super(`${side} attribution is unsafe to merge: ${reason}`);
+    this.name = 'MemoryAttributionMergeError';
+  }
+}
+
 function nextSourceId(
   base: string,
   reserved: Set<string>,
@@ -152,6 +162,30 @@ function widestUsageWindow(
   return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
+function assertAttributionSafe(
+  side: 'survivor' | 'incoming',
+  part: AttributedMemoryPart,
+): MemorySource[] {
+  const sources = memorySources({ sources: part.sources });
+  const invalidIds = sources
+    .map(({ id }) => id)
+    .filter((id) => !MEMORY_SOURCE_ID_PATTERN.test(id));
+  if (invalidIds.length > 0) {
+    throw new MemoryAttributionMergeError(side, 'invalid source id');
+  }
+  const validation = validateNoteSources({ body: part.body, sources });
+  if (validation.danglingFootnoteReferences.length > 0) {
+    throw new MemoryAttributionMergeError(
+      side,
+      'dangling footnote reference',
+    );
+  }
+  if (isReversedMemoryUsageWindow(part.usageWindow)) {
+    throw new MemoryAttributionMergeError(side, 'reversed usage window');
+  }
+  return sources;
+}
+
 /**
  * Merge a folded-in note's attribution alongside its body.
  *
@@ -163,8 +197,8 @@ export function mergeAttributedMemoryContent(
   survivor: AttributedMemoryPart,
   incoming: AttributedMemoryPart,
 ): AttributedMemoryMergeResult {
-  const sources = memorySources({ sources: survivor.sources });
-  const incomingSources = memorySources({ sources: incoming.sources });
+  const sources = assertAttributionSafe('survivor', survivor);
+  const incomingSources = assertAttributionSafe('incoming', incoming);
   const byId = new Map(sources.map((source) => [source.id, source]));
   const reserved = new Set([
     ...sources.map(({ id }) => id),
@@ -187,11 +221,7 @@ export function mergeAttributedMemoryContent(
     const incomingResource = typeof source.resource === 'string'
       ? source.resource
       : undefined;
-    if (
-      survivorResource !== undefined &&
-      incomingResource !== undefined &&
-      survivorResource !== incomingResource
-    ) {
+    if (survivorResource !== incomingResource) {
       const rekeyedId = nextSourceId(source.id, reserved);
       const rekeyed = { ...source, id: rekeyedId };
       sources.push(rekeyed);
@@ -211,8 +241,16 @@ export function mergeAttributedMemoryContent(
   }
 
   const rewrittenIncoming = rewriteFootnoteIds(incoming.body, replacements);
+  const body = mergeMemoryContent(survivor.body, rewrittenIncoming);
+  const mergedValidation = validateNoteSources({ body, sources });
+  if (mergedValidation.danglingFootnoteReferences.length > 0) {
+    throw new MemoryAttributionMergeError(
+      'incoming',
+      'merged result has a dangling footnote reference',
+    );
+  }
   return {
-    body: mergeMemoryContent(survivor.body, rewrittenIncoming),
+    body,
     sources,
     usageWindow: widestUsageWindow(
       survivor.usageWindow,

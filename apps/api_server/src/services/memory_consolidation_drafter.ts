@@ -50,7 +50,6 @@ import {
   parseNote,
 } from './memoryVaultSyncService';
 import {
-  readNoteFull,
   renderMemoryNote,
   resolveWithinMemoryDir,
   isoDate,
@@ -65,9 +64,14 @@ import {
 } from './memory_similarity';
 import {
   CONSOLIDATION_MEMORY_ACTOR,
+  frontmatterString,
+  invalidMemorySourceIds,
+  isReversedMemoryUsageWindow,
   memorySources,
   memoryUsageWindow,
   mergeLifecycleMetadata,
+  parseMemoryNote,
+  validateNoteSources,
 } from './memory_note_format';
 import { logger } from '../utils/logger';
 
@@ -115,6 +119,7 @@ interface NoteRecord {
   body: string;
   created: string;
   frontmatter: Record<string, unknown>;
+  fileContent: string;
 }
 
 /**
@@ -145,10 +150,31 @@ export async function runMemoryConsolidation(
     } catch {
       continue; // a row pointing outside the memory dir is never touched
     }
-    const full = await readNoteFull(abs);
-    if (!full.id) {
+    let fileContent: string;
+    try {
+      fileContent = await fs.readFile(abs, 'utf8');
+    } catch {
       logger.warn(
         `[MemoryConsolidation] skipped unreadable or malformed note ${sourceId}`,
+      );
+      continue;
+    }
+    const document = parseMemoryNote(fileContent);
+    const id = frontmatterString(document.frontmatter, 'id');
+    if (!id || !document.hasValidFrontmatter) {
+      logger.warn(
+        `[MemoryConsolidation] skipped unreadable or malformed note ${sourceId}`,
+      );
+      continue;
+    }
+    const sourceValidation = validateNoteSources(document);
+    if (
+      invalidMemorySourceIds(document.frontmatter).length > 0 ||
+      sourceValidation.danglingFootnoteReferences.length > 0 ||
+      isReversedMemoryUsageWindow(document.usageWindow)
+    ) {
+      logger.warn(
+        `[MemoryConsolidation] skipped attribution-unsafe note ${sourceId}`,
       );
       continue;
     }
@@ -162,32 +188,27 @@ export async function runMemoryConsolidation(
     records.push({
       vaultRelKey: sourceId,
       abs,
-      id: full.id,
+      id,
       kind: row.kind as MemoryKind,
       tags,
-      body: full.body,
-      created: full.created ?? isoDate(),
-      frontmatter: full.frontmatter,
+      body: document.body,
+      created: frontmatterString(document.frontmatter, 'created') ?? isoDate(),
+      frontmatter: document.frontmatter,
+      fileContent,
     });
   }
 
-  // Before-snapshot: capture every candidate note's full file content BEFORE
-  // any mutation, so a revert can restore it byte-for-byte.
-  const beforeSnapshot: MemoryConsolidationSnapshot = { entries: [] };
-  for (const r of records) {
-    let fileContent: string;
-    try {
-      fileContent = await fs.readFile(r.abs, 'utf8');
-    } catch {
-      continue;
-    }
-    beforeSnapshot.entries.push({
+  // The exact bytes used to parse each eligible record are also its snapshot.
+  // This single-read design prevents a note whose snapshot read failed from
+  // remaining eligible for mutation or retirement.
+  const beforeSnapshot: MemoryConsolidationSnapshot = {
+    entries: records.map((r) => ({
       vaultRelKey: r.vaultRelKey,
-      fileContent,
+      fileContent: r.fileContent,
       kind: r.kind,
       tags: r.tags,
-    });
-  }
+    })),
+  };
 
   // Group by kind — merging never crosses kind boundaries (#859 framing: a
   // dev-quality note and an operating-mode note must stay distinct even if
@@ -209,7 +230,12 @@ export async function runMemoryConsolidation(
 
       // The OLDEST note (by created date, ties broken by original order)
       // survives as the canonical note.
-      const sorted = [...cluster].sort((a, b) => (a.created < b.created ? -1 : a.created > b.created ? 1 : 0));
+      const sorted = [...cluster].sort(
+        (a, b) =>
+          a.created.localeCompare(b.created) ||
+          a.vaultRelKey.localeCompare(b.vaultRelKey) ||
+          a.id.localeCompare(b.id),
+      );
       const survivor = sorted[0];
       const retirees = sorted.slice(1);
 

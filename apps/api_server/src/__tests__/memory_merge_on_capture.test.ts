@@ -252,6 +252,11 @@ describe('merge-on-capture (#859a)', () => {
       {
         kind: 'fact',
         content: 'Facilities reservation calendar in the facilities module supports room booking.[^X]',
+        status: 'deprecated',
+        staleAfter: '2026-10-01',
+        verified: [
+          { by: 'agent:reviewer/2', at: '2026-07-26T10:00:00Z' },
+        ],
         sources: [
           { id: 'X', resource: 'https://example.test/survivor' },
         ],
@@ -259,6 +264,16 @@ describe('merge-on-capture (#859a)', () => {
       },
       { memoryDir, index },
     );
+    const survivorPath = fileFor(first.path);
+    writeFileSync(
+      survivorPath,
+      readFileSync(survivorPath, 'utf8').replace(
+        /^source: agent$/m,
+        ['source: agent', 'future_extension:', '  retained: true'].join('\n'),
+      ),
+      'utf8',
+    );
+    const before = parseMemoryNote(readFileSync(survivorPath, 'utf8'));
     const second = await rememberToVault(
       {
         kind: 'fact',
@@ -267,6 +282,11 @@ describe('merge-on-capture (#859a)', () => {
           '',
           'Room setup details remain unattributed.',
         ].join('\n'),
+        status: 'draft',
+        staleAfter: '2026-09-01',
+        verified: [
+          { by: 'human:ajh', at: '2026-07-26T11:00:00Z' },
+        ],
         sources: [
           { id: 'X', resource: 'https://example.test/incoming' },
         ],
@@ -277,7 +297,7 @@ describe('merge-on-capture (#859a)', () => {
 
     expect(second.id).toBe(first.id);
     const merged = parseMemoryNote(
-      readFileSync(fileFor(first.path), 'utf8'),
+      readFileSync(survivorPath, 'utf8'),
     );
     expect(merged.sources).toEqual([
       { id: 'X', resource: 'https://example.test/survivor' },
@@ -290,6 +310,111 @@ describe('merge-on-capture (#859a)', () => {
       from: '2026-02-01',
       to: '2026-05-01',
     });
+    expect(merged.status).toBe('draft');
+    expect(merged.staleAfter).toBe('2026-09-01');
+    expect(merged.verified).toEqual([
+      {
+        by: 'agent:reviewer/2',
+        at: '2026-07-26T10:00:00.000Z',
+      },
+      {
+        by: 'human:ajh',
+        at: '2026-07-26T11:00:00.000Z',
+      },
+    ]);
+    expect(merged.frontmatter.created).toBe(before.frontmatter.created);
+    expect(merged.generated).toEqual(before.generated);
+    expect(merged.frontmatter.future_extension).toEqual({ retained: true });
     expect(validateNoteSources(merged).danglingFootnoteReferences).toEqual([]);
+  });
+
+  it('#1193: exact implicit replay merges attribution instead of replacing it', async () => {
+    const content = 'Exact replay keeps every originating session.';
+    const first = await rememberToVault(
+      {
+        kind: 'fact',
+        content,
+        sessionId: 'source-session-a',
+        usageWindow: { from: '2026-03-01', to: '2026-04-01' },
+      },
+      { memoryDir, index },
+    );
+    const second = await rememberToVault(
+      {
+        kind: 'fact',
+        content,
+        sessionId: 'source-session-b',
+        usageWindow: { from: '2026-02-01', to: '2026-05-01' },
+      },
+      { memoryDir, index },
+    );
+
+    expect(second.id).toBe(first.id);
+    expect(allNoteFiles()).toHaveLength(1);
+    const replayed = parseMemoryNote(
+      readFileSync(fileFor(first.path), 'utf8'),
+    );
+    expect(replayed.sources).toEqual([
+      {
+        id: 'sess-source-session-a',
+        resource: 'rhythm://agent-session/source-session-a',
+      },
+      {
+        id: 'sess-source-session-b',
+        resource: 'rhythm://agent-session/source-session-b',
+      },
+    ]);
+    expect(replayed.usageWindow).toEqual({
+      from: '2026-02-01',
+      to: '2026-05-01',
+    });
+  });
+
+  it('#1193: unsafe semantic candidates stay separate and cannot cross-bind', async () => {
+    const first = await rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Facilities reservation calendar supports room booking.[^X]',
+      },
+      { memoryDir, index },
+    );
+    const second = await rememberToVault(
+      {
+        kind: 'fact',
+        content: 'The facilities reservation calendar supports room booking approvals.',
+        sources: [{ id: 'X', resource: 'https://example.test/incoming' }],
+      },
+      { memoryDir, index },
+    );
+
+    expect(second.id).not.toBe(first.id);
+    expect(allNoteFiles()).toHaveLength(2);
+    const survivor = parseMemoryNote(
+      readFileSync(fileFor(first.path), 'utf8'),
+    );
+    expect(survivor.sources).toEqual([]);
+    expect(validateNoteSources(survivor).danglingFootnoteReferences).toEqual([
+      'X',
+    ]);
+  });
+
+  it('#1193: rejects invalid source ids and reversed caller windows', async () => {
+    await expect(rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Invalid id.',
+        sources: [{ id: 'bad.id', resource: 'https://example.test' }],
+      },
+      { memoryDir, index },
+    )).rejects.toThrow(/source id/);
+    await expect(rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Reversed window.',
+        usageWindow: { from: '2026-07-26', to: '2026-07-01' },
+      },
+      { memoryDir, index },
+    )).rejects.toThrow(/usageWindow\.from/);
+    expect(allNoteFiles()).toHaveLength(0);
   });
 });

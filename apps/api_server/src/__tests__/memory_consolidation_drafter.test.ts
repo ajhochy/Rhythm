@@ -23,7 +23,16 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  promises as fsPromises,
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -170,20 +179,20 @@ async function seedAttributedThreeNoteCluster(): Promise<Map<string, string>> {
     },
     {
       name: 'note-b.md',
-      body: 'The reservation calendar in the facilities module supports room booking approvals.[^B]',
+      body: 'The reservation calendar in the facilities module supports room booking approvals.[^X]',
       frontmatter: {
         id: generateUlid(2000),
         kind: 'fact',
         tags: ['middle'],
-        created: '2026-01-02',
-        updated: '2026-01-02',
+        created: '2026-01-01',
+        updated: '2026-01-01',
         source: 'agent',
         status: 'stable',
         stale_after: '2026-09-01',
         verified: [
           { by: 'human:ajh', at: '2026-07-26T11:00:00Z' },
         ],
-        sources: [{ id: 'B', resource: 'https://example.test/middle' }],
+        sources: [{ id: 'X', resource: 'https://example.test/middle' }],
         usage_window: { from: '2026-02-01', to: '2026-05-01' },
       },
     },
@@ -198,8 +207,8 @@ async function seedAttributedThreeNoteCluster(): Promise<Map<string, string>> {
         id: generateUlid(3000),
         kind: 'fact',
         tags: ['newest'],
-        created: '2026-01-03',
-        updated: '2026-01-03',
+        created: '2026-01-01',
+        updated: '2026-01-01',
         source: 'agent',
         status: 'draft',
         stale_after: '2026-11-01',
@@ -368,6 +377,25 @@ describe('memory consolidation pass (#859b)', () => {
 
   it('#1193: merges a three-note attribution cluster and reverts byte-for-byte', async () => {
     const before = await seedAttributedThreeNoteCluster();
+    const survivorRel = path.join('memory', 'fact', 'note-a.md');
+    const crlfSurvivor = before.get(survivorRel)!.replace(/\n/g, '\r\n');
+    writeFileSync(fileFor(survivorRel), crlfSurvivor, 'utf8');
+    before.set(survivorRel, crlfSurvivor);
+    // Reinsert in reverse order. Equal created dates must still resolve by the
+    // stable vault path, not repository iteration/insertion order.
+    await repo.clearAllAsync();
+    for (const [rel, bytes] of Array.from(before.entries()).reverse()) {
+      const parsed = parseMemoryNote(bytes);
+      await index.upsertNote({
+        sourceId: rel,
+        parsed: {
+          kind: parsed.kind,
+          tags: parsed.tags,
+          content: parsed.body,
+          sources: parsed.sources,
+        },
+      });
+    }
 
     const result = await runMemoryConsolidation({ memoryDir, index, repo });
 
@@ -377,12 +405,12 @@ describe('memory consolidation pass (#859b)', () => {
     const merged = parseMemoryNote(readFileSync(survivorPath, 'utf8'));
     expect(merged.sources).toEqual([
       { id: 'X', resource: 'https://example.test/survivor' },
-      { id: 'B', resource: 'https://example.test/middle' },
-      { id: 'X-2', resource: 'https://example.test/incoming' },
+      { id: 'X-2', resource: 'https://example.test/middle' },
+      { id: 'X-3', resource: 'https://example.test/incoming' },
     ]);
     expect(merged.body).toContain('booking.[^X]');
-    expect(merged.body).toContain('approvals.[^B]');
-    expect(merged.body).toContain('setup.[^X-2]');
+    expect(merged.body).toContain('approvals.[^X-2]');
+    expect(merged.body).toContain('setup.[^X-3]');
     expect(merged.body).toContain('Unattributed setup detail.');
     expect(merged.usageWindow).toEqual({
       from: '2026-01-01',
@@ -401,6 +429,7 @@ describe('memory consolidation pass (#859b)', () => {
         at: '2026-07-26T11:00:00.000Z',
       },
     ]);
+    const firstMergedBytes = readFileSync(survivorPath, 'utf8');
 
     await revertMemoryConsolidation(
       result.beforeSnapshot,
@@ -412,6 +441,26 @@ describe('memory consolidation pass (#859b)', () => {
     for (const [rel, bytes] of before) {
       expect(readFileSync(fileFor(rel), 'utf8')).toBe(bytes);
     }
+    const restoredRows = await repo.listAsync(undefined, undefined, 100);
+    expect(restoredRows).toHaveLength(3);
+    for (const row of restoredRows) {
+      const original = parseMemoryNote(before.get(row.sourceId!)!);
+      expect(JSON.parse(row.sourcesJson)).toEqual(original.sources);
+    }
+
+    const repeated = await runMemoryConsolidation({ memoryDir, index, repo });
+    expect(repeated.mergedClusters).toBe(1);
+    const firstMerged = parseMemoryNote(firstMergedBytes);
+    const secondMerged = parseMemoryNote(readFileSync(survivorPath, 'utf8'));
+    expect({
+      body: secondMerged.body,
+      sources: secondMerged.sources,
+      usageWindow: secondMerged.usageWindow,
+    }).toEqual({
+      body: firstMerged.body,
+      sources: firstMerged.sources,
+      usageWindow: firstMerged.usageWindow,
+    });
   });
 
   it('#1193: skips and logs a malformed member without aborting the pass', async () => {
@@ -426,16 +475,79 @@ describe('memory consolidation pass (#859b)', () => {
       sourceId: badRel,
       parsed: { kind: 'fact', tags: [], content: 'bad note' },
     });
+    const danglingRel = path.join('memory', 'fact', 'dangling.md');
+    const danglingBytes = renderMemoryNote(
+      {
+        id: generateUlid(4000),
+        kind: 'fact',
+        tags: [],
+        created: '2026-01-04',
+        updated: '2026-01-04',
+        source: 'agent',
+      },
+      'The reservation calendar in the facilities module has a dangling claim.[^X]',
+    );
+    writeFileSync(fileFor(danglingRel), danglingBytes, 'utf8');
+    await index.upsertNote({
+      sourceId: danglingRel,
+      parsed: {
+        kind: 'fact',
+        tags: [],
+        content: 'The reservation calendar in the facilities module has a dangling claim.[^X]',
+      },
+    });
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
 
     const result = await runMemoryConsolidation({ memoryDir, index, repo });
 
     expect(result.mergedClusters).toBe(1);
     expect(existsSync(fileFor(badRel))).toBe(true);
+    expect(readFileSync(fileFor(danglingRel), 'utf8')).toBe(danglingBytes);
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('skipped unreadable or malformed note'),
     );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('skipped attribution-unsafe note'),
+    );
+    expect(
+      warn.mock.calls.flat().join('\n'),
+    ).not.toContain('dangling claim');
+    const survivingRows = await repo.listAsync(undefined, undefined, 100);
+    expect(survivingRows.some((row) => row.sourceId === badRel)).toBe(true);
+    expect(survivingRows.some((row) => row.sourceId === danglingRel)).toBe(true);
     warn.mockRestore();
+  });
+
+  it('#1193: a note whose raw snapshot read fails is never mutated or retired', async () => {
+    await seedPreExistingOverlappingNotes();
+    const survivorRel = path.join('memory', 'fact', 'note-a.md');
+    const retireeRel = path.join('memory', 'fact', 'note-b.md');
+    const before = new Map([
+      [survivorRel, readFileSync(fileFor(survivorRel), 'utf8')],
+      [retireeRel, readFileSync(fileFor(retireeRel), 'utf8')],
+    ]);
+    const realReadFile = fsPromises.readFile.bind(fsPromises);
+    const readSpy = vi.spyOn(fsPromises, 'readFile').mockImplementation(
+      async (file, ...args) => {
+        if (path.resolve(String(file)) === path.resolve(fileFor(retireeRel))) {
+          throw new Error('injected EIO');
+        }
+        return realReadFile(file, ...args as Parameters<typeof fsPromises.readFile> extends [unknown, ...infer Rest] ? Rest : never);
+      },
+    );
+
+    const result = await runMemoryConsolidation({ memoryDir, index, repo });
+    readSpy.mockRestore();
+
+    expect(result.mergedClusters).toBe(0);
+    expect(result.retiredCount).toBe(0);
+    expect(result.beforeSnapshot.entries.map((entry) => entry.vaultRelKey)).toEqual([
+      survivorRel,
+    ]);
+    for (const [rel, bytes] of before) {
+      expect(readFileSync(fileFor(rel), 'utf8')).toBe(bytes);
+    }
+    expect(await repo.listAsync(undefined, undefined, 100)).toHaveLength(2);
   });
 
   it('#1193: capture and consolidation produce the same attribution merge', async () => {

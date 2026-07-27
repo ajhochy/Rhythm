@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  MemoryAttributionMergeError,
   mergeAttributedMemoryContent,
 } from '../services/memory_similarity';
 import { validateNoteSources } from '../services/memory_note_format';
@@ -110,5 +111,157 @@ describe('attribution-aware memory merging (#1193)', () => {
       expect.stringContaining('rekeyed incoming X as X-3'),
     );
     warn.mockRestore();
+  });
+
+  it('rejects each dangling side before union can accidentally bind it', () => {
+    expect(() => mergeAttributedMemoryContent(
+      {
+        body: 'Dangling survivor.[^X]',
+        sources: [],
+      },
+      {
+        body: 'Incoming claim.',
+        sources: [{ id: 'X', resource: 'https://example.test/incoming' }],
+      },
+    )).toThrow(MemoryAttributionMergeError);
+    expect(() => mergeAttributedMemoryContent(
+      {
+        body: 'Survivor claim.',
+        sources: [{ id: 'X', resource: 'https://example.test/survivor' }],
+      },
+      {
+        body: 'Dangling incoming.[^X]',
+        sources: [],
+      },
+    )).toThrow(MemoryAttributionMergeError);
+  });
+
+  it('treats present-versus-missing resources as collisions in both directions', () => {
+    const presentIncoming = mergeAttributedMemoryContent(
+      {
+        body: 'Survivor.[^X]',
+        sources: [{ id: 'X' }],
+      },
+      {
+        body: 'Incoming.[^X]',
+        sources: [{ id: 'X', resource: 'https://example.test/incoming' }],
+      },
+    );
+    expect(presentIncoming.sources).toEqual([
+      { id: 'X' },
+      { id: 'X-2', resource: 'https://example.test/incoming' },
+    ]);
+    expect(presentIncoming.body).toContain('Incoming.[^X-2]');
+
+    const missingIncoming = mergeAttributedMemoryContent(
+      {
+        body: 'Survivor.[^X]',
+        sources: [{ id: 'X', resource: 'https://example.test/survivor' }],
+      },
+      {
+        body: 'Incoming.[^X]',
+        sources: [{ id: 'X' }],
+      },
+    );
+    expect(missingIncoming.sources).toEqual([
+      { id: 'X', resource: 'https://example.test/survivor' },
+      { id: 'X-2' },
+    ]);
+    expect(missingIncoming.body).toContain('Incoming.[^X-2]');
+  });
+
+  it('dedupes two absent resources but keeps different ids for one resource', () => {
+    const merged = mergeAttributedMemoryContent(
+      {
+        body: 'Survivor.[^X]',
+        sources: [{ id: 'X', title: 'Survivor metadata' }],
+      },
+      {
+        body: 'Incoming.[^X] Other.[^Y]',
+        sources: [
+          { id: 'X', title: 'Incoming metadata' },
+          { id: 'Y', resource: 'https://example.test/shared' },
+        ],
+      },
+    );
+    const withSameResource = mergeAttributedMemoryContent(
+      merged,
+      {
+        body: 'Third.[^Z]',
+        sources: [{ id: 'Z', resource: 'https://example.test/shared' }],
+      },
+    );
+
+    expect(withSameResource.sources).toEqual([
+      { id: 'X', title: 'Survivor metadata' },
+      { id: 'Y', resource: 'https://example.test/shared' },
+      { id: 'Z', resource: 'https://example.test/shared' },
+    ]);
+  });
+
+  it('rewrites exact markers and definitions once without touching prefixes or links', () => {
+    const merged = mergeAttributedMemoryContent(
+      {
+        body: 'Survivor.[^X]',
+        sources: [{ id: 'X', resource: 'https://example.test/survivor' }],
+      },
+      {
+        body: [
+          'Incoming.[^X] Repeated.[^X] Prefix.[^Xlong]',
+          '[^X]: incoming citation',
+          '[ordinary X](https://example.test/X)',
+        ].join('\n'),
+        sources: [
+          { id: 'X', resource: 'https://example.test/incoming' },
+          { id: 'Xlong', resource: 'https://example.test/prefix' },
+        ],
+      },
+    );
+
+    expect(merged.body).toContain('Incoming.[^X-2] Repeated.[^X-2]');
+    expect(merged.body).toContain('Prefix.[^Xlong]');
+    expect(merged.body).toContain('[^X-2]: incoming citation');
+    expect(merged.body).toContain(
+      '[ordinary X](https://example.test/X)',
+    );
+    expect(merged.body).toContain('Survivor.[^X]');
+  });
+
+  it('keeps a colliding unreferenced source without inventing a marker', () => {
+    const merged = mergeAttributedMemoryContent(
+      {
+        body: 'Survivor.[^X]',
+        sources: [{ id: 'X', resource: 'https://example.test/survivor' }],
+      },
+      {
+        body: 'Incoming claim has no citation.',
+        sources: [{ id: 'X', resource: 'https://example.test/incoming' }],
+      },
+    );
+
+    expect(merged.sources[1]).toEqual({
+      id: 'X-2',
+      resource: 'https://example.test/incoming',
+    });
+    expect(merged.body).not.toContain('[^X-2]');
+    expect(validateNoteSources(merged).unreferencedSourceIds).toContain('X-2');
+  });
+
+  it('rejects invalid source ids and reversed usage windows', () => {
+    expect(() => mergeAttributedMemoryContent(
+      { body: 'Survivor.', sources: [] },
+      {
+        body: 'Incoming.',
+        sources: [{ id: 'bad.id', resource: 'https://example.test' }],
+      },
+    )).toThrow(/invalid source id/);
+    expect(() => mergeAttributedMemoryContent(
+      { body: 'Survivor.', sources: [] },
+      {
+        body: 'Incoming.',
+        sources: [],
+        usageWindow: { from: '2026-07-26', to: '2026-07-01' },
+      },
+    )).toThrow(/reversed usage window/);
   });
 });
