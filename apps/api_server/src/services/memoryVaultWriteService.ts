@@ -479,6 +479,39 @@ export async function rememberToVault(
   return { id, path: vaultRelKey, kind };
 }
 
+const lifecycleMutationTails = new Map<string, Promise<void>>();
+
+/**
+ * Serialize read-modify-write lifecycle changes per canonical vault note.
+ *
+ * A note is the durable source of truth, so the lock spans both its write and
+ * the subsequent index refresh. Failures still release the queue, and unrelated
+ * notes remain fully concurrent.
+ */
+async function withLifecycleMutationLock<T>(
+  notePath: string,
+  mutation: () => Promise<T>,
+): Promise<T> {
+  const previous = lifecycleMutationTails.get(notePath) ?? Promise.resolve();
+  const ready = previous.catch(() => undefined);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = ready.then(() => gate);
+  lifecycleMutationTails.set(notePath, tail);
+
+  await ready;
+  try {
+    return await mutation();
+  } finally {
+    release();
+    if (lifecycleMutationTails.get(notePath) === tail) {
+      lifecycleMutationTails.delete(notePath);
+    }
+  }
+}
+
 async function mutateMemoryLifecycle(
   sourceId: string,
   actor: string,
@@ -501,50 +534,54 @@ async function mutateMemoryLifecycle(
   const index = options.index ?? new MemoryIndexService();
   const relPath = vaultKeyToMemoryDirRelative(memoryDir, sourceId);
   const abs = resolveWithinMemoryDir(memoryDir, relPath);
-  let raw: string;
-  try {
-    raw = await fs.readFile(abs, 'utf8');
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
-    throw err;
-  }
+  return withLifecycleMutationLock(abs, async () => {
+    let raw: string;
+    try {
+      raw = await fs.readFile(abs, 'utf8');
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
+      throw err;
+    }
 
-  const document = parseMemoryNote(raw);
-  const existingRaw = Array.isArray(document.frontmatter.verified)
-    ? [...document.frontmatter.verified]
-    : [];
-  const duplicate = verificationEntries(document.frontmatter)
-    .some((candidate) => candidate.by === entry.by && candidate.at === entry.at);
-  if (!duplicate) existingRaw.push(entry);
+    const document = parseMemoryNote(raw);
+    const existingRaw = Array.isArray(document.frontmatter.verified)
+      ? [...document.frontmatter.verified]
+      : [];
+    const duplicate = verificationEntries(document.frontmatter)
+      .some((candidate) => (
+        candidate.by === entry.by && candidate.at === entry.at
+      ));
+    if (!duplicate) existingRaw.push(entry);
 
-  const id = frontmatterString(document.frontmatter, 'id') ?? generateUlid();
-  const created = frontmatterString(document.frontmatter, 'created') ?? isoDate();
-  const source = frontmatterString(document.frontmatter, 'source') ?? 'agent';
-  const frontmatter: Record<string, unknown> = {
-    ...document.frontmatter,
-    id,
-    kind: document.kind,
-    tags: document.tags,
-    created,
-    updated: isoDate(),
-    source,
-    verified: existingRaw,
-    ...(status !== undefined ? { status } : {}),
-    ...(options.staleAfter !== undefined
-      ? { stale_after: replacementStaleAfter }
-      : {}),
-  };
-  const rendered = renderMemoryNote(frontmatter, document.body);
+    const id = frontmatterString(document.frontmatter, 'id') ?? generateUlid();
+    const created = frontmatterString(document.frontmatter, 'created') ?? isoDate();
+    const source = frontmatterString(document.frontmatter, 'source') ?? 'agent';
+    const frontmatter: Record<string, unknown> = {
+      ...document.frontmatter,
+      id,
+      kind: document.kind,
+      tags: document.tags,
+      created,
+      updated: isoDate(),
+      source,
+      verified: existingRaw,
+      ...(status !== undefined ? { status } : {}),
+      ...(options.staleAfter !== undefined
+        ? { stale_after: replacementStaleAfter }
+        : {}),
+    };
+    const rendered = renderMemoryNote(frontmatter, document.body);
 
-  // Vault-first by construction: an index error is allowed to propagate only
-  // after the canonical note contains the completed mutation.
-  await fs.writeFile(abs, rendered, 'utf8');
-  await index.upsertNote({
-    sourceId,
-    parsed: parseNote(rendered),
+    // Vault-first by construction: an index error is allowed to propagate only
+    // after the canonical note contains the completed mutation.
+    await fs.writeFile(abs, rendered, 'utf8');
+    await index.upsertNote({
+      sourceId,
+      parsed: parseNote(rendered),
+    });
+
+    return { id, path: sourceId, kind: document.kind };
   });
-
-  return { id, path: sourceId, kind: document.kind };
 }
 
 /**

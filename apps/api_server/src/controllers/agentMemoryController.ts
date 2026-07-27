@@ -4,24 +4,22 @@ import { agentMemoryService } from '../services/agentMemoryService';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { syncMemoryVault } from '../services/memoryVaultSyncService';
 import { MemoryWriteError } from '../services/memoryVaultWriteService';
-import { UsersRepository } from '../repositories/users_repository';
 import {
   MCP_MEMORY_ACTOR,
   formatActor,
 } from '../services/memory_note_format';
 
 const repo = new AgentMemoryRepository();
-const usersRepo = new UsersRepository();
 
-async function resolveHumanActor(req: Request): Promise<{
+function resolveHumanActor(req: Request): {
   actor: string;
   ownerUserId: number;
-}> {
-  const authenticated = req.auth?.user;
-  const user = authenticated ?? (await usersRepo.findAllAsync())
-    .find((candidate) => candidate.email !== UsersRepository.systemBotEmail);
+} {
+  const user = req.auth?.user;
   if (!user) {
-    throw AppError.unauthorized('A local user is required to verify memory.');
+    throw AppError.unauthorized(
+      'Authentication is required to record human memory verification.',
+    );
   }
   return {
     actor: formatActor({
@@ -143,7 +141,7 @@ export class AgentMemoryController {
       if (staleAfter !== undefined && typeof staleAfter !== 'string') {
         throw AppError.badRequest('staleAfter must be a YYYY-MM-DD string');
       }
-      const identity = await resolveHumanActor(req);
+      const identity = resolveHumanActor(req);
       const result = await agentMemoryService.verify(
         req.params.id,
         identity.actor,
@@ -163,7 +161,7 @@ export class AgentMemoryController {
 
   async deprecate(req: Request, res: Response, next: NextFunction) {
     try {
-      const identity = await resolveHumanActor(req);
+      const identity = resolveHumanActor(req);
       const result = await agentMemoryService.deprecate(
         req.params.id,
         identity.actor,

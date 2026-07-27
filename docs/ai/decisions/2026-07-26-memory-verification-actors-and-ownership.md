@@ -19,8 +19,9 @@ desktop traffic cannot safely share an implicit actor.
 ## Decision
 
 - Human HTTP verification resolves its actor on the server. An authenticated
-  request uses that user; local auth-bypass mode resolves the first non-system
-  local user. Request body identity fields are ignored.
+  request uses that user. A request without `req.auth` is rejected even in
+  `AGENT_LOCAL=true` mode; local transport access is not evidence that a human
+  performed the review. Request body identity fields are ignored.
 - The Rhythm MCP uses a separate server endpoint that can stamp only
   `agent:rhythm-mcp/1`. It cannot request a `human:` actor.
 - A concrete-owner row is mutable only when its owner matches the resolved
@@ -38,12 +39,17 @@ desktop traffic cannot safely share an implicit actor.
   trust forgery.
 - Treating every auth-bypassed local request as human was rejected because MCP
   confirmations would become indistinguishable from explicit user review.
+- Looking up the first non-system database user for an auth-bypassed request
+  was also rejected. It lets any unauthenticated local caller mint
+  `human:<victim>` trust without that person participating.
 - Denying all null-owner mutations was rejected because current vault notes are
   intentionally instance-global and the existing desktop update path already
   operates on them.
 
 ## Consequences
 
-Human trust remains tied to an actual local identity, machine confirmations
-remain machine-tier, foreign-owned notes fail closed, and existing local vault
-workflows continue to work without a backfill.
+Human trust remains tied to the authenticated request identity, machine
+confirmations remain machine-tier, and foreign-owned notes fail closed.
+Auth-bypassed desktop callers must authenticate before using the explicit
+human verify/deprecate actions; unattended local agents use the separate
+machine-only lifecycle endpoint.

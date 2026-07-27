@@ -104,6 +104,41 @@ describe('MEM-OKF #1190 vault-first verification writes', () => {
     expect(JSON.parse(row.verifiedJson)).toEqual(after.verified);
   });
 
+  it('serializes concurrent append events so every unique verification survives', async () => {
+    const created = await rememberToVault(
+      { kind: 'fact', content: 'Concurrent verification marker.' },
+      { memoryDir, index },
+    );
+    const uniqueInstants = Array.from(
+      { length: 20 },
+      (_, minute) => `2026-07-26T14:${String(minute).padStart(2, '0')}:00Z`,
+    );
+
+    await Promise.all([
+      ...uniqueInstants.map((at) => verifyMemory(
+        created.path,
+        'agent:concurrency-test/1',
+        { memoryDir, index, at },
+      )),
+      // Exact concurrent retries must remain idempotent.
+      ...uniqueInstants.slice(0, 5).map((at) => verifyMemory(
+        created.path,
+        'agent:concurrency-test/1',
+        { memoryDir, index, at },
+      )),
+    ]);
+
+    const after = readNote(created.path);
+    expect(after.verified).toHaveLength(uniqueInstants.length);
+    expect(new Set(after.verified.map(({ by, at }) => `${by}\u0000${at}`)).size)
+      .toBe(uniqueInstants.length);
+    expect(after.verified.map(({ at }) => at)).toEqual(
+      uniqueInstants.map((at) => at.replace(/Z$/, '.000Z')),
+    );
+    const [row] = await repo.listAsync(undefined, undefined, 10);
+    expect(JSON.parse(row.verifiedJson)).toEqual(after.verified);
+  });
+
   it('replaces stale_after only when a new horizon is supplied', async () => {
     const created = await rememberToVault(
       {
