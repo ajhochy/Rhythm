@@ -77,18 +77,27 @@ export const CREATIVE_INSTALL_RECIPES: Readonly<
 > = {
   blender: {
     id: 'blender',
-    version: '5.2.0+mcp-1.6.0-r2',
+    version: '5.2.0+mcp-1.6.0-r4',
     installer: 'blender',
     artifacts: [
       {
         filename: 'blender.dmg',
-        url: 'https://download.blender.org/release/Blender5.2/blender-5.2.0-macos-arm64.dmg',
+        // download.blender.org presents a Cloudflare browser challenge to
+        // desktop installers. OCF mirrors Blender's public release tree; the
+        // reviewed Blender checksum below remains the trust boundary.
+        url: 'https://mirrors.ocf.berkeley.edu/blender/release/Blender5.2/blender-5.2.0-macos-arm64.dmg',
         sha256: 'ed4d8390166dec5ea0a2813a03db6221f206ce016442be7f59f41d760972568a',
       },
       {
         filename: 'blender_mcp-1.6.0-py3-none-any.whl',
         url: 'https://files.pythonhosted.org/packages/86/7b/2ed3deb36c87ff03e1c1947732305321b10cdb3bace2b308c0406433c63c/blender_mcp-1.6.0-py3-none-any.whl',
         sha256: 'eeff867ae71740473d36945e45577fe3888e6a1c7f8d2376be0169975ac343a0',
+      },
+      {
+        // Exact add-on revision current when blender-mcp 1.6.0 was published.
+        filename: 'blender_mcp_addon.py',
+        url: 'https://raw.githubusercontent.com/ahujasid/blender-mcp/494fb5bba603fb650f20c507adce994dffbd6dae/addon.py',
+        sha256: 'd43484fcd9a4a33f1561ab69676f5d33d0aa7c649d5e2f5fd34ddd78615ee734',
       },
       UV_ARTIFACT,
     ],
@@ -214,7 +223,8 @@ const rootFor = () =>
 
 const openMontageBridge = () =>
   join(
-    process.env.RHYTHM_CREATIVE_RESOURCES_DIR ?? join(process.cwd(), 'resources'),
+    process.env.RHYTHM_CREATIVE_RESOURCES_DIR ??
+      join(__dirname, '..', '..', 'resources'),
     'openmontage-mcp',
     'openmontage_mcp_server.py',
   );
@@ -553,6 +563,10 @@ async function installBlender(context: InstallContext): Promise<void> {
     }
   }
   await nodeFs.rm(mount, { recursive: true, force: true });
+  await nodeFs.copyFile(
+    artifact(context, 'blender_mcp_addon.py'),
+    join(context.staging, 'blender_mcp_addon.py'),
+  );
   const python = await createVenv(context);
   await pipInstall(context, python, [
     artifact(context, 'blender_mcp-1.6.0-py3-none-any.whl'),

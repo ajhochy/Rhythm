@@ -74,6 +74,26 @@ describe('installCreativeDependency', () => {
         expect(item.sha256).toMatch(/^[a-f0-9]{64}$/);
       }
     }
+    expect(CREATIVE_INSTALL_RECIPES.blender).toMatchObject({
+      version: '5.2.0+mcp-1.6.0-r4',
+      artifacts: expect.arrayContaining([
+        expect.objectContaining({
+          url: expect.stringMatching(
+            /^https:\/\/mirrors\.ocf\.berkeley\.edu\/blender\/release\//,
+          ),
+          sha256:
+            'ed4d8390166dec5ea0a2813a03db6221f206ce016442be7f59f41d760972568a',
+        }),
+        expect.objectContaining({
+          filename: 'blender_mcp_addon.py',
+          url: expect.stringContaining(
+            '/ahujasid/blender-mcp/494fb5bba603fb650f20c507adce994dffbd6dae/addon.py',
+          ),
+          sha256:
+            'd43484fcd9a4a33f1561ab69676f5d33d0aa7c649d5e2f5fd34ddd78615ee734',
+        }),
+      ]),
+    });
   });
 
   it('requires a matching approved action and session before downloading', async () => {
@@ -211,6 +231,62 @@ describe('installCreativeDependency', () => {
     expect(
       await readFile(join(managedRoot, 'media-tools', 'bin', 'ffmpeg'), 'utf8'),
     ).toBe('binary');
+  });
+
+  it('finds the packaged OpenMontage bridge independently of process.cwd()', async () => {
+    const managedRoot = await root();
+    const previousResourceDir = process.env.RHYTHM_CREATIVE_RESOURCES_DIR;
+    delete process.env.RHYTHM_CREATIVE_RESOURCES_DIR;
+    vi.spyOn(process, 'cwd').mockReturnValue('/not-the-api-server');
+    const runner: NonNullable<CreativeInstallerDeps['runner']> = vi.fn(
+      async (argv: readonly string[]) => {
+        if (argv.includes('-xzf') && argv.includes('--strip-components=1')) {
+          const destination = argv[argv.indexOf('-C') + 1];
+          await mkdir(destination, { recursive: true });
+          if (argv.some((part) => part.includes('openmontage.tar.gz'))) {
+            await writeFile(join(destination, 'requirements.txt'), '');
+          } else {
+            await writeFile(join(destination, 'uv'), '');
+          }
+        }
+        if (argv.includes('venv')) {
+          const venv = argv.at(-1)!;
+          await mkdir(join(venv, 'bin'), { recursive: true });
+          await writeFile(join(venv, 'bin', 'python'), '');
+        }
+      },
+    );
+
+    try {
+      const result = await installCreativeDependency(
+        { id: 'openmontage', sessionId: 'session-1' },
+        {
+          approvals: { list: () => [approval('openmontage')] },
+          downloader: fakeDownload,
+          runner,
+          resolveExecutable,
+          root: managedRoot,
+        },
+      );
+
+      expect(result).toMatchObject({ status: 'installed' });
+      await expect(
+        access(
+          join(
+            managedRoot,
+            'openmontage',
+            'openmontage-mcp',
+            'openmontage_mcp_server.py',
+          ),
+        ),
+      ).resolves.toBeUndefined();
+    } finally {
+      if (previousResourceDir === undefined) {
+        delete process.env.RHYTHM_CREATIVE_RESOURCES_DIR;
+      } else {
+        process.env.RHYTHM_CREATIVE_RESOURCES_DIR = previousResourceDir;
+      }
+    }
   });
 
   it('does not trust a sentinel when required runtime files are absent', async () => {

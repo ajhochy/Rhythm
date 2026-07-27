@@ -25,6 +25,7 @@ export function creativeCapabilityLayout(
         requiredPaths: [
           join(root, 'blender', 'Blender.app', 'Contents', 'MacOS', 'Blender'),
           join(root, 'blender', '.venv', 'bin', 'blender-mcp'),
+          join(root, 'blender', 'blender_mcp_addon.py'),
         ],
         sentinel: join(root, 'blender', '.rhythm-installed.json'),
       };
