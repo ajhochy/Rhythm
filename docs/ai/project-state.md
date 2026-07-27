@@ -8,7 +8,7 @@ local-midnight rollover.
 ## Active branch / PR
 
 - Branch: `codex/418-quick-add-rollover`.
-- Draft PR: not opened.
+- Draft PR: [#1203](https://github.com/ajhochy/Rhythm/pull/1203).
 - Related issue: #418.
 
 ## In progress
@@ -16,7 +16,7 @@ local-midnight rollover.
 - The implementation and deterministic widget regression tests are complete.
 - The gated live Flutter behavior test passed through the real sandbox API and
   verified the persisted rolled-over due date.
-- Work is ready for parent integration, commit, push, and a draft PR.
+- The tested implementation is pushed to draft PR #1203 for human review.
 
 ## Risks / known issues
 
@@ -44,5 +44,5 @@ local-midnight rollover.
 
 ## Next step
 
-Integrate the #418 patch, run GitNexus change detection from the parent branch
-index, then commit, push, and open a draft PR for human review.
+Human review and manual product smoke of draft PR #1203. Do not merge
+automatically.

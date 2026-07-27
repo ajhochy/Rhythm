@@ -2,7 +2,7 @@
 date: 2026-07-26
 repo: Rhythm
 branch: codex/418-quick-add-rollover
-pr: null
+pr: 1203
 issues: [418]
 status: passed
 tags: [run, Rhythm]
