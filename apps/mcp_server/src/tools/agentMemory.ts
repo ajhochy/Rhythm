@@ -6,6 +6,7 @@
  * rhythm_forget_memory    — Delete a memory entry by ID
  * rhythm_list_memories    — List recent memories (optional kind filter)
  * rhythm_update_memory    — Edit an existing memory's content/kind/tags (#862)
+ * rhythm_verify_memory    — Verify or non-destructively deprecate a memory
  *
  * #804 — these tools target the LOCAL agent server (RHYTHM_AGENT_URL, default
  * http://localhost:4001), NOT the prod Settings URL. Memory is vault-first with a
@@ -99,6 +100,38 @@ At least one of content/kind/tags must be provided; omitted fields are left unch
     async ({ id, ...patch }: { id: string; content?: string; kind?: string; tags?: string[] }) => {
       try {
         const result = await apiPatch(apiUrl, apiToken, `/agent-memory/${id}`, patch);
+        return toolResult(JSON.stringify(result, null, 2));
+      } catch (err) { return toolError(err); }
+    },
+  );
+
+  registerTool(server, 'rhythm_verify_memory',
+    `Record a machine confirmation for a memory, or non-destructively deprecate it.
+
+The server assigns the fixed agent identity; callers cannot supply or forge a human actor. Use action="verify" after confirming a fact in conversation, or action="deprecate" when the fact should remain auditable but stop being active.`,
+    {
+      id: z.string().describe('The memory entry ID to verify or deprecate.'),
+      action: z.enum(['verify', 'deprecate']).describe('Lifecycle action to record.'),
+      staleAfter: z.string().optional().describe(
+        'For verify only: replacement shelf-life boundary in YYYY-MM-DD form.',
+      ),
+    },
+    async ({
+      id,
+      action,
+      staleAfter,
+    }: {
+      id: string;
+      action: 'verify' | 'deprecate';
+      staleAfter?: string;
+    }) => {
+      try {
+        const result = await apiPost(
+          apiUrl,
+          apiToken,
+          `/agent-memory/${id}/agent-lifecycle`,
+          { action, staleAfter },
+        );
         return toolResult(JSON.stringify(result, null, 2));
       } catch (err) { return toolError(err); }
     },

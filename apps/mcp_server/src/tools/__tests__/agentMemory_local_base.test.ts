@@ -119,6 +119,24 @@ describe('#804 memory MCP tools resolve to the local agent server', () => {
     expect(calls[0]).not.toContain('vcrcapps.com');
   });
 
+  it('rhythm_verify_memory uses the fixed local agent-lifecycle endpoint (#1190)', async () => {
+    const { calls } = stubFetch();
+    const server = buildServer(LOCAL);
+    const handler = server.registered.get('rhythm_verify_memory');
+    expect(handler).toBeDefined();
+
+    await handler!({
+      id: 'mem-1',
+      action: 'verify',
+      staleAfter: '2026-10-01',
+      by: 'human:forged@example.com',
+    });
+
+    expect(calls).toEqual([
+      `${LOCAL}/agent-memory/mem-1/agent-lifecycle`,
+    ]);
+  });
+
   it('prod-URL invariant: the base passed to the tools is the only thing that moves the request — index.ts wires RHYTHM_AGENT_URL, never serverConfig.url', async () => {
     // The tools have no knowledge of the prod Settings URL; their base is
     // injected by the caller. index.ts injects RHYTHM_AGENT_URL (local). To

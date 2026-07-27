@@ -152,6 +152,11 @@ export const CONSOLIDATION_MEMORY_ACTOR = formatActor({
   kind: 'process',
   id: 'consolidation',
 });
+export const MCP_MEMORY_ACTOR = formatActor({
+  kind: 'agent',
+  id: 'rhythm-mcp',
+  version: '1',
+});
 
 function isPlainMapping(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);

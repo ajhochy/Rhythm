@@ -15,6 +15,10 @@ router.get('/search', (req, res, next) => controller.search(req, res, next));
 router.post('/sync', (req, res, next) => controller.sync(req, res, next));
 router.get('/:id', (req, res, next) => controller.get(req, res, next));
 router.post('/', (req, res, next) => controller.create(req, res, next));
+router.post('/:id/verify', (req, res, next) => controller.verify(req, res, next));
+router.post('/:id/deprecate', (req, res, next) => controller.deprecate(req, res, next));
+router.post('/:id/agent-lifecycle', (req, res, next) =>
+  controller.agentLifecycle(req, res, next));
 // Issue #862 — edit-in-place.
 router.patch('/:id', (req, res, next) => controller.update(req, res, next));
 router.delete('/:id', (req, res, next) => controller.remove(req, res, next));

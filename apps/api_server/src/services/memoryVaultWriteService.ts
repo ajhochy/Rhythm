@@ -50,6 +50,7 @@ import {
   frontmatterString,
   generatedMetadata,
   mergeLifecycleMetadata,
+  parseActor,
   parseMemoryNote,
   renderMemoryNote,
   staleAfter,
@@ -268,6 +269,13 @@ export interface MemoryVaultWriteOptions {
   index?: MemoryIndexService;
 }
 
+export interface VerifyMemoryOptions extends MemoryVaultWriteOptions {
+  /** Optional replacement shelf-life boundary. Omission preserves the current value. */
+  staleAfter?: string;
+  /** Deterministic UTC instant for retries/tests; normal callers omit this. */
+  at?: string;
+}
+
 /**
  * Vault-first `remember`: dedup, write the markdown note FIRST, then upsert the
  * derived index. Returns the note's id + vault-relative path.
@@ -437,6 +445,99 @@ export async function rememberToVault(
 
   logger.info(`[MemoryWrite] remembered note (kind=${kind} path=${vaultRelKey})`);
   return { id, path: vaultRelKey, kind };
+}
+
+async function mutateMemoryLifecycle(
+  sourceId: string,
+  actor: string,
+  options: VerifyMemoryOptions,
+  status?: MemoryStatus,
+): Promise<RememberResult | null> {
+  if (!parseActor(actor)) {
+    throw new MemoryWriteError('actor must follow the OKF actor convention.');
+  }
+  const at = options.at ?? new Date().toISOString();
+  const [entry] = verificationEntries({
+    verified: [{ by: actor, at }],
+  });
+  if (!entry) {
+    throw new MemoryWriteError('verification time must be an ISO-8601 UTC timestamp.');
+  }
+  const replacementStaleAfter = assertValidStaleAfter(options.staleAfter);
+
+  const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
+  const index = options.index ?? new MemoryIndexService();
+  const relPath = vaultKeyToMemoryDirRelative(memoryDir, sourceId);
+  const abs = resolveWithinMemoryDir(memoryDir, relPath);
+  let raw: string;
+  try {
+    raw = await fs.readFile(abs, 'utf8');
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
+    throw err;
+  }
+
+  const document = parseMemoryNote(raw);
+  const existingRaw = Array.isArray(document.frontmatter.verified)
+    ? [...document.frontmatter.verified]
+    : [];
+  const duplicate = verificationEntries(document.frontmatter)
+    .some((candidate) => candidate.by === entry.by && candidate.at === entry.at);
+  if (!duplicate) existingRaw.push(entry);
+
+  const id = frontmatterString(document.frontmatter, 'id') ?? generateUlid();
+  const created = frontmatterString(document.frontmatter, 'created') ?? isoDate();
+  const source = frontmatterString(document.frontmatter, 'source') ?? 'agent';
+  const frontmatter: Record<string, unknown> = {
+    ...document.frontmatter,
+    id,
+    kind: document.kind,
+    tags: document.tags,
+    created,
+    updated: isoDate(),
+    source,
+    verified: existingRaw,
+    ...(status !== undefined ? { status } : {}),
+    ...(options.staleAfter !== undefined
+      ? { stale_after: replacementStaleAfter }
+      : {}),
+  };
+  const rendered = renderMemoryNote(frontmatter, document.body);
+
+  // Vault-first by construction: an index error is allowed to propagate only
+  // after the canonical note contains the completed mutation.
+  await fs.writeFile(abs, rendered, 'utf8');
+  await index.upsertNote({
+    sourceId,
+    parsed: parseNote(rendered),
+  });
+
+  return { id, path: sourceId, kind: document.kind };
+}
+
+/**
+ * Append one OKF verification event to a vault note and then refresh its
+ * derived index row. Exact `(by, at)` retries are idempotent.
+ */
+export async function verifyMemory(
+  sourceId: string,
+  actor: string,
+  options: VerifyMemoryOptions = {},
+): Promise<RememberResult | null> {
+  return mutateMemoryLifecycle(sourceId, actor, options);
+}
+
+/**
+ * Non-destructively retire a vault note while preserving both the note and its
+ * index row. The actor/time is recorded in the same append-only verification
+ * history as an explicit confirmation.
+ */
+export async function deprecateMemory(
+  sourceId: string,
+  actor: string,
+  options: Omit<VerifyMemoryOptions, 'staleAfter'> = {},
+): Promise<RememberResult | null> {
+  return mutateMemoryLifecycle(sourceId, actor, options, 'deprecated');
 }
 
 /**

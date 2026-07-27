@@ -23,6 +23,8 @@ import { resolveMemoryDirPath } from '../config/env';
 import { vaultKeyToMemoryDirRelative } from './memoryVaultSyncService';
 import {
   rememberToVault,
+  verifyMemory,
+  deprecateMemory,
   forgetFromVault,
   findMemoryRowByRememberId,
   updateMemoryInVault,
@@ -32,10 +34,25 @@ import {
   type RememberResult,
   type MemoryVaultWriteOptions,
   type UpdateMemoryPatch,
+  type VerifyMemoryOptions,
 } from './memoryVaultWriteService';
 
 const memRepo = new AgentMemoryRepository();
 const schedRepo = new AgentScheduledTasksRepository();
+
+async function resolveLifecycleSourceId(
+  id: string,
+  ownerUserId: number | undefined,
+  options?: MemoryVaultWriteOptions,
+): Promise<string | null> {
+  let row = await memRepo.findByIdAsync(id);
+  if (!row) {
+    row = await findMemoryRowByRememberId(id, memRepo, options);
+  }
+  if (!row || row.source !== 'obsidian-memory' || !row.sourceId) return null;
+  if (row.ownerUserId !== null && row.ownerUserId !== ownerUserId) return null;
+  return row.sourceId;
+}
 
 export const agentMemoryService = {
   /**
@@ -125,6 +142,34 @@ export const agentMemoryService = {
       }
     }
     return updateMemoryInVault(rememberId, patch, { ...options, relPathFallback });
+  },
+
+  /**
+   * Resolve either index-row or frontmatter id with owner defense-in-depth,
+   * then append a vault-first verification event. Null-owner vault rows retain
+   * the established local-instance behavior used by update routes.
+   */
+  async verify(
+    id: string,
+    actor: string,
+    ownerUserId?: number,
+    options?: VerifyMemoryOptions,
+  ): Promise<RememberResult | null> {
+    const sourceId = await resolveLifecycleSourceId(id, ownerUserId, options);
+    if (!sourceId) return null;
+    return verifyMemory(sourceId, actor, options);
+  },
+
+  /** Non-destructive lifecycle retirement with the same ownership rules. */
+  async deprecate(
+    id: string,
+    actor: string,
+    ownerUserId?: number,
+    options?: Omit<VerifyMemoryOptions, 'staleAfter'>,
+  ): Promise<RememberResult | null> {
+    const sourceId = await resolveLifecycleSourceId(id, ownerUserId, options);
+    if (!sourceId) return null;
+    return deprecateMemory(sourceId, actor, options);
   },
 
   /**
