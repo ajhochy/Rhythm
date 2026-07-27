@@ -1310,12 +1310,55 @@ export function runMigrations(db: Database.Database): void {
       source TEXT,                        -- 'session' | 'scheduler' | 'manual'
       source_id TEXT,                     -- e.g. session_id or scheduled_task_id
       tags_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'stable',
+      stale_after TEXT,
+      verified_json TEXT NOT NULL DEFAULT '[]',
+      generated_by TEXT,
+      generated_at TEXT,
+      trust_tier TEXT NOT NULL DEFAULT 'unverified',
       owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_memory_owner ON agent_memory(owner_user_id);
     CREATE INDEX IF NOT EXISTS idx_agent_memory_kind ON agent_memory(kind);
+  `);
+
+  // MEM-OKF #1189 — lifecycle/trust projection for the disposable SQLite
+  // index. Guard every additive column so existing populated indexes upgrade
+  // in place and repeated startup migrations remain a no-op. These columns do
+  // not belong in the external-content FTS table: they are filter/sort
+  // attributes, not searchable text.
+  const agentMemoryCols = (
+    db.pragma('table_info(agent_memory)') as { name: string }[]
+  ).map((column) => column.name);
+  if (!agentMemoryCols.includes('status')) {
+    db.exec(
+      `ALTER TABLE agent_memory ADD COLUMN status TEXT NOT NULL DEFAULT 'stable'`,
+    );
+  }
+  if (!agentMemoryCols.includes('stale_after')) {
+    db.exec(`ALTER TABLE agent_memory ADD COLUMN stale_after TEXT`);
+  }
+  if (!agentMemoryCols.includes('verified_json')) {
+    db.exec(
+      `ALTER TABLE agent_memory ADD COLUMN verified_json TEXT NOT NULL DEFAULT '[]'`,
+    );
+  }
+  if (!agentMemoryCols.includes('generated_by')) {
+    db.exec(`ALTER TABLE agent_memory ADD COLUMN generated_by TEXT`);
+  }
+  if (!agentMemoryCols.includes('generated_at')) {
+    db.exec(`ALTER TABLE agent_memory ADD COLUMN generated_at TEXT`);
+  }
+  if (!agentMemoryCols.includes('trust_tier')) {
+    db.exec(
+      `ALTER TABLE agent_memory ADD COLUMN trust_tier TEXT NOT NULL DEFAULT 'unverified'`,
+    );
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_active
+      ON agent_memory(status, stale_after);
   `);
 
   // FTS5 virtual table for agent_memory full-text search.

@@ -21,6 +21,8 @@ function memory(id: string, overrides: Partial<AgentMemory> = {}): AgentMemory {
   return {
     id, kind: 'fact', content: `content ${id}`, source: 'obsidian-memory',
     sourceId: `fact/${id}.md`, tagsJson: '[]', ownerUserId: 1,
+    status: 'stable', staleAfter: null, verifiedJson: '[]',
+    generatedBy: null, generatedAt: null, trustTier: 'unverified',
     createdAt: 'now', updatedAt: 'now', ...overrides,
   };
 }

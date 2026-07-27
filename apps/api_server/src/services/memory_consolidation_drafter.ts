@@ -43,7 +43,12 @@ import path from 'node:path';
 import { resolveMemoryDirPath } from '../config/env';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { MemoryIndexService } from './memory_index_service';
-import { toVaultRelativeKey, vaultKeyToMemoryDirRelative, MEMORY_VAULT_SOURCE } from './memoryVaultSyncService';
+import {
+  toVaultRelativeKey,
+  vaultKeyToMemoryDirRelative,
+  MEMORY_VAULT_SOURCE,
+  parseNote,
+} from './memoryVaultSyncService';
 import {
   readNoteFull,
   renderMemoryNote,
@@ -221,10 +226,11 @@ export async function runMemoryConsolidation(
           at: new Date().toISOString(),
         },
       };
-      await fs.writeFile(survivor.abs, renderMemoryNote(fm, mergedBody), 'utf8');
+      const rendered = renderMemoryNote(fm, mergedBody);
+      await fs.writeFile(survivor.abs, rendered, 'utf8');
       await index.upsertNote({
         sourceId: survivor.vaultRelKey,
-        parsed: { kind: survivor.kind, tags: Array.from(mergedTags), content: mergedBody.trim() },
+        parsed: parseNote(rendered),
       });
 
       // Retire every other member: delete the vault file + index row.
@@ -305,10 +311,9 @@ export async function revertMemoryConsolidation(
     await fs.mkdir(path.dirname(abs), { recursive: true });
     await fs.writeFile(abs, entry.fileContent, 'utf8');
 
-    const full = await readNoteFull(abs);
     await index.upsertNote({
       sourceId: entry.vaultRelKey,
-      parsed: { kind: entry.kind, tags: entry.tags, content: full.body },
+      parsed: parseNote(entry.fileContent),
     });
   }
 }

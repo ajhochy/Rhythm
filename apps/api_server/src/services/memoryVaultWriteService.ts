@@ -34,6 +34,7 @@ import path from 'node:path';
 import { resolveMemoryDirPath } from '../config/env';
 import {
   MEMORY_VAULT_SOURCE,
+  parseNote,
   resolveVaultRootForMemoryDir,
   toVaultRelativeKey,
   vaultKeyToMemoryDirRelative,
@@ -420,8 +421,9 @@ export async function rememberToVault(
 
   // --- VAULT-FIRST WRITE -----------------------------------------------------
   // If this throws, we return before touching the index (mandatory ordering).
+  const rendered = renderMemoryNote(fm, contentToWrite);
   await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, renderMemoryNote(fm, contentToWrite), 'utf8');
+  await fs.writeFile(abs, rendered, 'utf8');
 
   // --- DERIVED INDEX (only after the write succeeded) ------------------------
   // Canonical index key = path relative to the VAULT ROOT (e.g.
@@ -430,7 +432,7 @@ export async function rememberToVault(
   const vaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), abs);
   await index.upsertNote({
     sourceId: vaultRelKey,
-    parsed: { kind, tags, content: contentToWrite.trim() },
+    parsed: parseNote(rendered),
   });
 
   logger.info(`[MemoryWrite] remembered note (kind=${kind} path=${vaultRelKey})`);
@@ -766,8 +768,9 @@ export async function updateMemoryInVault(
     source: 'agent',
   };
 
+  const rendered = renderMemoryNote(fm, newContent);
   await fs.mkdir(path.dirname(newAbs), { recursive: true });
-  await fs.writeFile(newAbs, renderMemoryNote(fm, newContent), 'utf8');
+  await fs.writeFile(newAbs, rendered, 'utf8');
 
   if (kindChanged) {
     try {
@@ -781,7 +784,7 @@ export async function updateMemoryInVault(
   const newVaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), newAbs);
   await index.upsertNote({
     sourceId: newVaultRelKey,
-    parsed: { kind: newKind, tags: newTags, content: newContent.trim() },
+    parsed: parseNote(rendered),
   });
 
   logger.info(`[MemoryWrite] updated note (kind=${newKind} path=${newVaultRelKey})`);

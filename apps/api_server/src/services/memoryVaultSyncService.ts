@@ -36,8 +36,10 @@ import { resolveMemoryVaultPath } from '../config/env';
 import { logger } from '../utils/logger';
 import {
   parseMemoryNote,
+  trustTier as deriveTrustTier,
   type GeneratedMetadata,
   type MemoryStatus,
+  type MemoryTrustTier,
   type VerificationEntry,
 } from './memory_note_format';
 
@@ -116,6 +118,7 @@ export interface ParsedNote {
   staleAfter?: string;
   generated?: GeneratedMetadata;
   verified?: VerificationEntry[];
+  trustTier?: MemoryTrustTier;
 }
 
 /**
@@ -140,6 +143,7 @@ export function parseNote(raw: string): ParsedNote {
     staleAfter: document.staleAfter,
     generated: document.generated,
     verified: document.verified,
+    trustTier: deriveTrustTier(document.frontmatter),
   };
 }
 
@@ -243,6 +247,12 @@ export async function syncMemoryVault(
       source: MEMORY_VAULT_SOURCE,
       sourceId,
       tagsJson: JSON.stringify(parsed.tags),
+      status: parsed.status ?? 'stable',
+      staleAfter: parsed.staleAfter ?? null,
+      verifiedJson: JSON.stringify(parsed.verified ?? []),
+      generatedBy: parsed.generated?.by ?? null,
+      generatedAt: parsed.generated?.at ?? null,
+      trustTier: parsed.trustTier ?? 'unverified',
       ownerUserId,
     });
     upserted += 1;
