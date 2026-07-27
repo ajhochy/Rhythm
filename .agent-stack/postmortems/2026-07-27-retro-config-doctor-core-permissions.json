@@ -1,0 +1,122 @@
+{
+  "run_id": "2026-07-27-retro-config-doctor-core-permissions",
+  "issue": 0,
+  "date": "2026-07-27",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-config-doctor-core-permissions-c1",
+      "text": "A core-permission diagnosis produces an applyable corePermissionsJson patch and approval deep-merges it without dropping unrelated nested permissions.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The guarded live HTTP test created a real config, approved a seeded proposal through the public route, and read back the exact merged read, webfetch, and nested bash permissions."
+    },
+    {
+      "criterion_id": "issue-config-doctor-core-permissions-c2",
+      "text": "Approval projects into the generated agent frontmatter and revert restores the before-snapshot.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The isolated integration contract passed; the live HTTP smoke intentionally did not mutate the developer's real home-directory projection."
+    },
+    {
+      "criterion_id": "issue-config-doctor-core-permissions-c3",
+      "text": "Cross-layer core-tool and MCP-server names are rejected at extract time with a clear message.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the contract suite; no additional manual action was needed."
+    },
+    {
+      "criterion_id": "issue-config-doctor-core-permissions-c4",
+      "text": "Existing verification-gate core permissions are visible to diagnosis.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the real profile-shape diagnosis contract."
+    },
+    {
+      "criterion_id": "issue-config-doctor-core-permissions-c5",
+      "text": "A same-window Error: Aborted cohort collapses to one external-noop signal.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the run-quality integration contract."
+    },
+    {
+      "criterion_id": "issue-config-doctor-core-permissions-c6",
+      "text": "Existing allowedMcpsJson and allowedSkillsJson patches continue to work unchanged.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The legacy contract, focused regression bundle, full PR suite, and Server CI all passed."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "agent-transport",
+      "description": "The delegated verification agent repeatedly lost its background sandbox process and could not return a complete evidence block, so the primary agent reran the verification gate from the top.",
+      "detected_by": "Verification-agent transport results followed by successful foreground sandbox verification in the primary session."
+    },
+    {
+      "process_category": "test-environment",
+      "description": "Flutter SDK cache writes, the fork build's models.dev fetch, and localhost socket access required approved execution outside the restricted sandbox.",
+      "detected_by": "Initial permission or network failures followed by unchanged-command approved reruns."
+    },
+    {
+      "process_category": "test-flake",
+      "description": "One unrelated issue-858 test failed once with HTTP 200 instead of 201, then passed in isolation and in both subsequent full-suite runs including exact-head Server CI.",
+      "detected_by": "Focused rerun, local PR-level rerun, and GitHub Actions run 30292591759."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "smoke-test-writer",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem",
+      "workflow-retrospective"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "smoke-test-writer",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem",
+      "workflow-retrospective"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/__tests__/live_e2e_config_doctor_core_permissions.test.ts",
+    "apps/api_server/src/contract/config_doctor_core_permissions_contract.test.ts",
+    "apps/api_server/src/services/generators/__tests__/workflow_signal_generator_scope_prose.test.ts",
+    "apps/api_server/src/services/generators/run_quality_generator.ts",
+    "apps/api_server/src/services/generators/workflow_signal_generator.ts",
+    "apps/api_server/src/services/org_diagnosis_types.ts",
+    "apps/api_server/src/services/org_proposal_appliers_wiring.ts",
+    "apps/api_server/src/services/org_proposal_apply.ts",
+    "apps/api_server/src/services/workflow_failure_signal_extractor.ts",
+    "docs/ai/contracts/issue-config-doctor-core-permissions.json",
+    "docs/ai/decisions/2026-07-27-config-doctor-core-permission-patches.md",
+    "docs/ai/project-state.md",
+    "docs/ai/runs/2026-07-27-config-doctor-core-permissions.md",
+    "docs/ai/testing-guide.md",
+    "docs/testing/results/recon-config-doctor-core-permissions.md"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Keep the foreground sandbox path and conservative quoted-token fallback documented in the repository; this strict run does not justify a canonical skill change."
+}

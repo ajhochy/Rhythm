@@ -28,17 +28,31 @@ export interface ConfigPatch {
   value: string;
 }
 
+/** Array-backed profile scope fields. `broaden-scope` intentionally uses only these. */
+export const SCOPE_ALLOWLIST_FIELDS = ['allowedMcpsJson', 'allowedSkillsJson'] as const;
+/** The single source of truth for legal `refine-scope` (ScopePatch) fields. */
+export const SCOPE_PATCH_FIELDS = [...SCOPE_ALLOWLIST_FIELDS, 'corePermissionsJson'] as const;
+
+/** Opencode core permission names accepted by the embedded engine. */
+export const CORE_PERMISSION_NAMES = [
+  'read', 'write', 'edit', 'glob', 'grep', 'list', 'bash', 'task',
+  'external_directory', 'todowrite', 'question', 'webfetch', 'websearch',
+  'repo_clone', 'repo_overview', 'lsp', 'doom_loop', 'skill', 'image_generation',
+] as const;
+export const CORE_PERMISSION_ACTIONS = ['allow', 'ask', 'deny'] as const;
+
 /**
- * Machine-applyable patch shape for a `refine-scope` proposal — reuses the
- * `AgentConfigScopeChange` field set org_proposal_apply.ts already knows how
- * to apply (`allowedMcpsJson` | `allowedSkillsJson`, add/remove set
- * arithmetic). `agentConfigId` is server-resolved (see {@link ConfigPatch}).
+ * Machine-applyable patch shape for a `refine-scope` proposal. Array allowlists
+ * use add/remove set arithmetic; core permissions use set/unset so nested
+ * pattern maps can be merged without replacing unrelated rules.
  */
 export interface ScopePatch {
   agentConfigId: string;
-  field: 'allowedMcpsJson' | 'allowedSkillsJson';
+  field: (typeof SCOPE_PATCH_FIELDS)[number];
   add?: string[];
   remove?: string[];
+  set?: Record<string, unknown>;
+  unset?: string[];
 }
 
 /**
@@ -100,8 +114,6 @@ export interface DiagnosisResult {
 
 /** The single source of truth for legal `refine-config` (ConfigPatch) fields. */
 export const CONFIG_PATCH_FIELDS = ['model', 'allowedSkillsJson', 'allowedDelegatesJson', 'system_prompt'] as const;
-/** The single source of truth for legal `refine-scope` (ScopePatch) fields. */
-export const SCOPE_PATCH_FIELDS = ['allowedMcpsJson', 'allowedSkillsJson'] as const;
 /** The single source of truth for legal `refine-task` (TaskPatch) fields. */
 export const TASK_PATCH_FIELDS = ['prompt', 'description', 'cronExpression', 'scheduledTime', 'agentConfigId'] as const;
 /** TaskPatch fields measured by LLM-judge (text edits) vs behavioral re-run (schedule/binding). */

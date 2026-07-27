@@ -102,6 +102,9 @@ import {
 } from './org_proposal_apply';
 import {
   CONFIG_PATCH_FIELDS,
+  CORE_PERMISSION_ACTIONS,
+  CORE_PERMISSION_NAMES,
+  SCOPE_ALLOWLIST_FIELDS,
   SCOPE_PATCH_FIELDS,
   TASK_PATCH_FIELDS,
   TASK_PATCH_TEXT_FIELDS,
@@ -505,21 +508,103 @@ function extractConfigPatch(change: Record<string, unknown> | null): ConfigPatch
   return { agentConfigId: o.agentConfigId, field: o.field as ConfigPatch['field'], value: o.value };
 }
 
-/** Extract a well-formed ScopePatch (nested under `scopePatch`), or null. A patch with no add/remove is a no-op and refused. */
-function extractScopePatch(change: Record<string, unknown> | null): ScopePatch | null {
-  const p = change?.scopePatch;
-  if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
-  const o = p as Record<string, unknown>;
-  if (typeof o.agentConfigId !== 'string' || !o.agentConfigId.trim()) return null;
-  if (typeof o.field !== 'string' || !(SCOPE_PATCH_FIELDS as readonly string[]).includes(o.field)) {
+const CORE_PERMISSION_NAME_SET = new Set<string>(CORE_PERMISSION_NAMES);
+const CORE_PERMISSION_ACTION_SET = new Set<string>(CORE_PERMISSION_ACTIONS);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isCorePermissionValue(value: unknown): boolean {
+  if (typeof value === 'string') return CORE_PERMISSION_ACTION_SET.has(value);
+  return isRecord(value) && Object.entries(value).every(
+    ([pattern, action]) => pattern.trim().length > 0 && typeof action === 'string' && CORE_PERMISSION_ACTION_SET.has(action),
+  );
+}
+
+/** Return a user-facing validation error for an untrusted scope patch, or null when valid. */
+function scopePatchValidationError(raw: unknown): string | null {
+  if (!isRecord(raw)) return 'refine-scope requires a machine-applyable scopePatch object';
+  if (typeof raw.agentConfigId !== 'string' || !raw.agentConfigId.trim()) return 'refine-scope scopePatch requires an agentConfigId';
+  if (typeof raw.field !== 'string' || !(SCOPE_PATCH_FIELDS as readonly string[]).includes(raw.field)) {
+    return 'refine-scope scopePatch field must be allowedMcpsJson, allowedSkillsJson, or corePermissionsJson';
+  }
+
+  if ((SCOPE_ALLOWLIST_FIELDS as readonly string[]).includes(raw.field)) {
+    if (raw.set !== undefined || raw.unset !== undefined) {
+      return 'core permission set/unset fields are only valid for corePermissionsJson';
+    }
+    const add = raw.add;
+    const remove = raw.remove;
+    if (add !== undefined && (!Array.isArray(add) || !add.every((v) => typeof v === 'string' && v.trim().length > 0))) {
+      return 'refine-scope add must be a non-empty-name string array';
+    }
+    if (remove !== undefined && (!Array.isArray(remove) || !remove.every((v) => typeof v === 'string' && v.trim().length > 0))) {
+      return 'refine-scope remove must be a non-empty-name string array';
+    }
+    const names = [...(Array.isArray(add) ? add : []), ...(Array.isArray(remove) ? remove : [])] as string[];
+    const corePermission = raw.field === 'allowedMcpsJson'
+      ? names.find((name) => CORE_PERMISSION_NAME_SET.has(name))
+      : undefined;
+    if (corePermission) return `core permission '${corePermission}' cannot be used as an MCP or skill allowlist name`;
+    if (names.length === 0) return 'refine-scope scopePatch requires at least one add or remove name';
     return null;
   }
-  const add = Array.isArray(o.add) ? o.add.filter((v): v is string => typeof v === 'string') : undefined;
-  const remove = Array.isArray(o.remove)
-    ? o.remove.filter((v): v is string => typeof v === 'string')
-    : undefined;
-  if ((add?.length ?? 0) === 0 && (remove?.length ?? 0) === 0) return null;
-  return { agentConfigId: o.agentConfigId, field: o.field as ScopePatch['field'], add, remove };
+
+  if (raw.add !== undefined || raw.remove !== undefined) {
+    return 'corePermissionsJson uses set/unset, not array add/remove';
+  }
+  if (raw.set !== undefined && !isRecord(raw.set)) return 'corePermissionsJson set must be an object';
+  if (raw.unset !== undefined && (!Array.isArray(raw.unset) || !raw.unset.every((v) => typeof v === 'string' && v.trim().length > 0))) {
+    return 'corePermissionsJson unset must be a non-empty-name string array';
+  }
+  const set = isRecord(raw.set) ? raw.set : {};
+  const unset = Array.isArray(raw.unset) ? raw.unset as string[] : [];
+  for (const [name, value] of Object.entries(set)) {
+    if (!CORE_PERMISSION_NAME_SET.has(name)) return `MCP server or unknown name '${name}' cannot be used as a core permission`;
+    if (!isCorePermissionValue(value)) return `core permission '${name}' must be allow, ask, deny, or a pattern map of those actions`;
+  }
+  for (const name of unset) {
+    if (!CORE_PERMISSION_NAME_SET.has(name)) return `MCP server or unknown name '${name}' cannot be used as a core permission`;
+  }
+  if (Object.keys(set).length === 0 && unset.length === 0) return 'refine-scope corePermissionsJson requires at least one set or unset entry';
+  return null;
+}
+
+/** Extract a well-formed ScopePatch (nested under `scopePatch`), or null. */
+function extractScopePatch(change: Record<string, unknown> | null): ScopePatch | null {
+  const p = change?.scopePatch;
+  if (scopePatchValidationError(p)) return null;
+  const o = p as Record<string, unknown>;
+  return {
+    agentConfigId: o.agentConfigId as string,
+    field: o.field as ScopePatch['field'],
+    ...(Array.isArray(o.add) ? { add: o.add as string[] } : {}),
+    ...(Array.isArray(o.remove) ? { remove: o.remove as string[] } : {}),
+    ...(isRecord(o.set) ? { set: o.set } : {}),
+    ...(Array.isArray(o.unset) ? { unset: o.unset as string[] } : {}),
+  };
+}
+
+function mergeCorePermissions(
+  priorJson: string | null,
+  patch: Pick<ScopePatch, 'set' | 'unset'>,
+): string {
+  let current: Record<string, unknown> = {};
+  try {
+    const parsed = priorJson ? JSON.parse(priorJson) : {};
+    if (isRecord(parsed)) current = parsed;
+  } catch {
+    // A malformed existing value is treated as absent; the validated patch is still safe to apply.
+  }
+  const next: Record<string, unknown> = { ...current };
+  for (const [name, value] of Object.entries(patch.set ?? {})) {
+    next[name] = isRecord(next[name]) && isRecord(value)
+      ? { ...next[name], ...value }
+      : value;
+  }
+  for (const name of patch.unset ?? []) delete next[name];
+  return JSON.stringify(next);
 }
 
 /** Extract a well-formed TaskPatch (nested under `taskPatch`), or null. */
@@ -788,12 +873,13 @@ const refineConfigApplier: ProposalApplier = (proposal): ProposalApplyResult => 
 
 // ── refine-scope ──
 function validateRefineScope(proposal: AgentOrgProposal): ProposalValidationResult {
-  const patch = extractScopePatch(parseChange(proposal.changeJson));
-  if (!patch) {
+  const change = parseChange(proposal.changeJson);
+  const error = scopePatchValidationError(change?.scopePatch);
+  const patch = extractScopePatch(change);
+  if (!patch || error) {
     return {
       valid: false,
-      reason:
-        'refine-scope requires a machine-applyable scopePatch {agentConfigId, field, add?/remove?} with at least one change; a prose-only diagnosis cannot be auto-applied',
+      reason: error ?? 'refine-scope requires a machine-applyable scopePatch with at least one change; a prose-only diagnosis cannot be auto-applied',
     };
   }
   if (!new AgentConfigsRepository().getById(patch.agentConfigId)) {
@@ -816,7 +902,9 @@ const refineScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => {
     priorValue,
   });
 
-  const nextJson = computeScopeList(priorValue, { add: patch.add, remove: patch.remove });
+  const nextJson = patch.field === 'corePermissionsJson'
+    ? mergeCorePermissions(priorValue, patch)
+    : computeScopeList(priorValue, { add: patch.add, remove: patch.remove });
   configsRepo.update(patch.agentConfigId, agentConfigFieldPatch(patch.field, nextJson));
   const updated = configsRepo.getById(patch.agentConfigId);
   if (updated) writeAgentProfileFile(updated);
@@ -843,7 +931,7 @@ function extractBroadenScopePatch(
 ): { agentConfigId: string; field: ScopePatch['field']; add: string[] } | null {
   if (!change) return null;
   if (typeof change.agentConfigId !== 'string' || !change.agentConfigId.trim()) return null;
-  if (typeof change.field !== 'string' || !(SCOPE_PATCH_FIELDS as readonly string[]).includes(change.field)) {
+  if (typeof change.field !== 'string' || !(SCOPE_ALLOWLIST_FIELDS as readonly string[]).includes(change.field)) {
     return null;
   }
   const add = Array.isArray(change.add)
