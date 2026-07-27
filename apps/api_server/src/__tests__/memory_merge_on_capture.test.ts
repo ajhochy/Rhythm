@@ -370,6 +370,32 @@ describe('merge-on-capture (#859a)', () => {
     });
   });
 
+  it('#1193: unsafe exact replay errors without mutating vault bytes or index', async () => {
+    const first = await rememberToVault(
+      {
+        kind: 'fact',
+        content: 'Exact claim.[^X]',
+        sources: [{ id: 'X', resource: 'https://example.test/original' }],
+      },
+      { memoryDir, index },
+    );
+    const originalBytes = readFileSync(fileFor(first.path), 'utf8');
+    const [originalRow] = await repo.listAsync(undefined, undefined, 10);
+
+    await expect(rememberToVault(
+      {
+        kind: 'fact',
+        content: ' exact CLAIM.[^x] ',
+      },
+      { memoryDir, index },
+    )).rejects.toThrow(/Exact replay/);
+
+    expect(readFileSync(fileFor(first.path), 'utf8')).toBe(originalBytes);
+    const rows = await repo.listAsync(undefined, undefined, 10);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual(originalRow);
+  });
+
   it('#1193: unsafe semantic candidates stay separate and cannot cross-bind', async () => {
     const first = await rememberToVault(
       {

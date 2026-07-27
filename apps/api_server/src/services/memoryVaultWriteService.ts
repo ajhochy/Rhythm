@@ -465,7 +465,6 @@ export async function rememberToVault(
   let semanticMerge = false;
   let contentToWrite = content;
   let attributionMerge: AttributedMemoryMergeResult | undefined;
-  let attributionMergeBlocked = false;
 
   if (id) {
     // Find an existing note in this kind's dir carrying the same frontmatter id.
@@ -509,9 +508,11 @@ export async function rememberToVault(
         contentToWrite = attributionMerge.body;
       } catch (err) {
         if (!(err instanceof MemoryAttributionMergeError)) throw err;
-        attributionMergeBlocked = true;
         logger.warn(
-          `[MemoryWrite] skipped attribution merge for ${relPath}: ${err.message}`,
+          `[MemoryWrite] rejected unsafe exact replay for ${relPath}: ${err.message}`,
+        );
+        throw new MemoryWriteError(
+          'Exact replay could not be merged without invalid attribution.',
         );
       }
     } else {
@@ -617,15 +618,14 @@ export async function rememberToVault(
           usage_window: attributionMerge.usageWindow,
         }
       : {}),
-    ...(!attributionMerge && !attributionMergeBlocked && requestedSources.supplied
+    ...(!attributionMerge && requestedSources.supplied
       ? {
           sources: requestedSources.sources.length > 0
             ? requestedSources.sources
             : undefined,
         }
       : {}),
-    ...(!attributionMerge && !attributionMergeBlocked &&
-        input.usageWindow !== undefined
+    ...(!attributionMerge && input.usageWindow !== undefined
       ? { usage_window: requestedUsageWindow }
       : {}),
   };
