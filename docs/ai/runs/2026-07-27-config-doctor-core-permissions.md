@@ -2,7 +2,7 @@
 date: 2026-07-27
 repo: Rhythm
 branch: codex/config-doctor-core-permissions
-pr: pending
+pr: 1207
 issues: []
 status: verified
 tags: [run, rhythm]
@@ -54,4 +54,4 @@ index: "[[Rhythm]]"
 
 ## Next
 
-Commit, push, open a draft PR, and monitor required GitHub checks. Do not merge.
+Monitor required GitHub checks on draft PR #1207. Do not merge.

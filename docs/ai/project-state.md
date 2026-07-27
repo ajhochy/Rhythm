@@ -8,14 +8,13 @@ patches, diagnosis visibility, and simultaneous-abort attribution.
 ## Active branch / PR
 
 - Branch: `codex/config-doctor-core-permissions`.
-- PR: pending (draft only; do not merge).
+- PR: [#1207](https://github.com/ajhochy/Rhythm/pull/1207) (draft only; do not merge).
 - The separate MEM-OKF PR #1205 remains outside this branch and may require a
   project-state reconciliation if both branches land.
 
 ## In progress
 
-- Commit the verified diff, push the feature branch, open a draft PR, and
-  monitor required GitHub checks.
+- Monitor required GitHub checks on draft PR #1207.
 - Keep the generated Flutter `.dart_tool` symlink and fork `bun.lock` build
   drift out of the commit.
 
@@ -42,5 +41,5 @@ patches, diagnosis visibility, and simultaneous-abort attribution.
 
 ## Next step
 
-Commit the verified diff, push, open a draft PR, and watch required CI without
+Watch required CI on draft PR #1207 and hand off for human review without
 merging.
