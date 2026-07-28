@@ -177,6 +177,12 @@ export interface ScannedNote {
   parsed: ParsedNote;
 }
 
+/** Classify vault synthesis documents independently of their legacy frontmatter. */
+export function classifyVaultNoteKind(sourceId: string, parsedKind: string): string {
+  const segments = sourceId.replaceAll('\\', '/').toLowerCase().split('/');
+  return segments.includes('synthesis') ? 'synthesis' : parsedKind;
+}
+
 /**
  * Recursively scan a Memory-Vault directory and return every `.md` note parsed
  * via {@link parseNote}, keyed by its vault-relative path.
@@ -284,7 +290,7 @@ export async function syncMemoryVault(
   for (const { sourceId, parsed } of notes) {
     presentSourceIds.add(sourceId);
     await repo.upsertBySourceAsync({
-      kind: parsed.kind,
+      kind: classifyVaultNoteKind(sourceId, parsed.kind),
       content: parsed.content,
       source: MEMORY_VAULT_SOURCE,
       sourceId,

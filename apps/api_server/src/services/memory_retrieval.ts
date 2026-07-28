@@ -101,6 +101,10 @@ function trustRank(memory: AgentMemory): number {
   }
 }
 
+function curatedRank(memory: AgentMemory): number {
+  return memory.kind === 'synthesis' ? 0 : 1;
+}
+
 /**
  * Very common English words that carry no retrieval signal. Kept tiny on
  * purpose — FTS already ranks; this just trims obvious noise so a natural-
@@ -266,6 +270,7 @@ export async function getRelevantMemories(
 
   ranked.sort((a, b) => (
     b.matchCount - a.matchCount
+    || curatedRank(b.memory) - curatedRank(a.memory)
     || a.bestIndex - b.bestIndex
     || trustRank(b.memory) - trustRank(a.memory)
     || a.firstSeen - b.firstSeen
@@ -298,7 +303,8 @@ export function fuseMemoryRanks(
   }
   return [...fused.values()]
     .sort((a, b) => (
-      b.score - a.score
+      curatedRank(b.memory) - curatedRank(a.memory)
+      || b.score - a.score
       || trustRank(b.memory) - trustRank(a.memory)
       || a.first - b.first
     ))
