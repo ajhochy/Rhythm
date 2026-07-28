@@ -462,3 +462,21 @@
   sign-in before the remaining device matrix.
 - See
   `.agent-stack/postmortems/2026-07-27-issue-1175-google-ios-client-device-smoke.json`.
+
+## 2026-07-27 — Issue #1175 — signed PR app used the older deployed OAuth API contract
+
+- **Result**: smoke FAIL (physical-device gate remained pending; no divergence
+  from a completed verification claim)
+- **Category**: C5 — environment/configuration issue; process:
+  test-environment-contract-drift
+- **Criteria affected**: issue-1175-c5 and the #1199 physical-device gate
+- **Root cause**: the credential-configured PR app sent its hardened,
+  server-pinned mobile exchange request to the deployed production API, which
+  still required the older caller-supplied redirect field and returned HTTP
+  400.
+- **Suggested fix**: preserve the hardened contract and run the signed app
+  against the matching isolated branch-built API over a private test route, as
+  already required by #1199. Do not deploy the draft PR or restore
+  caller-controlled OAuth configuration.
+- See
+  `.agent-stack/postmortems/2026-07-27-issue-1175-production-api-contract-device-smoke.json`.

@@ -1,0 +1,40 @@
+{
+  "run_id": "2026-07-27-pr-1165-desktop-live-local-smoke",
+  "issue": 1165,
+  "date": "2026-07-27",
+  "smoke_result": "pass",
+  "verification_claimed": "PARTIAL",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "pr-1165-desktop-live-local",
+      "text": "The PR desktop client launches against its live local API and engine, renders the core workspace and Agents surfaces at usable scale, and exposes healthy private mobile-access controls.",
+      "contract_status": "pending",
+      "smoke_status": "pass",
+      "category": null,
+      "notes": "Computer Control verified Dashboard, Tasks, Projects, Agents, a selected transcript, Settings, the ready localhost Agent Server card, and the pre-code Mobile Access dialog. The API, engine capabilities route, and restricted gateway health endpoints returned HTTP 200. RHYTHM_LOCAL_SMOKE=1 disabled the production-trigger watcher, no prompt was sent, and no pairing code was generated."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "pass",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "smoke-test",
+      "failure-postmortem",
+      "verification-gate",
+      "project-state-updater"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "smoke-test",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [],
+  "failure_output": null,
+  "overall_category": null,
+  "suggested_follow_up": "Continue with the iOS simulator smoke and resolve the already-observed mobile-to-gateway contract mismatch before the final verification gate."
+}

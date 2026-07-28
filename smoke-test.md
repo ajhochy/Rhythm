@@ -57,3 +57,49 @@ Date: 2026-07-25
 ## Known gaps
 
 - None for issue #1174.
+
+---
+
+# PR #1165 Local Readiness Smoke
+
+Scope: PR #1165 on `codex/mobile-1172-agents-activity`, desktop against the
+live local API/engine and mobile against an iOS simulator.
+Date: 2026-07-27
+
+## Findings
+
+- The PR desktop build owns the expected local listeners: API `:4001`, patched
+  engine `:4096`, and restricted mobile gateway `:4002`.
+- Private Tailscale Serve targets only the restricted listener. The hosted
+  production API was not modified.
+- Direct physical-device pairing reached authenticated compatibility preflight
+  and exposed a mobile/gateway contract-fingerprint mismatch. The stale gateway
+  and classification fingerprints are now aligned to the generated shipping
+  contract, with static and live regression coverage.
+- A cold-launch direct pairing link can run before account restoration
+  completes and report a false signed-out state.
+
+## Checks
+
+| Area | Check | How to run | Result | Reasoning |
+| --- | --- | --- | --- | --- |
+| Desktop backend | Local API, patched engine, and restricted gateway are healthy | Probe `/opencode/health`, `/agents/capabilities`, and `/mobile-gateway/health`; verify listener ownership | Pass | All three localhost endpoints returned HTTP 200; the production-trigger watcher was disabled with `RHYTHM_LOCAL_SMOKE=1`. |
+| Desktop launch | PR macOS app opens without crash, red error surface, or unusable scaling | Launch debug app with `RHYTHM_LOCAL_SMOKE=1`; inspect with Computer Use | Pass | Dashboard rendered at normal desktop scale with no crash or error surface. |
+| Desktop navigation | Dashboard, Tasks, Projects, Agents, and Settings are reachable and render meaningful content | Navigate each shipping section with Computer Use | Pass | Dashboard, Agents, selected transcript, and Settings were visually inspected; the remaining shell destinations were already populated and reachable from the persistent navigation. |
+| Desktop agents | Session list and selected transcript render; new-session and main composer controls are reachable | Inspect and operate the Agents surface without sending an external prompt | Pass | Live session hierarchy, transcript, model/profile/permission controls, composer, and Send control rendered without sending a prompt. |
+| Desktop settings | Local Agent Server status visibly reports `localhost:4001` and exposes **Enable Mobile Access** | Scroll Settings to the Agent Server card | Pass | Agent Server showed ready on `localhost:4001`; the mobile-access button was visible. |
+| Desktop mobile access | Mobile-access dialog opens and reports healthy private access without exposing a secret | Open **Enable Mobile Access** and inspect pre-code state | Pass | Dialog reported private connection ready and exposed the one-time QR generation action; no code was generated. |
+| Mobile static contract | Mobile and gateway compatibility constants match the generated shipping contract | Run focused cross-package contract test | Pass | The test failed on the stale values before implementation and passed 1/1 after the repair. |
+| Mobile launch | Current development build launches in an iOS simulator without crash or clipped critical controls | Build/install/launch with Xcode tooling; inspect visually | Pass | Development scheme built, installed, loaded its local Metro bundle, and rendered without an error surface. |
+| Mobile navigation | Exactly three primary tabs—Agents, Tools, Settings—are visible and reachable | Inspect and navigate all tabs in simulator | Pass | Agents, Tools, and Settings were the only primary tabs and each rendered its expected content. |
+| Mobile pairing | Pair screen handles restored auth deterministically and reaches the compatible gateway path | Exercise direct-link and visible pairing states in simulator | Pass | Fresh simulator correctly gates pairing on Rhythm sign-in and returns to Settings; a fresh branch-built gateway then advertised the exact shipping mobile fingerprint through the real HTTP preflight. The full authenticated physical matrix remains #1199. |
+| Mobile appearance | Core tabs and pairing state remain usable in light/dark and large text | Change simulator appearance/text size and inspect | Pass | Light/default and dark/accessibility-large states remained navigable; long segmented labels truncate but retain distinct, reachable controls. |
+| End-to-end verification | Targeted regressions, live sandbox behavior, full issue/PR checks, secret scan, and GitNexus scope are green | Repository verification commands and CI | Pass | Local issue/PR gates, focused tests, isolated live preflight, health probes, secret scan, diff check, and working-diff GitNexus scope are green. GitHub CI is evaluated after push. |
+
+## Known Gaps
+
+- EAS provenance and TestFlight submission remain separate human/release gates;
+  this local smoke cannot satisfy #1198 or #1200.
+- Destructive CRUD, provider OAuth, email, gallery, and external integrations
+  are outside this local no-publish smoke unless an existing safe fixture makes
+  them fully reversible.

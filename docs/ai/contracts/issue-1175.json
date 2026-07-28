@@ -249,6 +249,14 @@
       "test_file": "apps/mobile/tests/issue-1175-development-invocation.test.mjs",
       "test_id": "issue-1175-c31: ordinary prototype commands force development config without production OAuth",
       "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c32",
+      "text": "Physical iPhone verifies pairing.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-pairing-compatibility.test.mjs",
+      "test_id": "issue-1175-c32: shipping mobile and gateway fingerprints match the generated contract",
+      "status": "pass"
     }
   ],
   "stack": "typescript",

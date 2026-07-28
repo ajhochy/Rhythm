@@ -2,38 +2,32 @@
 
 ## Current focus
 
-Complete the four human iOS release gates split from umbrella #1175. The
-cumulative mobile roadmap is complete through every automatable Task 17/18
-check.
+Finish PR #1165 after the local desktop/mobile smoke and pairing compatibility
+repair. Every local gate for the repair is green; the remaining work is the
+explicit human release chain.
 
 ## Active branch / PR
 
 - Local branch: `codex/mobile-1172-agents-activity`
 - Remote PR branch: `feat/rhythm-agent-ios-roadmap`
 - Draft PR: #1165, `WIP: consolidate unfinished Rhythm Agents iOS prototype`
-- Immutable tested source: `8701432480f585fe90119cbaee66382d062da879`
-- PR head policy: evidence-only descendants after the tested source
+- Current local head before the smoke-repair commit: `f5b486ca4`
 
 ## In progress
 
-- #1197: independent review of the exact PR #1165 release candidate.
-- #1198: signed EAS development build for a physical iPhone.
-- #1199: complete signed-build matrix on an isolated Mac sandbox and physical
-  iPhone.
-- #1200: production EAS build, exact-artifact TestFlight submission, and
-  bounded TestFlight install smoke.
-- Dependency order is #1197 → #1198 → #1199 → #1200. #1175 tracks the
-  umbrella gate and links the checklist.
-- A dedicated Google iOS development client now exists for the development
-  bundle. A local Xcode-signed standalone app with the client, redirect, and
-  callback scheme embedded is installed and running on an iPhone 13 mini;
-  physical Google sign-in remains the next manual checkpoint.
+- Commit and push the local smoke evidence and pairing compatibility repair,
+  then watch PR CI to completion.
+- #1197 remains the independent exact-head review gate.
+- #1198 remains the signed EAS development build gate.
+- #1199 remains the authenticated physical-device and isolated-Mac matrix.
+- #1200 remains the production EAS/TestFlight provenance and install smoke.
+- Dependency order remains #1197 → #1198 → #1199 → #1200; #1175 owns the
+  umbrella checklist.
 
 ## Risks / known issues
 
-- Any product, native configuration, dependency-lock, generated-runtime, or
-  release-script change invalidates downstream release evidence and restarts
-  the chain from the affected source SHA.
+- The compatibility repair changes product contract data, so any prior
+  exact-head release evidence must be rerun against the new commit.
 - The physical-device run must use an isolated branch-built API/engine and
   private Tailscale Serve gateway. It must not fall back to production staff
   data or expose the OpenCode engine directly.
@@ -42,53 +36,37 @@ check.
 - The development Google iOS client is stored outside the repository with
   owner-only access and must be supplied through secure build and isolated-API
   configuration. The production bundle still needs its own client at #1200.
-- The stale local prebuilt iOS project omitted the dynamic reverse URL scheme;
-  the installed artifact was repaired and re-signed after build. This does not
-  replace #1198's EAS build, where secure prebuild configuration must generate
-  the scheme before signing.
+- Local Xcode/simulator evidence does not replace #1198 or #1200 EAS/TestFlight
+  provenance.
 - #1186 tracks a non-blocking automation improvement for a foreground sandbox
   lifecycle; the corrected final source smoke passed without a product change.
 - #1135's additive SQLite/Postgres change requires normal migration review.
-- GitNexus compare-to-main is CRITICAL (987 files, 7,076 symbols, 21 flows)
-  because this cumulative branch intentionally includes the roadmap, vendored
-  engine, and linked issues. Review found zero unexpected flows.
+- GitNexus compare-to-main is CRITICAL (677 files, 3,540 symbols, 21 flows)
+  because this cumulative branch intentionally includes the roadmap and linked
+  issues. The current working diff is LOW (8 indexed files, 5 symbols, 0
+  affected flows).
 - Do not merge before the human gates above are complete.
 
 ## Test status
 
-- Source-freeze GitHub CI is green: API/server, MCP type/build, fork,
-  Flutter/macOS desktop, and both Mobile CI runs.
+- Desktop live-local visual smoke passed Dashboard, Tasks, Projects, Agents,
+  transcript, Settings, Agent Server, and pre-code Mobile Access surfaces.
+- Native iOS simulator smoke passed launch, the Agents/Tools/Settings shell,
+  signed-out pairing guidance, light/dark appearance, and
+  accessibility-large text.
+- The cross-package pairing contract failed before the repair and passed 1/1
+  afterward; pairing service tests passed 10/10.
 - `ai-workflow checks --level issue` and `ai-workflow checks --level pr`
-  passed the cumulative local gates.
-- Rebuilt #1175 security/creative matrix passed 9/9 live assertions.
-- Final exact-port source smoke passed #1166 (1/1), #1168 (1/1), and #1170
-  (2/2) on API `4098` / engine `4097`; installed listeners `4001/4096`
-  retained PIDs `964/1016`.
-- Current-head #1123 async delegation passed 2/2 and #1171
-  desktop-to-mobile access passed 1/1 before the later CI/evidence-only fixes,
-  which did not touch those paths.
-- Native iOS 18.3 simulator smokes passed at maximum and normal Dynamic Type
-  for Agents/Activity and Webhooks; the focused corrective regression passed
-  2/2 on the source freeze.
-- Physical iPhone signing/install/launch passed for a local standalone
-  development-variant build. The first account-flow smoke failed at the
-  intentional missing-client guard; bundle inspection confirmed no OAuth
-  client or redirect was embedded. This is recorded in
-  `docs/ai/runs/2026-07-27-1175-google-ios-client-device-smoke.md`.
-- The evidence-only failed-smoke update passed current issue/PR workflow gates;
-  GitNexus classified the working scope LOW with no affected process.
-- Google iOS client recovery passed plist relationship checks, embedded-bundle
-  checks, callback-scheme inspection, strict code-sign verification, physical
-  install, and physical launch. The exact sanitized record is
-  `docs/ai/runs/2026-07-27-1175-google-ios-client-recovery.md`.
-- Durable logs and hashes are under `docs/ai/evidence/`; exact commands and the
-  repair loop are in
-  `docs/ai/runs/2026-07-25-mobile-roadmap-finalization.md`.
+  passed after the repair.
+- A fresh isolated API `4598` / engine `4597` / gateway `4599` run passed the
+  live shipping-fingerprint assertion 1/1 and all health probes; the sandbox
+  was removed.
+- Changed-file credential/private-host scan and `git diff --check` passed.
+- Full commands and repair-loop details are recorded in
+  `docs/ai/runs/2026-07-27-live-desktop-mobile-smoke-handoff.md`.
 
 ## Next step
 
-Complete #1197 against source `8701432480f585fe90119cbaee66382d062da879`.
-Run the physical Google sign-in checkpoint on the installed local artifact.
-Then complete #1198 with the exact reviewed EAS build and proceed through the
-isolated #1199 matrix and #1200. Keep PR #1165 draft and unmerged until the full
-chain and final human approval are complete.
+Commit and push the verified local repair, watch PR CI, and keep PR #1165
+draft. Then rerun #1197 against the new exact head and hand #1198–#1200 to AJ
+for the required secure EAS, physical-device, and TestFlight actions.
