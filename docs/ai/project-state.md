@@ -61,3 +61,23 @@ Repair #1237–#1239, then repeat the bounded physical smoke for disconnect/
 reconnect, long prompt/response with background recovery, visible QR pairing,
 revocation, and replacement pairing before continuing the remaining #1199 and
 #1200 release gates.
+
+## Recent coding-agent runs
+
+### 2026-07-28 — #1216/#1217 MCP preflight and doctor status
+- Files modified: `agent_runner.ts` (required-MCP fail-fast),
+  `cli/doctor.ts` + `cli/checks/live_mcp_status.ts` (bounded live status with
+  labeled config fallback), issue contracts/tests, and a sandbox live contract.
+- Checks run: failing-first 6 failed/2 passed; focused regression suite 16
+  passed/2 live-skipped; api_server TypeScript passed; api_server build passed.
+  Full api_server suite was attempted but loopback test servers hit
+  environment-wide `listen EPERM`; issue checks passed both TypeScript packages
+  but Flutter could not write its external SDK cache.
+- Decisions made: MCPs named by the resolved run scope are required; live MCP
+  entries outside that scope are optional. Doctor retains only live `name` and
+  `status`, never response detail/environment fields.
+- Deviations from spec: GitHub issue bodies/comments could not be fetched
+  because network access was blocked; the supplied mission text was used.
+- Concerns: sandbox live verification is pending because Bun cannot create its
+  temporary install files in this managed environment, so the required fork
+  binary cannot be built here.

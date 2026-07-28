@@ -4,6 +4,12 @@ import { checkCapabilityStatus } from './checks/capability_status';
 import { checkConfigValidity, defaultConfigPaths } from './checks/config_validity';
 import { loadConfiguredMcpServers } from './checks/load_mcp_servers';
 import { checkMcpReachability } from './checks/mcp_reachability';
+import {
+  liveMcpStatusResults,
+  readLiveMcpStatus,
+  type LiveMcpFetch,
+  type LiveMcpStatus,
+} from './checks/live_mcp_status';
 import { checkNodeVersion } from './checks/node_version';
 import { checkPythonVersion } from './checks/python_version';
 import type { CheckResult } from './checks/types';
@@ -21,6 +27,8 @@ export interface RunDoctorOptions {
     mcpReachability?: (
       servers: ReturnType<typeof loadConfiguredMcpServers>,
     ) => Promise<CheckResult[]>;
+    mcpLiveStatus?: () => Promise<LiveMcpStatus>;
+    fetchImpl?: LiveMcpFetch;
     /** #879 — loads the Rhythm capabilities config (Blank Slate awareness). Defaults to reading rhythm-capabilities.json; an all-unconfigured config on a normal (non-Blank-Slate) install. */
     rhythmConfig?: () => RhythmConfig;
   };
@@ -60,9 +68,25 @@ export async function runDoctor(options: RunDoctorOptions = {}): Promise<DoctorR
   const configResults = await (deps.configValidity ?? defaultConfigValidity)();
 
   const servers = (deps.mcpServers ?? loadConfiguredMcpServers)();
-  const mcpResults = await (deps.mcpReachability ?? ((s) => checkMcpReachability({ servers: s })))(
-    servers,
-  );
+  const apiUrl = env.RHYTHM_API_URL ?? `http://127.0.0.1:${env.PORT ?? '4001'}`;
+  const configuredTimeout = Number(env.RHYTHM_DOCTOR_MCP_TIMEOUT_MS ?? 1500);
+  const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0
+    ? configuredTimeout
+    : 1500;
+  const liveStatus = await (
+    deps.mcpLiveStatus ??
+    (() => readLiveMcpStatus({ apiUrl, fetchImpl: deps.fetchImpl, timeoutMs }))
+  )();
+  const mcpResults =
+    liveStatus.source === 'live'
+      ? liveMcpStatusResults(liveStatus)
+      : [
+          ...liveMcpStatusResults(liveStatus),
+          ...await (
+            deps.mcpReachability ??
+            ((s) => checkMcpReachability({ servers: s }))
+          )(servers),
+        ];
 
   const defaultRhythmConfig = (): RhythmConfig => loadRhythmConfig(defaultLoadDeps());
   const rhythmConfig = (deps.rhythmConfig ?? defaultRhythmConfig)();

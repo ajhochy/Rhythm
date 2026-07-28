@@ -838,11 +838,22 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
             deadline,
             'MCP readiness preflight',
           );
-          const unauthed = requiredServers.filter(
-            (name) => statusMap[name]?.status === 'needs_auth',
-          );
-          if (unauthed.length > 0) {
-            const msg = `AgentRunner: ${unauthed.join(', ')} isn't connected — connect it in Integrations before delegating to this specialist`;
+          const unavailable = requiredServers.flatMap((name) => {
+            const status = statusMap[name]?.status;
+            if (status === 'connected') return [];
+
+            const remediation =
+              status === 'needs_auth'
+                ? 'connect it in Integrations'
+                : status === 'disabled'
+                  ? 'enable it in MCP settings'
+                  : status === 'failed'
+                    ? 'check the server configuration and restart it'
+                    : 'add or configure it in MCP settings';
+            return [`${name} (${status ?? 'missing'} — ${remediation})`];
+          });
+          if (unavailable.length > 0) {
+            const msg = `AgentRunner: required MCP unavailable: ${unavailable.join(', ')} before delegating to this specialist`;
             logger.warn(`[AgentRunner] ${msg}`);
             _markSessionError(rhythmSessionId, msg);
             return {

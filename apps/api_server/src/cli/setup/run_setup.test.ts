@@ -98,6 +98,7 @@ describe('runSetup', () => {
           configValidity: async () => [],
           mcpServers: () => [],
           mcpReachability: async () => [],
+        mcpLiveStatus: async () => ({ source: 'config-only' as const, entries: [] }),
         },
       });
 
