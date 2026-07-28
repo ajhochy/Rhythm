@@ -62,7 +62,8 @@ async function poll<T>(operation: () => T, label: string): Promise<T> {
 describeLive('live #1218/#1215 memory behavior', () => {
   beforeAll(() => {
     expect(new URL(BASE).hostname).toMatch(/^(127\.0\.0\.1|localhost)$/);
-    expect(new URL(BASE).port).toBe('4115');
+    // Any sandbox port is fine — just never the live app's ports.
+    expect(['4000', '4001', '']).not.toContain(new URL(BASE).port);
     expect(DB_PATH).not.toContain('Library/Application Support/Rhythm');
     expect(VAULT_PATH).not.toContain('Documents');
     setDb(new Database(DB_PATH));

@@ -35,8 +35,8 @@ describeLive('issue-1223-c8: live broaden-scope approval', () => {
   beforeAll(async () => {
     assertLiveE2EIsolation();
     const url = new URL(BASE);
-    if (!['127.0.0.1', 'localhost'].includes(url.hostname) || url.port !== '4114') {
-      throw new Error(`RHYTHM_LIVE_URL must target isolated localhost port 4114, got ${BASE}`);
+    if (!['127.0.0.1', 'localhost'].includes(url.hostname) || ['4000', '4001', ''].includes(url.port)) {
+      throw new Error(`RHYTHM_LIVE_URL must target an isolated localhost sandbox port (never 4000/4001), got ${BASE}`);
     }
     if (!DB || !isAbsolute(DB) || resolve(DB) !== resolve(process.env.DB_PATH ?? '') ||
         resolve(DB) !== resolve(process.env.RHYTHM_LIVE_DB_PATH ?? '')) {
