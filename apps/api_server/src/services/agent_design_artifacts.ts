@@ -1,5 +1,17 @@
-import { existsSync, realpathSync, statSync } from 'node:fs';
-import { extname, resolve } from 'node:path';
+import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { extname, join, resolve } from 'node:path';
 import { containsReal } from '../utils/path_containment';
 
 const allowedExtensions = new Set([
@@ -101,6 +113,49 @@ export function resolveLocalArtifact(filePath: string): { path: string; artifact
     throw new Error('Local artifact must be under ~/Downloads/Rhythm Studio');
   }
   return { path: resolved, artifactType };
+}
+
+const posterCacheDirectory = join(tmpdir(), 'rhythm-gallery-posters');
+
+/**
+ * Generates a cached PNG poster using macOS Quick Look. The input must already
+ * have passed the local Rhythm Studio boundary before this function is called.
+ */
+export async function generateLocalVideoPoster(filePath: string): Promise<string> {
+  const artifact = resolveLocalArtifact(filePath);
+  if (artifact.artifactType !== 'mp4') {
+    throw new Error('Poster frames are supported only for local MP4 artifacts');
+  }
+
+  const sourceStat = statSync(artifact.path);
+  const cacheKey = createHash('sha256')
+    .update(`${artifact.path}\0${sourceStat.size}\0${sourceStat.mtimeMs}`)
+    .digest('hex');
+  mkdirSync(posterCacheDirectory, { recursive: true });
+  const cachedPoster = join(posterCacheDirectory, `${cacheKey}.png`);
+  if (existsSync(cachedPoster)) return cachedPoster;
+
+  const outputDirectory = mkdtempSync(join(tmpdir(), 'rhythm-gallery-poster-'));
+  try {
+    await new Promise<void>((resolvePromise, reject) => {
+      execFile(
+        '/usr/bin/qlmanage',
+        ['-t', '-s', '1200', '-o', outputDirectory, artifact.path],
+        { timeout: 5_000, maxBuffer: 1024 * 1024 },
+        (error) => {
+          if (error) reject(error);
+          else resolvePromise();
+        },
+      );
+    });
+    const generated = readdirSync(outputDirectory)
+      .find((entry) => entry.toLowerCase().endsWith('.png'));
+    if (!generated) throw new Error('Quick Look did not produce a poster frame');
+    copyFileSync(join(outputDirectory, generated), cachedPoster);
+    return cachedPoster;
+  } finally {
+    rmSync(outputDirectory, { recursive: true, force: true });
+  }
 }
 
 export function isCanvaUrl(value: string): boolean {

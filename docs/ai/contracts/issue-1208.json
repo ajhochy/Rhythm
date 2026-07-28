@@ -1,0 +1,73 @@
+{
+  "issue": 1208,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1208-c1",
+      "text": "Local MP4 Gallery cards display a generated poster-frame still when available.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agent_gallery/issue_1208_mp4_thumbnail_test.dart",
+      "test_id": "issue-1208-c1: local MP4 card renders its authenticated poster-frame route",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1208-c2",
+      "text": "Artifact and thumbnail access use authenticated local routes.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1208_gallery_mp4_thumbnail.test.ts",
+      "test_id": "issue-1208-c2: poster endpoint requires authentication and serves local PNG content",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1208-c3",
+      "text": "Remote thumbnail URLs/content are not trusted or fetched for this feature.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agent_gallery/issue_1208_mp4_thumbnail_test.dart",
+      "test_id": "issue-1208-c3: remote MP4 records never render a thumbnail network image",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1208-c4",
+      "text": "**Open deliverable** retains the original local MP4 target.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agent_gallery/issue_1208_mp4_thumbnail_test.dart",
+      "test_id": "issue-1208-c4: local MP4 open action remains bound to the artifact route",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1208-c5",
+      "text": "Missing, invalid, or failed thumbnails fall back to the current MP4 placeholder without breaking the card.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1208_gallery_mp4_thumbnail.test.ts",
+      "test_id": "issue-1208-c5: poster generation failure returns not found without changing artifact access",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1208-c6",
+      "text": "No new dependency is introduced if the existing runtime/platform tooling can generate the frame securely.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Verified by dependency-lock diff inspection after implementation."
+    },
+    {
+      "criterion_id": "issue-1208-c7",
+      "text": "Automated coverage verifies authorization, local-path boundaries, thumbnail success/fallback, and preservation of the original open action.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1208_gallery_mp4_thumbnail.test.ts",
+      "test_id": "issue-1208-c7: poster endpoint rejects non-local and non-MP4 design records",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1208-c8",
+      "text": "Live sandbox evidence demonstrates a real local MP4 rendering a representative Gallery thumbnail.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires a real MP4, macOS poster extraction, sandboxed api_server, and desktop visual verification."
+    }
+  ],
+  "stack": "dart",
+  "not_tested": [
+    "issue-1208-c6",
+    "issue-1208-c8"
+  ]
+}
