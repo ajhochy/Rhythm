@@ -20,6 +20,7 @@ describe('runDoctor (integration)', () => {
         configValidity: async () => [{ label: '.env file', pass: true, status: 'ok' }],
         mcpServers: () => [],
         mcpReachability: async () => [],
+        mcpLiveStatus: async () => ({ source: 'config-only' as const, entries: [] }),
         rhythmConfig: () => ({ capabilities: {}, disabledMcpServers: [], enabledSkills: null }),
       },
     });
@@ -38,6 +39,7 @@ describe('runDoctor (integration)', () => {
         configValidity: async () => [],
         mcpServers: () => [],
         mcpReachability: async () => [],
+        mcpLiveStatus: async () => ({ source: 'config-only' as const, entries: [] }),
         rhythmConfig: () => ({ capabilities: {}, disabledMcpServers: [], enabledSkills: null }),
       },
     });
@@ -57,7 +59,8 @@ describe('runDoctor (integration)', () => {
         pythonVersion: async () => ({ label: 'Python version', pass: true }),
         configValidity: async () => [],
         mcpServers: () => [{ id: 'slow', name: 'Slow', type: 'remote', url: 'https://slow.example.com' }],
-        mcpReachability: async () => [
+                mcpLiveStatus: async () => ({ source: 'config-only' as const, entries: [] }),
+mcpReachability: async () => [
           { label: 'MCP server: Slow', pass: false, remediation: 'Slow timed out after 3000ms.' },
         ],
         rhythmConfig: () => ({ capabilities: {}, disabledMcpServers: [], enabledSkills: null }),
@@ -79,6 +82,7 @@ describe('runDoctor (integration)', () => {
         configValidity: async () => [],
         mcpServers: () => [],
         mcpReachability: async () => [],
+        mcpLiveStatus: async () => ({ source: 'config-only' as const, entries: [] }),
         rhythmConfig: () => ({ capabilities: {}, disabledMcpServers: [], enabledSkills: null }),
       },
     });
