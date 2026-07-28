@@ -64,33 +64,9 @@ revocation, and replacement pairing before continuing the remaining #1199 and
 
 ## Recent coding-agent runs
 
-### 2026-07-28 — issue #1234 mobile Tool content and states
-- Files modified: mobile Tool screen/provider/state component, fake Tool routes,
-  issue contract and component/E2E tests, and the issue run log.
-- Checks run: failing-first contract 0/3 as expected; post-change focused Node
-  suites 14/14; syntax and diff checks pass. Typecheck/lint blocked because both
-  npm installs failed and left no executables; Playwright/iOS visual smoke not
-  available in the sandbox.
-- Decisions made: reuse the existing Tool state component, make initial state
-  loading, and drive all remote states through deterministic fake-server
-  controls.
-- Deviations from spec: GitHub comments and GitNexus were unavailable due
-  network restrictions; no Jest setup exists in `apps/mobile`, so the
-  repository's Node contract + Playwright conventions were used.
-- Concerns: orchestrator must run dependency-backed static checks, fake-server
-  E2E, and native visual verification. See
-  `docs/ai/runs/2026-07-28-1234-mobile-tool-states.md`.
-
-### 2026-07-28 — issue #1234 shared fake-server repair
-- Files modified: fake Tool routes now restore baseline collections when data
-  mode is selected; the #1234 E2E spec restores data mode after every case; the
-  contract test asserts fixture restoration.
-- Checks run: issue-1234 contract 3/3 PASS; mobile typecheck PASS; mobile lint
-  PASS; `git diff --check` PASS. Playwright was explicitly delegated to the
-  orchestrator.
-- Decisions made: keep all issue-1173 specs unchanged and make the new control
-  lifecycle reset both response mode and mutable fixture data.
-- Deviations from spec: GitNexus impact analysis was attempted but unavailable
-  because this worktree has no runner and the session exposes no GitNexus MCP.
-- Concerns: the orchestrator must rerun the full fake-server Playwright suite to
-  confirm the static shared-state diagnosis.
+### 2026-07-28 — issue #1232 mobile Agents categories
+- Files modified: mobile Agents screen; chat/activity list components; agent category/chat read-model services; #1232 contract and fake-server E2E; run log.
+- Checks run: #1232 contract 5/5 pass after 4 expected failing-first assertions; #1172 6/6 pass; #1173 tool service 5/5 pass; repair-pass typecheck, lint, and diff checks pass.
+- Decisions made: retain the existing chat read-model default for other callers, opt this screen into all lifecycle states, derive Scheduled/Background categories from scheduler/optimizer activity sources, and preserve the unfiltered Activity feed as a secondary header action. The chat-list action label is distinct from the workspace label so mounted but hidden routes cannot intercept workspace automation. See `docs/ai/runs/2026-07-28-mobile-agents-1232.md`.
+- Deviations from spec: exact GitHub issue text unavailable due blocked network; no socket/simulator verification.
+- Concerns: loaded-page counts and the restored Activity entry point require the orchestrator's Playwright rerun; segmented category labels need narrow-screen/dynamic-type smoke.

@@ -14,7 +14,7 @@ export interface AgentChatRecord {
 
 export interface AgentChatFilter {
   projectId?: string | null;
-  lifecycle?: AgentChatLifecycle;
+  lifecycle?: AgentChatLifecycle | 'all';
 }
 
 const SECRET_KEY_PATTERN =
@@ -123,7 +123,7 @@ export function buildAgentChatReadModel(
       ) {
         return false;
       }
-      return lifecycleFor(session) === lifecycle;
+      return lifecycle === 'all' || lifecycleFor(session) === lifecycle;
     }),
   );
 }
