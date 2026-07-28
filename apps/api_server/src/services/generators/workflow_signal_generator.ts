@@ -73,6 +73,7 @@ import type {
   DeniedToolAggregate,
 } from '../org_audit_service';
 import type { WorkflowFailureSignal, WorkflowFailureCategory } from '../workflow_failure_signal_extractor';
+import { resolveKnownMcpServerName } from '../mcp_scope_name';
 
 export interface WorkflowSignalGeneratorDeps {
   /** Injectable proposals repo (defaults to a fresh AgentOrgProposalsRepository). */
@@ -130,23 +131,28 @@ async function proposeMissingScope(
     logger.warn(`[workflow-signal-generator] unparseable missing-scope evidence: '${signal.evidence}'`);
     return null;
   }
+  const { serverName } = await resolveKnownMcpServerName(toolName);
+  if (!serverName) {
+    logger.warn(`[workflow-signal-generator] denied tool '${toolName}' does not map to a known MCP server`);
+    return null;
+  }
 
   const changeJson = JSON.stringify({
     agentConfigId: signal.agentConfigId,
     field: 'allowedMcpsJson',
-    add: [toolName],
+    add: [serverName],
   });
   const risk = classifyProposalRisk({ kind: 'broaden-scope', changeJson });
 
   return createIfNotDuplicate(proposalsRepo, {
     kind: 'broaden-scope',
     risk,
-    title: `Grant missing scope '${toolName}' to ${signal.agentConfigId}`,
+    title: `Grant missing scope '${serverName}' to ${signal.agentConfigId}`,
     rationale: `${signal.evidence} (workflow signal: repeated dispatch-guard denial)`,
-    signalRef: `workflow:missing-scope:${signal.agentConfigId}:${toolName}`,
-    targetRef: `agent_config:${signal.agentConfigId}:mcp:${toolName}`,
+    signalRef: `workflow:missing-scope:${signal.agentConfigId}:${serverName}`,
+    targetRef: `agent_config:${signal.agentConfigId}:mcp:${serverName}`,
     changeJson,
-    dedupKey: `broaden-scope:${signal.agentConfigId}:mcp:${toolName}`,
+    dedupKey: `broaden-scope:${signal.agentConfigId}:mcp:${serverName}`,
   });
 }
 

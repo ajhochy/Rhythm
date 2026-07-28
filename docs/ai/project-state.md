@@ -61,3 +61,19 @@ Repair #1237–#1239, then repeat the bounded physical smoke for disconnect/
 reconnect, long prompt/response with background recovery, visible QR pairing,
 revocation, and replacement pairing before continuing the remaining #1199 and
 #1200 release gates.
+
+## Recent coding-agent runs
+
+### 2026-07-28 — issue #1223 malformed broaden-scope grants
+- Files modified: proposal generator/validation/apply paths, scope-hygiene
+  guard, optimizer legacy-row invalidation, repository status transition,
+  acceptance/live tests, contract, and run log.
+- Checks run: failing-first 4 expected failures; targeted 18/18 pass; API and
+  MCP TypeScript checks pass; full API/live/Flutter gates blocked by managed
+  environment restrictions (see `docs/ai/runs/2026-07-28-issue-1223-scope-proposals.md`).
+- Decisions made: resolve model-facing tool ids against the live MCP server
+  catalog and store only the resolved server name; broaden grants remain
+  human-gated but no longer enter an unsupported measurement path.
+- Deviations from spec: no commit because live verification could not run.
+- Concerns: fresh fork dependencies and loopback/socket permissions are needed
+  to finish the required sandbox evidence.
