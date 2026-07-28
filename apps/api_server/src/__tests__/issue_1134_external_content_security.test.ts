@@ -30,6 +30,7 @@ const CORRECTIVE_SECURITY_ACTIONS = [
   "scheduled-task.cancel",
   "scheduled-task.trigger",
   "memory.update",
+  "memory.lifecycle",
   "rhythm.delete",
   "rhythm-step.create",
   "rhythm-step.delete",

@@ -3,6 +3,11 @@ import * as Log from "@opencode-ai/core/util/log"
 import { Context, Effect, Layer, Record } from "effect"
 import * as Stream from "effect/Stream"
 import { streamText, wrapLanguageModel, type ModelMessage, type Tool, tool, jsonSchema } from "ai"
+import type {
+  LanguageModelV3Middleware,
+  LanguageModelV3StreamPart,
+  LanguageModelV3StreamResult,
+} from "@ai-sdk/provider"
 import { mergeDeep } from "remeda"
 import { GitLabWorkflowLanguageModel } from "gitlab-ai-provider"
 import { ProviderTransform } from "@/provider/transform"
@@ -28,6 +33,118 @@ import { modelStreamScheduler, providerBackpressureDelay } from "./model-stream-
 const log = Log.create({ service: "llm" })
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 type Result = Awaited<ReturnType<typeof streamText>>
+export const PROVIDER_STREAM_INACTIVITY_DEFAULT_MS = 180_000
+
+export class ProviderStreamInactivityError extends Error {
+  constructor(readonly timeoutMs: number) {
+    super(`Provider stream inactive for ${timeoutMs}ms`)
+    this.name = "ProviderStreamInactivityError"
+  }
+}
+
+export function providerStreamInactivityMs() {
+  const configured = Number.parseInt(process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS ?? "", 10)
+  return Number.isFinite(configured) && configured > 0 ? configured : PROVIDER_STREAM_INACTIVITY_DEFAULT_MS
+}
+
+function providerStreamInactivityMiddleware(input: StreamRequest): LanguageModelV3Middleware {
+  const timeoutMs = providerStreamInactivityMs()
+  let aborted = false
+  const abortOnce = () => {
+    if (aborted || input.abort.aborted) return
+    aborted = true
+    input.abortRequest()
+  }
+  const timeoutError = () => new ProviderStreamInactivityError(timeoutMs)
+
+  const open = (doStream: () => PromiseLike<LanguageModelV3StreamResult>) =>
+    new Promise<LanguageModelV3StreamResult>((resolve, reject) => {
+      let settled = false
+      const timer = setTimeout(() => {
+        if (settled || input.abort.aborted) return
+        settled = true
+        const error = timeoutError()
+        reject(error)
+        abortOnce()
+      }, timeoutMs)
+
+      void doStream().then(
+        (result) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          resolve(result)
+        },
+        (error) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          reject(error)
+        },
+      )
+    })
+
+  return {
+    specificationVersion: "v3",
+    wrapStream: async ({ doStream }) => {
+      const { stream, ...rest } = await open(doStream)
+      const reader = stream.getReader()
+      let timer: ReturnType<typeof setTimeout> | undefined
+      let closed = false
+
+      const clearTimer = () => {
+        if (!timer) return
+        clearTimeout(timer)
+        timer = undefined
+      }
+      const armTimer = (controller: ReadableStreamDefaultController<LanguageModelV3StreamPart>) => {
+        clearTimer()
+        timer = setTimeout(() => {
+          if (closed || input.abort.aborted) return
+          closed = true
+          const error = timeoutError()
+          controller.error(error)
+          void reader.cancel(error).catch(() => undefined)
+          abortOnce()
+        }, timeoutMs)
+      }
+
+      return {
+        ...rest,
+        stream: new ReadableStream<LanguageModelV3StreamPart>({
+          start(controller) {
+            armTimer(controller)
+            void (async () => {
+              try {
+                while (!closed) {
+                  const next = await reader.read()
+                  if (next.done) {
+                    closed = true
+                    clearTimer()
+                    controller.close()
+                    return
+                  }
+                  controller.enqueue(next.value)
+                  armTimer(controller)
+                }
+              } catch (error) {
+                if (closed) return
+                closed = true
+                clearTimer()
+                controller.error(error)
+              }
+            })()
+          },
+          async cancel(reason) {
+            closed = true
+            clearTimer()
+            await reader.cancel(reason)
+          },
+        }),
+      }
+    },
+  }
+}
 
 // Avoid re-instantiating remeda's deep merge types in this hot LLM path; the runtime behavior is still mergeDeep.
 const mergeOptions = (target: Record<string, any>, source: Record<string, any> | undefined): Record<string, any> =>
@@ -50,6 +167,7 @@ export type StreamInput = {
 
 export type StreamRequest = StreamInput & {
   abort: AbortSignal
+  abortRequest: () => void
 }
 
 export type Event = Result["fullStream"] extends AsyncIterable<infer T> ? T : never
@@ -393,6 +511,7 @@ const live: Layer.Layer<
         model: wrapLanguageModel({
           model: language,
           middleware: [
+            providerStreamInactivityMiddleware(input),
             {
               specificationVersion: "v3" as const,
               async transformParams(args) {
@@ -451,11 +570,14 @@ const live: Layer.Layer<
               (lease) => Effect.sync(() => lease.release()),
             )
 
-            const result = yield* run({ ...input, abort: ctrl.signal }).pipe(Effect.tapError(reportBackpressure))
+            const result = yield* run({
+              ...input,
+              abort: ctrl.signal,
+              abortRequest: () => ctrl.abort(),
+            }).pipe(Effect.tapError(reportBackpressure))
 
-            return Stream.fromAsyncIterable(
-              result.fullStream,
-              (e) => (e instanceof Error ? e : new Error(String(e))),
+            return Stream.fromAsyncIterable(result.fullStream, (e) =>
+              e instanceof Error ? e : new Error(String(e)),
             ).pipe(Stream.tapError(reportBackpressure))
           }),
         ),

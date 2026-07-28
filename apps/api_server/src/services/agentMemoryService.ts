@@ -23,6 +23,8 @@ import { resolveMemoryDirPath } from '../config/env';
 import { vaultKeyToMemoryDirRelative } from './memoryVaultSyncService';
 import {
   rememberToVault,
+  verifyMemory,
+  deprecateMemory,
   forgetFromVault,
   findMemoryRowByRememberId,
   updateMemoryInVault,
@@ -32,10 +34,25 @@ import {
   type RememberResult,
   type MemoryVaultWriteOptions,
   type UpdateMemoryPatch,
+  type VerifyMemoryOptions,
 } from './memoryVaultWriteService';
 
 const memRepo = new AgentMemoryRepository();
 const schedRepo = new AgentScheduledTasksRepository();
+
+async function resolveLifecycleSourceId(
+  id: string,
+  ownerUserId: number | undefined,
+  options?: MemoryVaultWriteOptions,
+): Promise<string | null> {
+  let row = await memRepo.findByIdAsync(id);
+  if (!row) {
+    row = await findMemoryRowByRememberId(id, memRepo, options);
+  }
+  if (!row || row.source !== 'obsidian-memory' || !row.sourceId) return null;
+  if (row.ownerUserId !== null && row.ownerUserId !== ownerUserId) return null;
+  return row.sourceId;
+}
 
 export const agentMemoryService = {
   /**
@@ -128,6 +145,34 @@ export const agentMemoryService = {
   },
 
   /**
+   * Resolve either index-row or frontmatter id with owner defense-in-depth,
+   * then append a vault-first verification event. Null-owner vault rows retain
+   * the established local-instance behavior used by update routes.
+   */
+  async verify(
+    id: string,
+    actor: string,
+    ownerUserId?: number,
+    options?: VerifyMemoryOptions,
+  ): Promise<RememberResult | null> {
+    const sourceId = await resolveLifecycleSourceId(id, ownerUserId, options);
+    if (!sourceId) return null;
+    return verifyMemory(sourceId, actor, options);
+  },
+
+  /** Non-destructive lifecycle retirement with the same ownership rules. */
+  async deprecate(
+    id: string,
+    actor: string,
+    ownerUserId?: number,
+    options?: Omit<VerifyMemoryOptions, 'staleAfter'>,
+  ): Promise<RememberResult | null> {
+    const sourceId = await resolveLifecycleSourceId(id, ownerUserId, options);
+    if (!sourceId) return null;
+    return deprecateMemory(sourceId, actor, options);
+  },
+
+  /**
    * Seed the memory consolidation scheduled task on first startup.
    * Creates a daily cron task that prompts the agent to review recent
    * session history and extract durable facts into agent_memory.
@@ -156,7 +201,10 @@ export const agentMemoryService = {
 Your job:
 1. Use rhythm_list_sessions (or the agent_session_messages table) to read recent session messages from the past 24 hours.
 2. Identify facts, preferences, and important context worth remembering long-term.
-3. For each item, call rhythm_remember_memory with kind='fact' or kind='preference' and the extracted content.
+3. For each item, call rhythm_remember_memory with kind='fact' or
+   kind='preference', the extracted content, and sessionId set to the EXACT
+   source-session id returned by rhythm_list_sessions for the message. Never
+   invent or omit that sessionId when the source session is known.
 4. Skip information that is transient, task-specific, or already stored.
 5. Deduplicate: before storing, search rhythm_search_memory for similar entries.
 

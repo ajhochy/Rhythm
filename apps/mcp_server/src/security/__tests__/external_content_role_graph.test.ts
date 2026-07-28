@@ -186,6 +186,10 @@ const protectedWrites = new Map<string, { action: string; sourceFile: string }>(
       { action: "memory.update", sourceFile: "agentMemory.ts" },
     ],
     [
+      "rhythm_verify_memory",
+      { action: "memory.lifecycle", sourceFile: "agentMemory.ts" },
+    ],
+    [
       "rhythm_delete_rhythm",
       { action: "rhythm.delete", sourceFile: "rhythms.ts" },
     ],

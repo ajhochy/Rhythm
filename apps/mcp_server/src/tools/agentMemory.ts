@@ -6,6 +6,7 @@
  * rhythm_forget_memory    — Delete a memory entry by ID
  * rhythm_list_memories    — List recent memories (optional kind filter)
  * rhythm_update_memory    — Edit an existing memory's content/kind/tags (#862)
+ * rhythm_verify_memory    — Verify or non-destructively deprecate a memory
  *
  * #804 — these tools target the LOCAL agent server (RHYTHM_AGENT_URL, default
  * http://localhost:4001), NOT the prod Settings URL. Memory is vault-first with a
@@ -43,6 +44,8 @@ export function registerAgentMemoryTools(
 
 kind: "fact" | "preference" | "decision" | "note" | "contact" | "project" (default: "fact")
 source: where this came from, e.g. "conversation", "research", "task:<id>" (default: "conversation")
+sessionId: when the fact came from an agent session, stamps a stable rhythm://agent-session source
+links: optional links to related memory notes as { target, label? } objects
 tags: optional array of string tags for later filtering`,
     {
       content: z.string().describe("The information to remember."),
@@ -57,6 +60,56 @@ tags: optional array of string tags for later filtering`,
         .string()
         .optional()
         .describe("ID of the source object if applicable."),
+      sessionId: z
+        .string()
+        .optional()
+        .describe(
+          "Originating agent-session ID; automatically recorded as an OKF source.",
+        ),
+      sdkSessionId: z
+        .string()
+        .optional()
+        .describe(
+          "Reserved runtime field. Rhythm overwrites this from authoritative execution context.",
+        ),
+      sources: z
+        .array(
+          z
+            .object({
+              id: z.string(),
+              resource: z.string().optional(),
+              title: z.string().optional(),
+              author: z.string().optional(),
+              usage_count: z.number().optional(),
+              last_modified: z.string().optional(),
+            })
+            .passthrough(),
+        )
+        .optional()
+        .describe(
+          "Optional per-claim OKF sources. Each entry requires a unique id.",
+        ),
+      usageWindow: z
+        .object({
+          from: z.string().optional(),
+          to: z.string().optional(),
+        })
+        .passthrough()
+        .optional()
+        .describe(
+          "Optional OKF usage window with YYYY-MM-DD from/to fields.",
+        ),
+      links: z
+        .array(
+          z.object({
+            target: z.string(),
+            label: z.string().optional(),
+          }),
+        )
+        .optional()
+        .describe(
+          "Optional links to existing memory notes. Rhythm stores resolved links as absolute bundle-relative markdown.",
+        ),
       tags: z.array(z.string()).optional().describe("Tags for filtering."),
       approval_id: z
         .string()
@@ -277,6 +330,64 @@ At least one of content/kind/tags must be provided; omitted fields are left unch
           apiToken,
           `/agent-memory/${id}`,
           patch,
+        );
+        return toolResult(JSON.stringify(result, null, 2));
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
+
+  registerTool(server, 'rhythm_verify_memory',
+    `Record a machine confirmation for a memory, or non-destructively deprecate it.
+
+The server assigns the fixed agent identity; callers cannot supply or forge a human actor. Use action="verify" after confirming a fact in conversation, or action="deprecate" when the fact should remain auditable but stop being active.`,
+    {
+      id: z.string().describe('The memory entry ID to verify or deprecate.'),
+      action: z.enum(['verify', 'deprecate']).describe('Lifecycle action to record.'),
+      staleAfter: z.string().optional().describe(
+        'For verify only: replacement shelf-life boundary in YYYY-MM-DD form.',
+      ),
+      approval_id: z.string().optional().describe(
+        'Approval id returned by rhythm_request_approval — required after reading untrusted content.',
+      ),
+    },
+    async (
+      {
+        id,
+        action,
+        staleAfter,
+        approval_id,
+      }: {
+        id: string;
+        action: 'verify' | 'deprecate';
+        staleAfter?: string;
+        approval_id?: string;
+      },
+      extra,
+    ) => {
+      const payload = { id, action, staleAfter };
+      const gate = await authorizeOutboundAction({
+        agentUrl: apiUrl,
+        context: trustedSecurityContext(extra),
+        approvalId: approval_id,
+        action: 'memory.lifecycle',
+        payload,
+      });
+      if (!gate.allowed) {
+        return {
+          content: [
+            { type: 'text' as const, text: gate.refusalMessage as string },
+          ],
+          isError: true as const,
+        };
+      }
+      try {
+        const result = await apiPost(
+          apiUrl,
+          apiToken,
+          `/agent-memory/${id}/agent-lifecycle`,
+          { action, staleAfter },
         );
         return toolResult(JSON.stringify(result, null, 2));
       } catch (err) {

@@ -46,11 +46,20 @@ function buildServer(base: string): FakeServer {
   return server;
 }
 
-/** Stub global fetch, capture the URL each memory tool actually hits. */
-function stubFetch(): { calls: string[] } {
+/** Stub global fetch, capture the URL/body each memory tool actually sends. */
+function stubFetch(): {
+  calls: string[];
+  bodies: unknown[];
+  securityBodies: unknown[];
+} {
   const calls: string[] = [];
-  const fetchMock = vi.fn(async (url: string | URL) => {
+  const bodies: unknown[] = [];
+  const securityBodies: unknown[] = [];
+  const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
     if (String(url).endsWith("/agent-approvals/consume")) {
+      securityBodies.push(
+        typeof init?.body === "string" ? JSON.parse(init.body) : init?.body,
+      );
       return {
         ok: true,
         status: 200,
@@ -65,6 +74,9 @@ function stubFetch(): { calls: string[] } {
       } as unknown as Response;
     }
     calls.push(String(url));
+    bodies.push(
+      typeof init?.body === "string" ? JSON.parse(init.body) : init?.body,
+    );
     return {
       ok: true,
       status: 200,
@@ -72,7 +84,7 @@ function stubFetch(): { calls: string[] } {
     } as unknown as Response;
   });
   vi.stubGlobal("fetch", fetchMock);
-  return { calls };
+  return { calls, bodies, securityBodies };
 }
 
 describe("#804 memory MCP tools resolve to the local agent server", () => {
@@ -108,7 +120,52 @@ describe("#804 memory MCP tools resolve to the local agent server", () => {
     expect(calls[0]).not.toContain("vcrcapps.com");
   });
 
-  it("rhythm_list_memories GETs from localhost:4001", async () => {
+  it('rhythm_remember_memory threads known source-session context unchanged', async () => {
+    const { bodies } = stubFetch();
+    const server = buildServer(LOCAL);
+    const handler = server.registered.get('rhythm_remember_memory');
+
+    await handler!(
+      {
+        content: 'remember this',
+        kind: 'fact',
+        sessionId: 'source-session-42',
+        sdkSessionId: 'sdk-ambient-42',
+      },
+      SECURITY_EXTRA,
+    );
+
+    expect(bodies[0]).toMatchObject({
+      content: 'remember this',
+      sessionId: 'source-session-42',
+      sdkSessionId: 'sdk-ambient-42',
+    });
+  });
+
+  it('rhythm_remember_memory forwards optional portable memory links', async () => {
+    const { bodies } = stubFetch();
+    const server = buildServer(LOCAL);
+    const handler = server.registered.get('rhythm_remember_memory');
+
+    await handler!(
+      {
+        content: 'Mike owns Sunday service.',
+        kind: 'project',
+        links: [
+          { target: '/person/pastor-mike.md', label: 'Pastor Mike' },
+        ],
+      },
+      SECURITY_EXTRA,
+    );
+
+    expect(bodies[0]).toMatchObject({
+      links: [
+        { target: '/person/pastor-mike.md', label: 'Pastor Mike' },
+      ],
+    });
+  });
+
+  it('rhythm_list_memories GETs from localhost:4001', async () => {
     const { calls } = stubFetch();
     const server = buildServer(LOCAL);
     const handler = server.registered.get("rhythm_list_memories");
@@ -150,7 +207,41 @@ describe("#804 memory MCP tools resolve to the local agent server", () => {
     expect(calls[0]).not.toContain("vcrcapps.com");
   });
 
-  it("prod-URL invariant: the base passed to the tools is the only thing that moves the request — index.ts wires RHYTHM_AGENT_URL, never serverConfig.url", async () => {
+  it('rhythm_verify_memory uses the fixed local agent-lifecycle endpoint (#1190)', async () => {
+    const { calls, bodies, securityBodies } = stubFetch();
+    const server = buildServer(LOCAL);
+    const handler = server.registered.get('rhythm_verify_memory');
+    expect(handler).toBeDefined();
+
+    await handler!(
+      {
+        id: 'mem-1',
+        action: 'verify',
+        staleAfter: '2026-10-01',
+        by: 'human:forged@example.com',
+      },
+      SECURITY_EXTRA,
+    );
+
+    expect(calls).toEqual([
+      `${LOCAL}/agent-memory/mem-1/agent-lifecycle`,
+    ]);
+    expect(securityBodies).toEqual([
+      expect.objectContaining({
+        action: 'memory.lifecycle',
+        payload: {
+          id: 'mem-1',
+          action: 'verify',
+          staleAfter: '2026-10-01',
+        },
+      }),
+    ]);
+    expect(bodies).toEqual([
+      { action: 'verify', staleAfter: '2026-10-01' },
+    ]);
+  });
+
+  it('prod-URL invariant: the base passed to the tools is the only thing that moves the request — index.ts wires RHYTHM_AGENT_URL, never serverConfig.url', async () => {
     // The tools have no knowledge of the prod Settings URL; their base is
     // injected by the caller. index.ts injects RHYTHM_AGENT_URL (local). To
     // prove the decoupling: a server built with the local base hits local even

@@ -460,6 +460,56 @@ describe("tool.task", () => {
     }),
   )
 
+  it.instance("issue-1211-c2: propagates a provider inactivity timeout from child to parent task", () =>
+    Effect.gen(function* () {
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const promptOps: TaskPromptOps = {
+        cancel: () => Effect.void,
+        resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+        prompt: (input) =>
+          Effect.succeed(
+            failedReply(
+              input,
+              new MessageV2.APIError({
+                message: "Provider stream inactive for 50ms",
+                isRetryable: false,
+              }).toObject() as MessageV2.Assistant["error"],
+            ),
+          ),
+      }
+
+      const exit = yield* def
+        .execute(
+          {
+            description: "inspect bug",
+            prompt: "look into the cache key path",
+            subagent_type: "general",
+          },
+          {
+            sessionID: chat.id,
+            messageID: assistant.id,
+            agent: "build",
+            abort: new AbortController().signal,
+            extra: { promptOps },
+            messages: [],
+            metadata: () => Effect.void,
+            ask: () => Effect.void,
+          },
+        )
+        .pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        const failure = Cause.squash(exit.cause)
+        const message = failure instanceof Error ? failure.message : String(failure)
+        expect(message).toContain("subagent general failed with error")
+        expect(message).toContain("Provider stream inactive for 50ms")
+      }
+    }),
+  )
+
   it.instance("execute retries the same child task after a retryable child provider error", () =>
     Effect.gen(function* () {
       const { chat, assistant } = yield* seed()

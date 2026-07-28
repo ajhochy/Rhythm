@@ -2,72 +2,76 @@
 
 ## Current focus
 
-Finish PR #1165 after the local desktop/mobile smoke and pairing compatibility
-repair. Every local gate for the repair is green; the remaining work is the
-explicit human release chain.
+Integrate current `main` into draft PR #1165, preserve the mobile security and
+pairing behavior across conflicts, and establish a new exact source SHA for the
+independent iOS release review.
 
 ## Active branch / PR
 
 - Local branch: `codex/mobile-1172-agents-activity`
 - Remote PR branch: `feat/rhythm-agent-ios-roadmap`
 - Draft PR: #1165, `WIP: consolidate unfinished Rhythm Agents iOS prototype`
-- Verified repair commit: `40843e308`
+- Main integrated through: `80d1552ac`
+- Frozen review source: pending the verified merge commit
 
 ## In progress
 
-- The repair and smoke evidence are pushed. Mobile CI passed against exact
-  head `40843e308`.
+- Resolve the integration conflicts between the mobile branch and current
+  `main`.
+- Rerun issue-level, PR-level, focused integration, contract, and isolated live
+  pairing checks before freezing the candidate.
 - #1197 remains the independent exact-head review gate.
 - #1198 remains the signed EAS development build gate.
 - #1199 remains the authenticated physical-device and isolated-Mac matrix.
 - #1200 remains the production EAS/TestFlight provenance and install smoke.
-- Dependency order remains #1197 → #1198 → #1199 → #1200; #1175 owns the
-  umbrella checklist.
 
 ## Risks / known issues
 
-- The compatibility repair changes product contract data, so any prior
-  exact-head release evidence must be rerun against the new commit.
-- The physical-device run must use an isolated branch-built API/engine and
-  private Tailscale Serve gateway. It must not fall back to production staff
-  data or expose the OpenCode engine directly.
+- `main` added provider-stream inactivity recovery, managed creative-runtime
+  installation, and memory lifecycle/provenance after the mobile branch
+  diverged. Conflict resolution must retain those changes together with the
+  branch's scheduler and outbound-action security gates.
 - Credentials, signing assets, build artifacts, pairing/device tokens, private
   hostnames, and iPhone UDIDs must never be committed or printed.
-- The development Google iOS client is stored outside the repository with
-  owner-only access and must be supplied through secure build and isolated-API
-  configuration. The production bundle still needs its own client at #1200.
 - Local Xcode/simulator evidence does not replace #1198 or #1200 EAS/TestFlight
   provenance.
-- #1186 tracks a non-blocking automation improvement for a foreground sandbox
-  lifecycle; the corrected final source smoke passed without a product change.
-- #1135's additive SQLite/Postgres change requires normal migration review.
-- GitNexus compare-to-main is CRITICAL (677 files, 3,540 symbols, 21 flows)
-  because this cumulative branch intentionally includes the roadmap and linked
-  issues. The current working diff is LOW (8 indexed files, 5 symbols, 0
-  affected flows).
-- Do not merge before the human gates above are complete.
+- The deployed production API still uses the older mobile OAuth request
+  contract; the release sequence must not treat production sign-in as green
+  until a matching reviewed backend is deployed.
+- Do not merge before the human release gates are complete.
 
 ## Test status
 
-- Desktop live-local visual smoke passed Dashboard, Tasks, Projects, Agents,
-  transcript, Settings, Agent Server, and pre-code Mobile Access surfaces.
-- Native iOS simulator smoke passed launch, the Agents/Tools/Settings shell,
-  signed-out pairing guidance, light/dark appearance, and
-  accessibility-large text.
-- The cross-package pairing contract failed before the repair and passed 1/1
-  afterward; pairing service tests passed 10/10.
-- `ai-workflow checks --level issue` and `ai-workflow checks --level pr`
-  passed after the repair.
-- A fresh isolated API `4598` / engine `4597` / gateway `4599` run passed the
-  live shipping-fingerprint assertion 1/1 and all health probes; the sandbox
-  was removed.
-- Changed-file credential/private-host scan and `git diff --check` passed.
-- GitHub Mobile CI run `30320059544` passed against exact head `40843e308`.
-- Full commands and repair-loop details are recorded in
-  `docs/ai/runs/2026-07-27-live-desktop-mobile-smoke-handoff.md`.
+- Pre-integration desktop live-local and iOS simulator smoke passed.
+- Pre-integration issue and PR checks passed.
+- Post-integration verification is pending.
 
 ## Next step
 
-Keep PR #1165 draft. Rerun #1197 against exact head `40843e308`, then hand
-#1198–#1200 to AJ for the required secure EAS, physical-device, and TestFlight
-actions.
+Complete the merge resolution, run the full verification gate, commit the
+source merge, and record that immutable SHA for #1197.
+
+## Recent coding-agent runs
+
+### 2026-07-28 — PR #1165 current-main integration
+
+- Files modified: resolved conflicts in the API creative installer and live
+  regression, Memory MCP tools/tests, fork LLM scheduler/inactivity
+  implementation/tests, API lockfile, sandbox testing documentation, failure
+  patterns, and this project snapshot.
+- Checks run: API creative-installer tests 8/8 and typecheck passed; MCP Memory
+  tests 9/9 and typecheck passed; fork LLM tests 17/17 and typecheck passed;
+  mobile contract/pairing compatibility passed 1/1; pairing service tests
+  passed 10/10; `git diff --check` passed.
+- Decisions made: retained current `main`'s managed creative-runtime
+  implementation, memory provenance/lifecycle fields, and provider inactivity
+  middleware while preserving the mobile branch's outbound-action approval
+  gates, model stream scheduler/backpressure behavior, and forged-approval
+  live regression.
+- Deviations from spec: GitNexus MCP impact/detect tools were unavailable; the
+  local wrapper did not return from an impact request, so Git diff/caller
+  inspection and the required test gates are the available integration
+  evidence.
+- Concerns: the cumulative mobile branch remains a high-risk, broad
+  compare-to-main review surface; the independent #1197 review must use the
+  exact post-verification merge SHA.

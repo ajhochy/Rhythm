@@ -34,18 +34,55 @@ import path from 'node:path';
 import { resolveMemoryDirPath } from '../config/env';
 import {
   MEMORY_VAULT_SOURCE,
+  isReservedVaultFilename,
+  parseNote,
   resolveVaultRootForMemoryDir,
   toVaultRelativeKey,
   vaultKeyToMemoryDirRelative,
 } from './memoryVaultSyncService';
 import { MemoryIndexService } from './memory_index_service';
+import { regenerateMemoryVaultNavigation } from './memory_vault_index_writer';
+import {
+  enqueueMemoryVaultLog,
+  localCalendarDate as auditLocalCalendarDate,
+} from './memory_vault_log';
 import type { AgentMemory, AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { logger } from '../utils/logger';
-import { MEMORY_MERGE_THRESHOLD, mergeMemoryContent, textSimilarity } from './memory_similarity';
+import {
+  MEMORY_MERGE_THRESHOLD,
+  MemoryAttributionMergeError,
+  mergeAttributedMemoryContent,
+  textSimilarity,
+  type AttributedMemoryMergeResult,
+} from './memory_similarity';
+import {
+  DEFAULT_MEMORY_ACTOR,
+  MEMORY_SOURCE_ID_PATTERN,
+  VALID_MEMORY_KINDS,
+  VALID_MEMORY_STATUSES,
+  extractMemoryBodyLinks,
+  frontmatterString,
+  generatedMetadata,
+  isReversedMemoryUsageWindow,
+  memorySources,
+  memoryUsageWindow,
+  mergeLifecycleMetadata,
+  parseActor,
+  parseMemoryNote,
+  renderMemoryNote,
+  staleAfter,
+  verificationEntries,
+  type MemoryKind,
+  type MemorySource,
+  type MemoryStatus,
+  type MemoryUsageWindow,
+  type NoteFrontmatter,
+  type VerificationEntry,
+} from './memory_note_format';
 
 /** Allowed memory kinds — must match memoryVaultSyncService's VALID_KINDS. */
-export const VALID_MEMORY_KINDS = ['fact', 'person', 'project', 'preference', 'context'] as const;
-export type MemoryKind = (typeof VALID_MEMORY_KINDS)[number];
+export { VALID_MEMORY_KINDS, renderMemoryNote };
+export type { MemoryKind, NoteFrontmatter };
 
 /** Thrown for any caller-input problem (bad kind, path escape, empty content). */
 export class MemoryWriteError extends Error {
@@ -63,6 +100,29 @@ export interface RememberInput {
   tags?: string[];
   /** Informational `source` frontmatter (defaults to 'agent'). */
   source?: string;
+  /** Optional source-object id paired with `source` (for example a session id). */
+  sourceId?: string;
+  /** Explicit agent-session context; automatically stamps an OKF source. */
+  sessionId?: string;
+  /** Service-resolved ambient Rhythm session; never accepted directly from HTTP. */
+  contextSessionId?: string;
+  /** Optional OKF per-claim source records. Invalid/missing ids are ignored. */
+  sources?: MemorySource[];
+  /** Optional OKF usage window, retained for round-trip fidelity. */
+  usageWindow?: MemoryUsageWindow;
+  /** Optional portable links to existing memory notes. */
+  links?: MemoryLinkInput[];
+  /** OKF lifecycle state. New notes default to stable. */
+  status?: MemoryStatus;
+  /** Optional YYYY-MM-DD shelf-life boundary. */
+  staleAfter?: string;
+  /** Optional machine/human confirmations with UTC timestamps. */
+  verified?: VerificationEntry[];
+}
+
+export interface MemoryLinkInput {
+  target: string;
+  label?: string;
 }
 
 export interface RememberResult {
@@ -140,6 +200,152 @@ function assertValidKind(kind: string): MemoryKind {
   );
 }
 
+function assertValidStatus(status: unknown): MemoryStatus | undefined {
+  if (status === undefined) return undefined;
+  if (
+    typeof status === 'string' &&
+    (VALID_MEMORY_STATUSES as readonly string[]).includes(status)
+  ) {
+    return status as MemoryStatus;
+  }
+  throw new MemoryWriteError(
+    `Invalid memory status "${String(status)}". Allowed: ${VALID_MEMORY_STATUSES.join('|')}.`,
+  );
+}
+
+function assertValidStaleAfter(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  const normalized = staleAfter({ stale_after: value });
+  if (typeof value !== 'string' || normalized === undefined) {
+    throw new MemoryWriteError('staleAfter must be a valid YYYY-MM-DD date.');
+  }
+  return normalized;
+}
+
+function assertValidVerified(
+  value: unknown,
+): VerificationEntry[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new MemoryWriteError('verified must be an array.');
+  }
+  const normalized = verificationEntries({ verified: value });
+  if (normalized.length !== value.length) {
+    throw new MemoryWriteError(
+      'Each verified entry requires a valid OKF actor and ISO-8601 UTC timestamp.',
+    );
+  }
+  return normalized;
+}
+
+function sessionFootnoteId(sessionId: string): string {
+  const safe = sessionId.replace(/[^A-Za-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const stable = safe || Buffer.from(sessionId).toString('base64url');
+  return stable.startsWith('sess-') ? stable : `sess-${stable}`;
+}
+
+function captureSources(
+  input: RememberInput,
+  source: string,
+): {
+  sources: MemorySource[];
+  supplied: boolean;
+} {
+  for (const candidate of input.sources ?? []) {
+    const id = typeof candidate?.id === 'string' ? candidate.id.trim() : '';
+    if (id && !MEMORY_SOURCE_ID_PATTERN.test(id)) {
+      throw new MemoryWriteError(
+        'Each source id must match [A-Za-z0-9_-]+.',
+      );
+    }
+  }
+  const sources = memorySources({ sources: input.sources });
+  const sourceKind = source.trim().toLowerCase();
+  const sourceSessionId = typeof input.sourceId === 'string' &&
+      ['agent-session', 'session', 'conversation'].includes(sourceKind)
+    ? input.sourceId.trim()
+    : '';
+  const explicitSessionId = typeof input.sessionId === 'string' &&
+      input.sessionId.trim() !== ''
+    ? input.sessionId.trim()
+    : sourceSessionId;
+  const ambientSessionId = typeof input.contextSessionId === 'string' &&
+      input.contextSessionId.trim() !== ''
+    ? input.contextSessionId.trim()
+    : '';
+  const sessionIds = Array.from(
+    new Set([ambientSessionId, explicitSessionId].filter(Boolean)),
+  );
+  const canonicalIds = new Set<string>();
+  for (const sessionId of sessionIds) {
+    let automatic: MemorySource = {
+      id: sessionFootnoteId(sessionId),
+      resource: `rhythm://agent-session/${encodeURIComponent(sessionId)}`,
+    };
+    const existingIndex = sources.findIndex(({ id }) => id === automatic.id);
+    if (existingIndex >= 0) {
+      if (canonicalIds.has(automatic.id) &&
+          sources[existingIndex].resource !== automatic.resource) {
+        let suffix = 2;
+        while (sources.some(({ id }) => id === `${automatic.id}-${suffix}`)) {
+          suffix += 1;
+        }
+        automatic = { ...automatic, id: `${automatic.id}-${suffix}` };
+        sources.push(automatic);
+        canonicalIds.add(automatic.id);
+      } else {
+        // The runtime-derived session resource is canonical. A caller may add
+        // descriptive metadata, but cannot spoof or suppress provenance by
+        // reusing the automatic id with a different resource.
+        sources[existingIndex] = {
+          ...sources[existingIndex],
+          resource: automatic.resource,
+        };
+        canonicalIds.add(automatic.id);
+      }
+    } else {
+      sources.push(automatic);
+      canonicalIds.add(automatic.id);
+    }
+  }
+  return {
+    sources,
+    supplied: input.sources !== undefined || sessionIds.length > 0,
+  };
+}
+
+function appendVerificationHistory(
+  frontmatter: Record<string, unknown>,
+  incoming: VerificationEntry[],
+): VerificationEntry[] | undefined {
+  const combined: VerificationEntry[] = [];
+  const seen = new Set<string>();
+  const existing = Array.isArray(frontmatter.verified)
+    ? frontmatter.verified
+    : [];
+  for (const rawEntry of existing) {
+    const normalized = verificationEntries({ verified: [rawEntry] })[0];
+    if (!normalized) {
+      // Unknown entries are retained structurally for forward
+      // compatibility even though this version cannot interpret them.
+      combined.push(rawEntry as VerificationEntry);
+      continue;
+    }
+    const key = `${normalized.by}\u0000${normalized.at}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    combined.push(normalized);
+  }
+  for (const entry of incoming) {
+    const key = `${entry.by}\u0000${entry.at}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    combined.push(entry);
+  }
+  return combined.length > 0 ? combined : undefined;
+}
+
 /**
  * Resolve a vault-relative note path to an absolute path and assert it stays
  * inside the memory dir. Rejects `..`, absolute components, and any resolved
@@ -157,41 +363,183 @@ export function resolveWithinMemoryDir(memoryDir: string, relPath: string): stri
   return abs;
 }
 
-/** Today's date as YYYY-MM-DD (matches the existing frontmatter convention). */
-export function isoDate(d = new Date()): string {
-  return d.toISOString().slice(0, 10);
-}
-
-export interface NoteFrontmatter {
-  id: string;
-  kind: MemoryKind;
-  tags: string[];
-  created: string;
-  updated: string;
-  source: string;
+function decodeMemoryLinkTarget(target: string): string | null {
+  try {
+    let encoded = target.trim().replace(/\\/g, '/');
+    const hash = encoded.indexOf('#');
+    if (hash >= 0) encoded = encoded.slice(0, hash);
+    if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(encoded)) return null;
+    const decoded = encoded
+      .split('/')
+      .map((segment) => {
+        const value = decodeURIComponent(segment);
+        if (value.includes('/') || value.includes('\\') || value.includes('\0')) {
+          throw new Error('encoded path separator');
+        }
+        return value;
+      })
+      .join('/');
+    if (
+      !decoded.toLowerCase().endsWith('.md') ||
+      isReservedVaultFilename(path.basename(decoded))
+    ) {
+      return null;
+    }
+    return decoded;
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Render a note's frontmatter + body to markdown. The frontmatter is a flat
- * scalar block plus an inline `tags: [...]` array so the existing dependency-
- * free {@link parseNote} reads it back unchanged.
+ * Canonicalize a memory-body link target to the same vault-root-relative
+ * sourceId used by the derived index. This is lexical only: dangling links can
+ * still be represented. Escapes resolve to null through the established
+ * memory-dir boundary guard.
  */
-export function renderMemoryNote(fm: NoteFrontmatter, body: string): string {
-  const tagsInline = `[${fm.tags.map((t) => JSON.stringify(t)).join(', ')}]`;
-  const lines = [
-    '---',
-    `id: ${fm.id}`,
-    `kind: ${fm.kind}`,
-    `tags: ${tagsInline}`,
-    `created: ${fm.created}`,
-    `updated: ${fm.updated}`,
-    `source: ${JSON.stringify(fm.source)}`,
-    '---',
-    '',
-    body.trim(),
-    '',
-  ];
-  return lines.join('\n');
+export function canonicalMemoryLinkSourceId(
+  memoryDir: string,
+  fromSourceId: string,
+  target: string,
+): string | null {
+  const decoded = decodeMemoryLinkTarget(target);
+  if (!decoded) return null;
+  const fromRel = vaultKeyToMemoryDirRelative(memoryDir, fromSourceId);
+  try {
+    resolveWithinMemoryDir(memoryDir, fromRel);
+    const targetRel = decoded.startsWith('/')
+      ? decoded.slice(1)
+      : path.join(path.dirname(fromRel), decoded);
+    const abs = resolveWithinMemoryDir(memoryDir, targetRel);
+    return toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), abs);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve only real, regular, non-symlink note files. Broken or escaping links
+ * return null and are never opened/read.
+ */
+export async function resolveMemoryLinkTarget(
+  memoryDir: string,
+  fromSourceId: string,
+  target: string,
+): Promise<string | null> {
+  const sourceId = canonicalMemoryLinkSourceId(memoryDir, fromSourceId, target);
+  if (!sourceId) return null;
+  const rel = vaultKeyToMemoryDirRelative(memoryDir, sourceId);
+  let abs: string;
+  try {
+    abs = resolveWithinMemoryDir(memoryDir, rel);
+    const [rootReal, targetStat, targetReal] = await Promise.all([
+      fs.realpath(memoryDir),
+      fs.lstat(abs),
+      fs.realpath(abs),
+    ]);
+    if (
+      targetStat.isSymbolicLink() ||
+      !targetStat.isFile() ||
+      (targetReal !== rootReal && !targetReal.startsWith(`${rootReal}${path.sep}`))
+    ) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return sourceId;
+}
+
+function encodeMemoryLinkPathSegment(segment: string): string {
+  return encodeURIComponent(segment).replace(
+    /[!'()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+/** Render a canonical sourceId as an absolute path from the memory root. */
+export function absoluteMemoryLinkTarget(
+  memoryDir: string,
+  sourceId: string,
+): string | null {
+  const rel = vaultKeyToMemoryDirRelative(memoryDir, sourceId);
+  try {
+    resolveWithinMemoryDir(memoryDir, rel);
+  } catch {
+    return null;
+  }
+  return `/${rel
+    .split(path.sep)
+    .map(encodeMemoryLinkPathSegment)
+    .join('/')}`;
+}
+
+function escapeMemoryLinkLabel(label: string): string {
+  return label
+    .replace(/\\/g, '\\\\')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]');
+}
+
+async function appendResolvedMemoryLinks(
+  body: string,
+  links: MemoryLinkInput[] | undefined,
+  memoryDir: string,
+  fromSourceId: string,
+): Promise<string> {
+  if (!links || links.length === 0) return body;
+  const existing = new Set(
+    extractMemoryBodyLinks(body)
+      .map((link) =>
+        canonicalMemoryLinkSourceId(memoryDir, fromSourceId, link.target),
+      )
+      .filter((sourceId): sourceId is string => sourceId !== null),
+  );
+  const additions: string[] = [];
+  let unresolved = 0;
+  for (const link of links) {
+    if (!link || typeof link.target !== 'string' || link.target.trim() === '') {
+      unresolved += 1;
+      continue;
+    }
+    const sourceId = await resolveMemoryLinkTarget(
+      memoryDir,
+      fromSourceId,
+      link.target,
+    );
+    if (!sourceId) {
+      unresolved += 1;
+      continue;
+    }
+    if (existing.has(sourceId)) continue;
+    const target = absoluteMemoryLinkTarget(memoryDir, sourceId);
+    if (!target) {
+      unresolved += 1;
+      continue;
+    }
+    existing.add(sourceId);
+    const fallback = path.basename(
+      vaultKeyToMemoryDirRelative(memoryDir, sourceId),
+      '.md',
+    );
+    const label = typeof link.label === 'string' && link.label.trim() !== ''
+      ? link.label.trim()
+      : fallback;
+    additions.push(`[${escapeMemoryLinkLabel(label)}](${target})`);
+  }
+  if (unresolved > 0) {
+    logger.warn(
+      `[MemoryWrite] skipped ${unresolved} unresolved memory link${unresolved === 1 ? '' : 's'}`,
+    );
+  }
+  return additions.length === 0
+    ? body
+    : `${body.trimEnd()}\n\n${additions.join('\n')}`;
+}
+
+/** Today's date as YYYY-MM-DD (matches the existing frontmatter convention). */
+export function isoDate(d = new Date()): string {
+  return d.toISOString().slice(0, 10);
 }
 
 /** Minimal frontmatter read for dedup: extract `id` + `created` from a note. */
@@ -206,40 +554,30 @@ async function readNoteMeta(abs: string): Promise<{ id?: string; created?: strin
  * Returns an empty body ('') alongside undefined metadata when the file is
  * missing or malformed — never throws.
  */
-export async function readNoteFull(
-  abs: string,
-): Promise<{ id?: string; created?: string; tags: string[]; body: string }> {
+export interface ReadMemoryNote {
+  id?: string;
+  created?: string;
+  tags: string[];
+  body: string;
+  /** Full arbitrary YAML mapping, retained for safe read-modify-write. */
+  frontmatter: Record<string, unknown>;
+}
+
+export async function readNoteFull(abs: string): Promise<ReadMemoryNote> {
   let raw: string;
   try {
     raw = await fs.readFile(abs, 'utf8');
   } catch {
-    return { tags: [], body: '' };
+    return { tags: [], body: '', frontmatter: {} };
   }
-  const norm = raw.replace(/\r\n/g, '\n');
-  if (!norm.startsWith('---\n')) return { tags: [], body: norm.trim() };
-  const closeIdx = norm.slice(4).search(/\n---\s*(\n|$)/);
-  if (closeIdx === -1) return { tags: [], body: norm.trim() };
-  const fm = norm.slice(4, 4 + closeIdx);
-  const rest = norm.slice(4 + closeIdx + 1);
-  const nl = rest.indexOf('\n');
-  const body = (nl === -1 ? '' : rest.slice(nl + 1)).trim();
-  const out: { id?: string; created?: string } = {};
-  let tags: string[] = [];
-  for (const line of fm.split('\n')) {
-    const idCreated = /^(id|created):\s*(.+)$/.exec(line.trim());
-    if (idCreated) {
-      out[idCreated[1] as 'id' | 'created'] = idCreated[2].trim().replace(/^["']|["']$/g, '');
-      continue;
-    }
-    const tagsMatch = /^tags:\s*\[(.*)\]$/.exec(line.trim());
-    if (tagsMatch) {
-      tags = tagsMatch[1]
-        .split(',')
-        .map((t) => t.trim().replace(/^["']|["']$/g, ''))
-        .filter((t) => t.length > 0);
-    }
-  }
-  return { ...out, tags, body };
+  const document = parseMemoryNote(raw);
+  return {
+    id: frontmatterString(document.frontmatter, 'id'),
+    created: frontmatterString(document.frontmatter, 'created'),
+    tags: document.tags,
+    body: document.body,
+    frontmatter: document.frontmatter,
+  };
 }
 
 export interface MemoryVaultWriteOptions {
@@ -247,6 +585,13 @@ export interface MemoryVaultWriteOptions {
   memoryDir?: string;
   /** Index service to keep the derived index in sync (defaults to a new one). */
   index?: MemoryIndexService;
+}
+
+export interface VerifyMemoryOptions extends MemoryVaultWriteOptions {
+  /** Optional replacement shelf-life boundary. Omission preserves the current value. */
+  staleAfter?: string;
+  /** Deterministic UTC instant for retries/tests; normal callers omit this. */
+  at?: string;
 }
 
 /**
@@ -269,6 +614,22 @@ export async function rememberToVault(
   const source = typeof input.source === 'string' && input.source.trim() !== ''
     ? input.source
     : 'agent';
+  const requestedStatus = assertValidStatus(input.status);
+  const requestedStaleAfter = assertValidStaleAfter(input.staleAfter);
+  const requestedVerified = assertValidVerified(input.verified);
+  const requestedSources = captureSources(input, source);
+  const requestedUsageWindow = input.usageWindow !== undefined
+    ? memoryUsageWindow({ usage_window: input.usageWindow })
+    : undefined;
+  if (isReversedMemoryUsageWindow(requestedUsageWindow)) {
+    throw new MemoryWriteError(
+      'usageWindow.from must not be later than usageWindow.to.',
+    );
+  }
+  const generated = {
+    by: DEFAULT_MEMORY_ACTOR,
+    at: new Date().toISOString(),
+  };
 
   const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
   const index = options.index ?? new MemoryIndexService();
@@ -287,15 +648,21 @@ export async function rememberToVault(
   let id = typeof input.id === 'string' && input.id.trim() !== '' ? input.id.trim() : '';
   let relPath: string;
   let createdToPreserve: string | undefined;
+  let frontmatterToPreserve: Record<string, unknown> = {};
+  let foundExisting = false;
+  let semanticMerge = false;
   let contentToWrite = content;
+  let attributionMerge: AttributedMemoryMergeResult | undefined;
 
   if (id) {
     // Find an existing note in this kind's dir carrying the same frontmatter id.
     const existingRel = await findNoteByIdInKind(kindDir, memoryDir, id);
     if (existingRel) {
       relPath = existingRel;
-      const meta = await readNoteMeta(resolveWithinMemoryDir(memoryDir, existingRel));
-      createdToPreserve = meta.created;
+      const full = await readNoteFull(resolveWithinMemoryDir(memoryDir, existingRel));
+      createdToPreserve = full.created;
+      frontmatterToPreserve = full.frontmatter;
+      foundExisting = true;
     } else {
       const slug = slugForNote(content.split('\n')[0] ?? content, id);
       relPath = path.join(kind, `${slug}.md`);
@@ -307,21 +674,70 @@ export async function rememberToVault(
     relPath = path.join(kind, `${slug}.md`);
     // Reuse the existing note's id + created if the slug file already exists.
     const abs = resolveWithinMemoryDir(memoryDir, relPath);
-    const meta = await readNoteMeta(abs);
-    if (meta.id) {
-      id = meta.id;
-      createdToPreserve = meta.created;
+    const exact = await readNoteFull(abs);
+    if (exact.id) {
+      id = exact.id;
+      createdToPreserve = exact.created;
+      frontmatterToPreserve = exact.frontmatter;
+      foundExisting = true;
+      try {
+        attributionMerge = mergeAttributedMemoryContent(
+          {
+            body: exact.body,
+            sources: memorySources(exact.frontmatter),
+            usageWindow: memoryUsageWindow(exact.frontmatter),
+          },
+          {
+            body: content,
+            sources: requestedSources.sources,
+            usageWindow: requestedUsageWindow,
+          },
+        );
+        contentToWrite = attributionMerge.body;
+      } catch (err) {
+        if (!(err instanceof MemoryAttributionMergeError)) throw err;
+        logger.warn(
+          `[MemoryWrite] rejected unsafe exact replay for ${relPath}: ${err.message}`,
+        );
+        throw new MemoryWriteError(
+          'Exact replay could not be merged without invalid attribution.',
+        );
+      }
     } else {
       // No exact content-key match — look for a note that GENUINELY overlaps
       // in theme (same kind, high similarity) and merge onto it instead of
       // creating a near-duplicate file.
       const similar = await findBestSimilarNoteInKind(kindDir, memoryDir, content);
       if (similar) {
-        relPath = similar.relPath;
-        id = similar.id;
-        const meta2 = await readNoteMeta(resolveWithinMemoryDir(memoryDir, similar.relPath));
-        createdToPreserve = meta2.created;
-        contentToWrite = mergeMemoryContent(similar.body, content);
+        try {
+          attributionMerge = mergeAttributedMemoryContent(
+            {
+              body: similar.body,
+              sources: memorySources(similar.frontmatter),
+              usageWindow: memoryUsageWindow(similar.frontmatter),
+            },
+            {
+              body: content,
+              sources: requestedSources.sources,
+              usageWindow: requestedUsageWindow,
+            },
+          );
+          relPath = similar.relPath;
+          id = similar.id;
+          const meta2 = await readNoteMeta(
+            resolveWithinMemoryDir(memoryDir, similar.relPath),
+          );
+          createdToPreserve = meta2.created;
+          frontmatterToPreserve = similar.frontmatter;
+          foundExisting = true;
+          semanticMerge = true;
+          contentToWrite = attributionMerge.body;
+        } catch (err) {
+          if (!(err instanceof MemoryAttributionMergeError)) throw err;
+          logger.warn(
+            `[MemoryWrite] skipped unsafe candidate ${similar.relPath}: ${err.message}`,
+          );
+        }
       }
     }
   }
@@ -334,34 +750,257 @@ export async function rememberToVault(
 
   // Path-traversal guard: resolve + assert BEFORE any filesystem mutation.
   const abs = resolveWithinMemoryDir(memoryDir, relPath);
+  const vaultRelKey = toVaultRelativeKey(
+    resolveVaultRootForMemoryDir(memoryDir),
+    abs,
+  );
+  contentToWrite = await appendResolvedMemoryLinks(
+    contentToWrite,
+    input.links,
+    memoryDir,
+    vaultRelKey,
+  );
 
   const now = isoDate();
+  const incomingLifecycle: Record<string, unknown> = {
+    status: requestedStatus ?? 'stable',
+    stale_after: requestedStaleAfter,
+    verified: requestedVerified,
+  };
+  const mergedLifecycle = semanticMerge
+    ? mergeLifecycleMetadata([frontmatterToPreserve, incomingLifecycle])
+    : undefined;
   const fm: NoteFrontmatter = {
+    ...frontmatterToPreserve,
     id,
     kind,
     tags,
     created: createdToPreserve ?? now,
     updated: now,
     source,
+    ...(!foundExisting
+      ? {
+          status: requestedStatus ?? 'stable',
+          stale_after: requestedStaleAfter,
+          generated,
+          verified: requestedVerified && requestedVerified.length > 0
+            ? requestedVerified
+            : undefined,
+        }
+      : {}),
+    ...(foundExisting && !semanticMerge && requestedStatus !== undefined
+      ? { status: requestedStatus }
+      : {}),
+    ...(foundExisting && !semanticMerge && requestedStaleAfter !== undefined
+      ? { stale_after: requestedStaleAfter }
+      : {}),
+    ...(foundExisting && !semanticMerge && input.verified !== undefined
+      ? {
+          verified: appendVerificationHistory(
+            frontmatterToPreserve,
+            requestedVerified ?? [],
+          ),
+        }
+      : {}),
+    ...(semanticMerge
+      ? {
+          ...mergedLifecycle,
+          generated: generatedMetadata(frontmatterToPreserve) ?? generated,
+        }
+      : {}),
+    ...(attributionMerge
+      ? {
+          sources: attributionMerge.sources.length > 0
+            ? attributionMerge.sources
+            : undefined,
+          usage_window: attributionMerge.usageWindow,
+        }
+      : {}),
+    ...(!attributionMerge && requestedSources.supplied
+      ? {
+          sources: requestedSources.sources.length > 0
+            ? requestedSources.sources
+            : undefined,
+        }
+      : {}),
+    ...(!attributionMerge && input.usageWindow !== undefined
+      ? { usage_window: requestedUsageWindow }
+      : {}),
   };
 
   // --- VAULT-FIRST WRITE -----------------------------------------------------
   // If this throws, we return before touching the index (mandatory ordering).
+  const rendered = renderMemoryNote(fm, contentToWrite);
   await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, renderMemoryNote(fm, contentToWrite), 'utf8');
+  await fs.writeFile(abs, rendered, 'utf8');
+  enqueueMemoryVaultLog(memoryDir, {
+    reason: semanticMerge
+      ? 'merge-on-capture'
+      : foundExisting
+        ? 'updated'
+        : 'captured',
+    actor: DEFAULT_MEMORY_ACTOR,
+    noteSourceId: vaultRelKey,
+  });
 
   // --- DERIVED INDEX (only after the write succeeded) ------------------------
   // Canonical index key = path relative to the VAULT ROOT (e.g.
   // `memory/fact/abc.md`), the SAME form the scan/rebuild path stamps. Keying
   // on this one form means a write-then-rebuild yields exactly one row, not two.
-  const vaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), abs);
   await index.upsertNote({
     sourceId: vaultRelKey,
-    parsed: { kind, tags, content: contentToWrite.trim() },
+    parsed: parseNote(rendered),
   });
+  await regenerateMemoryVaultNavigation(memoryDir);
 
   logger.info(`[MemoryWrite] remembered note (kind=${kind} path=${vaultRelKey})`);
   return { id, path: vaultRelKey, kind };
+}
+
+const lifecycleMutationTails = new Map<string, Promise<void>>();
+
+/**
+ * Serialize read-modify-write lifecycle changes per canonical vault note.
+ *
+ * A note is the durable source of truth, so the lock spans both its write and
+ * the subsequent index refresh. Failures still release the queue, and unrelated
+ * notes remain fully concurrent.
+ */
+async function withLifecycleMutationLock<T>(
+  notePath: string,
+  mutation: () => Promise<T>,
+): Promise<T> {
+  const previous = lifecycleMutationTails.get(notePath) ?? Promise.resolve();
+  const ready = previous.catch(() => undefined);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = ready.then(() => gate);
+  lifecycleMutationTails.set(notePath, tail);
+
+  await ready;
+  try {
+    return await mutation();
+  } finally {
+    release();
+    if (lifecycleMutationTails.get(notePath) === tail) {
+      lifecycleMutationTails.delete(notePath);
+    }
+  }
+}
+
+async function mutateMemoryLifecycle(
+  sourceId: string,
+  actor: string,
+  options: VerifyMemoryOptions,
+  status?: MemoryStatus,
+): Promise<RememberResult | null> {
+  if (!parseActor(actor)) {
+    throw new MemoryWriteError('actor must follow the OKF actor convention.');
+  }
+  const at = options.at ?? new Date().toISOString();
+  const [entry] = verificationEntries({
+    verified: [{ by: actor, at }],
+  });
+  if (!entry) {
+    throw new MemoryWriteError('verification time must be an ISO-8601 UTC timestamp.');
+  }
+  const replacementStaleAfter = assertValidStaleAfter(options.staleAfter);
+
+  const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
+  const index = options.index ?? new MemoryIndexService();
+  const relPath = vaultKeyToMemoryDirRelative(memoryDir, sourceId);
+  const abs = resolveWithinMemoryDir(memoryDir, relPath);
+  return withLifecycleMutationLock(abs, async () => {
+    let raw: string;
+    try {
+      raw = await fs.readFile(abs, 'utf8');
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return null;
+      throw err;
+    }
+
+    const document = parseMemoryNote(raw);
+    const existingRaw = Array.isArray(document.frontmatter.verified)
+      ? [...document.frontmatter.verified]
+      : [];
+    const duplicate = verificationEntries(document.frontmatter)
+      .some((candidate) => (
+        candidate.by === entry.by && candidate.at === entry.at
+      ));
+    const lifecycleChanged =
+      !duplicate ||
+      (status !== undefined && document.status !== status) ||
+      (
+        options.staleAfter !== undefined &&
+        document.staleAfter !== replacementStaleAfter
+      );
+    if (!duplicate) existingRaw.push(entry);
+
+    const id = frontmatterString(document.frontmatter, 'id') ?? generateUlid();
+    const created = frontmatterString(document.frontmatter, 'created') ?? isoDate();
+    const source = frontmatterString(document.frontmatter, 'source') ?? 'agent';
+    const frontmatter: Record<string, unknown> = {
+      ...document.frontmatter,
+      id,
+      kind: document.kind,
+      tags: document.tags,
+      created,
+      updated: isoDate(),
+      source,
+      verified: existingRaw,
+      ...(status !== undefined ? { status } : {}),
+      ...(options.staleAfter !== undefined
+        ? { stale_after: replacementStaleAfter }
+        : {}),
+    };
+    const rendered = renderMemoryNote(frontmatter, document.body);
+
+    // Vault-first by construction: an index error is allowed to propagate only
+    // after the canonical note contains the completed mutation.
+    await fs.writeFile(abs, rendered, 'utf8');
+    if (lifecycleChanged) {
+      enqueueMemoryVaultLog(memoryDir, {
+        reason: status === 'deprecated' ? 'deprecated' : 'verified',
+        actor,
+        noteSourceId: sourceId,
+        date: auditLocalCalendarDate(new Date(at)),
+      });
+    }
+    await index.upsertNote({
+      sourceId,
+      parsed: parseNote(rendered),
+    });
+    await regenerateMemoryVaultNavigation(memoryDir);
+
+    return { id, path: sourceId, kind: document.kind };
+  });
+}
+
+/**
+ * Append one OKF verification event to a vault note and then refresh its
+ * derived index row. Exact `(by, at)` retries are idempotent.
+ */
+export async function verifyMemory(
+  sourceId: string,
+  actor: string,
+  options: VerifyMemoryOptions = {},
+): Promise<RememberResult | null> {
+  return mutateMemoryLifecycle(sourceId, actor, options);
+}
+
+/**
+ * Non-destructively retire a vault note while preserving both the note and its
+ * index row. The actor/time is recorded in the same append-only verification
+ * history as an explicit confirmation.
+ */
+export async function deprecateMemory(
+  sourceId: string,
+  actor: string,
+  options: Omit<VerifyMemoryOptions, 'staleAfter'> = {},
+): Promise<RememberResult | null> {
+  return mutateMemoryLifecycle(sourceId, actor, options, 'deprecated');
 }
 
 /**
@@ -406,14 +1045,25 @@ async function findBestSimilarNoteInKind(
   kindDir: string,
   memoryDir: string,
   content: string,
-): Promise<{ relPath: string; id: string; body: string } | null> {
+): Promise<{
+  relPath: string;
+  id: string;
+  body: string;
+  frontmatter: Record<string, unknown>;
+} | null> {
   let entries: string[];
   try {
     entries = await fs.readdir(kindDir);
   } catch {
     return null;
   }
-  let best: { relPath: string; id: string; body: string; score: number } | null = null;
+  let best: {
+    relPath: string;
+    id: string;
+    body: string;
+    frontmatter: Record<string, unknown>;
+    score: number;
+  } | null = null;
   for (const name of entries) {
     if (!name.toLowerCase().endsWith('.md')) continue;
     const abs = path.join(kindDir, name);
@@ -421,10 +1071,23 @@ async function findBestSimilarNoteInKind(
     if (!full.id) continue;
     const score = textSimilarity(content, full.body);
     if (score >= MEMORY_MERGE_THRESHOLD && (!best || score > best.score)) {
-      best = { relPath: path.relative(memoryDir, abs), id: full.id, body: full.body, score };
+      best = {
+        relPath: path.relative(memoryDir, abs),
+        id: full.id,
+        body: full.body,
+        frontmatter: full.frontmatter,
+        score,
+      };
     }
   }
-  return best ? { relPath: best.relPath, id: best.id, body: best.body } : null;
+  return best
+    ? {
+        relPath: best.relPath,
+        id: best.id,
+        body: best.body,
+        frontmatter: best.frontmatter,
+      }
+    : null;
 }
 
 /**
@@ -449,14 +1112,24 @@ export async function forgetFromVault(
     ? vaultRelKey
     : vaultKeyToMemoryDirRelative(memoryDir, vaultRelKey);
   const abs = resolveWithinMemoryDir(memoryDir, relPath);
+  let removed = false;
   try {
     await fs.unlink(abs);
+    removed = true;
     logger.info(`[MemoryWrite] forgot note (path=${relPath})`);
   } catch (err: unknown) {
     // Missing file is fine — the index row removal is still attempted by the
     // caller. Any other error propagates.
     if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
   }
+  if (removed) {
+    enqueueMemoryVaultLog(memoryDir, {
+      reason: 'forgotten',
+      actor: DEFAULT_MEMORY_ACTOR,
+      noteSourceId: vaultRelKey,
+    });
+  }
+  await regenerateMemoryVaultNavigation(memoryDir);
 }
 
 /**
@@ -508,7 +1181,16 @@ async function findNoteAnywhereById(
   memoryDir: string,
   rememberId: string,
 ): Promise<
-  { kind: MemoryKind; relPath: string; abs: string; id: string; created?: string; tags: string[]; body: string } | null
+  {
+    kind: MemoryKind;
+    relPath: string;
+    abs: string;
+    id: string;
+    created?: string;
+    tags: string[];
+    body: string;
+    frontmatter: Record<string, unknown>;
+  } | null
 > {
   let kindDirs: string[];
   try {
@@ -534,6 +1216,7 @@ async function findNoteAnywhereById(
       created: full.created,
       tags: full.tags,
       body: full.body,
+      frontmatter: full.frontmatter,
     };
   }
   return null;
@@ -558,6 +1241,7 @@ async function readNoteAtRelPath(
   created?: string;
   tags: string[];
   body: string;
+  frontmatter: Record<string, unknown>;
 } | null> {
   const kind = relPath.split(path.sep)[0] ?? '';
   if (!(VALID_MEMORY_KINDS as readonly string[]).includes(kind)) return null;
@@ -577,6 +1261,7 @@ async function readNoteAtRelPath(
     created: full.created,
     tags: full.tags,
     body: full.body,
+    frontmatter: full.frontmatter,
   };
 }
 
@@ -648,6 +1333,7 @@ export async function updateMemoryInVault(
   }
 
   const fm: NoteFrontmatter = {
+    ...found.frontmatter,
     id: found.id,
     kind: newKind,
     tags: newTags,
@@ -656,8 +1342,15 @@ export async function updateMemoryInVault(
     source: 'agent',
   };
 
+  const rendered = renderMemoryNote(fm, newContent);
   await fs.mkdir(path.dirname(newAbs), { recursive: true });
-  await fs.writeFile(newAbs, renderMemoryNote(fm, newContent), 'utf8');
+  await fs.writeFile(newAbs, rendered, 'utf8');
+  const newVaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), newAbs);
+  enqueueMemoryVaultLog(memoryDir, {
+    reason: 'updated',
+    actor: DEFAULT_MEMORY_ACTOR,
+    noteSourceId: newVaultRelKey,
+  });
 
   if (kindChanged) {
     try {
@@ -668,11 +1361,11 @@ export async function updateMemoryInVault(
     await index.removeNote(oldVaultRelKey);
   }
 
-  const newVaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), newAbs);
   await index.upsertNote({
     sourceId: newVaultRelKey,
-    parsed: { kind: newKind, tags: newTags, content: newContent.trim() },
+    parsed: parseNote(rendered),
   });
+  await regenerateMemoryVaultNavigation(memoryDir);
 
   logger.info(`[MemoryWrite] updated note (kind=${newKind} path=${newVaultRelKey})`);
   return { id: found.id, path: newVaultRelKey, kind: newKind };

@@ -122,7 +122,7 @@ describe('MCP server tool registration (issue #864 guard)', () => {
     const client = await connectClient(server);
     try {
       const { tools } = await client.listTools();
-      expect(tools).toHaveLength(82);
+      expect(tools).toHaveLength(83);
       assertNoDuplicateNames(tools.map((t) => t.name));
     } finally {
       await client.close();

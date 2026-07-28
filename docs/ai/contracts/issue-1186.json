@@ -1,0 +1,64 @@
+{
+  "issue": 1186,
+  "generated": "2026-07-26",
+  "criteria": [
+    {
+      "criterion_id": "issue-1186-c1",
+      "text": "Plain up remains a returning background launch, while up --foreground reports the same readiness and keeps its non-interactive launcher alive until down stops the sandbox.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1186_sandbox_foreground.test.ts",
+      "test_id": "preserves plain up as a returning background launch; reliably keeps the launcher alive until down completes its acknowledged stop",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1186-c2",
+      "text": "Under a non-interactive foreground launcher, the real API on 4098 and engine on 4097 remain alive and both API health endpoints remain successful after readiness.",
+      "mode": "live-e2e",
+      "test_file": "apps/api_server/src/__tests__/issue_1186_sandbox_foreground.live.test.ts",
+      "test_id": "holds real API/engine health, preserves protected listeners, refuses unrelated PIDs, and tears down",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1186-c3",
+      "text": "The exact listener PID sets on protected ports 4001 and 4096 are unchanged during foreground startup and after teardown.",
+      "mode": "live-e2e",
+      "test_file": "apps/api_server/src/__tests__/issue_1186_sandbox_foreground.live.test.ts",
+      "test_id": "holds real API/engine health, preserves protected listeners, refuses unrelated PIDs, and tears down",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1186-c4",
+      "text": "Down refuses a PID whose command does not carry the sandbox path and leaves that unrelated process alive.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1186_sandbox_foreground.test.ts",
+      "test_id": "refuses to stop a PID that does not belong to the sandbox",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1186-c5",
+      "text": "Down cleanly ends the foreground holder, removes the sandbox directory, and leaves ports 4097 and 4098 free.",
+      "mode": "live-e2e",
+      "test_file": "apps/api_server/src/__tests__/issue_1186_sandbox_foreground.live.test.ts",
+      "test_id": "holds real API/engine health, preserves protected listeners, refuses unrelated PIDs, and tears down",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1186-c6",
+      "text": "After readiness, the sandbox records the sole 4097 listener only when its executable is this worktree's built fork; after a forced API exit, down terminates that exact surviving engine PID and frees 4097.",
+      "mode": "live-e2e",
+      "test_file": "apps/api_server/src/__tests__/issue_1186_sandbox_foreground.live.test.ts",
+      "test_id": "holds real API/engine health, preserves protected listeners, refuses unrelated PIDs, and tears down",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1186-c7",
+      "text": "Engine fallback cleanup fails closed when the current 4097 listener PID differs from the recorded PID or the recorded PID's executable is not this sandbox's built fork.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1186_sandbox_foreground.test.ts",
+      "test_id": "refuses an engine listener whose PID differs from the recorded engine; refuses a recorded engine PID whose executable is not the built fork",
+      "status": "pass"
+    }
+  ],
+  "stack": "shell/typescript",
+  "not_tested": []
+}

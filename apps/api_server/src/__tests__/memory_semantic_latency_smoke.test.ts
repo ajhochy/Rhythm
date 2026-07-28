@@ -21,12 +21,15 @@ function memory(id: string): AgentMemory {
   return {
     id, kind: 'fact', content: `content ${id}`, source: 'obsidian-memory',
     sourceId: `fact/${id}.md`, tagsJson: '[]', ownerUserId: 1,
+    status: 'stable', staleAfter: null, verifiedJson: '[]', sourcesJson: '[]',
+    generatedBy: null, generatedAt: null, trustTier: 'unverified',
     createdAt: 'now', updatedAt: 'now',
   };
 }
 
 afterEach(() => {
   delete process.env.AGENT_MEMORY_SEMANTIC_BUDGET_MS;
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -59,5 +62,43 @@ describe('semantic search latency budget (step 3 smoke)', () => {
     const result = await getRelevantMemoriesSemantic('checkin sunday', 1, 5, repo, client);
     expect(Date.now() - started).toBeLessThan(400);
     expect(result).toEqual(fts);
+  });
+
+  it('keeps a hung widened search inside the one shared semantic budget', async () => {
+    process.env.AGENT_MEMORY_SEMANTIC_BUDGET_MS = '50';
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-26T12:00:00.000Z'));
+
+    const hits = Array.from({ length: 20 }, (_, index) => ({
+      file: `fact/inactive-${index + 1}.md`,
+    }));
+    const inactive = hits.map((hit, index) => ({
+      ...memory(`inactive-${index + 1}`),
+      sourceId: hit.file,
+      staleAfter: '2000-01-01',
+    }));
+    const search = vi.fn()
+      .mockResolvedValueOnce(hits)
+      .mockImplementationOnce(() => new Promise(() => undefined));
+    const fts = [memory('fresh')];
+    const repo = {
+      searchAsync: vi.fn().mockResolvedValue(fts),
+      findBySourceIdsAsync: vi.fn().mockResolvedValue(inactive),
+    };
+
+    const started = Date.now();
+    const pending = getRelevantMemoriesSemantic(
+      'checkin sunday',
+      1,
+      5,
+      repo,
+      { search },
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(search.mock.calls.map(([, limit]) => limit)).toEqual([20, 40]);
+
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(pending).resolves.toEqual(fts);
+    expect(Date.now() - started).toBe(50);
   });
 });

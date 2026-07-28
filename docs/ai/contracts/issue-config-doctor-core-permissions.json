@@ -1,0 +1,56 @@
+{
+  "issue": "config-doctor-core-permissions",
+  "generated": "2026-07-27",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "issue-config-doctor-core-permissions-c1",
+      "text": "A diagnosis whose fix is \"grant `read`/`glob`/`bash`\" produces an **applyable** patch targeting\n   `corePermissionsJson`, and approving it merges those keys into the profile's existing map without\n   dropping unrelated keys (e.g. an existing `bash` pattern map).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/config_doctor_core_permissions_contract.test.ts",
+      "test_id": "issue-config-doctor-core-permissions-c1: core-permission diagnosis resolves to an applyable deep-merge scope patch",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-config-doctor-core-permissions-c2",
+      "text": "Approving such a proposal projects correctly into `~/.config/opencode/agents/<id>.md` frontmatter\n   and survives `revert` back to the before-snapshot.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/config_doctor_core_permissions_contract.test.ts",
+      "test_id": "issue-config-doctor-core-permissions-c2: approved core-permission patch projects and reverts exactly",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-config-doctor-core-permissions-c3",
+      "text": "A patch that puts `bash`/`read`/`edit` into `allowedMcpsJson`, or an MCP server name into\n   `corePermissionsJson`, is **rejected at extract time** with a clear message.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/config_doctor_core_permissions_contract.test.ts",
+      "test_id": "issue-config-doctor-core-permissions-c3: cross-layer scope names are rejected with a clear validation message",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-config-doctor-core-permissions-c4",
+      "text": "A profile that already has the permissions in question no longer generates a scope proposal\n   claiming it has none. Regression test using the real `verification-gate` shape above.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/config_doctor_core_permissions_contract.test.ts",
+      "test_id": "issue-config-doctor-core-permissions-c4: verification-gate core permissions are visible to diagnosis",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-config-doctor-core-permissions-c5",
+      "text": "N simultaneous `Error: Aborted` sessions produce one external-noop signal, not N scope proposals.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/config_doctor_core_permissions_contract.test.ts",
+      "test_id": "issue-config-doctor-core-permissions-c5: same-window abort batch collapses to one external-noop signal",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-config-doctor-core-permissions-c6",
+      "text": "Existing `allowedMcpsJson` / `allowedSkillsJson` scope patches keep working unchanged —\n   `org_proposals_routes.test.ts` and `workflow_signal_generator_diagnose.test.ts` stay green.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/config_doctor_core_permissions_contract.test.ts",
+      "test_id": "issue-config-doctor-core-permissions-c6: legacy MCP and skill allowlist patches remain applyable",
+      "status": "pending"
+    }
+  ],
+  "not_tested": []
+}

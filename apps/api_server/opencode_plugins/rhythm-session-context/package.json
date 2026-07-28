@@ -1,0 +1,12 @@
+{
+  "name": "rhythm-session-context",
+  "version": "1.0.0",
+  "description": "Injects authoritative OpenCode session context into Rhythm memory tool calls.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  }
+}

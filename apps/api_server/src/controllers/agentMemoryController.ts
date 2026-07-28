@@ -2,10 +2,39 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { agentMemoryService } from '../services/agentMemoryService';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { syncMemoryVault } from '../services/memoryVaultSyncService';
-import { MemoryWriteError } from '../services/memoryVaultWriteService';
+import {
+  MemoryWriteError,
+  type RememberInput,
+} from '../services/memoryVaultWriteService';
+import {
+  MCP_MEMORY_ACTOR,
+  formatActor,
+} from '../services/memory_note_format';
+import { logger } from '../utils/logger';
 
 const repo = new AgentMemoryRepository();
+const sessionsRepo = new AgentSessionsRepository();
+
+function resolveHumanActor(req: Request): {
+  actor: string;
+  ownerUserId: number;
+} {
+  const user = req.auth?.user;
+  if (!user) {
+    throw AppError.unauthorized(
+      'Authentication is required to record human memory verification.',
+    );
+  }
+  return {
+    actor: formatActor({
+      kind: 'human',
+      id: user.email || String(user.id),
+    }),
+    ownerUserId: user.id,
+  };
+}
 
 export class AgentMemoryController {
   async list(req: Request, res: Response, next: NextFunction) {
@@ -38,13 +67,46 @@ export class AgentMemoryController {
    */
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const { kind, content, id, source, tags } = req.body as Record<string, unknown>;
+      const {
+        kind,
+        content,
+        id,
+        source,
+        sourceId,
+        sessionId,
+        sdkSessionId,
+        sources,
+        usageWindow,
+        links,
+        tags,
+      } = req.body as Record<string, unknown>;
       if (!content || typeof content !== 'string') throw AppError.badRequest('content is required');
+      const ambientSession = typeof sdkSessionId === 'string'
+        ? sessionsRepo.findBySdkSessionId(sdkSessionId)
+        : null;
+      if (typeof sdkSessionId === 'string' && sdkSessionId !== '' && !ambientSession) {
+        logger.warn(
+          '[AgentMemory] ambient SDK session had no local mapping; provenance omitted',
+        );
+      }
       const result = await agentMemoryService.remember({
         kind: typeof kind === 'string' ? kind : 'fact',
         content,
         id: typeof id === 'string' ? id : undefined,
         source: typeof source === 'string' ? source : 'agent',
+        sourceId: typeof sourceId === 'string' ? sourceId : undefined,
+        sessionId: typeof sessionId === 'string' ? sessionId : undefined,
+        contextSessionId: ambientSession?.id,
+        sources: Array.isArray(sources)
+          ? sources as RememberInput['sources']
+          : undefined,
+        usageWindow: usageWindow && typeof usageWindow === 'object' &&
+            !Array.isArray(usageWindow)
+          ? usageWindow as RememberInput['usageWindow']
+          : undefined,
+        links: Array.isArray(links)
+          ? links as RememberInput['links']
+          : undefined,
         tags: Array.isArray(tags) ? tags.map((t) => String(t)) : [],
       });
       res.status(201).json(result);
@@ -108,6 +170,84 @@ export class AgentMemoryController {
       res.json(item ?? result);
     } catch (err) {
       if (err instanceof MemoryWriteError) return next(AppError.badRequest(err.message));
+      next(err);
+    }
+  }
+
+  async verify(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { staleAfter } = req.body as Record<string, unknown>;
+      if (staleAfter !== undefined && typeof staleAfter !== 'string') {
+        throw AppError.badRequest('staleAfter must be a YYYY-MM-DD string');
+      }
+      const identity = resolveHumanActor(req);
+      const result = await agentMemoryService.verify(
+        req.params.id,
+        identity.actor,
+        identity.ownerUserId,
+        { staleAfter },
+      );
+      if (!result) throw AppError.notFound('AgentMemory');
+      const rows = await repo.listAsync(undefined, undefined, 1000);
+      res.json(rows.find((row) => row.sourceId === result.path) ?? result);
+    } catch (err) {
+      if (err instanceof MemoryWriteError) {
+        return next(AppError.badRequest(err.message));
+      }
+      next(err);
+    }
+  }
+
+  async deprecate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const identity = resolveHumanActor(req);
+      const result = await agentMemoryService.deprecate(
+        req.params.id,
+        identity.actor,
+        identity.ownerUserId,
+      );
+      if (!result) throw AppError.notFound('AgentMemory');
+      const rows = await repo.listAsync(undefined, undefined, 1000);
+      res.json(rows.find((row) => row.sourceId === result.path) ?? result);
+    } catch (err) {
+      if (err instanceof MemoryWriteError) {
+        return next(AppError.badRequest(err.message));
+      }
+      next(err);
+    }
+  }
+
+  /**
+   * Local MCP-only actor lane. The caller selects an action, never an identity:
+   * every event is stamped with the fixed machine actor on the server.
+   */
+  async agentLifecycle(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { action, staleAfter } = req.body as Record<string, unknown>;
+      if (action !== 'verify' && action !== 'deprecate') {
+        throw AppError.badRequest('action must be verify or deprecate');
+      }
+      if (staleAfter !== undefined && typeof staleAfter !== 'string') {
+        throw AppError.badRequest('staleAfter must be a YYYY-MM-DD string');
+      }
+      const result = action === 'verify'
+        ? await agentMemoryService.verify(
+            req.params.id,
+            MCP_MEMORY_ACTOR,
+            undefined,
+            { staleAfter },
+          )
+        : await agentMemoryService.deprecate(
+            req.params.id,
+            MCP_MEMORY_ACTOR,
+          );
+      if (!result) throw AppError.notFound('AgentMemory');
+      const rows = await repo.listAsync(undefined, undefined, 1000);
+      res.json(rows.find((row) => row.sourceId === result.path) ?? result);
+    } catch (err) {
+      if (err instanceof MemoryWriteError) {
+        return next(AppError.badRequest(err.message));
+      }
       next(err);
     }
   }

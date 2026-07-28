@@ -1,0 +1,774 @@
+{
+  "issue": "1187-1196",
+  "issues": [
+    1187,
+    1188,
+    1189,
+    1190,
+    1191,
+    1192,
+    1193,
+    1194,
+    1195,
+    1196
+  ],
+  "generated": "2026-07-26",
+  "criteria": [
+    {
+      "criterion_id": "issue-1187-c1",
+      "text": "The API declares js-yaml v4 as a production dependency and the desktop release bundles API production dependencies.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/memory_note_format_packaging.test.ts",
+      "test_id": "declares js-yaml as a runtime dependency and bundles production dependencies in desktop release",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1187-c2",
+      "text": "The shared parser preserves arbitrary nested unknown frontmatter and an untouched note renders byte-for-byte.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/memory_note_format.test.ts",
+      "test_id": "round-trips an untouched note byte-for-byte, including unknown nested keys",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1187-c3",
+      "text": "Known-field and body updates retain unknown frontmatter instead of replacing the YAML map.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/memory_note_format.test.ts",
+      "test_id": "preserves unknown keys when a known field and body are rewritten",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1187-c4",
+      "text": "Legacy note shapes preserve kind, tags, and content semantics, including the unknown-kind-to-fact fallback.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/memory_note_format.test.ts",
+      "test_id": "parses the complete legacy corpus shape identically to the old public contract",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1187-c5",
+      "text": "Malformed YAML, missing or unterminated frontmatter, empty input, and non-map YAML never throw and degrade to body content.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/memory_note_format.test.ts",
+      "test_id": "never throws for %s and degrades to the whole normalized file as body",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1187-c6",
+      "text": "CRLF input remains byte-stable on a no-op render while consumers receive normalized content.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/memory_note_format.test.ts",
+      "test_id": "normalizes CRLF for consumers while retaining exact original bytes for no-op render",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1187-c7",
+      "text": "The YAML loader rejects JavaScript-specific tags and the renderer keeps deterministic known-then-unknown key ordering.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/memory_note_format.test.ts",
+      "test_id": "uses js-yaml safe loading and never constructs JavaScript-specific tags",
+      "additional_test_ids": [
+        "renders known keys deterministically before preserved unknown keys"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1187-c8",
+      "text": "Both body-rewriting paths preserve arbitrary unknown survivor frontmatter.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_consolidation_drafter.test.ts",
+      "test_id": "#1187: consolidation preserves unknown survivor frontmatter",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1187-live",
+      "text": "Through the running sandbox API, a note with unknown YAML survives a public update and remains correctly projected.",
+      "mode": "live",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_mem_okf_1187_1196.test.ts",
+      "test_id": "preserves unknown YAML through public update and fails unauthenticated human verification closed",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1188-c1",
+      "text": "Lifecycle fields round-trip, legacy notes default to stable/unverified/never-stale, and malformed lifecycle values fail open.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/memory_note_format.test.ts",
+      "test_id": "round-trips all lifecycle fields and normalizes their consumer view",
+      "additional_test_ids": [
+        "treats legacy notes as stable, unverified, never stale, and leaves bytes unchanged",
+        "fails open for unknown status and malformed stale_after"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1188-c2",
+      "text": "The stale boundary and deprecated state are inactive, and actor strings are formatted and parsed centrally.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/memory_note_format.test.ts",
+      "test_id": "marks the stale_after boundary itself stale and excludes deprecated notes",
+      "additional_test_ids": [
+        "formats and parses actor strings centrally"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1188-c3",
+      "text": "Trust derives as unverified, machine, or human, and lifecycle merging uses conservative status, earliest expiry, and deduplicated verification union.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/memory_note_format.test.ts",
+      "test_id": "merges conservative status, earliest expiry, and verification union",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1188-c4",
+      "text": "New captures stamp stable status and an agent generator while omitting empty optional lifecycle keys.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_write_vault_first.test.ts",
+      "test_id": "stamps new notes stable with the agent generator and omits empty optional keys",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1188-c5",
+      "text": "Valid lifecycle inputs are accepted and malformed caller-supplied status or stale dates are rejected before any write.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_write_vault_first.test.ts",
+      "test_id": "accepts valid lifecycle input and rejects malformed caller metadata before writing",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1188-c6",
+      "text": "Merge-on-capture conservatively combines lifecycle metadata without losing verification history.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_merge_on_capture.test.ts",
+      "test_id": "#1188: merge-on-capture folds lifecycle metadata conservatively",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1188-c7",
+      "text": "Consolidation applies the same lifecycle merge rules and stamps the consolidation process actor.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_consolidation_drafter.test.ts",
+      "test_id": "#1188: consolidation merges lifecycle metadata and stamps its process actor",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1188-live",
+      "text": "Through the real built MCP server and running sandbox API, a machine lifecycle mutation is attributed and an inactive memory remains explicitly recallable.",
+      "mode": "live",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_mem_okf_1187_1196.test.ts",
+      "test_id": "uses the real built MCP stdio server for tool count, machine lifecycle, and explicit recall",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1189-c1",
+      "text": "A populated legacy agent_memory table upgrades idempotently with lifecycle defaults and the active index without changing the FTS schema.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_lifecycle_index.test.ts",
+      "test_id": "upgrades a populated legacy table idempotently without changing FTS schema",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1189-c2",
+      "text": "All lifecycle columns round-trip through repository upsert, FTS search, and source-id lookup.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_lifecycle_index.test.ts",
+      "test_id": "round-trips every lifecycle column through upsert, FTS search, and source-id lookup",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1189-c3",
+      "text": "The derived index stores unverified, machine, and human trust tiers computed by the shared helper.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_lifecycle_index.test.ts",
+      "test_id": "derives unverified, machine, and human trust tiers through the shared helper",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1189-c4",
+      "text": "Legacy defaults and every lifecycle projection converge between incremental sync and a clear-and-rebuild pass without rewriting the vault.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_lifecycle_index.test.ts",
+      "test_id": "projects legacy defaults and converges incremental sync with a full rebuild",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1189-live",
+      "text": "The running sandbox persists lifecycle state through the public API/MCP surface and returns it on explicit recall.",
+      "mode": "live",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_mem_okf_1187_1196.test.ts",
+      "test_id": "uses the real built MCP stdio server for tool count, machine lifecycle, and explicit recall",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1190-c1",
+      "text": "Verification appends later confirmations, deduplicates an exact by/at replay, and replaces stale_after only when a new horizon is supplied.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_verification.test.ts",
+      "test_id": "appends later confirmations and dedupes an exact by/at retry",
+      "additional_test_ids": [
+        "replaces stale_after only when a new horizon is supplied"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1190-c2",
+      "text": "Concurrent unique verification events are serialized so no confirmation is lost.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_verification.test.ts",
+      "test_id": "serializes concurrent append events so every unique verification survives",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1190-c3",
+      "text": "Deprecation is non-destructive, records its actor, and keeps the note and index row.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_verification_route.test.ts",
+      "test_id": "deprecates without deleting the global note or index row",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1190-c4",
+      "text": "Verification is vault-first: a derived-index refresh failure cannot roll back the canonical note mutation.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_verification.test.ts",
+      "test_id": "leaves the canonical vault mutation intact when index refresh fails",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1190-c5",
+      "text": "Only authenticated request identity can mint human trust; forged actors are ignored and cross-owner writes fail closed without changing bytes.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_verification_route.test.ts",
+      "test_id": "uses authenticated human identity and ignores a forged request actor",
+      "additional_test_ids": [
+        "returns 404 for another owner and leaves the vault bytes unchanged"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1190-c6",
+      "text": "The MCP lifecycle lane is permanently machine-only even when its body attempts human actor forgery.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_verification_route.test.ts",
+      "test_id": "keeps MCP verification machine-only even when body attempts human forgery",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1190-c7",
+      "text": "The MCP tool targets the fixed local agent-lifecycle endpoint rather than production.",
+      "mode": "unit",
+      "test_file": "apps/mcp_server/src/tools/__tests__/agentMemory_local_base.test.ts",
+      "test_id": "rhythm_verify_memory uses the fixed local agent-lifecycle endpoint (#1190)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1190-live",
+      "text": "An unauthenticated human verification request fails closed without mutating the note, while the real MCP lane performs machine lifecycle mutation.",
+      "mode": "live",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_mem_okf_1187_1196.test.ts",
+      "test_id": "preserves unknown YAML through public update and fails unauthenticated human verification closed",
+      "additional_test_ids": [
+        "uses the real built MCP stdio server for tool count, machine lifecycle, and explicit recall"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1191-c1",
+      "text": "Inactive FTS rows are gated before topN so live rows replace them rather than leaving short results.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_retrieval_ranking_smoke.test.ts",
+      "test_id": "gates inactive rows before topN so stale hits are replaced, not merely dropped",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1191-c2",
+      "text": "Staleness uses the call-time local calendar and remains correct across a Los Angeles midnight boundary.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_retrieval_ranking_smoke.test.ts",
+      "test_id": "uses the call-time local calendar across an LA midnight boundary",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1191-c3",
+      "text": "Ranking prioritizes topical match and in-probe rank, using trust only as the defined later tie-breaker.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_retrieval_ranking_smoke.test.ts",
+      "test_id": "orders by match count, best in-probe rank, trust, then first seen",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1191-c4",
+      "text": "The semantic lane gates lifecycle before RRF truncation, overfetches past inactive hits, and uses trust only for equal-score ties.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_retrieval_semantic.test.ts",
+      "test_id": "gates each lane before RRF truncation and uses trust for equal-score ties",
+      "additional_test_ids": [
+        "overfetches semantic candidates and replaces inactive top hits with live rows",
+        "progressively widens past 25 inactive hits to recover 5 live rows"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1191-c5",
+      "text": "Owner scoping remains enforced for known and null owners after lifecycle ranking.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_retrieval_ranking_smoke.test.ts",
+      "test_id": "still enforces owner scoping after ranking",
+      "additional_test_ids": [
+        "only retrieves null-owner rows when no owner is known"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1191-c6",
+      "text": "Inactive rows are excluded from automatic prompt injection but remain available to explicit MCP-backed search.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_injection.test.ts",
+      "test_id": "filters in SQL before LIMIT so inactive rows do not consume live slots",
+      "additional_test_ids": [
+        "keeps inactive rows visible to explicit MCP-backed search"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1191-c7",
+      "text": "The existing injection toggle and never-throws fallback behavior remain unchanged.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_injection.test.ts",
+      "test_id": "toggle OFF (AGENT_MEMORY_INJECTION_ENABLED=\"false\") → empty preface, retrieval NOT called",
+      "additional_test_ids": [
+        "retrieval throwing → empty preface (never-throws backstop)"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1191-live",
+      "text": "Against the running sandbox, inactive FTS hits are replaced before topN, comparable human trust wins a tie, and stronger topical relevance still outranks weaker human trust.",
+      "mode": "live",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_mem_okf_1187_1196.test.ts",
+      "test_id": "replaces inactive FTS hits before topN and orders comparable trust below topical relevance",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1192-c1",
+      "text": "Sources and usage windows round-trip with partial optional fields, while invalid or duplicate source ids are tolerated deterministically and reported.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/memory_note_format.test.ts",
+      "test_id": "#1192: round-trips sources and usage_window with partial entries",
+      "additional_test_ids": [
+        "#1192: drops missing ids, keeps first duplicate, and reports link gaps"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1192-c2",
+      "text": "A legacy note without sources remains byte-identical.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/memory_note_format.test.ts",
+      "test_id": "#1192: leaves a legacy note without sources byte-identical",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1192-c3",
+      "text": "A reserved SDK session context maps to the canonical local session and direct local-id spoofing is ignored; a missing mapping warns without leaking the unknown id.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_ambient_session_route.test.ts",
+      "test_id": "maps reserved SDK context to local session and ignores direct local-id spoofing",
+      "additional_test_ids": [
+        "warns without leaking an unknown SDK id when ambient mapping is missing"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1192-c4",
+      "text": "The OpenCode session-context plugin overwrites the reserved remember argument from authoritative context and is always registered idempotently.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/rhythm_session_context_plugin.test.ts",
+      "test_id": "overwrites the reserved remember argument from authoritative context",
+      "additional_test_ids": [
+        "is present and always registered idempotently in opencode.json"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1192-c5",
+      "text": "New captures stamp agent-session attribution, preserve caller footnotes, and cannot suppress canonical provenance with a colliding source id.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_write_vault_first.test.ts",
+      "test_id": "automatically stamps agent-session context and preserves footnotes in the index",
+      "additional_test_ids": [
+        "canonical session provenance cannot be suppressed by a colliding source"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1192-c6",
+      "text": "Ambient context is retained alongside an explicit historical source instead of replacing it.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_write_vault_first.test.ts",
+      "test_id": "stamps ambient context alongside an explicit historical source",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1192-c7",
+      "text": "Footnote prose and sources_json converge across incremental sync and full rebuild without changing vault bytes.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_lifecycle_index.test.ts",
+      "test_id": "preserves footnote prose and sources_json across incremental sync and rebuild",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1192-live",
+      "text": "The running sandbox stamps ambient session provenance through the public API and exposes that provenance through the WebSocket surface.",
+      "mode": "live",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_mem_okf_1187_1196.test.ts",
+      "test_id": "stamps ambient session sources, rewrites source collisions, generates navigation, and keeps link expansion off by default",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1193-c1",
+      "text": "Attribution merging unions three source sets, preserves survivor metadata, and widens the usage window.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/memory_attribution_merge.test.ts",
+      "test_id": "unions three source sets, preserves survivor metadata, and widens usage",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1193-c2",
+      "text": "Resource collisions are deterministically rekeyed without cascading into reserved ids, and exact markers and definitions are rewritten once.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/memory_attribution_merge.test.ts",
+      "test_id": "rekeys a resource collision without cascading through reserved ids",
+      "additional_test_ids": [
+        "rewrites exact markers and definitions once without touching prefixes or links"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1193-c3",
+      "text": "Dangling attribution sides, invalid source ids, and reversed usage windows fail safely before union can cross-bind claims.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/memory_attribution_merge.test.ts",
+      "test_id": "rejects each dangling side before union can accidentally bind it",
+      "additional_test_ids": [
+        "rejects invalid source ids and reversed usage windows"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1193-c4",
+      "text": "Merge-on-capture unions attribution, rekeys collisions, widens usage, and merges exact implicit replays instead of replacing attribution.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_merge_on_capture.test.ts",
+      "test_id": "#1193: unions attribution, rekeys collisions, and widens usage windows",
+      "additional_test_ids": [
+        "#1193: exact implicit replay merges attribution instead of replacing it"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1193-c5",
+      "text": "Unsafe exact or semantic candidates remain unmodified and separate, and malformed caller attribution is rejected before writes.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_merge_on_capture.test.ts",
+      "test_id": "#1193: unsafe exact replay errors without mutating vault bytes or index",
+      "additional_test_ids": [
+        "#1193: unsafe semantic candidates stay separate and cannot cross-bind",
+        "#1193: rejects invalid source ids and reversed caller windows"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1193-c6",
+      "text": "Consolidation merges a three-note attributed cluster with no dangling claims and a widened usage window, then restores every note byte-for-byte on revert.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_consolidation_drafter.test.ts",
+      "test_id": "#1193: merges a three-note attribution cluster and reverts byte-for-byte",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1193-c7",
+      "text": "Consolidation skips malformed, attribution-unsafe, or unreadable members without aborting or mutating them.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_consolidation_drafter.test.ts",
+      "test_id": "#1193: skips and logs a malformed member without aborting the pass",
+      "additional_test_ids": [
+        "#1193: a note whose raw snapshot read fails is never mutated or retired"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1193-c8",
+      "text": "Capture and consolidation use the same attribution merge semantics.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_consolidation_drafter.test.ts",
+      "test_id": "#1193: capture and consolidation produce the same attribution merge",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1193-live",
+      "text": "A public merge-on-capture in the running sandbox preserves provenance, rekeys a colliding source id, rewrites footnotes, and widens the usage window.",
+      "mode": "live",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_mem_okf_1187_1196.test.ts",
+      "test_id": "stamps ambient session sources, rewrites source collisions, generates navigation, and keeps link expansion off by default",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1194-c1",
+      "text": "Reserved index/log names and archives are excluded case-insensitively at every depth, and stale reserved rows are tombstoned on sync.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_vault_sync.test.ts",
+      "test_id": "#1194: excludes reserved filenames everywhere and tombstones old reserved rows",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1194-c2",
+      "text": "Reserved navigation and audit content is never indexed or injected.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_injection_index.test.ts",
+      "test_id": "#1194: reserved index/log content is never indexed or injected",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1194-c3",
+      "text": "Root and child indexes are conforming, include lifecycle markers and descriptions, and encode safe note links.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_vault_index_writer.test.ts",
+      "test_id": "writes conforming root/child indexes with descriptions and lifecycle markers",
+      "additional_test_ids": [
+        "encodes human-authored filenames into valid Markdown link destinations"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1194-c4",
+      "text": "Navigation generation is deterministic, skips byte-identical writes, and serializes concurrent scans so stale output cannot win.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_vault_index_writer.test.ts",
+      "test_id": "is deterministic and skips byte-identical writes",
+      "additional_test_ids": [
+        "serializes concurrent runs so an older scan cannot overwrite a newer one"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1194-c5",
+      "text": "An unwritable index is skipped without failing other navigation, and kind-directory symlinks are never followed outside the memory root.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_vault_index_writer.test.ts",
+      "test_id": "logs/skips one unwritable index and still writes the remaining navigation",
+      "additional_test_ids": [
+        "never follows a kind-directory symlink outside the memory root"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1194-c6",
+      "text": "Rebuild regenerates navigation without indexing it, and navigation failure remains non-fatal.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_index_rebuild.test.ts",
+      "test_id": "#1194: generates navigation after rebuild without ever indexing it",
+      "additional_test_ids": [
+        "#1194: an unwritable navigation file does not fail the rebuild"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1194-c7",
+      "text": "Navigation failure never fails canonical memory capture.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_write_vault_first.test.ts",
+      "test_id": "#1194: an unwritable navigation file never fails canonical capture",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1194-c8",
+      "text": "Consolidation refreshes navigation and backlinks, omits the retired note, and revert restores canonical note bytes.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_cross_links.test.ts",
+      "test_id": "rewrites retiree backlinks to the survivor and revert restores exact bytes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1194-live",
+      "text": "A public sandbox capture/merge generates root and kind navigation while reserved files remain absent from WebSocket provenance.",
+      "mode": "live",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_mem_okf_1187_1196.test.ts",
+      "test_id": "stamps ambient session sources, rewrites source collisions, generates navigation, and keeps link expansion off by default",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1195-c1",
+      "text": "Absolute, relative, and tolerated wiki links resolve, while broken, escaping, reserved, and symlink targets safely resolve to null.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_cross_links.test.ts",
+      "test_id": "resolves absolute/relative notes and rejects broken, escaping, reserved, and symlink targets",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1195-c2",
+      "text": "New links are written as deduplicated absolute markdown, escaped labels remain readable, and backlinks are derived.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_cross_links.test.ts",
+      "test_id": "writes resolved inputs as deduplicated absolute markdown and derives backlinks",
+      "additional_test_ids": [
+        "writes escaped labels that remain readable by every link consumer"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1195-c3",
+      "text": "Dangling links never fail sync, indexing, injection, or consolidation.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_cross_links.test.ts",
+      "test_id": "tolerates a dangling link through sync, indexing, injection, and consolidation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1195-c4",
+      "text": "Merge-on-capture preserves links from both bodies.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_cross_links.test.ts",
+      "test_id": "preserves links from both bodies during merge-on-capture",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1195-c5",
+      "text": "Consolidation rewrites valid retiree backlinks to the survivor, refreshes backlinks, and revert restores exact bytes.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_cross_links.test.ts",
+      "test_id": "rewrites retiree backlinks to the survivor and revert restores exact bytes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1195-c6",
+      "text": "Consolidation rewrites every parsed live backlink while leaving malformed, escaped, inline-code, and fenced-code bytes untouched.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_cross_links.test.ts",
+      "test_id": "rewrites every parsed live backlink while leaving malformed bytes untouched",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1195-c7",
+      "text": "One-hop expansion is default-off; when enabled it fills topN while re-gating lifecycle, owner, and stale index rows.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_injection.test.ts",
+      "test_id": "#1195: expansion is default-off and performs no linked-row lookup",
+      "additional_test_ids": [
+        "#1195: one-hop expansion fills topN while re-gating owner and lifecycle",
+        "#1195: ignores a stale index row after its linked file is deleted",
+        "#1195: batches linked lookups and keeps scanning until topN is filled"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1195-c8",
+      "text": "A link cannot expand another owner's memory into the current owner's prompt preface.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_injection.test.ts",
+      "test_id": "#1195: a link cannot expand owner B memory into owner A preface",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1195-live",
+      "text": "In the running sandbox, escaped/code links remain byte-preserved, a decoy gets no backlink, a valid target gets one, default-off expansion excludes it, and deleting the target leaves a tolerated dangling source link.",
+      "mode": "live",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_mem_okf_1187_1196.test.ts",
+      "test_id": "stamps ambient session sources, rewrites source collisions, generates navigation, and keeps link expansion off by default",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1196-c1",
+      "text": "All structured mutation reasons render with OKF prefixes, note links, actors, merge pairings, newest-first ISO date groups, and no body content.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_vault_log.test.ts",
+      "test_id": "renders every structured event with newest-first dates and no note body",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1196-c2",
+      "text": "Capture, update, verify, deprecate, edit, merge-on-capture, and forget each enqueue an audit entry without reproducing private body text.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_vault_log.test.ts",
+      "test_id": "hooks capture, update, verify, deprecate, edit, merge-on-capture, and forget",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1196-c3",
+      "text": "Concurrent appends serialize without loss or duplication, and count-based rotation leaves the main log bounded while retaining all history.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_vault_log.test.ts",
+      "test_id": "serializes concurrent appends and rotates by count without losing history",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1196-c4",
+      "text": "An overlapping consolidation pass and interactive capture produce a well-formed log containing the capture, survivor merge, and retirement.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_vault_log.test.ts",
+      "test_id": "serializes an overlapping consolidation pass and interactive capture",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1196-c5",
+      "text": "A canonical mutation is audited even when its derived-index refresh fails.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_vault_log.test.ts",
+      "test_id": "records a canonical mutation even when the derived index refresh fails",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1196-c6",
+      "text": "Age-based rotation moves old entries into yearly archives, while an archive write failure retains all history in the main log.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_vault_log.test.ts",
+      "test_id": "rotates entries older than the retention window into yearly archives",
+      "additional_test_ids": [
+        "retains all history in the main log when archive rotation fails"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1196-c7",
+      "text": "Audit output failure is non-fatal and symlinked log or archive targets are never followed.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_vault_log.test.ts",
+      "test_id": "fails open and refuses a symlinked audit output",
+      "additional_test_ids": [
+        "retains all history in the main log when archive rotation fails"
+      ],
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1196-c8",
+      "text": "log.md and log-archive files are reserved from scan, index, and prompt injection.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_injection_index.test.ts",
+      "test_id": "#1194: reserved index/log content is never indexed or injected",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1196-c9",
+      "text": "Consolidation logs survivor/retiree pairs, and revert appends audit entries rather than rewriting prior history while restoring notes.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/memory_consolidation_drafter.test.ts",
+      "test_id": "AC4: the pass is reversible via a before-snapshot",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1196-live",
+      "text": "Public sandbox mutations serialize audit entries, redact body and credential material including content-derived path slugs, rotate 2001 entries, and continue when log.md is symlinked.",
+      "mode": "live",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_mem_okf_1187_1196.test.ts",
+      "test_id": "serializes public mutation logs, rotates old entries, and fails open on a symlinked log",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "No public HTTP, WebSocket, or MCP entry point exposes a scheduled consolidation run or revert, so the live sandbox cannot directly drive the mechanical consolidation behaviors. Integration coverage is explicit in apps/api_server/src/__tests__/memory_consolidation_drafter.test.ts (#1193: merges a three-note attribution cluster and reverts byte-for-byte; #1193: capture and consolidation produce the same attribution merge; AC4: the pass is reversible via a before-snapshot) and apps/api_server/src/__tests__/memory_cross_links.test.ts (rewrites retiree backlinks to the survivor and revert restores exact bytes; rewrites every parsed live backlink while leaving malformed bytes untouched).",
+    "The public lifecycle routes assign the verification timestamp server-side and expose no stable at input, so an exact duplicate (by, at) replay cannot be constructed in the live sandbox. Integration coverage is apps/api_server/src/__tests__/memory_verification.test.ts (appends later confirmations and dedupes an exact by/at retry).",
+    "The credential-free live sandbox can prove unauthenticated human verification fails closed, but cannot prove the authenticated owner-success and cross-owner-not-found branches without a human identity/session. Integration coverage is apps/api_server/src/__tests__/memory_verification_route.test.ts (uses authenticated human identity and ignores a forged request actor; returns 404 for another owner and leaves the vault bytes unchanged)."
+  ]
+}

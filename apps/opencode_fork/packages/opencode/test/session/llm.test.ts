@@ -207,6 +207,115 @@ function waitStreamingRequest(pathname: string) {
   }
 }
 
+function waitActiveStreamingRequest(pathname: string, intervalMs: number, chunks: number) {
+  const request = deferred<Capture>()
+  const encoder = new TextEncoder()
+
+  state.queue.push({
+    path: pathname,
+    resolve: request.resolve,
+    response() {
+      let sent = 0
+      let timer: ReturnType<typeof setInterval> | undefined
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            timer = setInterval(() => {
+              sent += 1
+              controller.enqueue(
+                encoder.encode(
+                  [
+                    `data: ${JSON.stringify({
+                      id: "chatcmpl-active",
+                      object: "chat.completion.chunk",
+                      choices: [{ delta: sent === 1 ? { role: "assistant" } : { content: `part-${sent}` } }],
+                    })}`,
+                  ].join("\n\n") + "\n\n",
+                ),
+              )
+              if (sent < chunks) return
+              clearInterval(timer)
+              timer = undefined
+              controller.enqueue(
+                encoder.encode(
+                  [
+                    `data: ${JSON.stringify({
+                      id: "chatcmpl-active",
+                      object: "chat.completion.chunk",
+                      choices: [{ delta: {}, finish_reason: "stop" }],
+                    })}`,
+                    "data: [DONE]",
+                  ].join("\n\n") + "\n\n",
+                ),
+              )
+              controller.close()
+            }, intervalMs)
+          },
+          cancel() {
+            if (timer) clearInterval(timer)
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        },
+      )
+    },
+  })
+
+  return request.promise
+}
+
+function waitOpenAIResponsesStreamingRequest() {
+  const request = deferred<Capture>()
+  const requestAborted = deferred<void>()
+  const responseCanceled = deferred<void>()
+  const encoder = new TextEncoder()
+
+  state.queue.push({
+    path: "/responses",
+    resolve: request.resolve,
+    response(req: Request) {
+      req.signal.addEventListener("abort", () => requestAborted.resolve(), { once: true })
+
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                [
+                  `data: ${JSON.stringify({
+                    type: "response.created",
+                    response: {
+                      id: "resp-concurrency",
+                      created_at: Math.floor(Date.now() / 1000),
+                      model: "gpt-5.2",
+                      service_tier: null,
+                    },
+                  })}`,
+                ].join("\n\n") + "\n\n",
+              ),
+            )
+          },
+          cancel() {
+            responseCanceled.resolve()
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        },
+      )
+    },
+  })
+
+  return {
+    request: request.promise,
+    requestAborted: requestAborted.promise,
+    responseCanceled: responseCanceled.promise,
+  }
+}
+
 beforeAll(() => {
   state.server = Bun.serve({
     port: 0,
@@ -500,6 +609,169 @@ describe("session.llm.stream", () => {
         await Promise.race([pending.requestAborted, timeout(500)]).catch(() => undefined)
       },
     })
+  })
+
+  test("issue-1211-c1: aborts a provider stream after the configured inactivity window", async () => {
+    const server = state.server
+    if (!server) throw new Error("Server not initialized")
+
+    const providerID = "alibaba"
+    const modelID = "qwen-plus"
+    const fixture = await loadFixture(providerID, modelID)
+    const pending = waitStreamingRequest("/chat/completions")
+    const previousTimeout = process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS
+    process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS = "50"
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                options: {
+                  apiKey: "test-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    try {
+      await WithInstance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const resolved = await getModel(ProviderID.make(providerID), ModelID.make(fixture.model.id))
+          const sessionID = SessionID.make("session-issue-1211-inactivity")
+          const agent = {
+            name: "test",
+            mode: "primary",
+            options: {},
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          } satisfies Agent.Info
+          const user = {
+            id: MessageID.make("msg_user-issue-1211-inactivity"),
+            sessionID,
+            role: "user",
+            time: { created: Date.now() },
+            agent: agent.name,
+            model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
+          } satisfies MessageV2.User
+
+          const ctrl = new AbortController()
+          const run = llm.runPromiseExit(
+            (svc) =>
+              svc
+                .stream({
+                  user,
+                  sessionID,
+                  model: resolved,
+                  agent,
+                  system: ["You are a helpful assistant."],
+                  messages: [{ role: "user", content: "Hello" }],
+                  tools: {},
+                })
+                .pipe(Stream.runDrain),
+            { signal: ctrl.signal },
+          )
+
+          await pending.request
+          const outcome = await Promise.race([
+            run.then((exit) => ({ type: "finished" as const, exit })),
+            resolvesFalseAfter(300).then(() => ({ type: "still-running" as const })),
+          ])
+
+          if (outcome.type === "still-running") ctrl.abort()
+          expect(outcome.type).toBe("finished")
+          if (outcome.type === "finished") {
+            expect(Exit.isFailure(outcome.exit)).toBe(true)
+            if (Exit.isFailure(outcome.exit)) {
+              expect(Cause.pretty(outcome.exit.cause)).toContain("Provider stream inactive")
+            }
+          }
+          await run
+          await Promise.race([pending.responseCanceled, timeout(500)])
+        },
+      })
+    } finally {
+      if (previousTimeout === undefined) delete process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS
+      else process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS = previousTimeout
+    }
+  })
+
+  test("issue-1211-c3: resets the inactivity timer whenever the provider emits a chunk", async () => {
+    const server = state.server
+    if (!server) throw new Error("Server not initialized")
+
+    const providerID = "alibaba"
+    const modelID = "qwen-plus"
+    const fixture = await loadFixture(providerID, modelID)
+    const request = waitActiveStreamingRequest("/chat/completions", 30, 4)
+    const previousTimeout = process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS
+    process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS = "50"
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                options: {
+                  apiKey: "test-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    try {
+      await WithInstance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const resolved = await getModel(ProviderID.make(providerID), ModelID.make(fixture.model.id))
+          const sessionID = SessionID.make("session-issue-1211-active")
+          const agent = {
+            name: "test",
+            mode: "primary",
+            options: {},
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          } satisfies Agent.Info
+          const user = {
+            id: MessageID.make("msg_user-issue-1211-active"),
+            sessionID,
+            role: "user",
+            time: { created: Date.now() },
+            agent: agent.name,
+            model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
+          } satisfies MessageV2.User
+
+          await drain({
+            user,
+            sessionID,
+            model: resolved,
+            agent,
+            system: ["You are a helpful assistant."],
+            messages: [{ role: "user", content: "Hello" }],
+            tools: {},
+          })
+          await request
+        },
+      })
+    } finally {
+      if (previousTimeout === undefined) delete process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS
+      else process.env.RHYTHM_PROVIDER_STREAM_INACTIVITY_MS = previousTimeout
+    }
   })
 
   test("keeps tools enabled by prompt permissions", async () => {

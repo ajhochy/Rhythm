@@ -56,6 +56,8 @@ import { AgentSessionsRepository } from '../../repositories/agent_sessions_repos
 import { managedSkillsRoot } from '../rhythm_managed_skills';
 import {
   CONFIG_PATCH_FIELDS,
+  CORE_PERMISSION_ACTIONS,
+  CORE_PERMISSION_NAMES,
   SCOPE_PATCH_FIELDS,
   TASK_PATCH_FIELDS,
   type ConfigPatch,
@@ -274,6 +276,7 @@ const DIAGNOSABLE_CATEGORIES: ReadonlySet<WorkflowFailureCategory> = new Set([
   'tool-unavailable-attempted',
   'repeated-correction',
   'stale-redo',
+  'external-abort',
 ]);
 
 /**
@@ -331,10 +334,26 @@ function resolveScopePatch(
   if (!raw || typeof raw !== 'object') return undefined;
   const r = raw as Record<string, unknown>;
   if (typeof r.field !== 'string' || !(SCOPE_PATCH_FIELDS as readonly string[]).includes(r.field)) return undefined;
+  if (!configsRepo.getById(agentConfigId)) return undefined;
+  if (r.field === 'corePermissionsJson') {
+    if (r.add !== undefined || r.remove !== undefined) return undefined;
+    const set = r.set && typeof r.set === 'object' && !Array.isArray(r.set) ? r.set as Record<string, unknown> : undefined;
+    const unset = Array.isArray(r.unset) && r.unset.every((x) => typeof x === 'string' && x.trim()) ? r.unset as string[] : undefined;
+    const coreNames = new Set<string>(CORE_PERMISSION_NAMES);
+    const actions = new Set<string>(CORE_PERMISSION_ACTIONS);
+    const validValue = (value: unknown) => typeof value === 'string'
+      ? actions.has(value)
+      : !!value && typeof value === 'object' && !Array.isArray(value) && Object.entries(value as Record<string, unknown>).every(
+        ([pattern, action]) => pattern.trim() && typeof action === 'string' && actions.has(action),
+      );
+    if ((!set || Object.keys(set).length === 0) && (!unset || unset.length === 0)) return undefined;
+    if ((set && Object.entries(set).some(([name, value]) => !coreNames.has(name) || !validValue(value))) ||
+      (unset && unset.some((name) => !coreNames.has(name)))) return undefined;
+    return { agentConfigId, field: 'corePermissionsJson', ...(set ? { set } : {}), ...(unset ? { unset } : {}) };
+  }
   const add = Array.isArray(r.add) && r.add.every((x) => typeof x === 'string') ? (r.add as string[]) : undefined;
   const remove = Array.isArray(r.remove) && r.remove.every((x) => typeof x === 'string') ? (r.remove as string[]) : undefined;
-  if (!add && !remove) return undefined;
-  if (!configsRepo.getById(agentConfigId)) return undefined;
+  if ((!add || add.length === 0) && (!remove || remove.length === 0)) return undefined;
   return {
     agentConfigId,
     field: r.field as ScopePatch['field'],
@@ -385,6 +404,18 @@ function deriveScopePatchFromProse(
     .filter((n) => n.length > 0 && n.length <= 60 && !/\s/.test(n));
   if (!names.length) return undefined;
   if (!configsRepo.getById(agentConfigId)) return undefined;
+  const coreNames = new Set<string>(CORE_PERMISSION_NAMES);
+  const targetCoreNames = names.filter((name) => coreNames.has(name));
+  const hasPermissionContext = /\b(?:core\s+)?permissions?\b/i.test(concreteFix);
+  if (hasPermissionContext && targetCoreNames.length > 0) {
+    // A mixed target list is ambiguous and dangerous (for example, a core tool
+    // plus an MCP name). Preserve it as prose instead of silently routing it to
+    // either scope layer.
+    if (targetCoreNames.length !== names.length) return undefined;
+    return isAdd
+      ? { agentConfigId, field: 'corePermissionsJson', set: Object.fromEntries(targetCoreNames.map((name) => [name, 'allow'])) }
+      : { agentConfigId, field: 'corePermissionsJson', unset: targetCoreNames };
+  }
   const field: ScopePatch['field'] = /\bmcp\b/i.test(concreteFix)
     ? 'allowedMcpsJson'
     : 'allowedSkillsJson';
@@ -496,8 +527,9 @@ function buildDiagnosisSystemPrompt(): string {
     '  take wrong actions. Fix = edit the SKILL.md (paste the specific paragraph to add).',
     '- config: The agent profile config is wrong (model too weak/strong, system prompt',
     '  misleading, ocAgent mode wrong). Fix = the specific config field + value to change.',
-    '- scope: The MCP or skill allowlist is too narrow (agent can\'t access needed tools)',
-    '  or too broad (causing tool-surface overload). Fix = which MCP/skill to add/remove.',
+    '- scope: Profile tool scope has two layers. MCP/skill allowlists use allowedMcpsJson or',
+    '  allowedSkillsJson. Shell and local-file tools (bash, read, edit, glob, grep, write) use',
+    '  corePermissionsJson. Fix = the exact layer and names to add/remove or set/unset.',
     '- delegation: The profile can\'t delegate to the specialist it needs, or delegates',
     '  to the wrong one. Fix = which delegate to add/remove.',
     '- task: The SCHEDULED TASK definition itself is wrong — its run instructions/prompt',
@@ -513,7 +545,10 @@ function buildDiagnosisSystemPrompt(): string {
     'config-change WITHOUT this patch cannot be applied and will be rejected):',
     '  "configPatch":{"agentConfigId":"<the AFFECTED SKILL/PROFILE id>","field":"model|allowedSkillsJson|allowedDelegatesJson|system_prompt","value":"<the new value; for model a model id like anthropic/claude-sonnet-5, for the *Json fields a JSON array string; for system_prompt the COMPLETE replacement system prompt text (the full new role text, not a description)>"}',
     'For a scope-change you MUST ALSO include a structured patch (REQUIRED — same rule):',
-    '  "scopePatch":{"agentConfigId":"<the AFFECTED SKILL/PROFILE id>","field":"allowedMcpsJson|allowedSkillsJson","add":["<name>"],"remove":["<name>"]}',
+    '  For MCP/skill allowlists: "scopePatch":{"agentConfigId":"<the AFFECTED SKILL/PROFILE id>","field":"allowedMcpsJson|allowedSkillsJson","add":["<name>"],"remove":["<name>"]}',
+    '  For core permissions: "scopePatch":{"agentConfigId":"<the AFFECTED SKILL/PROFILE id>","field":"corePermissionsJson","set":{"read":"allow","bash":{"*":"allow"}},"unset":["glob"]}',
+    '  Never emit bash, read, edit, glob, grep, or write as MCP server names. corePermissionsJson keys',
+    '  must be opencode core tool names and values must be allow, ask, deny, or a pattern-to-action map.',
     'For a task-change you MUST ALSO include a structured patch (REQUIRED — same rule).',
     'Do NOT emit a scheduledTaskId — the server resolves it from the failing task itself:',
     '  "taskPatch":{"field":"prompt|description|cronExpression|scheduledTime|agentConfigId","value":"<the new value; for prompt the COMPLETE replacement run instructions, for cronExpression a cron string like 0 9 * * 1, for agentConfigId the id of the profile it should run as>"}',
@@ -541,6 +576,14 @@ function buildDiagnosisUserPrompt(ctx: DiagnosisContext): string {
     lines.push(`  allowedMcps: ${JSON.stringify(ctx.profile?.allowedMcps ?? [])}`);
     lines.push(`  allowedSkills: ${JSON.stringify(ctx.profile?.allowedSkills ?? [])}`);
     lines.push(`  allowedDelegates: ${JSON.stringify(ctx.profile?.allowedDelegates ?? [])}`);
+    let corePermissions: Record<string, unknown> = {};
+    try {
+      const parsed = ctx.agentConfig.corePermissionsJson ? JSON.parse(ctx.agentConfig.corePermissionsJson) : {};
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) corePermissions = parsed as Record<string, unknown>;
+    } catch {
+      // A malformed stored value is represented as empty context; projection has its own defensive boundary.
+    }
+    lines.push(`  corePermissions: ${JSON.stringify(corePermissions)}`);
     lines.push('');
   } else {
     lines.push('AGENT PROFILE CONFIG: (not found — profile may have been deleted)');
