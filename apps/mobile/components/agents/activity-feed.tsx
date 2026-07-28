@@ -5,7 +5,15 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { Avatar, Card, Chip, Text } from 'react-native-paper';
+import {
+  Avatar,
+  Card,
+  Chip,
+  Searchbar,
+  SegmentedButtons,
+  Text,
+} from 'react-native-paper';
+import { useMemo, useState } from 'react';
 
 import { ToolScreenState } from '@/components/tools/tool-screen-state';
 import type { ToolScreenStateKind } from '@/components/tools/tool-screen-state';
@@ -15,6 +23,10 @@ import {
   getActivityDeepLink,
   type ActivityItem,
 } from '@/providers/services/activity-service';
+import {
+  filterAgentActivities,
+  type AgentActivityStatusFilter,
+} from '@/providers/services/agent-category-service';
 
 const STATUS_ICON: Record<ActivityItem['status'], string> = {
   active: 'progress-clock',
@@ -33,6 +45,12 @@ export function ActivityFeed({
   hasMore,
   onRefresh,
   onLoadMore,
+  category,
+  emptyTitle,
+  emptyMessage,
+  emptyActionLabel,
+  emptyActionHref,
+  searchPlaceholder,
 }: {
   items: ActivityItem[];
   loading: boolean;
@@ -46,15 +64,46 @@ export function ActivityFeed({
   hasMore: boolean;
   onRefresh: () => void;
   onLoadMore: () => void;
+  category?: 'scheduled' | 'background';
+  emptyTitle?: string;
+  emptyMessage?: string;
+  emptyActionLabel?: string;
+  emptyActionHref?: string;
+  searchPlaceholder?: string;
 }) {
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] =
+    useState<AgentActivityStatusFilter>('all');
+  const categoryItems = useMemo(
+    () =>
+      category
+        ? filterAgentActivities(items, {
+            category,
+            query,
+            status: statusFilter,
+          })
+        : items,
+    [category, items, query, statusFilter],
+  );
+  const unfilteredCategoryItems = useMemo(
+    () =>
+      category
+        ? filterAgentActivities(items, {
+            category,
+            query: '',
+            status: 'all',
+          })
+        : items,
+    [category, items],
+  );
 
-  if (loading && items.length === 0) {
+  if (loading && unfilteredCategoryItems.length === 0) {
     return <ToolScreenState state="loading" title="Loading activity" />;
   }
-  if (errorState && items.length === 0) {
+  if (errorState && unfilteredCategoryItems.length === 0) {
     return (
       <ToolScreenState
         actionLabel={errorState === 'error' ? 'Try again' : undefined}
@@ -65,13 +114,26 @@ export function ActivityFeed({
       />
     );
   }
-  if (items.length === 0) {
+  if (unfilteredCategoryItems.length === 0) {
     return (
       <ToolScreenState
-        actionLabel={offline ? undefined : 'Refresh'}
-        onAction={offline ? undefined : onRefresh}
+        actionLabel={
+          offline ? undefined : (emptyActionLabel ?? 'Refresh')
+        }
+        message={emptyMessage}
+        onAction={
+          offline
+            ? undefined
+            : emptyActionHref
+              ? () => router.push(emptyActionHref as never)
+              : onRefresh
+        }
         state={offline ? 'offline-cache' : 'empty'}
-        title={offline ? 'Activity unavailable offline' : 'No activity yet'}
+        title={
+          offline
+            ? 'Activity unavailable offline'
+            : (emptyTitle ?? 'No activity yet')
+        }
       />
     );
   }
@@ -90,10 +152,35 @@ export function ActivityFeed({
           </Card.Content>
         </Card>
       ) : null}
+      {category && searchPlaceholder ? (
+        <View style={styles.filters}>
+          <Searchbar
+            accessibilityLabel={searchPlaceholder}
+            onChangeText={setQuery}
+            placeholder={searchPlaceholder}
+            value={query}
+          />
+          <SegmentedButtons
+            buttons={[
+              { value: 'all', label: 'All' },
+              { value: 'active', label: 'Active' },
+              { value: 'completed', label: 'Completed' },
+              { value: 'failed', label: 'Failed' },
+            ]}
+            onValueChange={(value) =>
+              setStatusFilter(value as AgentActivityStatusFilter)}
+            value={statusFilter}
+          />
+        </View>
+      ) : null}
       <FlatList
-        accessibilityLabel="Agent activity feed"
-        contentContainerStyle={styles.list}
-        data={items}
+        accessibilityLabel={
+          category ? `${category} agent activity` : 'Agent activity feed'
+        }
+        contentContainerStyle={
+          categoryItems.length === 0 ? styles.emptyList : styles.list
+        }
+        data={categoryItems}
         keyExtractor={(item) => item.id}
         onEndReached={() => {
           if (hasMore && !loading) onLoadMore();
@@ -172,6 +259,18 @@ export function ActivityFeed({
             </Text>
           ) : null
         }
+        ListEmptyComponent={
+          <View accessibilityRole="summary" style={styles.empty}>
+            <Text accessibilityRole="header" variant="headlineSmall">
+              {category === 'scheduled'
+                ? 'No matching scheduled tasks'
+                : 'No matching background loops'}
+            </Text>
+            <Text style={{ color: palette.muted }} variant="bodyLarge">
+              Try a different search or status filter.
+            </Text>
+          </View>
+        }
       />
     </View>
   );
@@ -180,9 +279,18 @@ export function ActivityFeed({
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   notice: { margin: 16, marginBottom: 0 },
+  filters: { gap: 10, padding: 16, paddingBottom: 0 },
   list: { gap: 12, padding: 16, paddingBottom: 32 },
+  emptyList: { flexGrow: 1 },
   card: { borderRadius: 16 },
   content: { gap: 10 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   footer: { padding: 16, textAlign: 'center' },
+  empty: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 10,
+    justifyContent: 'center',
+    padding: 24,
+  },
 });

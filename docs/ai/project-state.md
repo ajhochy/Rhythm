@@ -61,3 +61,12 @@ Repair #1237–#1239, then repeat the bounded physical smoke for disconnect/
 reconnect, long prompt/response with background recovery, visible QR pairing,
 revocation, and replacement pairing before continuing the remaining #1199 and
 #1200 release gates.
+
+## Recent coding-agent runs
+
+### 2026-07-28 — issue #1232 mobile Agents categories
+- Files modified: mobile Agents screen; chat/activity list components; agent category/chat read-model services; #1232 contract and fake-server E2E; run log.
+- Checks run: #1232 contract 5/5 pass after 4 expected failing-first assertions; #1172 6/6 pass; #1173 tool service 5/5 pass; repair-pass typecheck, lint, and diff checks pass.
+- Decisions made: retain the existing chat read-model default for other callers, opt this screen into all lifecycle states, derive Scheduled/Background categories from scheduler/optimizer activity sources, and preserve the unfiltered Activity feed as a secondary header action. The chat-list action label is distinct from the workspace label so mounted but hidden routes cannot intercept workspace automation. See `docs/ai/runs/2026-07-28-mobile-agents-1232.md`.
+- Deviations from spec: exact GitHub issue text unavailable due blocked network; no socket/simulator verification.
+- Concerns: loaded-page counts and the restored Activity entry point require the orchestrator's Playwright rerun; segmented category labels need narrow-screen/dynamic-type smoke.

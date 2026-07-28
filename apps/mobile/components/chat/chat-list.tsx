@@ -16,7 +16,7 @@ import {
   IconButton,
   Menu,
   Portal,
-  SegmentedButtons,
+  Searchbar,
   Snackbar,
   Text,
   TextInput,
@@ -28,7 +28,6 @@ import { useAgentChat } from '@/providers/agent-chat-provider';
 import { useOpencode } from '@/providers/opencode-provider';
 import {
   buildAgentChatReadModel,
-  type AgentChatLifecycle,
   type AgentChatRecord,
 } from '@/providers/services/agent-chat-service';
 
@@ -52,8 +51,7 @@ export function ChatList() {
   const chat = useAgentChat();
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
-  const [lifecycle, setLifecycle] =
-    useState<AgentChatLifecycle>('active');
+  const [query, setQuery] = useState('');
   const [projectId, setProjectId] = useState<string | null>(null);
   const [projectMenuVisible, setProjectMenuVisible] = useState(false);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
@@ -71,12 +69,22 @@ export function ChatList() {
   const readModel = useMemo(
     () =>
       buildAgentChatReadModel(chat.sessions, {
-        lifecycle,
+        lifecycle: 'all',
         projectId,
       }),
-    [chat.sessions, lifecycle, projectId],
+    [chat.sessions, projectId],
   );
-  const rows = useMemo(() => flattenChats(readModel), [readModel]);
+  const rows = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    return flattenChats(readModel).filter((item) => {
+      if (!normalizedQuery) return true;
+      const projectLabel =
+        projectsByPath.get(item.projectId ?? '')?.label ?? '';
+      return [item.title, item.status, projectLabel].some((value) =>
+        value.toLocaleLowerCase().includes(normalizedQuery),
+      );
+    });
+  }, [projectsByPath, query, readModel]);
   const selectedProject =
     (projectId ? projectsByPath.get(projectId) : null) ?? null;
 
@@ -200,6 +208,12 @@ export function ChatList() {
       </Appbar.Header>
 
       <View style={styles.filters}>
+        <Searchbar
+          accessibilityLabel="Search chats"
+          onChangeText={setQuery}
+          placeholder="Search chats"
+          value={query}
+        />
         <Menu
           anchor={
             <Button
@@ -232,16 +246,6 @@ export function ChatList() {
             />
           ))}
         </Menu>
-        <SegmentedButtons
-          buttons={[
-            { value: 'active', label: 'Active', accessibilityLabel: 'Show active chats' },
-            { value: 'completed', label: 'Completed', accessibilityLabel: 'Show completed chats' },
-            { value: 'archived', label: 'Archived', accessibilityLabel: 'Show archived chats' },
-          ]}
-          onValueChange={(value) =>
-            setLifecycle(value as AgentChatLifecycle)}
-          value={lifecycle}
-        />
         {chat.isOfflineCache ? (
           <Card
             accessibilityLabel="Offline saved chats. Actions are unavailable."
@@ -260,7 +264,7 @@ export function ChatList() {
 
       <Divider />
       <FlatList
-        accessibilityLabel={`${lifecycle} chats`}
+        accessibilityLabel="Chats"
         contentContainerStyle={
           rows.length === 0 ? styles.emptyList : styles.list
         }
@@ -292,7 +296,7 @@ export function ChatList() {
                 <Menu
                   anchor={
                     <IconButton
-                      accessibilityLabel={`Actions for ${item.title}`}
+                      accessibilityLabel={`Chat actions for ${item.title}`}
                       disabled={!chat.isOnline || busyId === item.id}
                       icon="dots-horizontal"
                       onPress={() => setActionMenuId(item.id)}
@@ -317,7 +321,7 @@ export function ChatList() {
                     }}
                     title="Rename"
                   />
-                  {lifecycle === 'archived' ? (
+                  {item.archivedAt ? (
                     <Menu.Item
                       leadingIcon="restore"
                       onPress={() =>
@@ -385,7 +389,7 @@ export function ChatList() {
               accessibilityRole="header"
               style={{ color: palette.text }}
               variant="headlineSmall">
-              No {lifecycle} chats
+              {query.trim() || projectId ? 'No matching chats' : 'No chats yet'}
             </Text>
             <Text style={{ color: palette.muted }} variant="bodyLarge">
               {chat.error ??
