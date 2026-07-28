@@ -1,0 +1,64 @@
+{
+  "issue": 1215,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1215-c1",
+      "text": "The shipped prompt references only currently registered MCP tools and accepted arguments.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1215_consolidation_prompt.test.ts",
+      "test_id": "issue-1215-c1: fresh seed references only the supported consolidation tool surface",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1215-c2",
+      "text": "The incompatible file-memory skill is removed from the seeded schedule.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1215_consolidation_prompt.test.ts",
+      "test_id": "issue-1215-c2: fresh seed has no incompatible file-memory skill",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1215-c3",
+      "text": "The prompt does not claim unsupported provenance, staleness, verification, deprecation, or rollback capabilities.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1215_consolidation_prompt.test.ts",
+      "test_id": "issue-1215-c3: prompt stays within the supported consolidation workflow",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1215-c4",
+      "text": "A versioned repair updates the known managed seed row on existing installs without overwriting unrelated user-created schedules.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1215_consolidation_prompt.test.ts",
+      "test_id": "issue-1215-c4: versioned migration repairs only the known legacy managed row",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1215-c5",
+      "text": "The durable deletion tombstone remains respected; a user-deleted seed is not resurrected.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1215_consolidation_prompt.test.ts",
+      "test_id": "issue-1215-c5: deleted managed seed is not resurrected",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1215-c6",
+      "text": "Seed and migration tests lock the exact supported tool scope and managed-upgrade behavior.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1215_consolidation_prompt.test.ts",
+      "test_id": "issue-1215-c6: repaired seed is stable across migration and boot replay",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1215-c7",
+      "text": "A live sandbox run completes and produces an observable supported memory outcome.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_memory_1218_1215.test.ts",
+      "test_id": "issue-1215-c7: live sandbox exposes the repaired prompt and supported memory outcome",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
