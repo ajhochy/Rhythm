@@ -6,6 +6,7 @@ export type ModelOption = {
   providerID: string;
   providerLabel: string;
   modelID: string;
+  recommended?: boolean;
   supportsReasoning: boolean;
   supportsAttachments: boolean;
   inputModalities: ('text' | 'audio' | 'image' | 'video' | 'pdf')[];

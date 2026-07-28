@@ -8,6 +8,7 @@ import { styles } from '@/components/chat/chat-view-styles';
 import { getAutoApproveIcon, getModelLabel, REASONING_OPTIONS } from '@/components/chat/chat-view-utils';
 import { renderProviderIcon } from '@/components/ui/provider-icon';
 import type { AgentOption, ChatPreferences, ModelOption } from '@/providers/opencode-provider';
+import type { ModelPickerGroup } from '@/providers/opencode-provider-selectors';
 import type { Command } from '@/lib/opencode/types';
 
 type Palette = typeof Colors.light;
@@ -37,6 +38,7 @@ type ChatComposerProps = {
   selectedAgentLabel: string;
   showSendAction: boolean;
   currentSessionId?: string;
+  modelPickerGroups: ModelPickerGroup[];
   visibleModels: ModelOption[];
   updateChatPreferences: (patch: Partial<ChatPreferences>) => void;
   commands: Command[];
@@ -58,6 +60,7 @@ export function ChatComposer({
   isSpeechInputListening,
   isStoppingSession,
   isUpdatingAutoApprove,
+  modelPickerGroups,
   onAttach,
   onCommandSelect,
   onDraftChange,
@@ -118,12 +121,20 @@ export function ChatComposer({
             }
             updateChatPreferences({ providerId: model.providerID, modelId: model.id });
           }}
-          options={visibleModels.map((model) => ({
-            description: model.supportsReasoning ? 'Reasoning supported' : 'Standard model',
+          options={modelPickerGroups.flatMap((group) => group.models.map((model) => ({
+            description: [
+              group.accountLabel,
+              model.rankLabel,
+              model.supportsReasoning ? 'Reasoning' : undefined,
+            ].filter(Boolean).join(' · '),
             label: model.label,
-            leadingIcon: (props) => renderProviderIcon(model.providerID, props.size, props.color),
+            leadingIcon: (props: { size: number; color: string }) =>
+              renderProviderIcon(model.providerID, props.size, props.color),
+            sectionLabel: group.accountLabel === group.providerLabel
+              ? group.providerLabel
+              : `${group.providerLabel} — ${group.accountLabel}`,
             value: model.id,
-          }))}
+          })))}
           selectedValue={chatPreferences.modelId}
           title="Choose model"
         />

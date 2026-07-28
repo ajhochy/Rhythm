@@ -64,16 +64,18 @@ revocation, and replacement pairing before continuing the remaining #1199 and
 
 ## Recent coding-agent runs
 
-### 2026-07-28 — issue #1223 malformed broaden-scope grants
-- Files modified: proposal generator/validation/apply paths, scope-hygiene
-  guard, optimizer legacy-row invalidation, repository status transition,
-  acceptance/live tests, contract, and run log.
-- Checks run: failing-first 4 expected failures; targeted 18/18 pass; API and
-  MCP TypeScript checks pass; full API/live/Flutter gates blocked by managed
-  environment restrictions (see `docs/ai/runs/2026-07-28-issue-1223-scope-proposals.md`).
-- Decisions made: resolve model-facing tool ids against the live MCP server
-  catalog and store only the resolved server name; broaden grants remain
-  human-gated but no longer enter an unsupported measurement path.
-- Deviations from spec: no commit because live verification could not run.
-- Concerns: fresh fork dependencies and loopback/socket permissions are needed
-  to finish the required sandbox evidence.
+### 2026-07-28 — issue-1233-mobile-model-picker
+- Files modified: mobile capability/provider types and selectors, chat composer/view,
+  grouped native select UI, issue contract, fake-server E2E flow, package test script,
+  and run log.
+- Checks run: issue contract PASS (4/4); `git diff --check` PASS; typecheck,
+  lint, existing provider utility test, and Playwright BLOCKED by unavailable
+  dependencies after sandbox-restricted installs.
+- Decisions made: use provider-list connection state as the authority; preserve
+  each provider's last selection as recent ranking; use the provider label as
+  account context because the OpenCode provider response exposes connected IDs
+  but no separate account record.
+- Deviations from spec: GitHub issue body/comments could not be fetched due
+  blocked network; no commit/push/PR per orchestrator instruction.
+- Concerns: orchestrator must verify exact issue wording, install dependencies,
+  run static/E2E checks, and smoke the custom grouped sheet on iOS.
