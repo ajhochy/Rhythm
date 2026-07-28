@@ -11,12 +11,12 @@ explicit human release chain.
 - Local branch: `codex/mobile-1172-agents-activity`
 - Remote PR branch: `feat/rhythm-agent-ios-roadmap`
 - Draft PR: #1165, `WIP: consolidate unfinished Rhythm Agents iOS prototype`
-- Current local head before the smoke-repair commit: `f5b486ca4`
+- Verified repair commit: `40843e308`
 
 ## In progress
 
-- Commit and push the local smoke evidence and pairing compatibility repair,
-  then watch PR CI to completion.
+- The repair and smoke evidence are pushed. Mobile CI passed against exact
+  head `40843e308`.
 - #1197 remains the independent exact-head review gate.
 - #1198 remains the signed EAS development build gate.
 - #1199 remains the authenticated physical-device and isolated-Mac matrix.
@@ -62,11 +62,12 @@ explicit human release chain.
   live shipping-fingerprint assertion 1/1 and all health probes; the sandbox
   was removed.
 - Changed-file credential/private-host scan and `git diff --check` passed.
+- GitHub Mobile CI run `30320059544` passed against exact head `40843e308`.
 - Full commands and repair-loop details are recorded in
   `docs/ai/runs/2026-07-27-live-desktop-mobile-smoke-handoff.md`.
 
 ## Next step
 
-Commit and push the verified local repair, watch PR CI, and keep PR #1165
-draft. Then rerun #1197 against the new exact head and hand #1198–#1200 to AJ
-for the required secure EAS, physical-device, and TestFlight actions.
+Keep PR #1165 draft. Rerun #1197 against exact head `40843e308`, then hand
+#1198–#1200 to AJ for the required secure EAS, physical-device, and TestFlight
+actions.

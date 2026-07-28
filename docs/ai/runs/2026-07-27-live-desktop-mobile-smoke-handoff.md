@@ -69,6 +69,8 @@ index: "[[Rhythm]]"
   src/__tests__/issue_1175_pairing_compatibility_live.test.ts` passed 1/1.
   API, engine, capabilities, and gateway health probes all returned HTTP 200;
   the sandbox was then removed and installed ports were untouched.
+- The repair was committed as `40843e308` and pushed to the PR branch.
+- GitHub Mobile CI run `30320059544` passed against that exact head.
 
 ## Notes
 
@@ -90,3 +92,5 @@ index: "[[Rhythm]]"
   unstaged scope was LOW (8 indexed files, 5 symbols, 0 flows).
 - Do not mark #1198 or #1200 complete from this run. A local Xcode-signed build
   is not the required EAS provenance or TestFlight artifact.
+- PR #1165 remains draft because #1197–#1200 are still open human/release
+  gates. Local desktop and simulator smoke do not satisfy those gates.
