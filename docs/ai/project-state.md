@@ -61,3 +61,21 @@ Repair #1237–#1239, then repeat the bounded physical smoke for disconnect/
 reconnect, long prompt/response with background recovery, visible QR pairing,
 revocation, and replacement pairing before continuing the remaining #1199 and
 #1200 release gates.
+
+## Recent coding-agent runs
+
+### 2026-07-28 — issue-1233-mobile-model-picker
+- Files modified: mobile capability/provider types and selectors, chat composer/view,
+  grouped native select UI, issue contract, fake-server E2E flow, package test script,
+  and run log.
+- Checks run: issue contract PASS (4/4); `git diff --check` PASS; typecheck,
+  lint, existing provider utility test, and Playwright BLOCKED by unavailable
+  dependencies after sandbox-restricted installs.
+- Decisions made: use provider-list connection state as the authority; preserve
+  each provider's last selection as recent ranking; use the provider label as
+  account context because the OpenCode provider response exposes connected IDs
+  but no separate account record.
+- Deviations from spec: GitHub issue body/comments could not be fetched due
+  blocked network; no commit/push/PR per orchestrator instruction.
+- Concerns: orchestrator must verify exact issue wording, install dependencies,
+  run static/E2E checks, and smoke the custom grouped sheet on iOS.

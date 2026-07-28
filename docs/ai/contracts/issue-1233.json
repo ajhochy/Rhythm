@@ -1,0 +1,40 @@
+{
+  "issue": 1233,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1233-c1",
+      "text": "Filter out models from disconnected providers.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/issue-1233.test.mjs",
+      "test_id": "issue-1233-c1: disconnected providers never contribute picker models",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1233-c2",
+      "text": "Group models by provider/account.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/issue-1233.test.mjs",
+      "test_id": "issue-1233-c2: models are grouped by connected provider account",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1233-c3",
+      "text": "Rank recommended and recent selections.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/issue-1233.test.mjs",
+      "test_id": "issue-1233-c3: current/recent models rank ahead of provider recommendations",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1233-c4",
+      "text": "Expose account context in the model picker.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1233.test.mjs",
+      "test_id": "issue-1233-c4: picker options expose provider and account context",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
