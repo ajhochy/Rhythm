@@ -1,7 +1,7 @@
-Source head: 8701432480f585fe90119cbaee66382d062da879
+Source head: 6dd2516f96b357d99854b8fbcb0ef6ad1206ae07
 Status: pending human-only gates
 
-Human gate: independently review git diff main...8701432480f585fe90119cbaee66382d062da879 and commit an immutable report with no unresolved Critical or Important findings.
+Human gate: independently review git diff main...6dd2516f96b357d99854b8fbcb0ef6ad1206ae07 and commit an immutable report with no unresolved Critical or Important findings.
 
 Human gate: run the signed physical-iPhone matrix in docs/testing/manual-smoke.md without recording a device UDID.
 

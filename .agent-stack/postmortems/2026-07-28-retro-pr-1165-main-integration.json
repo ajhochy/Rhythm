@@ -1,0 +1,67 @@
+{
+  "run_id": "2026-07-28-retro-pr-1165-main-integration",
+  "issue": 1175,
+  "date": "2026-07-28",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [],
+  "process_issues": [
+    {
+      "process_category": "code-intelligence-unavailable",
+      "description": "The required GitNexus MCP tools were unavailable and the repo-local impact wrapper did not return, so the integration used direct conflict/caller inspection plus focused, aggregate, and live behavioral gates.",
+      "detected_by": "Tool discovery and the non-returning local GitNexus impact command."
+    },
+    {
+      "process_category": "test-environment",
+      "description": "The PR worktree is outside the desktop workspace writable root, so build outputs and test caches required approved execution scoped to that existing worktree.",
+      "detected_by": "MCP TypeScript build EPERM errors followed by an unchanged approved rerun."
+    },
+    {
+      "process_category": "stale-live-test-assumption",
+      "description": "The merged memory live suite assumed protected MCP writes could run without trusted session metadata and also confused API row IDs with vault source IDs; triage changed the gate to assert fail-closed behavior and preservation of observable state.",
+      "detected_by": "Two isolated live-suite failures followed by the corrected 5/5 live pass."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/__tests__/creative_platform.live.test.ts",
+    "apps/api_server/src/__tests__/issue_1134_external_content_security.test.ts",
+    "apps/api_server/src/__tests__/live_e2e_mem_okf_1187_1196.test.ts",
+    "apps/api_server/src/services/__tests__/creative_installer.test.ts",
+    "apps/api_server/src/services/creative_installer.ts",
+    "apps/api_server/src/services/external_content_security_service.ts",
+    "apps/mcp_server/src/__tests__/mcp_capabilities_and_tool_registration.test.ts",
+    "apps/mcp_server/src/security/__tests__/external_content_role_graph.test.ts",
+    "apps/mcp_server/src/security/external_content_boundary.ts",
+    "apps/mcp_server/src/tools/__tests__/agentMemory_local_base.test.ts",
+    "apps/mcp_server/src/tools/agentMemory.ts",
+    "apps/opencode_fork/packages/opencode/src/session/llm.ts",
+    "apps/opencode_fork/packages/opencode/test/session/llm.test.ts",
+    "docs/ai/project-state.md",
+    "docs/ai/testing-guide.md"
+  ],
+  "failure_output": "Initial focused checks found missing cached dependencies and a stale approval fixture; the first full gate found tool-count and security-action parity gaps; the first two memory live reruns found stale test identity/trust assumptions. Each was repaired and the complete gate restarted.",
+  "overall_category": "none",
+  "suggested_follow_up": "No canonical skill change is warranted from this strict run; retain the corrected live fail-closed regression and explicit worktree escalation notes."
+}

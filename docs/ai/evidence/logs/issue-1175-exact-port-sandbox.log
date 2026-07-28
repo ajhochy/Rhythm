@@ -1,33 +1,36 @@
-Source head: 8701432480f585fe90119cbaee66382d062da879
+Source head: 6dd2516f96b357d99854b8fbcb0ef6ad1206ae07
 API port: 4098
 Engine port: 4097
-Installed listener snapshot before: 4001 PID 964; 4096 PID 1016
-Installed listener snapshot after: 4001 PID 964; 4096 PID 1016
 
 Launcher and live command:
-RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-pr1165-final-sandbox tools/dev/sandbox.sh up && RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4098 RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 RHYTHM_LIVE_DB_PATH=/private/tmp/rhythm-pr1165-final-sandbox/rhythm.db RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-pr1165-final-sandbox RHYTHM_LIVE_HUMAN_CAPABILITY=<throwaway-sandbox-capability> npx vitest run src/__tests__/issue_1166_pairing_live.test.ts src/__tests__/issue_1168_mobile_gateway_live.test.ts --no-file-parallelism
+RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-pr1165-main-integration RHYTHM_MOBILE_GATEWAY_PORT=4699 tools/dev/sandbox.sh up --foreground
+
+RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_MOBILE_GATEWAY_URL=http://127.0.0.1:4699 npx vitest run src/__tests__/issue_1175_pairing_compatibility_live.test.ts --no-file-parallelism
+
+RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4098 RHYTHM_LIVE_DB_PATH=/private/tmp/rhythm-pr1165-main-integration/rhythm.db RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-pr1165-main-integration RHYTHM_LIVE_HUMAN_CAPABILITY=<throwaway-sandbox-capability> npx vitest run src/__tests__/issue_1175_pairing_tool_auth_live.test.ts --no-file-parallelism
+
+RHYTHM_LIVE_E2E=1 RHYTHM_MEM_OKF_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4098 DB_PATH=/private/tmp/rhythm-pr1165-main-integration/rhythm.db RHYTHM_LIVE_DB_PATH=/private/tmp/rhythm-pr1165-main-integration/rhythm.db RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-pr1165-main-integration RHYTHM_LIVE_VAULT_PATH=/private/tmp/rhythm-pr1165-main-integration/vault npx vitest run src/__tests__/live_e2e_mem_okf_1187_1196.test.ts --no-file-parallelism
 
 Observed health:
-{"status":"ok","service":"rhythm-api-server","commit":"dev"}
-{"status":"ready","message":"Opencode SDK ready","websearchConfigured":false}
+API, OpenCode, capabilities, and dedicated mobile-gateway health probes returned success.
 
-Observed #1166/#1168 result:
-Test Files  2 passed (2)
-Tests       2 passed (2)
-Duration    328ms
-Exit code   0
+Observed exact-port result:
+- pairing compatibility: 1/1 passed
+- pairing and mobile tool authorization: 1/1 passed
+- MEM-OKF real API/MCP/vault behavior: 5/5 passed
+- Exit code: 0
 
-Realtime command:
-RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:4098 RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:4097 RHYTHM_LIVE_DB_PATH=/private/tmp/rhythm-pr1165-final-sandbox/rhythm.db RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-pr1165-final-sandbox RHYTHM_LIVE_HUMAN_CAPABILITY=<throwaway-sandbox-capability> npx vitest run src/__tests__/issue_1170_mobile_realtime_proxy_live.test.ts --no-file-parallelism
+High-port paired-gateway command:
+RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-pr1165-gateway-integration RHYTHM_SANDBOX_API_PORT=54175 RHYTHM_SANDBOX_ENGINE_PORT=55175 tools/dev/sandbox.sh up --foreground
 
-Observed #1170 result:
+RHYTHM_LIVE_E2E=1 RHYTHM_LIVE_E2E_ISOLATED=1 RHYTHM_LIVE_URL=http://127.0.0.1:54175 RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:55175 RHYTHM_LIVE_DB_PATH=/private/tmp/rhythm-pr1165-gateway-integration/rhythm.db RHYTHM_SANDBOX_DIR=/private/tmp/rhythm-pr1165-gateway-integration RHYTHM_LIVE_SECRET_MARKER=<noncredential-sentinel> RHYTHM_LIVE_HUMAN_CAPABILITY=<throwaway-sandbox-capability> npx vitest run src/__tests__/issue_1175_mobile_gateway_live.test.ts --no-file-parallelism
+
+Observed paired-gateway result:
 Test Files  1 passed (1)
-Tests       2 passed (2)
-Duration    1.84s
+Tests       1 passed (1)
+Duration    6.69s
 Exit code   0
 
-The first automation attempt was invalid because the command host reaped the
-background sandbox when its launcher cell exited. It is recorded separately in
-.agent-stack/postmortems/2026-07-25-issue-1175-final-sandbox-failed.json and
-follow-up #1186. The corrected run above kept the launcher lifecycle alive and
-required no source change.
+Both foreground sandboxes shut down cleanly. The throwaway capability was
+deleted and no credential value, private key, host name, device token, or UDID
+was recorded.

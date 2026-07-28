@@ -1,13 +1,12 @@
-Source head: 8701432480f585fe90119cbaee66382d062da879
+Source head: 6dd2516f96b357d99854b8fbcb0ef6ad1206ae07
 Command: gh pr checks 1165
 Exit code: 0
 
-Type-check and build  pass  32s   https://github.com/ajhochy/Rhythm/actions/runs/30182223114
-desktop-checks       pass  5m50s https://github.com/ajhochy/Rhythm/actions/runs/30182223148
-fork-checks          pass  1m49s https://github.com/ajhochy/Rhythm/actions/runs/30182223161
-foundation           pass  3m33s https://github.com/ajhochy/Rhythm/actions/runs/30182221711
-foundation           pass  4m13s https://github.com/ajhochy/Rhythm/actions/runs/30182223124
-server-checks        pass  3m49s https://github.com/ajhochy/Rhythm/actions/runs/30182223139
+Type-check and build  pass  31s   https://github.com/ajhochy/Rhythm/actions/runs/30375576875
+desktop-checks       pass  8m17s https://github.com/ajhochy/Rhythm/actions/runs/30375576794
+fork-checks          pass  1m51s https://github.com/ajhochy/Rhythm/actions/runs/30375576763
+foundation           pass  3m54s https://github.com/ajhochy/Rhythm/actions/runs/30375576862
+server-checks        pass  4m12s https://github.com/ajhochy/Rhythm/actions/runs/30375576859
 
 The source-freeze matrix covered:
 - API TypeScript, lint, serial Vitest, and build.

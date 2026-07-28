@@ -1,4 +1,4 @@
-Source head: 8701432480f585fe90119cbaee66382d062da879
+Source head: 6dd2516f96b357d99854b8fbcb0ef6ad1206ae07
 Command: cd apps/mobile && npm run test:dynamic-type
 Exit code: 0
 
@@ -17,6 +17,4 @@ Native simulator evidence retained from the source-equivalent UI head:
   /private/tmp/rhythm-pr1165-agents-normal.png
   /private/tmp/rhythm-pr1165-webhooks-normal.png
 
-The subsequent source commits changed generated SDK ordering, the pinned
-pairing fingerprint, CI assertions, and release-evidence logic; none changed
-the verified layouts.
+The focused contract was rerun after the current-main merge and source freeze.
