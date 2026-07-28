@@ -11,12 +11,12 @@ installer for #1227.
 - Local branch: `codex/mobile-1172-agents-activity`
 - Remote PR branch: `feat/rhythm-agent-ios-roadmap`
 - Draft PR: #1165, `WIP: consolidate unfinished Rhythm Agents iOS prototype`
-- Review repairs are verified locally and awaiting commit/push.
+- Review repair commit: `e45769de7`, pushed and green in GitHub CI.
 
 ## In progress
 
-- Final diff review, commit, and push of #1224–#1230.
-- GitHub CI and PR status verification after the push.
+- Human review and release gates only; no implementation repair remains open
+  for #1224–#1230.
 
 ## Risks / known issues
 
@@ -44,9 +44,11 @@ installer for #1227.
 - #1230 immutable Cloud/local identity live test: PASS after correcting a
   throwaway test-capability hashing mismatch; no product code changed.
 - `git diff --check`, stale-copy search, and credential-pattern scan: PASS.
+- GitHub exact-head checks for `e45769de7`: 7/7 PASS across Desktop, Server,
+  MCP, OpenCode Fork, and both Mobile triggers.
 
 ## Next step
 
-Commit and push the verified repair set to PR #1165, wait for GitHub CI, update
-the PR with issue/evidence status, and leave signed-device/TestFlight work as
-the explicit human-gated handoff.
+Human review of PR #1165, followed by signed physical-iPhone validation,
+production archive/TestFlight, migration review, final manual smoke, and
+explicit merge approval.
