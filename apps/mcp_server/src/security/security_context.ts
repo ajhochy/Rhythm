@@ -4,6 +4,7 @@
  * JSON can never select another session, turn, agent, or call id.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ToolRequestExtra } from '../tools/_tool.js';
 
 export const RHYTHM_SECURITY_CONTEXT_META_KEY = 'com.vcrc.rhythm/security-context';
@@ -30,6 +31,12 @@ export interface TrustedSecurityCall {
   context: TrustedSecurityContext;
   proof: TrustedSecurityProof;
 }
+
+export interface TrustedSecurityEnvelope extends TrustedSecurityCall {
+  arguments: Record<string, unknown>;
+}
+
+const trustedCallStorage = new AsyncLocalStorage<TrustedSecurityEnvelope | null>();
 
 function safeIdentity(value: unknown, max: number): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= max;
@@ -92,4 +99,20 @@ export function trustedSecurityCall(
       signature: record.signature,
     },
   };
+}
+
+export function runWithTrustedSecurityCall<T>(
+  extra: ToolRequestExtra | undefined,
+  args: Record<string, unknown>,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const call = trustedSecurityCall(extra);
+  return trustedCallStorage.run(
+    call ? { ...call, arguments: args } : null,
+    operation,
+  );
+}
+
+export function currentTrustedSecurityCall(): TrustedSecurityEnvelope | null {
+  return trustedCallStorage.getStore() ?? null;
 }

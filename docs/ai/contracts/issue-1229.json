@@ -1,0 +1,40 @@
+{
+  "issue": 1229,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1229-c1",
+      "text": "Memory-vault writes resolve and validate the real parent path against the real vault root.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1229_memory_vault_symlink.test.ts",
+      "test_id": "issue-1229-c1: real parent containment blocks an outside write",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1229-c2",
+      "text": "Existing symlinks in any destination path component are rejected.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1229_memory_vault_symlink.test.ts",
+      "test_id": "issue-1229-c2: a symlinked destination component is rejected",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1229-c3",
+      "text": "Writes use a temporary file and validated atomic rename without following a destination symlink.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1229_memory_vault_symlink.test.ts",
+      "test_id": "issue-1229-c3: a destination symlink is rejected without modifying its target",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1229-c4",
+      "text": "Automated tests prove a symlink cannot cause creation or modification outside the vault while normal nested writes still succeed.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1229_memory_vault_symlink.test.ts",
+      "test_id": "issue-1229-c4: normal nested writes remain functional",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

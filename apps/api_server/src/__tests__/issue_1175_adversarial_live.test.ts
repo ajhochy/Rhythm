@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { networkInterfaces, tmpdir } from 'node:os';
@@ -254,6 +254,46 @@ runLive('#1175 AGENT_LOCAL primary listener', () => {
       agentSession.id,
       sdkSessionId,
     );
+    const context = {
+      sdkSessionId,
+      turnId: 'turn-live-external-read',
+      agentName: 'church-admin',
+      toolCallId: 'call-live-calendar',
+    };
+    const taintEventId = randomUUID();
+    const taintId = randomUUID();
+    const taintedAt = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO agent_external_content_events
+        (id, session_id, sdk_session_id, turn_id, agent_name, tool_call_id,
+         source, content_digest, blocked, diagnostics_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, '[]', ?)`,
+    ).run(
+      taintEventId,
+      agentSession.id,
+      sdkSessionId,
+      context.turnId,
+      context.agentName,
+      context.toolCallId,
+      'calendar.events',
+      'a'.repeat(64),
+      taintedAt,
+    );
+    db.prepare(
+      `INSERT INTO agent_external_taint_state
+        (session_id, sdk_session_id, taint_id, latest_event_id, tainted_turn_id,
+         tainted_agent, source, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      agentSession.id,
+      sdkSessionId,
+      taintId,
+      taintEventId,
+      context.turnId,
+      context.agentName,
+      'calendar.events',
+      taintedAt,
+    );
     db.close();
 
     const credentials = installHumanApprovalTestCredentials();
@@ -309,12 +349,6 @@ runLive('#1175 AGENT_LOCAL primary listener', () => {
     }
     expect(healthy, output).toBe(true);
 
-    const context = {
-      sdkSessionId,
-      turnId: 'turn-live-external-read',
-      agentName: 'church-admin',
-      toolCallId: 'call-live-calendar',
-    };
     const internalHeaders = { 'Content-Type': 'application/json' };
     const taint = await fetch(
       `${baseUrl}/agent-approvals/external-content/taint`,
@@ -335,7 +369,7 @@ runLive('#1175 AGENT_LOCAL primary listener', () => {
         }),
       },
     );
-    expect(taint.status, output).toBe(201);
+    expect(taint.status, output).toBe(403);
 
     const payload = {
       calendarId: 'primary',
@@ -417,104 +451,7 @@ runLive('#1175 AGENT_LOCAL primary listener', () => {
         payload,
       }),
     });
-    expect(consumed.status).toBe(200);
-    expect(await consumed.json()).toMatchObject({
-      allowed: true,
-      consumed: true,
-    });
-
-    const correctiveContext = {
-      ...context,
-      turnId: 'turn-live-automation-read',
-      toolCallId: 'call-live-automation',
-    };
-    const correctiveTaint = await fetch(
-      `${baseUrl}/agent-approvals/external-content/taint`,
-      {
-        method: 'POST',
-        headers: internalHeaders,
-        body: JSON.stringify({
-          context: correctiveContext,
-          source: 'automation.preview',
-          contentDigest: 'b'.repeat(64),
-          blocked: false,
-          diagnostics: [],
-        }),
-      },
-    );
-    expect(correctiveTaint.status, output).toBe(201);
-
-    const correctivePayload = { id: 'automation-live-reviewed' };
-    const correctiveCreated = await fetch(`${baseUrl}/agent-approvals`, {
-      method: 'POST',
-      headers: internalHeaders,
-      body: JSON.stringify({
-        action: 'Delete reviewed automation',
-        security: {
-          context: correctiveContext,
-          action: 'automation.delete',
-          payload: correctivePayload,
-        },
-      }),
-    });
-    expect(correctiveCreated.status).toBe(201);
-    const correctiveApproval = (await correctiveCreated.json()) as {
-      id: string;
-      decisionNonce: string;
-      payloadDigest: string | null;
-    };
-    const correctiveSignature = signHumanApprovalDecision(
-      credentials,
-      correctiveApproval,
-      'approved',
-    );
-    expect(
-      (
-        await fetch(
-          `${baseUrl}/agent-approvals/${correctiveApproval.id}`,
-          {
-            method: 'PATCH',
-            headers: humanHeaders,
-            body: JSON.stringify({
-              status: 'approved',
-              signature: correctiveSignature,
-            }),
-          },
-        )
-      ).status,
-    ).toBe(200);
-    expect(
-      (
-        await fetch(`${baseUrl}/agent-approvals/consume`, {
-          method: 'POST',
-          headers: internalHeaders,
-          body: JSON.stringify({
-            context: correctiveContext,
-            approvalId: correctiveApproval.id,
-            action: 'automation.delete',
-            payload: { id: 'automation-substitution' },
-          }),
-        })
-      ).status,
-    ).toBe(403);
-    const correctiveConsumed = await fetch(
-      `${baseUrl}/agent-approvals/consume`,
-      {
-        method: 'POST',
-        headers: internalHeaders,
-        body: JSON.stringify({
-          context: correctiveContext,
-          approvalId: correctiveApproval.id,
-          action: 'automation.delete',
-          payload: correctivePayload,
-        }),
-      },
-    );
-    expect(correctiveConsumed.status).toBe(200);
-    expect(await correctiveConsumed.json()).toMatchObject({
-      allowed: true,
-      consumed: true,
-    });
+    expect(consumed.status).toBe(403);
 
     await stopChild(child);
     expect(listenersOnProtectedPorts()).toEqual(protectedBefore);

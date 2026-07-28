@@ -6,6 +6,7 @@
  */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { z } from 'zod';
+import { runWithTrustedSecurityCall } from '../security/security_context.js';
 
 type ToolShape = Record<string, z.ZodTypeAny>;
 
@@ -27,5 +28,11 @@ export function registerTool(
   handler: AnyHandler,
 ): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (server as any).tool(name, description, shape, handler);
+  (server as any).tool(
+    name,
+    description,
+    shape,
+    (args: Record<string, unknown>, extra: ToolRequestExtra) =>
+      runWithTrustedSecurityCall(extra, args, () => handler(args, extra)),
+  );
 }

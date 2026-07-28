@@ -53,7 +53,14 @@ describe('/creative-platform', () => {
       );
     const list = await fetch(`${server.baseUrl}/creative-platform`);
     expect(list.status).toBe(200);
-    expect((await list.json()) as unknown[]).toHaveLength(7);
+    const capabilities = (await list.json()) as Array<{
+      id: string;
+      setup: { planDigest: string };
+    }>;
+    expect(capabilities).toHaveLength(7);
+    const planDigest = capabilities.find(
+      ({ id }) => id === 'openmontage',
+    )!.setup.planDigest;
     const missingContext = await fetch(
       `${server.baseUrl}/creative-platform/openmontage/request-or-start`,
       {
@@ -85,6 +92,32 @@ describe('/creative-platform', () => {
       agentName: 'creative-media',
       toolCallId: 'call-creative-test',
     };
+    const stalePlan = await fetch(
+      `${server.baseUrl}/creative-platform/openmontage/request-or-start`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          trustedCall: signer.signCall(
+            { ...context, toolCallId: 'call-stale-plan' },
+            'rhythm_install_creative_capability',
+            {
+              id: 'openmontage',
+              operation: 'install',
+              planDigest: '0'.repeat(64),
+            },
+          ),
+        }),
+      },
+    );
+    expect(stalePlan.status).toBe(409);
+    expect(
+      (
+        server.db
+          .prepare('SELECT COUNT(*) AS count FROM agent_approvals')
+          .get() as { count: number }
+      ).count,
+    ).toBe(0);
     const pending = await fetch(
       `${server.baseUrl}/creative-platform/openmontage/request-or-start`,
       {
@@ -94,7 +127,7 @@ describe('/creative-platform', () => {
           trustedCall: signer.signCall(
             context,
             'rhythm_install_creative_capability',
-            { id: 'openmontage' },
+            { id: 'openmontage', operation: 'install', planDigest },
           ),
         }),
       },
@@ -103,13 +136,18 @@ describe('/creative-platform', () => {
     expect(
       (await pending.json()) as {
         status: string;
-        approval: { sessionId: string; agentConfigId: string };
+        approval: {
+          sessionId: string;
+          agentConfigId: string;
+          payloadDigest: string;
+        };
       },
     ).toMatchObject({
       status: 'pending',
       approval: {
         sessionId: 'creative-test',
         agentConfigId: 'creative-media',
+        payloadDigest: planDigest,
       },
     });
     const swappedCapability = await fetch(
@@ -121,7 +159,7 @@ describe('/creative-platform', () => {
           trustedCall: signer.signCall(
             { ...context, toolCallId: 'call-swapped-capability' },
             'rhythm_install_creative_capability',
-            { id: 'media-tools' },
+            { id: 'media-tools', operation: 'install', planDigest },
           ),
         }),
       },

@@ -3,11 +3,16 @@
     {
       "id": "c2-wrong-contract",
       "category": "C2",
-      "description": "Wrong contract failures: 35 occurrence(s) across issues ['1007', '1014', '645', '651', '882', '888', '891', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639', 'mcp-scope-04', 'secretary-profile-scope']",
-      "occurrences": 35,
+      "description": "Wrong contract failures: 45 occurrence(s) across issues ['1007', '1014', '1165', '1171', '1172', '1173', '1175', '645', '651', '882', '888', '891', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639', 'mcp-scope-04', 'secretary-profile-scope']",
+      "occurrences": 45,
       "affected_issues": [
         "1007",
         "1014",
+        "1165",
+        "1171",
+        "1172",
+        "1173",
+        "1175",
         "645",
         "651",
         "882",
@@ -24,41 +29,51 @@
       "reason": "A contract test passed but the criterion was broken in manual smoke \u2014 the test asserted the wrong thing.",
       "suggested_prompt_addition": "When writing contract tests, verify the assertion directly matches the user-observable outcome, not an internal implementation detail.",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-issue-645.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-issue-645.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-28-issue-651-vbeta18.37-regression.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-mcp-scope-04.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-mcp-scope-04.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-secretary-profile-scope.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-secretary-profile-scope.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-888.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-888.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-891.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-891.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-891.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-1007.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-1007.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-1014.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-1014.json"
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-26-issue-645.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-26-issue-645.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-28-issue-651-vbeta18.37-regression.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-27-mcp-scope-04.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-27-mcp-scope-04.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-27-secretary-profile-scope.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-27-secretary-profile-scope.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-03-issue-888.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-03-issue-888.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-03-issue-891.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-03-issue-891.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-03-issue-891.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-10-issue-1007.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-10-issue-1007.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-10-issue-1014.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-10-issue-1014.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1171-final-corrective.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1171-final-corrective.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1172-native-final.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1172-native-final.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1173-native-final.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1173-native-final.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1175-wildcard-security-correction.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1175-wildcard-security-correction.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-27-pr-1165-ios-simulator-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-27-pr-1165-ios-simulator-smoke.json"
       ]
     },
     {
@@ -81,30 +96,31 @@
       "reason": "A criterion was never made executable. The acceptance-contract skill should parse this criterion type more aggressively.",
       "suggested_prompt_addition": "When parsing acceptance criteria, also look for implicit requirements expressed as negative conditions, edge cases, or 'should not' clauses.",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-752.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-752.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-29-local-ollama-skill-guard.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-29-local-ollama-skill-guard.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-997.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-997.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-11-issue-1002.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-11-issue-1002.json"
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-27-issue-752.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-27-issue-752.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-29-local-ollama-skill-guard.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-29-local-ollama-skill-guard.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-10-issue-997.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-10-issue-997.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-11-issue-1002.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-11-issue-1002.json"
       ]
     },
     {
       "id": "c5-environment-issue",
       "category": "C5",
-      "description": "Environment issue failures: 8 occurrence(s) across issues ['1009', '674', '751', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
-      "occurrences": 8,
+      "description": "Environment issue failures: 14 occurrence(s) across issues ['1009', '1175', '674', '751', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
+      "occurrences": 14,
       "affected_issues": [
         "1009",
+        "1175",
         "674",
         "751",
         "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
@@ -115,14 +131,68 @@
       "reason": "The pipeline didn't catch an environment gap. Verification-gate should require explicit infra checks.",
       "suggested_prompt_addition": "When a contract test is marked UNVERIFIED due to missing infra, treat it as a pipeline failure, not a skip. Require the infra to be available or the test to be quarantined explicitly.",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-751.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-751.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-1009.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-1009.json"
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-27-issue-751.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-27-issue-751.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-10-issue-1009.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-10-issue-1009.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1175-final-sandbox-failed.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1175-final-sandbox-failed.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-27-issue-1175-google-ios-client-device-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-27-issue-1175-google-ios-client-device-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-27-issue-1175-production-api-contract-device-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-27-issue-1175-production-api-contract-device-smoke.json"
+      ]
+    },
+    {
+      "id": "c3-wrong-implementation",
+      "category": "C3",
+      "description": "Wrong implementation failures: 6 occurrence(s) across issues ['1172', '1173', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
+      "occurrences": 6,
+      "affected_issues": [
+        "1172",
+        "1173",
+        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
+      ],
+      "affected_skills": [
+        "coding-agent"
+      ],
+      "reason": "A correct test failed due to a code error. The coding-agent should have caught this before handing off.",
+      "suggested_prompt_addition": "Before claiming done, re-run all contract tests and confirm each one passes with a real behavioral assertion, not just exit code 0.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1172-native-preintegration.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1172-native-preintegration.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1173-native-preintegration.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1173-native-preintegration.json"
+      ]
+    },
+    {
+      "id": "c7-regression",
+      "category": "C7",
+      "description": "Regression failures: 6 occurrence(s) across issues ['1174', '651', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
+      "occurrences": 6,
+      "affected_issues": [
+        "1174",
+        "651",
+        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
+      ],
+      "affected_skills": [
+        "smoke-test-writer"
+      ],
+      "reason": "A regression occurred and no smoke test caught it before manual testing.",
+      "suggested_prompt_addition": "For any issue that modifies shared state, shared components, or widely-used utilities, add a regression smoke check for the previously-working behavior.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-28-issue-651-vbeta18.37-regression.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1174-aggregate.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1174-aggregate.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1174-aggregate.json"
       ]
     },
     {
@@ -140,48 +210,43 @@
       "reason": "A dependency failure was attributed to this PR. The coding-agent should isolate scope more carefully.",
       "suggested_prompt_addition": "Before implementing, check whether the failing behavior exists on main. If yes, file a separate issue for the pre-existing bug rather than treating it as in-scope.",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-759.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-759.json"
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-27-issue-759.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-27-issue-759.json"
       ]
     },
     {
-      "id": "c7-regression",
-      "category": "C7",
-      "description": "Regression failures: 3 occurrence(s) across issues ['651', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
+      "id": "c1 \u2014 missing contract-unknown",
+      "category": "C1 \u2014 missing contract",
+      "description": "C1 \u2014 missing contract failures: 3 occurrence(s) across issues ['1137']",
       "occurrences": 3,
       "affected_issues": [
-        "651",
-        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
+        "1137"
       ],
-      "affected_skills": [
-        "smoke-test-writer"
-      ],
-      "reason": "A regression occurred and no smoke test caught it before manual testing.",
-      "suggested_prompt_addition": "For any issue that modifies shared state, shared components, or widely-used utilities, add a regression smoke check for the previously-working behavior.",
+      "affected_skills": [],
+      "reason": "",
+      "suggested_prompt_addition": "",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-28-issue-651-vbeta18.37-regression.json"
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1137.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1137.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1137.json"
       ]
     },
     {
-      "id": "c3-wrong-implementation",
-      "category": "C3",
-      "description": "Wrong implementation failures: 2 occurrence(s) across issues ['batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
+      "id": "verification_gap-unknown",
+      "category": "verification_gap",
+      "description": "verification_gap failures: 2 occurrence(s) across issues ['1134']",
       "occurrences": 2,
       "affected_issues": [
-        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
+        "1134"
       ],
-      "affected_skills": [
-        "coding-agent"
-      ],
-      "reason": "A correct test failed due to a code error. The coding-agent should have caught this before handing off.",
-      "suggested_prompt_addition": "Before claiming done, re-run all contract tests and confirm each one passes with a real behavioral assertion, not just exit code 0.",
+      "affected_skills": [],
+      "reason": "",
+      "suggested_prompt_addition": "",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json"
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-24-issue-1134-live.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-24-issue-1134-live.json"
       ]
     }
   ],
@@ -189,9 +254,10 @@
     {
       "id": "p2-test-infrastructure-conflict",
       "category": "P2",
-      "description": "Test infrastructure conflict failures: 4 occurrence(s) across issues ['645', '891', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
-      "occurrences": 4,
+      "description": "Test infrastructure conflict failures: 5 occurrence(s) across issues ['1174', '645', '891', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
+      "occurrences": 5,
       "affected_issues": [
+        "1174",
         "645",
         "891",
         "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
@@ -202,10 +268,11 @@
       "reason": "Test runner glob overlap caused one runner to pick up another runner's files, producing spurious failures.",
       "suggested_prompt_addition": "During pre-flight check, inspect all test runner config files for overlapping include/testMatch globs. If vitest.config.ts and playwright.config.ts share a directory pattern, tighten the globs before dispatching any coding-agent.",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-run-642.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-891.json"
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-26-run-642.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-03-issue-891.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1174-aggregate.json"
       ]
     },
     {
@@ -225,10 +292,10 @@
       "reason": "A test asserted on async state immediately after triggering an async operation, passing locally but failing in CI due to timing differences.",
       "suggested_prompt_addition": "When generating contract tests for criteria involving state changes after POST/event triggers, require explicit async waiting (waitFor, polling, or settled promise) rather than immediate assertion. Flag any test that reads count/state within one tick of a write operation.",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-agent-question-hang.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-retro-prod-trigger-scope-model-parity.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-891.json"
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-24-agent-question-hang.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-24-retro-prod-trigger-scope-model-parity.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-03-issue-891.json"
       ]
     },
     {
@@ -246,8 +313,8 @@
       "reason": "Implementation went beyond the issue scope \u2014 added unrequested features or refactored outside the acceptance criteria.",
       "suggested_prompt_addition": "Before accepting a coding-agent result, diff the changed files against the issue's acceptance criteria. Any file not referenced in the issue or the contract test is a scope violation unless the coding-agent explicitly justified it.",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-issue-645.json"
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-26-issue-645.json"
       ]
     }
   ],
@@ -255,11 +322,14 @@
     {
       "id": "w1-required-skill-skipped",
       "category": "W1",
-      "description": "Required skill skipped failures: 21 occurrence(s) across issues ['1000', '1002', '742,743,745,746,747,748', '775', '891', '999', 'A-prod-trigger-scope-model-parity', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639', 'local-ollama-skill-guard']",
-      "occurrences": 21,
+      "description": "Required skill skipped failures: 26 occurrence(s) across issues ['1000', '1002', '1171', '1172', '1173', '742,743,745,746,747,748', '775', '891', '999', 'A-prod-trigger-scope-model-parity', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639', 'local-ollama-skill-guard']",
+      "occurrences": 26,
       "affected_issues": [
         "1000",
         "1002",
+        "1171",
+        "1172",
+        "1173",
         "742,743,745,746,747,748",
         "775",
         "891",
@@ -276,34 +346,39 @@
       "reason": "A required skill in the canonical chain was skipped. The orchestrator must enforce the chain \u2014 every required step is gated.",
       "suggested_prompt_addition": "Before dispatching the next step, verify that the immediately-previous required step in the chain announced itself, expanded its TodoWrite checklist, and emitted its expected output artifact. If the previous step is missing, halt and surface the gap rather than continuing.",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-30-staff-guide.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-10-retro-issues-674-675-pr-676.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-retro-prod-trigger-scope-model-parity.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-26-pr749-agent-fixes.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-28-issue-775.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-29-local-ollama-skill-guard.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-retro-advisor-parallel-tracks.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-891.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-1000.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-10-issue-999.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-11-issue-1002.json"
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-30-staff-guide.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-10-retro-issues-674-675-pr-676.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-24-retro-prod-trigger-scope-model-parity.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-26-pr749-agent-fixes.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-28-issue-775.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-29-local-ollama-skill-guard.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-retro-advisor-parallel-tracks.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-03-issue-891.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-10-issue-1000.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-10-issue-999.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-11-issue-1002.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1171-corrective.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1172-native-corrective.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1172-native-final.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1173-native-corrective.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1173-native-final.json"
       ]
     },
     {
       "id": "w5-premature-completion-claim",
       "category": "W5",
-      "description": "Premature completion claim failures: 15 occurrence(s) across issues ['645', '674', '742,743,745,746,747,748', '751', '752', '775', '882', '888', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639', 'secretary-profile-scope']",
-      "occurrences": 15,
+      "description": "Premature completion claim failures: 16 occurrence(s) across issues ['645', '674', '742,743,745,746,747,748', '751', '752', '775', '882', '888', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639', 'secretary-profile-scope']",
+      "occurrences": 16,
       "affected_issues": [
         "645",
         "674",
@@ -324,29 +399,31 @@
       "reason": "Agent claimed work done, fixed, passing, or opened a PR without verification-gate evidence captured in the transcript.",
       "suggested_prompt_addition": "Strengthen the Required Evidence section: completion claims (the words 'done', 'fixed', 'ready', 'passing', 'shipped', or opening a PR) are FORBIDDEN unless preceded in the SAME response by a captured tool-call output block showing the check command and its exit-zero/green result. Add this as a hard rule in the Red Flags table.",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-issue-645.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-10-retro-issues-674-675-pr-676.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-26-pr749-agent-fixes.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-751.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-752.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-secretary-profile-scope.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-28-issue-775.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-03-issue-888.json"
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-26-issue-645.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-10-retro-issues-674-675-pr-676.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-26-pr749-agent-fixes.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-27-issue-751.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-27-issue-752.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-27-secretary-profile-scope.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-28-issue-775.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-03-issue-888.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-retro-pr-1165-mobile-roadmap-recovery.json"
       ]
     },
     {
       "id": "w3-todowrite-checklist-not-expanded",
       "category": "W3",
-      "description": "TodoWrite checklist not expanded failures: 6 occurrence(s) across issues ['764', '882', 'agent-question-hang (bug, no issue-writer ticket)', 'local-ollama-skill-guard']",
-      "occurrences": 6,
+      "description": "TodoWrite checklist not expanded failures: 7 occurrence(s) across issues ['1171', '764', '882', 'agent-question-hang (bug, no issue-writer ticket)', 'local-ollama-skill-guard']",
+      "occurrences": 7,
       "affected_issues": [
+        "1171",
         "764",
         "882",
         "agent-question-hang (bug, no issue-writer ticket)",
@@ -358,19 +435,20 @@
       "reason": "A skill said 'expand Completion Checklist into TodoWrite items at start' and the agent did not. The skills themselves should make this harder to skip, but the orchestrator can also verify.",
       "suggested_prompt_addition": "When dispatching any skill whose SKILL.md contains the phrase 'expand the Completion Checklist into TodoWrite items at start', include in the dispatch prompt: 'Your FIRST tool call must be TodoWrite, expanding the Completion Checklist verbatim. No other tool calls are permitted before this.'",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-30-staff-guide.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-agent-question-hang.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-27-issue-764.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-29-local-ollama-skill-guard.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json"
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-30-staff-guide.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-24-agent-question-hang.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-27-issue-764.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-29-local-ollama-skill-guard.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-issue-882-run-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-issue-882-ui-smoke.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-issue-1171.json"
       ]
     },
     {
       "id": "w4-source-of-truth-violation",
       "category": "W4",
-      "description": "Source-of-truth violation failures: 3 occurrence(s) across issues ['742,743,745,746,747,748', 'batch:627,628,632,633']",
-      "occurrences": 3,
+      "description": "Source-of-truth violation failures: 4 occurrence(s) across issues ['742,743,745,746,747,748', 'batch:627,628,632,633']",
+      "occurrences": 4,
       "affected_issues": [
         "742,743,745,746,747,748",
         "batch:627,628,632,633"
@@ -381,9 +459,10 @@
       "reason": "Agent edited a sync target (~/.claude/skills/, ~/.codex/skills/) directly, or re-fetched content already inlined, or operated on the wrong repo.",
       "suggested_prompt_addition": "Add a Source-of-Truth Guard to dispatch prompts for any skill that edits SKILL.md or workflow scripts: '$AGENT_STACK_PATH is the only writeable canonical path. Any Edit/Write whose path starts with ~/.claude/skills/, ~/.codex/skills/, or ~/.config/opencode/skills/ must STOP. Verify origin remote before commit/push.' For coding-agent dispatches, inline the issue body verbatim and add: 'Do NOT call gh issue view \u2014 the body is above.'",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-26-pr749-agent-fixes.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-retro-advisor-parallel-tracks.json"
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-26-pr749-agent-fixes.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-retro-advisor-parallel-tracks.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-25-retro-pr-1165-mobile-roadmap-recovery.json"
       ]
     },
     {
@@ -400,8 +479,8 @@
       "reason": "Skill targeted agent-stack but commits/PRs went to target project (or vice versa), or branch was not confirmed before a visible operation.",
       "suggested_prompt_addition": "Add a Repo+Branch Confirmation gate: every skill that performs git push, gh pr create, browser smoke against a deployed URL, or any operation visible outside the local checkout must first emit `git -C <path> remote get-url origin` and `git -C <path> rev-parse --abbrev-ref HEAD`, compare against the skill's intended target, and halt on mismatch.",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-26-pr749-agent-fixes.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-07-02-retro-advisor-parallel-tracks.json"
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-26-pr749-agent-fixes.json",
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-07-02-retro-advisor-parallel-tracks.json"
       ]
     },
     {
@@ -416,12 +495,12 @@
       "reason": "Agent bypassed the orchestrator and went straight to implementation despite the repo having AGENTS.md and docs/ai/*.",
       "suggested_prompt_addition": "Add a Pre-Flight Check that runs FIRST on every entry: if AGENTS.md and docs/ai/project-state.md both exist, the orchestrator must be the entry point \u2014 no Edit/Write/Bash on source code is permitted until orchestrator dispatch has emitted a routing decision. Reject any direct-implementation attempt with a one-line redirect to orchestrator.",
       "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-10-retro-issues-674-675-pr-676.json"
+        "/Users/ajhochhalter/Documents/rhythm-worktrees/run0724-mobile-1172/.agent-stack/postmortems/2026-06-10-retro-issues-674-675-pr-676.json"
       ]
     }
   ],
-  "last_updated": "2026-07-27",
-  "total_runs_analyzed": 57,
+  "last_updated": "2026-07-28",
+  "total_runs_analyzed": 88,
   "min_occurrences_threshold": 2,
   "process_min_occurrences_threshold": 1,
   "workflow_min_occurrences_threshold": 1

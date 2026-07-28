@@ -82,6 +82,8 @@ const expectedFoundation =
   'npm run test:paired-host && ' +
   'npm run test:connection-persistence && ' +
   'npm run test:notification-persistence && ' +
+  'npm run test:corrective:1224 && ' +
+  'npm run test:corrective:1225 && ' +
   'npm run test:fake-server:self && ' +
   'npm run test:acceptance:1167 && ' +
   'npm run test:security:1174 && ' +

@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { runMigrations } from '../database/migrations';
-import { setDb } from '../database/db';
+import { getDb, setDb } from '../database/db';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import type { AgentKind } from '../models/agent_session';
@@ -58,11 +58,15 @@ describe('secretary → roster delegation authorization (#883)', () => {
       cwd: process.cwd(),
       name: `${profileId} session`,
       mcpRole: profileId,
+      ownerUserId: 42,
     }).id;
   }
 
   beforeEach(async () => {
     setDb(makeDb());
+    getDb()
+      .prepare("INSERT INTO users (id, name, email) VALUES (42, 'Test User', 'secretary-delegation@example.com')")
+      .run();
     repo = new AgentConfigsRepository();
     sessionRepo = new AgentSessionsRepository();
 
@@ -103,6 +107,7 @@ describe('secretary → roster delegation authorization (#883)', () => {
 
     for (const delegateId of roster) {
       const result = await delegateToAgent({
+        authenticatedUserId: 42,
         callerSessionId: seedCallerSession('secretary'),
         targetAgentConfigId: delegateId,
         prompt: `Handle this ${delegateId} task.`,
@@ -119,6 +124,7 @@ describe('secretary → roster delegation authorization (#883)', () => {
   it('rejects delegation to a profile NOT in the roster', async () => {
     await expect(
       delegateToAgent({
+        authenticatedUserId: 42,
         callerSessionId: seedCallerSession('secretary'),
         targetAgentConfigId: 'unrelated-specialist',
         prompt: 'Do this.',
@@ -139,6 +145,7 @@ describe('secretary → roster delegation authorization (#883)', () => {
 
     await expect(
       delegateToAgent({
+        authenticatedUserId: 42,
         callerSessionId: seedCallerSession('plain-agent'),
         targetAgentConfigId: realRoster()[0],
         prompt: 'Do this.',

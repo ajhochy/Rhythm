@@ -16,10 +16,16 @@ const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? '';
 const sandboxDir = process.env.RHYTHM_SANDBOX_DIR ?? '';
 const providerId = `e2e-trusted-mcp-1175-${process.pid}`;
 const modelId = 'trusted-mcp-fixture';
-const composedToolName = 'rhythm_rhythm_install_creative_capability';
+const createTaskToolName = 'rhythm_rhythm_create_task';
+const listTasksToolName = 'rhythm_rhythm_list_tasks';
 const fixturePort = 56175;
+const boundaryProxyPort = 56176;
+const taskTitle = `Issue 1226 live trusted boundary ${process.pid}`;
 
-function anthropicToolStream(): string {
+function anthropicToolStream(
+  toolName: string,
+  input: Record<string, unknown>,
+): string {
   const events = [
     {
       type: 'message_start',
@@ -45,7 +51,7 @@ function anthropicToolStream(): string {
       content_block: {
         type: 'tool_use',
         id: `toolu_${randomUUID().replaceAll('-', '')}`,
-        name: composedToolName,
+        name: toolName,
         input: {},
       },
     },
@@ -54,7 +60,7 @@ function anthropicToolStream(): string {
       index: 0,
       delta: {
         type: 'input_json_delta',
-        partial_json: '{"id":"media-tools"}',
+        partial_json: JSON.stringify(input),
       },
     },
     { type: 'content_block_stop', index: 0 },
@@ -165,8 +171,8 @@ function processTreeContains(rootPid: number, marker: string): boolean {
   });
 }
 
-describeLive('live E2E — issue #1175 engine-signed MCP proof', () => {
-  it('accepts one real signed tool call while direct HTTP forgery and process-env extraction fail', async () => {
+describeLive('live E2E — issues #1175/#1226 engine-signed MCP proof', () => {
+  it('drives real task write/consume and read/taint calls while forgery and replay fail', async () => {
     if (
       baseUrl !== 'http://127.0.0.1:54175' ||
       engineUrl !== 'http://127.0.0.1:55175' ||
@@ -190,10 +196,33 @@ describeLive('live E2E — issue #1175 engine-signed MCP proof', () => {
     );
     const originalConfig = readFileSync(configPath, 'utf8');
     const db = new Database(dbPath);
+    const authUser = db
+      .prepare('SELECT id FROM users ORDER BY id LIMIT 1')
+      .get() as { id: number } | undefined;
+    if (!authUser) {
+      throw new Error('trusted-MCP live sandbox requires one copied user');
+    }
+    db.prepare(
+      `INSERT INTO sessions (token, user_id, created_at, expires_at)
+       VALUES (?, ?, ?, ?)`,
+    ).run(
+      providerId,
+      authUser.id,
+      new Date().toISOString(),
+      new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    );
     const localSessionId = randomUUID();
     let engineSessionId: string | null = null;
     let fixture: Server | null = null;
+    let boundaryProxy: Server | null = null;
     const capturedBodies: Array<Record<string, unknown>> = [];
+    const boundaryProbes: Array<{
+      path: string;
+      alteredStatus: number;
+      acceptedStatus: number;
+      replayStatus: number;
+      trustedCall: unknown;
+    }> = [];
 
     try {
       expect(originalConfig).not.toContain('RHYTHM_MCP_INTERNAL_CREDENTIAL');
@@ -208,16 +237,108 @@ describeLive('live E2E — issue #1175 engine-signed MCP proof', () => {
             >,
           );
           response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-          response.end(
+          const stream =
             capturedBodies.length === 1
-              ? anthropicToolStream()
-              : anthropicTextStream(),
-          );
+              ? anthropicToolStream(createTaskToolName, {
+                  title: taskTitle,
+                })
+              : capturedBodies.length === 3
+                ? anthropicToolStream(listTasksToolName, {
+                    search: taskTitle,
+                  })
+                : anthropicTextStream();
+          response.end(stream);
         });
       });
       await new Promise<void>((done, reject) => {
         fixture?.once('error', reject);
         fixture?.listen(fixturePort, '127.0.0.1', done);
+      });
+      boundaryProxy = createServer((request, response) => {
+        const chunks: Buffer[] = [];
+        request.on('data', (chunk: Buffer) => chunks.push(chunk));
+        request.on('end', async () => {
+          try {
+            const bodyText = Buffer.concat(chunks).toString('utf8');
+            const path = request.url ?? '/';
+            const parsed = bodyText
+              ? (JSON.parse(bodyText) as Record<string, unknown>)
+              : null;
+            const isTaskConsume =
+              path === '/agent-approvals/consume' &&
+              parsed?.action === 'task.create';
+            const isTaskTaint =
+              path === '/agent-approvals/external-content/taint' &&
+              parsed?.source === 'task.list';
+            const headers = {
+              'Content-Type':
+                typeof request.headers['content-type'] === 'string'
+                  ? request.headers['content-type']
+                  : 'application/json',
+              ...(typeof request.headers.authorization === 'string'
+                ? { Authorization: request.headers.authorization }
+                : {}),
+            };
+            const send = (body: string) =>
+              fetch(`${baseUrl}${path}`, {
+                method: request.method,
+                headers,
+                body:
+                  request.method === 'GET' || request.method === 'HEAD'
+                    ? undefined
+                    : body,
+              });
+
+            if ((isTaskConsume || isTaskTaint) && parsed) {
+              const altered = structuredClone(parsed);
+              if (isTaskConsume) {
+                altered.payload = {
+                  ...((altered.payload as Record<string, unknown>) ?? {}),
+                  title: `${taskTitle} altered`,
+                };
+              } else {
+                altered.source = 'gmail.message';
+              }
+              const acceptedResponse = await send(bodyText);
+              const acceptedBody = Buffer.from(
+                await acceptedResponse.arrayBuffer(),
+              );
+              const replayResponse = await send(bodyText);
+              const alteredResponse = await send(JSON.stringify(altered));
+              boundaryProbes.push({
+                path,
+                alteredStatus: alteredResponse.status,
+                acceptedStatus: acceptedResponse.status,
+                replayStatus: replayResponse.status,
+                trustedCall: parsed.trustedCall,
+              });
+              response.writeHead(acceptedResponse.status, {
+                'Content-Type':
+                  acceptedResponse.headers.get('content-type') ??
+                  'application/json',
+              });
+              response.end(acceptedBody);
+              return;
+            }
+
+            const forwarded = await send(bodyText);
+            const forwardedBody = Buffer.from(await forwarded.arrayBuffer());
+            response.writeHead(forwarded.status, {
+              'Content-Type':
+                forwarded.headers.get('content-type') ?? 'application/json',
+            });
+            response.end(forwardedBody);
+          } catch (error) {
+            response.writeHead(502, { 'Content-Type': 'text/plain' });
+            response.end(
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        });
+      });
+      await new Promise<void>((done, reject) => {
+        boundaryProxy?.once('error', reject);
+        boundaryProxy?.listen(boundaryProxyPort, '127.0.0.1', done);
       });
 
       const config = JSON.parse(originalConfig) as {
@@ -254,14 +375,37 @@ describeLive('live E2E — issue #1175 engine-signed MCP proof', () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            apiToken: 'issue-1175-local-fixture',
-            apiUrl: baseUrl,
+            apiToken: providerId,
+            apiUrl: `http://127.0.0.1:${boundaryProxyPort}`,
           }),
         },
       );
       expect(
         ensureRhythmMcp.status,
         await ensureRhythmMcp.clone().text(),
+      ).toBe(200);
+      const trustedConfig = JSON.parse(readFileSync(configPath, 'utf8')) as {
+        mcp?: {
+          rhythm?: {
+            environment?: Record<string, string>;
+          };
+        };
+      };
+      const rhythmEnvironment =
+        trustedConfig.mcp?.rhythm?.environment;
+      if (!rhythmEnvironment) {
+        throw new Error('ensureRhythmMcp did not persist the Rhythm environment');
+      }
+      rhythmEnvironment.RHYTHM_AGENT_URL =
+        `http://127.0.0.1:${boundaryProxyPort}`;
+      const trustedConfigUpdate = await fetch(`${engineUrl}/global/config`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(trustedConfig),
+      });
+      expect(
+        trustedConfigUpdate.status,
+        await trustedConfigUpdate.clone().text(),
       ).toBe(200);
       const refresh = await fetch(`${baseUrl}/system/refresh`, {
         method: 'POST',
@@ -318,7 +462,7 @@ describeLive('live E2E — issue #1175 engine-signed MCP proof', () => {
           parts: [
             {
               type: 'text',
-              text: 'Use the creative capability install tool once.',
+              text: 'Create the issue 1226 boundary test task once.',
             },
           ],
         },
@@ -328,49 +472,78 @@ describeLive('live E2E — issue #1175 engine-signed MCP proof', () => {
         capturedBodies.length,
         JSON.stringify(prompt.data, null, 2),
       ).toBeGreaterThanOrEqual(2);
-      expect(JSON.stringify(capturedBodies[0])).toContain(composedToolName);
-
-      const approval = db
-        .prepare(
-          `SELECT session_id, agent_config_id, action, status
-             FROM agent_approvals
-            WHERE session_id = ? AND action = ?`,
-        )
-        .get(
-          localSessionId,
-          'install_creative_dependency:media-tools',
-        ) as
-        | {
-            session_id: string;
-            agent_config_id: string;
-            action: string;
-            status: string;
-          }
-        | undefined;
-      const recentApprovals = db
-        .prepare(
-          `SELECT session_id, agent_config_id, action, status
-             FROM agent_approvals
-            ORDER BY created_at DESC
-            LIMIT 5`,
-        )
-        .all();
+      expect(JSON.stringify(capturedBodies[0])).toContain(createTaskToolName);
       expect(
-        approval,
+        db.prepare('SELECT title FROM tasks WHERE title = ?').get(taskTitle),
         JSON.stringify(
           {
             prompt: prompt.data,
+            boundaryProbes,
             messages: capturedBodies.map((body) => body.messages),
-            recentApprovals,
           },
           null,
           2,
         ),
-      ).toEqual({
-        session_id: localSessionId,
-        agent_config_id: 'creative-media',
-        action: 'install_creative_dependency:media-tools',
-        status: 'pending',
+      ).toEqual({ title: taskTitle });
+
+      const listTasksPrompt = await client.session.prompt({
+        path: { id: engineSessionId! },
+        body: {
+          agent: 'build',
+          model: { providerID: providerId, modelID: modelId },
+          parts: [
+            {
+              type: 'text',
+              text: 'List only the issue 1226 boundary test task.',
+            },
+          ],
+        },
+      });
+      expect(
+        listTasksPrompt.error,
+        JSON.stringify(listTasksPrompt.error),
+      ).toBeUndefined();
+      expect(
+        db
+          .prepare(
+            `SELECT source
+               FROM agent_external_taint_state
+              WHERE session_id = ?`,
+          )
+          .get(localSessionId),
+      ).toEqual({ source: 'task.list' });
+
+      expect(boundaryProbes).toHaveLength(2);
+      expect(
+        boundaryProbes.map(
+          ({ path, alteredStatus, acceptedStatus, replayStatus }) => ({
+            path,
+            alteredStatus,
+            acceptedStatus,
+            replayStatus,
+          }),
+        ),
+      ).toEqual([
+        {
+          path: '/agent-approvals/consume',
+          alteredStatus: 403,
+          acceptedStatus: 200,
+          replayStatus: 403,
+        },
+        {
+          path: '/agent-approvals/external-content/taint',
+          alteredStatus: 403,
+          acceptedStatus: 201,
+          replayStatus: 403,
+        },
+      ]);
+      expect(boundaryProbes[0].trustedCall).toMatchObject({
+        proof: { toolName: 'rhythm_create_task' },
+        arguments: { title: taskTitle },
+      });
+      expect(boundaryProbes[1].trustedCall).toMatchObject({
+        proof: { toolName: 'rhythm_list_tasks' },
+        arguments: { search: taskTitle },
       });
 
       const forged = await fetch(
@@ -434,6 +607,8 @@ describeLive('live E2E — issue #1175 engine-signed MCP proof', () => {
       db.prepare('DELETE FROM agent_approvals WHERE session_id = ?').run(
         localSessionId,
       );
+      db.prepare('DELETE FROM tasks WHERE title = ?').run(taskTitle);
+      db.prepare('DELETE FROM sessions WHERE token = ?').run(providerId);
       db.prepare('DELETE FROM agent_sessions WHERE id = ?').run(localSessionId);
       db.close();
       await fetch(`${engineUrl}/global/config`, {
@@ -445,6 +620,7 @@ describeLive('live E2E — issue #1175 engine-signed MCP proof', () => {
         () => undefined,
       );
       await closeServer(fixture);
+      await closeServer(boundaryProxy);
     }
   }, 60_000);
 });

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { scanContextContent, type InjectionMatch } from "./context_scanner.js";
 import type { TrustedSecurityContext } from "./security_context.js";
+import { currentTrustedSecurityCall } from "./security_context.js";
 import { untrustedContext } from "../untrusted_context.js";
 
 export const SECURITY_ACTIONS = [
@@ -114,6 +115,7 @@ export async function recordExternalContentTaint(args: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        trustedCall: currentTrustedSecurityCall(),
         context: args.context,
         source: args.source,
         contentDigest: createHash("sha256")
@@ -186,6 +188,7 @@ export async function authorizeOutboundAction(args: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        trustedCall: currentTrustedSecurityCall(),
         context: args.context,
         approvalId: args.approvalId,
         action: args.action,

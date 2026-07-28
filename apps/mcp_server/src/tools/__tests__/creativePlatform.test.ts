@@ -54,7 +54,11 @@ describe('registerCreativePlatformTools', () => {
       },
     };
     registerCreativePlatformTools(server as never, 'http://localhost:4098');
-    await tools.get('rhythm_install_creative_capability')!.handler({ id: 'openmontage' }, extra);
+    const planDigest = 'a'.repeat(64);
+    await tools.get('rhythm_install_creative_capability')!.handler(
+      { id: 'openmontage', operation: 'repair', planDigest },
+      extra,
+    );
     expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:4098/agent-approvals/consume',
       expect.objectContaining({
@@ -81,6 +85,8 @@ describe('registerCreativePlatformTools', () => {
         },
         arguments: {
           id: 'openmontage',
+          operation: 'repair',
+          planDigest,
         },
       },
     });

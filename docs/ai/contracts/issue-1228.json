@@ -1,0 +1,40 @@
+{
+  "issue": 1228,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1228-c1",
+      "text": "Synchronous and asynchronous delegation require the caller session to belong to the authenticated user.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1228_delegation_ownership.test.ts",
+      "test_id": "issue-1228-c1: sync and async delegation authenticate the caller-session owner",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1228-c2",
+      "text": "A user cannot delegate from another user's caller session, even when the session identifier is known.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1228_delegation_ownership.test.ts",
+      "test_id": "issue-1228-c2: a known foreign caller-session id is denied",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1228-c3",
+      "text": "Existing valid same-user delegation continues to work.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1228_delegation_ownership.test.ts",
+      "test_id": "issue-1228-c3: same-user sync and async delegation still succeed",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1228-c4",
+      "text": "Two-user HTTP tests cover both synchronous and asynchronous routes and assert no delegation is created on ownership failure.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1228_delegation_ownership.test.ts",
+      "test_id": "issue-1228-c4: two-user HTTP denial creates no sync run or async delegation",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

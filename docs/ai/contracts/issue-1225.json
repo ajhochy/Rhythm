@@ -1,0 +1,40 @@
+{
+  "issue": 1225,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1225-c1",
+      "text": "Android signing passwords are not present in child-process command-line arguments.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/issue-1225.test.mjs",
+      "test_id": "issue-1225-c1: spawned Android signing argv never contains passwords",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1225-c2",
+      "text": "Signing secrets are supplied through a restricted temporary mechanism or environment that is removed after use.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/issue-1225.test.mjs",
+      "test_id": "issue-1225-c2: signing secrets use child-only environment and are scrubbed from the build process",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1225-c3",
+      "text": "Failure output never prints signing passwords or a secret-bearing command.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/issue-1225.test.mjs",
+      "test_id": "issue-1225-c3: failed Android build output redacts signing secrets and argv",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1225-c4",
+      "text": "An automated guard test fails if signing secrets appear in spawned argv or logged failure output.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/issue-1225.test.mjs",
+      "test_id": "issue-1225-c4: source guard rejects secret-bearing spawn and failure logging",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { AppError } from '../errors/app_error';
 import {
   delegateToAgent,
   delegateToAgentAsync,
@@ -8,7 +9,12 @@ export class AgentDelegationController {
   async delegate(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const body = req.body as Record<string, unknown>;
+      const authenticatedUserId = req.auth?.user.id;
+      if (!authenticatedUserId) {
+        throw AppError.unauthorized('Authenticated user is required for delegation');
+      }
       const result = await delegateToAgent({
+        authenticatedUserId,
         callerAgentConfigId:
           typeof body.callerAgentConfigId === 'string' ? body.callerAgentConfigId : null,
         targetAgentConfigId:
@@ -26,7 +32,12 @@ export class AgentDelegationController {
   async delegateAsync(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const body = req.body as Record<string, unknown>;
+      const authenticatedUserId = req.auth?.user.id;
+      if (!authenticatedUserId) {
+        throw AppError.unauthorized('Authenticated user is required for delegation');
+      }
       const result = await delegateToAgentAsync({
+        authenticatedUserId,
         callerAgentConfigId:
           typeof body.callerAgentConfigId === 'string' ? body.callerAgentConfigId : null,
         targetAgentConfigId:

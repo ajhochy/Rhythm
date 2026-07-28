@@ -22,6 +22,15 @@ import {
   type HumanApprovalTestCredentials,
 } from "./helpers/human_approval_test_credentials";
 import type { SecurityAction } from "../services/external_content_security_service";
+import {
+  EXTERNAL_CONTENT_TOOLS,
+  SECURITY_ACTION_TOOLS,
+} from "../controllers/external_content_security_controller";
+import {
+  clearTrustedMcpVerifier,
+  pinTrustedMcpPublicKey,
+} from "../security/trusted_mcp_call";
+import { createTrustedMcpTestSigner } from "./helpers/trusted_mcp_test_proof";
 
 const CORRECTIVE_SECURITY_ACTIONS = [
   "delegation.start-async",
@@ -72,6 +81,7 @@ describe("#1134 external-content security boundary", () => {
   let sessionOneId: string;
   let sessionTwoId: string;
   let approvalCredentials: HumanApprovalTestCredentials;
+  let trustedSigner: ReturnType<typeof createTrustedMcpTestSigner>;
 
   const readContext: TrustedContext = {
     sdkSessionId: "sdk-security-one",
@@ -96,6 +106,8 @@ describe("#1134 external-content security boundary", () => {
     });
     const authSession = await authSessions.createAsync(user.id);
     approvalCredentials = installHumanApprovalTestCredentials();
+    trustedSigner = createTrustedMcpTestSigner();
+    pinTrustedMcpPublicKey(trustedSigner.publicDocument);
     headers = {
       Authorization: `Bearer ${authSession.token}`,
       ...approvalCredentials.capabilityHeader,
@@ -127,6 +139,7 @@ describe("#1134 external-content security boundary", () => {
   });
 
   afterEach(async () => {
+    clearTrustedMcpVerifier();
     await closeServer();
   });
 
@@ -141,6 +154,11 @@ describe("#1134 external-content security boundary", () => {
       method: "POST",
       headers,
       body: JSON.stringify({
+        trustedCall: trustedSigner.signCall(
+          context,
+          EXTERNAL_CONTENT_TOOLS.get(source) as string,
+          { source },
+        ),
         context,
         source,
         contentDigest: "a".repeat(64),
@@ -198,7 +216,17 @@ describe("#1134 external-content security boundary", () => {
     return fetch(`${baseUrl}/agent-approvals/consume`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ context, approvalId, action, payload }),
+      body: JSON.stringify({
+        trustedCall: trustedSigner.signCall(
+          context,
+          SECURITY_ACTION_TOOLS.get(action) as string,
+          payload,
+        ),
+        context,
+        approvalId,
+        action,
+        payload,
+      }),
     });
   }
 

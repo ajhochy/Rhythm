@@ -3,6 +3,10 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createConnection } from 'node:net';
 import { creativeCapabilityLayout } from './creative_install_layout';
+import {
+  creativeSetupPlan,
+  type CreativeSetupPlan,
+} from './creative_dependency_support';
 
 export type CreativeCapabilityId =
   | 'blender'
@@ -13,7 +17,10 @@ export type CreativeCapabilityId =
   | 'document-tools'
   | 'media-tools';
 
-export type CreativeCapabilityStatus = 'missing' | 'installed' | 'unhealthy';
+export type CreativeCapabilityStatus =
+  | 'missing'
+  | 'installed'
+  | 'unhealthy';
 
 export interface CreativeCapabilityApproval {
   required: true;
@@ -31,6 +38,7 @@ export interface CreativeCapability {
   dependencies: CreativeCapabilityId[];
   approval: CreativeCapabilityApproval;
   status: CreativeCapabilityStatus;
+  setup: CreativeSetupPlan;
 }
 
 export interface CreativeCapabilityListDeps {
@@ -39,7 +47,8 @@ export interface CreativeCapabilityListDeps {
   tcpProbe?: (host: string, port: number) => Promise<boolean>;
 }
 
-interface CreativeCapabilityDefinition extends Omit<CreativeCapability, 'status'> {
+interface CreativeCapabilityDefinition
+  extends Omit<CreativeCapability, 'status' | 'setup'> {
   localhostPort?: number;
 }
 
@@ -165,7 +174,11 @@ export async function listCreativeCapabilities(
       if (status === 'installed' && localhostPort !== undefined) {
         status = (await tcpProbe('127.0.0.1', localhostPort)) ? 'installed' : 'unhealthy';
       }
-      return { ...capability, status };
+      return {
+        ...capability,
+        status,
+        setup: creativeSetupPlan(capability.id),
+      };
     }),
   );
 }

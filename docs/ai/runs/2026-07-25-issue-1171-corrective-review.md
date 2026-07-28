@@ -81,7 +81,7 @@ index: "[[Rhythm]]"
   test/features/agents/mobile_access_dialog_test.dart` — 8/8 pass.
 - Native debug build and launch passed on the dedicated iOS 18.3 simulator
   `Rhythm-1171-iPhone-SE`
-  (`27E23B6E-2DEF-4563-90B4-820A1820AA6B`). Build log:
+  (`[redacted-device-identifier]`). Build log:
   `/Users/ajhochhalter/Library/Developer/XcodeBuildMCP/workspaces/Rhythm-4c790f0c2895/logs/build_run_sim_2026-07-25T10-10-25-336Z_pid62811_c0626165.log`.
 - Native accessibility smoke used
   `accessibility-extra-extra-extra-large`. The first screenshot exposed compact

@@ -86,4 +86,24 @@ describe('trusted MCP call verification', () => {
     ).rejects.toThrow(/engine key is unavailable/i);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it('allows one proof once per fixed server boundary and rejects replay within each boundary', async () => {
+    const signer = createTrustedMcpTestSigner();
+    pinTrustedMcpPublicKey(signer.publicDocument);
+    const call = signer.signCall(context, toolName, { id: 'openmontage' });
+
+    await expect(
+      verifyTrustedMcpCall(call, toolName, Date.now(), 'approval-consume'),
+    ).resolves.toMatchObject({ context });
+    await expect(
+      verifyTrustedMcpCall(call, toolName, Date.now(), 'approval-consume'),
+    ).rejects.toThrow(/already consumed/i);
+
+    await expect(
+      verifyTrustedMcpCall(call, toolName, Date.now(), 'creative-install'),
+    ).resolves.toMatchObject({ context });
+    await expect(
+      verifyTrustedMcpCall(call, toolName, Date.now(), 'creative-install'),
+    ).rejects.toThrow(/already consumed/i);
+  });
 });

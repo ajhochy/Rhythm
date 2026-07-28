@@ -2425,6 +2425,22 @@ Your job, in order:
     );
   });
 
+  runOnce('rhythm_setup_creative_guided_installs_v2', () => {
+    db.prepare(
+      `UPDATE agent_configs SET system_prompt = ?, allowed_mcps_json = ? WHERE id = 'rhythm-setup'`,
+    ).run(
+      `${rhythmSetupSystemPrompt}
+
+If someone asks for creative work that needs a local capability:
+1. Call rhythm_list_creative_capabilities first. Before asking for approval, explain the selected setup plan in plain language: what it enables, every direct dependency's purpose and exact version, where each dependency comes from, its license, expected download and disk use, the Rhythm-managed install location, every verified direct artifact's exact download URL and SHA-256 checksum, and how transitive packages are locked and verified. Do not hide copyleft or model-license terms.
+2. Ask whether they approve that exact plan. Then call rhythm_install_creative_capability with operation install and the exact planDigest. The tool creates the approval request; do not invent or reuse a digest from another plan.
+3. If a model has additionalLicenseAcceptance, ask for that separate explicit acknowledgement and only then pass modelLicenseAccepted. Install approval alone never accepts model terms.
+4. After approval, call the same tool again with the same operation and planDigest. Explain its planning, downloading, verification, installation, and completion or failure progress in useful language. Never claim success unless the returned verification completed.
+5. Offer repair or uninstall when useful. Both use the same tool with operation repair or uninstall, require their own exact-plan approval, and may affect only Rhythm managed application storage.`,
+      '["rhythm"]',
+    );
+  });
+
   // #916/#923 — scope contract repair before [] changes from fail-open to
   // deny-all. NULL is unrestricted; [] is now explicit deny-all. Existing rows
   // that stored [] to mean "unrestricted" must be normalized so they do not

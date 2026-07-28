@@ -54,9 +54,14 @@ export function registerCreativePlatformTools(
   registerTool(
     server,
     'rhythm_install_creative_capability',
-    'Request or start a pinned local creative capability install. The first call creates a human approval bound to the trusted current session; call again only after the human approves it.',
+    'Install, repair, or uninstall one local creative capability. First call rhythm_list_creative_capabilities and explain the returned setup plan in plain language, including every dependency, exact version, purpose, source, license, size, managed location, every verified direct artifact URL and SHA-256 checksum, and the transitive trust policy. Pass that exact planDigest; the first call creates a human approval bound to all of those exact pins. Call again only after approval, then summarize the returned planning/download/verification/install progress and result. Model license acceptance is always a separate user acknowledgement.',
     {
       id: capability,
+      operation: z.enum(['install', 'repair', 'uninstall']).default('install'),
+      planDigest: z
+        .string()
+        .regex(/^[a-f0-9]{64}$/)
+        .describe('Exact digest returned by rhythm_list_creative_capabilities after the user reviews that plan.'),
       modelLicenseAccepted: z.boolean().optional(),
       approval_id: z
         .string()
@@ -66,6 +71,8 @@ export function registerCreativePlatformTools(
     async (
       input: {
         id: string;
+        operation: 'install' | 'repair' | 'uninstall';
+        planDigest: string;
         modelLicenseAccepted?: boolean;
         approval_id?: string;
       },
@@ -95,7 +102,7 @@ export function registerCreativePlatformTools(
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 trustedCall: call
-                  ? { ...call, arguments: input }
+                  ? { ...call, arguments: payload }
                   : null,
               }),
             }),

@@ -95,16 +95,17 @@ assert.match(persistenceHookSource, /Connection credential could not be read\./)
 assert.match(persistenceHookSource, /Connection credential could not be migrated\./);
 assert.match(persistenceHookSource, /Connection settings could not be saved\./);
 assert.match(persistenceHookSource, /Connection credential could not be saved\./);
-assert.match(persistenceHookSource, /credentialWriteQueueRef/);
+assert.match(persistenceHookSource, /createDirectMacConnectionScope\(accountUserId, serverUrl\)/);
+assert.match(persistenceHookSource, /directMacStateManager\.purgeLegacyUnscopedState\(\)/);
 assert.match(persistenceHookSource, /Promise\.all\(/);
 assert.doesNotMatch(persistenceHookSource, /serializePublicConnectionSettings\(settings\)/);
 assert.match(persistenceHookSource, /if \(parsed\.legacyPassword\) \{/);
 assert.match(persistenceHookSource, /serializePublicConnectionSettings\(publicSettings\)/);
 assert.match(
   persistenceHookSource,
-  /if \(securePassword\) \{\s+await AsyncStorage\.setItem\([\s\S]*?serializePublicConnectionSettings\(publicSettings\)/,
+  /if \(securePassword\) \{\s+await directMacStateManager\.writePublicSettings\([\s\S]*?serializePublicConnectionSettings\(publicSettings\)/,
 );
 assert.doesNotMatch(serializerSource, /password/);
-assert.match(credentialStoreSource, /connectionCredentialStore\.setPassword\(''\)/);
+assert.match(credentialStoreSource, /connectionCredentialStore\.setPassword\(scope, ''\)/);
 
 console.log('connection persistence tests passed');

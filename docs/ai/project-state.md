@@ -2,57 +2,51 @@
 
 ## Current focus
 
-Independent exact-source review of the integrated Rhythm Agents iOS release
-candidate before signing and physical-device validation.
+Resolve Claude’s seven Important findings (#1224–#1230) on the consolidated
+Rhythm Agents mobile PR, including a transparent agent-guided dependency
+installer for #1227.
 
 ## Active branch / PR
 
 - Local branch: `codex/mobile-1172-agents-activity`
 - Remote PR branch: `feat/rhythm-agent-ios-roadmap`
 - Draft PR: #1165, `WIP: consolidate unfinished Rhythm Agents iOS prototype`
-- Main integrated through: `80d1552acb94eb1c4d6ba7471c5dfb55fd438e1d`
-- Frozen review source: `6dd2516f96b357d99854b8fbcb0ef6ad1206ae07`
-- PR policy: evidence-only descendants may follow the frozen source
+- Review repairs are verified locally and awaiting commit/push.
 
 ## In progress
 
-- #1197: independent whole-branch security and quality review of the frozen
-  source.
-- #1198: signed EAS development build after #1197 passes.
-- #1199: authenticated physical-iPhone and isolated-Mac matrix.
-- #1200: production EAS/TestFlight provenance and install smoke.
+- Final diff review, commit, and push of #1224–#1230.
+- GitHub CI and PR status verification after the push.
 
 ## Risks / known issues
 
-- The cumulative mobile branch remains a broad, high-risk review surface even
-  though current-main integration, local checks, live tests, and CI are green.
-- GitNexus current-head impact/detect evidence is unavailable; direct scope
+- This is a broad security-sensitive branch covering mobile credential scope,
+  signing-secret isolation, MCP trust boundaries, dependency installation,
+  delegation ownership, vault containment, and Cloud/local identity binding.
+- GitNexus impact/detect tooling is unavailable in this session. Bounded caller
   inspection and the full verification matrix are recorded as fallback, not
   represented as a GitNexus pass.
 - Credentials, signing assets, build artifacts, pairing/device tokens, private
-  hostnames, and iPhone UDIDs must never be committed or printed.
-- The deployed production API still uses the older mobile OAuth request
-  contract; production sign-in is not green until a matching reviewed backend
-  is deployed.
-- Do not merge before #1197–#1200 are complete.
+  hostnames, and iPhone identifiers must never be committed or printed.
+- Signed development builds, physical-iPhone validation, and TestFlight remain
+  human release gates. Do not merge before those gates are complete.
 
 ## Test status
 
-- Exact-source `ai-workflow checks --level pr`: PASS.
-- Isolated API/OpenCode/mobile-gateway health probes: PASS.
-- Pairing compatibility: 1/1 PASS.
-- Pairing and mobile tool authorization: 1/1 PASS.
-- MEM-OKF real API/MCP/vault suite: 5/5 PASS.
-- Paired gateway project isolation: 1/1 PASS.
-- Focused maximum-Dynamic-Type contract: 2/2 PASS.
-- GitHub PR workflows: Desktop, Server, MCP Server, OpenCode Fork, and Mobile
-  CI all PASS on the frozen source.
-- Signed development build, physical iPhone, and TestFlight: pending human
-  gates.
+- All seven executable issue contracts (#1224–#1230): PASS.
+- Full `checks --level pr`: PASS across Flutter, API, MCP, OpenCode fork, and
+  mobile static/contract/fake-server/web-E2E gates.
+- Vendored OpenCode fork build and binary smoke: PASS.
+- API build: PASS.
+- Isolated API/OpenCode health probes: PASS.
+- #1227 guided setup disclosure/trust-boundary live test: PASS.
+- #1228 delegation ownership live test: PASS.
+- #1230 immutable Cloud/local identity live test: PASS after correcting a
+  throwaway test-capability hashing mismatch; no product code changed.
+- `git diff --check`, stale-copy search, and credential-pattern scan: PASS.
 
 ## Next step
 
-Perform #1197 against
-`git diff main...6dd2516f96b357d99854b8fbcb0ef6ad1206ae07`, commit the immutable
-review report, and do not start signing until it has no unresolved Critical or
-Important findings.
+Commit and push the verified repair set to PR #1165, wait for GitHub CI, update
+the PR with issue/evidence status, and leave signed-device/TestFlight work as
+the explicit human-gated handoff.

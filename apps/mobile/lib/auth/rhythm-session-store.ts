@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { deleteItemAsync, getItemAsync, setItemAsync } from 'expo-secure-store';
+import { purgeDirectMacStateForUser } from '@/lib/security/connection-credential-store';
 
 export const RHYTHM_SESSION_SECURE_KEY = 'rhythm.cloud.session';
 export const RHYTHM_ACCOUNT_META_KEY = 'rhythm.cloud.account.meta';
@@ -154,6 +155,48 @@ interface CredentialSnapshot {
   generation: number;
 }
 
+export async function runSignOutDirectMacCleanup(
+  departingUserId: number | null,
+  purge: (userId: number) => Promise<unknown> = purgeDirectMacStateForUser,
+): Promise<void> {
+  if (departingUserId !== null) {
+    await purge(departingUserId);
+  }
+}
+
+export async function clearDepartingAccountState({
+  departingUserId,
+  purge = purgeDirectMacStateForUser,
+  removeAccountMeta = () => AsyncStorage.removeItem(RHYTHM_ACCOUNT_META_KEY),
+  report = (message: string) => console.error(message),
+}: {
+  departingUserId: number | null;
+  purge?: (userId: number) => Promise<unknown>;
+  removeAccountMeta?: () => Promise<unknown>;
+  report?: (message: string) => void;
+}): Promise<{ errorCount: number }> {
+  const operations: (() => Promise<unknown>)[] = [
+    ...(departingUserId === null
+      ? []
+      : [() => purge(departingUserId)]),
+    removeAccountMeta,
+  ];
+  const results = await Promise.allSettled(
+    operations.map((operation) => Promise.resolve().then(operation)),
+  );
+  const errorCount = results.filter(
+    (result) => result.status === 'rejected',
+  ).length;
+  if (errorCount > 0) {
+    report(
+      `Departing account cleanup encountered ${errorCount} storage ${
+        errorCount === 1 ? 'error' : 'errors'
+      }.`,
+    );
+  }
+  return { errorCount };
+}
+
 export class RhythmSessionStore {
   private readonly client: SessionStoreClient;
   private state: RhythmAccountState = 'signedOut';
@@ -220,6 +263,8 @@ export class RhythmSessionStore {
       }
       if (!this.current(operation)) return this.snapshot();
       if (!token) {
+        const departingUserId = this.user?.id ?? (await this.loadMeta())?.id ?? null;
+        await clearDepartingAccountState({ departingUserId });
         this.state = 'signedOut';
         this.user = null;
         this.error = undefined;
@@ -245,6 +290,8 @@ export class RhythmSessionStore {
       }
       if (!this.current(operation)) return this.snapshot();
       if (!token) {
+        const departingUserId = this.user?.id ?? (await this.loadMeta())?.id ?? null;
+        await clearDepartingAccountState({ departingUserId });
         this.state = 'signedOut';
         this.user = null;
         return this.snapshot();
@@ -301,6 +348,7 @@ export class RhythmSessionStore {
       if (!this.current(operation)) return this.snapshot();
       const classified = classifyRhythmAccountError(error);
       if (classified.kind === 'authentication') {
+        const departingUserId = this.user?.id ?? (await this.loadMeta())?.id ?? null;
         try {
           const neutralized = await this.withCredentialLock(async () => {
             if (
@@ -316,6 +364,8 @@ export class RhythmSessionStore {
           if (!this.current(operation)) return this.snapshot();
           return this.fail(storageError());
         }
+        if (!this.current(operation)) return this.snapshot();
+        await clearDepartingAccountState({ departingUserId });
         if (!this.current(operation)) return this.snapshot();
         this.state = 'expired';
         this.user = null;
@@ -395,12 +445,13 @@ export class RhythmSessionStore {
   async signOut(): Promise<RhythmSessionResult> {
     const operation = ++this.operation;
     let token: string | null = null;
+    const departingUserId = this.user?.id ?? (await this.loadMeta())?.id ?? null;
     try {
       const signedOut = await this.withCredentialLock(async () => {
         if (!this.current(operation)) return false;
         try { token = await getItemAsync(RHYTHM_SESSION_SECURE_KEY); } catch { /* deletion still works */ }
         await neutralizeSessionToken();
-        await AsyncStorage.removeItem(RHYTHM_ACCOUNT_META_KEY);
+        await clearDepartingAccountState({ departingUserId });
         return true;
       });
       if (!signedOut) return this.snapshot();

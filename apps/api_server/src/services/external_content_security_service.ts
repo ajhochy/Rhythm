@@ -120,6 +120,93 @@ export function parseSecurityPayload(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+const TRUSTED_ARGUMENT_ALIASES: Record<string, string> = {
+  allowedMcpsJson: 'allowedMcps',
+  allowedSkillsJson: 'allowedSkills',
+};
+
+const SECURITY_PAYLOAD_CONSTANTS: Partial<
+  Record<SecurityAction, Record<string, unknown>>
+> = {
+  'calendar.create': { calendarId: 'primary' },
+  'calendar.update': { calendarId: 'primary' },
+  'scheduled-task.cancel': { enabled: false },
+  'agent-profile.create': { isAgent: true, enabled: true },
+};
+
+function snakeCase(name: string): string {
+  return name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+}
+
+function decodeHtml(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function trustedArgumentMatchesPayload(
+  trustedValue: unknown,
+  payloadValue: unknown,
+): boolean {
+  const candidates = [trustedValue];
+  if (typeof trustedValue === 'string') candidates.push(decodeHtml(trustedValue));
+  if (Array.isArray(trustedValue) || (trustedValue && typeof trustedValue === 'object')) {
+    candidates.push(JSON.stringify(trustedValue));
+  }
+  return candidates.some(
+    (candidate) => canonicalJson(candidate) === canonicalJson(payloadValue),
+  );
+}
+
+export function requireSecurityPayloadBoundToTrustedArguments(
+  action: SecurityAction,
+  trustedArguments: Record<string, unknown>,
+  payload: Record<string, unknown>,
+): void {
+  const constants = SECURITY_PAYLOAD_CONSTANTS[action] ?? {};
+  const matchedArguments = new Set<string>();
+
+  for (const [payloadKey, payloadValue] of Object.entries(payload)) {
+    const argumentKeys = [
+      payloadKey,
+      snakeCase(payloadKey),
+      TRUSTED_ARGUMENT_ALIASES[payloadKey],
+    ].filter((value): value is string => Boolean(value));
+    const matchingKey = argumentKeys.find(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(trustedArguments, key) &&
+        trustedArgumentMatchesPayload(trustedArguments[key], payloadValue),
+    );
+    if (matchingKey) {
+      matchedArguments.add(matchingKey);
+      continue;
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(constants, payloadKey) &&
+      canonicalJson(constants[payloadKey]) === canonicalJson(payloadValue)
+    ) {
+      continue;
+    }
+    throw AppError.forbidden(
+      'security payload does not match the signed MCP tool arguments',
+    );
+  }
+
+  for (const [argumentKey, argumentValue] of Object.entries(trustedArguments)) {
+    if (
+      argumentKey === 'approval_id' ||
+      argumentValue === undefined ||
+      matchedArguments.has(argumentKey)
+    ) {
+      continue;
+    }
+    throw AppError.forbidden(
+      'security payload omits a signed MCP tool argument',
+    );
+  }
+}
+
 interface TaintStateRow {
   session_id: string;
   sdk_session_id: string;

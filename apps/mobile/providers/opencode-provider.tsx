@@ -59,6 +59,7 @@ import {
   clearPendingTaskFinishedNotification,
   notifyTaskFinished,
   trackPendingTaskFinishedNotification,
+  type PendingNotificationOrigin,
 } from '@/lib/notifications';
 import { speakText, stopSpeaking } from '@/lib/voice/speech-output';
 import { useSpeechInput } from '@/lib/voice/use-speech-input';
@@ -108,6 +109,7 @@ import {
 import { useConversationKeepAwake } from '@/providers/use-conversation-keep-awake';
 import { useConversationScreenDim } from '@/providers/use-conversation-screen-dim';
 import { usePairedHost } from '@/providers/paired-host-provider';
+import { useRhythmAccount } from '@/providers/rhythm-account-provider';
 import { useOpencodePersistence } from '@/providers/use-opencode-persistence';
 import { listMobileGatewayProjects } from '@/providers/services/mobile-gateway-service';
 import {
@@ -217,6 +219,7 @@ function authenticatedWebSocket(
 
 export function OpencodeProvider({ children }: PropsWithChildren) {
   const pairedHost = usePairedHost();
+  const rhythmAccount = useRhythmAccount();
   const [settings, setSettings] = useState<OpencodeConnectionSettings>(defaultConnectionSettings);
   const [connection, setConnection] = useState<ConnectionState>({
     status: 'idle',
@@ -247,6 +250,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const pendingNotificationSessionIdsRef = useRef<Set<string>>(new Set());
   const busyNotificationSessionIdsRef = useRef<Set<string>>(new Set());
   const notificationRequestedAtRef = useRef(new Map<string, number>());
+  const pendingNotificationOriginBySessionIdRef =
+    useRef(new Map<string, PendingNotificationOrigin>());
   const promptSubmissionRef = useRef<{ active: boolean; sessionId?: string }>({ active: false });
   const [currentConfig, setCurrentConfig] = useState<Config>();
   const [availableProviders, setAvailableProviders] = useState<ProviderOption[]>([]);
@@ -302,6 +307,17 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   settingsRef.current = settings;
   activeProjectPathRef.current = activeProjectPath;
 
+  const clearTrackedPendingNotification = useCallback(
+    async (sessionId: string) => {
+      const origin =
+        pendingNotificationOriginBySessionIdRef.current.get(sessionId);
+      if (!origin) return;
+      await clearPendingTaskFinishedNotification(sessionId, origin);
+      pendingNotificationOriginBySessionIdRef.current.delete(sessionId);
+    },
+    [],
+  );
+
   const clearPendingConversationResult = useCallback(() => {
     pendingConversationTranscriptRef.current = undefined;
     if (conversationFinalResultTimeoutRef.current) {
@@ -321,6 +337,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     setLastSessionByProject,
     setSettings,
     settings,
+    accountUserId: rhythmAccount.user?.id ?? null,
   });
 
   const projects = useMemo<OpencodeProject[]>(() => {
@@ -1751,8 +1768,17 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         busyNotificationSessionIdsRef.current.delete(sessionId);
         notificationRequestedAtRef.current.set(sessionId, Date.now());
         pendingNotificationSessionIdsRef.current.add(sessionId);
-        if (activeProjectPath) {
+        if (activeProjectPath && rhythmAccount.user) {
+          const notificationOrigin = {
+            accountUserId: rhythmAccount.user.id,
+            serverUrl: settingsRef.current.serverUrl,
+          };
+          pendingNotificationOriginBySessionIdRef.current.set(
+            sessionId,
+            notificationOrigin,
+          );
           await trackPendingTaskFinishedNotification({
+            accountUserId: rhythmAccount.user.id,
             sessionId,
             sessionTitle: currentSession?.title,
             projectPath: activeProjectPath,
@@ -1870,7 +1896,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         if (!promptAccepted) {
           pendingNotificationSessionIdsRef.current.delete(sessionId);
           notificationRequestedAtRef.current.delete(sessionId);
-          await clearPendingTaskFinishedNotification(sessionId).catch(() => undefined);
+          await clearTrackedPendingNotification(sessionId).catch(() => undefined);
         }
 
         throw error;
@@ -1878,7 +1904,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         setSendingState({ active: false, sessionId: undefined });
       }
     },
-    [activeProjectPath, availableModels, chatPreferences, client, fetchSessions, isCurrentClient, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions, scheduleSessionRefresh, sessions, summarizeSessionTitle],
+    [activeProjectPath, availableModels, chatPreferences, clearTrackedPendingNotification, client, fetchSessions, isCurrentClient, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions, rhythmAccount.user, scheduleSessionRefresh, sessions, summarizeSessionTitle],
   );
 
   const abortSession = useCallback(
@@ -1886,7 +1912,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       pendingNotificationSessionIdsRef.current.delete(sessionId);
       busyNotificationSessionIdsRef.current.delete(sessionId);
       notificationRequestedAtRef.current.delete(sessionId);
-      await clearPendingTaskFinishedNotification(sessionId);
+      await clearTrackedPendingNotification(sessionId);
       await client.session.abort({ sessionID: sessionId });
 
       await Promise.all([
@@ -1896,7 +1922,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         refreshSessionTodos(sessionId),
       ]);
     },
-    [client, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions],
+    [clearTrackedPendingNotification, client, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions],
   );
 
   const speechInput = useSpeechInput({
@@ -2644,10 +2670,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           pendingNotificationSessionIdsRef.current.delete(sessionId);
           busyNotificationSessionIdsRef.current.delete(sessionId);
           notificationRequestedAtRef.current.delete(sessionId);
-          await clearPendingTaskFinishedNotification(sessionId).catch(() => undefined);
+          await clearTrackedPendingNotification(sessionId).catch(() => undefined);
           continue;
         }
-        await clearPendingTaskFinishedNotification(sessionId);
+        await clearTrackedPendingNotification(sessionId);
         if (cancelled) {
           return;
         }
@@ -2665,7 +2691,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, [sendingState.active, sendingState.sessionId, sessionStatuses, sessions]);
+  }, [clearTrackedPendingNotification, sendingState.active, sendingState.sessionId, sessionStatuses, sessions]);
 
   const updateSettings = useCallback((patch: Partial<OpencodeConnectionSettings>) => {
     const connectionChanged = (['serverUrl', 'username', 'password'] as const)

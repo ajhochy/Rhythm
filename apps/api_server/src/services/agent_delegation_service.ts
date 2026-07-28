@@ -10,6 +10,7 @@ import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { resolveProfileScope } from './agent_profile_scope';
 
 export interface AgentDelegationInput {
+  authenticatedUserId: number;
   callerAgentConfigId?: string | null;
   targetAgentConfigId: string;
   prompt: string;
@@ -110,6 +111,9 @@ export async function delegateToAgent(
   const sessionRepo = new AgentSessionsRepository();
   const callerSession = sessionRepo.findById(callerSessionId);
   if (!callerSession) throw AppError.badRequest('caller session not found');
+  if (callerSession.ownerUserId !== input.authenticatedUserId) {
+    throw AppError.forbidden('caller session is owned by another user');
+  }
 
   const callerId = (callerSession.mcpRole ?? callerSession.agentKind)?.trim();
   if (!callerId) throw AppError.forbidden('caller session has no agent profile');
@@ -214,6 +218,9 @@ export async function delegateToAgentAsync(
   const sessionRepo = new AgentSessionsRepository();
   const callerSession = sessionRepo.findById(callerSessionId);
   if (!callerSession) throw AppError.badRequest('caller session not found');
+  if (callerSession.ownerUserId !== input.authenticatedUserId) {
+    throw AppError.forbidden('caller session is owned by another user');
+  }
   if (
     callerSession.isSystem ||
     callerSession.scheduledTaskId !== null ||

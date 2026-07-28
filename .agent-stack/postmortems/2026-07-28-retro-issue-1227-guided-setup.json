@@ -1,0 +1,63 @@
+{
+  "run_id": "2026-07-28-retro-issue-1227-guided-setup",
+  "issue": 1227,
+  "date": "2026-07-28",
+  "smoke_result": "unknown",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [],
+  "process_issues": [
+    {
+      "process_category": "live-coverage",
+      "description": "The isolated live test verifies the real API/engine setup disclosure, deterministic plan digest, and rejection of unsigned approval requests, while the download-heavy third-party installation cases remain opt-in and were not run in this review-repair pass.",
+      "detected_by": "Inspection of creative_platform.live.test.ts and the gated Vitest output showing one live assertion passed and two download-heavy assertions skipped."
+    },
+    {
+      "process_category": "test-credential-setup",
+      "description": "The first issue #1230 live run hashed a throwaway capability file with its trailing newline but sent the normalized value, producing an expected 403 at the human-approval boundary.",
+      "detected_by": "Failure-triage comparison of the generated capability digest and request header; the unchanged live test passed after normalizing before hashing."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem",
+      "workflow-retrospective"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem",
+      "workflow-retrospective"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/creative_dependency_support.ts",
+    "apps/api_server/src/services/creative_capabilities.ts",
+    "apps/api_server/src/services/creative_installer.ts",
+    "apps/api_server/src/routes/creative_platform_routes.ts",
+    "apps/api_server/src/database/migrations.ts",
+    "apps/mcp_server/src/tools/creativePlatform.ts",
+    "apps/api_server/src/contract/issue_1227_creative_installer_hermetic.test.ts",
+    "apps/api_server/src/__tests__/creative_platform.live.test.ts",
+    "docs/ai/contracts/issue-1227.json",
+    "docs/ai/runs/2026-07-28-issue-1227-guided-creative-setup.md"
+  ],
+  "failure_output": "Initial #1230 live attempt: expected pairing-code status 201, received 403. Root cause was a newline mismatch in the throwaway test capability hash; unchanged code passed after correcting sandbox configuration.",
+  "overall_category": "none",
+  "suggested_follow_up": "Keep large dependency downloads opt-in, but add a small engine-signed end-to-end installer fixture when a deterministic reviewed package mirror is available."
+}

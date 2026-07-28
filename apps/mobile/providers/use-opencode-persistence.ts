@@ -1,20 +1,20 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 
 import type { OpencodeConnectionSettings } from '@/lib/opencode/client';
 import {
-  createCredentialWriteQueue,
   migrateLegacyConnectionPassword,
   parseStoredConnectionSettings,
   serializePublicConnectionSettings,
 } from '@/lib/opencode/connection-persistence';
-import { connectionCredentialStore } from '@/lib/security/connection-credential-store';
 import {
-  ACTIVE_PROJECT_STORAGE_KEY,
-  CHAT_PREFERENCES_STORAGE_KEY,
-  LAST_SESSION_BY_PROJECT_STORAGE_KEY,
-  SETTINGS_STORAGE_KEY,
-} from '@/lib/storage-keys';
+  canWriteDirectMacCredential,
+  createDirectMacConnectionScope,
+  type DirectMacConnectionScope,
+} from '@/lib/security/connection-account-scope';
+import {
+  connectionCredentialStore,
+  directMacStateManager,
+} from '@/lib/security/connection-credential-store';
 import type { ChatPreferences } from '@/providers/opencode-provider-utils';
 
 export function useOpencodePersistence({
@@ -28,6 +28,7 @@ export function useOpencodePersistence({
   setLastSessionByProject,
   setSettings,
   settings,
+  accountUserId,
 }: {
   defaultChatPreferences: ChatPreferences;
   defaultSettings: OpencodeConnectionSettings;
@@ -39,26 +40,65 @@ export function useOpencodePersistence({
   setLastSessionByProject: Dispatch<SetStateAction<Record<string, string>>>;
   setSettings: Dispatch<SetStateAction<OpencodeConnectionSettings>>;
   settings: OpencodeConnectionSettings;
+  accountUserId: number | null;
 }) {
   const [isHydrated, setIsHydrated] = useState(false);
   const [isConnectionPersistenceReady, setIsConnectionPersistenceReady] = useState(false);
-  const credentialWriteQueueRef = useRef<ReturnType<typeof createCredentialWriteQueue> | null>(null);
-
-  if (credentialWriteQueueRef.current === null) {
-    credentialWriteQueueRef.current = createCredentialWriteQueue(
-      (password) => connectionCredentialStore.setPassword(password),
-      () => console.error('Connection credential could not be saved.'),
-    );
-  }
+  const [hydratedAccountUserId, setHydratedAccountUserId] =
+    useState<number | null>(null);
+  const [connectionScope, setConnectionScope] =
+    useState<DirectMacConnectionScope | null>(null);
+  const [writableAuxiliaryScopeKey, setWritableAuxiliaryScopeKey] =
+    useState<string | null>(null);
+  const [writableCredentialScopeKey, setWritableCredentialScopeKey] =
+    useState<string | null>(null);
+  const hydrationGenerationRef = useRef(0);
+  const auxiliaryGenerationRef = useRef(0);
   const { directory, password, serverUrl, username } = settings;
 
   useEffect(() => {
     async function hydrateState() {
+      const generation = ++hydrationGenerationRef.current;
+      let hydratedScope: DirectMacConnectionScope | null = null;
       try {
+        if (accountUserId === null) {
+          auxiliaryGenerationRef.current += 1;
+          setWritableAuxiliaryScopeKey(null);
+          setWritableCredentialScopeKey(null);
+          setConnectionScope(null);
+          setHydratedAccountUserId(null);
+          setSettings(defaultSettings);
+          setChatPreferences(defaultChatPreferences);
+          setActiveProjectPath(undefined);
+          setLastSessionByProject({});
+          setIsConnectionPersistenceReady(false);
+          return;
+        }
+        setHydratedAccountUserId(null);
+        setIsConnectionPersistenceReady(false);
+        await directMacStateManager.purgeLegacyUnscopedState();
+        const activeScope =
+          await directMacStateManager.getActiveScope(accountUserId);
+        const fallbackScope = createDirectMacConnectionScope(
+          accountUserId,
+          defaultSettings.serverUrl,
+        );
+        const scope = activeScope ?? fallbackScope;
+        hydratedScope = scope;
+        await directMacStateManager.selectActiveScope(scope);
+        const auxiliaryState =
+          await directMacStateManager.readAuxiliaryState(scope);
+        setWritableAuxiliaryScopeKey(null);
+        setWritableCredentialScopeKey(null);
+        setChatPreferences(defaultChatPreferences);
+        setActiveProjectPath(undefined);
+        setLastSessionByProject({});
+        setConnectionScope(scope);
         await Promise.all([
           (async () => {
             try {
-              const storedSettings = await AsyncStorage.getItem(SETTINGS_STORAGE_KEY);
+              const storedSettings =
+                await directMacStateManager.readPublicSettings(scope);
               const parsed = storedSettings
                 ? parseStoredConnectionSettings(storedSettings)
                 : { publicSettings: {} };
@@ -66,8 +106,10 @@ export function useOpencodePersistence({
               let securePassword: string | undefined;
 
               try {
-                securePassword = await connectionCredentialStore.getPassword();
+                securePassword =
+                  await connectionCredentialStore.getPassword(scope);
               } catch {
+                if (generation !== hydrationGenerationRef.current) return;
                 setSettings(publicSettings);
                 console.error('Connection credential could not be read.');
                 return;
@@ -77,30 +119,36 @@ export function useOpencodePersistence({
               if (parsed.legacyPassword) {
                 try {
                   if (securePassword) {
-                    await AsyncStorage.setItem(
-                      SETTINGS_STORAGE_KEY,
+                    await directMacStateManager.writePublicSettings(
+                      scope,
                       serializePublicConnectionSettings(publicSettings),
                     );
                   } else {
                     await migrateLegacyConnectionPassword({
                       legacyPassword: parsed.legacyPassword,
                       writePassword: (legacyPassword) =>
-                        connectionCredentialStore.setPassword(legacyPassword),
+                        connectionCredentialStore.setPassword(
+                          scope,
+                          legacyPassword,
+                        ),
                       writePublicSettings: () =>
-                        AsyncStorage.setItem(
-                          SETTINGS_STORAGE_KEY,
+                        directMacStateManager.writePublicSettings(
+                          scope,
                           serializePublicConnectionSettings(publicSettings),
                         ),
                     });
                   }
                 } catch {
+                  if (generation !== hydrationGenerationRef.current) return;
                   setSettings({ ...publicSettings, password });
                   console.error('Connection credential could not be migrated.');
                   return;
                 }
               }
 
+              if (generation !== hydrationGenerationRef.current) return;
               setSettings({ ...publicSettings, password });
+              setHydratedAccountUserId(accountUserId);
               setIsConnectionPersistenceReady(true);
             } catch {
               // Keep default connection settings when public storage is unavailable.
@@ -108,8 +156,9 @@ export function useOpencodePersistence({
           })(),
           (async () => {
             try {
-              const storedChatPreferences = await AsyncStorage.getItem(CHAT_PREFERENCES_STORAGE_KEY);
+              const storedChatPreferences = auxiliaryState.chatPreferences;
               if (storedChatPreferences) {
+                if (generation !== hydrationGenerationRef.current) return;
                 const parsed = JSON.parse(storedChatPreferences) as Partial<ChatPreferences>;
                 setChatPreferences((current) => ({
                   ...defaultChatPreferences,
@@ -123,7 +172,8 @@ export function useOpencodePersistence({
           })(),
           (async () => {
             try {
-              const storedActiveProjectPath = await AsyncStorage.getItem(ACTIVE_PROJECT_STORAGE_KEY);
+              const storedActiveProjectPath = auxiliaryState.activeProject;
+              if (generation !== hydrationGenerationRef.current) return;
               if (storedActiveProjectPath) setActiveProjectPath(storedActiveProjectPath);
             } catch {
               // Keep the default active project.
@@ -131,10 +181,10 @@ export function useOpencodePersistence({
           })(),
           (async () => {
             try {
-              const storedLastSessionByProject = await AsyncStorage.getItem(
-                LAST_SESSION_BY_PROJECT_STORAGE_KEY,
-              );
+              const storedLastSessionByProject =
+                auxiliaryState.lastSessionByProject;
               if (storedLastSessionByProject) {
+                if (generation !== hydrationGenerationRef.current) return;
                 setLastSessionByProject(JSON.parse(storedLastSessionByProject) as Record<string, string>);
               }
             } catch {
@@ -143,68 +193,166 @@ export function useOpencodePersistence({
           })(),
         ]);
       } finally {
-        setIsHydrated(true);
+        if (generation === hydrationGenerationRef.current) {
+          setWritableAuxiliaryScopeKey(hydratedScope?.settingsKey ?? null);
+          setWritableCredentialScopeKey(hydratedScope?.settingsKey ?? null);
+          setIsHydrated(true);
+        }
       }
     }
 
     void hydrateState();
-  }, [defaultChatPreferences, defaultSettings, setActiveProjectPath, setChatPreferences, setLastSessionByProject, setSettings]);
+    return () => {
+      hydrationGenerationRef.current += 1;
+    };
+  }, [accountUserId, defaultChatPreferences, defaultSettings, setActiveProjectPath, setChatPreferences, setLastSessionByProject, setSettings]);
 
   useEffect(() => {
     if (!isConnectionPersistenceReady) {
       return;
     }
 
-    void AsyncStorage.setItem(
-      SETTINGS_STORAGE_KEY,
+    if (
+      accountUserId === null ||
+      hydratedAccountUserId !== accountUserId
+    ) return;
+    const scope = createDirectMacConnectionScope(accountUserId, serverUrl);
+    void directMacStateManager.writePublicSettings(
+      scope,
       serializePublicConnectionSettings({ directory, serverUrl, username }),
     ).catch(() => console.error('Connection settings could not be saved.'));
-  }, [directory, isConnectionPersistenceReady, serverUrl, username]);
+    if (connectionScope?.settingsKey !== scope.settingsKey) {
+      const generation = ++auxiliaryGenerationRef.current;
+      setWritableAuxiliaryScopeKey(null);
+      setWritableCredentialScopeKey(null);
+      setConnectionScope(scope);
+      setChatPreferences(defaultChatPreferences);
+      setActiveProjectPath(undefined);
+      setLastSessionByProject({});
+      void directMacStateManager.selectActiveScope(scope).then(() =>
+        Promise.allSettled([
+          directMacStateManager.readAuxiliaryState(scope),
+          connectionCredentialStore.getPassword(scope),
+        ]),
+      ).then(([storedResult, passwordResult]) => {
+        if (generation !== auxiliaryGenerationRef.current) return;
+        const stored =
+          storedResult.status === 'fulfilled'
+            ? storedResult.value
+            : {
+                chatPreferences: null,
+                activeProject: null,
+                lastSessionByProject: null,
+              };
+        if (passwordResult.status === 'fulfilled') {
+          setSettings((current) => ({
+            ...current,
+            password: passwordResult.value ?? '',
+          }));
+          setWritableCredentialScopeKey(scope.settingsKey);
+        } else {
+          setSettings((current) => ({ ...current, password: '' }));
+          console.error('Connection credential could not be read.');
+        }
+        if (stored.chatPreferences) {
+          setChatPreferences({
+            ...defaultChatPreferences,
+            ...JSON.parse(stored.chatPreferences) as Partial<ChatPreferences>,
+          });
+        }
+        if (stored.activeProject) setActiveProjectPath(stored.activeProject);
+        if (stored.lastSessionByProject) {
+          setLastSessionByProject(
+            JSON.parse(stored.lastSessionByProject) as Record<string, string>,
+          );
+        }
+        setWritableAuxiliaryScopeKey(scope.settingsKey);
+      });
+    }
+  }, [accountUserId, connectionScope?.settingsKey, defaultChatPreferences, directory, hydratedAccountUserId, isConnectionPersistenceReady, serverUrl, setActiveProjectPath, setChatPreferences, setLastSessionByProject, setSettings, username]);
 
   useEffect(() => {
     if (!isConnectionPersistenceReady) {
       return;
     }
 
-    void credentialWriteQueueRef.current?.(password);
-  }, [isConnectionPersistenceReady, password]);
+    if (
+      accountUserId === null ||
+      hydratedAccountUserId !== accountUserId
+    ) return;
+    const scope = createDirectMacConnectionScope(accountUserId, serverUrl);
+    if (!canWriteDirectMacCredential(scope, writableCredentialScopeKey)) {
+      return;
+    }
+    void connectionCredentialStore.setPassword(scope, password).catch(() =>
+      console.error('Connection credential could not be saved.'),
+    );
+  }, [accountUserId, hydratedAccountUserId, isConnectionPersistenceReady, password, serverUrl, writableCredentialScopeKey]);
 
   useEffect(() => {
     if (!isHydrated) {
       return;
     }
 
-    void AsyncStorage.setItem(CHAT_PREFERENCES_STORAGE_KEY, JSON.stringify(chatPreferences)).catch(() =>
+    if (
+      !connectionScope ||
+      writableAuxiliaryScopeKey !== connectionScope.settingsKey
+    ) return;
+    void directMacStateManager.writeAuxiliaryValue(
+      connectionScope,
+      'chatPreferencesKey',
+      JSON.stringify(chatPreferences),
+    ).catch(() =>
       console.error('Chat preferences could not be saved.'),
     );
-  }, [chatPreferences, isHydrated]);
+  }, [chatPreferences, connectionScope, isHydrated, writableAuxiliaryScopeKey]);
 
   useEffect(() => {
     if (!isHydrated) {
       return;
     }
 
+    if (
+      !connectionScope ||
+      writableAuxiliaryScopeKey !== connectionScope.settingsKey
+    ) return;
     if (activeProjectPath) {
-      void AsyncStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, activeProjectPath).catch(() =>
+      void directMacStateManager.writeAuxiliaryValue(
+        connectionScope,
+        'activeProjectKey',
+        activeProjectPath,
+      ).catch(() =>
         console.error('Active project could not be saved.'),
       );
       return;
     }
 
-    void AsyncStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY).catch(() =>
+    void directMacStateManager.writeAuxiliaryValue(
+      connectionScope,
+      'activeProjectKey',
+      null,
+    ).catch(() =>
       console.error('Active project could not be saved.'),
     );
-  }, [activeProjectPath, isHydrated]);
+  }, [activeProjectPath, connectionScope, isHydrated, writableAuxiliaryScopeKey]);
 
   useEffect(() => {
     if (!isHydrated) {
       return;
     }
 
-    void AsyncStorage.setItem(LAST_SESSION_BY_PROJECT_STORAGE_KEY, JSON.stringify(lastSessionByProject)).catch(
+    if (
+      !connectionScope ||
+      writableAuxiliaryScopeKey !== connectionScope.settingsKey
+    ) return;
+    void directMacStateManager.writeAuxiliaryValue(
+      connectionScope,
+      'lastSessionByProjectKey',
+      JSON.stringify(lastSessionByProject),
+    ).catch(
       () => console.error('Session history could not be saved.'),
     );
-  }, [isHydrated, lastSessionByProject]);
+  }, [connectionScope, isHydrated, lastSessionByProject, writableAuxiliaryScopeKey]);
 
   return { isHydrated };
 }

@@ -75,6 +75,7 @@ function seedSession(input: {
     cwd: '/tmp',
     name: input.agentKind,
     mcpRole: input.agentKind,
+    ownerUserId: 42,
     isSystem: input.system ?? false,
     scheduledTaskId: input.scheduledTaskId ?? null,
     category: input.category,
@@ -88,6 +89,9 @@ function seedSession(input: {
 describe('issue #1123 — asynchronous interactive delegation contract', () => {
   beforeEach(() => {
     makeDb();
+    getDb()
+      .prepare("INSERT INTO users (id, name, email) VALUES (42, 'Test User', 'issue-1123@example.com')")
+      .run();
     sessionMap.clear();
     vi.clearAllMocks();
     engineSpies.createSession.mockResolvedValue({ id: 'sdk-child-1' });
@@ -102,6 +106,7 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
     const parent = seedSession({ agentKind: 'manager', sdkId: 'sdk-parent' });
 
     const result = await delegateToAgentAsync({
+      authenticatedUserId: 42,
       callerSessionId: parent.id,
       targetAgentConfigId: 'specialist',
       prompt: 'Produce the specialist result.',
@@ -161,6 +166,7 @@ describe('issue #1123 — asynchronous interactive delegation contract', () => {
 
     for (const callerSessionId of [system.id, scheduled.id, hidden.id]) {
       await expect(delegateToAgentAsync({
+        authenticatedUserId: 42,
         callerSessionId,
         targetAgentConfigId: 'specialist',
         prompt: 'This must not dispatch.',

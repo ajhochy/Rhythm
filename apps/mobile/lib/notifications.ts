@@ -7,14 +7,22 @@ import { Platform } from 'react-native';
 
 import { buildClient } from '@/lib/opencode/client';
 import { parseStoredConnectionSettings } from '@/lib/opencode/connection-persistence';
+import { RHYTHM_ACCOUNT_META_KEY } from '@/lib/auth/rhythm-session-store';
 import {
   parsePendingNotificationSessions,
   resolvePendingNotificationConnection,
   serializePendingNotificationSessions,
   type PendingNotificationSession,
 } from '@/lib/notification-persistence';
-import { connectionCredentialStore } from '@/lib/security/connection-credential-store';
-import { PENDING_NOTIFICATION_SESSIONS_STORAGE_KEY, SETTINGS_STORAGE_KEY } from '@/lib/storage-keys';
+import { clearPendingSessionInScope } from '@/lib/pending-notification-state';
+import {
+  createDirectMacConnectionScope,
+  type DirectMacConnectionScope,
+} from '@/lib/security/connection-account-scope';
+import {
+  connectionCredentialStore,
+  directMacStateManager,
+} from '@/lib/security/connection-credential-store';
 
 const TASK_FINISHED_CHANNEL_ID = 'task-finished';
 const CHAT_COMPLETION_TASK_NAME = 'opencode-chat-completion-monitor';
@@ -53,21 +61,40 @@ function getBackgroundTaskStatusLabel(value: BackgroundTask.BackgroundTaskStatus
   return match?.[0] || String(value);
 }
 
-async function readPendingNotificationSessions() {
+async function getCurrentDirectMacScope() {
+  try {
+    const accountMeta = await AsyncStorage.getItem(RHYTHM_ACCOUNT_META_KEY);
+    if (!accountMeta) return null;
+    const parsed: unknown = JSON.parse(accountMeta);
+    const userId =
+      parsed && typeof parsed === 'object'
+        ? (parsed as { id?: unknown }).id
+        : undefined;
+    if (!Number.isSafeInteger(userId) || (userId as number) <= 0) return null;
+    return directMacStateManager.getActiveScope(userId as number);
+  } catch {
+    return null;
+  }
+}
+
+async function readPendingNotificationSessions(
+  scope: DirectMacConnectionScope | null,
+) {
   if (Platform.OS === 'web') {
     return {} as Record<string, PendingNotificationSession>;
   }
 
   try {
-    const raw = await AsyncStorage.getItem(PENDING_NOTIFICATION_SESSIONS_STORAGE_KEY);
+    if (!scope) return {} as Record<string, PendingNotificationSession>;
+    const raw = await directMacStateManager.readPendingNotifications(scope);
     if (!raw) {
       return {} as Record<string, PendingNotificationSession>;
     }
 
     const parsed = parsePendingNotificationSessions(raw);
     if (parsed.changed) {
-      await AsyncStorage.setItem(
-        PENDING_NOTIFICATION_SESSIONS_STORAGE_KEY,
+      await directMacStateManager.writePendingNotifications(
+        scope,
         serializePendingNotificationSessions(parsed.sessions),
       );
     }
@@ -77,19 +104,22 @@ async function readPendingNotificationSessions() {
   }
 }
 
-async function writePendingNotificationSessions(value: Record<string, PendingNotificationSession>) {
+async function writePendingNotificationSessions(
+  scope: DirectMacConnectionScope,
+  value: Record<string, PendingNotificationSession>,
+) {
   if (Platform.OS === 'web') {
     return;
   }
 
   const keys = Object.keys(value);
   if (keys.length === 0) {
-    await AsyncStorage.removeItem(PENDING_NOTIFICATION_SESSIONS_STORAGE_KEY);
+    await directMacStateManager.writePendingNotifications(scope, null);
     return;
   }
 
-  await AsyncStorage.setItem(
-    PENDING_NOTIFICATION_SESSIONS_STORAGE_KEY,
+  await directMacStateManager.writePendingNotifications(
+    scope,
     serializePendingNotificationSessions(value),
   );
 }
@@ -121,14 +151,16 @@ async function scheduleTaskFinishedNotification(sessionTitle?: string) {
 if (Platform.OS !== 'web' && !TaskManager.isTaskDefined(CHAT_COMPLETION_TASK_NAME)) {
   TaskManager.defineTask(CHAT_COMPLETION_TASK_NAME, async () => {
     try {
+      const scope = await getCurrentDirectMacScope();
+      if (!scope) return BackgroundTask.BackgroundTaskResult.Success;
       const [storedSettings, password] = await Promise.all([
-        AsyncStorage.getItem(SETTINGS_STORAGE_KEY),
-        connectionCredentialStore.getPassword(),
+        directMacStateManager.readPublicSettings(scope),
+        connectionCredentialStore.getPassword(scope),
       ]);
       const currentPublicSettings = storedSettings
         ? parseStoredConnectionSettings(storedSettings).publicSettings
         : {};
-      const pendingBySessionId = await readPendingNotificationSessions();
+      const pendingBySessionId = await readPendingNotificationSessions(scope);
       const pendingSessions = Object.values(pendingBySessionId);
 
       if (pendingSessions.length === 0) {
@@ -169,7 +201,7 @@ if (Platform.OS !== 'web' && !TaskManager.isTaskDefined(CHAT_COMPLETION_TASK_NAM
         }
       }
 
-      await writePendingNotificationSessions(pendingBySessionId);
+      await writePendingNotificationSessions(scope, pendingBySessionId);
       return BackgroundTask.BackgroundTaskResult.Success;
     } catch {
       return BackgroundTask.BackgroundTaskResult.Failed;
@@ -220,7 +252,9 @@ export async function getNotificationDebugStatusAsync(): Promise<NotificationDeb
   const backgroundTaskStatus = canUseBackgroundMonitoring()
     ? getBackgroundTaskStatusLabel(await BackgroundTask.getStatusAsync())
     : 'unsupported';
-  const pendingSessionCount = Object.keys(await readPendingNotificationSessions()).length;
+  const pendingSessionCount = Object.keys(
+    await readPendingNotificationSessions(await getCurrentDirectMacScope()),
+  ).length;
 
   return {
     platform: Platform.OS,
@@ -276,20 +310,39 @@ export async function initializeNotifications() {
   initialized = true;
 }
 
-export async function trackPendingTaskFinishedNotification(input: PendingNotificationSession) {
-  const current = await readPendingNotificationSessions();
+export async function trackPendingTaskFinishedNotification(
+  input: PendingNotificationSession & { accountUserId: number },
+) {
+  await registerBackgroundTaskAsync();
+  const scope = createDirectMacConnectionScope(
+    input.accountUserId,
+    input.settings.serverUrl,
+  );
+  const current = await readPendingNotificationSessions(scope);
   current[input.sessionId] = input;
-  await writePendingNotificationSessions(current);
+  await writePendingNotificationSessions(scope, current);
 }
 
-export async function clearPendingTaskFinishedNotification(sessionId: string) {
-  const current = await readPendingNotificationSessions();
-  if (!current[sessionId]) {
-    return;
-  }
+export type PendingNotificationOrigin = {
+  accountUserId: number;
+  serverUrl: string;
+};
 
-  delete current[sessionId];
-  await writePendingNotificationSessions(current);
+export async function clearPendingTaskFinishedNotification(
+  sessionId: string,
+  origin: PendingNotificationOrigin,
+) {
+  const scope = createDirectMacConnectionScope(
+    origin.accountUserId,
+    origin.serverUrl,
+  );
+  await clearPendingSessionInScope({
+    scope,
+    sessionId,
+    read: (targetScope) => readPendingNotificationSessions(targetScope),
+    write: (targetScope, value) =>
+      writePendingNotificationSessions(targetScope, value),
+  });
 }
 
 export async function notifyTaskFinished(title: string, body: string) {

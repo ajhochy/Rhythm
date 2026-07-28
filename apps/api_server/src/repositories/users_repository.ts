@@ -127,6 +127,66 @@ export class UsersRepository {
     return row ? rowToUser(row) : null;
   }
 
+  async bindGoogleIdentityByEmailAsync(
+    email: string,
+    googleSub: string,
+  ): Promise<User | null> {
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedSub = googleSub.trim();
+    if (!normalizedEmail || !normalizedSub) return null;
+    if (env.dbClient === 'postgres') {
+      try {
+        const result = await getPostgresPool().query<UserRow>(
+          `UPDATE users
+              SET google_sub = $1, updated_at = $2
+            WHERE lower(email) = lower($3)
+              AND google_sub IS NULL
+          RETURNING *`,
+          [normalizedSub, new Date().toISOString(), normalizedEmail],
+        );
+        if (result.rows[0]) return rowToUser(result.rows[0]);
+      } catch (error) {
+        if ((error as { code?: string }).code !== '23505') throw error;
+      }
+      const [bySubject, byEmail] = await Promise.all([
+        this.findByGoogleSubAsync(normalizedSub),
+        this.findByEmailAsync(normalizedEmail),
+      ]);
+      return bySubject &&
+        byEmail &&
+        bySubject.id === byEmail.id &&
+        byEmail.googleSub === normalizedSub
+        ? bySubject
+        : null;
+    }
+
+    try {
+      const result = getDb()
+        .prepare(
+          `UPDATE users
+              SET google_sub = ?, updated_at = ?
+            WHERE lower(email) = lower(?)
+              AND google_sub IS NULL`,
+        )
+        .run(normalizedSub, new Date().toISOString(), normalizedEmail);
+      if (result.changes === 1) return this.findByGoogleSub(normalizedSub);
+    } catch (error) {
+      if (
+        !(error as { code?: string }).code?.startsWith('SQLITE_CONSTRAINT')
+      ) {
+        throw error;
+      }
+    }
+    const bySubject = this.findByGoogleSub(normalizedSub);
+    const byEmail = this.findByEmail(normalizedEmail);
+    return bySubject &&
+      byEmail &&
+      bySubject.id === byEmail.id &&
+      byEmail.googleSub === normalizedSub
+      ? bySubject
+      : null;
+  }
+
   async createAsync(data: CreateUserDto): Promise<User> {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query<UserRow>(
@@ -242,30 +302,54 @@ export class UsersRepository {
   }): Promise<User> {
     const existingBySub = await this.findByGoogleSubAsync(data.googleSub);
     if (existingBySub) {
+      if (existingBySub.email.toLowerCase() !== data.email.trim().toLowerCase()) {
+        throw AppError.conflict('Google identity is already bound to another email');
+      }
       return this.updateAsync(existingBySub.id, {
         name: data.name,
-        email: data.email,
-        googleSub: data.googleSub,
         photoUrl: data.photoUrl ?? existingBySub.photoUrl,
       });
     }
 
     const existingByEmail = await this.findByEmailAsync(data.email);
     if (existingByEmail) {
-      return this.updateAsync(existingByEmail.id, {
+      if (
+        existingByEmail.googleSub &&
+        existingByEmail.googleSub !== data.googleSub
+      ) {
+        throw AppError.conflict('Email is already bound to another Google identity');
+      }
+      const bound = existingByEmail.googleSub
+        ? existingByEmail
+        : await this.bindGoogleIdentityByEmailAsync(data.email, data.googleSub);
+      if (!bound) {
+        throw AppError.conflict('Google identity binding changed concurrently');
+      }
+      return this.updateAsync(bound.id, {
         name: data.name,
-        email: data.email,
-        googleSub: data.googleSub,
-        photoUrl: data.photoUrl ?? existingByEmail.photoUrl,
+        photoUrl: data.photoUrl ?? bound.photoUrl,
       });
     }
 
-    return this.createAsync({
-      name: data.name,
-      email: data.email,
-      googleSub: data.googleSub,
-      photoUrl: data.photoUrl ?? null,
-    });
+    try {
+      return await this.createAsync({
+        name: data.name,
+        email: data.email,
+        googleSub: data.googleSub,
+        photoUrl: data.photoUrl ?? null,
+      });
+    } catch (error) {
+      const code = (error as { code?: string }).code ?? '';
+      if (code !== '23505' && !code.startsWith('SQLITE_CONSTRAINT')) throw error;
+      const winner = await this.findByGoogleSubAsync(data.googleSub);
+      if (
+        winner &&
+        winner.email.toLowerCase() === data.email.trim().toLowerCase()
+      ) {
+        return winner;
+      }
+      throw AppError.conflict('Google identity binding changed concurrently');
+    }
   }
 
   upsertGoogleUser(data: {
@@ -276,30 +360,74 @@ export class UsersRepository {
   }): User {
     const existingBySub = this.findByGoogleSub(data.googleSub);
     if (existingBySub) {
+      if (existingBySub.email.toLowerCase() !== data.email.trim().toLowerCase()) {
+        throw AppError.conflict('Google identity is already bound to another email');
+      }
       return this.update(existingBySub.id, {
         name: data.name,
-        email: data.email,
-        googleSub: data.googleSub,
         photoUrl: data.photoUrl ?? existingBySub.photoUrl,
       });
     }
 
     const existingByEmail = this.findByEmail(data.email);
     if (existingByEmail) {
-      return this.update(existingByEmail.id, {
+      if (
+        existingByEmail.googleSub &&
+        existingByEmail.googleSub !== data.googleSub
+      ) {
+        throw AppError.conflict('Email is already bound to another Google identity');
+      }
+      if (!existingByEmail.googleSub) {
+        try {
+          const result = getDb()
+            .prepare(
+              `UPDATE users
+                  SET google_sub = ?, updated_at = ?
+                WHERE id = ? AND google_sub IS NULL`,
+            )
+            .run(data.googleSub, new Date().toISOString(), existingByEmail.id);
+          if (result.changes !== 1) {
+            throw AppError.conflict('Google identity binding changed concurrently');
+          }
+        } catch (error) {
+          if (error instanceof AppError) throw error;
+          if (
+            (error as { code?: string }).code?.startsWith('SQLITE_CONSTRAINT')
+          ) {
+            throw AppError.conflict('Google identity is already bound');
+          }
+          throw error;
+        }
+      }
+      const bound = this.findByEmail(data.email);
+      if (!bound || bound.googleSub !== data.googleSub) {
+        throw AppError.conflict('Google identity binding changed concurrently');
+      }
+      return this.update(bound.id, {
         name: data.name,
-        email: data.email,
-        googleSub: data.googleSub,
-        photoUrl: data.photoUrl ?? existingByEmail.photoUrl,
+        photoUrl: data.photoUrl ?? bound.photoUrl,
       });
     }
 
-    return this.create({
-      name: data.name,
-      email: data.email,
-      googleSub: data.googleSub,
-      photoUrl: data.photoUrl ?? null,
-    });
+    try {
+      return this.create({
+        name: data.name,
+        email: data.email,
+        googleSub: data.googleSub,
+        photoUrl: data.photoUrl ?? null,
+      });
+    } catch (error) {
+      const code = (error as { code?: string }).code ?? '';
+      if (!code.startsWith('SQLITE_CONSTRAINT')) throw error;
+      const winner = this.findByGoogleSub(data.googleSub);
+      if (
+        winner &&
+        winner.email.toLowerCase() === data.email.trim().toLowerCase()
+      ) {
+        return winner;
+      }
+      throw AppError.conflict('Google identity binding changed concurrently');
+    }
   }
 
   async findOrCreateSystemBotAsync(): Promise<User> {

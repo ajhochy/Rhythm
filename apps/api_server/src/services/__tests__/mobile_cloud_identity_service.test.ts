@@ -44,6 +44,11 @@ describe('MobileCloudIdentityService', () => {
       localSessions: {
         getUserForSessionToken: vi.fn().mockResolvedValue(null),
       },
+      localUsers: {
+        findByGoogleSubAsync: vi.fn().mockResolvedValue(user),
+        findByEmailAsync: vi.fn().mockResolvedValue(user),
+        bindGoogleIdentityByEmailAsync: vi.fn().mockResolvedValue(user),
+      },
       cloudBaseUrl: 'https://rhythm-cloud.example/',
       fetchFn,
     });

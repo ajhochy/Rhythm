@@ -57,6 +57,12 @@ function prepare(src) {
 
 const stubHeader = `
 // ---------- test stubs for Expo / React Native modules ----------
+const __directMacPurges = [];
+let __directMacPurgeFailure = false;
+const purgeDirectMacStateForUser = async (userId) => {
+  __directMacPurges.push(userId);
+  if (__directMacPurgeFailure) throw new Error('direct-Mac purge failed');
+};
 
 // SecureStore stub backed by a plain Map
 const __secureStore = new Map();
@@ -97,6 +103,8 @@ const AsyncStorage = {
 // Expose helpers for test introspection
 export function __getSecureStore() { return __secureStore; }
 export function __getAsyncStorage() { return __asyncStorage; }
+export function __getDirectMacPurges() { return __directMacPurges; }
+export function __setDirectMacPurgeFailure(value) { __directMacPurgeFailure = value; }
 export function __setSecureFailure(operation, value) { __secureFailures[operation] = value; }
 export function __setAsyncFailure(operation, value) { __asyncFailures[operation] = value; }
 export function __setAsyncSetHook(hook) { __asyncSetHook = hook; }
@@ -106,6 +114,8 @@ export function __resetStores() {
   Object.keys(__secureFailures).forEach((key) => { __secureFailures[key] = false; });
   Object.keys(__asyncFailures).forEach((key) => { __asyncFailures[key] = false; });
   __asyncSetHook = null;
+  __directMacPurges.length = 0;
+  __directMacPurgeFailure = false;
 }
 
 // ---------- end stubs ----------
@@ -133,6 +143,8 @@ const {
   __setSecureFailure,
   __setAsyncFailure,
   __setAsyncSetHook,
+  __getDirectMacPurges,
+  __setDirectMacPurgeFailure,
 } = mod;
 
 // ---------------------------------------------------------------------------
@@ -949,6 +961,79 @@ function makeExchangeResponse(token = 'sess-token-abc') {
   assert.equal(await remountedStore.getState(), 'signedOut');
   assert.equal(__getSecureStore().get(RHYTHM_SESSION_SECURE_KEY), undefined);
   console.log('  ✓ TEST 22: hung unmounted restore cannot block remount local sign-out');
+}
+
+// ---------------------------------------------------------------------------
+// TEST 23: Tokenless restore clears stale account metadata and direct-Mac state
+// ---------------------------------------------------------------------------
+
+{
+  __resetStores();
+  __getAsyncStorage().set(
+    RHYTHM_ACCOUNT_META_KEY,
+    JSON.stringify({ ...makeMeResponse().user, id: 23 }),
+  );
+  const store = new RhythmSessionStore({
+    client: {
+      request: async () => { throw new Error('must not request'); },
+      requestPublic: async () => { throw new Error('must not exchange'); },
+    },
+  });
+  const result = await store.restore();
+  assert.equal(result.state, 'signedOut');
+  assert.equal(__getAsyncStorage().has(RHYTHM_ACCOUNT_META_KEY), false);
+  assert.deepEqual(__getDirectMacPurges(), [23]);
+  console.log('  ✓ TEST 23: tokenless restore revokes stale account background scope');
+}
+
+// ---------------------------------------------------------------------------
+// TEST 24: 401 expiry clears account metadata and direct-Mac state
+// ---------------------------------------------------------------------------
+
+{
+  __resetStores();
+  __getSecureStore().set(RHYTHM_SESSION_SECURE_KEY, 'expired-token');
+  __getAsyncStorage().set(
+    RHYTHM_ACCOUNT_META_KEY,
+    JSON.stringify({ ...makeMeResponse().user, id: 24 }),
+  );
+  const store = new RhythmSessionStore({
+    client: {
+      request: async () => {
+        throw Object.assign(new Error('expired'), { status: 401 });
+      },
+      requestPublic: async () => { throw new Error('must not exchange'); },
+    },
+  });
+  const result = await store.restore();
+  assert.equal(result.state, 'expired');
+  assert.equal(__getAsyncStorage().has(RHYTHM_ACCOUNT_META_KEY), false);
+  assert.deepEqual(__getDirectMacPurges(), [24]);
+  console.log('  ✓ TEST 24: 401 expiry revokes stale account background scope');
+}
+
+// ---------------------------------------------------------------------------
+// TEST 25: Purge failure cannot preserve account metadata authorization
+// ---------------------------------------------------------------------------
+
+{
+  __resetStores();
+  __getAsyncStorage().set(
+    RHYTHM_ACCOUNT_META_KEY,
+    JSON.stringify({ ...makeMeResponse().user, id: 25 }),
+  );
+  __setDirectMacPurgeFailure(true);
+  const store = new RhythmSessionStore({
+    client: {
+      request: async () => undefined,
+      requestPublic: async () => { throw new Error('must not exchange'); },
+    },
+  });
+  const result = await store.signOut();
+  assert.equal(result.state, 'signedOut');
+  assert.equal(__getAsyncStorage().has(RHYTHM_ACCOUNT_META_KEY), false);
+  assert.deepEqual(__getDirectMacPurges(), [25]);
+  console.log('  ✓ TEST 25: purge failure still removes background account authorization');
 }
 
 // ---------------------------------------------------------------------------

@@ -16,6 +16,8 @@ import {
   type PairedHostSnapshot,
   type PairedHostState,
 } from '@/lib/pairing/paired-host-store';
+import { runPairedHostStateTransition } from '@/lib/security/connection-account-scope';
+import { purgeDirectMacStateForUser } from '@/lib/security/connection-credential-store';
 import type { PairedMacClient } from '@/lib/transport/paired-mac-client';
 import { useRhythmAccount } from '@/providers/rhythm-account-provider';
 import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
@@ -91,11 +93,15 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
       setClient(null);
       try {
         return apply(
-          await store.pair(payload, {
-            userId: account.user.id,
-            deviceName: 'Rhythm iPhone',
-            replaceExisting: options.replaceExisting,
-          }),
+          await runPairedHostStateTransition(
+            () => store.pair(payload, {
+              userId: account.user!.id,
+              deviceName: 'Rhythm iPhone',
+              replaceExisting: options.replaceExisting,
+            }),
+            account.user.id,
+            purgeDirectMacStateForUser,
+          ),
         );
       } catch (error) {
         apply(store.snapshot());
@@ -112,13 +118,19 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
   const revoke = useCallback(
     async () => {
       try {
-        return apply(await store.revoke());
+        const accountUserId = account.user?.id ?? snapshot.host?.rhythmUserId;
+        if (!accountUserId) return apply(await store.revoke());
+        return apply(await runPairedHostStateTransition(
+          () => store.revoke(),
+          accountUserId,
+          purgeDirectMacStateForUser,
+        ));
       } catch (error) {
         apply(store.snapshot());
         throw error;
       }
     },
-    [apply, store],
+    [account.user?.id, apply, snapshot.host?.rhythmUserId, store],
   );
   const forget = useCallback(
     async () => {

@@ -7,6 +7,8 @@ import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
 const live = process.env.RHYTHM_LIVE_E2E === '1';
+const heavy =
+  live && process.env.RHYTHM_CREATIVE_HEAVY_E2E === '1';
 const baseUrl = process.env.RHYTHM_LIVE_BASE_URL ?? 'http://127.0.0.1:4098';
 const sandboxDir =
   process.env.RHYTHM_SANDBOX_DIR ?? join(tmpdir(), 'rhythm-dev-sandbox');
@@ -81,7 +83,7 @@ async function initializeMcp(command: string): Promise<Record<string, unknown>> 
   });
 }
 
-describe.skipIf(!live)('creative platform live installer', () => {
+describe.skipIf(!heavy)('creative platform live installer', () => {
   it(
     'installs and executes the managed ffmpeg binary through the real approval + API flow',
     async () => {
@@ -240,7 +242,7 @@ describe.skipIf(!live)('creative platform live installer', () => {
 });
 
 describe.skipIf(!live)('creative platform sandbox fixture', () => {
-  it('lists capabilities and rejects a direct unsigned approval request', async () => {
+  it('discloses deterministic setup provenance and rejects unsigned approval requests', async () => {
     const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? '';
     if (!dbPath.startsWith('/')) {
       throw new Error('Creative platform live test requires RHYTHM_LIVE_DB_PATH');
@@ -267,7 +269,52 @@ describe.skipIf(!live)('creative platform sandbox fixture', () => {
     try {
       const list = await fetch(`${baseUrl}/creative-platform`);
       expect(list.status).toBe(200);
-      expect((await list.json()) as unknown[]).toHaveLength(7);
+      const capabilities = (await list.json()) as Array<{
+        id: string;
+        setup: {
+          planDigest: string;
+          installLocation: string;
+          dependencies: Array<{
+            name: string;
+            version: string;
+            source: string;
+            license: string;
+          }>;
+          trust: {
+            transitiveSource: string;
+            hashVerification: boolean;
+            buildScripts: boolean;
+          };
+        };
+      }>;
+      expect(capabilities).toHaveLength(7);
+      const documents = capabilities.find(
+        ({ id }) => id === 'document-tools',
+      )!;
+      expect(documents.setup).toMatchObject({
+        planDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+        installLocation: 'Rhythm managed application storage',
+        dependencies: expect.arrayContaining([
+          expect.objectContaining({
+            name: 'python-pptx',
+            version: '1.0.2',
+            source: 'https://pypi.org/project/python-pptx/1.0.2/',
+            license: 'MIT',
+          }),
+        ]),
+        trust: {
+          transitiveSource: 'https://pypi.org/simple',
+          hashVerification: true,
+          buildScripts: false,
+        },
+      });
+      expect(JSON.stringify(capabilities)).not.toContain(sandboxDir);
+      const repeat = (await (
+        await fetch(`${baseUrl}/creative-platform`)
+      ).json()) as typeof capabilities;
+      expect(
+        repeat.find(({ id }) => id === 'document-tools')?.setup.planDigest,
+      ).toBe(documents.setup.planDigest);
       const forged = await fetch(
         `${baseUrl}/creative-platform/media-tools/request-or-start`,
         {

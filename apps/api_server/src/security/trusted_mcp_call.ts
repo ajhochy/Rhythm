@@ -263,6 +263,7 @@ export async function verifyTrustedMcpCall(
   value: unknown,
   expectedToolName: string,
   now = Date.now(),
+  nonceScope = expectedToolName,
 ): Promise<VerifiedTrustedMcpCall> {
   const call = parseTrustedCall(value);
   if (!pinnedKey || pinnedKey.keyId !== call.proof.keyId) {
@@ -281,7 +282,13 @@ export async function verifyTrustedMcpCall(
     throw new Error('trusted MCP call is expired');
   }
   pruneConsumedNonces(now);
-  if (consumedNonces.has(call.proof.nonce)) {
+  // A single MCP invocation can legitimately cross more than one fixed
+  // server boundary. Creative capability install, for example, consumes its
+  // taint approval and then presents the same engine proof to the installer
+  // route. Domain-separate replay state by server-selected boundary name:
+  // each boundary accepts the nonce once, while callers cannot choose a scope.
+  const scopedNonce = `${nonceScope}\0${call.proof.nonce}`;
+  if (consumedNonces.has(scopedNonce)) {
     throw new Error('trusted MCP call was already consumed');
   }
   const signatureValid = verify(
@@ -294,7 +301,7 @@ export async function verifyTrustedMcpCall(
     throw new Error('trusted MCP call signature is invalid');
   }
   consumedNonces.set(
-    call.proof.nonce,
+    scopedNonce,
     call.proof.issuedAt + TRUSTED_CALL_MAX_AGE_MS,
   );
   return {

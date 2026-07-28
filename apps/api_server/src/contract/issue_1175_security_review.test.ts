@@ -7,7 +7,7 @@ import type { Request, Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentActivityController } from '../controllers/agent_activity_controller';
-import { setDb } from '../database/db';
+import { getDb, setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { AgentAsyncDelegationsRepository } from '../repositories/agent_async_delegations_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
@@ -86,6 +86,16 @@ function seedSession(input: {
   sdkId: string;
   ownerUserId?: number | null;
 }): ReturnType<AgentSessionsRepository['insert']> {
+  const ownerUserId = input.ownerUserId ?? 1;
+  getDb()
+    .prepare(
+      'INSERT OR IGNORE INTO users (id, name, email) VALUES (?, ?, ?)',
+    )
+    .run(
+      ownerUserId,
+      `Contract User ${ownerUserId}`,
+      `security-review-${ownerUserId}@example.com`,
+    );
   const sessions = new AgentSessionsRepository();
   const session = sessions.insert({
     agentKind: input.agentKind as never,
@@ -94,7 +104,7 @@ function seedSession(input: {
     cwd: '/tmp',
     name: input.agentKind,
     mcpRole: input.agentKind,
-    ownerUserId: input.ownerUserId ?? null,
+    ownerUserId,
     category: 'chat',
   });
   sessions.setSdkSessionId(session.id, input.sdkId);
@@ -193,6 +203,9 @@ async function proxyOutcome(
 describe('issue #1175 independent security review acceptance contract', () => {
   beforeEach(() => {
     makeDb();
+    getDb()
+      .prepare("INSERT INTO users (id, name, email) VALUES (1, 'Contract User', 'security-review@example.com')")
+      .run();
     sessionMap.clear();
     vi.clearAllMocks();
     engineSpies.createSession.mockResolvedValue({ id: 'sdk-child-contract' });
@@ -244,6 +257,7 @@ describe('issue #1175 independent security review acceptance contract', () => {
 
     const lockedCallerOutcome = await captureOutcome(() =>
       delegateToAgentAsync({
+        authenticatedUserId: 1,
         callerSessionId: lockedCallerSession.id,
         targetAgentConfigId: 'normal-target',
         prompt: 'Must not run from a locked caller.',
@@ -251,6 +265,7 @@ describe('issue #1175 independent security review acceptance contract', () => {
     );
     const lockedTargetOutcome = await captureOutcome(() =>
       delegateToAgentAsync({
+        authenticatedUserId: 1,
         callerSessionId: normalCallerSession.id,
         targetAgentConfigId: 'locked-target',
         prompt: 'Must not run a stale-enabled locked target.',
@@ -316,6 +331,7 @@ describe('issue #1175 independent security review acceptance contract', () => {
     );
     await captureOutcome(() =>
       delegateToAgentAsync({
+        authenticatedUserId: 1,
         callerSessionId: streamParent.id,
         targetAgentConfigId: 'specialist-stream',
         prompt: 'Dispatch with a failing subscription.',
@@ -361,6 +377,7 @@ describe('issue #1175 independent security review acceptance contract', () => {
     });
     await captureOutcome(() =>
       delegateToAgentAsync({
+        authenticatedUserId: 1,
         callerSessionId: promptParent.id,
         targetAgentConfigId: 'specialist-prompt',
         prompt: 'Dispatch with a failing enqueue.',
