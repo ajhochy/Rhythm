@@ -182,7 +182,7 @@ class _MobileAccessDialogState extends State<MobileAccessDialog> {
         children: [
           Icon(Icons.phone_iphone_outlined),
           SizedBox(width: 10),
-          Text('Enable Mobile Access'),
+          Text('Mobile Access'),
         ],
       ),
       content: SizedBox(
