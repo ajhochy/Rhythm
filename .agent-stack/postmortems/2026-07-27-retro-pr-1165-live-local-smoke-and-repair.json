@@ -1,0 +1,52 @@
+{
+  "run_id": "2026-07-27-retro-pr-1165-live-local-smoke-and-repair",
+  "issue": 1165,
+  "date": "2026-07-27",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [],
+  "process_issues": [
+    {
+      "process_category": "xcode-build-environment",
+      "description": "The native simulator build required NODE_ENV=development and EXPO_APP_VARIANT=development as explicit xcodebuild settings because the tool session launch environment was not inherited by the Xcode build phase.",
+      "detected_by": "The first XcodeBuildMCP build failed in the Expo configuration phase; the same source built and launched after the two build settings were supplied explicitly."
+    },
+    {
+      "process_category": "sandbox-lifecycle",
+      "description": "A sandbox started from a short-lived command owner exited with that shell despite its child process setup; keeping the owning shell alive made the isolated live test stable.",
+      "detected_by": "The first isolated sandbox attempt disappeared before the behavioral test, while the second stayed healthy through the test and explicit teardown."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "smoke-test",
+      "failure-postmortem",
+      "failure-triage",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "smoke-test",
+      "failure-postmortem",
+      "failure-triage",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [],
+  "failure_output": null,
+  "overall_category": "none",
+  "suggested_follow_up": "Document the two local tooling constraints in the existing run record; no global skill edit is justified by a single occurrence."
+}
