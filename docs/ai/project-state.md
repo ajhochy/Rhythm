@@ -64,20 +64,16 @@ revocation, and replacement pairing before continuing the remaining #1199 and
 
 ## Recent coding-agent runs
 
-### 2026-07-28 — #1216/#1217 MCP preflight and doctor status
-- Files modified: `agent_runner.ts` (required-MCP fail-fast),
-  `cli/doctor.ts` + `cli/checks/live_mcp_status.ts` (bounded live status with
-  labeled config fallback), issue contracts/tests, and a sandbox live contract.
-- Checks run: failing-first 6 failed/2 passed; focused regression suite 16
-  passed/2 live-skipped; api_server TypeScript passed; api_server build passed.
-  Full api_server suite was attempted but loopback test servers hit
-  environment-wide `listen EPERM`; issue checks passed both TypeScript packages
-  but Flutter could not write its external SDK cache.
-- Decisions made: MCPs named by the resolved run scope are required; live MCP
-  entries outside that scope are optional. Doctor retains only live `name` and
-  `status`, never response detail/environment fields.
-- Deviations from spec: GitHub issue bodies/comments could not be fetched
-  because network access was blocked; the supplied mission text was used.
-- Concerns: sandbox live verification is pending because Bun cannot create its
-  temporary install files in this managed environment, so the required fork
-  binary cannot be built here.
+### 2026-07-28 — issue #1223 malformed broaden-scope grants
+- Files modified: proposal generator/validation/apply paths, scope-hygiene
+  guard, optimizer legacy-row invalidation, repository status transition,
+  acceptance/live tests, contract, and run log.
+- Checks run: failing-first 4 expected failures; targeted 18/18 pass; API and
+  MCP TypeScript checks pass; full API/live/Flutter gates blocked by managed
+  environment restrictions (see `docs/ai/runs/2026-07-28-issue-1223-scope-proposals.md`).
+- Decisions made: resolve model-facing tool ids against the live MCP server
+  catalog and store only the resolved server name; broaden grants remain
+  human-gated but no longer enter an unsupported measurement path.
+- Deviations from spec: no commit because live verification could not run.
+- Concerns: fresh fork dependencies and loopback/socket permissions are needed
+  to finish the required sandbox evidence.

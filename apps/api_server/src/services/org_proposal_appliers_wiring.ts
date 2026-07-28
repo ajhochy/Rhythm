@@ -121,6 +121,7 @@ import type { CuratedMcpServer } from '../config/curated_mcp_servers';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
 import type { AgentSkill } from '../models/agent_skill';
 import type { ProposalValidationResult } from './org_proposal_apply_service';
+import { resolveKnownMcpServerName } from './mcp_scope_name';
 
 /** Minimal registry shape every generator's `register*Applier` needs. */
 export interface AppliersRegistry {
@@ -941,7 +942,26 @@ function extractBroadenScopePatch(
   return { agentConfigId: change.agentConfigId, field: change.field as ScopePatch['field'], add };
 }
 
-function validateBroadenScope(proposal: AgentOrgProposal): ProposalValidationResult {
+async function validateMcpScopeNames(names: string[]): Promise<ProposalValidationResult> {
+  for (const name of names) {
+    const { serverName, knownServerNames } = await resolveKnownMcpServerName(name);
+    // Preserve the existing fail-open behavior while the engine catalog is
+    // unavailable; proposal-time generation already refuses to emit without
+    // a catalog, and approval will revalidate once the engine is ready.
+    if (knownServerNames.length === 0) continue;
+    if (!serverName || serverName !== name) {
+      const suggestion = serverName ? ` Use server name '${serverName}' instead.` : '';
+      const known = knownServerNames.length ? ` Known servers: ${knownServerNames.join(', ')}.` : '';
+      return {
+        valid: false,
+        reason: `MCP allowlist entry '${name}' is not a known server name.${suggestion}${known}`,
+      };
+    }
+  }
+  return { valid: true };
+}
+
+async function validateBroadenScope(proposal: AgentOrgProposal): Promise<ProposalValidationResult> {
   const patch = extractBroadenScopePatch(parseChange(proposal.changeJson));
   if (!patch) {
     return {
@@ -953,6 +973,7 @@ function validateBroadenScope(proposal: AgentOrgProposal): ProposalValidationRes
   if (!new AgentConfigsRepository().getById(patch.agentConfigId)) {
     return { valid: false, reason: `broaden-scope target agent_config '${patch.agentConfigId}' no longer exists` };
   }
+  if (patch.field === 'allowedMcpsJson') return validateMcpScopeNames(patch.add);
   return { valid: true };
 }
 
@@ -975,8 +996,29 @@ const broadenScopeApplier: ProposalApplier = (proposal): ProposalApplyResult => 
   const updated = configsRepo.getById(patch.agentConfigId);
   if (updated) writeAgentProfileFile(updated);
 
-  return { measurable: true, beforeSnapshotJson };
+  // The observable grant is the projected allowlist itself. Broadening has no
+  // meaningful failure replay in measureProposal, so sending it to measuring
+  // strands the row indefinitely as "unsupported kind".
+  return { measurable: false, beforeSnapshotJson };
 };
+
+async function validateScopeRemoval(proposal: AgentOrgProposal): Promise<ProposalValidationResult> {
+  const change = parseChange(proposal.changeJson);
+  if (
+    !change ||
+    typeof change.agentConfigId !== 'string' ||
+    change.field !== 'allowedMcpsJson' ||
+    !Array.isArray(change.remove) ||
+    change.remove.length === 0 ||
+    !change.remove.every((name) => typeof name === 'string' && name.trim())
+  ) {
+    return { valid: false, reason: `${proposal.kind} requires {agentConfigId, field: 'allowedMcpsJson', remove: [<server>, ...]}` };
+  }
+  if (!new AgentConfigsRepository().getById(change.agentConfigId)) {
+    return { valid: false, reason: `${proposal.kind} target agent_config '${change.agentConfigId}' no longer exists` };
+  }
+  return validateMcpScopeNames(change.remove as string[]);
+}
 
 // ── workflow-prompt-fix: skill-create branch (#1152) ──
 //
@@ -1414,6 +1456,8 @@ export function registerAllProposalAppliers(registry: AppliersRegistry = {
     // shape, so revert/measure are already covered.
     registry.registerProposalValidator('broaden-scope', validateBroadenScope);
     registry.registerProposalApplier('broaden-scope', broadenScopeApplier);
+    registry.registerProposalValidator('tighten-scope', validateScopeRemoval);
+    registry.registerProposalValidator('prune-scope', validateScopeRemoval);
     registry.registerProposalValidator('workflow-prompt-fix', validateWorkflowPromptFix);
     registry.registerProposalApplier('workflow-prompt-fix', workflowPromptFixApplier);
     registry.registerProposalValidator('refine-skill', validateRefineSkill);

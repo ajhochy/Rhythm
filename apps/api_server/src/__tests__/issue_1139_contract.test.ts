@@ -106,7 +106,7 @@ describe('issue-1139-c2: approving a broaden-scope appends the tool to allowedMc
     });
 
     const result = await applyProposal(proposal);
-    expect(result.measurable).toBe(true);
+    expect(result.measurable).toBe(false);
     // A reversible apply must snapshot the prior value before mutating.
     expect(result.beforeSnapshotJson).toBeTruthy();
 

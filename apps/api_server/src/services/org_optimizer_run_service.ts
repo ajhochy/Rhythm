@@ -80,6 +80,7 @@ import { runExternalDiscoveryGenerator } from './generators/external_discovery_g
 import { discoverCandidatesFromEcosystem } from './generators/external_discovery_search';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentOrgProposal } from '../models/agent_org_proposal';
+import { resolveKnownMcpServerName } from './mcp_scope_name';
 
 /** #830 per-run budget defaults — a single run may never exceed these without an explicit override. */
 const DEFAULT_MAX_PROPOSALS_PER_RUN = 20;
@@ -129,6 +130,39 @@ function emptySummary(auditRunId: string): RunOrgOptimizerResult {
     byRisk: { low: 0, high: 0 },
     byOutcome: { autoApplied: 0, kept: 0, reverted: 0, queued: 0, skipped: 0 },
   };
+}
+
+async function invalidateMalformedMcpScopeProposals(
+  proposalsRepo: AgentOrgProposalsRepository,
+): Promise<void> {
+  for (const status of ['proposed', 'measuring']) {
+    for (const proposal of await proposalsRepo.listByStatusAsync(status)) {
+      if (!['broaden-scope', 'tighten-scope', 'prune-scope'].includes(proposal.kind) || !proposal.changeJson) continue;
+      try {
+        const change = JSON.parse(proposal.changeJson) as {
+          field?: string;
+          add?: unknown;
+          remove?: unknown;
+        };
+        if (change.field !== 'allowedMcpsJson') continue;
+        const names = [
+          ...(Array.isArray(change.add) ? change.add : []),
+          ...(Array.isArray(change.remove) ? change.remove : []),
+        ].filter((name): name is string => typeof name === 'string');
+        for (const name of names) {
+          const { serverName, knownServerNames } = await resolveKnownMcpServerName(name);
+          if (knownServerNames.length > 0 && serverName && serverName !== name) {
+            await proposalsRepo.updateStatusAsync(proposal.id, 'rejected', {
+              measureReason: `invalidated malformed MCP tool id '${name}'; server allowlists require '${serverName}'`,
+            });
+            break;
+          }
+        }
+      } catch {
+        // Existing malformed JSON is handled by the normal validator.
+      }
+    }
+  }
 }
 
 /**
@@ -230,6 +264,7 @@ export async function runOrgOptimizer(
 
     const realProposalsRepo = options.proposalsRepo ?? new AgentOrgProposalsRepository();
     const configsRepo = options.configsRepo ?? new AgentConfigsRepository();
+    await invalidateMalformedMcpScopeProposals(realProposalsRepo);
 
     const result = emptySummary(auditRunId);
     let capped = false;
