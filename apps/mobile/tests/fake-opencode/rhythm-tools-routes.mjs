@@ -6,8 +6,25 @@ function clone(value) {
 
 export function createRhythmToolsRoutes({ readJson, sendJson }) {
   let nextId = 1;
-  const state = {
-    brain: [],
+  let responseState = 'data';
+  const responseStates = new Set([
+    'data',
+    'empty',
+    'offline',
+    'expired-auth',
+    'forbidden',
+    'error',
+  ]);
+  const createState = () => ({
+    brain: [
+      {
+        id: 'memory-sunday-checklist',
+        title: 'Sunday service checklist',
+        content: 'Confirm volunteers, slides, and room readiness.',
+        tags: ['sunday'],
+        updatedAt: now(),
+      },
+    ],
     research: [
       {
         id: 'research-target',
@@ -91,7 +108,8 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
       { id: 'planning-center', name: 'planning-center', status: 'connected', enabled: true },
       { id: 'gmail', name: 'gmail', status: 'disabled', enabled: false },
     ],
-  };
+  });
+  let state = createState();
 
   const createdId = (prefix) => `${prefix}-${nextId++}`;
   const endEmpty = (res, status = 204) => {
@@ -109,6 +127,55 @@ export function createRhythmToolsRoutes({ readJson, sendJson }) {
   };
 
   return async function handleRhythmTools({ req, res, pathname, requestUrl }) {
+    if (
+      req.method === 'POST' &&
+      pathname === '/__control/rhythm-tools-state'
+    ) {
+      const body = await readJson(req);
+      if (!responseStates.has(body?.state)) {
+        sendJson(res, 400, {
+          error: `Unsupported Rhythm tools state: ${String(body?.state)}`,
+        });
+        return true;
+      }
+      responseState = body.state;
+      if (responseState === 'data') {
+        nextId = 1;
+        state = createState();
+      }
+      sendJson(res, 200, { state: responseState });
+      return true;
+    }
+
+    const isToolRead =
+      req.method === 'GET' &&
+      (pathname.startsWith('/mobile-gateway/tools/') ||
+        pathname.startsWith('/mobile-gateway/opencode/') ||
+        pathname === '/integrations/gmail-signals' ||
+        pathname === '/agent-designs');
+    if (isToolRead && responseState !== 'data') {
+      const statusByState = {
+        offline: 503,
+        'expired-auth': 401,
+        forbidden: 403,
+        error: 500,
+      };
+      if (responseState === 'empty') {
+        sendJson(res, 200, []);
+      } else {
+        sendJson(res, statusByState[responseState], {
+          error: {
+            code: responseState.toUpperCase().replace('-', '_'),
+            message:
+              responseState === 'offline'
+                ? 'The paired Mac is offline.'
+                : `Rhythm tools ${responseState} fixture.`,
+          },
+        });
+      }
+      return true;
+    }
+
     if (req.method === 'GET' && pathname === '/integrations/gmail-signals') {
       sendJson(res, 200, [
         {

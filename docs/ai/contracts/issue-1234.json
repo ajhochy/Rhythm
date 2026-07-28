@@ -1,0 +1,32 @@
+{
+  "issue": 1234,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1234-c1",
+      "text": "Every Tool screen renders non-blank content or a distinct state (loading/empty/offline/forbidden/auth/error).",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1234.test.mjs",
+      "test_id": "issue-1234-c1: every tool screen has an explicit non-blank presentation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1234-c2",
+      "text": "Each explicit Tool screen state is rendered with distinct, accessible copy.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1234.test.mjs",
+      "test_id": "issue-1234-c2: tool state component covers loading empty offline forbidden auth and error",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1234-c3",
+      "text": "Representative Tool data and explicit states are verified through the fake-server E2E harness.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/issue-1234-tool-content.spec.mjs",
+      "test_id": "issue-1234-c3: fake server renders representative content and explicit states",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

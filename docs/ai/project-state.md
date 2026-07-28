@@ -64,18 +64,33 @@ revocation, and replacement pairing before continuing the remaining #1199 and
 
 ## Recent coding-agent runs
 
-### 2026-07-28 — issue-1233-mobile-model-picker
-- Files modified: mobile capability/provider types and selectors, chat composer/view,
-  grouped native select UI, issue contract, fake-server E2E flow, package test script,
-  and run log.
-- Checks run: issue contract PASS (4/4); `git diff --check` PASS; typecheck,
-  lint, existing provider utility test, and Playwright BLOCKED by unavailable
-  dependencies after sandbox-restricted installs.
-- Decisions made: use provider-list connection state as the authority; preserve
-  each provider's last selection as recent ranking; use the provider label as
-  account context because the OpenCode provider response exposes connected IDs
-  but no separate account record.
-- Deviations from spec: GitHub issue body/comments could not be fetched due
-  blocked network; no commit/push/PR per orchestrator instruction.
-- Concerns: orchestrator must verify exact issue wording, install dependencies,
-  run static/E2E checks, and smoke the custom grouped sheet on iOS.
+### 2026-07-28 — issue #1234 mobile Tool content and states
+- Files modified: mobile Tool screen/provider/state component, fake Tool routes,
+  issue contract and component/E2E tests, and the issue run log.
+- Checks run: failing-first contract 0/3 as expected; post-change focused Node
+  suites 14/14; syntax and diff checks pass. Typecheck/lint blocked because both
+  npm installs failed and left no executables; Playwright/iOS visual smoke not
+  available in the sandbox.
+- Decisions made: reuse the existing Tool state component, make initial state
+  loading, and drive all remote states through deterministic fake-server
+  controls.
+- Deviations from spec: GitHub comments and GitNexus were unavailable due
+  network restrictions; no Jest setup exists in `apps/mobile`, so the
+  repository's Node contract + Playwright conventions were used.
+- Concerns: orchestrator must run dependency-backed static checks, fake-server
+  E2E, and native visual verification. See
+  `docs/ai/runs/2026-07-28-1234-mobile-tool-states.md`.
+
+### 2026-07-28 — issue #1234 shared fake-server repair
+- Files modified: fake Tool routes now restore baseline collections when data
+  mode is selected; the #1234 E2E spec restores data mode after every case; the
+  contract test asserts fixture restoration.
+- Checks run: issue-1234 contract 3/3 PASS; mobile typecheck PASS; mobile lint
+  PASS; `git diff --check` PASS. Playwright was explicitly delegated to the
+  orchestrator.
+- Decisions made: keep all issue-1173 specs unchanged and make the new control
+  lifecycle reset both response mode and mutable fixture data.
+- Deviations from spec: GitNexus impact analysis was attempted but unavailable
+  because this worktree has no runner and the session exposes no GitNexus MCP.
+- Concerns: the orchestrator must rerun the full fake-server Playwright suite to
+  confirm the static shared-state diagnosis.

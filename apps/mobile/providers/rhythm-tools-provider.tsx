@@ -89,7 +89,7 @@ interface ToolsContextValue {
 
 const INITIAL_STATE: ToolResourceState = {
   items: [],
-  loading: false,
+  loading: true,
   refreshing: false,
   offline: false,
   error: null,
