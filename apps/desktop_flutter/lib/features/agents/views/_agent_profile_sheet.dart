@@ -12,6 +12,7 @@ import '../../settings/data/anthropic_accounts_data_source.dart';
 import '../data/agent_models_data_source.dart';
 import '../data/opencode_mcp_data_source.dart';
 import '../data/opencode_skills_data_source.dart';
+import '../widgets/capability_scope_editor.dart';
 import '../models/catalog_model_entry.dart';
 import '_managed_skill_editor_sheet.dart';
 
@@ -642,6 +643,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
   // null means "all allowed" (no restriction); non-null means restricted set.
   List<String>? _selectedMcps;
   List<String>? _selectedSkills;
+  Map<String, List<String>?>? _selectedMcpTools;
 
   // #1074 — native-tool permission tri-state matrix. Only keys the user has
   // explicitly set appear here; an absent key means "engine default" and is
@@ -671,6 +673,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
   late final OpencodeMcpDataSource _mcpDataSource;
   List<OpencodeSkillEntry> _availableSkills = [];
   List<String> _availableMcps = [];
+  List<OpencodeMcpCapability> _availableMcpCapabilities = [];
   bool _skillsLoaded = false;
   bool _mcpsLoaded = false;
 
@@ -699,6 +702,15 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     _isManager = cfg?.isManager ?? false;
     _selectedMcps =
         cfg?.allowedMcps != null ? List<String>.from(cfg!.allowedMcps!) : null;
+    _selectedMcpTools = cfg?.allowedMcpTools?.map(
+          (name, tools) => MapEntry(
+            name,
+            tools == null ? null : List<String>.from(tools),
+          ),
+        ) ??
+        (cfg?.allowedMcps == null
+            ? null
+            : {for (final name in cfg!.allowedMcps!) name: null});
     _selectedSkills = cfg?.allowedSkills != null
         ? List<String>.from(cfg!.allowedSkills!)
         : null;
@@ -758,10 +770,16 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
   }
 
   Future<void> _loadMcps() async {
-    final mcps = await _mcpDataSource.listNames();
+    var capabilities = await _mcpDataSource.listCapabilities();
+    if (capabilities.isEmpty) {
+      capabilities = (await _mcpDataSource.listNames())
+          .map((name) => OpencodeMcpCapability(name: name))
+          .toList();
+    }
     if (!mounted) return;
     setState(() {
-      _availableMcps = mcps;
+      _availableMcpCapabilities = capabilities;
+      _availableMcps = capabilities.map((entry) => entry.name).toList();
       _mcpsLoaded = true;
     });
     // #922 — fetch separately so a failure here never blocks the picker.
@@ -772,6 +790,14 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
 
   List<String> get _availableSkillNames =>
       _availableSkills.map((s) => s.name).toList();
+
+  String? _encodeMcpScope() {
+    if (_selectedMcpTools == null) return null;
+    return jsonEncode({
+      for (final entry in _selectedMcpTools!.entries)
+        entry.key: entry.value ?? <String>[],
+    });
+  }
 
   @override
   void dispose() {
@@ -881,8 +907,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         'systemPrompt': _systemPromptController.text.trim().isEmpty
             ? null
             : _systemPromptController.text.trim(),
-        'allowedMcpsJson':
-            _selectedMcps != null ? jsonEncode(_selectedMcps) : null,
+        'allowedMcpsJson': _encodeMcpScope(),
         'allowedSkillsJson':
             _selectedSkills != null ? jsonEncode(_selectedSkills) : null,
         'allowedDelegatesJson': _isManager
@@ -911,8 +936,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         'systemPrompt': _systemPromptController.text.trim().isEmpty
             ? null
             : _systemPromptController.text.trim(),
-        'allowedMcpsJson':
-            _selectedMcps != null ? jsonEncode(_selectedMcps) : null,
+        'allowedMcpsJson': _encodeMcpScope(),
         'allowedSkillsJson':
             _selectedSkills != null ? jsonEncode(_selectedSkills) : null,
         'allowedDelegatesJson': _isManager
@@ -984,9 +1008,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
                 const SizedBox(height: 16),
                 _buildSessionSelectableToggle(),
                 const SizedBox(height: 24),
-                _buildMcpsSection(),
-                const SizedBox(height: 24),
-                _buildSkillsSection(),
+                _buildCapabilitiesSection(),
                 const SizedBox(height: 24),
                 _buildToolPermissionsSection(),
                 if (_error != null) ...[
@@ -1407,6 +1429,83 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     );
   }
 
+  Widget _buildCapabilitiesSection() {
+    final skillCount = _selectedSkills?.length ?? _availableSkills.length;
+    final mcpCount = _selectedMcpTools?.length ?? _availableMcps.length;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+        border: Border.all(color: context.rhythm.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: _sectionLabel('Capabilities')),
+              TextButton.icon(
+                onPressed: _editCapabilities,
+                icon: const Icon(Icons.tune, size: 16),
+                label: const Text('Edit capabilities'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // "Current scope" (not "Effective scope") — the capability editor
+          // dialog owns that label for its own staged-selection summary, and
+          // both labels are in the tree at once while the dialog is open.
+          Text(
+            'Current scope',
+            style: TextStyle(
+              color: context.rhythm.textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$skillCount skills • $mcpCount MCP servers',
+            style: TextStyle(
+              color: context.rhythm.textSecondary,
+              fontSize: 12,
+            ),
+          ),
+          if (_buildGeminiCapWarning() case final warning?) ...[
+            const SizedBox(height: 10),
+            warning,
+          ],
+          if (_buildDegradedMcpWarning() case final warning?) ...[
+            const SizedBox(height: 10),
+            warning,
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editCapabilities() async {
+    final result = await showDialog<CapabilityScopeResult>(
+      context: context,
+      builder: (_) => CapabilityScopeEditor(
+        skills: _availableSkills,
+        mcps: _availableMcpCapabilities,
+        selectedSkills: _selectedSkills,
+        selectedMcps: _selectedMcpTools,
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      _selectedSkills = result.skills;
+      _selectedMcpTools = result.mcps;
+      _selectedMcps = result.mcps?.keys.toList();
+    });
+  }
+
+  // Kept temporarily for managed-skill/MCP warning helpers shared by older
+  // profile tests while the structured editor replaces this render path.
+  // ignore: unused_element
   Widget _buildMcpsSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1531,6 +1630,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildSkillsSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

@@ -21,6 +21,7 @@ class AgentConfig {
     this.isManager = false,
     this.systemPrompt,
     this.allowedMcps,
+    this.allowedMcpTools,
     this.allowedSkills,
     this.allowedDelegates,
     this.modelProvider,
@@ -43,6 +44,9 @@ class AgentConfig {
       isManager: asBool(json['isManager']) ?? false,
       systemPrompt: asString(json['systemPrompt']),
       allowedMcps: _parseStringList(
+        json['allowedMcpsJson'] ?? json['allowedMcps'],
+      ),
+      allowedMcpTools: _parseMcpTools(
         json['allowedMcpsJson'] ?? json['allowedMcps'],
       ),
       allowedSkills: _parseStringList(
@@ -83,6 +87,11 @@ class AgentConfig {
 
   /// List of permitted MCP server IDs for this profile.
   final List<String>? allowedMcps;
+
+  /// Granular MCP scope. A null map is unrestricted; an empty map denies all.
+  /// A null value for one server means all tools on that server, while a list
+  /// contains the exact permitted tool names.
+  final Map<String, List<String>?>? allowedMcpTools;
 
   /// List of permitted skill names for this profile.
   final List<String>? allowedSkills;
@@ -158,6 +167,33 @@ class AgentConfig {
     return null;
   }
 
+  static Map<String, List<String>?>? _parseMcpTools(dynamic value) {
+    if (value == null) return null;
+    dynamic decoded = value;
+    if (value is String) {
+      try {
+        decoded = jsonDecode(value);
+      } catch (_) {
+        return null;
+      }
+    }
+    if (decoded is List) {
+      return {
+        for (final name in decoded.map((e) => e.toString())) name: null,
+      };
+    }
+    if (decoded is! Map) return null;
+    return decoded.map<String, List<String>?>((key, tools) {
+      if (tools is List && tools.isNotEmpty) {
+        return MapEntry(
+          key.toString(),
+          tools.map((tool) => tool.toString()).toList(),
+        );
+      }
+      return MapEntry(key.toString(), null);
+    });
+  }
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'label': label,
@@ -168,7 +204,12 @@ class AgentConfig {
         'sortOrder': sortOrder,
         'isManager': isManager,
         'systemPrompt': systemPrompt,
-        'allowedMcpsJson': allowedMcps != null ? jsonEncode(allowedMcps) : null,
+        'allowedMcpsJson': allowedMcpTools != null
+            ? jsonEncode({
+                for (final entry in allowedMcpTools!.entries)
+                  entry.key: entry.value ?? <String>[],
+              })
+            : (allowedMcps != null ? jsonEncode(allowedMcps) : null),
         'allowedSkillsJson':
             allowedSkills != null ? jsonEncode(allowedSkills) : null,
         'allowedDelegatesJson':
@@ -191,6 +232,7 @@ class AgentConfig {
     bool? isManager,
     Object? systemPrompt = _sentinel,
     Object? allowedMcps = _sentinel,
+    Object? allowedMcpTools = _sentinel,
     Object? allowedSkills = _sentinel,
     Object? allowedDelegates = _sentinel,
     Object? modelProvider = _sentinel,
@@ -216,6 +258,9 @@ class AgentConfig {
       allowedMcps: identical(allowedMcps, _sentinel)
           ? this.allowedMcps
           : allowedMcps as List<String>?,
+      allowedMcpTools: identical(allowedMcpTools, _sentinel)
+          ? this.allowedMcpTools
+          : allowedMcpTools as Map<String, List<String>?>?,
       allowedSkills: identical(allowedSkills, _sentinel)
           ? this.allowedSkills
           : allowedSkills as List<String>?,

@@ -61,3 +61,20 @@ Repair #1237–#1239, then repeat the bounded physical smoke for disconnect/
 reconnect, long prompt/response with background recovery, visible QR pairing,
 revocation, and replacement pairing before continuing the remaining #1199 and
 #1200 release gates.
+
+## Recent coding-agent runs
+
+### 2026-07-28 — issue #1236 structured profile capability editor
+- Files modified: desktop profile sheet/model/MCP data source; new capability
+  editor widget; api_server MCP catalog wrapper/route; contract and tests.
+- Checks run: issue-level static checks PASS; api_server build PASS; Flutter
+  widget/API listener tests and sandbox live gate BLOCKED by managed environment
+  socket/network restrictions (see
+  `docs/ai/runs/2026-07-28-profile-editor-1236.md`).
+- Decisions made: preserve `null = unrestricted`, `{}` = deny-all, and encode
+  granular MCP scope as `{server: [tool]}` with an empty list meaning all tools
+  for that selected server, matching the real api_server expander contract.
+- Deviations from spec: no commit, live round-trip, or screenshot because the
+  required verification gate could not execute.
+- Concerns: legacy profile-picker tests must be run alongside the new contract
+  once Flutter test sockets and the fork dependency cache are available.

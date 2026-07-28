@@ -1,0 +1,64 @@
+{
+  "issue": 1236,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1236-c1",
+      "text": "Replace the pill drawer with a structured capability editor with Skills and MCP tabs.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1236_capability_editor_test.dart",
+      "test_id": "issue-1236-c1: renders a structured Skills and MCP tab editor",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1236-c2",
+      "text": "Support tri-state category selection.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1236_capability_editor_test.dart",
+      "test_id": "issue-1236-c2: category selection reports all, some, and none",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1236-c3",
+      "text": "Support granular MCP tool picking.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1236_capability_editor_test.dart",
+      "test_id": "issue-1236-c3: MCP server expands to granular tools",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1236-c4",
+      "text": "Provide a searchable capability hierarchy.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1236_capability_editor_test.dart",
+      "test_id": "issue-1236-c4: search filters skills and nested MCP tools",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1236-c5",
+      "text": "Show an effective-scope summary.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1236_capability_editor_test.dart",
+      "test_id": "issue-1236-c5: effective scope summary reflects staged selections",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1236-c6",
+      "text": "Use explicit save and cancel semantics for capability edits.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_1236_capability_editor_test.dart",
+      "test_id": "issue-1236-c6: cancel discards staged scope and save applies it",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1236-c7",
+      "text": "Persist skill and MCP scope, including granular MCP tools, through the real agent-profile API contract.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1236_profile_scope_roundtrip.test.ts",
+      "test_id": "issue-1236-c7: PATCH and GET round-trip array and object scope shapes",
+      "status": "pending"
+    }
+  ],
+  "stack": "dart",
+  "not_tested": []
+}

@@ -4,6 +4,28 @@ import 'package:http/http.dart' as http;
 
 import '../../../app/core/constants/app_constants.dart';
 
+class OpencodeMcpCapability {
+  const OpencodeMcpCapability({
+    required this.name,
+    this.tools = const [],
+    this.status,
+  });
+
+  final String name;
+  final List<String> tools;
+  final String? status;
+
+  factory OpencodeMcpCapability.fromJson(Map<String, dynamic> json) {
+    return OpencodeMcpCapability(
+      name: json['name'] as String? ?? '',
+      tools: (json['tools'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .toList(),
+      status: json['status'] as String?,
+    );
+  }
+}
+
 /// Read-only data source for the engine's live MCP server list, against the
 /// LOCAL agent server, used by the Agent Profile MCP picker.
 ///
@@ -28,13 +50,19 @@ class OpencodeMcpDataSource {
   /// "no servers" state rather than crashing or falling back to a stale
   /// hardcoded list.
   Future<List<String>> listNames() async {
+    return (await listCapabilities()).map((entry) => entry.name).toList();
+  }
+
+  Future<List<OpencodeMcpCapability>> listCapabilities() async {
     try {
       final response = await _client.get(Uri.parse('$_baseUrl/opencode/mcp'));
       if (response.statusCode != 200) return [];
       final list = jsonDecode(response.body) as List<dynamic>;
       return list
-          .map((e) => (e as Map<String, dynamic>)['name'] as String?)
-          .whereType<String>()
+          .map((e) => OpencodeMcpCapability.fromJson(
+                e as Map<String, dynamic>,
+              ))
+          .where((entry) => entry.name.isNotEmpty)
           .toList();
     } catch (_) {
       return [];

@@ -2616,6 +2616,20 @@ export class OpencodeClientService {
     return reconciled;
   }
 
+  /** Lists the live engine tool ids used by the profile capability editor. */
+  async listToolIds(): Promise<string[]> {
+    const client = this.requireClient();
+    const raw = await client.tool.ids();
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `listToolIds failed: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data ?? [];
+  }
+
   /**
    * #952 — names of MCP servers currently known to the engine, used to
    * synthesize the "all servers, deferred" allowlist for an unscoped Gemini
