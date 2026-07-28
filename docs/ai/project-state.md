@@ -64,9 +64,17 @@ revocation, and replacement pairing before continuing the remaining #1199 and
 
 ## Recent coding-agent runs
 
-### 2026-07-28 — issue #1232 mobile Agents categories
-- Files modified: mobile Agents screen; chat/activity list components; agent category/chat read-model services; #1232 contract and fake-server E2E; run log.
-- Checks run: #1232 contract 5/5 pass after 4 expected failing-first assertions; #1172 6/6 pass; #1173 tool service 5/5 pass; repair-pass typecheck, lint, and diff checks pass.
-- Decisions made: retain the existing chat read-model default for other callers, opt this screen into all lifecycle states, derive Scheduled/Background categories from scheduler/optimizer activity sources, and preserve the unfiltered Activity feed as a secondary header action. The chat-list action label is distinct from the workspace label so mounted but hidden routes cannot intercept workspace automation. See `docs/ai/runs/2026-07-28-mobile-agents-1232.md`.
-- Deviations from spec: exact GitHub issue text unavailable due blocked network; no socket/simulator verification.
-- Concerns: loaded-page counts and the restored Activity entry point require the orchestrator's Playwright rerun; segmented category labels need narrow-screen/dynamic-type smoke.
+### 2026-07-28 — issue #1236 structured profile capability editor
+- Files modified: desktop profile sheet/model/MCP data source; new capability
+  editor widget; api_server MCP catalog wrapper/route; contract and tests.
+- Checks run: issue-level static checks PASS; api_server build PASS; Flutter
+  widget/API listener tests and sandbox live gate BLOCKED by managed environment
+  socket/network restrictions (see
+  `docs/ai/runs/2026-07-28-profile-editor-1236.md`).
+- Decisions made: preserve `null = unrestricted`, `{}` = deny-all, and encode
+  granular MCP scope as `{server: [tool]}` with an empty list meaning all tools
+  for that selected server, matching the real api_server expander contract.
+- Deviations from spec: no commit, live round-trip, or screenshot because the
+  required verification gate could not execute.
+- Concerns: legacy profile-picker tests must be run alongside the new contract
+  once Flutter test sockets and the fork dependency cache are available.

@@ -5,6 +5,13 @@
 /// complementary config-time warning: when the profile's model provider is
 /// 'google' and enough MCP servers are selected (or "Allow all" with a large
 /// live server set) to exceed the estimated budget, a warning banner appears.
+///
+/// #1236 replaced the old pill-drawer MCP picker (with its own "ALLOWED
+/// MCPS" section) with the structured CapabilityScopeEditor dialog. The
+/// warning itself (`_buildGeminiCapWarning`) moved with it — it now renders
+/// inline in the always-visible "Capabilities" summary card
+/// (`_buildCapabilitiesSection`), computed off the live/selected MCP server
+/// count, so no dialog needs to be opened to observe it.
 library;
 
 import 'package:flutter/material.dart';
@@ -96,8 +103,8 @@ Widget _buildSheet({
     child: MaterialApp(
       home: Scaffold(
         body: SizedBox(
-          height: 1000,
-          width: 800,
+          height: 1100,
+          width: 900,
           child: AgentProfileSheet(
             config: config,
             modelsDataSource: _FakeModelsDataSource(catalog),
@@ -109,11 +116,11 @@ Widget _buildSheet({
   );
 }
 
-Future<void> _scrollToMcpSection(WidgetTester tester) async {
+Future<void> _scrollToCapabilitiesSection(WidgetTester tester) async {
   await tester.dragUntilVisible(
-    find.text('ALLOWED MCPS'),
+    find.text('CAPABILITIES'),
     find.byType(ListView).first,
-    const Offset(0, -120),
+    const Offset(0, -180),
   );
   await tester.pumpAndSettle();
 }
@@ -131,7 +138,7 @@ void main() {
       mcpNames: _manyMcpServers(),
     ));
     await tester.pumpAndSettle();
-    await _scrollToMcpSection(tester);
+    await _scrollToCapabilitiesSection(tester);
 
     expect(find.textContaining('may exceed Gemini'), findsOneWidget);
   });
@@ -145,7 +152,7 @@ void main() {
       mcpNames: _manyMcpServers(),
     ));
     await tester.pumpAndSettle();
-    await _scrollToMcpSection(tester);
+    await _scrollToCapabilitiesSection(tester);
 
     expect(find.textContaining('may exceed Gemini'), findsNothing);
   });
@@ -159,7 +166,7 @@ void main() {
       mcpNames: ['rhythm', 'gmail-work'],
     ));
     await tester.pumpAndSettle();
-    await _scrollToMcpSection(tester);
+    await _scrollToCapabilitiesSection(tester);
 
     expect(find.textContaining('may exceed Gemini'), findsNothing);
   });

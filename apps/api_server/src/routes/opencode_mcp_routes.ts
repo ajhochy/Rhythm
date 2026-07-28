@@ -83,6 +83,13 @@ opencodeMcpRouter.get(
     try {
       const statusMap = await opencodeClient.listMcp();
       const persistedConfigs = await opencodeClient.getPersistedMcpConfigs();
+      let toolIds: string[] = [];
+      try {
+        toolIds = await opencodeClient.listToolIds();
+      } catch {
+        // Tool discovery is an editor enhancement; server status remains useful
+        // when an older/unready engine cannot expose the experimental catalog.
+      }
 
       const entries = Object.entries(statusMap).map(([name, entry]) => {
         const config = persistedConfigs[name];
@@ -105,6 +112,11 @@ opencodeMcpRouter.get(
         // extra precision is free and useful to the UI.
         const source: 'curated' | 'rhythm' | 'adhoc' =
           name === 'rhythm' ? 'rhythm' : curated ? 'curated' : 'adhoc';
+        const toolPrefix = `${name.replace(/[^a-zA-Z0-9_-]/g, '_')}_`;
+        const tools = toolIds
+          .filter((id) => id.startsWith(toolPrefix))
+          .map((id) => id.substring(toolPrefix.length))
+          .sort();
 
         // Redact env values
         const environment = envMap
@@ -136,6 +148,7 @@ opencodeMcpRouter.get(
           requiredEnv,
           needsCredentials,
           source,
+          tools,
         };
       });
       res.json(entries);
