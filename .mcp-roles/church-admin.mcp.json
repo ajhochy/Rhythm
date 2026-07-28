@@ -31,6 +31,17 @@
         "rhythm_send_message",
         "rhythm_list_message_threads",
         "rhythm_create_message_thread",
+        "rhythm_list_calendar_events",
+        "rhythm_create_calendar_event",
+        "rhythm_update_calendar_event",
+        "rhythm_pco_list_service_types",
+        "rhythm_pco_list_plans",
+        "rhythm_pco_get_plan_items",
+        "rhythm_pco_list_needed_positions",
+        "rhythm_pco_update_plan_item",
+        "rhythm_pco_assign_person",
+        "rhythm_pco_update_scheduled_person",
+        "rhythm_request_approval",
         "rhythm_list_facilities",
         "rhythm_create_reservation",
         "rhythm_remember_memory",
@@ -40,9 +51,6 @@
         "rhythm_start_research",
         "rhythm_get_research_job"
       ]
-    },
-    "pco-services": {
-      "inherit": true
     }
   },
   "disabledMcpServers": [

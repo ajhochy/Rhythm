@@ -1,0 +1,61 @@
+{
+  "issue": 1134,
+  "generated": "2026-07-24T00:00:00.000Z",
+  "criteria": [
+    {
+      "criterion_id": "c1",
+      "text": "Treat external-content provenance as tainted state for the turn/session.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1134_external_content_security.test.ts",
+      "test_id": "#1134 c1: taint is persisted against the trusted SDK session and source turn",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "c2",
+      "text": "Scan raw Gmail content before it reaches the model and fail closed on high-confidence injection markers.",
+      "mode": "integration",
+      "test_file": "apps/mcp_server/src/tools/__tests__/email_injection_gate.test.ts",
+      "test_id": "#1134 c2: raw malicious Gmail is blocked before model delivery and taint persistence failure is fail-closed",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "c3",
+      "text": "Require a server-enforced human approval token for rhythm_send_email and shared-message writes after any external content has been consumed.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1134_external_content_security.test.ts",
+      "test_id": "#1134 c3: approval consumption binds session agent action payload taint expiry and single use",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "c4",
+      "text": "Split read-only triage from send/write roles, or require a fresh clean-context handoff for outbound actions.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/gmail_signals.test.ts",
+      "test_id": "#1134 c4: email triage and outbound role files have disjoint read/write capabilities",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "c5",
+      "text": "Add adversarial tests using additionally-style reframing, hidden comments, Unicode controls, and data-exfiltration instructions.",
+      "mode": "unit",
+      "test_file": "apps/mcp_server/src/security/__tests__/context_scanner.test.ts",
+      "test_id": "scanContextContent (#1134, vendored copy)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "c6",
+      "text": "Add a live behavioral test proving malicious email content cannot cause an outbound email or shared-resource write.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1134_external_email_boundary.test.ts",
+      "test_id": "#1134 c6 live: malicious Gmail cannot reach email or shared-message outbound fixtures",
+      "status": "pass"
+    }
+  ],
+  "stack": {
+    "language": "TypeScript",
+    "test_framework": "Vitest",
+    "build_command": "cd apps/api_server && npm run build && cd ../mcp_server && npm run build && cd ../opencode_fork/packages/opencode && bun run typecheck",
+    "test_command": "cd apps/api_server && npx vitest run src/__tests__/issue_1134_external_content_security.test.ts src/__tests__/gmail_signals.test.ts && cd ../mcp_server && npx vitest run src/tools/__tests__/email_injection_gate.test.ts src/security/__tests__/context_scanner.test.ts"
+  },
+  "not_tested": []
+}

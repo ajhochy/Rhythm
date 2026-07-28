@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import type { NextFunction, Request, Response } from 'express';
 import { runMigrations } from '../../database/migrations';
-import { setDb } from '../../database/db';
+import { getDb, setDb } from '../../database/db';
 import { AgentConfigsRepository } from '../../repositories/agent_configs_repository';
 
 const { mockListAgents, mockSync, engineState } = vi.hoisted(() => ({
@@ -165,6 +165,34 @@ describe('AgentSessionsController.listAgents — #1135 disabled-profile registry
     const enabledPass = makeResponse();
     await controller.listAgents(req, enabledPass.res, next);
     expect(agentNames(enabledPass.state.body)).toContain('toggle-agent');
+  });
+
+  it('keeps a security-locked profile hidden after enabled-column drift, including reserved ids', async () => {
+    repo.insert({
+      id: 'locked-researcher',
+      label: 'Locked Researcher',
+      icon: '',
+      isAgent: true,
+      enabled: true,
+      ocAgent: 'locked-researcher',
+    });
+    repo.lockForSecurity('locked-researcher', 'audit finding', 'reviewer');
+    repo.lockForSecurity('claude-code', 'preset audit finding', 'reviewer');
+    getDb()
+      .prepare(`UPDATE agent_configs SET enabled = 1 WHERE id IN ('locked-researcher', 'claude-code')`)
+      .run();
+    mockListAgents.mockResolvedValue([
+      { name: 'locked-researcher', builtIn: false, mode: 'subagent' },
+      { name: 'claude-code', builtIn: true, mode: 'primary' },
+      { name: 'build', builtIn: true, mode: 'primary' },
+    ]);
+
+    const { res, state } = makeResponse();
+    await controller.listAgents({ query: {} } as unknown as Request, res, next);
+
+    expect(agentNames(state.body)).not.toContain('locked-researcher');
+    expect(agentNames(state.body)).not.toContain('claude-code');
+    expect(agentNames(state.body)).toContain('build');
   });
 
   it('returns an empty list (unchanged) when the engine is not ready', async () => {

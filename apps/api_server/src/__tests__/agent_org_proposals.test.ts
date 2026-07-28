@@ -62,6 +62,7 @@ describe('issue-817-c1: agent_org_proposals table exists in SQLite with the spec
       'post_score',
       'measure_reason',
       'decided_by_user_id',
+      'owner_user_id',
       'created_at',
       'updated_at',
     ].sort();

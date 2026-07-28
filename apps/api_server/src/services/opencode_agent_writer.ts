@@ -30,7 +30,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { scanContextContent } from '../security/context_scanner';
-import type { AgentConfig } from '../repositories/agent_configs_repository';
+import {
+  agentConfigExecutionBlockReason,
+  type AgentConfig,
+} from '../repositories/agent_configs_repository';
 import { expandProfileMcpAllowlist, expandProfileSkillAllowlist } from './agent_profile_scope';
 import { opencodeClient } from './opencode_engine';
 
@@ -265,7 +268,7 @@ export function isAgentProfileFileMissing(config: AgentConfig): boolean {
  * below, e.g. agent_profile_sync's #858 oc_agent backfill pass.
  */
 export function isProjectableAgentConfig(config: AgentConfig): boolean {
-  if (!config.enabled) return false;
+  if (agentConfigExecutionBlockReason(config) !== null) return false;
   return isProjectableAgentConfigIgnoringEnabled(config);
 }
 
@@ -307,6 +310,15 @@ function splitFrontmatter(text: string): [string | null, string] {
   return [m[1], m[2]];
 }
 
+/**
+ * Encode a user-authored value as a YAML-safe double-quoted scalar. JSON
+ * string syntax is valid YAML and protects leading `#`, colons, newlines, and
+ * other label content from changing the frontmatter structure.
+ */
+export function yamlQuotedString(value: string): string {
+  return JSON.stringify(value);
+}
+
 /** Replace a top-level `key: …` line in frontmatter, or append it if absent. */
 function setFrontmatterKey(fm: string, key: string, value: string): string {
   const line = `${key}: ${value}`;
@@ -324,13 +336,19 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Ensure a direct child entry exists inside the top-level permission block. */
-function setPermissionKey(fm: string, key: string, value: string): string {
-  const yamlKey = yamlPermissionKey(key);
+/**
+ * Replace one direct child of the top-level permission block, including every
+ * deeper-indented line in its existing subtree.
+ */
+function replacePermissionSubtree(
+  fm: string,
+  key: string,
+  replacement: string[],
+): string {
   const lines = fm.split('\n');
   const permissionIndex = lines.findIndex((line) => /^permission:\s*$/.test(line));
   if (permissionIndex === -1) {
-    return `${fm}${fm.length > 0 ? '\n' : ''}permission:\n  ${yamlKey}: ${value}`;
+    return `${fm}${fm.length > 0 ? '\n' : ''}permission:\n${replacement.join('\n')}`;
   }
 
   let blockEnd = lines.length;
@@ -341,43 +359,18 @@ function setPermissionKey(fm: string, key: string, value: string): string {
     }
   }
 
-  const keyPattern = new RegExp(`^  (?:${escapeRegExp(key)}|${escapeRegExp(JSON.stringify(key))}):`);
-  const existingIndex = lines
-    .slice(permissionIndex + 1, blockEnd)
-    .findIndex((line) => keyPattern.test(line));
-  if (existingIndex >= 0) {
-    lines[permissionIndex + 1 + existingIndex] = `  ${yamlKey}: ${value}`;
-  } else {
-    lines.splice(blockEnd, 0, `  ${yamlKey}: ${value}`);
-  }
-  return lines.join('\n');
-}
-
-function setPermissionValue(fm: string, key: string, value: unknown): string {
-  if (typeof value === 'string') return setPermissionKey(fm, key, value);
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return fm;
-
-  const lines = fm.split('\n');
-  const permissionIndex = lines.findIndex((line) => /^permission:\s*$/.test(line));
-  if (permissionIndex === -1) {
-    return `${fm}${fm.length > 0 ? '\n' : ''}permission:\n${permissionBlockLines(key, value).join('\n')}`;
-  }
-
-  let blockEnd = lines.length;
-  for (let i = permissionIndex + 1; i < lines.length; i += 1) {
-    if (/^\S/.test(lines[i])) {
-      blockEnd = i;
-      break;
-    }
-  }
-
+  const keyPattern = new RegExp(
+    `^  (?:${escapeRegExp(key)}|${escapeRegExp(JSON.stringify(key))}):`,
+  );
   let existingStart = -1;
   let existingEnd = blockEnd;
   for (let i = permissionIndex + 1; i < blockEnd; i += 1) {
-    if (new RegExp(`^  ${key}:`).test(lines[i])) {
+    if (keyPattern.test(lines[i])) {
       existingStart = i;
       existingEnd = i + 1;
-      while (existingEnd < blockEnd && /^    /.test(lines[existingEnd])) existingEnd += 1;
+      while (existingEnd < blockEnd && /^ {4}/.test(lines[existingEnd])) {
+        existingEnd += 1;
+      }
       break;
     }
   }
@@ -385,13 +378,31 @@ function setPermissionValue(fm: string, key: string, value: unknown): string {
   lines.splice(
     existingStart === -1 ? blockEnd : existingStart,
     existingStart === -1 ? 0 : existingEnd - existingStart,
-    ...permissionBlockLines(key, value),
+    ...replacement,
   );
   return lines.join('\n');
 }
 
+/** Ensure a scalar direct child exists inside the top-level permission block. */
+function setPermissionKey(fm: string, key: string, value: string): string {
+  return replacePermissionSubtree(fm, key, [
+    `  ${yamlPermissionKey(key)}: ${value}`,
+  ]);
+}
+
+function setPermissionValue(fm: string, key: string, value: unknown): string {
+  if (typeof value === 'string') return setPermissionKey(fm, key, value);
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return fm;
+  return replacePermissionSubtree(fm, key, permissionBlockLines(key, value));
+}
+
 function permissionBlockLines(key: string, value: object): string[] {
-  return [`  ${key}:`, ...Object.entries(value).map(([pattern, action]) => `    ${JSON.stringify(pattern)}: ${action}`)];
+  return [
+    `  ${yamlPermissionKey(key)}:`,
+    ...Object.entries(value).map(
+      ([pattern, action]) => `    ${JSON.stringify(pattern)}: ${action}`,
+    ),
+  ];
 }
 
 /**
@@ -557,7 +568,7 @@ export function writeAgentProfileFile(config: AgentConfig): void {
       fm = existingFm ?? '';
       // description: only seed when missing — preserve a richer existing one.
       if (!/^description:.*$/m.test(fm)) {
-        fm = setFrontmatterKey(fm, 'description', config.label);
+        fm = setFrontmatterKey(fm, 'description', yamlQuotedString(config.label));
       }
       fm = setFrontmatterKey(fm, 'mode', mode);
       if (model) fm = setFrontmatterKey(fm, 'model', model);
@@ -576,11 +587,12 @@ export function writeAgentProfileFile(config: AgentConfig): void {
       const keep = new Set<string>(Object.keys(corePermissions));
       if (config.imageGenerationEnabled === true) keep.add('image_generation');
       if (config.isManager === true) keep.add('task');
+      keep.add('rhythm_delegate_async');
       if (config.id === 'workflow-orchestrator') keep.add('write');
       fm = pruneStalePermissionKeys(fm, keep);
     } else {
       // Fresh file authored from the profile.
-      fm = `description: ${config.label}\nmode: ${mode}`;
+      fm = `description: ${yamlQuotedString(config.label)}\nmode: ${mode}`;
       if (model) fm += `\nmodel: ${model}`;
       body = config.systemPrompt ?? '';
     }
@@ -603,6 +615,19 @@ export function writeAgentProfileFile(config: AgentConfig): void {
     const delegateRoster = parseDelegateRoster(config);
     if (config.isManager === true) {
       fm = setPermissionValue(fm, 'task', buildTaskDelegatePermissions(delegateRoster));
+    }
+    // #1123 — expose the additive async delegate tool only to manager profiles
+    // that can own an interactive chat. Runtime API validation repeats the
+    // interactive/session gate so a profile that is also schedulable cannot use
+    // this from a headless run. An explicit corePermissionsJson entry remains
+    // authoritative for eligible managers; every ineligible profile is forced
+    // deny so the schema is unavailable before dispatch.
+    if (config.isManager === true && config.sessionSelectable) {
+      if (corePermissions.rhythm_delegate_async === undefined) {
+        fm = setPermissionKey(fm, 'rhythm_delegate_async', 'allow');
+      }
+    } else {
+      fm = setPermissionKey(fm, 'rhythm_delegate_async', 'deny');
     }
     if (config.id === 'workflow-orchestrator') {
       fm = setPermissionKey(fm, 'write', 'allow');
@@ -683,7 +708,10 @@ export function deleteAgentProfileFile(id: string): void {
  * profile's `enabled` state may have just changed.
  */
 export function syncAgentProfileFileForState(config: AgentConfig): void {
-  if (!config.enabled && isProjectableAgentConfigIgnoringEnabled(config)) {
+  if (
+    agentConfigExecutionBlockReason(config) !== null &&
+    isProjectableAgentConfigIgnoringEnabled(config)
+  ) {
     deleteAgentProfileFile(config.id);
     return;
   }

@@ -24,19 +24,12 @@
         "rhythm_list_scheduled_tasks",
         "rhythm_remember_memory",
         "rhythm_search_memory",
-        "rhythm_list_memories"
-      ]
-    },
-    "pco-services": {
-      "inherit": true,
-      "allowedTools": [
-        "get_plans",
-        "get_plan_items",
-        "get_plan_team_members",
-        "get_needed_positions",
-        "get_person_blockouts",
-        "get_person_plan_schedule",
-        "search_people"
+        "rhythm_list_memories",
+        "rhythm_pco_list_service_types",
+        "rhythm_pco_list_plans",
+        "rhythm_pco_get_plan_items",
+        "rhythm_pco_list_needed_positions",
+        "rhythm_request_approval"
       ]
     }
   },

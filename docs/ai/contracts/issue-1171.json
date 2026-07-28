@@ -1,0 +1,119 @@
+{
+  "issue": 1171,
+  "generated": "2026-07-25",
+  "criteria": [
+    {
+      "criterion_id": "issue-1171-c1",
+      "text": "Handles Tailscale missing/logged-out/wrong target/healthy states",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/tailscale_serve_service.test.ts",
+      "test_id": "issue-1171-c1: diagnoses every Tailscale and Serve state without shell execution",
+      "status": "pass",
+      "evidence": [
+        "cd apps/api_server && npx vitest run src/services/__tests__/tailscale_serve_service.test.ts src/services/__tests__/mobile_gateway_surface.test.ts src/services/__tests__/mobile_pairing_service.test.ts — 19/19 pass",
+        "Sandboxed real-engine run on API :5597, engine :5598, and phone listener :5599 — issue_1171_mobile_access_live.test.ts 1/1 pass; phone listener rejects pairing-code admin, device list, access-toggle, and legacy routes"
+      ]
+    },
+    {
+      "criterion_id": "issue-1171-c2",
+      "text": "QR contains only tailnet gateway URL + one-time code",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/mobile_access_dialog_test.dart",
+      "test_id": "issue-1171-c2: QR payload is minimal, expires, regenerates, and never exposes durable credentials",
+      "status": "pass",
+      "evidence": [
+        "cd apps/desktop_flutter && flutter test test/features/agents/mobile_access_dialog_test.dart — 8/8 pass, including exact two-field QR payload and expiry/regeneration"
+      ]
+    },
+    {
+      "criterion_id": "issue-1171-c3",
+      "text": "Device token is Keychain-only; pairing code discarded after exchange",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/paired-host.test.mjs",
+      "test_id": "issue-1171-c3: successful pairing persists only the device token in SecureStore and erases the code",
+      "status": "pass",
+      "evidence": [
+        "cd apps/mobile && npm run test:paired-host — 20/20 scenarios pass, including SecureStore-only persistence, one-time-code erasure, storage rollback success, rollback-failure truthfulness, and distinct credential/metadata cleanup failures",
+        "Sandboxed real-engine issue_1171_mobile_access_live.test.ts — 1/1 pass with hashed-at-rest pairing verifier and authenticated device exchange"
+      ]
+    },
+    {
+      "criterion_id": "issue-1171-c4",
+      "text": "States cover unpaired/pairing/connected/offline/Tailscale unavailable/revoked/incompatible/unhealthy",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/paired-host.test.mjs",
+      "test_id": "issue-1171-c4: paired-host state machine and settings/pair route expose every actionable state independently from cloud auth",
+      "status": "pass",
+      "evidence": [
+        "cd apps/mobile && npm run test:paired-host — 20/20 state-machine and transactional replacement scenarios pass",
+        "cd apps/mobile && npm run verify:foundation — Playwright 21/21 pass, including visible retryable revoke/forget failures without page errors"
+      ]
+    },
+    {
+      "criterion_id": "issue-1171-c5",
+      "text": "Flutter format/analyze/tests and mobile tests/E2E pass",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1171.mjs",
+      "test_id": "issue-1171-c5: required desktop and mobile verification commands are wired and green",
+      "status": "pass",
+      "evidence": [
+        "cd apps/desktop_flutter && dart format . --set-exit-if-changed — 432 files checked, 0 changed",
+        "cd apps/desktop_flutter && flutter analyze --no-fatal-infos — exit 0 with 273 pre-existing infos",
+        "cd apps/desktop_flutter && flutter test test/features/agents/mobile_access_dialog_test.dart — 8/8 pass",
+        "cd apps/mobile && npm run verify:foundation — pass, including lint, typecheck, security/state suites, and Playwright 21/21",
+        "cd apps/api_server && npx vitest run --exclude src/__tests__/issue_723_mcp_remove_reconcile.test.ts — 374 files / 3,247 tests pass"
+      ]
+    },
+    {
+      "criterion_id": "issue-1171-c6",
+      "text": "Independent security/accessibility review passes",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1171.mjs",
+      "test_id": "issue-1171-c6: security and accessibility regression suites exist and pass before independent review",
+      "status": "pass",
+      "evidence": [
+        "Independent review findings against 43fe3723b were closed with strict phone-surface, transactional rollback, visible failure-state, executable-contract, and native accessibility regressions",
+        "docs/ai/runs/artifacts/issue-1171/native-accessibility.json — dedicated iOS 18.3 simulator at accessibility-extra-extra-extra-large with reachable pairing and paired-Mac actions",
+        "docs/ai/runs/artifacts/issue-1171/native-large-text-pair-top.png and native-large-text-connected.png — retained native screenshots after the corrective layout pass",
+        "tests/contract/issue-1171.mjs c6 executes API surface/security, paired-host state, Playwright failure/computed-font, and retained native-evidence checks"
+      ]
+    },
+    {
+      "criterion_id": "issue-1171-c7",
+      "text": "PairedHostStore.pair malformed parse must transition out of pairing and preserve a truthful retryable snapshot; add store/provider/E2E regression proving scanner re-enables without restart.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/pairing.spec.mjs",
+      "test_id": "issue-1171-c7: malformed scanner input re-enables pairing without an app restart",
+      "status": "pass",
+      "evidence": [
+        "cd apps/mobile && npm run test:paired-host — 22/22 scenarios pass; malformed input restores an unpaired retryable snapshot instead of leaving pairing active",
+        "PLAYWRIGHT_FAKE_PORT=44271 PLAYWRIGHT_WEB_PORT=19271 npx playwright test tests/e2e/pairing.spec.mjs --grep \"malformed scanner|replacement secure-write\" — 3/3 pass; malformed input displays an error, re-enables Scan test QR code, and pairs successfully without restart"
+      ]
+    },
+    {
+      "criterion_id": "issue-1171-c8",
+      "text": "Dedicated Playwright must never reuse an existing server in any local/CI mode; fail fast on occupied ports and keep parameterized ports.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/playwright-port-isolation.test.mjs",
+      "test_id": "issue-1171-c8: a healthy occupied parameterized port fails before Playwright reuses or builds",
+      "status": "pass",
+      "evidence": [
+        "cd apps/mobile && node tests/playwright-port-isolation.test.mjs — pass; a healthy occupied parameterized fake port is rejected within 15 seconds in both local and CI modes"
+      ]
+    },
+    {
+      "criterion_id": "issue-1171-c9",
+      "text": "Add injectable failure of the initial new-token secure write during cross-Mac replacement, including combinations where cleanup/revocation succeed/fail; make final host/device state truthful and actionable in every branch, and cover unit + E2E where practical.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/paired-host.test.mjs",
+      "test_id": "issue-1171-c9: secure-write replacement failure matrix exposes truthful actionable snapshots",
+      "status": "pass",
+      "evidence": [
+        "cd apps/mobile && npm run test:paired-host — 22/22 scenarios pass, including secure-write failure crossed with new-device revocation and Keychain cleanup success/failure",
+        "PLAYWRIGHT_FAKE_PORT=44271 PLAYWRIGHT_WEB_PORT=19271 npx playwright test tests/e2e/pairing.spec.mjs --grep \"malformed scanner|replacement secure-write\" — 3/3 pass; full cleanup exposes the revoked previous host, while server-cleanup failure persists and restores the still-active new device after page reload"
+      ]
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

@@ -16,7 +16,9 @@ import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
 import '../../../app/core/services/theme_mode_service.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../agents/views/mobile_access_dialog.dart';
 import '../controllers/settings_controller.dart';
+import '../widgets/semantic_memory_section.dart';
 
 class SettingsView extends StatefulWidget {
   const SettingsView({super.key});
@@ -216,6 +218,8 @@ class _SettingsViewState extends State<SettingsView> {
           const _ClaudeIntegrationSection(),
           const SizedBox(height: 24),
           const _AgentServerSection(),
+          const SizedBox(height: 24),
+          const SemanticMemorySection(),
           const SizedBox(height: 24),
           const MemoryVaultSection(),
           const SizedBox(height: 24),
@@ -1124,6 +1128,16 @@ class _AgentServerReady extends StatelessWidget {
             fontWeight: FontWeight.w600,
             color: context.rhythm.textPrimary,
           ),
+        ),
+        const Spacer(),
+        FilledButton.tonalIcon(
+          key: const Key('enable-mobile-access-button'),
+          onPressed: () => showDialog<void>(
+            context: context,
+            builder: (_) => const MobileAccessDialog(),
+          ),
+          icon: const Icon(Icons.phone_iphone_outlined, size: 17),
+          label: const Text('Enable Mobile Access'),
         ),
       ],
     );

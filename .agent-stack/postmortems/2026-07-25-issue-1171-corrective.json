@@ -1,0 +1,120 @@
+{
+  "run_id": "2026-07-25-issue-1171-corrective",
+  "issue": 1171,
+  "date": "2026-07-25",
+  "smoke_result": "pass",
+  "verification_claimed": "pass_with_baseline_exception",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1171-c1",
+      "text": "Handles Tailscale missing/logged-out/wrong target/healthy states",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the focused API diagnostics suite; the simulator smoke did not mutate the host's real Tailscale configuration."
+    },
+    {
+      "criterion_id": "issue-1171-c2",
+      "text": "QR contains only tailnet gateway URL + one-time code",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The native pair screen drove the scanner callback with the exact two-field payload and displayed no code or credential."
+    },
+    {
+      "criterion_id": "issue-1171-c3",
+      "text": "Device token is Keychain-only; pairing code discarded after exchange",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Native pairing, replacement, and revoke completed without rendering either secret; deterministic gateway audit showed only credential-authenticated requests."
+    },
+    {
+      "criterion_id": "issue-1171-c4",
+      "text": "States cover unpaired/pairing/connected/offline/Tailscale unavailable/revoked/incompatible/unhealthy",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The native smoke observed Not paired, pairing, connected, transactional replacement, rollback messaging, and revoke back to Not paired; remaining bounded states have store regressions."
+    },
+    {
+      "criterion_id": "issue-1171-c5",
+      "text": "Flutter format/analyze/tests and mobile tests/E2E pass",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Current branch built and launched on the isolated iPhone SE simulator; full final command evidence is recorded separately by verification-gate."
+    },
+    {
+      "criterion_id": "issue-1171-c6",
+      "text": "Independent security/accessibility review passes",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The corrective review closed all seven security/accessibility blockers. Native AX exposed labeled close, camera, scanner, replacement, refresh, revoke, and forget controls on the iPhone SE."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "simulator-fixture-state",
+      "description": "The first replacement attempt correctly rolled back because the fake gateway had been reset after the simulator had persisted its first device metadata, so the old device no longer existed server-side.",
+      "detected_by": "The native UI displayed the replacementFailed message and GET /__control/mobile returned no devices; clearing the app pairing, resetting both sides together, and rerunning produced the expected old-DELETE/new-active audit."
+    },
+    {
+      "process_category": "sandbox-process-lifetime",
+      "description": "The detached sandbox child was reaped by the execution environment immediately after the launcher reported healthy.",
+      "detected_by": "All three assigned ports were free before the live test. Keeping the rebuilt API in an owned foreground PTY produced a stable passing run and clean SIGINT shutdown."
+    },
+    {
+      "process_category": "baseline-test-regression",
+      "description": "The complete API suite has one deterministic issue #723 VM dynamic-import failure in code unchanged from main.",
+      "detected_by": "The failure reproduced in isolation; the remaining 374 files and 3247 tests passed when only that exact baseline file was excluded."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "project-state-updater",
+        "description": "The rigid post-smoke hook ran immediately after the native smoke, before final verification and project-state-updater completed.",
+        "detected_by": "The final project-state update completed later in the same run, so the skill was used but out of the canonical order."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/app.ts",
+    "apps/api_server/src/server.ts",
+    "apps/api_server/src/mobile_gateway_config.ts",
+    "apps/api_server/src/mobile_gateway_surface.ts",
+    "apps/api_server/src/services/tailscale_serve_service.ts",
+    "apps/mobile/lib/pairing/paired-host-store.ts",
+    "apps/mobile/providers/paired-host-provider.tsx",
+    "apps/mobile/providers/rhythm-account-provider.tsx",
+    "apps/mobile/app/pair.tsx",
+    "apps/mobile/tests/e2e/pairing.spec.mjs"
+  ],
+  "failure_output": "Initial environment-state probe: The previous Mac could not be revoked, so this iPhone kept its existing pairing. Clean fixture rerun passed and audited the old-device DELETE before the new device remained active.",
+  "overall_category": "none",
+  "suggested_follow_up": "Reset simulator-local pairing and fake-gateway device state as one fixture operation before every native replacement smoke."
+}

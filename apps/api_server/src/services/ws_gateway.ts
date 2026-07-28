@@ -2,6 +2,10 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { appEvents } from '../utils/app_events';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import {
+  AgentConfigsRepository,
+  agentConfigExecutionBlockReason,
+} from '../repositories/agent_configs_repository';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { bridgePty, ptyEngineUrl } from './pty_proxy';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
@@ -20,9 +24,49 @@ export interface WsMessage {
 const clients = new Set<WebSocket>();
 let attached = false;
 
-export function attachWsGateway(server: http.Server): WebSocketServer {
+function isLoopbackAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  if (address === '::1') return true;
+  const normalized = address.toLowerCase().startsWith('::ffff:')
+    ? address.slice('::ffff:'.length)
+    : address;
+  const octets = normalized.split('.');
+  return (
+    octets.length === 4 &&
+    octets.every((part) => /^\d{1,3}$/.test(part)) &&
+    Number(octets[0]) === 127 &&
+    octets.every((part) => Number(part) <= 255)
+  );
+}
+
+function rejectRemoteLegacyUpgrade(
+  socket: import('node:stream').Duplex,
+): void {
+  if (socket.destroyed) return;
+  socket.end(
+    'HTTP/1.1 403 Forbidden\r\n' +
+      'Connection: close\r\n' +
+      'Content-Length: 0\r\n' +
+      'Cache-Control: no-store\r\n\r\n',
+  );
+}
+
+export interface MobileUpgradeHandler {
+  handleUpgrade(
+    request: http.IncomingMessage,
+    socket: import('node:stream').Duplex,
+    head: Buffer,
+  ): boolean;
+  close(): void;
+}
+
+export function attachWsGateway(
+  server: http.Server,
+  mobileUpgradeHandler?: MobileUpgradeHandler,
+): WebSocketServer {
   // Idempotency guard: if already attached, return a no-op WSS
   if (attached) {
+    mobileUpgradeHandler?.close();
     return new WebSocketServer({ noServer: true });
   }
   attached = true;
@@ -70,24 +114,38 @@ export function attachWsGateway(server: http.Server): WebSocketServer {
   const ptyWss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (req, socket, head) => {
+    if (mobileUpgradeHandler?.handleUpgrade(req, socket, head)) return;
     let pathname = '/';
     try {
       pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
     } catch {
       /* default pathname */
     }
-    if (pathname === '/ws/agents') {
+    const legacyAgentSocket = pathname === '/ws/agents';
+    const legacyPtyMatch = pathname.match(/^\/ws\/pty\/([^/]+)$/);
+    if (
+      (legacyAgentSocket || legacyPtyMatch) &&
+      !isLoopbackAddress(
+        (socket as import('node:stream').Duplex & {
+          remoteAddress?: string;
+        }).remoteAddress,
+      )
+    ) {
+      rejectRemoteLegacyUpgrade(socket);
+      return;
+    }
+    if (legacyAgentSocket) {
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
       return;
     }
-    const m = pathname.match(/^\/ws\/pty\/([^/]+)$/);
-    if (m) {
-      const ptyId = decodeURIComponent(m[1]);
+    if (legacyPtyMatch) {
+      const ptyId = decodeURIComponent(legacyPtyMatch[1]);
       ptyWss.handleUpgrade(req, socket, head, (ws) => bridgePty(ws, ptyEngineUrl(ptyId)));
       return;
     }
     socket.destroy();
   });
+  wss.once('close', () => mobileUpgradeHandler?.close());
 
   return wss;
 }
@@ -391,6 +449,24 @@ export async function handleInputFrame(
   // init-time scoping. Non-fatal: a missing/unknown profile id returns null
   // mcpRoleConfig (no restriction).
   const scopeAgentId = perTurnAgent ?? agentKind ?? null;
+  if (scopeAgentId) {
+    try {
+      const configsRepo = new AgentConfigsRepository();
+      const config =
+        configsRepo.getById(scopeAgentId) ??
+        configsRepo.list().find((candidate) => candidate.ocAgent === scopeAgentId);
+      if (config) {
+        const blockReason = agentConfigExecutionBlockReason(config);
+        if (blockReason) {
+          ws.send(JSON.stringify({ v: 1, type: 'error', id, message: blockReason }));
+          return;
+        }
+      }
+    } catch {
+      // Preserve the existing fail-open behavior when the local DB is
+      // unavailable; the projection/registry boundaries remain fail-closed.
+    }
+  }
 
   // #884 — resolve the model/provider for this turn ONCE, BEFORE
   // building/pushing the MCP allowlist, so createSession/updateSessionAllowlist

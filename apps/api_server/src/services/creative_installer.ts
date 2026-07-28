@@ -5,192 +5,59 @@ import { basename, dirname, join, relative } from 'node:path';
 import { spawn } from 'node:child_process';
 import type { CreativeCapabilityId } from './creative_capabilities';
 import {
+  CREATIVE_INSTALL_RECIPES,
+  CREATIVE_DEPENDENCY_BUNDLES,
+  NPM_REGISTRY,
+  NPM_ARTIFACT,
+  PYPI_INDEX,
+  UV_ARTIFACT,
+  creativeSetupPlan,
+  type CreativeInstallArtifact,
+  type CreativeInstallRecipe,
+} from './creative_dependency_support';
+import {
   COMFYUI_MODEL_FILENAME,
   creativeCapabilityLayout,
 } from './creative_install_layout';
 import type { AgentApproval } from '../repositories/agent_approvals_repository';
 
+export {
+  CREATIVE_INSTALL_RECIPES,
+  type CreativeInstallArtifact,
+  type CreativeInstallRecipe,
+} from './creative_dependency_support';
+
 export type CreativeInstallStatus =
   | 'installed'
   | 'already-installed'
+  | 'uninstalled'
   | 'awaiting-user'
   | 'denied'
   | 'failed';
+
+export type CreativeInstallOperation = 'install' | 'repair' | 'uninstall';
+export type CreativeInstallProgressPhase =
+  | 'planning'
+  | 'downloading'
+  | 'verifying'
+  | 'installing'
+  | 'complete'
+  | 'failed';
+
+export interface CreativeInstallProgress {
+  phase: CreativeInstallProgressPhase;
+  detail: string;
+}
 
 export interface CreativeInstallResult {
   status: CreativeInstallStatus;
   id: CreativeCapabilityId;
   detail: string;
-}
-
-export interface CreativeInstallArtifact {
-  filename: string;
-  url: string;
-  sha256: string;
-}
-
-type CreativeInstallerKind =
-  | 'blender'
-  | 'comfyui'
-  | 'comfyui-model-pack'
-  | 'openmontage'
-  | 'obsidian'
-  | 'document-tools'
-  | 'media-tools';
-
-export interface CreativeInstallRecipe {
-  id: CreativeCapabilityId;
-  version: string;
-  installer: CreativeInstallerKind;
-  artifacts: readonly CreativeInstallArtifact[];
-  commit?: string;
-  /** A license acknowledgement is deliberately separate from an install approval. */
-  requiresModelLicense?: true;
-  awaitingUser?: string;
+  planDigest: string;
+  progress: CreativeInstallProgress[];
 }
 
 const SHA256 = /^[a-f0-9]{64}$/;
-
-const UV_ARTIFACT: CreativeInstallArtifact =
-  process.arch === 'arm64'
-    ? {
-        filename: 'uv-aarch64-apple-darwin-0.11.32.tar.gz',
-        url: 'https://github.com/astral-sh/uv/releases/download/0.11.32/uv-aarch64-apple-darwin.tar.gz',
-        sha256: 'ed336d0ba49db8ef89b2b41fffa372ce63bd032f22a56f001c265891aec32829',
-      }
-    : {
-        filename: 'uv-x86_64-apple-darwin-0.11.32.tar.gz',
-        url: 'https://github.com/astral-sh/uv/releases/download/0.11.32/uv-x86_64-apple-darwin.tar.gz',
-        sha256: '77f5ca26c0de20e992a3677a174fe1121ee25c36f9b1434a863f75bf077a05eb',
-      };
-
-const NPM_ARTIFACT: CreativeInstallArtifact = {
-  filename: 'npm-11.11.0.tgz',
-  url: 'https://registry.npmjs.org/npm/-/npm-11.11.0.tgz',
-  sha256: 'cbcf4cc03148ccdb586a8bf2093c952f093fb43d5cbc97593c98b67ef8c003b0',
-};
-
-// Reviewed upstream release pins. The installer accepts no caller-provided
-// command, package, URL, checksum, or destination.
-export const CREATIVE_INSTALL_RECIPES: Readonly<
-  Record<CreativeCapabilityId, CreativeInstallRecipe>
-> = {
-  blender: {
-    id: 'blender',
-    version: '5.2.0+mcp-1.6.0-r4',
-    installer: 'blender',
-    artifacts: [
-      {
-        filename: 'blender.dmg',
-        // download.blender.org presents a Cloudflare browser challenge to
-        // desktop installers. OCF mirrors Blender's public release tree; the
-        // reviewed Blender checksum below remains the trust boundary.
-        url: 'https://mirrors.ocf.berkeley.edu/blender/release/Blender5.2/blender-5.2.0-macos-arm64.dmg',
-        sha256: 'ed4d8390166dec5ea0a2813a03db6221f206ce016442be7f59f41d760972568a',
-      },
-      {
-        filename: 'blender_mcp-1.6.0-py3-none-any.whl',
-        url: 'https://files.pythonhosted.org/packages/86/7b/2ed3deb36c87ff03e1c1947732305321b10cdb3bace2b308c0406433c63c/blender_mcp-1.6.0-py3-none-any.whl',
-        sha256: 'eeff867ae71740473d36945e45577fe3888e6a1c7f8d2376be0169975ac343a0',
-      },
-      {
-        // Exact add-on revision current when blender-mcp 1.6.0 was published.
-        filename: 'blender_mcp_addon.py',
-        url: 'https://raw.githubusercontent.com/ahujasid/blender-mcp/494fb5bba603fb650f20c507adce994dffbd6dae/addon.py',
-        sha256: 'd43484fcd9a4a33f1561ab69676f5d33d0aa7c649d5e2f5fd34ddd78615ee734',
-      },
-      UV_ARTIFACT,
-    ],
-    awaitingUser:
-      'Open Blender once, install and enable the Blender MCP add-on, then start its local bridge.',
-  },
-  comfyui: {
-    id: 'comfyui',
-    version: '2026-07-24+mcp-1.0.1',
-    commit: '36aec0d086f7321d253cde71b4f3b08f63e35d8f',
-    installer: 'comfyui',
-    artifacts: [
-      {
-        filename: 'comfyui.tar.gz',
-        url: 'https://github.com/Comfy-Org/ComfyUI/archive/36aec0d086f7321d253cde71b4f3b08f63e35d8f.tar.gz',
-        sha256: 'b8050b7dd0995995befd5f5221a9e81bfdbcae8d54f46dbdf78cbb694bc9bc73',
-      },
-      {
-        filename: 'comfyui-mcp-1.0.1.tgz',
-        url: 'https://registry.npmjs.org/@peleke.s/comfyui-mcp/-/comfyui-mcp-1.0.1.tgz',
-        sha256: 'cd7386713fbe003c9c9a9b597ba7a1d61ef5bbe897789fe859f22674b2502f05',
-      },
-      UV_ARTIFACT,
-      NPM_ARTIFACT,
-    ],
-    awaitingUser:
-      'Start ComfyUI with its managed Python environment, then verify the localhost service.',
-  },
-  'comfyui-model-pack': {
-    id: 'comfyui-model-pack',
-    version: '1.0.0',
-    installer: 'comfyui-model-pack',
-    artifacts: [
-      {
-        filename: COMFYUI_MODEL_FILENAME,
-        url: 'https://huggingface.co/stabilityai/sdxl-turbo/resolve/main/sd_xl_turbo_1.0_fp16.safetensors',
-        sha256: 'e869ac7d6942cb327d68d5ed83a40447aadf20e0c3358d98b2cc9e270db0da26',
-      },
-    ],
-    requiresModelLicense: true,
-    awaitingUser:
-      'Accept the model publisher license in the setup UI before this download can start.',
-  },
-  openmontage: {
-    id: 'openmontage',
-    version: '2026-07-24',
-    commit: 'c36e41223e819441748817105635ac4036d41b10',
-    installer: 'openmontage',
-    artifacts: [
-      {
-        filename: 'openmontage.tar.gz',
-        url: 'https://github.com/calesthio/OpenMontage/archive/c36e41223e819441748817105635ac4036d41b10.tar.gz',
-        sha256: '1d75cf672df2605a71933a69327472b9a1fd097b16abf5e4d2ee7f1270ded524',
-      },
-      UV_ARTIFACT,
-      NPM_ARTIFACT,
-    ],
-  },
-  obsidian: {
-    id: 'obsidian',
-    version: '0.2.2-r2',
-    installer: 'obsidian',
-    artifacts: [
-      {
-        filename: 'mcp_obsidian-0.2.2-py3-none-any.whl',
-        url: 'https://files.pythonhosted.org/packages/00/ea/90c6f7030537dbf88a06b8dce767f6e40bb490ebec3c6d8e916b0ce3a8e5/mcp_obsidian-0.2.2-py3-none-any.whl',
-        sha256: 'a43aa01ff9f20b48145ce31cd10bcb1b1ff4001277e09248cefc31477888b396',
-      },
-      UV_ARTIFACT,
-    ],
-    awaitingUser:
-      'Open Obsidian, enable the Local REST API plugin, and enter its API key in Rhythm.',
-  },
-  'document-tools': {
-    id: 'document-tools',
-    version: '2026.7.26',
-    installer: 'document-tools',
-    artifacts: [UV_ARTIFACT],
-  },
-  'media-tools': {
-    id: 'media-tools',
-    version: '5.3.0',
-    installer: 'media-tools',
-    artifacts: [
-      {
-        filename: 'ffmpeg-static-5.3.0.tgz',
-        url: 'https://registry.npmjs.org/ffmpeg-static/-/ffmpeg-static-5.3.0.tgz',
-        sha256: '0525c908c27618582a6fb5d4cc70452a2f2d4f50cb3d88b19b16a3c1cc8df25d',
-      },
-      NPM_ARTIFACT,
-    ],
-  },
-};
 
 interface RunnerOptions {
   cwd: string;
@@ -209,11 +76,16 @@ export interface CreativeInstallerDeps {
   runner?: (argv: readonly string[], options: RunnerOptions) => Promise<void>;
   resolveExecutable?: (names: readonly string[]) => Promise<string>;
   root?: string;
+  /** Injected only by focused installer tests with complete local fixtures. */
+  dependencyBundles?: typeof CREATIVE_DEPENDENCY_BUNDLES;
+  onProgress?: (event: CreativeInstallProgress) => void;
 }
 
 export interface CreativeInstallRequest {
   id: CreativeCapabilityId;
+  operation?: CreativeInstallOperation;
   sessionId?: string | null;
+  planDigest?: string;
   modelLicenseAccepted?: boolean;
   signal?: AbortSignal;
 }
@@ -247,7 +119,14 @@ function commandEnvironment(): NodeJS.ProcessEnv {
     .split(':')
     .filter(Boolean);
   const path = [...new Set([...KNOWN_BIN_DIRS, ...inherited])].join(':');
-  return { ...process.env, PATH: path };
+  return {
+    ...process.env,
+    PATH: path,
+    PIP_DISABLE_PIP_VERSION_CHECK: '1',
+    npm_config_ignore_scripts: 'true',
+    npm_config_audit: 'false',
+    npm_config_fund: 'false',
+  };
 }
 
 async function defaultResolveExecutable(names: readonly string[]): Promise<string> {
@@ -371,12 +250,17 @@ async function defaultDownload(
 function approved(
   approvals: AgentApproval[],
   id: CreativeCapabilityId,
+  operation: CreativeInstallOperation,
+  planDigest: string,
   sessionId?: string | null,
 ): boolean {
   return approvals.some(
     (row) =>
-      row.action === `install_creative_dependency:${id}` &&
+      row.action === `${operation}_creative_dependency:${id}` &&
       row.status === 'approved' &&
+      row.payloadDigest === planDigest &&
+      row.consumedAt === null &&
+      (!row.expiresAt || Date.parse(row.expiresAt) > Date.now()) &&
       (!sessionId || row.sessionId === sessionId),
   );
 }
@@ -394,6 +278,10 @@ async function exists(path: string): Promise<boolean> {
 
 async function allExist(paths: readonly string[]): Promise<boolean> {
   return (await Promise.all(paths.map(exists))).every(Boolean);
+}
+
+async function anyExist(paths: readonly string[]): Promise<boolean> {
+  return (await Promise.all(paths.map(exists))).some(Boolean);
 }
 
 async function readSentinelVersion(path: string): Promise<string | null> {
@@ -428,6 +316,7 @@ interface InstallContext {
   staging: string;
   downloads: string;
   artifacts: ReadonlyMap<string, string>;
+  resolvedDependencies: Array<Record<string, string | string[]>>;
   signal?: AbortSignal;
   run(argv: readonly string[], cwd?: string): Promise<void>;
   resolve(names: readonly string[]): Promise<string>;
@@ -471,8 +360,89 @@ async function createVenv(context: InstallContext): Promise<string> {
 async function pipInstall(
   context: InstallContext,
   python: string,
-  packages: readonly string[],
+  requirements: readonly string[] | { file: string },
 ): Promise<void> {
+  const uv = join(context.staging, '.uv-cli', 'uv');
+  const inputPath = join(context.staging, '.rhythm-python-requirements.in');
+  const lockPath = join(context.staging, '.rhythm-python-requirements.lock');
+  const supplied =
+    'file' in requirements
+      ? await nodeFs.readFile(requirements.file, 'utf8')
+      : `${requirements.join('\n')}\n`;
+  const unsafeRequirementLine = supplied
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .some(
+      (line) =>
+        line &&
+        !line.startsWith('#') &&
+        (line.startsWith('-') ||
+          line.startsWith('.') ||
+          line.startsWith('/') ||
+          /(?:git|ssh|file):/i.test(line)),
+    );
+  if (
+    unsafeRequirementLine ||
+    /(^|\s)(?:--extra-index-url|--find-links|--trusted-host|-e)\b/m.test(
+      supplied,
+    ) ||
+    /https?:\/\//i.test(supplied)
+  ) {
+    throw new Error(
+      'Python requirements may resolve only from Rhythm’s disclosed PyPI index.',
+    );
+  }
+  await nodeFs.writeFile(inputPath, supplied, {
+    flag: 'wx',
+    mode: 0o600,
+  });
+  await context.run([
+    uv,
+    'pip',
+    'compile',
+    '--generate-hashes',
+    '--no-build',
+    '--python-version',
+    '3.11',
+    '--index-url',
+    PYPI_INDEX,
+    '--output-file',
+    lockPath,
+    inputPath,
+  ]);
+
+  const locked = await nodeFs.readFile(lockPath, 'utf8');
+  const logicalLines = locked
+    .replace(/\\\r?\n\s*/g, ' ')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'));
+  if (logicalLines.length === 0) {
+    throw new Error('Python resolver produced an empty dependency lock.');
+  }
+  for (const line of logicalLines) {
+    if (
+      line.includes(' @ ') ||
+      /https?:\/\//i.test(line) ||
+      !/(?:^|\s)--hash=sha256:[a-f0-9]{64}(?:\s|$)/.test(line)
+    ) {
+      throw new Error(
+        'Python resolver produced a non-wheel, unhashed, or external dependency.',
+      );
+    }
+    const pinned = /^([A-Za-z0-9_.-]+)==([^\s;]+)/.exec(line);
+    if (!pinned) {
+      throw new Error('Python dependency lock contains an unpinned requirement.');
+    }
+    context.resolvedDependencies.push({
+      ecosystem: 'pypi',
+      name: pinned[1],
+      version: pinned[2],
+      hashes: [...line.matchAll(/--hash=sha256:([a-f0-9]{64})/g)].map(
+        (match) => match[1],
+      ),
+    });
+  }
   await context.run([
     python,
     '-m',
@@ -480,29 +450,130 @@ async function pipInstall(
     'install',
     '--disable-pip-version-check',
     '--no-input',
-    ...packages,
+    '--require-hashes',
+    '--only-binary',
+    ':all:',
+    '--index-url',
+    PYPI_INDEX,
+    '-r',
+    lockPath,
   ]);
 }
 
 async function npmInstallArtifact(
   context: InstallContext,
   prefix: string,
-  artifact: string,
+  packages?: Readonly<Record<string, string>>,
 ): Promise<void> {
   const npmRoot = join(context.staging, '.npm-cli');
   await extractManagedCli(context, NPM_ARTIFACT, npmRoot);
   const npm = join(npmRoot, 'bin', 'npm-cli.js');
+  const cache = join(context.downloads, '.npm-cache');
+  await nodeFs.mkdir(prefix, { recursive: true });
+  if (packages) {
+    await nodeFs.writeFile(
+      join(prefix, 'package.json'),
+      JSON.stringify({
+        name: 'rhythm-managed-creative-capability',
+        private: true,
+        version: '1.0.0',
+        dependencies: packages,
+      }),
+      { flag: 'wx', mode: 0o600 },
+    );
+  }
   await context.run([
     process.execPath,
     npm,
     'install',
+    '--package-lock-only',
+    '--ignore-scripts',
+    '--registry',
+    NPM_REGISTRY,
+    '--cache',
+    cache,
     '--no-audit',
     '--no-fund',
-    '--no-save',
     '--omit=dev',
     '--prefix',
     prefix,
-    artifact,
+  ]);
+
+  const lockPath = join(prefix, 'package-lock.json');
+  const lock = JSON.parse(await nodeFs.readFile(lockPath, 'utf8')) as {
+    lockfileVersion?: unknown;
+    packages?: Record<
+      string,
+      { version?: unknown; resolved?: unknown; integrity?: unknown; link?: unknown }
+    >;
+  };
+  if (
+    typeof lock.lockfileVersion !== 'number' ||
+    lock.lockfileVersion < 2 ||
+    !lock.packages
+  ) {
+    throw new Error('npm did not produce a complete modern package lock.');
+  }
+  const resolvedUrls: string[] = [];
+  for (const [path, entry] of Object.entries(lock.packages)) {
+    if (!path.startsWith('node_modules/')) continue;
+    if (
+      entry.link === true ||
+      typeof entry.version !== 'string' ||
+      typeof entry.resolved !== 'string' ||
+      typeof entry.integrity !== 'string' ||
+      !/^sha512-[A-Za-z0-9+/=_-]+$/.test(entry.integrity)
+    ) {
+      throw new Error(`npm lock entry is incomplete or unsafe: ${path}`);
+    }
+    const resolved = new URL(entry.resolved);
+    if (
+      resolved.protocol !== 'https:' ||
+      resolved.origin !== NPM_REGISTRY ||
+      resolved.username ||
+      resolved.password
+    ) {
+      throw new Error(`npm lock entry left the disclosed registry: ${path}`);
+    }
+    resolvedUrls.push(entry.resolved);
+    context.resolvedDependencies.push({
+      ecosystem: 'npm',
+      name: path.slice('node_modules/'.length),
+      version: entry.version,
+      source: entry.resolved,
+      integrity: entry.integrity,
+    });
+  }
+  if (resolvedUrls.length === 0) {
+    throw new Error('npm resolver produced an empty dependency lock.');
+  }
+  for (const resolved of resolvedUrls) {
+    await context.run([
+      process.execPath,
+      npm,
+      'cache',
+      'add',
+      resolved,
+      '--ignore-scripts',
+      '--registry',
+      NPM_REGISTRY,
+      '--cache',
+      cache,
+    ]);
+  }
+  await context.run([
+    process.execPath,
+    npm,
+    'ci',
+    '--ignore-scripts',
+    '--offline',
+    '--no-audit',
+    '--no-fund',
+    '--omit=dev',
+    '--cache',
+    cache,
+    '--prefix',
+    prefix,
   ]);
 }
 
@@ -568,42 +639,31 @@ async function installBlender(context: InstallContext): Promise<void> {
     join(context.staging, 'blender_mcp_addon.py'),
   );
   const python = await createVenv(context);
-  await pipInstall(context, python, [
-    artifact(context, 'blender_mcp-1.6.0-py3-none-any.whl'),
-  ]);
+  await pipInstall(context, python, ['blender-mcp==1.6.0']);
 }
 
 async function installComfyUi(context: InstallContext): Promise<void> {
   await extractTarball(context, 'comfyui.tar.gz');
   const python = await createVenv(context);
-  await pipInstall(context, python, ['-r', join(context.staging, 'requirements.txt')]);
+  await pipInstall(context, python, {
+    file: join(context.staging, 'requirements.txt'),
+  });
   await npmInstallArtifact(
     context,
     join(context.staging, 'mcp'),
-    artifact(context, 'comfyui-mcp-1.0.1.tgz'),
+    { '@peleke.s/comfyui-mcp': '1.0.1' },
   );
 }
 
 async function installOpenMontage(context: InstallContext): Promise<void> {
   await extractTarball(context, 'openmontage.tar.gz');
   const python = await createVenv(context);
-  await pipInstall(context, python, ['-r', join(context.staging, 'requirements.txt')]);
+  await pipInstall(context, python, {
+    file: join(context.staging, 'requirements.txt'),
+  });
   const composer = join(context.staging, 'remotion-composer');
   if (await exists(join(composer, 'package.json'))) {
-    const npmRoot = join(context.staging, '.npm-cli');
-    await extractManagedCli(context, NPM_ARTIFACT, npmRoot);
-    const npm = join(npmRoot, 'bin', 'npm-cli.js');
-    await context.run(
-      [
-        process.execPath,
-        npm,
-        'install',
-        '--no-audit',
-        '--no-fund',
-        '--omit=dev',
-      ],
-      composer,
-    );
+    await npmInstallArtifact(context, composer);
   }
   const bridgeDir = join(context.staging, 'openmontage-mcp');
   await nodeFs.mkdir(bridgeDir, { recursive: true });
@@ -615,9 +675,7 @@ async function installOpenMontage(context: InstallContext): Promise<void> {
 
 async function installObsidian(context: InstallContext): Promise<void> {
   const python = await createVenv(context);
-  await pipInstall(context, python, [
-    artifact(context, 'mcp_obsidian-0.2.2-py3-none-any.whl'),
-  ]);
+  await pipInstall(context, python, ['mcp-obsidian==0.2.2']);
 }
 
 async function installDocumentTools(context: InstallContext): Promise<void> {
@@ -634,11 +692,7 @@ async function installDocumentTools(context: InstallContext): Promise<void> {
 
 async function installMediaTools(context: InstallContext): Promise<void> {
   const packageRoot = join(context.staging, 'package');
-  await npmInstallArtifact(
-    context,
-    packageRoot,
-    artifact(context, 'ffmpeg-static-5.3.0.tgz'),
-  );
+  await npmInstallArtifact(context, packageRoot, { 'ffmpeg-static': '5.3.0' });
   const source = join(packageRoot, 'node_modules', 'ffmpeg-static', 'ffmpeg');
   const bin = join(context.staging, 'bin');
   await nodeFs.mkdir(bin, { recursive: true });
@@ -670,7 +724,7 @@ async function runStandardInstaller(
 
 async function downloadArtifacts(
   recipe: CreativeInstallRecipe,
-  context: Omit<InstallContext, 'artifacts'>,
+  context: Omit<InstallContext, 'artifacts' | 'resolvedDependencies'>,
   downloader: NonNullable<CreativeInstallerDeps['downloader']>,
   logPath: string,
 ): Promise<ReadonlyMap<string, string>> {
@@ -690,6 +744,9 @@ async function downloadArtifacts(
     if (digest !== item.sha256) {
       throw new Error(`Pinned download checksum did not match for ${item.filename}.`);
     }
+    if (!(await exists(destination))) {
+      throw new Error(`Pinned installer artifact is missing: ${item.filename}.`);
+    }
     paths.set(item.filename, destination);
   }
   return paths;
@@ -699,6 +756,7 @@ async function installModelPack(
   recipe: CreativeInstallRecipe,
   context: InstallContext,
 ): Promise<void> {
+  const setup = creativeSetupPlan(recipe.id);
   const comfyLayout = creativeCapabilityLayout(context.root, 'comfyui');
   if (!(await allExist(comfyLayout.requiredPaths.slice(0, 2)))) {
     throw new Error('Install ComfyUI before installing its starter model pack.');
@@ -714,7 +772,26 @@ async function installModelPack(
     await nodeFs.rename(temporary, destination);
     await nodeFs.writeFile(
       join(models, '.rhythm-model-pack'),
-      JSON.stringify({ id: recipe.id, version: recipe.version, commit: null }),
+      JSON.stringify({
+        id: recipe.id,
+        version: recipe.version,
+        commit: null,
+        planDigest: setup.planDigest,
+        sources: recipe.artifacts.map(({ url }) => url),
+        licenses: setup.dependencies.map(
+          ({ name, version, source, license }) => ({
+            name,
+            version,
+            source,
+            license,
+          }),
+        ),
+        resolvedDependencies: setup.dependencies.map(({ name, version }) => ({
+          ecosystem: 'model',
+          name,
+          version,
+        })),
+      }),
     );
   } catch (error) {
     await nodeFs.rm(temporary, { force: true });
@@ -731,37 +808,119 @@ export async function installCreativeDependency(
   deps: CreativeInstallerDeps,
 ): Promise<CreativeInstallResult> {
   const recipe = CREATIVE_INSTALL_RECIPES[request.id];
+  const operation = request.operation ?? 'install';
+  const setup = creativeSetupPlan(request.id);
+  const progress: CreativeInstallProgress[] = [];
+  const emit = (phase: CreativeInstallProgressPhase, detail: string) => {
+    const event = { phase, detail };
+    progress.push(event);
+    deps.onProgress?.(event);
+  };
+  const result = (
+    status: CreativeInstallStatus,
+    detail: string,
+  ): CreativeInstallResult => ({
+    status,
+    id: request.id,
+    detail,
+    planDigest: setup.planDigest,
+    progress,
+  });
+  emit(
+    'planning',
+    `Validated the disclosed ${operation} plan for ${request.id}.`,
+  );
+  if (
+    !request.planDigest ||
+    request.planDigest !== setup.planDigest
+  ) {
+    return result(
+      'denied',
+      'The setup plan has changed or is missing. Review the current plan before approving it.',
+    );
+  }
   const root = deps.root ?? rootFor();
   const layout = creativeCapabilityLayout(root, request.id);
-  if (!approved(deps.approvals.list('approved'), request.id, request.sessionId)) {
-    return {
-      status: 'denied',
-      id: request.id,
-      detail: 'An approved install_creative_dependency approval is required for this session.',
-    };
-  }
-  if (recipe.requiresModelLicense && !request.modelLicenseAccepted) {
-    return {
-      status: 'awaiting-user',
-      id: request.id,
-      detail: recipe.awaitingUser!,
-    };
+  const final = join(root, recipe.id);
+  if (relative(root, final) !== recipe.id) {
+    return result('failed', 'The fixed managed installation location is invalid.');
   }
   if (
+    !approved(
+      deps.approvals.list('approved'),
+      request.id,
+      operation,
+      setup.planDigest,
+      request.sessionId,
+    )
+  ) {
+    return result(
+      'denied',
+      `A matching human approval for this exact ${operation} plan is required.`,
+    );
+  }
+  if (recipe.requiresModelLicense && !request.modelLicenseAccepted) {
+    return result('awaiting-user', recipe.awaitingUser!);
+  }
+  if (operation === 'uninstall') {
+    try {
+      emit(
+        'installing',
+        `Removing only ${request.id} from Rhythm managed application storage.`,
+      );
+      if (request.id === 'comfyui-model-pack') {
+        for (const path of layout.requiredPaths) {
+          await nodeFs.rm(path, { recursive: true, force: true });
+        }
+      } else {
+        await nodeFs.rm(final, { recursive: true, force: true });
+      }
+      emit('verifying', 'Confirmed the managed capability files were removed.');
+      if (await anyExist(layout.requiredPaths)) {
+        emit('failed', 'Managed removal verification failed.');
+        return result(
+          'failed',
+          'The managed capability could not be removed completely.',
+        );
+      }
+      emit('complete', 'The capability was removed from Rhythm managed storage.');
+      return result('uninstalled', 'The capability was removed and verified.');
+    } catch (error) {
+      const detail =
+        error instanceof Error
+          ? error.message
+              .replaceAll(root, 'Rhythm managed application storage')
+              .replaceAll(homedir(), 'the user home folder')
+          : 'Managed removal failed.';
+      emit('failed', detail);
+      return result('failed', detail);
+    }
+  }
+  const dependencyBundle = (
+    deps.dependencyBundles ?? CREATIVE_DEPENDENCY_BUNDLES
+  )[request.id];
+  if (!dependencyBundle.complete) {
+    return result(
+      'failed',
+      'The reviewed dependency plan for this capability is not available.',
+    );
+  }
+  if (
+    operation === 'install' &&
     (await allExist(layout.requiredPaths)) &&
     (request.id === 'comfyui-model-pack' ||
       (await readSentinelVersion(layout.sentinel)) === recipe.version)
   ) {
-    return {
-      status: 'already-installed',
-      id: request.id,
-      detail: 'Pinned recipe is installed and its required files are present.',
-    };
+    emit('verifying', 'Verified the existing managed files and recipe version.');
+    emit('complete', 'The disclosed capability plan is already installed.');
+    return result(
+      'already-installed',
+      'Pinned recipe is installed and its required files are present.',
+    );
   }
 
   const staging = join(root, `.install-${recipe.id}-${randomUUID()}`);
   const downloads = join(staging, '.downloads');
-  const final = join(root, recipe.id);
   const backup = join(root, `.backup-${recipe.id}-${randomUUID()}`);
   const logPath = join(dirname(root), 'logs', 'creative-install.log');
   const runner = deps.runner ?? defaultRunner;
@@ -772,6 +931,7 @@ export async function installCreativeDependency(
     checkAbort(request.signal);
     await nodeFs.mkdir(staging, { recursive: true });
     await appendLog(logPath, `BEGIN ${recipe.id}@${recipe.version}`);
+    emit('downloading', 'Downloading only the disclosed fixed artifacts and package metadata.');
     const baseContext = {
       root,
       staging,
@@ -792,12 +952,27 @@ export async function installCreativeDependency(
       deps.downloader ?? defaultDownload,
       logPath,
     );
-    const context: InstallContext = { ...baseContext, artifacts };
+    emit('verifying', 'Verified pinned artifact checksums and registry boundaries.');
+    const context: InstallContext = {
+      ...baseContext,
+      artifacts,
+      resolvedDependencies: setup.dependencies.map(({ name, version, source }) => ({
+        ecosystem: 'direct',
+        name,
+        version,
+        source,
+      })),
+    };
 
     if (recipe.installer === 'comfyui-model-pack') {
+      emit('installing', 'Installing the accepted model into the managed model folder.');
       await installModelPack(recipe, context);
       await nodeFs.rm(staging, { recursive: true, force: true });
     } else {
+      emit(
+        'installing',
+        'Resolving integrity locks, populating isolated caches, and installing with scripts disabled.',
+      );
       await runStandardInstaller(recipe, context);
       await relocateVenvScripts(staging, final);
       await nodeFs.rm(join(staging, '.uv-cli'), {
@@ -815,9 +990,31 @@ export async function installCreativeDependency(
           id: recipe.id,
           version: recipe.version,
           commit: recipe.commit ?? null,
+          planDigest: setup.planDigest,
+          sources: [
+            ...new Set([
+              ...recipe.artifacts.map(({ url }) => url),
+              ...(setup.trust.transitiveSource.includes(PYPI_INDEX)
+                ? [PYPI_INDEX]
+                : []),
+              ...(setup.trust.transitiveSource.includes(NPM_REGISTRY)
+                ? [NPM_REGISTRY]
+                : []),
+            ]),
+          ],
+          licenses: setup.dependencies.map(
+            ({ name, version, source, license }) => ({
+              name,
+              version,
+              source,
+              license,
+            }),
+          ),
+          resolvedDependencies: context.resolvedDependencies,
         }),
       );
 
+      emit('verifying', 'Checking the staged capability before making it active.');
       const stagedRequired = layout.requiredPaths.map((path) =>
         join(staging, relative(final, path)),
       );
@@ -842,26 +1039,24 @@ export async function installCreativeDependency(
     }
 
     await appendLog(logPath, `SUCCESS ${recipe.id}@${recipe.version}`);
+    emit('complete', 'The capability is installed and its required files were verified.');
     return recipe.awaitingUser
-      ? {
-          status: 'awaiting-user',
-          id: request.id,
-          detail: recipe.awaitingUser,
-        }
-      : {
-          status: 'installed',
-          id: request.id,
-          detail: 'Pinned recipe installed and verified.',
-        };
+      ? result('awaiting-user', recipe.awaitingUser)
+      : result('installed', 'Pinned recipe installed and verified.');
   } catch (error) {
     if (promoted) await nodeFs.rm(final, { recursive: true, force: true });
     if (backedUp) await nodeFs.rename(backup, final);
     await nodeFs.rm(staging, { recursive: true, force: true });
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
-    const detail = error instanceof Error ? error.message : 'Installation failed.';
+    const rawDetail =
+      error instanceof Error ? error.message : 'Installation failed.';
+    const detail = rawDetail
+      .replaceAll(root, 'Rhythm managed application storage')
+      .replaceAll(homedir(), 'the user home folder');
     await appendLog(logPath, `FAILED ${recipe.id}@${recipe.version}: ${detail}`).catch(
       () => {},
     );
-    return { status: 'failed', id: request.id, detail };
+    emit('failed', detail);
+    return result('failed', detail);
   }
 }

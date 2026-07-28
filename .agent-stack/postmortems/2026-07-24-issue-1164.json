@@ -1,0 +1,147 @@
+{
+  "run_id": "2026-07-24-issue-1164",
+  "issue": 1164,
+  "date": "2026-07-24",
+  "smoke_result": "pass",
+  "verification_claimed": "FAIL",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1164-c1",
+      "text": "Default global concurrency is 50 model-stream slots and is configurable.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The live swarm admitted and completed all 50 real model turns; configuration behavior remains covered by the scheduler contract."
+    },
+    {
+      "criterion_id": "issue-1164-c2",
+      "text": "The scheduler is provider-agnostic and can apply provider-specific limits without serializing unrelated providers.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Provider-specific separation is covered by deterministic scheduler tests; the live run used one provider."
+    },
+    {
+      "criterion_id": "issue-1164-c3",
+      "text": "A parent waiting for a child never retains capacity needed by that child.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the Task parent-yield integration contract."
+    },
+    {
+      "criterion_id": "issue-1164-c4",
+      "text": "Capacity is released exactly once on success, error, cancellation, and abort.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by deterministic scheduler lifecycle contracts."
+    },
+    {
+      "criterion_id": "issue-1164-c5",
+      "text": "Provider throttling applies bounded cooldown/backpressure without globally blocking other providers.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by deterministic provider-throttling contracts."
+    },
+    {
+      "criterion_id": "issue-1164-c6",
+      "text": "Queued work is fair across roots so a large swarm cannot starve an interactive root.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the root round-robin scheduler contract."
+    },
+    {
+      "criterion_id": "issue-1164-c7",
+      "text": "Cancelling a parent or child releases all associated scheduler capacity.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the cancellation contract."
+    },
+    {
+      "criterion_id": "issue-1164-c8",
+      "text": "Scheduler diagnostics identify active and queued work and why a turn is waiting.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by the diagnostics contract."
+    },
+    {
+      "criterion_id": "issue-1164-c9",
+      "text": "Unit tests cover flat concurrency, nested concurrency, cancellation, fairness, and provider-specific backpressure.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Focused 41/41 and full fork session 392/392 checks passed."
+    },
+    {
+      "criterion_id": "issue-1164-c10",
+      "text": "A live behavioral test, gated behind an environment flag, dispatches a real 50-reader swarm through the engine/API surface and asserts that children actually enter model execution and complete or return results. Record the sandbox run in `docs/ai/runs/` per the repository verification gate.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Branch-built engine/API returned READY-1164 from all 50 children in 22.60s; the exact length-50 assertion would fail on any missing child."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "sandbox-exec-lifetime",
+      "description": "A sandbox launched from a completed desktop exec cell was reaped despite nohup; the passing run kept a guardian exec session active and used the sandbox shutdown command.",
+      "detected_by": "Immediate health curl refusal plus missing PID/listeners after the launcher had printed ready."
+    },
+    {
+      "process_category": "live-fixture-drift",
+      "description": "The initial live test expected catalog field providerId and preferred an engine-absent gpt-5-mini model; the real API uses provider and the built engine suggested gpt-5.4-mini.",
+      "detected_by": "Two fail-first live executions and direct inspection of the real catalog/provider endpoints."
+    },
+    {
+      "process_category": "api-test-shared-state",
+      "description": "Parallel PR checks leaked auth/startup state across API files and the default five-second integration timeout was below the observed 5.03s startup tail. The coordinator merge gate now serializes API files and uses a 15s integration budget.",
+      "detected_by": "Different unrelated tests failed on consecutive parallel runs, passed alone, and the full serial 359-file/3179-test run passed."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/__tests__/live_e2e_1164_fifty_reader_swarm.test.ts",
+    "apps/opencode_fork/packages/opencode/src/config/config.ts",
+    "apps/opencode_fork/packages/opencode/src/session/llm.ts",
+    "apps/opencode_fork/packages/opencode/src/session/model-stream-scheduler.ts",
+    "apps/opencode_fork/packages/opencode/src/session/model-stream-scheduler.test.ts",
+    "apps/opencode_fork/packages/opencode/src/tool/task.ts",
+    "apps/opencode_fork/packages/opencode/test/session/llm.test.ts",
+    "apps/opencode_fork/packages/opencode/test/tool/task.test.ts",
+    "docs/ai/contracts/issue-1164.json",
+    "docs/ai/decisions/2026-07-24-1164-fork-task-scheduler-divergence.md",
+    "docs/ai/project-state.md",
+    "docs/ai/runs/2026-07-24-1164-deadlock-safe-model-stream-scheduler.md"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Keep the serialized API merge gate and alternate-port sandbox launcher in the final integration branch, and prefer real catalog/provider intersection in future live model tests."
+}

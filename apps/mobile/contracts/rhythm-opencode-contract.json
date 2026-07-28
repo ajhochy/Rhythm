@@ -1,0 +1,1470 @@
+{
+  "engineVersion": "1.14.49",
+  "openapiSha256": "b14b624fc7a4221e27907ecfa7682837bbf7f6286d697e61a7239b244f464af1",
+  "operationCount": 133,
+  "operations": [
+    {
+      "method": "GET",
+      "path": "/agent",
+      "operationId": "app.agents",
+      "summary": "List agents",
+      "tags": [
+        "instance"
+      ],
+      "classification": "surfaced",
+      "reason": "The Chat agent selector lists configured agents."
+    },
+    {
+      "method": "POST",
+      "path": "/config/reload",
+      "operationId": "app.config.reload",
+      "summary": "Reload config",
+      "tags": [
+        "instance"
+      ],
+      "classification": "surfaced",
+      "reason": "The safe configuration inspection surface offers an explicit project-config reload action."
+    },
+    {
+      "method": "POST",
+      "path": "/log",
+      "operationId": "app.log",
+      "summary": "Write log",
+      "tags": [
+        "control"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile requests may not write arbitrary engine log payloads."
+    },
+    {
+      "method": "GET",
+      "path": "/skill",
+      "operationId": "app.skills",
+      "summary": "List skills",
+      "tags": [
+        "instance"
+      ],
+      "classification": "surfaced",
+      "reason": "The Skills screen lists approved skill metadata and availability."
+    },
+    {
+      "method": "POST",
+      "path": "/skill/reload",
+      "operationId": "app.skills.reload",
+      "summary": "Reload skills",
+      "tags": [
+        "instance"
+      ],
+      "classification": "surfaced",
+      "reason": "The Skills screen offers an explicit approved-skill reload action."
+    },
+    {
+      "method": "DELETE",
+      "path": "/auth/{providerID}",
+      "operationId": "auth.remove",
+      "summary": "Remove auth credentials",
+      "tags": [
+        "control"
+      ],
+      "classification": "surfaced",
+      "reason": "Provider settings can remove configured provider credentials with confirmation."
+    },
+    {
+      "method": "PUT",
+      "path": "/auth/{providerID}",
+      "operationId": "auth.set",
+      "summary": "Set auth credentials",
+      "tags": [
+        "control"
+      ],
+      "classification": "surfaced",
+      "reason": "Provider settings can configure provider credentials."
+    },
+    {
+      "method": "GET",
+      "path": "/command",
+      "operationId": "command.list",
+      "summary": "List commands",
+      "tags": [
+        "instance"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat and Playbooks expose the server-provided command catalog."
+    },
+    {
+      "method": "GET",
+      "path": "/config",
+      "operationId": "config.get",
+      "summary": "Get configuration",
+      "tags": [
+        "config"
+      ],
+      "classification": "internal",
+      "reason": "The provider loads project configuration for capability discovery and settings state."
+    },
+    {
+      "method": "GET",
+      "path": "/config/providers",
+      "operationId": "config.providers",
+      "summary": "List config providers",
+      "tags": [
+        "config"
+      ],
+      "classification": "alternate",
+      "reason": "Provider and model discovery use provider.list plus provider.auth, which carry the approved mobile state."
+    },
+    {
+      "method": "PATCH",
+      "path": "/config",
+      "operationId": "config.update",
+      "summary": "Update configuration",
+      "tags": [
+        "config"
+      ],
+      "classification": "surfaced",
+      "reason": "Settings exposes bounded project configuration changes for providers, MCP enablement, and approvals."
+    },
+    {
+      "method": "GET",
+      "path": "/event",
+      "operationId": "event.subscribe",
+      "summary": "Subscribe to events",
+      "tags": [
+        "event"
+      ],
+      "classification": "alternate",
+      "reason": "The bounded mobile SSE gateway uses the cross-project global event stream and enforces project filtering."
+    },
+    {
+      "method": "GET",
+      "path": "/experimental/console",
+      "operationId": "experimental.console.get",
+      "summary": "Get active Console provider metadata",
+      "tags": [
+        "experimental"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental Console provider APIs are not an approved Rhythm mobile feature."
+    },
+    {
+      "method": "GET",
+      "path": "/experimental/console/orgs",
+      "operationId": "experimental.console.listOrgs",
+      "summary": "List switchable Console orgs",
+      "tags": [
+        "experimental"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental Console organization switching is not an approved Rhythm mobile feature."
+    },
+    {
+      "method": "POST",
+      "path": "/experimental/console/switch",
+      "operationId": "experimental.console.switchOrg",
+      "summary": "Switch active Console org",
+      "tags": [
+        "experimental"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental Console organization switching is not an approved Rhythm mobile feature."
+    },
+    {
+      "method": "GET",
+      "path": "/experimental/resource",
+      "operationId": "experimental.resource.list",
+      "summary": "Get MCP resources",
+      "tags": [
+        "experimental"
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen provides read-only inspection of resources exposed by connected servers."
+    },
+    {
+      "method": "GET",
+      "path": "/experimental/session",
+      "operationId": "experimental.session.list",
+      "summary": "List sessions",
+      "tags": [
+        "experimental"
+      ],
+      "classification": "surfaced",
+      "reason": "The Chats screen lists archived and cross-project sessions."
+    },
+    {
+      "method": "GET",
+      "path": "/experimental/workspace/adapter",
+      "operationId": "experimental.workspace.adapter.list",
+      "summary": "List workspace adapters",
+      "tags": [
+        "workspace"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
+    },
+    {
+      "method": "POST",
+      "path": "/experimental/workspace",
+      "operationId": "experimental.workspace.create",
+      "summary": "Create workspace",
+      "tags": [
+        "workspace"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
+    },
+    {
+      "method": "GET",
+      "path": "/experimental/workspace",
+      "operationId": "experimental.workspace.list",
+      "summary": "List workspaces",
+      "tags": [
+        "workspace"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
+    },
+    {
+      "method": "DELETE",
+      "path": "/experimental/workspace/{id}",
+      "operationId": "experimental.workspace.remove",
+      "summary": "Remove workspace",
+      "tags": [
+        "workspace"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
+    },
+    {
+      "method": "GET",
+      "path": "/experimental/workspace/status",
+      "operationId": "experimental.workspace.status",
+      "summary": "Workspace status",
+      "tags": [
+        "workspace"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
+    },
+    {
+      "method": "POST",
+      "path": "/experimental/workspace/sync-list",
+      "operationId": "experimental.workspace.syncList",
+      "summary": "Sync workspace list",
+      "tags": [
+        "workspace"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
+    },
+    {
+      "method": "POST",
+      "path": "/experimental/workspace/warp",
+      "operationId": "experimental.workspace.warp",
+      "summary": "Warp session into workspace",
+      "tags": [
+        "workspace"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
+    },
+    {
+      "method": "GET",
+      "path": "/file",
+      "operationId": "file.list",
+      "summary": "List files",
+      "tags": [
+        "file"
+      ],
+      "classification": "surfaced",
+      "reason": "The Workspace directory browser lists project-contained files and directories."
+    },
+    {
+      "method": "GET",
+      "path": "/file/content",
+      "operationId": "file.read",
+      "summary": "Read file",
+      "tags": [
+        "file"
+      ],
+      "classification": "surfaced",
+      "reason": "The Workspace file viewer reads project-contained files."
+    },
+    {
+      "method": "GET",
+      "path": "/file/status",
+      "operationId": "file.status",
+      "summary": "Get file status",
+      "tags": [
+        "file"
+      ],
+      "classification": "surfaced",
+      "reason": "The Workspace changed-files view exposes file status."
+    },
+    {
+      "method": "GET",
+      "path": "/find/file",
+      "operationId": "find.files",
+      "summary": "Find files",
+      "tags": [
+        "file"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes project-contained filename search."
+    },
+    {
+      "method": "GET",
+      "path": "/find/symbol",
+      "operationId": "find.symbols",
+      "summary": "Find symbols",
+      "tags": [
+        "file"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes project-contained symbol search."
+    },
+    {
+      "method": "GET",
+      "path": "/find",
+      "operationId": "find.text",
+      "summary": "Find text",
+      "tags": [
+        "file"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes project-contained text search."
+    },
+    {
+      "method": "GET",
+      "path": "/formatter",
+      "operationId": "formatter.status",
+      "summary": "Get formatter status",
+      "tags": [
+        "instance"
+      ],
+      "classification": "surfaced",
+      "reason": "Settings diagnostics shows formatter status."
+    },
+    {
+      "method": "GET",
+      "path": "/global/config",
+      "operationId": "global.config.get",
+      "summary": "Get global configuration",
+      "tags": [
+        "global"
+      ],
+      "classification": "surfaced",
+      "reason": "Settings provides redacted, read-only global configuration inspection."
+    },
+    {
+      "method": "PATCH",
+      "path": "/global/config",
+      "operationId": "global.config.update",
+      "summary": "Update global configuration",
+      "tags": [
+        "global"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Unscoped global configuration mutation is not mobile-safe."
+    },
+    {
+      "method": "POST",
+      "path": "/global/dispose",
+      "operationId": "global.dispose",
+      "summary": "Dispose instance",
+      "tags": [
+        "global"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Rhythm desktop owns the engine lifecycle and mobile may not dispose all instances."
+    },
+    {
+      "method": "GET",
+      "path": "/global/event",
+      "operationId": "global.event",
+      "summary": "Get global events",
+      "tags": [
+        "global"
+      ],
+      "classification": "internal",
+      "reason": "The bounded realtime gateway consumes global events and filters them to the paired project."
+    },
+    {
+      "method": "GET",
+      "path": "/global/health",
+      "operationId": "global.health",
+      "summary": "Get health",
+      "tags": [
+        "global"
+      ],
+      "classification": "surfaced",
+      "reason": "Settings diagnostics displays engine health and compatibility."
+    },
+    {
+      "method": "POST",
+      "path": "/global/upgrade",
+      "operationId": "global.upgrade",
+      "summary": "Upgrade opencode",
+      "tags": [
+        "global"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Rhythm desktop owns installation and upgrades of the bundled fork."
+    },
+    {
+      "method": "POST",
+      "path": "/instance/dispose",
+      "operationId": "instance.dispose",
+      "summary": "Dispose instance",
+      "tags": [
+        "instance"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Rhythm desktop owns engine instance disposal."
+    },
+    {
+      "method": "GET",
+      "path": "/lsp",
+      "operationId": "lsp.status",
+      "summary": "Get LSP status",
+      "tags": [
+        "instance"
+      ],
+      "classification": "surfaced",
+      "reason": "Settings diagnostics shows language-server status."
+    },
+    {
+      "method": "POST",
+      "path": "/mcp",
+      "operationId": "mcp.add",
+      "summary": "Add MCP server",
+      "tags": [
+        "mcp"
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen can add an approved MCP server configuration."
+    },
+    {
+      "method": "POST",
+      "path": "/mcp/{name}/auth/authenticate",
+      "operationId": "mcp.auth.authenticate",
+      "summary": "Authenticate MCP OAuth",
+      "tags": [
+        "mcp"
+      ],
+      "classification": "alternate",
+      "reason": "Mobile completes MCP OAuth through the bounded start and callback flow."
+    },
+    {
+      "method": "POST",
+      "path": "/mcp/{name}/auth/callback",
+      "operationId": "mcp.auth.callback",
+      "summary": "Complete MCP OAuth",
+      "tags": [
+        "mcp"
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen completes an approved OAuth callback."
+    },
+    {
+      "method": "DELETE",
+      "path": "/mcp/{name}/auth",
+      "operationId": "mcp.auth.remove",
+      "summary": "Remove MCP OAuth",
+      "tags": [
+        "mcp"
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen can revoke stored OAuth credentials with confirmation."
+    },
+    {
+      "method": "POST",
+      "path": "/mcp/{name}/auth",
+      "operationId": "mcp.auth.start",
+      "summary": "Start MCP OAuth",
+      "tags": [
+        "mcp"
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen starts an approved OAuth flow."
+    },
+    {
+      "method": "POST",
+      "path": "/mcp/{name}/connect",
+      "operationId": "mcp.connect",
+      "summary": "",
+      "tags": [
+        "mcp"
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen connects an approved server."
+    },
+    {
+      "method": "POST",
+      "path": "/mcp/{name}/disconnect",
+      "operationId": "mcp.disconnect",
+      "summary": "",
+      "tags": [
+        "mcp"
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen disconnects a server with visible state."
+    },
+    {
+      "method": "GET",
+      "path": "/mcp",
+      "operationId": "mcp.status",
+      "summary": "Get MCP status",
+      "tags": [
+        "mcp"
+      ],
+      "classification": "surfaced",
+      "reason": "The MCP screen displays connected-server state."
+    },
+    {
+      "method": "DELETE",
+      "path": "/session/{sessionID}/message/{messageID}/part/{partID}",
+      "operationId": "part.delete",
+      "summary": "",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes confirmed deletion of an editable message part."
+    },
+    {
+      "method": "PATCH",
+      "path": "/session/{sessionID}/message/{messageID}/part/{partID}",
+      "operationId": "part.update",
+      "summary": "",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes editing of a supported message part."
+    },
+    {
+      "method": "GET",
+      "path": "/path",
+      "operationId": "path.get",
+      "summary": "Get paths",
+      "tags": [
+        "instance"
+      ],
+      "classification": "internal",
+      "reason": "The provider resolves server roots during workspace discovery and containment checks."
+    },
+    {
+      "method": "GET",
+      "path": "/permission",
+      "operationId": "permission.list",
+      "summary": "List pending permissions",
+      "tags": [
+        "permission"
+      ],
+      "classification": "internal",
+      "reason": "The provider reconciles pending permissions for the active session."
+    },
+    {
+      "method": "POST",
+      "path": "/permission/{requestID}/reply",
+      "operationId": "permission.reply",
+      "summary": "Respond to permission request",
+      "tags": [
+        "permission"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat permission cards expose allow-once, always-allow, and reject actions."
+    },
+    {
+      "method": "POST",
+      "path": "/session/{sessionID}/permissions/{permissionID}",
+      "operationId": "permission.respond",
+      "summary": "Respond to permission",
+      "tags": [
+        "session"
+      ],
+      "classification": "alternate",
+      "reason": "Mobile uses the request-scoped permission reply API for current OpenCode permission semantics."
+    },
+    {
+      "method": "GET",
+      "path": "/project/current",
+      "operationId": "project.current",
+      "summary": "Get current project",
+      "tags": [
+        "project"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace displays the active project."
+    },
+    {
+      "method": "POST",
+      "path": "/project/git/init",
+      "operationId": "project.initGit",
+      "summary": "Initialize git repository",
+      "tags": [
+        "project"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace offers confirmed Git initialization when no repository exists."
+    },
+    {
+      "method": "GET",
+      "path": "/project",
+      "operationId": "project.list",
+      "summary": "List all projects",
+      "tags": [
+        "project"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes the project selector."
+    },
+    {
+      "method": "PATCH",
+      "path": "/project/{projectID}",
+      "operationId": "project.update",
+      "summary": "Update project",
+      "tags": [
+        "project"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes bounded project metadata editing."
+    },
+    {
+      "method": "GET",
+      "path": "/provider/auth",
+      "operationId": "provider.auth",
+      "summary": "Get provider auth methods",
+      "tags": [
+        "provider"
+      ],
+      "classification": "surfaced",
+      "reason": "The Models screen renders supported authentication methods."
+    },
+    {
+      "method": "GET",
+      "path": "/provider",
+      "operationId": "provider.list",
+      "summary": "List providers",
+      "tags": [
+        "provider"
+      ],
+      "classification": "surfaced",
+      "reason": "The Models screen and Chat model picker list provider capabilities."
+    },
+    {
+      "method": "POST",
+      "path": "/provider/{providerID}/oauth/authorize",
+      "operationId": "provider.oauth.authorize",
+      "summary": "Start OAuth authorization",
+      "tags": [
+        "provider"
+      ],
+      "classification": "surfaced",
+      "reason": "The Models screen starts provider OAuth."
+    },
+    {
+      "method": "POST",
+      "path": "/provider/{providerID}/oauth/callback",
+      "operationId": "provider.oauth.callback",
+      "summary": "Handle OAuth callback",
+      "tags": [
+        "provider"
+      ],
+      "classification": "surfaced",
+      "reason": "The Models screen completes provider OAuth."
+    },
+    {
+      "method": "GET",
+      "path": "/pty/{ptyID}/connect",
+      "operationId": "pty.connect",
+      "summary": "Connect to PTY session",
+      "tags": [
+        "pty"
+      ],
+      "classification": "internal",
+      "reason": "The authenticated realtime gateway upgrades the PTY WebSocket; generic HTTP forwarding is forbidden."
+    },
+    {
+      "method": "POST",
+      "path": "/pty/{ptyID}/connect-token",
+      "operationId": "pty.connectToken",
+      "summary": "Create PTY WebSocket token",
+      "tags": [
+        "pty"
+      ],
+      "classification": "internal",
+      "reason": "The terminal provider obtains a short-lived ticket before opening the bounded PTY channel."
+    },
+    {
+      "method": "POST",
+      "path": "/pty",
+      "operationId": "pty.create",
+      "summary": "Create PTY session",
+      "tags": [
+        "pty"
+      ],
+      "classification": "surfaced",
+      "reason": "Terminal can create a project-scoped PTY."
+    },
+    {
+      "method": "GET",
+      "path": "/pty/{ptyID}",
+      "operationId": "pty.get",
+      "summary": "Get PTY session",
+      "tags": [
+        "pty"
+      ],
+      "classification": "surfaced",
+      "reason": "Terminal displays detail for the selected PTY."
+    },
+    {
+      "method": "GET",
+      "path": "/pty",
+      "operationId": "pty.list",
+      "summary": "List PTY sessions",
+      "tags": [
+        "pty"
+      ],
+      "classification": "surfaced",
+      "reason": "Terminal lists project-scoped PTYs."
+    },
+    {
+      "method": "DELETE",
+      "path": "/pty/{ptyID}",
+      "operationId": "pty.remove",
+      "summary": "Remove PTY session",
+      "tags": [
+        "pty"
+      ],
+      "classification": "surfaced",
+      "reason": "Terminal can terminate the selected PTY with confirmation."
+    },
+    {
+      "method": "GET",
+      "path": "/pty/shells",
+      "operationId": "pty.shells",
+      "summary": "List available shells",
+      "tags": [
+        "pty"
+      ],
+      "classification": "surfaced",
+      "reason": "Terminal exposes available shells."
+    },
+    {
+      "method": "PUT",
+      "path": "/pty/{ptyID}",
+      "operationId": "pty.update",
+      "summary": "Update PTY session",
+      "tags": [
+        "pty"
+      ],
+      "classification": "surfaced",
+      "reason": "Terminal resizes the selected PTY to the visible terminal dimensions."
+    },
+    {
+      "method": "GET",
+      "path": "/question",
+      "operationId": "question.list",
+      "summary": "List pending questions",
+      "tags": [
+        "question"
+      ],
+      "classification": "internal",
+      "reason": "The provider reconciles pending agent questions for the active session."
+    },
+    {
+      "method": "POST",
+      "path": "/question/{requestID}/reject",
+      "operationId": "question.reject",
+      "summary": "Reject question request",
+      "tags": [
+        "question"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat question cards expose rejection."
+    },
+    {
+      "method": "POST",
+      "path": "/question/{requestID}/reply",
+      "operationId": "question.reply",
+      "summary": "Reply to question request",
+      "tags": [
+        "question"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat question cards submit ordered answers."
+    },
+    {
+      "method": "POST",
+      "path": "/session/{sessionID}/abort",
+      "operationId": "session.abort",
+      "summary": "Abort session",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes a stop action for an active run."
+    },
+    {
+      "method": "GET",
+      "path": "/session/{sessionID}/children",
+      "operationId": "session.children",
+      "summary": "Get session children",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes child and subagent sessions for the active run."
+    },
+    {
+      "method": "POST",
+      "path": "/session/{sessionID}/command",
+      "operationId": "session.command",
+      "summary": "Send command",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat executes an exact server-provided slash command."
+    },
+    {
+      "method": "POST",
+      "path": "/session",
+      "operationId": "session.create",
+      "summary": "Create session",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chats can create a project-scoped session."
+    },
+    {
+      "method": "DELETE",
+      "path": "/session/{sessionID}",
+      "operationId": "session.delete",
+      "summary": "Delete session",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chats can permanently delete a session after confirmation."
+    },
+    {
+      "method": "DELETE",
+      "path": "/session/{sessionID}/message/{messageID}",
+      "operationId": "session.deleteMessage",
+      "summary": "Delete message",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes confirmed deletion of a user-editable message."
+    },
+    {
+      "method": "GET",
+      "path": "/session/{sessionID}/diff",
+      "operationId": "session.diff",
+      "summary": "Get message diff",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat displays structured session and message diffs."
+    },
+    {
+      "method": "POST",
+      "path": "/session/{sessionID}/fork",
+      "operationId": "session.fork",
+      "summary": "Fork session",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat and Chats expose session forking."
+    },
+    {
+      "method": "GET",
+      "path": "/session/{sessionID}",
+      "operationId": "session.get",
+      "summary": "Get session",
+      "tags": [
+        "session"
+      ],
+      "classification": "alternate",
+      "reason": "The provider derives the selected session from the project-scoped session list to preserve one authoritative cache."
+    },
+    {
+      "method": "POST",
+      "path": "/session/{sessionID}/init",
+      "operationId": "session.init",
+      "summary": "Initialize session",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes confirmed project initialization for the current session."
+    },
+    {
+      "method": "GET",
+      "path": "/session",
+      "operationId": "session.list",
+      "summary": "List sessions",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chats displays project-scoped active, completed, and archived sessions."
+    },
+    {
+      "method": "GET",
+      "path": "/session/{sessionID}/message/{messageID}",
+      "operationId": "session.message",
+      "summary": "Get message",
+      "tags": [
+        "session"
+      ],
+      "classification": "alternate",
+      "reason": "The provider refreshes the bounded session transcript instead of maintaining a second single-message fetch path."
+    },
+    {
+      "method": "GET",
+      "path": "/session/{sessionID}/message",
+      "operationId": "session.messages",
+      "summary": "Get session messages",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat displays the session transcript."
+    },
+    {
+      "method": "POST",
+      "path": "/session/{sessionID}/message",
+      "operationId": "session.prompt",
+      "summary": "Send message",
+      "tags": [
+        "session"
+      ],
+      "classification": "alternate",
+      "reason": "Chat uses asynchronous prompt submission so SSE and polling own completion consistently."
+    },
+    {
+      "method": "POST",
+      "path": "/session/{sessionID}/prompt_async",
+      "operationId": "session.prompt_async",
+      "summary": "Send async message",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat submits prompts through the provider-owned asynchronous lifecycle."
+    },
+    {
+      "method": "POST",
+      "path": "/session/{sessionID}/revert",
+      "operationId": "session.revert",
+      "summary": "Revert message",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes confirmed message revert."
+    },
+    {
+      "method": "POST",
+      "path": "/session/{sessionID}/share",
+      "operationId": "session.share",
+      "summary": "Share session",
+      "tags": [
+        "session"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "External OpenCode sharing uploads transcript data outside Rhythm; sharing must use a future in-Rhythm privacy-scoped surface."
+    },
+    {
+      "method": "POST",
+      "path": "/session/{sessionID}/shell",
+      "operationId": "session.shell",
+      "summary": "Run shell command",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes high-risk-confirmed shell execution as a session message."
+    },
+    {
+      "method": "GET",
+      "path": "/session/status",
+      "operationId": "session.status",
+      "summary": "Get session status",
+      "tags": [
+        "session"
+      ],
+      "classification": "internal",
+      "reason": "The provider reconciles running and idle session state for realtime recovery."
+    },
+    {
+      "method": "POST",
+      "path": "/session/{sessionID}/summarize",
+      "operationId": "session.summarize",
+      "summary": "Summarize session",
+      "tags": [
+        "session"
+      ],
+      "classification": "internal",
+      "reason": "The provider requests title generation after the first successful turn."
+    },
+    {
+      "method": "GET",
+      "path": "/session/{sessionID}/todo",
+      "operationId": "session.todo",
+      "summary": "Get session todos",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat displays server-owned todo progress."
+    },
+    {
+      "method": "POST",
+      "path": "/session/{sessionID}/unrevert",
+      "operationId": "session.unrevert",
+      "summary": "Restore reverted messages",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chat exposes restore after a revert."
+    },
+    {
+      "method": "DELETE",
+      "path": "/session/{sessionID}/share",
+      "operationId": "session.unshare",
+      "summary": "Unshare session",
+      "tags": [
+        "session"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "External OpenCode sharing uploads transcript data outside Rhythm; sharing must use a future in-Rhythm privacy-scoped surface."
+    },
+    {
+      "method": "PATCH",
+      "path": "/session/{sessionID}",
+      "operationId": "session.update",
+      "summary": "Update session",
+      "tags": [
+        "session"
+      ],
+      "classification": "surfaced",
+      "reason": "Chats exposes rename, archive, and restore metadata updates."
+    },
+    {
+      "method": "POST",
+      "path": "/sync/history",
+      "operationId": "sync.history.list",
+      "summary": "List sync events",
+      "tags": [
+        "sync"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
+    },
+    {
+      "method": "POST",
+      "path": "/sync/replay",
+      "operationId": "sync.replay",
+      "summary": "Replay sync events",
+      "tags": [
+        "sync"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
+    },
+    {
+      "method": "POST",
+      "path": "/sync/start",
+      "operationId": "sync.start",
+      "summary": "Start workspace sync",
+      "tags": [
+        "sync"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
+    },
+    {
+      "method": "POST",
+      "path": "/sync/steal",
+      "operationId": "sync.steal",
+      "summary": "Steal session into workspace",
+      "tags": [
+        "sync"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Experimental workspace synchronization is deferred in favor of Rhythm projects and worktrees."
+    },
+    {
+      "method": "GET",
+      "path": "/experimental/tool/ids",
+      "operationId": "tool.ids",
+      "summary": "List tool IDs",
+      "tags": [
+        "experimental"
+      ],
+      "classification": "internal",
+      "reason": "The Tools provider uses tool identifiers to populate schema inspection safely."
+    },
+    {
+      "method": "GET",
+      "path": "/experimental/tool",
+      "operationId": "tool.list",
+      "summary": "List tools",
+      "tags": [
+        "experimental"
+      ],
+      "classification": "surfaced",
+      "reason": "The Tools screen provides read-only inspection of tool schemas for the selected model."
+    },
+    {
+      "method": "POST",
+      "path": "/tui/append-prompt",
+      "operationId": "tui.appendPrompt",
+      "summary": "Append TUI prompt",
+      "tags": [
+        "tui"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
+    },
+    {
+      "method": "POST",
+      "path": "/tui/clear-prompt",
+      "operationId": "tui.clearPrompt",
+      "summary": "Clear TUI prompt",
+      "tags": [
+        "tui"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
+    },
+    {
+      "method": "GET",
+      "path": "/tui/control/next",
+      "operationId": "tui.control.next",
+      "summary": "Get next TUI request",
+      "tags": [
+        "tui"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
+    },
+    {
+      "method": "POST",
+      "path": "/tui/control/response",
+      "operationId": "tui.control.response",
+      "summary": "Submit TUI response",
+      "tags": [
+        "tui"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
+    },
+    {
+      "method": "POST",
+      "path": "/tui/execute-command",
+      "operationId": "tui.executeCommand",
+      "summary": "Execute TUI command",
+      "tags": [
+        "tui"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
+    },
+    {
+      "method": "POST",
+      "path": "/tui/open-help",
+      "operationId": "tui.openHelp",
+      "summary": "Open help dialog",
+      "tags": [
+        "tui"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
+    },
+    {
+      "method": "POST",
+      "path": "/tui/open-models",
+      "operationId": "tui.openModels",
+      "summary": "Open models dialog",
+      "tags": [
+        "tui"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
+    },
+    {
+      "method": "POST",
+      "path": "/tui/open-sessions",
+      "operationId": "tui.openSessions",
+      "summary": "Open sessions dialog",
+      "tags": [
+        "tui"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
+    },
+    {
+      "method": "POST",
+      "path": "/tui/open-themes",
+      "operationId": "tui.openThemes",
+      "summary": "Open themes dialog",
+      "tags": [
+        "tui"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
+    },
+    {
+      "method": "POST",
+      "path": "/tui/publish",
+      "operationId": "tui.publish",
+      "summary": "Publish TUI event",
+      "tags": [
+        "tui"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
+    },
+    {
+      "method": "POST",
+      "path": "/tui/select-session",
+      "operationId": "tui.selectSession",
+      "summary": "Select session",
+      "tags": [
+        "tui"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
+    },
+    {
+      "method": "POST",
+      "path": "/tui/show-toast",
+      "operationId": "tui.showToast",
+      "summary": "Show TUI toast",
+      "tags": [
+        "tui"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
+    },
+    {
+      "method": "POST",
+      "path": "/tui/submit-prompt",
+      "operationId": "tui.submitPrompt",
+      "summary": "Submit TUI prompt",
+      "tags": [
+        "tui"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "The mobile app controls the headless server and never remote-controls the TUI."
+    },
+    {
+      "method": "GET",
+      "path": "/api/model",
+      "operationId": "v2.model.list",
+      "summary": "List v2 models",
+      "tags": [
+        "v2 models"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
+    },
+    {
+      "method": "GET",
+      "path": "/api/provider/{providerID}",
+      "operationId": "v2.provider.get",
+      "summary": "Get v2 provider",
+      "tags": [
+        "v2 providers"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
+    },
+    {
+      "method": "GET",
+      "path": "/api/provider",
+      "operationId": "v2.provider.list",
+      "summary": "List v2 providers",
+      "tags": [
+        "v2 providers"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
+    },
+    {
+      "method": "POST",
+      "path": "/api/session/{sessionID}/compact",
+      "operationId": "v2.session.compact",
+      "summary": "Compact v2 session",
+      "tags": [
+        "v2"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
+    },
+    {
+      "method": "GET",
+      "path": "/api/session/{sessionID}/context",
+      "operationId": "v2.session.context",
+      "summary": "Get v2 session context",
+      "tags": [
+        "v2"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
+    },
+    {
+      "method": "GET",
+      "path": "/api/session",
+      "operationId": "v2.session.list",
+      "summary": "List v2 sessions",
+      "tags": [
+        "v2"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
+    },
+    {
+      "method": "GET",
+      "path": "/api/session/{sessionID}/message",
+      "operationId": "v2.session.messages",
+      "summary": "Get v2 session messages",
+      "tags": [
+        "v2 messages"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
+    },
+    {
+      "method": "POST",
+      "path": "/api/session/{sessionID}/prompt",
+      "operationId": "v2.session.prompt",
+      "summary": "Send v2 message",
+      "tags": [
+        "v2"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
+    },
+    {
+      "method": "POST",
+      "path": "/api/session/{sessionID}/wait",
+      "operationId": "v2.session.wait",
+      "summary": "Wait for v2 session",
+      "tags": [
+        "v2"
+      ],
+      "classification": "intentionally-omitted",
+      "reason": "Mobile remains pinned to the complete v1.14.49 v1 contract until v2 reaches required parity."
+    },
+    {
+      "method": "POST",
+      "path": "/vcs/apply",
+      "operationId": "vcs.apply",
+      "summary": "Apply VCS patch",
+      "tags": [
+        "instance"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace saves conflict-checked project files through validated VCS patches."
+    },
+    {
+      "method": "GET",
+      "path": "/vcs/diff",
+      "operationId": "vcs.diff",
+      "summary": "Get VCS diff",
+      "tags": [
+        "instance"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes structured repository diffs."
+    },
+    {
+      "method": "GET",
+      "path": "/vcs/diff/raw",
+      "operationId": "vcs.diff.raw",
+      "summary": "Get raw VCS diff",
+      "tags": [
+        "instance"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes raw repository diffs for inspection."
+    },
+    {
+      "method": "GET",
+      "path": "/vcs",
+      "operationId": "vcs.get",
+      "summary": "Get VCS info",
+      "tags": [
+        "instance"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace displays repository and branch metadata."
+    },
+    {
+      "method": "GET",
+      "path": "/vcs/status",
+      "operationId": "vcs.status",
+      "summary": "Get VCS status",
+      "tags": [
+        "instance"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace exposes structured working-tree status."
+    },
+    {
+      "method": "POST",
+      "path": "/experimental/worktree",
+      "operationId": "worktree.create",
+      "summary": "Create worktree",
+      "tags": [
+        "experimental"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace can create an OpenCode worktree."
+    },
+    {
+      "method": "GET",
+      "path": "/experimental/worktree",
+      "operationId": "worktree.list",
+      "summary": "List worktrees",
+      "tags": [
+        "experimental"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace lists OpenCode worktrees."
+    },
+    {
+      "method": "DELETE",
+      "path": "/experimental/worktree",
+      "operationId": "worktree.remove",
+      "summary": "Remove worktree",
+      "tags": [
+        "experimental"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace can remove a worktree after destructive confirmation."
+    },
+    {
+      "method": "POST",
+      "path": "/experimental/worktree/reset",
+      "operationId": "worktree.reset",
+      "summary": "Reset worktree",
+      "tags": [
+        "experimental"
+      ],
+      "classification": "surfaced",
+      "reason": "Workspace can reset a worktree after destructive confirmation."
+    }
+  ]
+}

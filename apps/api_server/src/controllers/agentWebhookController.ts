@@ -14,6 +14,7 @@ import type { NextFunction, Request, Response } from 'express';
 import crypto from 'node:crypto';
 import { AppError } from '../errors/app_error';
 import { AgentWebhookEndpointsRepository } from '../repositories/agent_webhook_endpoints_repository';
+import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { ClaudeTriggersRepository } from '../repositories/claude_triggers_repository';
 import { logger } from '../utils/logger';
 import { getDb, getPostgresPool } from '../database/db';
@@ -22,12 +23,30 @@ import { env } from '../config/env';
 const repo = new AgentWebhookEndpointsRepository();
 const triggersRepo = new ClaudeTriggersRepository();
 
+function endpointResponse(
+  req: Request,
+  endpoint: Awaited<ReturnType<AgentWebhookEndpointsRepository['findByIdAsync']>> & {},
+  includeSecret: boolean,
+) {
+  const host = req.get('host');
+  const url = host
+    ? `${req.protocol}://${host}/agent-webhooks/${encodeURIComponent(endpoint.id)}/receive`
+    : `/agent-webhooks/${encodeURIComponent(endpoint.id)}/receive`;
+  return {
+    ...endpoint,
+    url,
+    secret: includeSecret ? endpoint.secret : '[redacted]',
+  };
+}
+
 export class AgentWebhookController {
-  async list(_req: Request, res: Response, next: NextFunction) {
+  async list(req: Request, res: Response, next: NextFunction) {
     try {
-      const endpoints = await repo.listAsync();
+      const endpoints = req.mobileDevice
+        ? await repo.listForOwnerAsync(req.mobileDevice.userId)
+        : await repo.listAsync();
       // Redact secret from listing
-      res.json(endpoints.map((e) => ({ ...e, secret: '[redacted]' })));
+      res.json(endpoints.map((endpoint) => endpointResponse(req, endpoint, false)));
     } catch (err) { next(err); }
   }
 
@@ -35,6 +54,16 @@ export class AgentWebhookController {
     try {
       const { name, eventTypes, targetScheduledTaskId, targetPrompt } = req.body as Record<string, unknown>;
       if (!name || typeof name !== 'string') throw AppError.badRequest('name is required');
+      if (
+        req.mobileDevice &&
+        typeof targetScheduledTaskId === 'string' &&
+        !(await new AgentScheduledTasksRepository().findByIdForOwnerAsync(
+          targetScheduledTaskId,
+          req.mobileDevice.userId,
+        ))
+      ) {
+        throw AppError.notFound('AgentScheduledTask');
+      }
 
       const endpoint = await repo.createAsync({
         name,
@@ -45,21 +74,44 @@ export class AgentWebhookController {
       });
 
       // Return the secret only on creation (never again after this)
-      res.status(201).json(endpoint);
+      res.status(201).json(endpointResponse(req, endpoint, true));
     } catch (err) { next(err); }
   }
 
   async get(req: Request, res: Response, next: NextFunction) {
     try {
-      const endpoint = await repo.findByIdAsync(req.params.id);
+      const endpoint = req.mobileDevice
+        ? await repo.findByIdForOwnerAsync(
+            req.params.id,
+            req.mobileDevice.userId,
+          )
+        : await repo.findByIdAsync(req.params.id);
       if (!endpoint) throw AppError.notFound('WebhookEndpoint');
-      res.json({ ...endpoint, secret: '[redacted]' });
+      res.json(endpointResponse(req, endpoint, false));
+    } catch (err) { next(err); }
+  }
+
+  async rotateSecret(req: Request, res: Response, next: NextFunction) {
+    try {
+      const endpoint = req.mobileDevice
+        ? await repo.rotateSecretForOwnerAsync(
+            req.params.id,
+            req.mobileDevice.userId,
+          )
+        : await repo.rotateSecretAsync(req.params.id);
+      if (!endpoint) throw AppError.notFound('WebhookEndpoint');
+      res.json(endpointResponse(req, endpoint, true));
     } catch (err) { next(err); }
   }
 
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      const deleted = await repo.deleteAsync(req.params.id);
+      const deleted = req.mobileDevice
+        ? await repo.deleteForOwnerAsync(
+            req.params.id,
+            req.mobileDevice.userId,
+          )
+        : await repo.deleteAsync(req.params.id);
       if (!deleted) throw AppError.notFound('WebhookEndpoint');
       res.status(204).end();
     } catch (err) { next(err); }
@@ -134,16 +186,28 @@ export class AgentWebhookController {
           `INSERT INTO pending_claude_triggers
              (task_id, triggered_by_user_id, scheduled_task_id, webhook_endpoint_id,
               prompt, created_at)
-           VALUES (NULL, NULL, $1, $2, $3, $4)`,
-          [endpoint.targetScheduledTaskId ?? null, id, prompt, now],
+           VALUES (NULL, $1, $2, $3, $4, $5)`,
+          [
+            endpoint.createdByUserId,
+            endpoint.targetScheduledTaskId ?? null,
+            id,
+            prompt,
+            now,
+          ],
         );
       } else {
         getDb().prepare(`
           INSERT INTO pending_claude_triggers
             (task_id, triggered_by_user_id, scheduled_task_id, webhook_endpoint_id,
              prompt, created_at)
-          VALUES (NULL, NULL, ?, ?, ?, ?)
-        `).run(endpoint.targetScheduledTaskId ?? null, id, prompt, now);
+          VALUES (NULL, ?, ?, ?, ?, ?)
+        `).run(
+          endpoint.createdByUserId,
+          endpoint.targetScheduledTaskId ?? null,
+          id,
+          prompt,
+          now,
+        );
       }
 
       await repo.recordTriggerAsync(id);

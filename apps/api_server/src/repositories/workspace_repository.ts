@@ -194,6 +194,29 @@ export class WorkspaceRepository {
     return this.findForUser(userId);
   }
 
+  async hasAdminMembershipAsync(userId: number): Promise<boolean> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `SELECT 1
+         FROM workspace_members
+         WHERE user_id = $1 AND role = 'admin'
+         LIMIT 1`,
+        [userId],
+      );
+      return result.rows.length > 0;
+    }
+    return Boolean(
+      getDb()
+        .prepare(
+          `SELECT 1
+           FROM workspace_members
+           WHERE user_id = ? AND role = 'admin'
+           LIMIT 1`,
+        )
+        .get(userId),
+    );
+  }
+
   findMember(workspaceId: number, userId: number): WorkspaceMember | null {
     const row = getDb()
       .prepare(

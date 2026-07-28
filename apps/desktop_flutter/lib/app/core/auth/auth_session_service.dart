@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auth_data_source.dart';
@@ -10,8 +11,17 @@ import 'workspace_info.dart';
 enum AuthStatus { checking, authenticated, unauthenticated, signingIn }
 
 class AuthSessionService extends ChangeNotifier {
-  AuthSessionService(this._dataSource, {DesktopGoogleOAuthClient? googleClient})
-      : _googleClient = googleClient ?? DesktopGoogleOAuthClient() {
+  AuthSessionService(
+    this._dataSource, {
+    DesktopGoogleOAuthClient? googleClient,
+    FlutterSecureStorage? secureStorage,
+  })  : _googleClient = googleClient ?? DesktopGoogleOAuthClient(),
+        _secureStorage = secureStorage ??
+            const FlutterSecureStorage(
+              mOptions: MacOsOptions(
+                accessibility: KeychainAccessibility.first_unlock_this_device,
+              ),
+            ) {
     instance = this;
   }
 
@@ -20,6 +30,7 @@ class AuthSessionService extends ChangeNotifier {
 
   final AuthDataSource _dataSource;
   final DesktopGoogleOAuthClient _googleClient;
+  final FlutterSecureStorage _secureStorage;
 
   AuthStatus _status = AuthStatus.checking;
   AuthUser? _currentUser;
@@ -47,17 +58,15 @@ class AuthSessionService extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
 
-    final prefs = await SharedPreferences.getInstance();
-    final storedToken = prefs.getString(_sessionTokenKey);
-    if (storedToken == null || storedToken.isEmpty) {
-      _sessionToken = null;
-      AuthSessionStore.setSessionToken(null);
-      _status = AuthStatus.unauthenticated;
-      notifyListeners();
-      return;
-    }
-
     try {
+      final storedToken = await _readSecureStorageSessionToken();
+      if (storedToken == null || storedToken.isEmpty) {
+        _sessionToken = null;
+        AuthSessionStore.setSessionToken(null);
+        _status = AuthStatus.unauthenticated;
+        notifyListeners();
+        return;
+      }
       final meResponse = await _dataSource.me(storedToken);
       _sessionToken = storedToken;
       _currentUser = meResponse.user;
@@ -85,8 +94,7 @@ class AuthSessionService extends ChangeNotifier {
       _currentUser = login.user;
       AuthSessionStore.setSessionToken(login.sessionToken);
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_sessionTokenKey, login.sessionToken);
+      await _persistSecureSessionToken(login.sessionToken);
 
       _errorMessage = null;
       _status = AuthStatus.authenticated;
@@ -146,6 +154,36 @@ class AuthSessionService extends ChangeNotifier {
     _currentWorkspace = null;
     _workspaceRole = null;
     AuthSessionStore.setSessionToken(null);
+    await _secureStorage.delete(key: _sessionTokenKey);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_sessionTokenKey);
+  }
+
+  Future<String?> _readSecureStorageSessionToken() async {
+    final secureToken = await _secureStorage.read(key: _sessionTokenKey);
+    final prefs = await SharedPreferences.getInstance();
+    final legacyToken = prefs.getString(_sessionTokenKey);
+    if (secureToken != null && secureToken.isNotEmpty) {
+      if (legacyToken != null) {
+        await prefs.remove(_sessionTokenKey);
+      }
+      return secureToken;
+    }
+    if (legacyToken == null || legacyToken.isEmpty) return null;
+
+    // One-time plaintext migration. Delete only after Keychain persistence
+    // succeeds; a failed Keychain write keeps the legacy value for a safe
+    // retry and leaves the app unauthenticated.
+    await _secureStorage.write(
+      key: _sessionTokenKey,
+      value: legacyToken,
+    );
+    await prefs.remove(_sessionTokenKey);
+    return legacyToken;
+  }
+
+  Future<void> _persistSecureSessionToken(String token) async {
+    await _secureStorage.write(key: _sessionTokenKey, value: token);
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_sessionTokenKey);
   }

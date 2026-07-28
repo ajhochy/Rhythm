@@ -1,10 +1,14 @@
 import { execFileSync, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 
 const live = process.env.RHYTHM_LIVE_E2E === '1';
+const heavy =
+  live && process.env.RHYTHM_CREATIVE_HEAVY_E2E === '1';
 const baseUrl = process.env.RHYTHM_LIVE_BASE_URL ?? 'http://127.0.0.1:4098';
 const sandboxDir =
   process.env.RHYTHM_SANDBOX_DIR ?? join(tmpdir(), 'rhythm-dev-sandbox');
@@ -79,7 +83,7 @@ async function initializeMcp(command: string): Promise<Record<string, unknown>> 
   });
 }
 
-describe.skipIf(!live)('creative platform live installer', () => {
+describe.skipIf(!heavy)('creative platform live installer', () => {
   it(
     'installs and executes the managed ffmpeg binary through the real approval + API flow',
     async () => {
@@ -235,4 +239,111 @@ describe.skipIf(!live)('creative platform live installer', () => {
     },
     180_000,
   );
+});
+
+describe.skipIf(!live)('creative platform sandbox fixture', () => {
+  it('discloses deterministic setup provenance and rejects unsigned approval requests', async () => {
+    const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? '';
+    if (!dbPath.startsWith('/')) {
+      throw new Error('Creative platform live test requires RHYTHM_LIVE_DB_PATH');
+    }
+    const db = new Database(dbPath);
+    const sessionId = randomUUID();
+    const sdkSessionId = `sdk-creative-platform-${randomUUID()}`;
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO agent_sessions
+         (id, agent_kind, status, cwd, name, created_at, updated_at,
+          permission_mode, fast_mode, is_system, delegation_depth,
+          category, sdk_session_id)
+       VALUES (?, ?, 'idle', ?, ?, ?, ?, 'default', 0, 0, 0, 'chat', ?)`,
+    ).run(
+      sessionId,
+      'creative-media',
+      process.cwd(),
+      'Creative platform live fixture',
+      now,
+      now,
+      sdkSessionId,
+    );
+    try {
+      const list = await fetch(`${baseUrl}/creative-platform`);
+      expect(list.status).toBe(200);
+      const capabilities = (await list.json()) as Array<{
+        id: string;
+        setup: {
+          planDigest: string;
+          installLocation: string;
+          dependencies: Array<{
+            name: string;
+            version: string;
+            source: string;
+            license: string;
+          }>;
+          trust: {
+            transitiveSource: string;
+            hashVerification: boolean;
+            buildScripts: boolean;
+          };
+        };
+      }>;
+      expect(capabilities).toHaveLength(7);
+      const documents = capabilities.find(
+        ({ id }) => id === 'document-tools',
+      )!;
+      expect(documents.setup).toMatchObject({
+        planDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+        installLocation: 'Rhythm managed application storage',
+        dependencies: expect.arrayContaining([
+          expect.objectContaining({
+            name: 'python-pptx',
+            version: '1.0.2',
+            source: 'https://pypi.org/project/python-pptx/1.0.2/',
+            license: 'MIT',
+          }),
+        ]),
+        trust: {
+          transitiveSource: 'https://pypi.org/simple',
+          hashVerification: true,
+          buildScripts: false,
+        },
+      });
+      expect(JSON.stringify(capabilities)).not.toContain(sandboxDir);
+      const repeat = (await (
+        await fetch(`${baseUrl}/creative-platform`)
+      ).json()) as typeof capabilities;
+      expect(
+        repeat.find(({ id }) => id === 'document-tools')?.setup.planDigest,
+      ).toBe(documents.setup.planDigest);
+      const forged = await fetch(
+        `${baseUrl}/creative-platform/media-tools/request-or-start`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            runtimeContext: {
+              sdkSessionId,
+              turnId: 'turn-creative-platform-forged',
+              agentName: 'creative-media',
+              toolCallId: 'call-creative-platform-forged',
+            },
+          }),
+        },
+      );
+      expect(forged.status).toBe(403);
+      expect(
+        db
+          .prepare(
+            'SELECT COUNT(*) AS count FROM agent_approvals WHERE session_id = ?',
+          )
+          .get(sessionId),
+      ).toEqual({ count: 0 });
+    } finally {
+      db.prepare('DELETE FROM agent_approvals WHERE session_id = ?').run(
+        sessionId,
+      );
+      db.prepare('DELETE FROM agent_sessions WHERE id = ?').run(sessionId);
+      db.close();
+    }
+  });
 });

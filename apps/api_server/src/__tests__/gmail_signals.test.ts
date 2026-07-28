@@ -57,11 +57,13 @@ describe('C2 — email-assistant.mcp.json role file', () => {
     expect(Object.keys(role.mcpServers)).toContain('rhythm');
     expect(Object.keys(role.mcpServers)).not.toContain('gmail');
 
-    // rhythm server must scope email tools.
+    // #1134: the email-assistant launch surface is read-only triage.
     const rhythmTools = role.mcpServers.rhythm?.allowedTools ?? [];
     expect(rhythmTools).toContain('rhythm_search_gmail');
     expect(rhythmTools).toContain('rhythm_read_email');
-    expect(rhythmTools).toContain('rhythm_send_email');
+    expect(rhythmTools).not.toContain('rhythm_send_email');
+    expect(rhythmTools).not.toContain('rhythm_send_message');
+    expect(rhythmTools).not.toContain('rhythm_create_message_thread');
 
     // disabledMcpServers must include the four dangerous server types.
     const disabled = role.disabledMcpServers;
@@ -69,6 +71,34 @@ describe('C2 — email-assistant.mcp.json role file', () => {
     expect(disabled).toContain('computer');
     expect(disabled).toContain('editor');
     expect(disabled).toContain('filesystem');
+  });
+
+  it('#1134 c4: email triage and outbound role files have disjoint read/write capabilities', () => {
+    const rolesDir = path.resolve(__dirname, '..', '..', '..', '..', '.mcp-roles');
+    const triage = JSON.parse(
+      fs.readFileSync(path.join(rolesDir, 'email-assistant.mcp.json'), 'utf8'),
+    ) as { mcpServers: { rhythm: { allowedTools: string[] } } };
+    const outbound = JSON.parse(
+      fs.readFileSync(path.join(rolesDir, 'email-outbound.mcp.json'), 'utf8'),
+    ) as { mcpServers: { rhythm: { allowedTools: string[] } }; disabledMcpServers: string[] };
+
+    const triageTools = triage.mcpServers.rhythm.allowedTools;
+    const outboundTools = outbound.mcpServers.rhythm.allowedTools;
+    expect(triageTools).toEqual(expect.arrayContaining(['rhythm_search_gmail', 'rhythm_read_email']));
+    expect(outboundTools).toEqual(
+      expect.arrayContaining([
+        'rhythm_send_email',
+        'rhythm_send_message',
+        'rhythm_create_message_thread',
+        'rhythm_request_approval',
+      ]),
+    );
+    expect(outboundTools).not.toContain('rhythm_search_gmail');
+    expect(outboundTools).not.toContain('rhythm_read_email');
+    expect(triageTools.filter((tool) => outboundTools.includes(tool))).toEqual(['rhythm_ping']);
+    expect(outbound.disabledMcpServers).toEqual(
+      expect.arrayContaining(['bash', 'computer', 'editor', 'filesystem']),
+    );
   });
 });
 

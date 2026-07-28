@@ -102,6 +102,27 @@ export class AgentWebhookEndpointsRepository {
     return row ? rowToModel(row as Record<string, unknown>) : null;
   }
 
+  async findByIdForOwnerAsync(
+    id: string,
+    ownerUserId: number,
+  ): Promise<AgentWebhookEndpoint | null> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `SELECT * FROM agent_webhook_endpoints
+         WHERE id = $1 AND created_by_user_id = $2`,
+        [id, ownerUserId],
+      );
+      return result.rows[0] ? rowToModel(result.rows[0]) : null;
+    }
+    const row = getDb()
+      .prepare(
+        `SELECT * FROM agent_webhook_endpoints
+         WHERE id = ? AND created_by_user_id = ?`,
+      )
+      .get(id, ownerUserId);
+    return row ? rowToModel(row as Record<string, unknown>) : null;
+  }
+
   async listAsync(): Promise<AgentWebhookEndpoint[]> {
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(
@@ -110,6 +131,26 @@ export class AgentWebhookEndpointsRepository {
       return r.rows.map(rowToModel);
     }
     const rows = getDb().prepare(`SELECT * FROM agent_webhook_endpoints ORDER BY created_at DESC`).all();
+    return (rows as Record<string, unknown>[]).map(rowToModel);
+  }
+
+  async listForOwnerAsync(ownerUserId: number): Promise<AgentWebhookEndpoint[]> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `SELECT * FROM agent_webhook_endpoints
+         WHERE created_by_user_id = $1
+         ORDER BY created_at DESC`,
+        [ownerUserId],
+      );
+      return result.rows.map(rowToModel);
+    }
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM agent_webhook_endpoints
+         WHERE created_by_user_id = ?
+         ORDER BY created_at DESC`,
+      )
+      .all(ownerUserId);
     return (rows as Record<string, unknown>[]).map(rowToModel);
   }
 
@@ -131,6 +172,57 @@ export class AgentWebhookEndpointsRepository {
     ).run(now, now, id);
   }
 
+  async rotateSecretAsync(id: string): Promise<AgentWebhookEndpoint | null> {
+    const secret = randomUUID().replace(/-/g, '');
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `UPDATE agent_webhook_endpoints
+         SET secret = $1, updated_at = $2
+         WHERE id = $3
+         RETURNING *`,
+        [secret, now, id],
+      );
+      return result.rows[0] ? rowToModel(result.rows[0]) : null;
+    }
+    const result = getDb()
+      .prepare(
+        `UPDATE agent_webhook_endpoints
+         SET secret = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(secret, now, id);
+    return result.changes > 0 ? this.findByIdAsync(id) : null;
+  }
+
+  async rotateSecretForOwnerAsync(
+    id: string,
+    ownerUserId: number,
+  ): Promise<AgentWebhookEndpoint | null> {
+    const secret = randomUUID().replace(/-/g, '');
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `UPDATE agent_webhook_endpoints
+         SET secret = $1, updated_at = $2
+         WHERE id = $3 AND created_by_user_id = $4
+         RETURNING *`,
+        [secret, now, id, ownerUserId],
+      );
+      return result.rows[0] ? rowToModel(result.rows[0]) : null;
+    }
+    const result = getDb()
+      .prepare(
+        `UPDATE agent_webhook_endpoints
+         SET secret = ?, updated_at = ?
+         WHERE id = ? AND created_by_user_id = ?`,
+      )
+      .run(secret, now, id, ownerUserId);
+    return result.changes > 0
+      ? this.findByIdForOwnerAsync(id, ownerUserId)
+      : null;
+  }
+
   async deleteAsync(id: string): Promise<boolean> {
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(
@@ -140,5 +232,26 @@ export class AgentWebhookEndpointsRepository {
     }
     const r = getDb().prepare(`DELETE FROM agent_webhook_endpoints WHERE id = ?`).run(id);
     return r.changes > 0;
+  }
+
+  async deleteForOwnerAsync(
+    id: string,
+    ownerUserId: number,
+  ): Promise<boolean> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `DELETE FROM agent_webhook_endpoints
+         WHERE id = $1 AND created_by_user_id = $2`,
+        [id, ownerUserId],
+      );
+      return (result.rowCount ?? 0) > 0;
+    }
+    const result = getDb()
+      .prepare(
+        `DELETE FROM agent_webhook_endpoints
+         WHERE id = ? AND created_by_user_id = ?`,
+      )
+      .run(id, ownerUserId);
+    return result.changes > 0;
   }
 }

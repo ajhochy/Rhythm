@@ -1,0 +1,56 @@
+{
+  "issue": 1227,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1227-c1",
+      "text": "Before asking for approval, Rhythm Setup explains what the capability needs, each direct dependency's purpose, exact version, authoritative source, license, download and disk expectations, managed install location, and the trust policy for transitive dependencies.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1227_creative_installer_hermetic.test.ts",
+      "test_id": "issue-1227-c1: the setup agent receives a plain-language dependency and provenance plan before approval",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1227-c2",
+      "text": "Installation requires explicit human approval bound to the exact disclosed plan, and any model-specific license acceptance remains a separate explicit acknowledgement.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1227_creative_installer_hermetic.test.ts",
+      "test_id": "issue-1227-c2: install consent is bound to the disclosed plan and model terms remain separate",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1227-c3",
+      "text": "Python dependencies resolve only from the disclosed PyPI index into a complete hash lock, reject source builds, and install only hash-verified wheels into Rhythm managed storage.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1227_creative_installer_hermetic.test.ts",
+      "test_id": "issue-1227-c3: Python resolution is hash locked, wheel only, and limited to the disclosed index",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1227-c4",
+      "text": "Node dependencies resolve into an integrity-locked package lock from the disclosed npm registry and install from the verified cache with all dependency lifecycle scripts disabled.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1227_creative_installer_hermetic.test.ts",
+      "test_id": "issue-1227-c4: Node resolution uses an integrity lock and cannot run lifecycle scripts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1227-c5",
+      "text": "The setup flow reports meaningful planning, download, verification, installation, and completion or failure progress, verifies the resulting capability, and records the exact installed sources, licenses, and resolved dependency set.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1227_creative_installer_hermetic.test.ts",
+      "test_id": "issue-1227-c5: completion records what was installed and reports useful verification progress",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1227-c6",
+      "text": "Rhythm Setup offers approval-bound repair and uninstall actions that operate only inside Rhythm's managed creative-tools directory.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1227_creative_installer_hermetic.test.ts",
+      "test_id": "issue-1227-c6: repair and uninstall are approval-bound and stay inside Rhythm managed storage",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

@@ -21,6 +21,7 @@ import {
   onSessionError,
 } from './turn_redispatch';
 import type { AgentSession, PermissionMode } from '../models/agent_session';
+import { asyncDelegationCompletionService } from './async_delegation_completion_service';
 
 /**
  * How often each active directory stream polls the engine's GET /question to
@@ -97,7 +98,7 @@ const OPENCODE_NATIVE_TOOLS = new Set([
  * The bridge uses opencodeSessionMap to look up the local session ID for each event.
  */
 type DirectoryStream = {
-  eventStream: AsyncIterable<import('@opencode-ai/sdk').Event>;
+  eventStream: AsyncIterable<import('@opencode-ai/sdk').RhythmEvent>;
   abort: AbortController;
   // Recovery poll for questions whose `question.asked` event was missed on the
   // SSE stream (race with session mapping, child/subagent session, or the
@@ -611,7 +612,7 @@ export class OpencodeStreamBridge {
   }
 
   private async _listenGlobal(
-    stream: AsyncIterable<import('@opencode-ai/sdk').Event & { __directory?: string }>,
+    stream: AsyncIterable<import('@opencode-ai/sdk').RhythmEvent & { __directory?: string }>,
   ): Promise<void> {
     try {
       for await (const event of stream) {
@@ -834,7 +835,7 @@ export class OpencodeStreamBridge {
   }
 
   private _relayEvent(
-    event: import('@opencode-ai/sdk').Event,
+    event: import('@opencode-ai/sdk').RhythmEvent,
   ): void {
     // Extract the Opencode session ID — different event types nest it
     // differently:
@@ -1380,6 +1381,23 @@ export class OpencodeStreamBridge {
               message: 'The model returned an empty response.',
             });
           }
+          // #1123 — callback boundary for additive interactive async
+          // delegation. Run only AFTER the existing assistant persistence and
+          // transcript finalization above. The service ignores non-async child
+          // rows, durably dedupes replayed idle events, defers while a parent is
+          // busy, and coalesces concurrent child completions. A session may be
+          // both a delegated child and a manager parent, so run both roles in
+          // sequence. Never block or reject SSE processing.
+          void asyncDelegationCompletionService
+            .onChildIdle(localSessionId)
+            .then(() => asyncDelegationCompletionService.onParentIdle(localSessionId))
+            .catch((err) =>
+              logger.error(
+                `[OpencodeStreamBridge] async delegation idle callback failed for ${localSessionId}:`,
+                err,
+              ),
+            );
+
           // Specialist reports are discovered from persisted session output; indexing
           // is deliberately detached from event relay and can never delay a turn.
           indexResearchSession(localSessionId).catch((err) =>
@@ -1608,6 +1626,17 @@ export class OpencodeStreamBridge {
               err,
             );
           }
+          // #1123 — a delegated child failure is still a completion the
+          // interactive parent must hear about. Persist the normal error state
+          // first, then queue the callback; native task children are ignored.
+          void asyncDelegationCompletionService
+            .onChildFailed(localSessionId, message)
+            .catch((err) =>
+              logger.error(
+                `[OpencodeStreamBridge] async delegation error callback failed for ${localSessionId}:`,
+                err,
+              ),
+            );
         }
         break;
       }

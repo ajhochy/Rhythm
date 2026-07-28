@@ -1,0 +1,40 @@
+{
+  "issue": "1157",
+  "generated": "2026-07-24",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "issue-1157-c1",
+      "text": "Detects `@ai-sdk/anthropic` (and `@ai-sdk/google-vertex/anthropic`) via `model.api.npm`",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/test/provider/transform.test.ts",
+      "test_id": "issue-1157-c1: sanitizes both Anthropic SDK package variants",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1157-c2",
+      "text": "Recursively walks the schema and, at any level where `anyOf`/`oneOf`/`allOf` is the **only** key, unwraps single-element cases to the element itself — mirroring what `normalize()` in `json-schema.ts` already does (lines 56–76 of that file)",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/test/provider/transform.test.ts",
+      "test_id": "issue-1157-c2: recursively unwraps single-element only-key combiners",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1157-c3",
+      "text": "For multi-element top-level combiners that cannot be safely collapsed, falls back to `{ type: \"object\" }` to avoid the API rejection (lossy but non-crashing)",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/test/provider/transform.test.ts",
+      "test_id": "issue-1157-c3: replaces irreducible top-level combiners with a safe object schema",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1157-c4",
+      "text": "This crashes the entire session — no response is returned, and the agent errors out immediately.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1157_anthropic_tool_schema_live.test.ts",
+      "test_id": "issue-1157-c4: real engine session reaches a strict Anthropic-compatible endpoint and returns a response",
+      "status": "pass"
+    }
+  ],
+  "not_tested": []
+}

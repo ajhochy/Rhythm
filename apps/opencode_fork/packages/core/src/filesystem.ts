@@ -302,3 +302,8 @@ export namespace AppFileSystem {
     }
   }
 }
+
+// Bun's compiled + split build can tree-shake late namespace members when the
+// namespace object crosses chunk boundaries. Export a concrete binding so
+// runtime consumers retain the containment helper in the standalone binary.
+export const containsReal = AppFileSystem.containsReal

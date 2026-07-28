@@ -535,6 +535,49 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE pending_claude_triggers ALTER COLUMN task_id DROP NOT NULL;
   `);
 
+  // Rhythm Agent iOS Task 4 — schema parity for verifier-only pairing data.
+  // Pairing remains a local-agent feature, but these additive definitions keep
+  // shared repository schema from drifting on Postgres deployments.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS mobile_pairing_codes (
+      id TEXT PRIMARY KEY,
+      host_id TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
+      code_verifier TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS mobile_devices (
+      id TEXT PRIMARY KEY,
+      host_id TEXT NOT NULL,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      token_verifier TEXT NOT NULL,
+      revoked_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS mobile_opencode_resource_owners (
+      resource_kind TEXT NOT NULL
+        CHECK (resource_kind IN ('session', 'pty')),
+      resource_id TEXT NOT NULL,
+      owner_user_id INTEGER NOT NULL
+        REFERENCES users(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (resource_kind, resource_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mobile_opencode_resource_owner
+      ON mobile_opencode_resource_owners(
+        owner_user_id,
+        project_id,
+        resource_kind
+      );
+  `);
+
   // ── Agent-EXECUTION tables (#755) ──────────────────────────────────────────
   // Created ONLY when the deployment role runs the agent runtime
   // (RHYTHM_ROLE=all|local; the DEFAULT preserves today's behavior). The
@@ -612,6 +655,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       description TEXT,
       steps_json TEXT NOT NULL DEFAULT '[]',
       bound_config_id TEXT,
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
@@ -777,6 +821,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       post_score     INTEGER,
       measure_reason TEXT,
       decided_by_user_id INTEGER,
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
@@ -890,6 +935,29 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS allowed_skills_json TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS core_permissions_json TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS allowed_delegates_json TEXT;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS locked INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS disabled_reason TEXT;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS locked_by TEXT;
+  `);
+  // #1135 — append-only application audit log for security lock/reviewed
+  // re-enable transitions. Deliberately no cascading FK: deleting a profile
+  // must not erase its security evidence.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_config_security_events (
+      id              TEXT PRIMARY KEY,
+      agent_config_id TEXT NOT NULL,
+      event_type      TEXT NOT NULL CHECK (event_type IN ('locked', 'reviewed_reenabled')),
+      actor           TEXT NOT NULL,
+      reason          TEXT NOT NULL,
+      review_note     TEXT,
+      lock_version    TIMESTAMPTZ NOT NULL,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_agent_config_security_events_profile
+      ON agent_config_security_events(agent_config_id, created_at)
   `);
 
   // agent_config_id: logical FK from scheduled tasks to agent_configs.id.
@@ -919,9 +987,37 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS is_system INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS delegation_depth INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS status_message TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id) ON DELETE SET NULL;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS mcp_role TEXT;
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_is_system ON agent_sessions(is_system);
+  `);
+
+  // #1175 — Activity schema + owner-index parity. All changes are additive and
+  // idempotent for active Postgres deployments. NULL recipe/proposal owners are
+  // organization/system-global and excluded from authenticated mobile feeds;
+  // only the trusted local desktop global view may include them.
+  await pool.query(`
+    ALTER TABLE agent_cookbook
+      ADD COLUMN IF NOT EXISTS owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE agent_org_proposals
+      ADD COLUMN IF NOT EXISTS owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_agent_sessions_owner_activity
+      ON agent_sessions(owner_user_id, last_activity_at, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_scheduled_tasks_owner_activity
+      ON agent_scheduled_tasks(created_by_user_id, last_run_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_webhook_endpoints_owner_activity
+      ON agent_webhook_endpoints(created_by_user_id, last_triggered_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_owner_activity
+      ON agent_research_jobs(requested_by_user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_cookbook_owner_activity
+      ON agent_cookbook(owner_user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_org_proposals_owner_activity
+      ON agent_org_proposals(owner_user_id, updated_at);
   `);
 
   // #1028 (USO B1) — agent_sessions.category: session classification driving the
@@ -937,6 +1033,28 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_category ON agent_sessions(category);
+  `);
+
+  // #1123 — durable completion/outbox state for interactive async delegation.
+  // Additive only; no existing rows need backfill because pre-#1123 child
+  // sessions all belong to the native blocking `task` path.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_async_delegations (
+      id TEXT PRIMARY KEY,
+      parent_session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      child_session_id TEXT NOT NULL UNIQUE REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      target_agent_config_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'dispatched'
+        CHECK (status IN ('dispatched', 'completed', 'waking', 'notified', 'failed')),
+      completion_text TEXT,
+      error_text TEXT,
+      completed_at TEXT,
+      notified_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_async_delegations_parent_status
+      ON agent_async_delegations(parent_session_id, status, created_at);
   `);
 
   // One-time repair, marker-guarded (schema_meta) — same contract as the

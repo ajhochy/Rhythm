@@ -5,7 +5,7 @@
  * execution state never syncs to Postgres.
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { getDb } from '../database/db';
 
 export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected';
@@ -20,6 +20,14 @@ export interface AgentApproval {
   status: AgentApprovalStatus;
   actor: string | null;
   decidedAt: string | null;
+  securityAction: string | null;
+  payloadDigest: string | null;
+  taintId: string | null;
+  taintedTurnId: string | null;
+  boundAgent: string | null;
+  expiresAt: string | null;
+  consumedAt: string | null;
+  decisionNonce: string | null;
   createdAt: string;
 }
 
@@ -32,6 +40,12 @@ export interface CreateAgentApprovalInput {
   /** True when the caller's profile has auto_approve_actions set — persists pre-approved. */
   autoApprove?: boolean;
   actor?: string | null;
+  securityAction?: string | null;
+  payloadDigest?: string | null;
+  taintId?: string | null;
+  taintedTurnId?: string | null;
+  boundAgent?: string | null;
+  expiresAt?: string | null;
 }
 
 function rowToModel(row: Record<string, unknown>): AgentApproval {
@@ -45,6 +59,14 @@ function rowToModel(row: Record<string, unknown>): AgentApproval {
     status: row.status as AgentApprovalStatus,
     actor: (row.actor as string | null) ?? null,
     decidedAt: (row.decided_at as string | null) ?? null,
+    securityAction: (row.security_action as string | null) ?? null,
+    payloadDigest: (row.payload_digest as string | null) ?? null,
+    taintId: (row.taint_id as string | null) ?? null,
+    taintedTurnId: (row.tainted_turn_id as string | null) ?? null,
+    boundAgent: (row.bound_agent as string | null) ?? null,
+    expiresAt: (row.expires_at as string | null) ?? null,
+    consumedAt: (row.consumed_at as string | null) ?? null,
+    decisionNonce: (row.decision_nonce as string | null) ?? null,
     createdAt: row.created_at as string,
   };
 }
@@ -66,15 +88,23 @@ export function isAutoApproveProfile(agentConfigId: string | null | undefined): 
 export class AgentApprovalsRepository {
   create(input: CreateAgentApprovalInput): AgentApproval {
     const id = randomUUID();
-    const status: AgentApprovalStatus = input.autoApprove ? 'approved' : 'pending';
-    const decidedAt = input.autoApprove ? new Date().toISOString() : null;
-    const actor = input.autoApprove ? 'auto-approved' : (input.actor ?? null);
+    // #1134: security-bound outbound approvals can never inherit a profile's
+    // auto-approve flag. They require an explicit human decision.
+    const autoApprove = input.autoApprove === true && !input.securityAction;
+    const status: AgentApprovalStatus = autoApprove ? 'approved' : 'pending';
+    const decidedAt = autoApprove ? new Date().toISOString() : null;
+    const actor = autoApprove ? 'auto-approved' : (input.actor ?? null);
+    const decisionNonce = autoApprove
+      ? null
+      : randomBytes(32).toString('base64url');
 
     getDb()
       .prepare(
         `INSERT INTO agent_approvals
-          (id, session_id, agent_config_id, action, preview, consequence, status, actor, decided_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, session_id, agent_config_id, action, preview, consequence, status,
+           actor, decided_at, security_action, payload_digest, taint_id,
+           tainted_turn_id, bound_agent, expires_at, decision_nonce)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -86,6 +116,13 @@ export class AgentApprovalsRepository {
         status,
         actor,
         decidedAt,
+        input.securityAction ?? null,
+        input.payloadDigest ?? null,
+        input.taintId ?? null,
+        input.taintedTurnId ?? null,
+        input.boundAgent ?? null,
+        input.expiresAt ?? null,
+        decisionNonce,
       );
 
     return this.getById(id)!;
@@ -111,16 +148,25 @@ export class AgentApprovalsRepository {
     return rows.map(rowToModel);
   }
 
-  /** Approve or reject a pending approval. Returns null if the row doesn't exist or isn't pending. */
-  decide(id: string, status: 'approved' | 'rejected', actor: string | null): AgentApproval | null {
-    const existing = this.getById(id);
-    if (!existing || existing.status !== 'pending') return null;
-
-    getDb()
+  /**
+   * Atomically consume a pending decision nonce. Signature verification occurs
+   * immediately before this call; the nonce predicate prevents replay and
+   * closes the verify/update race between two concurrent requests.
+   */
+  decideWithNonce(
+    id: string,
+    status: 'approved' | 'rejected',
+    actor: string,
+    decisionNonce: string,
+  ): AgentApproval | null {
+    const updated = getDb()
       .prepare(
-        `UPDATE agent_approvals SET status = ?, actor = ?, decided_at = ? WHERE id = ?`,
+        `UPDATE agent_approvals
+         SET status = ?, actor = ?, decided_at = ?, decision_nonce = NULL
+         WHERE id = ? AND status = 'pending' AND decision_nonce = ?`,
       )
-      .run(status, actor, new Date().toISOString(), id);
+      .run(status, actor, new Date().toISOString(), id, decisionNonce);
+    if (updated.changes !== 1) return null;
 
     return this.getById(id);
   }

@@ -7,6 +7,7 @@ Read this file first, before any other file, when opening this repo cold.
 ```
 apps/
 ├── desktop_flutter/  ← macOS desktop app (Flutter) — THE SHIPPING CLIENT
+├── mobile/           ← Rhythm Agents iOS app (Expo/React Native) — INCOMPLETE PROTOTYPE
 ├── api_server/       ← Node.js/Express + TypeScript backend (spawned locally by Flutter on :4001)
 ├── mcp_server/        ← Rhythm's own MCP server (tool definitions for agent sessions)
 ├── opencode_fork/     ← vendored subtree of the opencode engine — see dedicated section below

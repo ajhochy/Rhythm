@@ -1,0 +1,80 @@
+{
+  "issue": 1169,
+  "generated": "2026-07-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1169-c1",
+      "text": "Add allowlisted `/mobile-gateway/opencode/*` proxy operations",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy.test.ts",
+      "test_id": "issue-1169-c1: the generated manifest classifies every bundled OpenCode operation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1169-c2",
+      "text": "Inject server-resolved project directory and strip caller roots",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy.test.ts",
+      "test_id": "issue-1169-c2: forwarding injects only the repository-owned directory and strips nested caller roots",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1169-c3",
+      "text": "Cap request/response bodies and normalize errors",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy.test.ts",
+      "test_id": "issue-1169-c3: bounded forwarding rejects oversized bodies and normalizes upstream errors",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1169-c4",
+      "text": "Return Rhythm/OpenCode versions, contract fingerprint, feature IDs, and minimum mobile version",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy.test.ts",
+      "test_id": "issue-1169-c4: compatibility reports versions fingerprint feature IDs and the minimum mobile version",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1169-c5",
+      "text": "Explicitly reject upgrade, disposal, TUI, v2, workspace/sync, and experimental Console families",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy.test.ts",
+      "test_id": "issue-1169-c5: every forbidden API family is explicitly classified as denied",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1169-c6",
+      "text": "Generated/table-tested operation allowlist covers every exposed path/method",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy.test.ts",
+      "test_id": "issue-1169-c6: every exposed manifest path and method round-trips through the matcher",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1169-c7",
+      "text": "Rejected operations return stable `403 OPERATION_NOT_ALLOWED`",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy.test.ts",
+      "test_id": "issue-1169-c7: HTTP rejects forbidden operations and caller root overrides before forwarding",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1169-c8",
+      "text": "Sandboxed real-engine test proves health/session/file behavior and rejected upgrade",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy_live.test.ts",
+      "test_id": "issue-1169-c8: live sandbox proxies health session and file behavior while rejecting upgrade",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1169-c9",
+      "text": "No payload/token logging",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy.test.ts",
+      "test_id": "issue-1169-c9: rejected proxy requests never log device tokens query values or bodies",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

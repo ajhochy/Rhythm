@@ -1,0 +1,48 @@
+{
+  "issue": 1162,
+  "generated": "2026-07-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1162-c1",
+      "text": "Map → scalar replacement removes all stale child lines.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+      "test_id": "issue-1162-c1: map to scalar replaces the complete permission subtree",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1162-c2",
+      "text": "Scalar → map replacement remains valid.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+      "test_id": "issue-1162-c2: scalar to map emits one valid nested permission subtree",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1162-c3",
+      "text": "Map → map replacement remains valid.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+      "test_id": "issue-1162-c3: map to map replaces old patterns without duplication",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1162-c4",
+      "text": "Resulting frontmatter parses as YAML and the live engine registry exposes the configured model/options.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1162_permission_shape_transition.test.ts",
+      "test_id": "issue-1162-c4: live registry parses every permission shape transition and preserves model/options",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1162-c5",
+      "text": "Add a regression test using external_directory map → scalar, asserting the child \"*\" line is absent.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+      "test_id": "issue-1162-c5: external_directory map to scalar removes its star child",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

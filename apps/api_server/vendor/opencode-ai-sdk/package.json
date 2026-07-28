@@ -1,0 +1,46 @@
+{
+  "name": "@opencode-ai/sdk",
+  "version": "1.14.49-rhythm",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./index.js",
+      "types": "./index.d.ts"
+    },
+    "./client": {
+      "import": "./client.js",
+      "types": "./client.d.ts"
+    },
+    "./server": {
+      "import": "./server.js",
+      "types": "./server.d.ts"
+    },
+    "./rhythm": {
+      "import": "./rhythm.js",
+      "types": "./rhythm.d.ts"
+    },
+    "./v2": {
+      "import": "./v2/index.js",
+      "types": "./v2/index.d.ts"
+    },
+    "./v2/client": {
+      "import": "./v2/client.js",
+      "types": "./v2/client.d.ts"
+    },
+    "./v2/gen/client": {
+      "import": "./v2/gen/client/index.js",
+      "types": "./v2/gen/client/index.d.ts"
+    },
+    "./v2/server": {
+      "import": "./v2/server.js",
+      "types": "./v2/server.d.ts"
+    }
+  },
+  "dependencies": {
+    "cross-spawn": "7.0.6"
+  }
+}

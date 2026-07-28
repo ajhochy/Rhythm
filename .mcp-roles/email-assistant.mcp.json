@@ -1,7 +1,7 @@
 {
   "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
   "role": "email-assistant",
-  "description": "Agentic email assistant \u2014 Gmail read/search/send via the Rhythm MCP server plus read-only context tools (tasks, dashboard, messaging). No code execution.",
+  "description": "Read-only email triage \u2014 Gmail search/read plus read-only context tools. Outbound email and shared-message writes require a fresh email-outbound session.",
   "mcpServers": {
     "rhythm": {
       "command": "node",
@@ -15,12 +15,9 @@
       "allowedTools": [
         "rhythm_search_gmail",
         "rhythm_read_email",
-        "rhythm_send_email",
         "rhythm_get_dashboard",
         "rhythm_list_tasks",
         "rhythm_list_message_threads",
-        "rhythm_send_message",
-        "rhythm_create_message_thread",
         "rhythm_ping"
       ]
     },

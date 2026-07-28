@@ -33,6 +33,7 @@ vi.mock('../services/opencode_engine', () => ({
     promptAsync: vi.fn().mockResolvedValue(true),
     abortSession: vi.fn().mockResolvedValue(true),
     listMessages: vi.fn().mockResolvedValue([]),
+    reloadConfig: vi.fn().mockResolvedValue(true),
   },
   opencodeSessionMap: new Map<string, string>(),
 }));
@@ -152,6 +153,108 @@ describe('#740 — POST /agent-cookbook/:id/run (authenticated)', () => {
     expect(callArgs.prompt).toContain('Step A');
     expect(callArgs.prompt).toContain('Step B');
     expect(callArgs.prompt).toContain('Step C');
+  });
+
+  it('issue-1161-c1: bound recipe forwards profile identity and session metadata', async () => {
+    const profileRes = await fetch(`${baseUrl}/agent-configs`, {
+      method: 'POST',
+      headers: { ...authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: 'vault-librarian',
+        label: 'Vault Librarian',
+        icon: 'book',
+        enabled: true,
+        isAgent: true,
+        sessionSelectable: true,
+        modelProvider: 'openrouter',
+        modelId: 'anthropic/claude-haiku-4.5',
+        ocAgent: 'vault-librarian',
+        allowedMcpsJson: '[]',
+        allowedSkillsJson: '[]',
+        corePermissionsJson: JSON.stringify({ read: 'allow', bash: 'deny' }),
+      }),
+    });
+    expect(profileRes.status).toBe(201);
+
+    const createRes = await fetch(`${baseUrl}/agent-cookbook`, {
+      method: 'POST',
+      headers: { ...authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Catalog the vault',
+        steps: ['Summarize the catalog'],
+        boundConfigId: 'vault-librarian',
+      }),
+    });
+    const recipe = (await createRes.json()) as { id: string };
+
+    const runRes = await fetch(`${baseUrl}/agent-cookbook/${recipe.id}/run`, {
+      method: 'POST',
+      headers: authHeader,
+    });
+
+    expect(runRes.status).toBe(202);
+    const callArgs = mockAgentRun.mock.calls[0][0] as Record<string, unknown>;
+    // Regression caught: dropping boundConfigId makes these assertions receive
+    // undefined and the run silently falls back to Config Doctor/default.
+    expect(callArgs.agentConfigId).toBe('vault-librarian');
+    expect(callArgs.agentKind).toBe('vault-librarian');
+    expect(callArgs.sessionName).toBe('Catalog the vault');
+    expect(callArgs.outputTarget).toBe('session');
+  });
+
+  it('issue-1161-c2: unbound recipe preserves the default profile fallback', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-cookbook`, {
+      method: 'POST',
+      headers: { ...authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Unbound fallback',
+        steps: ['Use the normal fallback'],
+      }),
+    });
+    const recipe = (await createRes.json()) as { id: string };
+
+    const runRes = await fetch(`${baseUrl}/agent-cookbook/${recipe.id}/run`, {
+      method: 'POST',
+      headers: authHeader,
+    });
+
+    expect(runRes.status).toBe(202);
+    const callArgs = mockAgentRun.mock.calls[0][0] as Record<string, unknown>;
+    // Regression caught: inventing a binding for unbound recipes would make
+    // either key present and change AgentRunner's established fallback.
+    expect(callArgs).not.toHaveProperty('agentConfigId');
+    expect(callArgs).not.toHaveProperty('agentKind');
+    expect(callArgs.sessionName).toBe('Unbound fallback');
+  });
+
+  it('issue-1161-c3: stale recipe binding returns an actionable 4xx', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-cookbook`, {
+      method: 'POST',
+      headers: { ...authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Stale binding',
+        steps: ['Never run as a fallback'],
+        boundConfigId: 'deleted-agent-profile',
+      }),
+    });
+    const recipe = (await createRes.json()) as { id: string };
+
+    const runRes = await fetch(`${baseUrl}/agent-cookbook/${recipe.id}/run`, {
+      method: 'POST',
+      headers: authHeader,
+    });
+    const body = (await runRes.json()) as {
+      error?: { code?: string; message?: string };
+    };
+
+    // Regression caught: resolveProfileScope is intentionally fail-open, so
+    // without controller validation this returns 202 and runs the wrong agent.
+    expect(runRes.status).toBeGreaterThanOrEqual(400);
+    expect(runRes.status).toBeLessThan(500);
+    expect(body.error?.code).toBe('BAD_REQUEST');
+    expect(body.error?.message).toContain('deleted-agent-profile');
+    expect(body.error?.message).toContain('no longer exists');
+    expect(mockAgentRun).not.toHaveBeenCalled();
   });
 });
 

@@ -1,0 +1,40 @@
+{
+  "issue": 1226,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1226-c1",
+      "text": "The MCP server forwards the complete signed trusted-call envelope to approval-consume and external-content-taint entry points.",
+      "mode": "integration",
+      "test_file": "apps/mcp_server/src/__tests__/contract/issue-1226.spec.ts",
+      "test_id": "issue-1226-c1: MCP boundaries forward context proof and original tool arguments",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1226-c2",
+      "text": "Both API endpoints verify signature, expected tool name, bound arguments, freshness, and one-time nonce before accepting the request.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1226_trusted_boundaries.test.ts",
+      "test_id": "issue-1226-c2: taint and consume require a fresh signed call for the expected tool and arguments",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1226-c3",
+      "text": "Missing, altered, stale, replayed, or wrong-tool envelopes are rejected without changing approval or taint state.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1226_trusted_boundaries.test.ts",
+      "test_id": "issue-1226-c3: invalid envelopes fail closed without security-state changes",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1226-c4",
+      "text": "Live behavioral tests drive the real MCP/API surface and prove valid calls succeed while invalid and replayed calls fail.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1175_trusted_mcp_proof_live.test.ts",
+      "test_id": "drives real task write/consume and read/taint calls while forgery and replay fail",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

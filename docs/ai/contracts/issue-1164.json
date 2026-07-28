@@ -1,0 +1,88 @@
+{
+  "issue": 1164,
+  "generated": "2026-07-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1164-c1",
+      "text": "A parent can dispatch 50 sibling reader sessions and all 50 make observable progress without deadlocking.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/model-stream-scheduler.test.ts",
+      "test_id": "issue-1164-c1: admits 50 sibling readers from one parent without deadlock",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1164-c2",
+      "text": "Two or more concurrent top-level parents can each await nested children without circular semaphore starvation.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/model-stream-scheduler.test.ts",
+      "test_id": "issue-1164-c2: waiting parents yield capacity to nested children",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1164-c3",
+      "text": "The behavior works consistently across every supported model/provider path, not only OpenAI.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/model-stream-scheduler.test.ts",
+      "test_id": "issue-1164-c3: schedules all provider identifiers through the same global capacity",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1164-c4",
+      "text": "The default concurrency target is 50 and can be lowered through configuration without code changes.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/model-stream-scheduler.test.ts",
+      "test_id": "issue-1164-c4: defaults to 50 and honors a lower configured limit",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1164-c5",
+      "text": "Provider throttling queues/retries affected work without blocking unrelated providers.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/model-stream-scheduler.test.ts",
+      "test_id": "issue-1164-c5: provider backpressure blocks only the affected provider",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1164-c6",
+      "text": "Interactive sessions remain responsive while a large swarm is active.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/model-stream-scheduler.test.ts",
+      "test_id": "issue-1164-c6: round-robin roots admit an interactive turn before queued swarm work",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1164-c7",
+      "text": "Cancelling a parent or child releases all associated scheduler capacity.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/model-stream-scheduler.test.ts",
+      "test_id": "issue-1164-c7: cancellation removes queued work and releases active capacity",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1164-c8",
+      "text": "Scheduler diagnostics identify active and queued work and why a turn is waiting.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/model-stream-scheduler.test.ts",
+      "test_id": "issue-1164-c8: diagnostics expose ownership and queue wait reasons",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1164-c9",
+      "text": "Unit tests cover flat concurrency, nested concurrency, cancellation, fairness, and provider-specific backpressure.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/model-stream-scheduler.test.ts",
+      "test_id": "issue-1164-c9: combined lifecycle preserves capacity across nested backpressure and cancellation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1164-c10",
+      "text": "A live behavioral test, gated behind an environment flag, dispatches a real 50-reader swarm through the engine/API surface and asserts that children actually enter model execution and complete or return results. Record the sandbox run in `docs/ai/runs/` per the repository verification gate.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1164_fifty_reader_swarm.test.ts",
+      "test_id": "issue-1164-c10: 50 real reader sessions enter model execution and return output",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

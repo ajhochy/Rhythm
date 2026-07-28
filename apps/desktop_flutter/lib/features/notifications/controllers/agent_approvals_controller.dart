@@ -47,7 +47,8 @@ class AgentApprovalsController extends ChangeNotifier {
 
   Future<void> _decide(String id, {required bool approve}) async {
     try {
-      await _dataSource.decide(id, approve: approve);
+      final approval = _pending.firstWhere((item) => item.id == id);
+      await _dataSource.decide(approval, approve: approve);
       _pending = _pending.where((a) => a.id != id).toList();
       notifyListeners();
     } catch (_) {

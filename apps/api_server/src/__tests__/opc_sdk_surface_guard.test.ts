@@ -2,10 +2,9 @@
  * SDK SURFACE GUARD — the highest-leverage false-green tripwire.
  *
  * Background (postmortem 2026-06-13-smoke-sdk-shape-false-green):
- *   The hand-written `src/@types/opencode-ai-sdk.d.ts` once declared shapes that
- *   did NOT match the real installed `@opencode-ai/sdk`. Production followed the
- *   d.ts (e.g. `client.agents(...)`, `raw.data` for the event stream); tests
- *   mocked ABOVE the SDK boundary with fakes that ALSO matched the wrong d.ts.
+ *   A hand-written `src/@types/opencode-ai-sdk.d.ts` once declared shapes that
+ *   did NOT match the installed `@opencode-ai/sdk`. Production followed that
+ *   declaration while tests mocked above the SDK boundary.
  *   tsc + vitest were green; production threw `client.agents is not a function`
  *   and silently dropped the event stream.
  *
@@ -13,8 +12,8 @@
  * every namespace/method our production code calls actually exists on it. It is
  * deliberately independent of our service layer: it checks the SDK surface our
  * code DEPENDS ON against the SDK that is actually installed. If `@opencode-ai/
- * sdk` ships a breaking rename, or someone edits the hand-written d.ts to
- * declare a method the real SDK lacks, THIS test goes red — before a smoke does.
+ * sdk` ships a breaking rename, or the generated vendor package drifts from
+ * production call sites, THIS test goes red—before a smoke does.
  *
  * Why a runtime import works here even though api_server is CommonJS:
  *   vitest runs through Vite, which imports the ESM-only SDK natively. The
@@ -80,6 +79,15 @@ const CALL_SITES: string[] = [
   'postSessionIdPermissionsPermissionId',
 ];
 
+const V2_CALL_SITES: string[] = [
+  'session.update',
+  'app.skills',
+  'app.skills2.reload',
+  'app.config.reload',
+  'question.reply',
+  'question.reject',
+];
+
 // Paths our code MUST NOT depend on — these were the exact wrong shapes that
 // shipped. If a refactor reintroduces them, this guard fires.
 const FORBIDDEN_PATHS: string[] = [
@@ -97,6 +105,7 @@ function resolvePath(root: unknown, path: string): unknown {
 // Resolve the real SDK lazily in beforeAll (dynamic import keeps this an ESM
 // boundary, matching how the runtime loads it).
 let realClient: Record<string, unknown>;
+let realV2Client: Record<string, unknown>;
 let sdkModule: Record<string, unknown>;
 
 beforeAll(async () => {
@@ -107,12 +116,21 @@ beforeAll(async () => {
   }) => Record<string, unknown>;
   // No network is performed by instantiation. baseUrl is a parked address.
   realClient = createOpencodeClient({ baseUrl: 'http://127.0.0.1:1' });
+  const v2Module = (await import('@opencode-ai/sdk/v2/client')) as Record<string, unknown>;
+  const createV2Client = v2Module.createOpencodeClient as (cfg: {
+    baseUrl: string;
+  }) => Record<string, unknown>;
+  realV2Client = createV2Client({ baseUrl: 'http://127.0.0.1:1' });
 });
 
 describe('SDK surface guard: every production call site exists on the REAL client', () => {
   it('exposes createOpencodeClient + OpencodeClient from the real module', () => {
     expect(typeof sdkModule.createOpencodeClient).toBe('function');
     expect(typeof sdkModule.OpencodeClient).toBe('function');
+  });
+
+  it.each(V2_CALL_SITES)('v2 client.%s is callable on the generated fork client', (path) => {
+    expect(typeof resolvePath(realV2Client, path)).toBe('function');
   });
 
   it.each(CALL_SITES)('client.%s is a callable function on the real client', (path) => {
@@ -135,55 +153,15 @@ describe('SDK surface guard: every production call site exists on the REAL clien
   });
 });
 
-describe('SDK surface guard: hand-written d.ts namespaces all exist on the REAL client', () => {
-  // Read the hand-written declaration file and assert each top-level namespace
-  // it declares under `interface OpencodeClient` is present on the real client.
-  // This is the drift detector: a d.ts that invents a namespace the real SDK
-  // lacks will fail here even if no code calls it yet.
-  const DTS_PATH = join(__dirname, '..', '@types', 'opencode-ai-sdk.d.ts');
-
-  // Namespaces our d.ts declares on OpencodeClient. Kept explicit (rather than
-  // regex-scraped) so the assertion itself is reviewable; the test below also
-  // proves these strings actually appear in the d.ts so the list can't silently
-  // drift from the file.
-  const DECLARED_NAMESPACES = [
-    'config',
-    'session',
-    'mcp',
-    'provider',
-    'auth',
-    'event',
-    'command',
-    'app',
-  ];
-
-  let dtsText: string;
-  beforeAll(() => {
-    dtsText = readFileSync(DTS_PATH, 'utf8');
-  });
-
-  it.each(DECLARED_NAMESPACES)('d.ts declares `%s` AND it exists on the real client', (ns) => {
-    // 1. The namespace is actually declared in our d.ts (keeps this list honest).
-    expect(dtsText).toMatch(new RegExp(`\\n\\s*${ns}\\s*:\\s*\\{`));
-    // 2. It exists on the real client object.
-    expect(typeof resolvePath(realClient, ns)).toBe('object');
-  });
-
-  it('declares the top-level permission method that the real client exposes', () => {
-    expect(dtsText).toContain('postSessionIdPermissionsPermissionId');
-    expect(typeof realClient.postSessionIdPermissionsPermissionId).toBe('function');
-  });
-});
-
 describe('SDK surface guard: event.subscribe is an SSE { stream } result, NOT a { data,error } envelope', () => {
   // This is the #685 shape. We cannot CALL subscribe without a live engine, so
   // we prove the shape three ways from source-of-truth files (the documented
   // fallback when a method can't be runtime-exercised):
   //   1. The real SSE result type carries `stream`, not an envelope.
   //   2. The real sdk.gen.d.ts types subscribe() as a ServerSentEventsResult.
-  //   3. Our hand-written d.ts declares subscribe() -> { stream }, NOT SdkEnvelope.
+  // The generated SDK is the only type source; no ambient declaration exists.
   // Resolve the SDK's generated-types dir by walking up from this file looking
-  // for node_modules/@opencode-ai/sdk/dist/gen. This is layout-agnostic: locally
+  // for node_modules/@opencode-ai/sdk/gen. This is layout-agnostic: locally
   // the SDK is hoisted to the repo-root node_modules; in CI it may live under
   // apps/api_server/node_modules. A fixed '../../../../' path only worked for the
   // hoisted layout and broke CI.
@@ -195,7 +173,6 @@ describe('SDK surface guard: event.subscribe is an SSE { stream } result, NOT a 
         'node_modules',
         '@opencode-ai',
         'sdk',
-        'dist',
         'gen',
       );
       if (existsSync(candidate)) return candidate;
@@ -204,7 +181,7 @@ describe('SDK surface guard: event.subscribe is an SSE { stream } result, NOT a 
       dir = parent;
     }
     throw new Error(
-      'Could not locate @opencode-ai/sdk/dist/gen in any ancestor node_modules. ' +
+      'Could not locate @opencode-ai/sdk/gen in any ancestor node_modules. ' +
         'The SDK must be installed for this guard to compare against the real types.',
     );
   }
@@ -235,21 +212,6 @@ describe('SDK surface guard: event.subscribe is an SSE { stream } result, NOT a 
     expect(subscribeLine!).not.toContain('RequestResult');
   });
 
-  it('our hand-written d.ts declares event.subscribe() -> { stream }, not SdkEnvelope', () => {
-    const dts = readFileSync(join(__dirname, '..', '@types', 'opencode-ai-sdk.d.ts'), 'utf8');
-    const eventBlock = dts.match(/event:\s*\{([\s\S]*?)\n\s{4}\};/);
-    expect(eventBlock, 'Could not find the event namespace in the hand-written d.ts').not.toBeNull();
-    // Strip comment lines — explanatory prose mentions "SdkEnvelope" on purpose;
-    // we only care about the actual declaration.
-    const code = eventBlock![1]
-      .split('\n')
-      .filter((l) => !l.trim().startsWith('//'))
-      .join('\n');
-    expect(code).toMatch(/stream\s*:\s*AsyncIterable<Event>/);
-    // Regression guard: the wrong shape wrapped the subscribe return in SdkEnvelope.
-    expect(code).not.toMatch(/subscribe\([\s\S]*?Promise<\s*SdkEnvelope/);
-    expect(code).not.toContain('SdkEnvelope');
-  });
 });
 
 // ---------------------------------------------------------------------------

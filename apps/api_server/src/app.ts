@@ -1,5 +1,5 @@
 import cors from 'cors';
-import express from 'express';
+import express, { type Router } from 'express';
 
 import { env } from './config/env';
 import { errorHandler } from './middleware/error_handler';
@@ -58,10 +58,12 @@ import { agentCapabilityStatusRouter } from './routes/agent_capability_status_ro
 import { agentApprovalsRouter } from './routes/agent_approvals_routes';
 import { systemRouter } from './routes/system_routes';
 import { engraphManagerRouter } from './routes/engraph_manager_routes';
+import { createMobileGatewayRouter } from './routes/mobile_gateway_routes';
+import { agentActivityRouter } from './routes/agent_activity_routes';
 import { creativePlatformRouter } from './routes/creative_platform_routes';
 import { setupReadinessRouter } from './routes/setup_readiness_routes';
 
-export function createApp() {
+export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   const app = express();
 
   app.use(
@@ -137,6 +139,10 @@ export function createApp() {
   // handlers) so concurrent handler-owning issues (#736/#765/#737) are left
   // untouched.
   if (env.agentExecutionEnabled) {
+    app.use(
+      '/mobile-gateway',
+      options.mobileGatewayRouter ?? createMobileGatewayRouter(),
+    );
     // NOTE: /agents/capabilities is unauthenticated for now; Phase 3.1 will add the AGENT_LOCAL bypass.
     app.use('/agents/capabilities', agentsCapabilitiesRouter);
     app.use('/agent-capability-status', agentCapabilityStatusRouter);
@@ -165,6 +171,7 @@ export function createApp() {
     app.use('/agent-webhooks', agentWebhookRouter);
     app.use('/agent-research', agentResearchRouter);
     app.use('/agent-cookbook', agentCookbookRouter);
+    app.use('/agent-activity', agentActivityRouter);
     // org-optimizer-10 (#826): human-gate review queue — exception path for
     // new-agent + external-adoption/webhook-wiring proposals, plus an
     // audit-trail/rollback view of auto-applied ones (2026-07-02 policy).

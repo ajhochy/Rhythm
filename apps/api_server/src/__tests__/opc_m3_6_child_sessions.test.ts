@@ -43,12 +43,18 @@ const kChildSessionFixture = [
   },
 ];
 
-// Real v1.14.49 Message fixture (what SDK listMessages returns).
+// Real generated SessionMessages response entries: message info and parts are
+// siblings, not a fictional flat Message.parts shape.
 const kChildMessagesFixture = [
   {
-    id: 'msg-child-001',
-    sessionID: 'sdk-child-session-001',
-    role: 'user' as const,
+    info: {
+      id: 'msg-child-001',
+      sessionID: 'sdk-child-session-001',
+      role: 'user' as const,
+      time: { created: 1700000000100 },
+      agent: 'build',
+      model: { providerID: 'test', modelID: 'test' },
+    },
     parts: [
       {
         id: 'part-child-text-001',
@@ -58,12 +64,25 @@ const kChildMessagesFixture = [
         text: 'Fix the bug in auth.ts',
       },
     ],
-    time: { created: 1700000000100 },
   },
   {
-    id: 'msg-child-002',
-    sessionID: 'sdk-child-session-001',
-    role: 'assistant' as const,
+    info: {
+      id: 'msg-child-002',
+      sessionID: 'sdk-child-session-001',
+      role: 'assistant' as const,
+      time: { created: 1700000000200 },
+      parentID: 'msg-child-001',
+      modelID: 'test',
+      providerID: 'test',
+      mode: 'build',
+      cost: 0,
+      tokens: {
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
+      },
+    },
     parts: [
       {
         id: 'part-child-text-002',
@@ -77,11 +96,18 @@ const kChildMessagesFixture = [
         sessionID: 'sdk-child-session-001',
         messageID: 'msg-child-002',
         type: 'tool' as const,
-        name: 'edit',
-        input: { filePath: 'auth.ts', oldContent: 'broken', newContent: 'fixed' },
+        callID: 'call-child-001',
+        tool: 'edit',
+        state: {
+          status: 'completed' as const,
+          input: { filePath: 'auth.ts', oldContent: 'broken', newContent: 'fixed' },
+          output: 'edited',
+          title: 'Edit auth.ts',
+          metadata: {},
+          time: { start: 1700000000150, end: 1700000000190 },
+        },
       },
     ],
-    time: { created: 1700000000200 },
   },
 ];
 

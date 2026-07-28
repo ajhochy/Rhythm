@@ -5,6 +5,7 @@ import { IntegrationAccountsRepository } from '../repositories/integration_accou
 
 const GOOGLE_AUTH_BASE = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const GOOGLE_TOKENINFO_URL = 'https://oauth2.googleapis.com/tokeninfo';
 const GOOGLE_USERINFO_URL = 'https://openidconnect.googleapis.com/v1/userinfo';
 
 const GOOGLE_SCOPES = [
@@ -28,6 +29,7 @@ export const GOOGLE_AGENT_SCOPES = [
 interface GoogleTokenResponse {
   access_token: string;
   expires_in?: number;
+  id_token?: string;
   refresh_token?: string;
   scope?: string;
   token_type?: string;
@@ -38,6 +40,21 @@ interface GoogleUserInfo {
   email?: string;
   name?: string;
   picture?: string;
+  hd?: string;
+}
+
+interface GoogleVerifiedIdTokenClaims {
+  aud?: string;
+  azp?: string;
+  email?: string;
+  email_verified?: boolean | string;
+  exp?: number | string;
+  iss?: string;
+  name?: string;
+  nonce?: string;
+  picture?: string;
+  sub?: string;
+  hd?: string;
 }
 
 export class GoogleOAuthService {
@@ -127,17 +144,48 @@ export class GoogleOAuthService {
   async exchangeMobileCode(options: {
     code: string;
     codeVerifier: string;
-    redirectUri: string;
-    clientId: string;
+    nonce: string;
+    configuredClientId: string;
+    configuredRedirectUri: string;
   }): Promise<{
     tokens: GoogleTokenResponse;
     profile: GoogleUserInfo;
   }> {
+    const googleClientSuffix = '.apps.googleusercontent.com';
+    if (
+      !/^[0-9]+-[a-z0-9-]+\.apps\.googleusercontent\.com$/i.test(
+        options.configuredClientId,
+      )
+    ) {
+      throw AppError.badRequest(
+        'GOOGLE_MOBILE_CLIENT_ID is missing or invalid',
+      );
+    }
+    const clientStem = options.configuredClientId.slice(
+      0,
+      -googleClientSuffix.length,
+    );
+    const expectedRedirectUri =
+      `com.googleusercontent.apps.${clientStem}:/oauthredirect`;
+    if (options.configuredRedirectUri !== expectedRedirectUri) {
+      throw AppError.badRequest(
+        'GOOGLE_MOBILE_REDIRECT_URI does not match GOOGLE_MOBILE_CLIENT_ID',
+      );
+    }
+    if (
+      !/^[\x21-\x7e]{1,4096}$/.test(options.code) ||
+      !/^[A-Za-z0-9._~-]{43,128}$/.test(options.codeVerifier) ||
+      !/^[A-Za-z0-9_-]{32,256}$/.test(options.nonce)
+    ) {
+      throw AppError.badRequest(
+        'Google mobile OAuth request parameters are malformed',
+      );
+    }
     const params = new URLSearchParams({
       code: options.code,
-      client_id: options.clientId,
+      client_id: options.configuredClientId,
       code_verifier: options.codeVerifier,
-      redirect_uri: options.redirectUri,
+      redirect_uri: options.configuredRedirectUri,
       grant_type: 'authorization_code',
     });
     const response = await fetch(GOOGLE_TOKEN_URL, {
@@ -147,13 +195,83 @@ export class GoogleOAuthService {
     });
 
     if (!response.ok) {
-      const text = await response.text();
-      throw AppError.badRequest(`Google token exchange failed: ${text}`);
+      await response.body?.cancel().catch(() => undefined);
+      throw AppError.unauthorized(
+        'Google mobile token exchange rejected the authorization code',
+      );
     }
 
     const tokens = (await response.json()) as GoogleTokenResponse;
-    const profile = await this.fetchUserInfo(tokens.access_token);
+    if (!tokens.id_token) {
+      throw AppError.unauthorized(
+        'Google mobile token exchange did not return an ID token',
+      );
+    }
+    const profile = await this.verifyMobileIdToken(tokens.id_token, {
+      clientId: options.configuredClientId,
+      nonce: options.nonce,
+    });
     return { tokens, profile };
+  }
+
+  private async verifyMobileIdToken(
+    idToken: string,
+    options: { clientId: string; nonce: string },
+  ): Promise<GoogleUserInfo> {
+    // Google's authoritative tokeninfo endpoint verifies the ID token's
+    // signature and key rotation before returning claims. Rhythm still pins
+    // every security-sensitive claim locally so a valid token minted for a
+    // foreign Google client cannot create a Rhythm session.
+    const response = await fetch(
+      `${GOOGLE_TOKENINFO_URL}?id_token=${encodeURIComponent(idToken)}`,
+    );
+    if (!response.ok) {
+      throw AppError.unauthorized('Google ID token verification failed');
+    }
+
+    const claims = (await response.json()) as GoogleVerifiedIdTokenClaims;
+    const expiresAtSeconds = Number(claims.exp);
+    const emailVerified =
+      claims.email_verified === true || claims.email_verified === 'true';
+    if (claims.aud !== options.clientId) {
+      throw AppError.unauthorized('Google ID token audience mismatch');
+    }
+    if (claims.azp !== options.clientId) {
+      throw AppError.unauthorized(
+        'Google ID token authorized-party mismatch',
+      );
+    }
+    if (claims.nonce !== options.nonce) {
+      throw AppError.unauthorized('Google ID token nonce mismatch');
+    }
+    if (
+      claims.iss !== 'https://accounts.google.com' &&
+      claims.iss !== 'accounts.google.com'
+    ) {
+      throw AppError.unauthorized('Google ID token issuer mismatch');
+    }
+    if (
+      !Number.isFinite(expiresAtSeconds) ||
+      expiresAtSeconds <= Math.floor(Date.now() / 1000)
+    ) {
+      throw AppError.unauthorized('Google ID token is expired');
+    }
+    if (!emailVerified) {
+      throw AppError.unauthorized('Google account email is not verified');
+    }
+    if (!claims.sub || !claims.email) {
+      throw AppError.unauthorized(
+        'Google ID token is missing required identity claims',
+      );
+    }
+
+    return {
+      sub: claims.sub,
+      email: claims.email,
+      name: claims.name?.trim() || claims.email,
+      picture: claims.picture?.trim() || undefined,
+      hd: claims.hd?.trim().toLowerCase() || undefined,
+    };
   }
 
   async storeDesktopIntegration(

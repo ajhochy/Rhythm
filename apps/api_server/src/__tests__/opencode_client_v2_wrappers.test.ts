@@ -19,6 +19,78 @@ function svcWithV2Client(client: any): OpencodeClientService {
 }
 
 describe('v2 SDK wrappers (OCU-27 #1068)', () => {
+  describe('#1132 fork-only generated methods', () => {
+    it('updates MCP and skill allowlists through session.update, including null clear', async () => {
+      const update = vi.fn().mockResolvedValue({ data: { id: 'sdk-1' } });
+      const s = svcWithV2Client({ session: { update } });
+
+      await expect(s.updateSessionAllowlist('sdk-1', null)).resolves.toBe(true);
+      await expect(s.updateSessionSkillAllowlist('sdk-1', null)).resolves.toBe(true);
+      await expect(s.updateSessionSkillAllowlist('sdk-1', ['coding-agent'])).resolves.toBe(true);
+
+      expect(update).toHaveBeenNthCalledWith(1, {
+        sessionID: 'sdk-1',
+        mcpAllowlist: null,
+      });
+      expect(update).toHaveBeenNthCalledWith(2, {
+        sessionID: 'sdk-1',
+        skillAllowlist: null,
+      });
+      expect(update).toHaveBeenNthCalledWith(3, {
+        sessionID: 'sdk-1',
+        skillAllowlist: { skills: ['coding-agent'] },
+      });
+    });
+
+    it('reloads skills through app.skills2.reload and maps the generated response', async () => {
+      const reload = vi.fn().mockResolvedValue({
+        data: [
+          {
+            name: 'coding-agent',
+            description: 'implements issues',
+            location: '/skills/coding-agent',
+            content: '# coding-agent',
+          },
+        ],
+      });
+      const s = svcWithV2Client({ app: { skills2: { reload } } });
+
+      await expect(s.reloadSkills('/work')).resolves.toEqual([
+        {
+          name: 'coding-agent',
+          description: 'implements issues',
+          location: '/skills/coding-agent',
+        },
+      ]);
+      expect(reload).toHaveBeenCalledWith({ directory: '/work' });
+    });
+
+    it('reloads default and directory config instances through app.config.reload', async () => {
+      const reload = vi.fn().mockResolvedValue({ data: true });
+      const s = svcWithV2Client({ app: { config: { reload } } });
+
+      await expect(s.reloadConfig('/work')).resolves.toBe(true);
+      expect(reload).toHaveBeenNthCalledWith(1, undefined);
+      expect(reload).toHaveBeenNthCalledWith(2, { directory: '/work' });
+    });
+
+    it('preserves fail-safe results for generated error envelopes', async () => {
+      const error = { message: 'engine unavailable' };
+      const s = svcWithV2Client({
+        session: { update: vi.fn().mockResolvedValue({ error }) },
+        app: {
+          skills2: { reload: vi.fn().mockResolvedValue({ error }) },
+          config: { reload: vi.fn().mockResolvedValue({ error }) },
+        },
+      });
+
+      await expect(s.updateSessionAllowlist('sdk-1', null)).resolves.toBe(false);
+      await expect(s.updateSessionSkillAllowlist('sdk-1', null)).resolves.toBe(false);
+      await expect(s.reloadSkills()).resolves.toEqual([]);
+      await expect(s.reloadConfig()).resolves.toBe(false);
+    });
+  });
+
   describe('listSkills / listSkillsWithContent — client.app.skills()', () => {
     const skills = vi.fn().mockResolvedValue({
       data: [

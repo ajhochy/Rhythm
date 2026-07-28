@@ -24,6 +24,17 @@ export async function requireAuth(
   next: NextFunction,
 ): Promise<void> {
   try {
+    // A nested router may sit behind the mobile gateway's verified Device
+    // middleware. Trust only the server-created context when both immutable
+    // identities agree; request headers alone cannot construct either field.
+    if (
+      req.mobileDevice &&
+      req.auth?.sessionToken === `mobile-device:${req.mobileDevice.id}` &&
+      req.auth.user.id === req.mobileDevice.userId
+    ) {
+      next();
+      return;
+    }
     const header = req.header('Authorization') ?? '';
     const match = header.match(/^Bearer\s+(.+)$/i);
     if (!match) {

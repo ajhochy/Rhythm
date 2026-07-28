@@ -1,5 +1,22 @@
 # Failure Patterns
 
+## 2026-07-25 — Issue 1174 aggregate — reconnect remount regression fixed
+
+- **Result**: smoke PASS after fix (source-branch verification claimed PASS);
+  aggregate integration initially diverged.
+- **Category**: C7 — aggregate integration regression; process P2 — ESLint and
+  Playwright raced over `test-results` when run concurrently.
+- **Criteria affected**: issue-1174-c3/c4 and the retained prefixed-API Settings
+  reconnect flow.
+- **Root cause**: direct Settings edits updated the provider target and triggered
+  automatic reconnects even though the UI promised an explicit reconnect,
+  repeatedly remounting the action. The source branch did not include the later
+  paired-transport target lifecycle.
+- **Suggested fix**: retain the prefixed-URL flow in the aggregate browser gate
+  and serialize filesystem-writing mobile gates.
+- See
+  `.agent-stack/postmortems/2026-07-25-issue-1174-aggregate.json`.
+
 ## 2026-07-27 — Config doctor core-permission patches — smoke PASS
 
 - **Result**: smoke PASS; verification claimed PASS; no divergence.
@@ -245,3 +262,230 @@
 - **Root cause**: A multi-cause user symptom ("scheduled runs fail") was verified via one convenience entry point; the cwd cause was genuinely fixed, but ocAgent-mode ("Agent not found") + primary empty-output were untouched and uncovered. Also: the fix itself had been silently dropped from main by the #1020 partial re-land.
 - **Suggested fix**: verification-gate must drive the REAL user entry point (profile-bound scheduled task via trigger-now) for multi-entry-point symptoms; run acceptance-contract per-issue even in large epics. Follow-up: #1039.
 - **Workflow note**: W1 — acceptance-contract folded into coding-agent dispatch prompts instead of emitting per-issue contract.json + failing tests (13-issue epic).
+## 2026-07-25 — Issue #1132 — built generated-SDK event smoke PASS after compiled-runtime recovery
+
+- **Result**: smoke PASS (verification claimed PASS; no final divergence).
+- **Category**: none for correctness. Process issues: compiled-runtime-coverage, live-smoke-fixture, and worktree-dependency-isolation.
+- **Criteria affected**: issue-1132-c6 initially blocked; all c1-c6 pass after recovery.
+- **Root cause**: Source-only containment tests and a binary `--version` check did not execute the split bundle's late `AppFileSystem.containsReal` namespace member, so a real bash call failed before permission evaluation. Two fixture defects obscured the path: a `#`-prefixed label hit #1134's unquoted YAML bug, then an omitted `ocAgent` silently ran built-in `build` permissions.
+- **Suggested fix**: Keep a built/minified live test that binds the projected agent explicitly and exercises a real permission ask. For worktrees, verify internal workspace symlinks resolve inside that worktree before building.
+- See `.agent-stack/postmortems/2026-07-25-issue-1132.json`.
+
+## 2026-07-24 — Issue 1135 — audit-locked profiles remain inert until reviewed re-enable
+
+- **Result**: smoke PASS (verification claimed PASS; no divergence)
+- **Category**: none (correctness); process: sandbox-dependency-setup + sandbox-process-lifetime + aggregate-test-flake + smoke-wrapper-cleanup
+- **Criteria affected**: issue-1135-c1 through issue-1135-c6 all passed
+- **Root cause**: The security gap was an ordinary `enabled` preference with no independent audit lock; the smoke harness also needed fresh fork dependencies and foreground process ownership in this worktree.
+- **Suggested fix**: Keep the dedicated optimistic reviewed transition and authoritative lock checks; teach the sandbox launcher pinned dependency setup and a foreground mode. Two unrelated aggregate-only HTTP failures each passed in isolation and on clean aggregate reruns; investigate full-suite resource contention if the coordinator gate sees another.
+
+## 2026-07-25 — Issue #1137 — picker/discovery false-positive gate
+
+- **Result**: initial smoke/verification claim invalidated by independent review.
+- **Category**: C1 — missing contract.
+- **Criteria affected**: issue-1137-c1 and issue-1137-c2.
+- **Root cause**: The contract stopped at empty picker filters and persistence of a synthetic instruction. It never drove an arbitrary browser binary through `createPromptAttachments`, never checked Flutter's binary `@mention` fast path against traversal/symlink input, and never asserted a concrete reader candidate. The fork still rejected arbitrary binaries after selection, while Flutter bypassed the API realpath guard.
+- **Suggested fix**: Picker contracts must drive post-selection consumption through request construction and the built engine. Binary workspace references must use a server-returned canonical contained path. Reader-discovery live gates must install and observe a concrete matching reader, plus cover browser data URLs and pre-prompt symlink rejection.
+- **Repair result**: The expanded built live gate caught a second defect after the independent-review fixes: generic `rhythm` token matches alphabetically crowded the exact `rhythmfixture-reader` out of the surfaced top five. A noisy-catalog regression now forces exact extension/MIME matches to rank first; the final standalone-engine gate passed native + browser consumption, exact reader surfacing, and symlink rejection.
+- See `.agent-stack/postmortems/2026-07-25-issue-1137.json`.
+
+## 2026-07-24 — Issue 1096 — signed Semantic Memory sandbox smoke
+
+- **Result**: smoke PASS (verification had correctly remained incomplete pending the live and signed-client gates)
+- **Category**: none — no correctness divergence; process: sandbox-port-isolation
+- **Criteria affected**: c3, c5, c7-c15, c17-c18, c20 passed in the live/signed smoke; the remaining criteria retained automated contract evidence
+- **Root cause**: the feature branch predated alternate sandbox-port support, so the already-reviewed coordinator patch was applied only for the isolated run and restored byte-for-byte afterward.
+- **Suggested fix**: land alternate-port sandbox support before the next parallel live workstream so branch verification never needs a temporary launcher patch.
+
+## 2026-07-24 — Issue #1123 — interactive async delegation (smoke PASS)
+
+- **Result**: smoke PASS (verification claimed PASS; no divergence)
+- **Category**: none
+- **Criteria affected**: issue-1123-c1 through issue-1123-c6
+- **Root cause**: no product failure; the first live-test lineage assertion mixed local database session IDs with the engine SDK identities returned by `/children`, then passed after failure triage corrected the identity domain.
+- **Suggested fix**: live contracts crossing local and engine session surfaces should declare the identity domain of every endpoint before asserting lineage.
+
+## 2026-07-25 — Issue #1171 — desktop-to-iPhone pairing smoke PASS
+
+- **Result**: smoke PASS (verification intentionally remains review-pending; no correctness divergence)
+- **Category**: none; process: base-test-regression, native-build-infrastructure, and foundation-manifest-drift
+- **Criteria affected**: issue-1171-c1 through issue-1171-c5 passed; c6 awaits immutable independent review
+- **Root cause**: Product behavior passed live and native probes; unrelated issue #723 uses a Vitest-incompatible dynamic-import seam, and the reviewed base's OpenAPI source fingerprint drifts from its accepted mobile manifest.
+- **Suggested fix**: Retain the live exchange/native deep-link probes, review the immutable pairing commit independently, and repair #723 plus the base manifest drift in their owning slices.
+- See `.agent-stack/postmortems/2026-07-25-issue-1171.json`.
+
+## 2026-07-24 — Issue 1164 — real 50-reader scheduler swarm
+
+- **Result**: smoke PASS (verification correctly remained incomplete until the live run)
+- **Category**: none — no correctness divergence; process: sandbox-exec-lifetime, live-fixture-drift, api-test-shared-state
+- **Criteria affected**: c1 and c10 passed live; c2-c9 retained focused deterministic contract evidence.
+- **Root cause**: the product scheduler was sound, while the first launcher cell reaped its sandbox child, the live fixture used a stale catalog shape/model, and the parallel API merge gate exposed shared-state/timeout flakes.
+- **Suggested fix**: keep sandbox guardian sessions active, intersect live model selection with the running engine, and retain the serialized 15s-budget API merge gate.
+
+## 2026-07-25 — Issue #1170 — mobile realtime proxy corrective smoke PASS
+
+- **Result**: smoke PASS (verification had correctly reported FAIL before corrective implementation; no correctness divergence).
+- **Category**: none for product behavior; process issues were worktree-dependency-isolation and sandbox-exec-lifetime.
+- **Criteria affected**: c2, c4, and c5 passed live; c1 and c3 passed strengthened direct integration contracts; c6 remains pending independent corrective re-review.
+- **Root cause**: product behavior passed after fatal SSE errors were made terminal, real engine session event shapes were recognized, and legacy unauthenticated WebSockets were restricted by the actual socket address; the live harness first needed ignored fork dependencies and a guardian process.
+- **Suggested fix**: add deterministic dependency bootstrap and a foreground/guardian mode to `tools/dev/sandbox.sh`.
+- See `.agent-stack/postmortems/2026-07-25-issue-1170.json`.
+
+## 2026-07-25 — Issue #1171 corrective — identity-bound transactional pairing
+
+- **Result**: smoke PASS (verification had not yet made a final claim; no correctness divergence)
+- **Category**: none; process: simulator-fixture-state
+- **Criteria affected**: issue-1171-c2 through issue-1171-c6 passed in the native iPhone SE smoke; c1 retained focused API evidence
+- **Root cause**: The first replacement probe deliberately preserved the existing local credential when a freshly reset fake gateway no longer contained that old device; resetting local and server fixture state together produced the expected old-device revoke, new-device activation, and final revoke.
+- **Suggested fix**: Reset simulator-local pairing and fake-gateway device state atomically before every native replacement smoke.
+- See `.agent-stack/postmortems/2026-07-25-issue-1171-corrective.json`.
+
+## 2026-07-25 — Issue #1171 final corrective — browser font proof missed native Dynamic Type overlap
+
+- **Result**: native smoke FAIL→fixed in-run; final verification PASS
+  (divergence=true).
+- **Category**: C2 — wrong contract boundary.
+- **Criteria affected**: issue-1171-c6.
+- **Root cause**: the browser regression proved that computed DOM font size
+  changed, but it could not exercise React Native Paper's fixed-height compact
+  header/status layout. The first iOS screenshot at maximum accessibility text
+  size showed overlapping Settings and Paired Mac labels.
+- **Suggested fix**: treat computed browser typography as supplemental. Retain
+  a native maximum-Dynamic-Type screenshot and accessibility-tree traversal for
+  compact headers, status labels, and every scroll-reachable action.
+- See
+  `.agent-stack/postmortems/2026-07-25-issue-1171-final-corrective.json`.
+
+## 2026-07-25 — Issue #1175 — approval/taint/listener smoke PASS
+
+- **Result**: smoke PASS (verification remained in progress; no divergence)
+- **Category**: none
+- **Criteria affected**: issue-1175-c17, issue-1175-c20, and issue-1175-c21 passed against the real built API
+- **Root cause**: No product failure; the built API stayed IPv4-loopback-only, rejected forged approval, accepted and atomically consumed one exact signed decision, and preserved every protected foreign listener.
+- **Suggested fix**: Retain the live listener/signed-approval probes and include one signed desktop approval interaction in the aggregate device matrix.
+- See `.agent-stack/postmortems/2026-07-25-issue-1175-approval-taint-listener.json`.
+
+## 2026-07-25 — Issue #1175 corrective — wildcard skipped the real registry
+
+- **Result**: audit FAIL→fixed in-run; final built smoke PASS
+  (`divergence=true`).
+- **Category**: C2 — wrong contract boundary; C4 — duplicated source inventory.
+- **Criteria affected**: issue-1175-c21.
+- **Root cause**: the first role graph iterated explicit role allowlists and
+  skipped `allowedTools: ["*"]`, so it never treated the registered tool
+  inventory as the security boundary. MCP and API source allowlists could also
+  drift without a parity assertion.
+- **Suggested fix**: parse registered tools first, expand wildcard roles, force
+  exactly one classification per tool, and assert every MCP ingress/action is
+  accepted by the API.
+- See
+  `.agent-stack/postmortems/2026-07-25-issue-1175-wildcard-security-correction.json`.
+
+## 2026-07-25 — Issue #1172 — native Activity pre-integration smoke
+
+- **Result**: smoke FAIL (project state claimed the aggregate Activity behavior was verified; the issue contract remained red)
+- **Category**: C3 — wrong implementation in the deterministic native E2E runtime
+- **Criteria affected**: issue-1172-c7 failed; issue-1172-c8's retryable-error state rendered correctly
+- **Root cause**: The native E2E activity transport requested `/mobile-gateway/agent-activity` directly, while the fake authenticated Mac gateway exposes that route under `/__mobile/:host/mobile-gateway/agent-activity`.
+- **Suggested fix**: Integrate the active lifecycle corrective, then retain a native development-client Activity smoke that requires the seeded activity item to render through the authenticated fake gateway.
+- See `.agent-stack/postmortems/2026-07-25-issue-1172-native-preintegration.json`.
+
+## 2026-07-25 — Issue #1173 — native Webhooks pre-integration smoke
+
+- **Result**: smoke FAIL (project state claimed the aggregate tools behavior was verified; the issue contract remained red)
+- **Category**: C3 — wrong implementation in the shared native tool screen
+- **Criteria affected**: issue-1173-c12
+- **Root cause**: Opening the New webhook modal passed an `index` prop through a mapped `React.Fragment`, causing React Native to render a visible development error banner even though static and browser automation gates were green.
+- **Suggested fix**: Remove the Fragment prop leak, retain a focused source/runtime regression, and repeat the native Webhooks modal smoke with no development warning.
+- See `.agent-stack/postmortems/2026-07-25-issue-1173-native-preintegration.json`.
+
+## 2026-07-25 — Issue #1173 — browser accessibility contract missed native maximum Dynamic Type overflow
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C2 — wrong contract boundary
+- **Criteria affected**: issue-1173-c11
+- **Root cause**: the passing source/browser accessibility contract proved state declarations and labels but never exercised React Native card measurement on an iPhone SE at `accessibility-extra-extra-extra-large`; the Webhook card visually outgrew the scroll extent and left actions unreachable.
+- **Suggested fix**: retain a native maximum-Dynamic-Type Webhooks screenshot/tree probe and require expanded card content plus all Copy/Rotate/Delete actions to remain scroll-reachable.
+- See `.agent-stack/postmortems/2026-07-25-issue-1173-native-final.json`.
+
+## 2026-07-25 — Issue #1172 — browser state contract missed native Activity header overlap
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C2 — wrong contract boundary
+- **Criteria affected**: issue-1172-c8
+- **Root cause**: the passing acceptance test covered resilient state declarations and accessible Activity data, but never exercised native heading/selector measurement on an iPhone SE at `accessibility-extra-extra-extra-large`; the Agents heading overlapped the Chats/Activity selector.
+- **Suggested fix**: retain a native maximum-Dynamic-Type Activity screenshot/tree probe and require content-measured spacing between the heading and selector.
+- See `.agent-stack/postmortems/2026-07-25-issue-1172-native-final.json`.
+
+## 2026-07-25 — Issue #1172 — native maximum Dynamic Type corrective smoke
+
+- **Result**: smoke PASS (verification claimed PASS; no divergence)
+- **Category**: none
+- **Criteria affected**: issue-1172-c8
+- **Root cause**: The content-measured Agents header contributes its full maximum-Dynamic-Type height before the Chats/Activity selector.
+- **Suggested fix**: Retain the focused source contract and native maximum-Dynamic-Type screenshot check.
+- See `.agent-stack/postmortems/2026-07-25-issue-1172-native-corrective.json`.
+
+## 2026-07-25 — Issue #1173 — native Webhooks maximum Dynamic Type corrective smoke
+
+- **Result**: smoke PASS (verification claimed PASS; no divergence)
+- **Category**: none
+- **Criteria affected**: issue-1173-c11
+- **Root cause**: Content-measured card headers and action sections now expose the wrapped URL plus Copy, Rotate, and Delete without clipping.
+- **Suggested fix**: Retain the focused source contract and native maximum-Dynamic-Type accessibility-tree check.
+- See `.agent-stack/postmortems/2026-07-25-issue-1173-native-corrective.json`.
+
+## 2026-07-25 — Issue #1175 — exact-port sandbox was reaped by the automation host
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C5 — environment issue; process: automation-process-lifetime
+- **Criteria affected**: issue-1175-c4
+- **Root cause**: `tools/dev/sandbox.sh up` backgrounds the API and returns; the Codex command-cell host reaped that descendant process when the launcher cell exited, so the live tests reached cleanup against a dead server.
+- **Suggested fix**: Add a foreground or automation-hold launcher mode and use it for agent-driven live smokes.
+- See `.agent-stack/postmortems/2026-07-25-issue-1175-final-sandbox-failed.json`.
+
+## 2026-07-25 — Issue #1175 — exact-port source-freeze smoke PASS
+
+- **Result**: smoke PASS (verification claimed PASS; no divergence)
+- **Category**: none
+- **Criteria affected**: issue-1175-c4
+- **Root cause**: No product failure; holding the launcher shell open kept the rebuilt API/fork alive for #1166, #1168, and #1170, all of which passed while protected listeners stayed unchanged.
+- **Suggested fix**: Retain the exact-port matrix and give automated callers an explicit foreground sandbox lifecycle.
+- See `.agent-stack/postmortems/2026-07-25-issue-1175-final-sandbox-pass.json`.
+
+## 2026-07-27 — Issue #1175 — signed local iPhone build omitted Google mobile OAuth configuration
+
+- **Result**: smoke FAIL (physical-device gate remained pending; no divergence
+  from a completed verification claim)
+- **Category**: C5 — environment/configuration issue; process:
+  release-build-config
+- **Criteria affected**: issue-1175-c5 and the #1198/#1199 signed-development
+  and physical-device gates
+- **Root cause**: the ad hoc Xcode build proved Apple signing, installation, and
+  launch but had no securely supplied Google iOS OAuth client or matching
+  redirect. The development variant permits that omission for ordinary
+  prototype commands, so the login flow reached its explicit runtime guard.
+- **Suggested fix**: provision or reveal the real Google iOS client through the
+  existing human gate, supply the matching build and isolated-API
+  configuration without printing or committing it, then rebuild and rerun
+  sign-in before the remaining device matrix.
+- See
+  `.agent-stack/postmortems/2026-07-27-issue-1175-google-ios-client-device-smoke.json`.
+
+## 2026-07-27 — Issue #1175 — signed PR app used the older deployed OAuth API contract
+
+- **Result**: smoke FAIL (physical-device gate remained pending; no divergence
+  from a completed verification claim)
+- **Category**: C5 — environment/configuration issue; process:
+  test-environment-contract-drift
+- **Criteria affected**: issue-1175-c5 and the #1199 physical-device gate
+- **Root cause**: the credential-configured PR app sent its hardened,
+  server-pinned mobile exchange request to the deployed production API, which
+  still required the older caller-supplied redirect field and returned HTTP
+  400.
+- **Suggested fix**: preserve the hardened contract and run the signed app
+  against the matching isolated branch-built API over a private test route, as
+  already required by #1199. Do not deploy the draft PR or restore
+  caller-controlled OAuth configuration.
+- See
+  `.agent-stack/postmortems/2026-07-27-issue-1175-production-api-contract-device-smoke.json`.

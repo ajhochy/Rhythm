@@ -6,6 +6,7 @@ import { env } from '../config/env';
 import { GoogleOAuthService } from '../services/google_oauth_service';
 import { AuthService } from '../services/auth_service';
 import type { IntegrationAccount } from '../models/integration_account';
+import { UsersRepository } from '../repositories/users_repository';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -44,6 +45,10 @@ describe('Google token refresh uses the desktop (issuing) client', () => {
   beforeEach(async () => {
     setDb(makeDb());
     // Create the owning user so the integration_accounts FK is satisfiable.
+    new UsersRepository().create({
+      name: 'Preprovisioned User',
+      email: 'user@example.com',
+    });
     const session = await new AuthService().loginWithGoogleProfile({
       googleSub: 'google-sub-1',
       email: 'user@example.com',

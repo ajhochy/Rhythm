@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test"
 import { Effect, Layer, FileSystem } from "effect"
 import { NodeFileSystem } from "@effect/platform-node"
-import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { AppFileSystem, containsReal } from "@opencode-ai/core/filesystem"
 import { testEffect } from "../lib/effect"
 import path from "path"
 import * as fs from "fs/promises"
@@ -442,6 +442,7 @@ describe("AppFileSystem", () => {
     test("blocks ../ and direct-outside paths unchanged (no regression)", () => {
       expect(AppFileSystem.containsReal("/a/b", "/a/b/../../etc")).toBe(false)
       expect(AppFileSystem.containsReal("/a/b", "/etc/passwd")).toBe(false)
+      expect(containsReal("/a/b", "/a/b/c")).toBe(true)
     })
   })
 })

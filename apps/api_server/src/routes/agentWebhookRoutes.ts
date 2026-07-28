@@ -18,6 +18,7 @@ if (!env.agentLocal) router.use(requireAuth);
 router.get('/', (req, res, next) => controller.list(req, res, next));
 router.get('/:id', (req, res, next) => controller.get(req, res, next));
 router.post('/', (req, res, next) => controller.create(req, res, next));
+router.post('/:id/rotate-secret', (req, res, next) => controller.rotateSecret(req, res, next));
 router.delete('/:id', (req, res, next) => controller.remove(req, res, next));
 
 export default router;

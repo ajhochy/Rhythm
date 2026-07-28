@@ -1,0 +1,56 @@
+{
+  "issue": 1135,
+  "generated": "2026-07-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1135-c1",
+      "text": "On enabled true to false transition, delete the projected agent file and reload the engine configuration.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1135_disabled_agent.test.ts",
+      "test_id": "issue-1135-c1: PATCH enabled:false removes the profile from the live registry",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1135-c2",
+      "text": "Filter live agent-registry responses against enabled database profiles.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/controllers/__tests__/agent_sessions_listAgents.test.ts",
+      "test_id": "issue-1135-c2: disabled and locked profiles are absent from listAgents",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1135-c3",
+      "text": "Add an explicit locked or disabled_reason state for audit-disabled profiles; reject re-enable through the generic PATCH route unless a dedicated reviewed transition is used.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1135_audit_lock_contract.test.ts",
+      "test_id": "issue-1135-c3: audit lock is durable and only a matching reviewed transition can re-enable",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1135-c4",
+      "text": "Reconcile and delete stale projected files at startup and sync time.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/agent_profile_sync.test.ts",
+      "test_id": "issue-1135-c4: sync removes stale projection for non-runnable profiles",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1135-c5",
+      "text": "Add unit and live behavioral tests proving a disabled profile is absent from listAgents and cannot be invoked as a primary agent or subagent.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1135_disabled_agent.test.ts",
+      "test_id": "issue-1135-c5: a locked profile stays absent and primary invocation is denied despite enabled-column drift",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1135-c6",
+      "text": "Verify model and prompt projection are consistent with the database after every state transition.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1135_disabled_agent.test.ts",
+      "test_id": "issue-1135-c6: reviewed re-enable exposes the current database model and prompt",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

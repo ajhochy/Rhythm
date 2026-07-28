@@ -23,6 +23,7 @@ describe('Deep Research direct AgentRunner execution', () => {
   let close: () => Promise<void>;
   let vault: string;
   let authHeaders: Record<string, string>;
+  let userId: number;
   const researchModel = env.researchModel;
 
   beforeEach(async () => {
@@ -34,6 +35,7 @@ describe('Deep Research direct AgentRunner execution', () => {
     runMigrations(db);
     setDb(db);
     const user = new UsersRepository().create({ name: 'Researcher', email: 'researcher@example.com' });
+    userId = user.id;
     const session = await new SessionsRepository().createAsync(user.id);
     authHeaders = { Authorization: `Bearer ${session.token}` };
     runAgent.mockResolvedValue({ sessionId: 'research-session-1', status: 'done', result: '# Research report\n\nUseful findings.' });
@@ -118,9 +120,9 @@ describe('Deep Research direct AgentRunner execution', () => {
 
   it('does not retry specialist-origin failures', async () => {
     db.prepare(`INSERT INTO agent_research_jobs
-      (id, query, status, sources_json, research_type, title, agent_profile_id, origin, created_at, updated_at)
-      VALUES ('specialist', 'Daily trends', 'error', '[]', 'ai-trends', 'Daily trends', 'AI-Trend-Researcher', 'specialist-run', ?, ?)`)
-      .run(new Date().toISOString(), new Date().toISOString());
+      (id, query, status, sources_json, research_type, title, agent_profile_id, origin, requested_by_user_id, created_at, updated_at)
+      VALUES ('specialist', 'Daily trends', 'error', '[]', 'ai-trends', 'Daily trends', 'AI-Trend-Researcher', 'specialist-run', ?, ?, ?)`)
+      .run(userId, new Date().toISOString(), new Date().toISOString());
     const retry = await fetch(`${baseUrl}/agent-research/specialist/retry`, { method: 'POST', headers: authHeaders });
     expect(retry.status).toBe(400);
   });

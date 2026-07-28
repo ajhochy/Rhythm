@@ -363,6 +363,161 @@ export function resolveWithinMemoryDir(memoryDir: string, relPath: string): stri
   return abs;
 }
 
+async function validatedVaultDestination(
+  memoryDir: string,
+  destination: string,
+): Promise<{
+  destination: string;
+  parent: string;
+  parentDevice: number;
+  parentInode: number;
+}> {
+  await fs.mkdir(memoryDir, { recursive: true });
+  const lexicalRoot = path.resolve(memoryDir);
+  const lexicalDestination = path.resolve(destination);
+  const rel = path.relative(lexicalRoot, lexicalDestination);
+  if (!rel || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
+    throw new MemoryWriteError(`Note path escapes the memory dir: ${destination}`);
+  }
+
+  const realRoot = await fs.realpath(lexicalRoot);
+  const parentSegments = path.dirname(rel) === '.'
+    ? []
+    : path.dirname(rel).split(path.sep);
+  let current = realRoot;
+  for (const segment of parentSegments) {
+    const candidate = path.join(current, segment);
+    try {
+      const stat = await fs.lstat(candidate);
+      if (stat.isSymbolicLink()) {
+        throw new MemoryWriteError(
+          `Memory-vault destination contains a symlink: ${destination}`,
+        );
+      }
+      if (!stat.isDirectory()) {
+        throw new MemoryWriteError(
+          `Memory-vault destination parent is not a directory: ${destination}`,
+        );
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      await fs.mkdir(candidate);
+      const created = await fs.lstat(candidate);
+      if (created.isSymbolicLink() || !created.isDirectory()) {
+        throw new MemoryWriteError(
+          `Memory-vault destination parent is unsafe: ${destination}`,
+        );
+      }
+    }
+    current = candidate;
+  }
+
+  const realParent = await fs.realpath(current);
+  if (realParent !== realRoot && !realParent.startsWith(`${realRoot}${path.sep}`)) {
+    throw new MemoryWriteError(
+      `Memory-vault destination parent escapes the vault: ${destination}`,
+    );
+  }
+  const parentStat = await fs.lstat(realParent);
+  if (parentStat.isSymbolicLink() || !parentStat.isDirectory()) {
+    throw new MemoryWriteError(
+      `Memory-vault destination parent is unsafe: ${destination}`,
+    );
+  }
+  const realDestination = path.join(realParent, path.basename(rel));
+  try {
+    const destinationStat = await fs.lstat(realDestination);
+    if (destinationStat.isSymbolicLink()) {
+      throw new MemoryWriteError(
+        `Memory-vault destination is a symlink: ${destination}`,
+      );
+    }
+    if (!destinationStat.isFile()) {
+      throw new MemoryWriteError(
+        `Memory-vault destination is not a regular file: ${destination}`,
+      );
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  return {
+    destination: realDestination,
+    parent: realParent,
+    parentDevice: parentStat.dev,
+    parentInode: parentStat.ino,
+  };
+}
+
+async function writeVaultNoteAtomic(
+  memoryDir: string,
+  destination: string,
+  rendered: string,
+  beforePromotion?: (parent: string, destination: string) => Promise<void>,
+  afterPromotion?: (parent: string, destination: string) => Promise<void>,
+): Promise<void> {
+  const validated = await validatedVaultDestination(memoryDir, destination);
+  const temporary = path.join(
+    validated.parent,
+    `.${path.basename(destination)}.rhythm-${randomBytes(12).toString('hex')}.tmp`,
+  );
+  const handle = await fs.open(temporary, 'wx', 0o600);
+  try {
+    await handle.writeFile(rendered, 'utf8');
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  try {
+    await beforePromotion?.(validated.parent, validated.destination);
+    const revalidated = await validatedVaultDestination(memoryDir, destination);
+    if (
+      revalidated.parent !== validated.parent ||
+      revalidated.destination !== validated.destination ||
+      revalidated.parentDevice !== validated.parentDevice ||
+      revalidated.parentInode !== validated.parentInode
+    ) {
+      throw new MemoryWriteError(
+        `Memory-vault destination changed during write: ${destination}`,
+      );
+    }
+    await fs.rename(temporary, validated.destination);
+    await afterPromotion?.(validated.parent, validated.destination);
+    const promoted = await validatedVaultDestination(memoryDir, destination);
+    if (
+      promoted.parentDevice !== validated.parentDevice ||
+      promoted.parentInode !== validated.parentInode
+    ) {
+      throw new MemoryWriteError(
+        `Memory-vault destination changed during promotion: ${destination}`,
+      );
+    }
+    const destinationStat = await fs.lstat(promoted.destination);
+    if (destinationStat.isSymbolicLink() || !destinationStat.isFile()) {
+      throw new MemoryWriteError(
+        `Memory-vault promoted note is unsafe: ${destination}`,
+      );
+    }
+  } catch (error) {
+    try {
+      const parentStat = await fs.lstat(validated.parent);
+      if (
+        !parentStat.isSymbolicLink() &&
+        parentStat.isDirectory() &&
+        parentStat.dev === validated.parentDevice &&
+        parentStat.ino === validated.parentInode
+      ) {
+        await fs.rm(temporary, { force: true });
+      }
+    } catch {
+      // If the anchored parent moved, do not follow a replacement path merely
+      // to clean up. The closed, randomly named temp may remain in the moved
+      // directory, which is safer than unlinking through attacker-controlled
+      // path state.
+    }
+    throw error;
+  }
+}
+
 function decodeMemoryLinkTarget(target: string): string | null {
   try {
     let encoded = target.trim().replace(/\\/g, '/');
@@ -585,6 +740,16 @@ export interface MemoryVaultWriteOptions {
   memoryDir?: string;
   /** Index service to keep the derived index in sync (defaults to a new one). */
   index?: MemoryIndexService;
+  /** Test-only race barrier immediately before atomic note promotion. */
+  beforeNotePromotion?: (
+    parent: string,
+    destination: string,
+  ) => Promise<void>;
+  /** Test-only race barrier immediately after atomic note promotion. */
+  afterNotePromotion?: (
+    parent: string,
+    destination: string,
+  ) => Promise<void>;
 }
 
 export interface VerifyMemoryOptions extends MemoryVaultWriteOptions {
@@ -831,8 +996,13 @@ export async function rememberToVault(
   // --- VAULT-FIRST WRITE -----------------------------------------------------
   // If this throws, we return before touching the index (mandatory ordering).
   const rendered = renderMemoryNote(fm, contentToWrite);
-  await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, rendered, 'utf8');
+  await writeVaultNoteAtomic(
+    memoryDir,
+    abs,
+    rendered,
+    options.beforeNotePromotion,
+    options.afterNotePromotion,
+  );
   enqueueMemoryVaultLog(memoryDir, {
     reason: semanticMerge
       ? 'merge-on-capture'
@@ -959,7 +1129,13 @@ async function mutateMemoryLifecycle(
 
     // Vault-first by construction: an index error is allowed to propagate only
     // after the canonical note contains the completed mutation.
-    await fs.writeFile(abs, rendered, 'utf8');
+    await writeVaultNoteAtomic(
+      memoryDir,
+      abs,
+      rendered,
+      options.beforeNotePromotion,
+      options.afterNotePromotion,
+    );
     if (lifecycleChanged) {
       enqueueMemoryVaultLog(memoryDir, {
         reason: status === 'deprecated' ? 'deprecated' : 'verified',
@@ -1343,8 +1519,13 @@ export async function updateMemoryInVault(
   };
 
   const rendered = renderMemoryNote(fm, newContent);
-  await fs.mkdir(path.dirname(newAbs), { recursive: true });
-  await fs.writeFile(newAbs, rendered, 'utf8');
+  await writeVaultNoteAtomic(
+    memoryDir,
+    newAbs,
+    rendered,
+    options.beforeNotePromotion,
+    options.afterNotePromotion,
+  );
   const newVaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), newAbs);
   enqueueMemoryVaultLog(memoryDir, {
     reason: 'updated',

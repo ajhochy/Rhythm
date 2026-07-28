@@ -100,6 +100,19 @@ const Set<String> _kSkillReadableBinaryMimes = {
 bool isSkillReadableBinaryMime(String mime) =>
     _kSkillReadableBinaryMimes.contains(mime);
 
+/// True when an attachment must remain a local `file:` reference instead of
+/// being inlined or sent to a model as native media.
+///
+/// Images and PDFs are provider-readable media, while text-like files are
+/// decoded by the composer. Every other MIME — known binary formats as well as
+/// application/octet-stream — stays on disk so the engine can try Read and,
+/// when necessary, instruct the agent to discover a matching skill or MCP
+/// reader (issue #1137).
+bool shouldAttachByFileReference(String mime) =>
+    !mime.startsWith('image/') &&
+    mime != 'application/pdf' &&
+    !isTextLikeMime(mime);
+
 /// Builds a `file:`-source FilePart map pointing at [absolutePath] (issue
 /// #1137). The engine's prompt pipeline branches on the FilePart URL
 /// protocol: `file:` runs the Read tool against the real path — the only

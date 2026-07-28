@@ -1,0 +1,104 @@
+{
+  "run_id": "2026-07-25-issue-1170-corrective",
+  "issue": 1170,
+  "date": "2026-07-25",
+  "smoke_result": "pass",
+  "verification_claimed": "FAIL",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1170-c1",
+      "text": "Authentication occurs before stream/upgrade",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The focused integration contract passed, including direct upgrades proving actual loopback sockets remain available and actual non-loopback sockets receive 403 regardless of spoofed Host or X-Forwarded-For headers."
+    },
+    {
+      "criterion_id": "issue-1170-c2",
+      "text": "Revoked tokens cannot connect",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The isolated live gateway returned 401 for revoked-device SSE and WebSocket upgrade attempts."
+    },
+    {
+      "criterion_id": "issue-1170-c3",
+      "text": "Disconnects release all listeners, sockets, and buffers",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The strengthened focused contract proved fatal SSE overflow makes exactly one upstream attempt, aborts it, emits a bounded gateway.error frame when possible, ends the response, and releases listeners."
+    },
+    {
+      "criterion_id": "issue-1170-c4",
+      "text": "Sandboxed live test observes a real SSE event and PTY input/output round trip",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The rebuilt fork and API emitted real global session.created and session-scoped session.updated events, preserved PTY text and binary data, and propagated engine PTY deletion to a clean downstream WebSocket close."
+    },
+    {
+      "criterion_id": "issue-1170-c5",
+      "text": "Tests use only `tools/dev/sandbox.sh` on isolated ports (defaults 4098/4097; distinct ports for parallel runs); never direct server startup",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The live run used only tools/dev/sandbox.sh with isolated directory /tmp/rhythm-dev-sandbox-issue-1170-corrective and unique ports 5298/5297; it did not touch installed-app or concurrent-run ports."
+    },
+    {
+      "criterion_id": "issue-1170-c6",
+      "text": "GitNexus impact/detect-changes and independent review pass",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "GitNexus impact and detect-changes passed with LOW corrective-slice risk; independent corrective re-review remains the final workflow gate."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "worktree-dependency-isolation",
+      "description": "The first mandatory fork rebuild failed because the isolated worktree lacked @opentui/solid/preload.",
+      "detected_by": "tools/dev/sandbox.sh up exited with `preload not found \"@opentui/solid/preload\"`; `bun install --no-save` populated ignored dependencies and the exact rebuild then passed."
+    },
+    {
+      "process_category": "sandbox-exec-lifetime",
+      "description": "The first background sandbox was reaped when its launcher exec cell ended after reporting healthy.",
+      "detected_by": "The first live fetch received ECONNREFUSED and sandbox status showed both listeners absent; rerunning the same sandbox launcher under a retained guardian PTY kept the server alive and the exact live test passed."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts",
+    "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy_live.test.ts",
+    "apps/api_server/src/routes/mobile_gateway_routes.ts",
+    "apps/api_server/src/server.ts",
+    "apps/api_server/src/services/__tests__/mobile_pairing_service.test.ts",
+    "apps/api_server/src/services/mobile_gateway_runtime.ts",
+    "apps/api_server/src/services/mobile_opencode_proxy.ts",
+    "apps/api_server/src/services/mobile_pairing_service.ts",
+    "apps/api_server/src/services/mobile_pty_proxy.ts",
+    "apps/api_server/src/services/mobile_sse_proxy.ts",
+    "apps/api_server/src/services/ws_gateway.ts",
+    "docs/ai/contracts/issue-1170.json"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Teach the sandbox launcher an explicit foreground mode and deterministic worktree dependency bootstrap so concurrent agent runs do not need a guardian shell or manual ignored dependency install."
+}

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
@@ -41,6 +41,9 @@ describe('ensureRhythmMcp diff logic', () => {
     expect(result.changed).toBe(true);
     const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
     expect(parsed.mcp.rhythm.environment.RHYTHM_API_TOKEN).toBe('tok-1');
+    expect(parsed.mcp.rhythm.environment).not.toHaveProperty(
+      'RHYTHM_MCP_INTERNAL_CREDENTIAL',
+    );
     expect(parsed.mcp.rhythm.command).toEqual(DESIRED.command);
     expect(parsed.mcp.rhythm.timeout).toBe(600_000);
     // #804 — memory base is pinned to the local agent server regardless of the
@@ -87,6 +90,30 @@ describe('ensureRhythmMcp diff logic', () => {
     expect(result.changed).toBe(true);
     const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
     expect(parsed.mcp.rhythm.environment.RHYTHM_API_TOKEN).toBe('tok-2');
+  });
+
+  it('registers the same secret-free config that it persists', async () => {
+    const add = vi.fn().mockResolvedValue({});
+    (
+      svc as unknown as {
+        client: { mcp: { add: typeof add } };
+      }
+    ).client = { mcp: { add } };
+
+    await svc.ensureRhythmMcp('tok-1', 'https://api.vcrcapps.com', {
+      configPath,
+    });
+
+    expect(add).toHaveBeenCalledWith({
+      body: {
+        name: 'rhythm',
+        config: expect.objectContaining({
+          environment: expect.not.objectContaining({
+            RHYTHM_MCP_INTERNAL_CREDENTIAL: expect.anything(),
+          }),
+        }),
+      },
+    });
   });
 
   it('rewrites existing rhythm config when timeout is missing', async () => {

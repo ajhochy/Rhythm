@@ -1,0 +1,58 @@
+{
+  "run_id": "2026-07-27-pr-1165-ios-simulator-smoke",
+  "issue": 1165,
+  "date": "2026-07-27",
+  "smoke_result": "fail",
+  "verification_claimed": "PARTIAL",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "pr-1165-mobile-shell",
+      "text": "The current development app launches in an iOS simulator with exactly three primary tabs and remains usable in light, dark, and large-text states.",
+      "contract_status": "pending",
+      "smoke_status": "pass",
+      "category": null,
+      "notes": "The branch-built development scheme loaded its local Metro bundle and rendered Agents, Tools, and Settings. Light/default and dark/accessibility-large states were navigable without clipped critical actions."
+    },
+    {
+      "criterion_id": "pr-1165-mobile-pairing-compatibility",
+      "text": "The shipping mobile client and restricted desktop gateway advertise the same generated agent-protocol contract fingerprint so authenticated pairing can proceed.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Package-local contract checks passed, but authenticated physical-device preflight reported incompatible agent protocols. Source comparison shows the mobile shipping pin differs from the gateway compatibility fingerprint; no existing test asserts equality across the package boundary."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "simulator-build-environment",
+      "description": "The first XcodeBuildMCP run omitted NODE_ENV and EXPO_APP_VARIANT from Xcode build phases, causing the development native scheme to evaluate the guarded Expo config as production.",
+      "detected_by": "Xcode build log and direct development-config evaluation. Passing both values as explicit xcodebuild settings produced a successful build and launch without a source change."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "pass",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "smoke-test",
+      "failure-postmortem",
+      "failure-triage",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "smoke-test",
+      "failure-postmortem",
+      "failure-triage"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [],
+  "failure_output": "Authenticated pairing preflight: this Mac and app use incompatible agent protocols.",
+  "overall_category": "C2",
+  "suggested_follow_up": "Add a cross-package failing contract test that compares the generated shipping fingerprint with the gateway compatibility constant, update the stale gateway/classification artifacts from the canonical generated contract, and re-run pairing compatibility plus the simulator and live-sandbox gates."
+}

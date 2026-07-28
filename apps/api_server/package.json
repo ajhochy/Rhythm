@@ -24,7 +24,7 @@
     "node": ">=20 <25"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "^1.14.49",
+    "@opencode-ai/sdk": "file:vendor/opencode-ai-sdk",
     "@types/pg": "^8.20.0",
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.5",

@@ -85,6 +85,7 @@ import { corsVaryFix } from "./middleware/cors-vary"
 import { errorLayer } from "./middleware/error"
 import { fenceLayer } from "./middleware/fence"
 import { schemaErrorLayer } from "./middleware/schema-error"
+import { rhythmMcpPublicKey } from "@/security/rhythm-mcp-proof"
 
 export const context = Context.makeUnsafe<unknown>(new Map())
 
@@ -163,9 +164,21 @@ const instanceRoutes = Layer.mergeAll(rawInstanceRoutes, instanceApiRoutes).pipe
 // the same Uint8Array instead of re-stringifying the spec.
 const docResponse = lazy(() => HttpServerResponse.jsonUnsafe(OpenApi.fromApi(PublicApi)))
 
-const docRoute = HttpRouter.use((router) => router.add("GET", "/doc", () => Effect.succeed(docResponse()))).pipe(
-  Layer.provide(authOnlyRouterLayer),
-)
+const docRoute = HttpRouter.use((router) =>
+  Effect.gen(function* () {
+    yield* router.add("GET", "/doc", () => Effect.succeed(docResponse()))
+    yield* router.add(
+      "GET",
+      "/global/rhythm/security-key",
+      () =>
+        Effect.succeed(
+          HttpServerResponse.jsonUnsafe(rhythmMcpPublicKey(), {
+            headers: { "Cache-Control": "no-store" },
+          }),
+        ),
+    )
+  }),
+).pipe(Layer.provide(authOnlyRouterLayer))
 
 const uiRoute = HttpRouter.use((router) =>
   Effect.gen(function* () {

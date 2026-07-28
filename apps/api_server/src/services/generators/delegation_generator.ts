@@ -40,8 +40,11 @@
  */
 
 import { AppError } from '../../errors/app_error';
-import type { AgentConfig } from '../../repositories/agent_configs_repository';
-import { AgentConfigsRepository } from '../../repositories/agent_configs_repository';
+import {
+  AgentConfigsRepository,
+  agentConfigExecutionBlockReason,
+  type AgentConfig,
+} from '../../repositories/agent_configs_repository';
 import type { AgentOrgProposal } from '../../models/agent_org_proposal';
 import type { ProposalApplier, ProposalApplyResult } from '../org_proposal_apply_service';
 
@@ -154,7 +157,8 @@ function isEligibleTarget(
   if (target.id === manager.id) {
     return { eligible: false, reason: 'self-delegation is not allowed' };
   }
-  if (!target.enabled) return { eligible: false, reason: 'target profile is disabled' };
+  const blockReason = agentConfigExecutionBlockReason(target);
+  if (blockReason) return { eligible: false, reason: blockReason };
   if (!target.isAgent) return { eligible: false, reason: 'target profile is not an agent' };
   if (managerDepth >= MAX_DELEGATION_DEPTH) {
     return { eligible: false, reason: 'delegation depth limit exceeded' };

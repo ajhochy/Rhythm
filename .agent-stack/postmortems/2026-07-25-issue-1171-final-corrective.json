@@ -1,0 +1,116 @@
+{
+  "run_id": "2026-07-25-issue-1171-final-corrective",
+  "issue": 1171,
+  "date": "2026-07-25",
+  "smoke_result": "pass_after_fix",
+  "verification_claimed": "pass",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1171-c1",
+      "text": "Handles Tailscale missing/logged-out/wrong target/healthy states",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The rebuilt real-engine sandbox passed the live pairing test while its dedicated phone listener rejected pairing-code administration, device listing, access toggles, and legacy API routes."
+    },
+    {
+      "criterion_id": "issue-1171-c2",
+      "text": "QR contains only tailnet gateway URL + one-time code",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The native test-QR callback completed replacement and returned Settings to Connected; Flutter and live tests assert the exact two-field payload."
+    },
+    {
+      "criterion_id": "issue-1171-c3",
+      "text": "Device token is Keychain-only; pairing code discarded after exchange",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Twenty paired-host scenarios cover credential storage, code erasure, replacement, storage rollback success, rollback failure, initial-pair credential-cleanup failure, and metadata-only forget failure. The live sandbox verified hash-at-rest and one-time exchange."
+    },
+    {
+      "criterion_id": "issue-1171-c4",
+      "text": "States cover unpaired/pairing/connected/offline/Tailscale unavailable/revoked/incompatible/unhealthy",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Native smoke observed revoked, pairing, replacement, and connected states; automated state and UI regressions cover all remaining bounded and retryable states."
+    },
+    {
+      "criterion_id": "issue-1171-c5",
+      "text": "Flutter format/analyze/tests and mobile tests/E2E pass",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The executable contract, 3,247 non-baseline API tests, mobile foundation with Playwright 21/21, and required Flutter gates all passed."
+    },
+    {
+      "criterion_id": "issue-1171-c6",
+      "text": "Independent security/accessibility review passes",
+      "contract_status": "pass",
+      "smoke_status": "pass_after_fix",
+      "category": "C2",
+      "notes": "The first native maximum-Dynamic-Type screenshot exposed overlapping compact Settings text despite a green browser typography test. Compact headings, status labels, host text, and buttons were bounded; the native rerun showed clean layout and scroll-reachable actions. Screenshots and the AX snapshot are retained in docs/ai/runs/artifacts/issue-1171."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "native-accessibility-contract-gap",
+      "description": "The browser test changed and measured a DOM font size but could not prove React Native Paper layout at iOS maximum Dynamic Type. The first native screenshot showed overlapping Settings and Paired Mac compact text.",
+      "detected_by": "Dedicated iOS 18.3 simulator visual inspection and accessibility-tree traversal at accessibility-extra-extra-extra-large."
+    },
+    {
+      "process_category": "sandbox-process-lifetime",
+      "description": "The detached sandbox child was reaped after the launcher reported healthy.",
+      "detected_by": "Immediate owned-port check; a rebuilt foreground API/engine session then passed the live test and shut down cleanly."
+    },
+    {
+      "process_category": "cross-worktree-playwright-port-and-cache",
+      "description": "The hard-coded Playwright web port reused another worktree's app; after moving the server, Expo's cached manifest still pointed pairing at the old fake port.",
+      "detected_by": "Listener PID/cwd inspection and the compiled manifest. Validated configurable ports plus expo export --clear produced a dedicated 19171/44171 run with all six tests passing."
+    },
+    {
+      "process_category": "baseline-test-regression",
+      "description": "The aggregate API suite retains the unchanged issue #723 Vitest dynamic-import failure.",
+      "detected_by": "The exact baseline file was excluded; all remaining 374 files and 3,247 tests passed."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "full",
+    "expected_chain": [
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/mobile_gateway_surface.ts",
+    "apps/api_server/src/__tests__/issue_1171_mobile_access_live.test.ts",
+    "apps/mobile/lib/pairing/paired-host-store.ts",
+    "apps/mobile/providers/paired-host-provider.tsx",
+    "apps/mobile/app/(tabs)/settings.tsx",
+    "apps/mobile/app/pair.tsx",
+    "apps/mobile/components/settings/paired-mac-section.tsx",
+    "apps/mobile/tests/paired-host.test.mjs",
+    "apps/mobile/tests/e2e/pairing.spec.mjs",
+    "tests/contract/issue-1171.mjs"
+  ],
+  "failure_output": "Initial native maximum-Dynamic-Type screenshot: Settings title/subtitle and Paired Mac title/status overlapped. Corrective caps on compact controls plus a native rerun resolved the visual defect while body copy remained fully scalable and scrollable.",
+  "overall_category": "C2",
+  "suggested_follow_up": "Keep retained native screenshots and accessibility-tree traversal as a required gate for React Native typography changes; computed browser font size is supplemental evidence, not a native-layout substitute."
+}

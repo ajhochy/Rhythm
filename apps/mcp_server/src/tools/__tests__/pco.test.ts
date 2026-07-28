@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { registerPcoTools } from '../pco.js';
+import { RHYTHM_SECURITY_CONTEXT_META_KEY } from '../../security/security_context.js';
 
-type ToolHandler = (args: Record<string, unknown>) => Promise<{
+type ToolHandler = (args: Record<string, unknown>, extra?: { _meta?: Record<string, unknown> }) => Promise<{
   content: Array<{ type: 'text'; text: string }>;
   isError?: true;
 }>;
@@ -25,6 +26,17 @@ function makeStubServer(): { server: unknown; tools: Map<string, RegisteredTool>
 
 const API_URL = 'http://x';
 const API_TOKEN = 'tok';
+const AGENT_URL = 'http://agent';
+const EXTRA = {
+  _meta: {
+    [RHYTHM_SECURITY_CONTEXT_META_KEY]: {
+      sdkSessionId: 'sdk-pco-test',
+      turnId: 'turn-pco-test',
+      agentName: 'church-admin',
+      toolCallId: 'call-pco-test',
+    },
+  },
+};
 
 function makeFetchOk(body: unknown) {
   return vi.fn().mockResolvedValue({
@@ -54,12 +66,13 @@ describe('registerPcoTools — rhythm_pco_list_plans', () => {
 
     const { server, tools } = makeStubServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerPcoTools(server as any, API_URL, API_TOKEN);
+    registerPcoTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
-    const res = await tools.get('rhythm_pco_list_plans')!.handler({ service_type_id: '123' });
+    const res = await tools.get('rhythm_pco_list_plans')!.handler({ service_type_id: '123' }, EXTRA);
 
-    expect(mockFetch).toHaveBeenCalledOnce();
-    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const [url, init] = mockFetch.mock.calls.find(([candidate]) =>
+      String(candidate).includes('/integrations/planning-center/api/service-types/123/plans')) as [string, RequestInit];
     expect(url).toBe('http://x/integrations/planning-center/api/service-types/123/plans');
     expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer tok');
 
@@ -73,7 +86,7 @@ describe('registerPcoTools — rhythm_pco_list_plans', () => {
 
     const { server, tools } = makeStubServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerPcoTools(server as any, API_URL, API_TOKEN);
+    registerPcoTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
     const res = await tools.get('rhythm_pco_list_plans')!.handler({ service_type_id: '123' });
 
@@ -96,12 +109,13 @@ describe('registerPcoTools — rhythm_pco_list_service_types', () => {
 
     const { server, tools } = makeStubServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerPcoTools(server as any, API_URL, API_TOKEN);
+    registerPcoTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
-    const res = await tools.get('rhythm_pco_list_service_types')!.handler({});
+    const res = await tools.get('rhythm_pco_list_service_types')!.handler({}, EXTRA);
 
-    expect(mockFetch).toHaveBeenCalledOnce();
-    const [url] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const [url] = mockFetch.mock.calls.find(([candidate]) =>
+      String(candidate).includes('/integrations/planning-center/api/service-types')) as [string, RequestInit];
     expect(url).toBe('http://x/integrations/planning-center/api/service-types');
 
     expect(res.isError).toBeUndefined();

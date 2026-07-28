@@ -6,6 +6,8 @@ class AgentApproval {
     required this.consequence,
     required this.status,
     required this.createdAt,
+    required this.decisionNonce,
+    required this.payloadDigest,
   });
 
   factory AgentApproval.fromJson(Map<String, dynamic> json) => AgentApproval(
@@ -14,6 +16,8 @@ class AgentApproval {
         preview: json['preview'] as String?,
         consequence: json['consequence'] as String?,
         status: json['status'] as String,
+        decisionNonce: json['decisionNonce'] as String,
+        payloadDigest: json['payloadDigest'] as String?,
         createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
             DateTime.now(),
       );
@@ -26,4 +30,6 @@ class AgentApproval {
   /// 'pending' | 'approved' | 'rejected'
   final String status;
   final DateTime createdAt;
+  final String decisionNonce;
+  final String? payloadDigest;
 }

@@ -1,0 +1,118 @@
+{
+  "run_id": "2026-07-24-issue-1123",
+  "issue": 1123,
+  "date": "2026-07-24",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1123-c1",
+      "text": "Additive async-delegate path creates a parent-linked child, prompts it asynchronously, and returns an immediate dispatch acknowledgement without changing native task.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Isolated live dispatch returned HTTP 202 in 43 ms with local and SDK child identifiers; the branch diff contains no native task.ts change."
+    },
+    {
+      "criterion_id": "issue-1123-c2",
+      "text": "The existing OpenCode event bridge detects the delegated child going idle after its assistant turn.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The real child emitted CHILD_RECON_DONE and the parent received the callback through the existing stream bridge without child polling."
+    },
+    {
+      "criterion_id": "issue-1123-c3",
+      "text": "Child completion wakes an idle parent or queues behind a busy parent without clobbering ordering; concurrent completions are coalesced exactly once.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Live smoke dispatched while the parent was working; USER_STEER_ACCEPTED arrived before PARENT_WAKE_RECON, and the durable callback appeared exactly once. Focused tests cover concurrent child coalescing and replay dedupe."
+    },
+    {
+      "criterion_id": "issue-1123-c4",
+      "text": "Async delegation is available only to interactive manager profiles and is denied to headless, scheduled, system, hidden, and non-manager paths.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Runtime contract tests exercise system, scheduled, and hidden callers; projection tests force deny for ineligible profiles and full AgentRunner/scheduler regressions remained green."
+    },
+    {
+      "criterion_id": "issue-1123-c5",
+      "text": "The completion uses existing parent message and transcript surfaces so Flutter requires no bespoke renderer.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The real callback entered the parent as a normal input and the answer streamed on existing message.part.delta/session.status frames."
+    },
+    {
+      "criterion_id": "issue-1123-c6",
+      "text": "Unit coverage plus a real sandbox E2E proves dispatch, child completion, and parent wake without polling.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Manual Recon passed, then the codified live E2E passed in 6.31 seconds on branch-built API :4198 and fork :4197."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "live-assertion-identity-domain",
+      "description": "The first codified live run asserted local database child IDs against /agent-sessions/:parent/children, which intentionally returns engine SDK sessions.",
+      "detected_by": "Vitest showed the real child with SDK id and parentID after the completion and exactly-once assertions had already passed; failure triage changed only the endpoint identity comparison."
+    },
+    {
+      "process_category": "sandbox-process-lifetime",
+      "description": "The first sandbox launch process was reaped when its command session exited even though sandbox.sh had emitted its ready line.",
+      "detected_by": "Both isolated ports were empty immediately after launch while api_server.log ended cleanly after readiness; holding the sandbox owner shell open kept ports 4197/4198 stable."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "planning-agent",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "planning-agent",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/__tests__/issue_1123_contract.test.ts",
+    "apps/api_server/src/__tests__/issue_1123_live_e2e.test.ts",
+    "apps/api_server/src/__tests__/issue_1123_stream_bridge.test.ts",
+    "apps/api_server/src/__tests__/opencode_client_service.test.ts",
+    "apps/api_server/src/controllers/agent_delegation_controller.ts",
+    "apps/api_server/src/database/migrations.ts",
+    "apps/api_server/src/database/postgres_bootstrap.ts",
+    "apps/api_server/src/repositories/agent_async_delegations_repository.ts",
+    "apps/api_server/src/routes/agent_delegation_routes.ts",
+    "apps/api_server/src/services/__tests__/opencode_agent_writer_projection.test.ts",
+    "apps/api_server/src/services/agent_delegation_service.ts",
+    "apps/api_server/src/services/async_delegation_completion_service.ts",
+    "apps/api_server/src/services/opencode_agent_writer.ts",
+    "apps/api_server/src/services/opencode_client_service.ts",
+    "apps/api_server/src/services/opencode_stream_bridge.ts",
+    "apps/mcp_server/src/tools/agentDelegation.ts",
+    "apps/mcp_server/src/tools/issue_1123_agentDelegation.test.ts",
+    "tools/dev/sandbox.sh"
+  ],
+  "failure_output": "First codified live run: expected /children to contain local id 46a965c3-... and parentSessionId 8af0b2ed-..., but the endpoint returned engine id ses_067ffb... with parentID ses_067ffb.... Behavior assertions before this lineage check passed.",
+  "overall_category": "none",
+  "suggested_follow_up": "Live contracts crossing local and engine session surfaces should declare the identity domain of every endpoint before asserting lineage."
+}

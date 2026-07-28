@@ -1,0 +1,40 @@
+{
+  "issue": 1230,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1230-c1",
+      "text": "Cloud identity is resolved to a local user through an immutable `google_sub` binding rather than numeric identifier equality.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1230_cloud_identity_binding.test.ts",
+      "test_id": "issue-1230-c1: a numeric collision resolves by Google subject",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1230-c2",
+      "text": "Existing immutable bindings reject a mismatched subject or email instead of silently rebinding.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1230_cloud_identity_binding.test.ts",
+      "test_id": "issue-1230-c2: mismatched immutable identity is rejected",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1230-c3",
+      "text": "Pairing and gateway ownership persist the resolved local user identifier only.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1230_cloud_identity_binding.test.ts",
+      "test_id": "issue-1230-c3: pairing ownership uses the resolved local identifier",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1230-c4",
+      "text": "Automated collision tests prove that equal cloud/local numeric IDs do not authorize the wrong user and that valid bound users still pair successfully.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1230_cloud_identity_binding.test.ts",
+      "test_id": "issue-1230-c4: valid immutable bindings continue to authenticate",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

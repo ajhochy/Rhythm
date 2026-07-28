@@ -1,0 +1,114 @@
+{
+  "run_id": "2026-07-25-issue-1132",
+  "issue": 1132,
+  "date": "2026-07-25",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1132-c1",
+      "text": "The fork's generated SDK includes the fork-only events/types listed above (no hand-written gap remains).",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Generated artifact/type guards passed and the live built engine emitted the custom event variants."
+    },
+    {
+      "criterion_id": "issue-1132-c2",
+      "text": "The fork SDK builds to an importable artifact via a documented one-command step.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The SDK artifact and standalone fork rebuilt successfully; the binary version smoke passed."
+    },
+    {
+      "criterion_id": "issue-1132-c3",
+      "text": "api_server imports the complete generated types; the hand-written declaration is removed or reduced to a re-export.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The ambient declaration is deleted, API typecheck passes, and the built API loaded the vendored package."
+    },
+    {
+      "criterion_id": "issue-1132-c4",
+      "text": "Typecheck and the api_server suite are green.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "API lint/typecheck/build and the focused 119-test independent suite passed; the implementation run recorded the full 3,184-test pass."
+    },
+    {
+      "criterion_id": "issue-1132-c5",
+      "text": "The four remaining direct-fetch shims use typed SDK calls or are explicitly documented.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The SDK wrapper and artifact guards passed with no raw-fetch fallback."
+    },
+    {
+      "criterion_id": "issue-1132-c6",
+      "text": "Permission events, question reply/reject, and message streaming work against the built engine.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The isolated :4998/:4997 gate passed in 11.32s with observable reply/reject/resolution, session-owned deltas, permission ask/deny/resolution, and idle completion."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "compiled-runtime-coverage",
+      "description": "Source containment suites and the binary --version smoke did not execute the split bundle's late AppFileSystem.containsReal namespace member; a real bash tool call failed before permission evaluation.",
+      "detected_by": "The built-engine event gate timed out, then a direct WS frame probe exposed `containsReal is not a function` in the bash tool error."
+    },
+    {
+      "process_category": "live-smoke-fixture",
+      "description": "The first profile label began with # and triggered the pre-existing #1134 YAML quoting defect; the next fixture omitted ocAgent and therefore exercised built-in build permissions instead of its projected bash: ask rule.",
+      "detected_by": "Projected frontmatter parsed description as null for the first fixture; runtime frames reported agent build and no permission ask for the second."
+    },
+    {
+      "process_category": "worktree-dependency-isolation",
+      "description": "The worktree's opencode node_modules symlink resolved workspace packages from the main checkout, so an isolated overlay was required for the build to consume this branch's core source.",
+      "detected_by": "Bun's module error and realpath output pointed at /Users/ajhochhalter/Documents/Rhythm/apps/opencode_fork/packages/core instead of the issue worktree."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "smoke-test-writer",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "smoke-test-writer",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/opencode_fork/packages/sdk/js/script/build-rhythm.ts",
+    "apps/opencode_fork/packages/sdk/js/src/rhythm.ts",
+    "apps/api_server/vendor/opencode-ai-sdk",
+    "apps/api_server/src/services/opencode_client_service.ts",
+    "apps/api_server/src/__tests__/issue_1132_fork_sdk_artifact.test.ts",
+    "apps/api_server/src/__tests__/live_e2e_1132_built_sdk_events.test.ts",
+    "apps/opencode_fork/packages/core/src/filesystem.ts",
+    "apps/opencode_fork/packages/opencode/src/project/instance-context.ts",
+    "apps/opencode_fork/packages/opencode/src/reference/reference.ts"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Integrate #1134 before combined smoke, keep the built permission path in the required live gate, and ensure worktree dependency links resolve workspace packages from their own checkout."
+}

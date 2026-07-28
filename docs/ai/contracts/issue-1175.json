@@ -1,0 +1,272 @@
+{
+  "issue": 1175,
+  "generated": "2026-07-25",
+  "criteria": [
+    {
+      "criterion_id": "issue-1175-c1",
+      "text": "GitNexus compare-to-main impact is captured and contains only expected mobile, gateway, engine, and explicitly linked issue flows.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c1: bounded GitNexus aggregate scope is durably tied to the tested head",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c2",
+      "text": "Independent whole-branch security and quality review has no unresolved Critical or Important findings.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c2: independent review closure is backed by its immutable report",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c3",
+      "text": "Full API, Flutter, mobile, contract, browser E2E, accessibility, security, and secret-scan gates pass with exact commands recorded.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c3: every cumulative gate records exact command, head, exit code, and log hash",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c4",
+      "text": "Real gateway and engine behavior passes through tools/dev/sandbox.sh on API 4098 and engine 4097 while listeners 4001 and 4096 remain untouched.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c4: exact sandbox launcher and listener snapshots prove isolation",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c5",
+      "text": "A signed development build runs on a physical iPhone and verifies pairing, isolation failures, chat/SSE/PTY, approvals, every Tool, revocation, and background recovery; committed evidence uses only a non-sensitive model label, never a device UDID.",
+      "mode": "ui",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c5: signed physical-device matrix is tied to the tested build without a UDID",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c6",
+      "text": "A production iOS build and TestFlight submission complete through secure credential tooling without exposing or committing credentials.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c6: production archive and TestFlight submission have source and artifact provenance",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1175-c7",
+      "text": "Exact evidence is recorded in docs/ai/runs and PR #1165 remains draft, open, unmerged, and updated for human approval.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c7: durable run log agrees with the live draft PR",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c8",
+      "text": "Async delegation rejects audit/security-locked callers and targets (including stale enabled+locked rows), and a parent locked after dispatch is never woken by a completion.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
+      "test_id": "issue-1175-c8: async delegation rejects locked participants and never wakes a newly locked parent",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c9",
+      "text": "streamSession/promptAsync exceptions durably mark child/delegation failed, completion claim exceptions release claims/retry, and stale waking claims reconcile after restart exactly once.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
+      "test_id": "issue-1175-c9: dispatch and completion failures persist terminal state and stale claims recover exactly once",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c10",
+      "text": "Mobile Activity is scoped by req.mobileDevice.userId across sessions, research, schedules, webhooks, cookbook, optimizer and never emits other users' previews/reports.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
+      "test_id": "issue-1175-c10: paired Activity is user-scoped across every source",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c11",
+      "text": "Paired OpenCode HTTP and SSE never return secrets or filesystem roots/nested directories, with safe operation-specific response shaping/deny.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
+      "test_id": "issue-1175-c11: paired HTTP and SSE shape or deny sensitive upstream fields recursively",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c12",
+      "text": "Reload/config inspection calls use paired Device auth + opaque project ID, never Basic/direct bypass.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-security-review.test.mjs",
+      "test_id": "issue-1175-c12: paired reload and inspection stay on Device auth plus opaque project scope",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c13",
+      "text": "Production/release iOS ATS does not allow arbitrary HTTP, while explicit dev/E2E mode stays local-capable.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-security-review.test.mjs",
+      "test_id": "issue-1175-c13: production iOS ATS denies arbitrary HTTP while explicit dev and E2E remain local-capable",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c14",
+      "text": "#1175 release contract proves exact HEAD/evidence/run-log/commands/PR head+draft/checks/build provenance rather than booleans.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c14: release evidence proves one exact tested source head and evidence-only final commits",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c15",
+      "text": "A selected-project Device token cannot enumerate status or read, mutate, abort, or delete an out-of-scope OpenCode session; session lists/status are filtered and every ID-addressed session/message/part/permission/question/PTY resource is server-side ownership/project validated.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
+      "test_id": "issue-1175-c15: selected-project credentials cannot enumerate or operate on another project session",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c16",
+      "text": "agent_activity_service Postgres queries select only columns present in postgres_bootstrap, including status_message, project_id, and mcp_role schema parity.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_security_review.test.ts",
+      "test_id": "issue-1175-c16: Activity query columns exist in both SQLite and Postgres bootstrap schemas",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c17",
+      "text": "AGENT_LOCAL auth bypass is structurally confined to loopback: the primary API binds 127.0.0.1, refuses a non-loopback override, and a live IPv4/IPv6 check proves non-loopback interfaces cannot reach it.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
+      "test_id": "issue-1175-c17: AGENT_LOCAL cannot expose the unauthenticated primary API beyond loopback",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c18",
+      "text": "Pairing never sends a Rhythm Cloud bearer to a QR-selected origin; public health is non-sensitive, the one-time pairing row is the sole user authority, the response is account-bound, and replacement/rollback use only Device credentials.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-adversarial-review.test.mjs",
+      "test_id": "issue-1175-c18: hostile QR origins never receive cloud credentials and cannot choose pairing identity",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c19",
+      "text": "Every mobile Tool surface has an explicit tenant policy: user-owned resources are owner-scoped for list/read/update/delete/run, Mac-global execution policy requires a workspace/global administrator, and decision actors are server-derived.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
+      "test_id": "issue-1175-c19: two paired users cannot cross tenant or let staff mutate Mac-global agent policy",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c20",
+      "text": "Approval listing requires a UI-held Keychain capability whose raw value is never exposed to the API child/model shell, and every decision additionally carries a one-time nonce-bound signature from a non-exportable Secure Enclave/Keychain private key. The child receives only the capability digest and signing public key, the server derives the human actor, and forged, replayed, payload-swapped, status-swapped, AGENT_LOCAL, and Device-token decisions fail closed.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
+      "test_id": "issue-1175-c20: loopback shell and paired-device callers cannot self-approve a human gate",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c21",
+      "text": "All external or user-authored reads, including message threads and calendar events, are scanned, fenced, and durably tainted fail-closed; every role combining those reads with consequential writes remains payload-bound to real human approval.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
+      "test_id": "issue-1175-c21: church-admin message and calendar prompt injection cannot immediately send outbound content",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c22",
+      "text": "Production mobile configuration rejects E2E mode, missing or mismatched OAuth settings, and unapproved Cloud origins; its resolved native config and exported bundle contain no test credentials, fake identity, __control transport, or test gateway override.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-adversarial-review.test.mjs",
+      "test_id": "issue-1175-c22: a production app cannot compile in test mode or with unusable authentication",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c23",
+      "text": "Google mobile OAuth pins the exact configured Rhythm client and redirect server-side and validates signed ID-token audience, authorized party, nonce, issuer, expiry, and verified email; a code for a caller-selected client is rejected.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_adversarial_followup.test.ts",
+      "test_id": "issue-1175-c23: caller-chosen Google clients cannot mint Rhythm sessions",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c24",
+      "text": "The committed iOS production build command is repository-portable, version-pinned, non-interactive, performs authenticated credential/project preflight, and has no private absolute launcher path.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-adversarial-review.test.mjs",
+      "test_id": "issue-1175-c24: clean-shell production build command is pinned and unattended",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c25",
+      "text": "Public OpenCode transcript share/unshare is disabled across the gateway contract, generated manifest, provider/service surface, and mobile UI until a private Rhythm-owned sharing design exists.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-adversarial-review.test.mjs",
+      "test_id": "issue-1175-c25: mobile cannot create or expose public OpenCode transcript links",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c26",
+      "text": "Paired OpenCode SDK sessions and PTYs have durable per-user ownership carried through HTTP, SSE, and WebSocket upgrades; legacy unowned resources fail closed, list/status/event streams are filtered, and every ID-addressed operation rejects a second paired user in the same project.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_corrective_security.test.ts",
+      "test_id": "issue-1175-c26: two paired users cannot cross HTTP SSE or PTY ownership boundaries",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c27",
+      "text": "Pairing-code creation, mobile-access diagnostics/configuration, and desktop device administration require the signed desktop app's Keychain-held human capability; a normal bearer or model-held API token receives 403 with no mutation, while a Device credential may revoke only itself.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_corrective_security.test.ts",
+      "test_id": "issue-1175-c27: bearer credentials cannot administer mobile access and Device self-revoke remains scoped",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c28",
+      "text": "Every Google login and OAuth exchange authorizes the verified account before user upsert or session creation using explicit allowed emails/hosted domains or a preprovisioned user; an unauthorized external verified account receives 403 and creates no user or session.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1175_corrective_security.test.ts",
+      "test_id": "issue-1175-c28: unauthorized Google identities are rejected before all persistence paths",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c29",
+      "text": "A paired-host replacement treats a changed hostId as a replacement even when gateway URL and user are unchanged, never sends the stale Device credential to a recycled endpoint, and preserves truthful recoverable state if secure storage fails.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/paired-host.test.mjs",
+      "test_id": "issue-1175-c29: recycled gateway endpoints replace by host identity without presenting stale credentials",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c30",
+      "text": "The aggregate compare-to-main diff contains no trailing whitespace or other git diff check failures.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-1175.mjs",
+      "test_id": "issue-1175-c30: aggregate diff check is clean",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c31",
+      "text": "Ordinary local Expo, development-client, web, Android, and iOS prototype commands force EXPO_APP_VARIANT=development and NODE_ENV=development, override inherited production values, and resolve development config without production OAuth credentials while EAS and release commands remain unchanged.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-development-invocation.test.mjs",
+      "test_id": "issue-1175-c31: ordinary prototype commands force development config without production OAuth",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c32",
+      "text": "Physical iPhone verifies pairing.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/issue-1175-pairing-compatibility.test.mjs",
+      "test_id": "issue-1175-c32: shipping mobile and gateway fingerprints match the generated contract",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c33",
+      "text": "Mobile Google OAuth sends the configured iOS client ID and redirect URI for compatibility with the currently deployed exchange route, while the hardened server continues to ignore caller-selected OAuth configuration.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/google-mobile-oauth.test.mjs",
+      "test_id": "issue-1175-c33: OAuth result carries configured compatibility fields to the exchange body",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

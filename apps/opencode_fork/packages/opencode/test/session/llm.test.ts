@@ -973,17 +973,18 @@ describe("session.llm.stream", () => {
     })
   })
 
-  test("limits full-size OpenAI streams to two concurrent requests", async () => {
+  test("honors a configured model-stream limit for non-OpenAI providers", async () => {
     const server = state.server
     if (!server) {
       throw new Error("Server not initialized")
     }
 
-    const source = await loadFixture("openai", "gpt-5.2")
+    const providerID = "alibaba"
+    const source = await loadFixture(providerID, "qwen-plus")
     const model = source.model
-    const first = waitOpenAIResponsesStreamingRequest()
-    const second = waitOpenAIResponsesStreamingRequest()
-    const third = waitOpenAIResponsesStreamingRequest()
+    const first = waitStreamingRequest("/chat/completions")
+    const second = waitStreamingRequest("/chat/completions")
+    const third = waitStreamingRequest("/chat/completions")
 
     await using tmp = await tmpdir({
       init: async (dir) => {
@@ -991,18 +992,16 @@ describe("session.llm.stream", () => {
           path.join(dir, "opencode.json"),
           JSON.stringify({
             $schema: "https://opencode.ai/config.json",
-            enabled_providers: ["openai"],
+            experimental: {
+              model_stream_scheduler: {
+                max_concurrency: 2,
+              },
+            },
+            enabled_providers: [providerID],
             provider: {
-              openai: {
-                name: "OpenAI",
-                env: ["OPENAI_API_KEY"],
-                npm: "@ai-sdk/openai",
-                api: "https://api.openai.com/v1",
-                models: {
-                  [model.id]: configModel(model),
-                },
+              [providerID]: {
                 options: {
-                  apiKey: "test-openai-key",
+                  apiKey: "test-key",
                   baseURL: `${server.url.origin}/v1`,
                 },
               },
@@ -1015,7 +1014,7 @@ describe("session.llm.stream", () => {
     await WithInstance.provide({
       directory: tmp.path,
       fn: async () => {
-        const resolved = await getModel(ProviderID.openai, ModelID.make(model.id))
+        const resolved = await getModel(ProviderID.make(providerID), ModelID.make(model.id))
         const agent = {
           name: "test",
           mode: "primary",
@@ -1032,7 +1031,7 @@ describe("session.llm.stream", () => {
             role: "user",
             time: { created: Date.now() },
             agent: agent.name,
-            model: { providerID: ProviderID.openai, modelID: resolved.id, variant: "high" },
+            model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
           } satisfies MessageV2.User
 
           return {

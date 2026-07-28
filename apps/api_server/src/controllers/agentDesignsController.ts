@@ -54,7 +54,7 @@ export class AgentDesignsController {
       if (!design?.filePath) throw AppError.notFound('AgentDesign artifact');
       let artifact: { path: string; artifactType: string };
       try {
-        artifact = resolveLocalArtifact(design.filePath, true);
+        artifact = resolveLocalArtifact(design.filePath);
       } catch {
         throw AppError.notFound('AgentDesign artifact');
       }

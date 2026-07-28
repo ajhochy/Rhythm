@@ -38,6 +38,7 @@ import { Global } from "@opencode-ai/core/global"
 import { Effect, Layer, Option, Context, Schema, Types } from "effect"
 import { NonNegativeInt, optionalOmitUndefined } from "@opencode-ai/core/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { rm as removeFs } from "fs/promises"
 
 const log = Log.create({ service: "session" })
 
@@ -675,6 +676,12 @@ export const layer: Layer.Layer<
       } catch (e) {
         log.error(e)
       }
+      yield* Effect.tryPromise(() =>
+        removeFs(path.join(Global.Path.tmp, "attachments", sessionID), {
+          recursive: true,
+          force: true,
+        }),
+      ).pipe(Effect.catch(() => Effect.void))
     })
 
     const updateMessage = <T extends MessageV2.Info>(msg: T): Effect.Effect<T> =>

@@ -9,6 +9,7 @@ import type { SessionPrompt } from "../session/prompt"
 import { Config } from "@/config/config"
 import { Effect, Exit, Schema } from "effect"
 import { EffectBridge } from "@/effect/bridge"
+import { modelStreamScheduler } from "@/session/model-stream-scheduler"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -201,6 +202,11 @@ export const TaskTool = Tool.define(
           Effect.gen(function* () {
             let promptText = params.prompt
             let result: MessageV2.WithParts | undefined
+
+            // The current provider stream is paused while this tool synchronously
+            // awaits its child. Relinquish that stream's scheduler lease so a set
+            // of waiting parents can never consume every slot their children need.
+            yield* Effect.sync(() => modelStreamScheduler.yieldSession(ctx.sessionID))
 
             for (let attempt = 0; attempt <= CHILD_PROVIDER_RETRY_ATTEMPTS; attempt++) {
               const parts = yield* ops.resolvePromptParts(promptText)

@@ -159,6 +159,27 @@ export class AgentScheduledTasksRepository {
     return row ? rowToModel(row as Record<string, unknown>) : null;
   }
 
+  async findByIdForOwnerAsync(
+    id: string,
+    ownerUserId: number,
+  ): Promise<AgentScheduledTask | null> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `SELECT * FROM agent_scheduled_tasks
+         WHERE id = $1 AND created_by_user_id = $2`,
+        [id, ownerUserId],
+      );
+      return result.rows[0] ? rowToModel(result.rows[0]) : null;
+    }
+    const row = getDb()
+      .prepare(
+        `SELECT * FROM agent_scheduled_tasks
+         WHERE id = ? AND created_by_user_id = ?`,
+      )
+      .get(id, ownerUserId);
+    return row ? rowToModel(row as Record<string, unknown>) : null;
+  }
+
   async listAllAsync(): Promise<AgentScheduledTask[]> {
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(
@@ -167,6 +188,26 @@ export class AgentScheduledTasksRepository {
       return r.rows.map(rowToModel);
     }
     const rows = getDb().prepare(`SELECT * FROM agent_scheduled_tasks ORDER BY created_at DESC`).all();
+    return (rows as Record<string, unknown>[]).map(rowToModel);
+  }
+
+  async listForOwnerAsync(ownerUserId: number): Promise<AgentScheduledTask[]> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `SELECT * FROM agent_scheduled_tasks
+         WHERE created_by_user_id = $1
+         ORDER BY created_at DESC`,
+        [ownerUserId],
+      );
+      return result.rows.map(rowToModel);
+    }
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM agent_scheduled_tasks
+         WHERE created_by_user_id = ?
+         ORDER BY created_at DESC`,
+      )
+      .all(ownerUserId);
     return (rows as Record<string, unknown>[]).map(rowToModel);
   }
 
@@ -208,6 +249,30 @@ export class AgentScheduledTasksRepository {
            last_error = ?, updated_at = ?
        WHERE id = ?`,
     ).run(nextRunAt, lastRunAt, lastRunStatus, lastError ?? null, now, id);
+  }
+
+  async queueNowAsync(id: string): Promise<AgentScheduledTask | null> {
+    const now = new Date().toISOString();
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `UPDATE agent_scheduled_tasks
+         SET next_run_at = $1, last_run_status = 'queued',
+             last_error = NULL, updated_at = $1
+         WHERE id = $2
+         RETURNING *`,
+        [now, id],
+      );
+      return result.rows[0] ? rowToModel(result.rows[0]) : null;
+    }
+    const result = getDb()
+      .prepare(
+        `UPDATE agent_scheduled_tasks
+         SET next_run_at = ?, last_run_status = 'queued',
+             last_error = NULL, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(now, now, id);
+    return result.changes > 0 ? this.findByIdAsync(id) : null;
   }
 
   async updateAsync(id: string, patch: Partial<CreateAgentScheduledTaskInput & { enabled: boolean; nextRunAt: string | null }>): Promise<AgentScheduledTask | null> {
@@ -265,5 +330,41 @@ export class AgentScheduledTasksRepository {
     }
     const r = getDb().prepare(`DELETE FROM agent_scheduled_tasks WHERE id = ?`).run(id);
     return r.changes > 0;
+  }
+
+  async updateForOwnerAsync(
+    id: string,
+    ownerUserId: number,
+    patch: Partial<
+      CreateAgentScheduledTaskInput & {
+        enabled: boolean;
+        nextRunAt: string | null;
+      }
+    >,
+  ): Promise<AgentScheduledTask | null> {
+    if (!(await this.findByIdForOwnerAsync(id, ownerUserId))) return null;
+    await this.updateAsync(id, patch);
+    return this.findByIdForOwnerAsync(id, ownerUserId);
+  }
+
+  async deleteForOwnerAsync(
+    id: string,
+    ownerUserId: number,
+  ): Promise<boolean> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `DELETE FROM agent_scheduled_tasks
+         WHERE id = $1 AND created_by_user_id = $2`,
+        [id, ownerUserId],
+      );
+      return (result.rowCount ?? 0) > 0;
+    }
+    const result = getDb()
+      .prepare(
+        `DELETE FROM agent_scheduled_tasks
+         WHERE id = ? AND created_by_user_id = ?`,
+      )
+      .run(id, ownerUserId);
+    return result.changes > 0;
   }
 }

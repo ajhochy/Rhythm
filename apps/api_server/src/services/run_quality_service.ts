@@ -280,7 +280,7 @@ export interface RunQualityDeps {
  *   created within this window are considered.
  */
 export function getRunQualityRollup(
-  opts: { windowDays?: number } = {},
+  opts: { windowDays?: number; ownerUserId?: number } = {},
   deps: RunQualityDeps = {},
 ): RunQualityRollup {
   const db = deps.db ?? getDb();
@@ -291,9 +291,13 @@ export function getRunQualityRollup(
     .prepare(
       `SELECT id, agent_kind, status, status_message, created_at
        FROM agent_sessions
-       WHERE is_system = 0 AND created_at >= ?`,
+       WHERE is_system = 0 AND created_at >= ?
+         ${opts.ownerUserId === undefined ? '' : 'AND owner_user_id = ?'}`,
     )
-    .all(cutoffIso) as SessionRow[];
+    .all(
+      cutoffIso,
+      ...(opts.ownerUserId === undefined ? [] : [opts.ownerUserId]),
+    ) as SessionRow[];
 
   if (sessions.length === 0) {
     return { generatedAt: new Date().toISOString(), windowDays, agents: [] };

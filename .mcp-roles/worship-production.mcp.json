@@ -82,22 +82,6 @@
         "status_get_layers"
       ]
     },
-    "pco-services": {
-      "inherit": true,
-      "allowedTools": [
-        "get_service_types",
-        "get_plans",
-        "get_plan_items",
-        "get_plan_team_members",
-        "get_songs",
-        "get_song",
-        "find_song_by_title",
-        "get_all_arrangements_for_song",
-        "get_arrangement_for_song",
-        "get_keys_for_arrangement_of_song",
-        "search_people"
-      ]
-    },
     "obsidian": {
       "inherit": true,
       "allowedTools": [
@@ -119,7 +103,11 @@
         "rhythm_complete_task",
         "rhythm_get_dashboard",
         "rhythm_remember",
-        "rhythm_search_context"
+        "rhythm_search_context",
+        "rhythm_pco_list_service_types",
+        "rhythm_pco_list_plans",
+        "rhythm_pco_get_plan_items",
+        "rhythm_request_approval"
       ]
     }
   },

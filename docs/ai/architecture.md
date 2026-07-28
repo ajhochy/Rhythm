@@ -26,7 +26,7 @@ The local `apps/api_server` Node.js process embeds `@opencode-ai/sdk` in-process
 | Auth routes | `routes/opencode_auth_routes.ts` | `GET /opencode/auth/` (list), `POST /opencode/auth/:id` (API key), OAuth start/callback |
 | Capabilities route | `routes/agents_capabilities_routes.ts` | Provider-based `GET /agents/capabilities` |
 | Agent sessions controller | `controllers/agent_sessions_controller.ts` | `POST` creates SDK session + maps ID; `DELETE` clears map + marks closed |
-| Type declarations | `@types/opencode-ai-sdk.d.ts` | Local types bridging ESM-only SDK into CJS project |
+| SDK artifact | `vendor/opencode-ai-sdk/` | Complete fork-generated JS + declarations, consumed through a normal `file:` dependency |
 | Auth UI | `lib/features/settings/widgets/ai_account_section.dart` | Settings auth; refreshes connected providers from `GET /opencode/auth/` on mount |
 
 ### Session lifecycle

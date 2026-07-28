@@ -134,6 +134,28 @@ void main() {
     });
   });
 
+  group('shouldAttachByFileReference', () {
+    test('routes every provider-unsupported binary through a local file ref',
+        () {
+      expect(shouldAttachByFileReference('application/octet-stream'), isTrue);
+      expect(shouldAttachByFileReference('application/zip'), isTrue);
+      expect(shouldAttachByFileReference('audio/mpeg'), isTrue);
+      expect(
+        shouldAttachByFileReference(
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        ),
+        isTrue,
+      );
+    });
+
+    test('preserves the existing inline text and native media paths', () {
+      expect(shouldAttachByFileReference('text/plain'), isFalse);
+      expect(shouldAttachByFileReference('application/json'), isFalse);
+      expect(shouldAttachByFileReference('image/png'), isFalse);
+      expect(shouldAttachByFileReference('application/pdf'), isFalse);
+    });
+  });
+
   group('buildFileRefAttachment', () {
     test('builds a file: FilePart map for an Office document', () {
       final part = buildFileRefAttachment(

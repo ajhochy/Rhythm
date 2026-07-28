@@ -85,6 +85,38 @@ Keep the patch surface minimal (one optional field on `Session.Info`/`CreateInpu
 + one gated `continue` in `resolveTools` + a composed-key index in `mcp/index.ts`)
 precisely so these syncs stay mechanical.
 
+### Rebuild the fork-generated SDK artifact (#1132)
+
+After every subtree sync—or any change to the fork's HTTP API/schema—run:
+
+```bash
+cd apps/opencode_fork/packages/sdk/js
+bun run build:rhythm
+```
+
+This is the single supported SDK materialization command. It:
+
+1. generates the fork's OpenAPI document from the engine;
+2. preserves explicit-null semantics for the two session allowlist fields
+   (the engine's OpenAPI emitter currently drops `Schema.NullOr` on object
+   properties);
+3. regenerates v2 client/types;
+4. deletes both `dist/` and the composite `.tsbuildinfo`, then forces a complete
+   JS + `.d.ts` emit; and
+5. refreshes the committed, installable package at
+   `apps/api_server/vendor/opencode-ai-sdk`.
+
+`api_server` consumes that artifact through
+`"@opencode-ai/sdk": "file:vendor/opencode-ai-sdk"`. The fork source remains
+outside the API TypeScript build. The committed vendor directory is required
+because Docker builds and the macOS release bundle install the API package from
+a detached directory where a live relative reference into `opencode_fork`
+would not exist.
+
+The fork CI reruns the command and requires a clean diff across the checked-in
+spec, generated v2 surface, and API vendor package. A stale artifact therefore
+fails before merge.
+
 ## Alternatives
 
 - **Separate fork repo + submodule** — rejected: two repos, submodule pointer
@@ -103,9 +135,10 @@ precisely so these syncs stay mechanical.
   `.gitignore` plus explicit root `.gitignore` entries.
 - Upstream syncs are a single `git subtree pull ... --squash`; our patch must be
   re-validated against moved lines on each sync.
-- Only `packages/opencode` is relevant to the patch and the binary build; the
-  other packages (web, desktop, console, SST infra) ride along as source but are
-  never built by Rhythm CI.
+- `packages/opencode` supplies the standalone engine binary and
+  `packages/sdk/js` supplies the generated client artifact consumed by
+  `api_server`. Other packages (web, desktop, console, SST infra) ride along as
+  source but are never built by Rhythm CI.
 - The standalone binary build, signing, and bundling are deferred to
   mcp-scope-03; this decision covers vendoring only.
 

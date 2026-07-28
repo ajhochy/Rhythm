@@ -20,6 +20,7 @@ const EXISTING_TOOLS = [
   'rhythm_create_agent_profile',
   'rhythm_notify',
   'rhythm_get_setup_readiness',
+  'rhythm_list_creative_capabilities',
   'rhythm_request_approval',
   'rhythm_install_creative_capability',
   'rhythm_verify_creative_capability',

@@ -3,10 +3,13 @@ import path from 'path';
 import { readFileSync, existsSync } from 'fs';
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
-import { containsReal } from '../utils/path_containment';
+import { canonicalize, containsReal } from '../utils/path_containment';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
-import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import {
+  AgentConfigsRepository,
+  agentConfigExecutionBlockReason,
+} from '../repositories/agent_configs_repository';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
@@ -221,13 +224,18 @@ export class AgentSessionsController {
       // row at all (not Rhythm-managed) — reject only an agent whose id or
       // ocAgent matches a DISABLED agent_configs row.
       const disabledEngineNames = new Set<string>();
+      const securityLockedEngineNames = new Set<string>();
       for (const c of new AgentConfigsRepository().list()) {
-        if (c.enabled) continue;
-        disabledEngineNames.add(c.id);
-        if (c.ocAgent) disabledEngineNames.add(c.ocAgent);
+        if (agentConfigExecutionBlockReason(c) === null) continue;
+        const target = c.locked === true ? securityLockedEngineNames : disabledEngineNames;
+        target.add(c.id);
+        if (c.ocAgent) target.add(c.ocAgent);
       }
       const agents = rawAgents.filter(
-        (a) => !a.name || isReservedAgentConfigId(a.name) || !disabledEngineNames.has(a.name),
+        (a) =>
+          !a.name ||
+          (!securityLockedEngineNames.has(a.name) &&
+            (isReservedAgentConfigId(a.name) || !disabledEngineNames.has(a.name))),
       );
       // Mirror the engine's agent registry into agent_configs so every opencode
       // agent also exists as an Agent Profile. Reuse the filtered list so the
@@ -465,8 +473,9 @@ export class AgentSessionsController {
         if (!agentConfig) {
           throw AppError.badRequest(`agent not configured: '${normalizedAgentId}'`);
         }
-        if (!agentConfig.enabled) {
-          throw AppError.badRequest(`agent disabled: '${normalizedAgentId}'`);
+        const blockReason = agentConfigExecutionBlockReason(agentConfig);
+        if (blockReason) {
+          throw AppError.badRequest(blockReason);
         }
         resolvedEngineAgentKind =
           agentConfig.ocAgent && agentConfig.ocAgent.trim() !== ''
@@ -1273,8 +1282,9 @@ export class AgentSessionsController {
         if (!agentConfig) {
           throw AppError.badRequest(`agent not configured: '${requestedAgentId}'`);
         }
-        if (!agentConfig.enabled) {
-          throw AppError.badRequest(`agent disabled: '${requestedAgentId}'`);
+        const blockReason = agentConfigExecutionBlockReason(agentConfig);
+        if (blockReason) {
+          throw AppError.badRequest(blockReason);
         }
         // #858: mirror the create-path fix — persist the resolved ENGINE NAME
         // (ocAgent), not the raw agent_configs id, so a UUID-keyed profile
@@ -1288,6 +1298,18 @@ export class AgentSessionsController {
             : requestedAgentId;
         if (resolvedEngineAgentKind !== session.agentKind) {
           repo.updateAgentKind(session.id, resolvedEngineAgentKind);
+        }
+      } else if (session.agentKind) {
+        // A previously-created resumable session must not bypass a lock that
+        // landed after it was created. agent_kind may hold either the profile
+        // id or its resolved oc_agent name, so cover both representations.
+        const configsRepo = new AgentConfigsRepository();
+        const storedConfig =
+          configsRepo.getById(session.agentKind) ??
+          configsRepo.list().find((config) => config.ocAgent === session.agentKind);
+        if (storedConfig) {
+          const blockReason = agentConfigExecutionBlockReason(storedConfig);
+          if (blockReason) throw AppError.badRequest(blockReason);
         }
       }
 
@@ -1521,19 +1543,19 @@ export class AgentSessionsController {
       // Map SDK Message[] → M1-2-compatible structured shape.
       const messages = sdkMessages.map((msg, idx) => {
         // SDK role 'user' → 'input', 'assistant' → 'output'
-        const role: 'input' | 'output' = msg.role === 'user' ? 'input' : 'output';
+        const role: 'input' | 'output' = msg.info.role === 'user' ? 'input' : 'output';
         return {
           id: idx + 1,
           sessionId: `child-${childSdkId}`,
           role,
           rawText: '',
           strippedText: '',
-          createdAt: msg.time?.created
-            ? new Date(msg.time.created).toISOString()
+          createdAt: msg.info.time?.created
+            ? new Date(msg.info.time.created).toISOString()
             : new Date().toISOString(),
-          sdkMessageId: msg.id,
+          sdkMessageId: msg.info.id,
           // Parts array passes through as-is (same shape as M1-2 parts_json).
-          parts: msg.parts ?? [],
+          parts: msg.parts,
           tokens: null,
           cost: null,
         };
@@ -1852,13 +1874,21 @@ export class AgentSessionsController {
       if (!relPath) throw AppError.badRequest('path is required');
       const dir = this.resolveSessionDir(req.params.id, relPath);
       const content = await opencodeClient.readFileContent(dir, relPath);
+      const resolvedPath = canonicalize(path.resolve(dir, relPath));
+      if (!containsReal(dir, resolvedPath)) {
+        throw new AppError(400, 'PATH_TRAVERSAL', `path '${relPath}' resolves outside the session directory`);
+      }
+      const response = {
+        ...(content && typeof content === 'object' ? content : { content }),
+        resolvedPath,
+      };
       // 2MB cap on the relayed payload (defensive — the engine may return a
       // large file; a hard cap keeps the api_server response bounded).
-      const size = Buffer.byteLength(JSON.stringify(content ?? null), 'utf8');
+      const size = Buffer.byteLength(JSON.stringify(response), 'utf8');
       if (size > AgentSessionsController.FILE_CONTENT_CAP_BYTES) {
         throw new AppError(413, 'PAYLOAD_TOO_LARGE', `file content exceeds the ${AgentSessionsController.FILE_CONTENT_CAP_BYTES}-byte cap`);
       }
-      res.json(content);
+      res.json(response);
     } catch (err) {
       next(err);
     }

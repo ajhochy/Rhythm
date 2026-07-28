@@ -1,0 +1,64 @@
+name: Mobile CI
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'apps/mobile/**'
+      - 'apps/opencode_fork/packages/opencode/package.json'
+      - 'apps/opencode_fork/packages/sdk/openapi.json'
+      - 'docs/ai/evidence/**'
+      - 'docs/ai/runs/**'
+      - 'docs/ai/project-state.md'
+      - 'tests/contract/issue-1175.mjs'
+      - '.github/workflows/mobile_ci.yml'
+  pull_request:
+    paths:
+      - 'apps/mobile/**'
+      - 'apps/opencode_fork/packages/opencode/package.json'
+      - 'apps/opencode_fork/packages/sdk/openapi.json'
+      - 'docs/ai/evidence/**'
+      - 'docs/ai/runs/**'
+      - 'docs/ai/project-state.md'
+      - 'tests/contract/issue-1175.mjs'
+      - '.github/workflows/mobile_ci.yml'
+
+jobs:
+  foundation:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/mobile
+    env:
+      CI: 'true'
+      EXPO_PUBLIC_E2E_MODE: '1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify mobile foundation
+        run: npm run verify:foundation
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-playwright-report
+          path: apps/mobile/playwright-report
+          if-no-files-found: ignore

@@ -1,0 +1,56 @@
+{
+  "issue": 1123,
+  "generated": "2026-07-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1123-c1",
+      "text": "New async-delegate path, additive alongside native task (do not touch apps/opencode_fork/.../tool/task.ts). Reuse the child-session creation plumbing already built for #1156 (upsertChildSession / parent_session_id in opencode_stream_bridge.ts and agent_sessions_repository.ts). On invocation: create the child session, fire its prompt via the fork's promptAsync (fire-and-forget), and return a tool result to the calling model immediately (e.g. \"Dispatched, you'll be notified when it's done\") — ending the parent's turn without blocking.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1123_contract.test.ts",
+      "test_id": "issue-1123-c1: async dispatch persists a parent-linked child, subscribes before promptAsync, and returns immediately",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1123-c2",
+      "text": "Completion watcher: extend opencode_stream_bridge.ts's existing /event SSE consumption to detect a delegated child session going idle after an assistant turn.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1123_stream_bridge.test.ts",
+      "test_id": "issue-1123-c2: child session.idle after an assistant turn invokes the async completion watcher once",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1123-c3",
+      "text": "Wake injection: on child completion, inject a summary message into the parent session (via promptAsync or equivalent). If the parent is idle, this should trigger a new turn (wake). If the parent is still busy, the injected message should queue rather than clobber ordering — verify how the engine handles concurrent injects into a busy session before assuming FIFO is automatic.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1123_contract.test.ts",
+      "test_id": "issue-1123-c3: busy parents defer wakes and concurrent child results are coalesced exactly once",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1123-c4",
+      "text": "Gate to interactive-mode agent profiles only — this must not be reachable from headless/scheduled/system agent profiles. Use the existing tool-allowlist/corePermissionsJson mechanism to scope it, consistent with the two-delegation-modes design above. Confirm via a regression test that headless delegation paths (AgentRunner, scheduler, org-optimizer, etc.) cannot invoke it.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1123_contract.test.ts",
+      "test_id": "issue-1123-c4: async delegation rejects system, scheduled, and non-interactive caller profiles",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1123-c5",
+      "text": "Flutter surfacing: check whether the injected wake message renders correctly in the existing session transcript view with no changes (likely, since it's just another message). If a distinct \"delegate finished\" indicator is wanted, that's a small addition — don't over-build it speculatively.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1123_contract.test.ts",
+      "test_id": "issue-1123-c5: wake uses the existing parent prompt and transcript surfaces with no bespoke frame",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1123-c6",
+      "text": "Tests: unit tests for the dispatch/watch/inject logic, plus a live e2e in the style of issue_1156_live_e2e.test.ts — real dispatch, real child completion, assert the wake message actually lands in the parent's transcript with no polling, mirroring the exact behavioral-verification bar the rest of this repo holds to.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1123_live_e2e.test.ts",
+      "test_id": "issue-1123-c6: real async dispatch completes and pushes a wake turn into the parent without child polling",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

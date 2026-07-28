@@ -1,0 +1,68 @@
+{
+  "run_id": "2026-07-25-issue-1173-native-final",
+  "issue": 1173,
+  "date": "2026-07-25",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1173-c11",
+      "text": "Every dedicated tool screen handles loading, empty, secret-free offline cache, forbidden, expired-auth, and retryable server error with accessible Dynamic Type and dark-mode-safe UI.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "The focused issue-1173-c11 contract passed, and the native development client rendered Webhooks correctly at the normal text size. On the iOS 18.3 iPhone SE simulator in dark appearance at accessibility-extra-extra-extra-large, the first Webhook card's content outgrew its measured scroll extent: action controls were only partially visible and no further scroll exposed them."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "native-build-config",
+      "description": "The first Xcode build did not inherit Expo's development/E2E environment and correctly stopped when app.config.ts treated the build as production without release OAuth configuration.",
+      "detected_by": "XcodeBuildMCP build log showed NODE_ENV absent and EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID required; passing NODE_ENV, EXPO_APP_VARIANT, and E2E values as explicit build settings produced a successful rebuild."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "smoke-test-writer",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "computer-use",
+      "adapt",
+      "impeccable",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [
+      "verification-gate",
+      "project-state-updater"
+    ],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "workflow-orchestrator",
+        "description": "The recovered aggregate run reached native smoke before its final verification-gate and project-state-updater passes. Those steps remain required after the corrective implementation and must not be treated as complete by this postmortem.",
+        "detected_by": "Transcript and active roadmap plan inspection."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/mobile/app/tools/[tool].tsx",
+    "apps/mobile/components/tools/tool-screen.tsx",
+    "apps/mobile/tests/issue-1173-tools-service.test.mjs",
+    "apps/mobile/tests/e2e/issue-1173-corrective.spec.mjs"
+  ],
+  "failure_output": "Native iOS 18.3 iPhone SE, dark appearance, accessibility-extra-extra-extra-large: Webhook content visually overflows its measured scroll extent and Copy/Rotate/Delete controls cannot all be reached.",
+  "overall_category": "C2",
+  "suggested_follow_up": "Add a native maximum-Dynamic-Type Webhooks layout contract/evidence check and make expanded card content contribute its full wrapped height to the enclosing scroll view."
+}

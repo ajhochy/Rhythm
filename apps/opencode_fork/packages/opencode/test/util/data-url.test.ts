@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { decodeDataUrl } from "../../src/util/data-url"
+import { decodeDataUrl, decodeDataUrlBytes } from "../../src/util/data-url"
 
 describe("decodeDataUrl", () => {
   test("decodes base64 data URLs", () => {
@@ -10,5 +10,9 @@ describe("decodeDataUrl", () => {
 
   test("decodes plain data URLs", () => {
     expect(decodeDataUrl("data:text/plain,hello%20world")).toBe("hello world")
+  })
+
+  test("preserves arbitrary binary bytes from base64 data URLs", () => {
+    expect([...decodeDataUrlBytes("data:application/octet-stream;base64,AP8BAg==")]).toEqual([0, 255, 1, 2])
   })
 })

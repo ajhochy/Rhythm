@@ -27,6 +27,34 @@ tools/dev/sandbox.sh status
 tools/dev/sandbox.sh down
 ```
 
+The defaults are API `:4098`, engine `:4097`, and
+`${TMPDIR:-/tmp}/rhythm-dev-sandbox`. Parallel runs must use a distinct
+directory and distinct free ports:
+
+```bash
+RHYTHM_SANDBOX_DIR=/tmp/rhythm-dev-sandbox-issue-123 \
+RHYTHM_SANDBOX_API_PORT=4198 \
+RHYTHM_SANDBOX_ENGINE_PORT=4197 \
+tools/dev/sandbox.sh up
+```
+
+Pass the same three variables to `status` and `down`. The launcher validates
+that both ports are unprivileged, distinct integers and still refuses to touch
+an occupied port.
+
+Stateful live suites that share one sandbox database must run as separate
+Vitest invocations, or with `--no-file-parallelism`. Do not pass multiple
+pairing/device live-test files to one default Vitest invocation: file workers
+can create temporary rows concurrently and invalidate isolation assertions
+even though each suite cleans up its own records.
+
+Live suites that exercise desktop-human approval must also start the sandbox
+with `HUMAN_APPROVAL_CAPABILITY_SHA256` set to the SHA-256 digest of a
+throwaway test capability and `HUMAN_APPROVAL_PUBLIC_KEY` set to a throwaway
+P-256 public key. Pass the original capability value to Vitest as
+`RHYTHM_LIVE_HUMAN_CAPABILITY`. Generate the values locally without printing
+them; never reuse or record a real capability or private key.
+
 For automation hosts that reap descendants when a command finishes, use the
 explicit foreground hold. It performs the same build and readiness checks as
 `up`, prints the ready message, and then remains attached to the API process.
@@ -116,6 +144,31 @@ npx vitest run src/__tests__/live_e2e_1082_skill_revert.test.ts
 
 Recon evidence and observed timing are recorded in
 `docs/ai/runs/2026-07-16-1082-skill-revert-ondisk-snapshot.md`.
+
+### Live paired OpenCode gateway isolation (#1175)
+
+`src/__tests__/issue_1175_mobile_gateway_live.test.ts` pairs a real temporary
+device against an isolated api_server + fork engine, registers two temporary
+Git projects, and proves cross-project ID denial, response shaping, reload
+scope, external-share denial, raw-diff normalization, and opaque worktree
+resolution. It requires unique loopback ports, a copied/temporary SQLite DB,
+a temporary home, and an explicit secret marker:
+
+```bash
+RHYTHM_LIVE_E2E=1 \
+RHYTHM_LIVE_E2E_ISOLATED=1 \
+RHYTHM_LIVE_URL=http://127.0.0.1:54175 \
+RHYTHM_LIVE_ENGINE_URL=http://127.0.0.1:55175 \
+RHYTHM_LIVE_DB_PATH=/tmp/<isolated-run>/rhythm.db \
+RHYTHM_SANDBOX_DIR=/tmp/<isolated-run> \
+RHYTHM_LIVE_SECRET_MARKER=<unique-noncredential-sentinel> \
+npx vitest run src/__tests__/issue_1175_mobile_gateway_live.test.ts \
+  --no-file-parallelism
+```
+
+Build the fork and api_server first and point the server process at the fork
+with `RHYTHM_OPENCODE_BIN_DIR`. Recon evidence is recorded in
+`docs/testing/results/recon-issue-1175-paired-gateway.md`.
 
 ### Live config-doctor core-permission contract
 

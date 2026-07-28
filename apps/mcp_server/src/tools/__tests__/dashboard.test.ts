@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { registerDashboardTools } from '../dashboard.js';
+import { RHYTHM_SECURITY_CONTEXT_META_KEY } from '../../security/security_context.js';
+import { UNTRUSTED_FENCE_CLOSE, UNTRUSTED_FENCE_OPEN } from '../../untrusted_context.js';
 
-type ToolHandler = (args: Record<string, unknown>) => Promise<{
+type ToolHandler = (args: Record<string, unknown>, extra?: { _meta?: Record<string, unknown> }) => Promise<{
   content: Array<{ type: 'text'; text: string }>;
   isError?: true;
 }>;
@@ -25,6 +27,25 @@ function makeStubServer(): { server: unknown; tools: Map<string, RegisteredTool>
 
 const API_URL = 'http://x';
 const API_TOKEN = 'tok';
+const AGENT_URL = 'http://agent';
+const EXTRA = {
+  _meta: {
+    [RHYTHM_SECURITY_CONTEXT_META_KEY]: {
+      sdkSessionId: 'sdk-dashboard-test',
+      turnId: 'turn-dashboard-test',
+      agentName: 'secretary',
+      toolCallId: 'call-dashboard-test',
+    },
+  },
+};
+
+function parseFencedJson(text: string): Record<string, unknown> {
+  const start = text.indexOf(UNTRUSTED_FENCE_OPEN);
+  const end = text.indexOf(UNTRUSTED_FENCE_CLOSE);
+  return JSON.parse(
+    text.slice(start + UNTRUSTED_FENCE_OPEN.length, end).trim(),
+  ) as Record<string, unknown>;
+}
 
 function makeFetchOk(body: unknown) {
   return vi.fn().mockResolvedValue({
@@ -77,12 +98,13 @@ describe('registerDashboardTools', () => {
 
       const { server, tools } = makeStubServer();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      registerDashboardTools(server as any, API_URL, API_TOKEN);
+      registerDashboardTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
-      await tools.get('rhythm_get_dashboard')!.handler({});
+      await tools.get('rhythm_get_dashboard')!.handler({}, EXTRA);
 
-      expect(mockFetch).toHaveBeenCalledOnce();
-      const [url] = mockFetch.mock.calls[0] as [string, RequestInit];
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      const [url] = mockFetch.mock.calls.find(([candidate]) =>
+        String(candidate).includes('/dashboard/summary')) as [string, RequestInit];
       expect(url).toBe(`${API_URL}/dashboard/summary`);
     });
 
@@ -92,10 +114,10 @@ describe('registerDashboardTools', () => {
 
       const { server, tools } = makeStubServer();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      registerDashboardTools(server as any, API_URL, API_TOKEN);
+      registerDashboardTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
-      const res = await tools.get('rhythm_get_dashboard')!.handler({});
-      const output = JSON.parse(res.content[0].text);
+      const res = await tools.get('rhythm_get_dashboard')!.handler({}, EXTRA);
+      const output = parseFencedJson(res.content[0].text);
       expect(output.pastDeadlineCount).toBe(4);
     });
 
@@ -139,10 +161,10 @@ describe('registerDashboardTools', () => {
 
         const { server, tools } = makeStubServer();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        registerDashboardTools(server as any, API_URL, API_TOKEN);
+        registerDashboardTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
-        const res = await tools.get('rhythm_get_dashboard')!.handler({});
-        const output = JSON.parse(res.content[0].text);
+        const res = await tools.get('rhythm_get_dashboard')!.handler({}, EXTRA);
+        const output = parseFencedJson(res.content[0].text);
 
         // Must be in tasksDueThisWeek (scheduled-priority date window)
         const thisWeekIds = (output.tasksDueThisWeek as Array<{ id: string }>).map((t) => t.id);
@@ -165,7 +187,7 @@ describe('registerDashboardTools', () => {
     it('(d) tool description mentions both scheduledDate state and pastDeadlineCount', () => {
       const { server, tools } = makeStubServer();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      registerDashboardTools(server as any, API_URL, API_TOKEN);
+      registerDashboardTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
       const tool = tools.get('rhythm_get_dashboard')!;
       expect(tool.description.toLowerCase()).toContain('scheduleddate');
@@ -182,7 +204,7 @@ describe('registerDashboardTools', () => {
 
       const { server, tools } = makeStubServer();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      registerDashboardTools(server as any, API_URL, API_TOKEN);
+      registerDashboardTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
       const res = await tools.get('rhythm_get_dashboard')!.handler({});
       expect(res.isError).toBe(true);
@@ -209,10 +231,10 @@ describe('registerDashboardTools', () => {
 
       const { server, tools } = makeStubServer();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      registerDashboardTools(server as any, API_URL, API_TOKEN);
+      registerDashboardTools(server as any, API_URL, API_TOKEN, AGENT_URL);
 
-      const res = await tools.get('rhythm_get_dashboard')!.handler({});
-      const output = JSON.parse(res.content[0].text);
+      const res = await tools.get('rhythm_get_dashboard')!.handler({}, EXTRA);
+      const output = parseFencedJson(res.content[0].text);
 
       expect(output).toHaveProperty('openTaskCount');
       expect(output).toHaveProperty('recentThreads');

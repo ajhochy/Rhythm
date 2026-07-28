@@ -2,6 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
 
+const _approvalDigest =
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const _approvalPublicKey = 'test-public-key';
+
 void main() {
   group('buildApiServerEnvironment', () {
     test(
@@ -13,6 +17,8 @@ void main() {
           dbPath: '/db/rhythm.db',
           memoryVaultPath: '/Users/alice/Documents/Obsidian Vault/AGENT-MEMORY',
           memoryVaultSubdir: '',
+          humanApprovalCapabilitySha256: _approvalDigest,
+          humanApprovalPublicKey: _approvalPublicKey,
         );
 
         expect(
@@ -37,6 +43,8 @@ void main() {
           dbPath: '/db/rhythm.db',
           memoryVaultPath: '/from/setting',
           memoryVaultSubdir: '',
+          humanApprovalCapabilitySha256: _approvalDigest,
+          humanApprovalPublicKey: _approvalPublicKey,
         );
 
         expect(env['MEMORY_VAULT_PATH'], '/explicit/override');
@@ -52,6 +60,8 @@ void main() {
           dbPath: '/db/rhythm.db',
           memoryVaultPath: '/from/setting',
           memoryVaultSubdir: 'setting-sub',
+          humanApprovalCapabilitySha256: _approvalDigest,
+          humanApprovalPublicKey: _approvalPublicKey,
         );
 
         expect(env['MEMORY_VAULT_SUBDIR'], 'explicit-sub');
@@ -67,6 +77,8 @@ void main() {
         baseEnv: const {},
         port: '4001',
         dbPath: '/db/rhythm.db',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
       );
 
       expect(env.containsKey('MEMORY_VAULT_PATH'), isFalse);
@@ -80,6 +92,8 @@ void main() {
           baseEnv: const {},
           port: '4002',
           dbPath: '/other/db.sqlite',
+          humanApprovalCapabilitySha256: _approvalDigest,
+          humanApprovalPublicKey: _approvalPublicKey,
         );
 
         expect(env['PORT'], '4002');
@@ -97,6 +111,8 @@ void main() {
         port: '4001',
         dbPath: '/db/rhythm.db',
         mcpRolesDir: '/Applications/Rhythm.app/Contents/Resources/.mcp-roles',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
       );
 
       expect(
@@ -113,6 +129,8 @@ void main() {
         port: '4001',
         dbPath: '/db/rhythm.db',
         mcpRolesDir: '/Applications/Rhythm.app/Contents/Resources/.mcp-roles',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
       );
 
       expect(env['MCP_ROLES_DIR'], '/explicit/override/.mcp-roles');
@@ -125,9 +143,29 @@ void main() {
         baseEnv: const {},
         port: '4001',
         dbPath: '/db/rhythm.db',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
       );
 
       expect(env.containsKey('MCP_ROLES_DIR'), isFalse);
+    });
+
+    test('strips raw approval secrets and injects only digest/public key', () {
+      final env = buildApiServerEnvironment(
+        baseEnv: const {
+          'HUMAN_APPROVAL_CAPABILITY': 'must-not-cross-process',
+          'HUMAN_APPROVAL_PRIVATE_KEY': 'must-not-cross-process',
+        },
+        port: '4001',
+        dbPath: '/db/rhythm.db',
+        humanApprovalCapabilitySha256: _approvalDigest,
+        humanApprovalPublicKey: _approvalPublicKey,
+      );
+
+      expect(env['HUMAN_APPROVAL_CAPABILITY_SHA256'], _approvalDigest);
+      expect(env['HUMAN_APPROVAL_PUBLIC_KEY'], _approvalPublicKey);
+      expect(env.containsKey('HUMAN_APPROVAL_CAPABILITY'), isFalse);
+      expect(env.containsKey('HUMAN_APPROVAL_PRIVATE_KEY'), isFalse);
     });
   });
 }

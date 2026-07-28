@@ -1,0 +1,81 @@
+{
+  "run_id": "2026-07-25-issue-1174-aggregate",
+  "issue": 1174,
+  "date": "2026-07-25",
+  "smoke_result": "pass_after_fix",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1174-c1",
+      "text": "Coverage test fails for any unclassified operation",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The generated classification contract passed 3/3 after aggregate integration."
+    },
+    {
+      "criterion_id": "issue-1174-c2",
+      "text": "Mobile contract is generated/pinned from Rhythm's bundled OpenCode 1.14.49, never floating npm latest",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Contract drift and fake OpenCode 1.14.49 self-tests passed on the aggregate branch."
+    },
+    {
+      "criterion_id": "issue-1174-c3",
+      "text": "Gateway allowlist and mobile classifications agree",
+      "contract_status": "pass",
+      "smoke_status": "pass_after_fix",
+      "category": "C7",
+      "notes": "The aggregate proxy suite first exercised the now-denied synchronous prompt route; the security assertion was moved to the approved asynchronous prompt route and then passed."
+    },
+    {
+      "criterion_id": "issue-1174-c4",
+      "text": "Contract, fake-server, E2E, lint, typecheck, and independent security review pass",
+      "contract_status": "pass",
+      "smoke_status": "pass_after_fix",
+      "category": "C7",
+      "notes": "The source branch passed 28/28, but aggregate browser smoke exposed an adjacent Settings reconnect remount loop after paired-transport integration. Direct settings edits now stay idle until the explicit reconnect action. The failing flow passed 3/3 and the complete aggregate browser suite passed 38/38."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "P2",
+      "description": "Running ESLint and Playwright concurrently in the same mobile worktree let Playwright recreate test-results while ESLint traversed it.",
+      "detected_by": "ESLint failed with ENOENT while scanning apps/mobile/test-results; serial execution passed."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/__tests__/issue_1169_mobile_opencode_proxy.test.ts",
+    "apps/mobile/providers/opencode-provider.tsx",
+    "apps/mobile/tests/app-config.test.mjs",
+    "apps/mobile/tests/issue-1174-security.test.mjs"
+  ],
+  "failure_output": "Playwright timed out clicking settings-reconnect-button because the button detached repeatedly while each settings edit triggered an automatic reconnect. The first parallel static run also hit ENOENT while ESLint scanned test-results as Playwright recreated it.",
+  "overall_category": "C7",
+  "suggested_follow_up": "Keep the prefixed-URL reconnect flow in the full aggregate browser gate and serialize ESLint with Playwright whenever both touch test-results."
+}

@@ -1,0 +1,51 @@
+{
+  "run_id": "2026-07-25-issue-1175-final-sandbox-pass",
+  "issue": 1175,
+  "date": "2026-07-25",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1175-c4",
+      "text": "Real gateway and engine behavior passes through tools/dev/sandbox.sh on API 4098 and engine 4097 while listeners 4001 and 4096 remain untouched.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "With the sandbox launcher shell held open, final source freeze 8701432480f585fe90119cbaee66382d062da879 passed #1166 pairing (1/1), #1168 authenticated project containment (1/1), and #1170 SSE/PTY plus isolation attestation (2/2). API 4098 and engine 4097 were healthy, and installed listeners 4001/4096 retained PIDs 964/1016 before and after teardown."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "tools/dev/sandbox.sh",
+    "apps/api_server/src/__tests__/issue_1166_pairing_live.test.ts",
+    "apps/api_server/src/__tests__/issue_1168_mobile_gateway_live.test.ts",
+    "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy_live.test.ts"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Retain the exact-port live matrix and run the sandbox under an explicit foreground lifecycle in automation."
+}

@@ -1,0 +1,17 @@
+Source head: 6dd2516f96b357d99854b8fbcb0ef6ad1206ae07
+Command: gh pr checks 1165
+Exit code: 0
+
+Type-check and build  pass  31s   https://github.com/ajhochy/Rhythm/actions/runs/30375576875
+desktop-checks       pass  8m17s https://github.com/ajhochy/Rhythm/actions/runs/30375576794
+fork-checks          pass  1m51s https://github.com/ajhochy/Rhythm/actions/runs/30375576763
+foundation           pass  3m54s https://github.com/ajhochy/Rhythm/actions/runs/30375576862
+server-checks        pass  4m12s https://github.com/ajhochy/Rhythm/actions/runs/30375576859
+
+The source-freeze matrix covered:
+- API TypeScript, lint, serial Vitest, and build.
+- MCP TypeScript, tests, and build.
+- OpenCode fork typecheck, tests, build, and deterministic generated artifacts.
+- Flutter format, analyze, test, and macOS debug build.
+- Mobile contract check, lint, typecheck, security/unit suites, fake server,
+  production-safe configuration checks, and 46-case Playwright web E2E.

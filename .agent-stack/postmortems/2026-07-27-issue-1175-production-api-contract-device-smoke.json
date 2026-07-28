@@ -1,0 +1,47 @@
+{
+  "run_id": "2026-07-27-issue-1175-production-api-contract-device-smoke",
+  "issue": 1175,
+  "date": "2026-07-27",
+  "smoke_result": "fail",
+  "verification_claimed": "PARTIAL",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1175-c5",
+      "text": "A signed development build runs on a physical iPhone and verifies pairing, isolation failures, chat/SSE/PTY, approvals, every Tool, revocation, and background recovery; committed evidence uses only a non-sensitive model label, never a device UDID.",
+      "contract_status": "pending",
+      "smoke_status": "fail",
+      "category": "C5",
+      "notes": "The credential-configured local development app reached the Google account flow, but its authorization-code exchange returned HTTP 400. A safe production probe and source-contract comparison confirmed that the installed PR app sends the hardened server-pinned request while the deployed production API still requires the older caller-supplied redirect field. The full physical gate already requires an isolated branch-built API and private gateway, so this failure does not contradict a completed device or release claim."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "test-environment-contract-drift",
+      "description": "The local signed app was pointed at the deployed production API for the first account-flow tap even though the documented #1199 matrix requires the matching isolated branch backend.",
+      "detected_by": "Physical HTTP 400 plus a secret-free production request-shape probe and comparison with the PR app and API contracts."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "failure-postmortem",
+      "failure-triage",
+      "project-state-updater",
+      "verification-gate"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [],
+  "failure_output": "Physical iPhone: sign-in request failed with status 400.",
+  "overall_category": "C5",
+  "suggested_follow_up": "Keep the hardened request contract and draft PR intact. Configure the matching Google mobile client and redirect only in an isolated branch-built API, expose the test endpoints privately without exposing the engine, rebuild the development app against that private test origin, and repeat sign-in before the remaining #1199 matrix. Existing #1199 already owns this environment requirement; do not create a duplicate issue."
+}

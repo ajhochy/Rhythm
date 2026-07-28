@@ -2086,12 +2086,13 @@ class _InputAreaState extends State<_InputArea> {
   ///   - image/*              → FilePart with data URI (thumbnail rendered in bubble).
   ///   - application/pdf      → FilePart with data URI (sent with correct MIME).
   ///   - text/* / json / xml  → TextPart: content decoded as UTF-8, capped at 100 KB.
-  ///   - application/octet-stream → blocked: SnackBar error shown, not added.
+  ///   - every other binary   → local file: reference for reader discovery.
   static const int _kTextSizeCap = 100 * 1024; // 100 KB
+  static const int _kMimeSampleSize = 4096;
 
   Future<void> _pickFiles() async {
     final result = await FilePicker.pickFiles(allowMultiple: true);
-    if (result == null) return;
+    if (result == null || !mounted) return;
     final controller = context.read<AgentsController>();
     final id = controller.selectedSessionId;
     if (id == null) return;
@@ -2099,14 +2100,20 @@ class _InputAreaState extends State<_InputArea> {
       final path = f.path;
       if (path == null) continue;
       try {
-        final bytes = await File(path).readAsBytes();
-        final mime = resolveAttachmentMime(bytes, f.name, f.extension);
+        final file = File(path);
+        final reader = await file.open();
+        late final List<int> sample;
+        try {
+          sample = await reader.read(_kMimeSampleSize);
+        } finally {
+          await reader.close();
+        }
+        final mime = resolveAttachmentMime(sample, f.name, f.extension);
 
-        if (isSkillReadableBinaryMime(mime)) {
-          // Issue #1137: Office docs can't ride as a `data:` FilePart (the
-          // model rejects the media type) — attach a `file:` reference to
-          // the real path instead so the engine's Read tool + docx/xlsx/pptx
-          // skill can read it.
+        if (shouldAttachByFileReference(mime)) {
+          // Issue #1137: provider-unsupported binaries stay as local `file:`
+          // references. The engine tries its Read tool, then gives the agent
+          // an actionable skill/MCP discovery procedure if no reader exists.
           controller.addPendingAttachment(
             id,
             buildFileRefAttachment(
@@ -2118,23 +2125,7 @@ class _InputAreaState extends State<_InputArea> {
           continue;
         }
 
-        if (mime == 'application/octet-stream') {
-          // Genuinely unsupported binary — block at attach time.
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  '${f.name}: unsupported file type. Only text files, '
-                  'images, PDFs, and Office documents can be attached. See '
-                  'docs/ai/attachment-fallback.md for other file types.',
-                ),
-                duration: const Duration(seconds: 4),
-              ),
-            );
-          }
-          continue;
-        }
-
+        final bytes = await file.readAsBytes();
         if (isTextLikeMime(mime)) {
           // Issue #717: inline text/code/log files as a text part so the
           // model can read their contents directly.
@@ -2184,8 +2175,15 @@ class _InputAreaState extends State<_InputArea> {
             'url': dataUri,
           });
         }
-      } catch (_) {
-        // File read error — skip this attachment silently.
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Could not attach ${f.name}: $e'),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
       }
     }
   }
@@ -2193,9 +2191,8 @@ class _InputAreaState extends State<_InputArea> {
   /// OCU-20 (#1061) — attach [relPath] (picked from the @-mention popover) by
   /// fetching its content through the worktree-safe content proxy and running
   /// it through the same classification path as [_pickFiles]: text is inlined
-  /// (capped at 100KB), image/PDF becomes a FilePart data URI, Office docs
-  /// (#1137) become a `file:` reference, anything else is rejected with a
-  /// SnackBar.
+  /// (capped at 100KB), image/PDF becomes a FilePart data URI, and all other
+  /// binary formats become a local `file:` reference for reader discovery.
   Future<void> _attachFromMention(String relPath) async {
     final controller = context.read<AgentsController>();
     final id = controller.selectedSessionId;
@@ -2208,29 +2205,6 @@ class _InputAreaState extends State<_InputArea> {
           SnackBar(content: Text(reason), duration: const Duration(seconds: 4)),
         );
       }
-    }
-
-    // Issue #1137: Office docs are picked by (worktree-relative) path, not
-    // bytes — no need to round-trip through the content proxy at all. Build
-    // the `file:` reference directly from the session's cwd + relPath.
-    final ext = filename.contains('.') ? filename.split('.').last : '';
-    final extMime = mimeFromExtension(ext);
-    if (isSkillReadableBinaryMime(extMime)) {
-      final cwd = controller.selectedSession?.cwd;
-      if (cwd == null) {
-        reject('Could not attach $filename: session directory unknown.');
-        return;
-      }
-      final base = cwd.endsWith('/') ? cwd.substring(0, cwd.length - 1) : cwd;
-      controller.addPendingAttachment(
-        id,
-        buildFileRefAttachment(
-          mime: extMime,
-          filename: filename,
-          absolutePath: '$base/$relPath',
-        ),
-      );
-      return;
     }
 
     try {
@@ -2269,10 +2243,18 @@ class _InputAreaState extends State<_InputArea> {
         return;
       }
 
-      reject(
-        '$filename: unsupported file type. Only text files, images, '
-        'PDFs, and Office documents can be attached. See '
-        'docs/ai/attachment-fallback.md for other file types.',
+      final resolvedPath = content['resolvedPath'] as String?;
+      if (resolvedPath == null || resolvedPath.isEmpty) {
+        reject('Could not attach $filename: safe file path unavailable.');
+        return;
+      }
+      controller.addPendingAttachment(
+        id,
+        buildFileRefAttachment(
+          mime: mime,
+          filename: filename,
+          absolutePath: resolvedPath,
+        ),
       );
     } catch (e) {
       reject('Could not attach $filename: $e');

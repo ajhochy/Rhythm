@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
-import { setDb } from '../database/db';
+import { getDb, setDb } from '../database/db';
 import { AgentConfigsRepository } from './agent_configs_repository';
 
 function makeDb() {
@@ -70,6 +70,14 @@ describe('AgentConfigsRepository', () => {
     it('returns all six when all are enabled', () => {
       const enabled = repo.listEnabled();
       expect(enabled.length).toBe(6);
+    });
+
+    it('excludes security-locked rows even if enabled drifts back to 1', () => {
+      repo.lockForSecurity('codex', 'audit finding', 'reviewer');
+      getDb().prepare(`UPDATE agent_configs SET enabled = 1 WHERE id = 'codex'`).run();
+
+      expect(repo.getById('codex')).toMatchObject({ enabled: true, locked: true });
+      expect(repo.listEnabled().find((config) => config.id === 'codex')).toBeUndefined();
     });
   });
 

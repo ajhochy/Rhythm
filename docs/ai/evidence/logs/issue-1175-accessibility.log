@@ -1,0 +1,20 @@
+Source head: 6dd2516f96b357d99854b8fbcb0ef6ad1206ae07
+Command: cd apps/mobile && npm run test:dynamic-type
+Exit code: 0
+
+TAP version 13
+ok 1 - issue-1182: Agents heading uses content-measured layout at maximum Dynamic Type
+ok 2 - issue-1181: Tool cards measure wrapped titles and subtitles before actions
+1..2
+# tests 2
+# pass 2
+# fail 0
+
+Native simulator evidence retained from the source-equivalent UI head:
+- iOS 18.3, dark appearance, maximum Dynamic Type: Agents/Activity PASS.
+- iOS 18.3, dark appearance, maximum Dynamic Type: Webhooks PASS.
+- Normal Dynamic Type screenshots:
+  /private/tmp/rhythm-pr1165-agents-normal.png
+  /private/tmp/rhythm-pr1165-webhooks-normal.png
+
+The focused contract was rerun after the current-main merge and source freeze.

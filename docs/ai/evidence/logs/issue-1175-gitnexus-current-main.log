@@ -1,0 +1,16 @@
+Source head: 6dd2516f96b357d99854b8fbcb0ef6ad1206ae07
+Base ref: origin/main at 80d1552acb94eb1c4d6ba7471c5dfb55fd438e1d
+Status: unavailable
+
+The GitNexus MCP impact and detect-changes tools were unavailable in this
+session. The repo-local impact wrapper did not return and was stopped without
+producing a result. No current-head GitNexus PASS is claimed.
+
+Fallback evidence used:
+- all merge conflicts resolved with no unmerged paths or conflict markers
+- cached and working-tree diff checks passed
+- changed-line credential-shaped scan passed
+- focused conflict tests passed
+- complete local PR matrix passed on the exact source head
+- isolated pairing, gateway, and memory behavioral suites passed
+- all five GitHub PR workflows passed on the exact source head

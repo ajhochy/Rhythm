@@ -1,0 +1,59 @@
+{
+  "run_id": "2026-07-25-issue-1172-native-preintegration",
+  "issue": 1172,
+  "date": "2026-07-25",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1172-c7",
+      "text": "Activity renders active, waiting, failed, and completed items with source labels and transcript/result deep links when the underlying record supplies one.",
+      "contract_status": "fail",
+      "smoke_status": "fail",
+      "category": "C3",
+      "notes": "The iOS development client launched successfully against the deterministic E2E server, but opening Agents > Activity rendered “Could not load activity — Activity request failed (404)” instead of the seeded activity item. Inspection showed the E2E activity transport requested /mobile-gateway/agent-activity directly while the fake gateway serves the authenticated route under /__mobile/:host/mobile-gateway/agent-activity."
+    },
+    {
+      "criterion_id": "issue-1172-c8",
+      "text": "Loading, empty, offline-cache, expired-auth, forbidden, and retryable-error states are accessible, dark-mode compatible, and Dynamic Type safe.",
+      "contract_status": "fail",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The retryable-error state rendered legibly with a clear Try again action. Other resilient states were not checked in this rehearsal."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/mobile/lib/runtime/mobile-runtime.e2e.ts",
+    "apps/mobile/providers/services/activity-service.ts",
+    "apps/mobile/tests/fake-opencode/server.mjs",
+    "apps/mobile/tests/issue-1172-acceptance.test.mjs"
+  ],
+  "failure_output": "Could not load activity — Activity request failed (404)",
+  "overall_category": "C3",
+  "suggested_follow_up": "Integrate the active lifecycle corrective branch, retain a native development-client Activity smoke against the fake authenticated gateway, and require the seeded activity item to render before the prototype gate passes."
+}

@@ -1710,6 +1710,35 @@ export function runMigrations(db: Database.Database): void {
   if (!agentConfigCols.includes('allowed_delegates_json')) {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN allowed_delegates_json TEXT`);
   }
+  // #1135 — audit/security lock state. `enabled` remains the ordinary user
+  // preference; `locked` is a separate authoritative execution boundary that
+  // generic profile edits cannot clear.
+  if (!agentConfigCols.includes('locked')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN locked INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!agentConfigCols.includes('disabled_reason')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN disabled_reason TEXT`);
+  }
+  if (!agentConfigCols.includes('locked_at')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN locked_at TEXT`);
+  }
+  if (!agentConfigCols.includes('locked_by')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN locked_by TEXT`);
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_config_security_events (
+      id              TEXT PRIMARY KEY,
+      agent_config_id TEXT NOT NULL,
+      event_type      TEXT NOT NULL CHECK (event_type IN ('locked', 'reviewed_reenabled')),
+      actor           TEXT NOT NULL,
+      reason          TEXT NOT NULL,
+      review_note     TEXT,
+      lock_version    TEXT NOT NULL,
+      created_at      TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_config_security_events_profile
+      ON agent_config_security_events(agent_config_id, created_at);
+  `);
 
   // Agent-runner model selection: store the preferred provider/model on an
   // agent config profile so AgentRunner can resolve a model without user input.
@@ -2283,6 +2312,61 @@ The Step 2 / Runbook B helpers live in \`~/.config/opencode/tools/\` (\`classify
     CREATE INDEX IF NOT EXISTS idx_agent_approvals_status ON agent_approvals(status, created_at);
   `);
 
+  // #1134 — security-bound approvals are not bearer IDs. These additive
+  // columns bind an approved row to one session/agent/action/payload/taint
+  // epoch, give it a short expiry, and record its single atomic consumption.
+  const agentApprovalCols = (db.pragma('table_info(agent_approvals)') as { name: string }[])
+    .map((c) => c.name);
+  const addAgentApprovalColumn = (name: string, sqlType: string) => {
+    if (!agentApprovalCols.includes(name)) {
+      db.exec(`ALTER TABLE agent_approvals ADD COLUMN ${name} ${sqlType}`);
+    }
+  };
+  addAgentApprovalColumn('security_action', 'TEXT');
+  addAgentApprovalColumn('payload_digest', 'TEXT');
+  addAgentApprovalColumn('taint_id', 'TEXT');
+  addAgentApprovalColumn('tainted_turn_id', 'TEXT');
+  addAgentApprovalColumn('bound_agent', 'TEXT');
+  addAgentApprovalColumn('expires_at', 'TEXT');
+  addAgentApprovalColumn('consumed_at', 'TEXT');
+  // #1175 — one-time nonce signed by the human UI's non-exportable P-256 key.
+  // Existing pending rows intentionally receive no backfill: they fail closed
+  // and must be re-requested after upgrade rather than becoming unsigned.
+  addAgentApprovalColumn('decision_nonce', 'TEXT');
+
+  // The current row is the active session taint epoch. Every external read
+  // rotates taint_id, invalidating approvals created before newer untrusted
+  // content entered context. The event table retains sanitized diagnostics
+  // (pattern ids/classes and a SHA-256 digest; never raw content).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_external_content_events (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      sdk_session_id TEXT NOT NULL,
+      turn_id TEXT NOT NULL,
+      agent_name TEXT NOT NULL,
+      tool_call_id TEXT NOT NULL,
+      source TEXT NOT NULL,
+      content_digest TEXT NOT NULL,
+      blocked INTEGER NOT NULL DEFAULT 0,
+      diagnostics_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_external_content_events_session
+      ON agent_external_content_events(session_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS agent_external_taint_state (
+      session_id TEXT PRIMARY KEY REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      sdk_session_id TEXT NOT NULL,
+      taint_id TEXT NOT NULL,
+      latest_event_id TEXT NOT NULL,
+      tainted_turn_id TEXT NOT NULL,
+      tainted_agent TEXT NOT NULL,
+      source TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
   // Per-profile auto-approve override — some profiles (e.g. a dev/testing
   // profile) can skip the human gate; church-admin-facing profiles default
   // to requiring manual approval (column defaults to 0/false).
@@ -2337,6 +2421,22 @@ Your job, in order:
   runOnce('rhythm_setup_creative_installs_v1', () => {
     db.prepare(`UPDATE agent_configs SET system_prompt = ?, allowed_mcps_json = ? WHERE id = 'rhythm-setup'`).run(
       `${rhythmSetupSystemPrompt}\n\nIf someone asks for creative work that needs a local capability, explain the optional download plainly. Before starting it, call rhythm_request_approval with action install_creative_dependency:<capability>. After approval, use rhythm_install_creative_capability, then rhythm_verify_creative_capability. Never claim an install worked until verification says it is installed.`,
+      '["rhythm"]',
+    );
+  });
+
+  runOnce('rhythm_setup_creative_guided_installs_v2', () => {
+    db.prepare(
+      `UPDATE agent_configs SET system_prompt = ?, allowed_mcps_json = ? WHERE id = 'rhythm-setup'`,
+    ).run(
+      `${rhythmSetupSystemPrompt}
+
+If someone asks for creative work that needs a local capability:
+1. Call rhythm_list_creative_capabilities first. Before asking for approval, explain the selected setup plan in plain language: what it enables, every direct dependency's purpose and exact version, where each dependency comes from, its license, expected download and disk use, the Rhythm-managed install location, every verified direct artifact's exact download URL and SHA-256 checksum, and how transitive packages are locked and verified. Do not hide copyleft or model-license terms.
+2. Ask whether they approve that exact plan. Then call rhythm_install_creative_capability with operation install and the exact planDigest. The tool creates the approval request; do not invent or reuse a digest from another plan.
+3. If a model has additionalLicenseAcceptance, ask for that separate explicit acknowledgement and only then pass modelLicenseAccepted. Install approval alone never accepts model terms.
+4. After approval, call the same tool again with the same operation and planDigest. Explain its planning, downloading, verification, installation, and completion or failure progress in useful language. Never claim success unless the returned verification completed.
+5. Offer repair or uninstall when useful. Both use the same tool with operation repair or uninstall, require their own exact-plan approval, and may affect only Rhythm managed application storage.`,
       '["rhythm"]',
     );
   });
@@ -2784,4 +2884,66 @@ Your job, in order:
       ).run(repaired, row.id, row.value);
     }
   });
+
+  // #1175 — Mobile Activity is an authenticated, per-user projection. Recipes
+  // and optimizer proposals predate user ownership, so add nullable ownership
+  // without rewriting legacy rows. NULL means organization/system-global and
+  // is visible only on the trusted local desktop global surface; paired/cloud
+  // feeds require an exact owner match. The compound indexes mirror each
+  // Activity source's owner + recency predicate.
+  const agentCookbookActivityCols = (
+    db.pragma('table_info(agent_cookbook)') as { name: string }[]
+  ).map((column) => column.name);
+  if (!agentCookbookActivityCols.includes('owner_user_id')) {
+    db.exec(
+      `ALTER TABLE agent_cookbook
+         ADD COLUMN owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`,
+    );
+  }
+  const agentOrgProposalActivityCols = (
+    db.pragma('table_info(agent_org_proposals)') as { name: string }[]
+  ).map((column) => column.name);
+  if (!agentOrgProposalActivityCols.includes('owner_user_id')) {
+    db.exec(
+      `ALTER TABLE agent_org_proposals
+         ADD COLUMN owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`,
+    );
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_sessions_owner_activity
+      ON agent_sessions(owner_user_id, last_activity_at, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_scheduled_tasks_owner_activity
+      ON agent_scheduled_tasks(created_by_user_id, last_run_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_webhook_endpoints_owner_activity
+      ON agent_webhook_endpoints(created_by_user_id, last_triggered_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_owner_activity
+      ON agent_research_jobs(requested_by_user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_cookbook_owner_activity
+      ON agent_cookbook(owner_user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_org_proposals_owner_activity
+      ON agent_org_proposals(owner_user_id, updated_at);
+  `);
+
+  // #1123 — durable callback/outbox state for interactive asynchronous
+  // delegation. The local child and parent rows remain the source of truth for
+  // transcript/session data; this table only distinguishes async children from
+  // native `task` children and makes completion delivery idempotent.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_async_delegations (
+      id TEXT PRIMARY KEY,
+      parent_session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      child_session_id TEXT NOT NULL UNIQUE REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      target_agent_config_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'dispatched'
+        CHECK (status IN ('dispatched', 'completed', 'waking', 'notified', 'failed')),
+      completion_text TEXT,
+      error_text TEXT,
+      completed_at TEXT,
+      notified_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_async_delegations_parent_status
+      ON agent_async_delegations(parent_session_id, status, created_at);
+  `);
 }

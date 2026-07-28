@@ -1,0 +1,3076 @@
+import type { FilePartInput, GlobalEvent, TextPartInput } from '@opencode-ai/sdk/v2/client';
+import type {
+  Command,
+  Config,
+  File,
+  FileContent,
+  FileDiff,
+  GlobalSession,
+  McpLocalConfig,
+  McpRemoteConfig,
+  McpStatus,
+  Project,
+  Pty,
+  PtyShellsResponse,
+  Session,
+  SessionStatus,
+  Todo,
+  VcsInfo,
+  Worktree,
+} from '@/lib/opencode/types';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PropsWithChildren,
+} from 'react';
+import { Platform } from 'react-native';
+
+import {
+  buildClient,
+  defaultConnectionSettings,
+  getConnectionError,
+  getNormalizedServerUrl,
+  isValidServerUrl,
+  listPendingInteractions,
+  rejectPendingQuestion,
+  replyToPendingPermission,
+  replyToPendingQuestion,
+  type PendingPermissionRequest,
+  type PendingQuestionAnswer,
+  type PendingQuestionRequest,
+  type OpencodeConnectionSettings,
+} from '@/lib/opencode/client';
+import {
+  toTranscriptEntry,
+  type SessionMessageRecord,
+} from '@/lib/opencode/format';
+import {
+  findEditableUserTextPart,
+  isTranscriptDisplayMessage,
+} from '@/lib/opencode/transcript';
+import { aggregateSessionUsage, getLatestAssistantTurnUsage } from '@/lib/opencode/usage';
+import { createFullFilePatch } from '@/lib/opencode/workspace-patch';
+import {
+  clearPendingTaskFinishedNotification,
+  notifyTaskFinished,
+  trackPendingTaskFinishedNotification,
+  type PendingNotificationOrigin,
+} from '@/lib/notifications';
+import { speakText, stopSpeaking } from '@/lib/voice/speech-output';
+import { useSpeechInput } from '@/lib/voice/use-speech-input';
+import {
+  startWorkingSoundAsync,
+  stopWorkingSoundAsync,
+  unloadWorkingSoundAsync,
+} from '@/lib/voice/working-sound';
+import {
+  buildSystemPrompt,
+  defaultChatPreferences,
+  getConfiguredProviderIds,
+  getEnabledModelIds,
+  getInitialMode,
+  getInitialModelId,
+  getInitialProviderId,
+  getModelIdForProvider,
+  getProjectLabel,
+  getSelectedModelParts,
+  groupPendingRequestsBySession,
+  isAutoApproveEnabled,
+  mergePermissionConfig,
+} from '@/providers/opencode-provider-utils';
+import {
+  getConfiguredProviders,
+  getConversationStatusLabel,
+  getCurrentPendingRequests,
+  getSessionPreviewById,
+  getTranscript,
+  getTranscriptActivityLabelForEntries,
+} from '@/providers/opencode-provider-selectors';
+import {
+  CONVERSATION_FINAL_RESULT_SETTLE_MS,
+  CONVERSATION_KEEP_AWAKE_TAG,
+  CONVERSATION_LISTENING_RESTART_MS,
+  type AgentOption,
+  type ChatPreferences,
+  type ConnectionState,
+  type ConversationPhase,
+  type ModelOption,
+  type OpencodeContextValue,
+  type OpencodeProject,
+  type ProviderAuthMethod,
+  type ProviderOption,
+  type WorkspaceCatalog,
+} from '@/providers/opencode-provider-types';
+import { useConversationKeepAwake } from '@/providers/use-conversation-keep-awake';
+import { useConversationScreenDim } from '@/providers/use-conversation-screen-dim';
+import { usePairedHost } from '@/providers/paired-host-provider';
+import { useRhythmAccount } from '@/providers/rhythm-account-provider';
+import { useOpencodePersistence } from '@/providers/use-opencode-persistence';
+import { listMobileGatewayProjects } from '@/providers/services/mobile-gateway-service';
+import {
+  loadWorkspaceCatalog as svcLoadWorkspaceCatalog,
+  archiveSession as svcArchiveSession,
+  listArchivedSessions as svcListArchivedSessions,
+  listSessions as svcListSessions,
+  getSessionMessages as svcGetSessionMessages,
+  getSessionDiff as svcGetSessionDiff,
+  getSessionTodos as svcGetSessionTodos,
+  deleteSession as svcDeleteSession,
+  deleteSessionMessage as svcDeleteSessionMessage,
+  deleteSessionPart as svcDeleteSessionPart,
+  executeCommand as svcExecuteCommand,
+  forkSession as svcForkSession,
+  getSessionChildren as svcGetSessionChildren,
+  listCommands as svcListCommands,
+  initializeSession as svcInitializeSession,
+  revertSession as svcRevertSession,
+  runSessionShell as svcRunSessionShell,
+  unrevertSession as svcUnrevertSession,
+  updateSessionTitle as svcUpdateSessionTitle,
+  updateSessionPart as svcUpdateSessionPart,
+  restoreSession as svcRestoreSession,
+} from '@/providers/services/session-service';
+import { loadDiagnostics, type Diagnostics } from '@/providers/services/diagnostics-service';
+import {
+  applyVcsPatch,
+  createWorktree as svcCreateWorktree,
+  findFiles,
+  findSymbols,
+  findText,
+  getFileStatus,
+  getRawVcsDiff,
+  getVcsDiff,
+  getVcsInfo,
+  getVcsStatus,
+  listFiles,
+  listWorktrees as svcListWorktrees,
+  readFile,
+  removeWorktree as svcRemoveWorktree,
+  resetWorktree as svcResetWorktree,
+} from '@/providers/services/workspace-service';
+import {
+  addMcpServer as svcAddMcpServer,
+  completeMcpOAuth as svcCompleteMcpOAuth,
+  connectMcpServer as svcConnectMcpServer,
+  disconnectMcpServer as svcDisconnectMcpServer,
+  getMcpStatus,
+  removeMcpOAuth as svcRemoveMcpOAuth,
+  setMcpServerEnabled as svcSetMcpServerEnabled,
+  startMcpOAuth as svcStartMcpOAuth,
+} from '@/providers/services/mcp-service';
+import {
+  createTerminal as svcCreateTerminal,
+  createTerminalConnectToken,
+  getTerminal as svcGetTerminal,
+  getTerminalWebSocketUrl,
+  listShells,
+  listTerminals,
+  removeTerminal as svcRemoveTerminal,
+  updateTerminal as svcUpdateTerminal,
+} from '@/providers/services/terminal-service';
+import {
+  loadOpenCodeInspection as svcLoadOpenCodeInspection,
+  reloadOpenCodeConfig as svcReloadOpenCodeConfig,
+  reloadOpenCodeSkills as svcReloadOpenCodeSkills,
+} from '@/providers/services/opencode-inspection-service';
+import {
+  initializeProjectGit as svcInitializeProjectGit,
+  updateProjectMetadata as svcUpdateProjectMetadata,
+} from '@/providers/services/project-service';
+import {
+  getRecoveryDelayMs,
+  getStableRecoveryEventId,
+} from '@/providers/services/agent-chat-service';
+
+export type {
+  AgentOption,
+  ChatPreferences,
+  ConnectionState,
+  ConversationPhase,
+  ConversationState,
+  ModelOption,
+  OpencodeContextValue,
+  OpencodeProject,
+  ProviderAuthMethod,
+  ProviderOption,
+  ReasoningLevel,
+  ResponseScope,
+} from '@/providers/opencode-provider-types';
+
+const OpencodeContext = createContext<OpencodeContextValue | null>(null);
+const ANSI_CSI_PATTERN = new RegExp('\\u001b\\[[0-?]*[ -/]*[@-~]', 'gi');
+
+function authenticatedWebSocket(
+  url: string,
+  headers: Record<string, string>,
+): WebSocket {
+  const Constructor = WebSocket as unknown as new (
+    socketUrl: string,
+    protocols: string[],
+    options: { headers: Record<string, string> },
+  ) => WebSocket;
+  return new Constructor(url, [], { headers });
+}
+
+export function OpencodeProvider({ children }: PropsWithChildren) {
+  const pairedHost = usePairedHost();
+  const rhythmAccount = useRhythmAccount();
+  const [settings, setSettings] = useState<OpencodeConnectionSettings>(defaultConnectionSettings);
+  const [connection, setConnection] = useState<ConnectionState>({
+    status: 'idle',
+    message: 'Add a server URL and connect to OpenCode.',
+  });
+  const [activeProjectPath, setActiveProjectPath] = useState<string>();
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [archivedSessions, setArchivedSessions] = useState<GlobalSession[]>([]);
+  const [sessionStatuses, setSessionStatuses] = useState<Record<string, SessionStatus>>({});
+  const [currentSessionId, setCurrentSessionId] = useState<string>();
+  const [messagesBySession, setMessagesBySession] = useState<Record<string, SessionMessageRecord[]>>({});
+  const [diffsBySession, setDiffsBySession] = useState<Record<string, FileDiff[]>>({});
+  const [todosBySession, setTodosBySession] = useState<Record<string, Todo[]>>({});
+  const [pendingPermissionsBySession, setPendingPermissionsBySession] = useState<Record<string, PendingPermissionRequest[]>>({});
+  const [pendingQuestionsBySession, setPendingQuestionsBySession] = useState<Record<string, PendingQuestionRequest[]>>({});
+  const [serverProjects, setServerProjects] = useState<Project[]>([]);
+  const [currentProjectPath, setCurrentProjectPath] = useState<string>();
+  const [serverRootPath, setServerRootPath] = useState<string>();
+  // browsing server folders removed
+  const [isRefreshingSessions, setIsRefreshingSessions] = useState(false);
+  const [isRefreshingMessages, setIsRefreshingMessages] = useState(false);
+  const [isRefreshingDiffs, setIsRefreshingDiffs] = useState(false);
+  const [isRefreshingWorkspaceCatalog, setIsRefreshingWorkspaceCatalog] = useState(false);
+  // browsing removed
+  const [isBootstrappingChat, setIsBootstrappingChat] = useState(false);
+  const [sendingState, setSendingState] = useState<{ sessionId?: string; active: boolean }>({ active: false });
+  const [promptError, setPromptError] = useState<{ message: string; occurredAt: number; sessionId?: string }>();
+  const pendingNotificationSessionIdsRef = useRef<Set<string>>(new Set());
+  const busyNotificationSessionIdsRef = useRef<Set<string>>(new Set());
+  const notificationRequestedAtRef = useRef(new Map<string, number>());
+  const pendingNotificationOriginBySessionIdRef =
+    useRef(new Map<string, PendingNotificationOrigin>());
+  const promptSubmissionRef = useRef<{ active: boolean; sessionId?: string }>({ active: false });
+  const [currentConfig, setCurrentConfig] = useState<Config>();
+  const [availableProviders, setAvailableProviders] = useState<ProviderOption[]>([]);
+  const [providerAuthMethodsById, setProviderAuthMethodsById] = useState<Record<string, ProviderAuthMethod[]>>({});
+  const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
+  const [availableAgents, setAvailableAgents] = useState<AgentOption[]>([]);
+  const [chatPreferences, setChatPreferences] = useState<ChatPreferences>(defaultChatPreferences);
+  const [lastSessionByProject, setLastSessionByProject] = useState<Record<string, string>>({});
+  const [conversationPhase, setConversationPhase] = useState<ConversationPhase>('off');
+  const [conversationSessionId, setConversationSessionId] = useState<string>();
+  const [queuedConversationPrompt, setQueuedConversationPrompt] = useState<string>();
+  const [pendingConversationTurn, setPendingConversationTurn] = useState<string>();
+  const [conversationFeedback, setConversationFeedback] = useState<string>();
+  const [conversationLatestHeardText, setConversationLatestHeardText] = useState<string>();
+  const [eventStreamStatus, setEventStreamStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
+  const [commands, setCommands] = useState<Command[]>([]);
+  const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
+  const [workspaceFileStatuses, setWorkspaceFileStatuses] = useState<File[]>([]);
+  const [selectedWorkspaceFile, setSelectedWorkspaceFile] = useState<{ path: string; content: FileContent }>();
+  const [vcsInfo, setVcsInfo] = useState<VcsInfo>();
+  const [diagnostics, setDiagnostics] = useState<Diagnostics>();
+  const [worktrees, setWorktrees] = useState<(string | Worktree)[]>([]);
+  const [mcpStatuses, setMcpStatuses] = useState<Record<string, McpStatus>>({});
+  const [terminals, setTerminals] = useState<Pty[]>([]);
+  const [terminalShells, setTerminalShells] = useState<PtyShellsResponse>([]);
+  const [activeTerminalId, setActiveTerminalId] = useState<string>();
+  const [terminalOutput, setTerminalOutput] = useState('');
+  const [terminalConnection, setTerminalConnection] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
+
+  const settingsRef = useRef(settings);
+  const activeProjectPathRef = useRef(activeProjectPath);
+  const scopeGenerationRef = useRef(0);
+  const serverGenerationRef = useRef(0);
+  const clientGenerationRef = useRef(new WeakMap<object, number>());
+  const catalogGenerationRef = useRef(new WeakMap<object, number>());
+  const connectionTargetRef = useRef('');
+  const bootstrapPromiseRef = useRef<Promise<string | undefined> | null>(null);
+  const bootstrapTokenRef = useRef<object | undefined>(undefined);
+  const conversationPhaseRef = useRef<ConversationPhase>('off');
+  const assistantReplyBaselineIdRef = useRef<string | undefined>(undefined);
+  const conversationResumeTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const conversationFinalResultTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const conversationListeningRestartTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const conversationCancelRequestedRef = useRef(false);
+  const conversationSubmittingRef = useRef(false);
+  const pendingConversationTranscriptRef = useRef<string | undefined>(undefined);
+  const flushPendingConversationResultRef = useRef<() => void>(() => undefined);
+  const sessionRefreshTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const sessionRefreshOptionsRef = useRef<Record<string, { messages?: boolean; diff?: boolean; todos?: boolean; sessions?: boolean }>>({});
+  const terminalSocketRef = useRef<WebSocket | undefined>(undefined);
+  const terminalCursorByIdRef = useRef<Record<string, string>>({});
+  const terminalOpenGenerationRef = useRef(0);
+  settingsRef.current = settings;
+  activeProjectPathRef.current = activeProjectPath;
+
+  const clearTrackedPendingNotification = useCallback(
+    async (sessionId: string) => {
+      const origin =
+        pendingNotificationOriginBySessionIdRef.current.get(sessionId);
+      if (!origin) return;
+      await clearPendingTaskFinishedNotification(sessionId, origin);
+      pendingNotificationOriginBySessionIdRef.current.delete(sessionId);
+    },
+    [],
+  );
+
+  const clearPendingConversationResult = useCallback(() => {
+    pendingConversationTranscriptRef.current = undefined;
+    if (conversationFinalResultTimeoutRef.current) {
+      clearTimeout(conversationFinalResultTimeoutRef.current);
+      conversationFinalResultTimeoutRef.current = undefined;
+    }
+  }, []);
+
+  const { isHydrated } = useOpencodePersistence({
+    defaultChatPreferences,
+    defaultSettings: defaultConnectionSettings,
+    activeProjectPath,
+    chatPreferences,
+    lastSessionByProject,
+    setActiveProjectPath,
+    setChatPreferences,
+    setLastSessionByProject,
+    setSettings,
+    settings,
+    accountUserId: rhythmAccount.user?.id ?? null,
+  });
+
+  const projects = useMemo<OpencodeProject[]>(() => {
+    const entries = new Map<string, OpencodeProject>();
+
+    serverProjects.forEach((project) => {
+      const displayName = (project as Project & { name?: string }).name;
+      entries.set(project.worktree, {
+        id: project.id,
+        label: displayName?.trim() || getProjectLabel(project.worktree),
+        path: project.worktree,
+        source: 'server',
+        updatedAt: project.time.initialized || project.time.created,
+        isCurrent: project.worktree === currentProjectPath,
+      });
+    });
+
+    if (activeProjectPath && !entries.has(activeProjectPath)) {
+      entries.set(activeProjectPath, {
+        label: getProjectLabel(activeProjectPath),
+        path: activeProjectPath,
+        source: 'server',
+        isCurrent: activeProjectPath === currentProjectPath,
+      });
+    }
+
+    return [...entries.values()].sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
+  }, [activeProjectPath, currentProjectPath, serverProjects]);
+
+  const activeProject = useMemo(
+    () => projects.find((project) => project.path === activeProjectPath),
+    [activeProjectPath, projects],
+  );
+  const registeredGatewayProjectIds = useMemo(
+    () =>
+      new Set(
+        serverProjects
+          .filter(
+            (project) =>
+              project.id.trim().length > 0 &&
+              project.id === project.worktree,
+          )
+          .map((project) => project.id),
+      ),
+    [serverProjects],
+  );
+
+  const buildScopedClient = useCallback(
+    (projectId: string) => {
+      if (!pairedHost.client) {
+        return buildClient({ ...settings, directory: projectId });
+      }
+      const registeredProjectId = registeredGatewayProjectIds.has(projectId)
+        ? projectId
+        : '';
+      return buildClient(
+        { ...settings, directory: registeredProjectId },
+        { client: pairedHost.client, projectId: registeredProjectId },
+      );
+    },
+    [pairedHost.client, registeredGatewayProjectIds, settings],
+  );
+  const client = useMemo(
+    () => {
+      if (pairedHost.client) {
+        return buildScopedClient(activeProjectPath ?? '');
+      }
+      return activeProjectPath
+        ? buildScopedClient(activeProjectPath)
+        : buildClient({ ...settings, directory: '' });
+    },
+    [activeProjectPath, buildScopedClient, pairedHost.client, settings],
+  );
+  const catalogClient = useMemo(() => buildClient({ ...settings, directory: '' }), [settings]);
+  if (!clientGenerationRef.current.has(client)) {
+    clientGenerationRef.current.set(client, scopeGenerationRef.current);
+  }
+  if (!catalogGenerationRef.current.has(catalogClient)) {
+    catalogGenerationRef.current.set(catalogClient, serverGenerationRef.current);
+  }
+  const isCurrentClient = useCallback(
+    (candidate: object) => clientGenerationRef.current.get(candidate) === scopeGenerationRef.current,
+    [],
+  );
+  const isCurrentCatalogClient = useCallback(
+    (candidate: object) => catalogGenerationRef.current.get(candidate) === serverGenerationRef.current,
+    [],
+  );
+
+  const clearProjectState = useCallback(() => {
+    bootstrapPromiseRef.current = null;
+    bootstrapTokenRef.current = undefined;
+    pendingNotificationSessionIdsRef.current.clear();
+    busyNotificationSessionIdsRef.current.clear();
+    notificationRequestedAtRef.current.clear();
+    setCurrentSessionId(undefined);
+    setSessions([]);
+    setArchivedSessions([]);
+    setSessionStatuses({});
+    setCommands([]);
+    setCurrentConfig(undefined);
+    setAvailableProviders([]);
+    setProviderAuthMethodsById({});
+    setAvailableModels([]);
+    setAvailableAgents([]);
+    setPendingPermissionsBySession({});
+    setPendingQuestionsBySession({});
+    setWorkspaceFiles([]);
+    setWorkspaceFileStatuses([]);
+    setSelectedWorkspaceFile(undefined);
+    setVcsInfo(undefined);
+    setWorktrees([]);
+    setMcpStatuses({});
+    setTerminals([]);
+    setTerminalShells([]);
+    setActiveTerminalId(undefined);
+    setTerminalOutput('');
+    setTerminalConnection('idle');
+    terminalSocketRef.current?.close();
+    terminalSocketRef.current = undefined;
+    terminalCursorByIdRef.current = {};
+    terminalOpenGenerationRef.current += 1;
+  }, []);
+
+  // browseServerPath stub removed
+
+  const loadWorkspaceCatalog = useCallback(
+    async (silent = false): Promise<WorkspaceCatalog> => {
+      if (!silent) {
+        setIsRefreshingWorkspaceCatalog(true);
+      }
+
+      try {
+        const result: WorkspaceCatalog = pairedHost.client
+          ? await listMobileGatewayProjects(pairedHost.client).then(
+              (mobileProjects) => {
+                const now = Date.now();
+                const serverProjects = mobileProjects.map(
+                  (project, index) =>
+                    ({
+                      id: project.id,
+                      name: project.name,
+                      icon: project.icon,
+                      worktree: project.id,
+                      vcs: 'git',
+                      time: {
+                        created: now - index,
+                        initialized: now - index,
+                      },
+                    }) as unknown as Project,
+                );
+                const selected = activeProjectPathRef.current;
+                const currentProjectPath =
+                  selected &&
+                  serverProjects.some(
+                    (project) => project.worktree === selected,
+                  )
+                    ? selected
+                    : serverProjects[0]?.worktree;
+                return {
+                  currentProjectPath,
+                  serverProjects,
+                };
+              },
+            )
+          : await svcLoadWorkspaceCatalog(catalogClient);
+        if (!isCurrentCatalogClient(catalogClient)) {
+          return result;
+        }
+        setServerProjects(result.serverProjects as Project[]);
+        setCurrentProjectPath(result.currentProjectPath);
+        setServerRootPath(result.serverRootPath);
+        const currentProject = activeProjectPathRef.current;
+        const nextProject = currentProject && result.serverProjects.some((project) => project.worktree === currentProject)
+          ? currentProject
+          : result.currentProjectPath || result.serverProjects[0]?.worktree;
+        if (nextProject !== currentProject) {
+          scopeGenerationRef.current += 1;
+          clearProjectState();
+          setActiveProjectPath(nextProject);
+        }
+        return result;
+      } finally {
+        if (!silent) {
+          setIsRefreshingWorkspaceCatalog(false);
+        }
+      }
+    },
+    [
+      catalogClient,
+      clearProjectState,
+      isCurrentCatalogClient,
+      pairedHost.client,
+    ],
+  );
+
+  const refreshWorkspaceCatalog = useCallback(
+    async (silent = false) => {
+      await loadWorkspaceCatalog(silent);
+    },
+    [loadWorkspaceCatalog],
+  );
+
+  const fetchSessions = useCallback(
+    async (silent = false) => {
+      if (!activeProjectPath) {
+        setSessions([]);
+        setSessionStatuses({});
+        return [];
+      }
+
+      if (!silent) {
+        setIsRefreshingSessions(true);
+      }
+
+      try {
+        const result = await svcListSessions(client);
+        if (!isCurrentClient(client)) {
+          return result.sessions;
+        }
+        setSessions(result.sessions);
+        setSessionStatuses(result.statuses);
+        return result.sessions;
+      } finally {
+        if (!silent) {
+          setIsRefreshingSessions(false);
+        }
+      }
+    },
+    [activeProjectPath, client, isCurrentClient],
+  );
+
+  const refreshSessions = useCallback(
+    async (silent = false) => {
+      await fetchSessions(silent);
+    },
+    [fetchSessions],
+  );
+
+  const refreshMessages = useCallback(
+    async (sessionId: string, silent = false) => {
+      if (!silent) {
+        setIsRefreshingMessages(true);
+      }
+
+      try {
+        const data = await svcGetSessionMessages(client, sessionId);
+        if (!isCurrentClient(client)) {
+          return data;
+        }
+        setMessagesBySession((current) => ({
+          ...current,
+          [sessionId]: data,
+        }));
+
+        return data;
+      } finally {
+        if (!silent) {
+          setIsRefreshingMessages(false);
+        }
+      }
+    },
+    [client, isCurrentClient],
+  );
+
+  const refreshSessionDiff = useCallback(
+    async (sessionId: string, silent = false) => {
+      if (!silent) {
+        setIsRefreshingDiffs(true);
+      }
+
+      try {
+        const data = await svcGetSessionDiff(client, sessionId);
+        if (!isCurrentClient(client)) {
+          return data;
+        }
+        setDiffsBySession((current) => ({
+          ...current,
+          [sessionId]: data,
+        }));
+
+        return data;
+      } finally {
+        if (!silent) {
+          setIsRefreshingDiffs(false);
+        }
+      }
+    },
+    [client, isCurrentClient],
+  );
+
+  const refreshSessionTodos = useCallback(
+    async (sessionId: string) => {
+      const data = await svcGetSessionTodos(client, sessionId);
+      if (!isCurrentClient(client)) {
+        return data;
+      }
+
+      setTodosBySession((current) => ({
+        ...current,
+        [sessionId]: data,
+      }));
+
+      return data;
+    },
+    [client, isCurrentClient],
+  );
+
+  const refreshPendingInteractions = useCallback(async () => {
+    const { permissions, questions } = await listPendingInteractions(client);
+    if (!isCurrentClient(client)) {
+      return;
+    }
+    setPendingPermissionsBySession(groupPendingRequestsBySession(permissions));
+    setPendingQuestionsBySession(groupPendingRequestsBySession(questions));
+  }, [client, isCurrentClient]);
+
+  const scheduleSessionRefresh = useCallback(
+    (sessionId: string, options?: { messages?: boolean; diff?: boolean; todos?: boolean; sessions?: boolean; delayMs?: number }) => {
+      if (!sessionId) {
+        return;
+      }
+
+      const existing = sessionRefreshTimeoutsRef.current[sessionId];
+      if (existing) {
+        clearTimeout(existing);
+      }
+
+      const pending = sessionRefreshOptionsRef.current[sessionId] || {};
+      sessionRefreshOptionsRef.current[sessionId] = {
+        messages: pending.messages || options?.messages,
+        diff: pending.diff || options?.diff,
+        todos: pending.todos || options?.todos,
+        sessions: pending.sessions || options?.sessions,
+      };
+
+      sessionRefreshTimeoutsRef.current[sessionId] = setTimeout(() => {
+        delete sessionRefreshTimeoutsRef.current[sessionId];
+        const mergedOptions = sessionRefreshOptionsRef.current[sessionId] || {};
+        delete sessionRefreshOptionsRef.current[sessionId];
+
+        if (mergedOptions.sessions) {
+          void refreshSessions(true);
+        }
+        if (mergedOptions.messages) {
+          void refreshMessages(sessionId, true);
+        }
+        if (mergedOptions.diff) {
+          void refreshSessionDiff(sessionId, true);
+        }
+        if (mergedOptions.todos) {
+          void refreshSessionTodos(sessionId);
+        }
+      }, options?.delayMs ?? 150);
+    },
+    [refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions],
+  );
+
+  const refreshChatCapabilities = useCallback(async () => {
+    const result = await import('@/providers/services/capabilities-service').then((m) => m.discoverChatCapabilities(client, activeProjectPath));
+    if (!isCurrentClient(client)) {
+      return;
+    }
+
+    setCurrentConfig(result.config);
+    setAvailableProviders(result.providers);
+    setProviderAuthMethodsById(result.providerAuthMethodsById);
+    setAvailableModels(result.models);
+    setAvailableAgents(result.agents);
+
+    setChatPreferences((current) => {
+      const configuredProviderIds = getConfiguredProviderIds(result.config, result.connected, result.models);
+      const configuredModels = result.models.filter((model) => configuredProviderIds.has(model.providerID));
+      const enabledModelIds = getEnabledModelIds(configuredModels, current.enabledModelIds);
+      const enabledModels = configuredModels.filter((model) => enabledModelIds.includes(model.id));
+      const nextProviderId = getInitialProviderId(configuredModels, result.config, current.providerId, current.modelId);
+      const safeProviderId = nextProviderId && enabledModels.some((model) => model.providerID === nextProviderId)
+        ? nextProviderId
+        : getInitialProviderId(enabledModels, result.config, current.providerId, current.modelId);
+
+      return {
+        ...current,
+        mode: getInitialMode(result.agents, result.config, current.mode),
+        providerId: safeProviderId,
+        modelId: getModelIdForProvider(
+          enabledModels,
+          safeProviderId,
+          getInitialModelId(enabledModels, result.config, current.modelId),
+          safeProviderId ? current.providerModelSelections[safeProviderId] : undefined,
+        ),
+        enabledModelIds,
+        autoApprove: isAutoApproveEnabled(result.config),
+      };
+    });
+  }, [activeProjectPath, client, isCurrentClient]);
+
+  const openSession = useCallback(
+    async (sessionId: string) => {
+      setCurrentSessionId(sessionId);
+      if (activeProjectPath) {
+        setLastSessionByProject((current) => ({
+          ...current,
+          [activeProjectPath]: sessionId,
+        }));
+      }
+      await Promise.all([refreshMessages(sessionId), refreshSessionDiff(sessionId, true), refreshSessionTodos(sessionId), refreshPendingInteractions()]);
+    },
+    [activeProjectPath, refreshMessages, refreshPendingInteractions, refreshSessionDiff, refreshSessionTodos],
+  );
+
+  const createSession = useCallback(
+    async (title?: string) => {
+      const trimmedTitle = title?.trim();
+      const response = trimmedTitle
+        ? await client.session.create({ title: trimmedTitle })
+        : await client.session.create();
+
+      if (!response.data) {
+        throw new Error('OpenCode did not return the created session.');
+      }
+      if (!isCurrentClient(client)) {
+        throw new Error('The active project changed before the session was created.');
+      }
+      await refreshSessions(true);
+      return response.data;
+    },
+    [client, isCurrentClient, refreshSessions],
+  );
+
+  const deleteSession = useCallback(
+    async (sessionId: string) => {
+      await svcDeleteSession(client, sessionId);
+      if (!isCurrentClient(client)) {
+        return;
+      }
+      setMessagesBySession((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+      setDiffsBySession((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+      setTodosBySession((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+      setPendingPermissionsBySession((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+      setPendingQuestionsBySession((current) => {
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(undefined);
+      }
+      await refreshSessions(true);
+    },
+    [client, currentSessionId, isCurrentClient, refreshSessions],
+  );
+
+  const refreshArchivedSessions = useCallback(async () => {
+    const next = await svcListArchivedSessions(client);
+    if (isCurrentClient(client)) {
+      setArchivedSessions([...next].sort((left, right) => right.time.updated - left.time.updated));
+    }
+  }, [client, isCurrentClient]);
+
+  const archiveSession = useCallback(async (sessionId: string) => {
+    await svcArchiveSession(client, sessionId);
+    if (!isCurrentClient(client)) return;
+    if (currentSessionId === sessionId) setCurrentSessionId(undefined);
+    await Promise.all([refreshSessions(true), refreshArchivedSessions()]);
+  }, [client, currentSessionId, isCurrentClient, refreshArchivedSessions, refreshSessions]);
+
+  const restoreSession = useCallback(async (sessionId: string) => {
+    await svcRestoreSession(client, sessionId);
+    if (!isCurrentClient(client)) return;
+    await Promise.all([refreshSessions(true), refreshArchivedSessions()]);
+  }, [client, isCurrentClient, refreshArchivedSessions, refreshSessions]);
+
+  const renameSession = useCallback(async (sessionId: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      throw new Error('Enter a session title.');
+    }
+    await svcUpdateSessionTitle(client, sessionId, trimmed);
+    await refreshSessions(true);
+  }, [client, refreshSessions]);
+
+  const forkSession = useCallback(async (sessionId: string, messageId?: string) => {
+    const forked = await svcForkSession(client, sessionId, messageId);
+    if (!forked) {
+      throw new Error('OpenCode did not return the forked session.');
+    }
+    if (!isCurrentClient(client)) {
+      throw new Error('The active project changed before the session was forked.');
+    }
+    await refreshSessions(true);
+    await openSession(forked.id);
+    return forked;
+  }, [client, isCurrentClient, openSession, refreshSessions]);
+
+  const revertSession = useCallback(async (sessionId: string, messageId: string) => {
+    await svcRevertSession(client, sessionId, messageId);
+    await Promise.all([refreshSessions(true), refreshMessages(sessionId, true), refreshSessionDiff(sessionId, true)]);
+  }, [client, refreshMessages, refreshSessionDiff, refreshSessions]);
+
+  const unrevertSession = useCallback(async (sessionId: string) => {
+    await svcUnrevertSession(client, sessionId);
+    await Promise.all([refreshSessions(true), refreshMessages(sessionId, true), refreshSessionDiff(sessionId, true)]);
+  }, [client, refreshMessages, refreshSessionDiff, refreshSessions]);
+
+  const getSessionChildren = useCallback(
+    async (sessionId: string) => svcGetSessionChildren(client, sessionId),
+    [client],
+  );
+
+  const deleteSessionMessage = useCallback(async (sessionId: string, messageId: string) => {
+    const message = messagesBySession[sessionId]
+      ?.find((entry) => entry.info.id === messageId);
+    if (!findEditableUserTextPart(message)) {
+      throw new Error('Only your non-synthetic text messages can be deleted.');
+    }
+    await svcDeleteSessionMessage(client, sessionId, messageId);
+    await Promise.all([
+      refreshMessages(sessionId, true),
+      refreshSessionDiff(sessionId, true),
+      refreshSessions(true),
+    ]);
+  }, [client, messagesBySession, refreshMessages, refreshSessionDiff, refreshSessions]);
+
+  const updateSessionTextPart = useCallback(
+    async (sessionId: string, messageId: string, partId: string, text: string) => {
+      const message = messagesBySession[sessionId]
+        ?.find((entry) => entry.info.id === messageId);
+      const part = findEditableUserTextPart(message, partId);
+      if (!part) {
+        throw new Error('Only your non-synthetic text messages can be edited.');
+      }
+      await svcUpdateSessionPart(client, sessionId, messageId, { ...part, text });
+      await refreshMessages(sessionId, true);
+    },
+    [client, messagesBySession, refreshMessages],
+  );
+
+  const deleteSessionPart = useCallback(async (sessionId: string, messageId: string, partId: string) => {
+    const message = messagesBySession[sessionId]
+      ?.find((entry) => entry.info.id === messageId);
+    if (!findEditableUserTextPart(message, partId)) {
+      throw new Error('Only your non-synthetic text messages can be deleted.');
+    }
+    await svcDeleteSessionPart(client, sessionId, messageId, partId);
+    await refreshMessages(sessionId, true);
+  }, [client, messagesBySession, refreshMessages]);
+
+  const initializeSession = useCallback(async (sessionId: string) => {
+    const model = getSelectedModelParts(chatPreferences.modelId);
+    const messageId = messagesBySession[sessionId]
+      ?.findLast((message) => findEditableUserTextPart(message) !== undefined)
+      ?.info.id;
+    if (!model || !messageId) {
+      throw new Error('Send a message and select a model before initializing this session.');
+    }
+    await svcInitializeSession(client, sessionId, model);
+    await Promise.all([refreshMessages(sessionId, true), refreshSessions(true)]);
+  }, [chatPreferences.modelId, client, messagesBySession, refreshMessages, refreshSessions]);
+
+  const runSessionShell = useCallback(async (sessionId: string, command: string) => {
+    const trimmed = command.trim();
+    if (!trimmed) throw new Error('Enter a shell command first.');
+    const model = getSelectedModelParts(chatPreferences.modelId);
+    await svcRunSessionShell(client, sessionId, trimmed, {
+      agent: chatPreferences.mode,
+      model,
+    });
+    await Promise.all([refreshMessages(sessionId, true), refreshSessions(true)]);
+  }, [chatPreferences.mode, chatPreferences.modelId, client, refreshMessages, refreshSessions]);
+
+  const refreshServerFeatures = useCallback(async () => {
+    if (!activeProjectPath) {
+      setCommands([]);
+      setWorkspaceFileStatuses([]);
+      setVcsInfo(undefined);
+      return;
+    }
+    const [nextCommands, nextStatuses, nextVcs] = await Promise.all([
+      svcListCommands(client).catch(() => []),
+      getFileStatus(client).catch(() => []),
+      getVcsInfo(client).catch(() => undefined),
+    ]);
+    if (!isCurrentClient(client)) {
+      return;
+    }
+    setCommands(nextCommands || []);
+    setWorkspaceFileStatuses(nextStatuses || []);
+    setVcsInfo(nextVcs);
+  }, [activeProjectPath, client, isCurrentClient]);
+
+  const refreshDiagnostics = useCallback(async () => {
+    const nextDiagnostics = await loadDiagnostics(client);
+    if (isCurrentClient(client)) {
+      setDiagnostics(nextDiagnostics);
+    }
+  }, [client, isCurrentClient]);
+
+  const searchWorkspaceFiles = useCallback(async (query: string) => {
+    const trimmed = query.trim();
+    const nextFiles = trimmed ? (await findFiles(client, trimmed)) || [] : [];
+    if (activeProjectPathRef.current === client.__opencode.directory) {
+      setWorkspaceFiles(nextFiles);
+    }
+  }, [client]);
+
+  const listWorkspaceDirectory = useCallback(
+    async (path: string) => listFiles(client, path.trim() || '.'),
+    [client],
+  );
+
+  const searchWorkspaceText = useCallback(
+    async (pattern: string) => {
+      const trimmed = pattern.trim();
+      return trimmed ? findText(client, trimmed) : [];
+    },
+    [client],
+  );
+
+  const searchWorkspaceSymbols = useCallback(
+    async (query: string) => {
+      const trimmed = query.trim();
+      return trimmed ? findSymbols(client, trimmed) : [];
+    },
+    [client],
+  );
+
+  const getWorkspaceVcsStatus = useCallback(async () => getVcsStatus(client), [client]);
+
+  const getWorkspaceVcsDiff = useCallback(
+    async (mode: 'git' | 'branch') => getVcsDiff(client, mode),
+    [client],
+  );
+
+  const getWorkspaceRawVcsDiff = useCallback(async () => getRawVcsDiff(client), [client]);
+
+  const openWorkspaceFile = useCallback(async (path: string) => {
+    const content = await readFile(client, path);
+    if (!content) {
+      throw new Error('OpenCode did not return file content.');
+    }
+    if (content.type === 'binary' || content.encoding === 'base64') {
+      throw new Error('Binary files cannot be previewed as text.');
+    }
+    if (activeProjectPathRef.current === client.__opencode.directory) {
+      setSelectedWorkspaceFile({ path, content });
+    }
+  }, [client]);
+
+  const saveWorkspaceFile = useCallback(async (path: string, expectedContent: string, content: string) => {
+    const latest = await readFile(client, path);
+    if (latest.type !== 'text' || latest.encoding === 'base64') throw new Error('Only text files can be edited.');
+    if (latest.content !== expectedContent) throw new Error('The file changed on the server. Reopen it before saving.');
+    const patch = createFullFilePatch({ path, expectedContent, content });
+    if (!patch) return;
+    await applyVcsPatch(client, patch);
+    const saved = await readFile(client, path);
+    if (activeProjectPathRef.current === client.__opencode.directory) {
+      setSelectedWorkspaceFile({ path, content: saved });
+      await refreshServerFeatures();
+    }
+  }, [client, refreshServerFeatures]);
+
+  const updateProjectMetadata = useCallback(async (
+    projectId: string,
+    update: Parameters<typeof svcUpdateProjectMetadata>[2],
+  ) => {
+    const project = await svcUpdateProjectMetadata(client, projectId, update);
+    await refreshWorkspaceCatalog(true);
+    return project;
+  }, [client, refreshWorkspaceCatalog]);
+
+  const initializeProjectGit = useCallback(async () => {
+    const project = await svcInitializeProjectGit(client);
+    await Promise.all([refreshWorkspaceCatalog(true), refreshServerFeatures()]);
+    return project;
+  }, [client, refreshServerFeatures, refreshWorkspaceCatalog]);
+
+  const refreshWorktrees = useCallback(async () => {
+    const next = await svcListWorktrees(client);
+    if (isCurrentClient(client)) setWorktrees(next);
+  }, [client, isCurrentClient]);
+
+  const createWorktree = useCallback(async (name?: string, startCommand?: string) => {
+    await svcCreateWorktree(client, name?.trim() || undefined, startCommand?.trim() || undefined);
+    await Promise.all([refreshWorktrees(), refreshWorkspaceCatalog(true)]);
+  }, [client, refreshWorktrees, refreshWorkspaceCatalog]);
+
+  const resetWorktree = useCallback(async (directory: string) => {
+    await svcResetWorktree(client, directory);
+    await refreshWorktrees();
+  }, [client, refreshWorktrees]);
+
+  const removeWorktree = useCallback(async (directory: string) => {
+    await svcRemoveWorktree(client, directory);
+    await Promise.all([refreshWorktrees(), refreshWorkspaceCatalog(true)]);
+  }, [client, refreshWorktrees, refreshWorkspaceCatalog]);
+
+  const refreshMcpServers = useCallback(async () => {
+    const next = await getMcpStatus(client);
+    if (isCurrentClient(client)) setMcpStatuses(next);
+  }, [client, isCurrentClient]);
+
+  const addMcpServer = useCallback(async (name: string, config: McpLocalConfig | McpRemoteConfig) => {
+    await svcAddMcpServer(client, name.trim(), config);
+    await Promise.all([refreshMcpServers(), refreshChatCapabilities()]);
+  }, [client, refreshChatCapabilities, refreshMcpServers]);
+
+  const connectMcpServer = useCallback(async (name: string) => {
+    await svcConnectMcpServer(client, name);
+    await refreshMcpServers();
+  }, [client, refreshMcpServers]);
+
+  const disconnectMcpServer = useCallback(async (name: string) => {
+    await svcDisconnectMcpServer(client, name);
+    await refreshMcpServers();
+  }, [client, refreshMcpServers]);
+
+  const setMcpServerEnabled = useCallback(async (name: string, enabled: boolean) => {
+    await svcSetMcpServerEnabled(client, name, enabled);
+    await Promise.all([refreshMcpServers(), refreshChatCapabilities()]);
+  }, [client, refreshChatCapabilities, refreshMcpServers]);
+
+  const startMcpOAuth = useCallback(async (name: string) => {
+    return (await svcStartMcpOAuth(client, name)).authorizationUrl;
+  }, [client]);
+
+  const completeMcpOAuth = useCallback(async (name: string, code: string) => {
+    await svcCompleteMcpOAuth(client, name, code.trim());
+    await refreshMcpServers();
+  }, [client, refreshMcpServers]);
+
+  const removeMcpOAuth = useCallback(async (name: string) => {
+    await svcRemoveMcpOAuth(client, name);
+    await refreshMcpServers();
+  }, [client, refreshMcpServers]);
+
+  const loadOpenCodeInspection = useCallback(
+    async (provider?: string, model?: string) => svcLoadOpenCodeInspection(client, provider, model),
+    [client],
+  );
+
+  const reloadOpenCodeSkills = useCallback(
+    async () => svcReloadOpenCodeSkills(client),
+    [client],
+  );
+
+  const reloadOpenCodeConfig = useCallback(async () => {
+    await svcReloadOpenCodeConfig(client);
+    await refreshChatCapabilities();
+  }, [client, refreshChatCapabilities]);
+
+  const refreshTerminals = useCallback(async () => {
+    const [nextTerminals, nextShells] = await Promise.all([listTerminals(client), listShells(client)]);
+    if (!isCurrentClient(client)) return;
+    setTerminals(nextTerminals);
+    setTerminalShells(nextShells);
+  }, [client, isCurrentClient]);
+
+  const openTerminal = useCallback(async (ptyId: string) => {
+    const generation = ++terminalOpenGenerationRef.current;
+    const previousSocket = terminalSocketRef.current;
+    terminalSocketRef.current = undefined;
+    previousSocket?.close();
+    const switchingTerminal = activeTerminalId !== ptyId;
+    setActiveTerminalId(ptyId);
+    if (switchingTerminal) setTerminalOutput('');
+    setTerminalConnection('connecting');
+    const token = await createTerminalConnectToken(client, ptyId);
+    if (!isCurrentClient(client) || generation !== terminalOpenGenerationRef.current) {
+      throw new Error('Terminal connection was superseded.');
+    }
+    const terminalOptions = {
+      ticket: token.ticket,
+      cursor: terminalCursorByIdRef.current[ptyId],
+    };
+    const socket = pairedHost.client && activeProjectPath
+      ? await pairedHost.client
+          .ptyConnection(ptyId, activeProjectPath, terminalOptions)
+          .then(
+            ({ url, headers }) =>
+              authenticatedWebSocket(url, headers),
+          )
+      : new WebSocket(getTerminalWebSocketUrl(
+          {
+            serverUrl: settings.serverUrl,
+            directory: activeProjectPath || '',
+          },
+          ptyId,
+          terminalOptions,
+        ));
+    terminalSocketRef.current = socket;
+    let opened = false;
+    const connected = new Promise<void>((resolve, reject) => {
+      socket.onopen = () => {
+        if (generation !== terminalOpenGenerationRef.current) {
+          socket.close();
+          reject(new Error('Terminal connection was superseded.'));
+          return;
+        }
+        opened = true;
+        setTerminalConnection('connected');
+        resolve();
+      };
+      socket.onerror = () => {
+        if (generation !== terminalOpenGenerationRef.current) return;
+        setTerminalConnection('error');
+        if (!opened) reject(new Error('Could not connect to the terminal.'));
+      };
+      socket.onclose = () => {
+        if (generation !== terminalOpenGenerationRef.current) return;
+        if (terminalSocketRef.current === socket && opened) setTerminalConnection('idle');
+        if (!opened) reject(new Error('The terminal connection closed before it was ready.'));
+      };
+    });
+    socket.onmessage = ({ data }) => {
+      // ponytail: strip common CSI styling; use a terminal emulator if full VT control becomes required.
+      if (generation !== terminalOpenGenerationRef.current) return;
+      const append = (value: string) => setTerminalOutput((current) => `${current}${value.replace(ANSI_CSI_PATTERN, '')}`.slice(-100_000));
+      if (typeof data === 'string') append(data);
+      else {
+        const read = async () => {
+          const buffer = data instanceof Blob ? await data.arrayBuffer() : data as ArrayBuffer;
+          if (generation !== terminalOpenGenerationRef.current) return;
+          const bytes = new Uint8Array(buffer);
+          const text = new TextDecoder().decode(bytes[0] === 0 ? bytes.subarray(1) : bytes);
+          if (bytes[0] !== 0) {
+            append(text);
+            return;
+          }
+          try {
+            const cursor = JSON.parse(text).cursor;
+            if (cursor !== undefined) terminalCursorByIdRef.current[ptyId] = String(cursor);
+          } catch {
+            // Ignore malformed control frames instead of rendering protocol data.
+          }
+        };
+        void read();
+      }
+    };
+    await connected;
+  }, [
+    activeProjectPath,
+    activeTerminalId,
+    client,
+    isCurrentClient,
+    pairedHost.client,
+    settings.serverUrl,
+  ]);
+
+  const createTerminal = useCallback(async (command?: string, title?: string) => {
+    const terminal = await svcCreateTerminal(client, { command: command?.trim() || undefined, title: title?.trim() || undefined });
+    await refreshTerminals();
+    await openTerminal(terminal.id);
+    return terminal;
+  }, [client, openTerminal, refreshTerminals]);
+
+  const getTerminalDetail = useCallback(async (ptyId: string) => svcGetTerminal(client, ptyId), [client]);
+
+  const resizeTerminal = useCallback(async (ptyId: string, rows: number, cols: number) => {
+    if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows < 2 || cols < 2) {
+      throw new Error('Terminal rows and columns must be whole numbers greater than one.');
+    }
+    const terminal = await svcUpdateTerminal(client, ptyId, { size: { rows, cols } });
+    await refreshTerminals();
+    return terminal;
+  }, [client, refreshTerminals]);
+
+  const sendTerminalInput = useCallback((input: string) => {
+    if (terminalSocketRef.current?.readyState !== WebSocket.OPEN) throw new Error('Terminal is not connected.');
+    terminalSocketRef.current.send(input);
+  }, []);
+
+  const closeTerminal = useCallback(async (ptyId: string) => {
+    if (activeTerminalId === ptyId) {
+      terminalOpenGenerationRef.current += 1;
+      terminalSocketRef.current?.close();
+      terminalSocketRef.current = undefined;
+      setActiveTerminalId(undefined);
+      setTerminalOutput('');
+    }
+    delete terminalCursorByIdRef.current[ptyId];
+    await svcRemoveTerminal(client, ptyId);
+    await refreshTerminals();
+  }, [activeTerminalId, client, refreshTerminals]);
+
+  const executeCommand = useCallback(async (sessionId: string, command: string, args: string) => {
+    const selected = getSelectedModelParts(chatPreferences.modelId);
+    await svcExecuteCommand(client, sessionId, command, args, {
+      agent: chatPreferences.mode,
+      model: selected ? `${selected.providerID}/${selected.modelID}` : undefined,
+    });
+    await Promise.all([refreshMessages(sessionId, true), refreshSessions(true)]).catch(() => undefined);
+  }, [chatPreferences.mode, chatPreferences.modelId, client, refreshMessages, refreshSessions]);
+
+  const summarizeSessionTitle = useCallback(
+    async (sessionId: string, knownSessions?: Session[]) => {
+      const existingSession = (knownSessions || sessions).find((session) => session.id === sessionId);
+      if (existingSession?.title?.trim()) {
+        return existingSession;
+      }
+
+      const selectedModel = getSelectedModelParts(chatPreferences.modelId);
+      if (!selectedModel) {
+        return existingSession;
+      }
+
+      await client.session.summarize({ sessionID: sessionId, ...selectedModel });
+
+      const nextSessions = await fetchSessions(true);
+      return nextSessions.find((session) => session.id === sessionId);
+    },
+    [chatPreferences.modelId, client, fetchSessions, sessions],
+  );
+
+  const ensureActiveSession = useCallback(async () => {
+    if (connection.status !== 'connected' || !activeProjectPath) {
+      return undefined;
+    }
+
+    if (currentSessionId && sessions.some((session) => session.id === currentSessionId)) {
+      if (!messagesBySession[currentSessionId]) {
+        await refreshMessages(currentSessionId, true);
+      }
+      return currentSessionId;
+    }
+
+    if (bootstrapPromiseRef.current) {
+      return bootstrapPromiseRef.current;
+    }
+
+    const bootstrapToken = {};
+    bootstrapTokenRef.current = bootstrapToken;
+    const bootstrapPromise = (async () => {
+      setIsBootstrappingChat(true);
+
+      try {
+        const nextSessions = sessions.length > 0 ? sessions : await fetchSessions(true);
+        const rememberedSessionId = activeProjectPath ? lastSessionByProject[activeProjectPath] : undefined;
+        const targetSession =
+          nextSessions.find((session) => session.id === rememberedSessionId) ??
+          nextSessions[0] ??
+          (await createSession());
+        await Promise.all([
+          refreshMessages(targetSession.id, true),
+          refreshSessionDiff(targetSession.id, true),
+          refreshSessionTodos(targetSession.id),
+          refreshPendingInteractions(),
+          refreshChatCapabilities(),
+          refreshServerFeatures(),
+          refreshDiagnostics(),
+        ]);
+        if (!isCurrentClient(client)) {
+          return undefined;
+        }
+        setCurrentSessionId(targetSession.id);
+        if (activeProjectPath) {
+          setLastSessionByProject((current) => ({
+            ...current,
+            [activeProjectPath]: targetSession.id,
+          }));
+        }
+        return targetSession.id;
+      } finally {
+        if (bootstrapTokenRef.current === bootstrapToken) {
+          setIsBootstrappingChat(false);
+          bootstrapPromiseRef.current = null;
+          bootstrapTokenRef.current = undefined;
+        }
+      }
+    })();
+
+    bootstrapPromiseRef.current = bootstrapPromise;
+    return bootstrapPromise;
+  }, [
+    activeProjectPath,
+    connection.status,
+    client,
+    createSession,
+    currentSessionId,
+    fetchSessions,
+    lastSessionByProject,
+    isCurrentClient,
+    messagesBySession,
+    refreshMessages,
+    refreshPendingInteractions,
+    refreshChatCapabilities,
+    refreshDiagnostics,
+    refreshServerFeatures,
+    refreshSessionDiff,
+    refreshSessionTodos,
+    sessions,
+  ]);
+
+  const selectProject = useCallback((path: string) => {
+    const normalizedPath = path.trim();
+    if (!normalizedPath) {
+      return;
+    }
+    if (normalizedPath === activeProjectPathRef.current) {
+      return;
+    }
+
+    scopeGenerationRef.current += 1;
+    setActiveProjectPath(normalizedPath);
+    clearProjectState();
+  }, [clearProjectState]);
+
+  const connect = useCallback(async () => {
+    if (!pairedHost.client && Platform.OS !== 'web') {
+      setConnection({
+        status: 'idle',
+        message: 'Pair this iPhone with your Mac to use Rhythm Agents.',
+      });
+      return;
+    }
+    if (!isValidServerUrl(settingsRef.current.serverUrl)) {
+      setConnection({
+        status: 'error',
+        message: getConnectionError(settingsRef.current.serverUrl, new Error('Invalid server URL.')),
+        checkedAt: Date.now(),
+      });
+      return;
+    }
+
+    setConnection({
+      status: 'connecting',
+      message: pairedHost.client
+        ? 'Connecting securely to your paired Mac…'
+        : `Connecting to ${getNormalizedServerUrl(settingsRef.current.serverUrl)}...`,
+    });
+
+    try {
+      const catalog = await loadWorkspaceCatalog(true);
+      if (!isCurrentCatalogClient(catalogClient)) {
+        return;
+      }
+      const projectDirectory = catalog.currentProjectPath || catalog.serverRootPath;
+
+      setConnection({
+        status: 'connected',
+        message: pairedHost.client
+          ? 'Connected securely to your paired Mac.'
+          : `Connected to ${getNormalizedServerUrl(settingsRef.current.serverUrl)}`,
+        checkedAt: Date.now(),
+        projectDirectory,
+      });
+
+      if (!activeProjectPath && !catalog.currentProjectPath && !catalog.serverProjects[0]?.worktree) {
+        setSessions([]);
+        setSessionStatuses({});
+        setCurrentConfig(undefined);
+        setAvailableProviders([]);
+        setProviderAuthMethodsById({});
+        setAvailableModels([]);
+        setAvailableAgents([]);
+      }
+    } catch (error) {
+      if (!isCurrentCatalogClient(catalogClient)) {
+        return;
+      }
+      setServerProjects([]);
+      setCurrentProjectPath(undefined);
+      setServerRootPath(undefined);
+      setConnection({
+        status: 'error',
+        message: getConnectionError(settingsRef.current.serverUrl, error),
+        checkedAt: Date.now(),
+      });
+      setSessions([]);
+      setSessionStatuses({});
+      setCurrentConfig(undefined);
+      setAvailableProviders([]);
+      setProviderAuthMethodsById({});
+      setAvailableModels([]);
+      setAvailableAgents([]);
+    }
+  }, [
+    activeProjectPath,
+    catalogClient,
+    isCurrentCatalogClient,
+    loadWorkspaceCatalog,
+    pairedHost.client,
+  ]);
+
+  const ensureActiveSessionRef = useRef(ensureActiveSession);
+  ensureActiveSessionRef.current = ensureActiveSession;
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    const target = pairedHost.client && pairedHost.host
+      ? `paired:${pairedHost.host.rhythmUserId}:${pairedHost.host.hostId}:${pairedHost.host.deviceId}`
+      : Platform.OS === 'web'
+        ? `direct:${settings.serverUrl}:${settings.username}:${settings.password}`
+        : 'native:unpaired';
+    if (connectionTargetRef.current === target) return;
+    connectionTargetRef.current = target;
+    scopeGenerationRef.current += 1;
+    serverGenerationRef.current += 1;
+    catalogGenerationRef.current.set(
+      catalogClient,
+      serverGenerationRef.current,
+    );
+    activeProjectPathRef.current = undefined;
+    setActiveProjectPath(undefined);
+    clearProjectState();
+    setServerProjects([]);
+    setCurrentProjectPath(undefined);
+    setServerRootPath(undefined);
+    void connect();
+  }, [
+    clearProjectState,
+    catalogClient,
+    connect,
+    isHydrated,
+    pairedHost.client,
+    pairedHost.host,
+    settings.password,
+    settings.serverUrl,
+    settings.username,
+  ]);
+
+  useEffect(() => {
+    if (connection.status !== 'connected' || !activeProjectPath) return;
+    void Promise.all([
+      refreshWorktrees(),
+      refreshMcpServers(),
+      refreshTerminals(),
+      refreshArchivedSessions(),
+    ]).catch(() => undefined);
+  }, [activeProjectPath, connection.status, refreshArchivedSessions, refreshMcpServers, refreshTerminals, refreshWorktrees]);
+
+  useEffect(() => {
+    if (connection.status !== 'connected' || !activeProjectPath) {
+      return;
+    }
+
+    void ensureActiveSessionRef.current().catch((error) => {
+      if (isCurrentClient(client)) {
+        setPromptError({
+          message: error instanceof Error ? error.message : 'Could not load this project.',
+          occurredAt: Date.now(),
+        });
+      }
+    });
+  }, [activeProjectPath, client, connection.status, isCurrentClient]);
+
+  const refreshCurrentSession = useCallback(
+    async (silent = false) => {
+      if (!currentSessionId) {
+        return;
+      }
+
+      await Promise.all([
+        refreshSessions(silent),
+        refreshMessages(currentSessionId, silent),
+        refreshSessionDiff(currentSessionId, true),
+        refreshSessionTodos(currentSessionId),
+        refreshPendingInteractions(),
+      ]);
+    },
+    [currentSessionId, refreshMessages, refreshPendingInteractions, refreshSessionDiff, refreshSessionTodos, refreshSessions],
+  );
+
+  const refreshCurrentTodos = useCallback(
+    async (_silent = false) => {
+      if (!currentSessionId) {
+        return;
+      }
+
+      await refreshSessionTodos(currentSessionId);
+    },
+    [currentSessionId, refreshSessionTodos],
+  );
+
+  const replyToPermission = useCallback(
+    async (requestId: string, reply: 'once' | 'always' | 'reject') => {
+      const request = Object.values(pendingPermissionsBySession).flat().find((item) => item.id === requestId);
+      if (!request) {
+        throw new Error('This permission request is no longer available.');
+      }
+      await replyToPendingPermission(client, request.id, reply);
+      setPendingPermissionsBySession((current) => ({
+        ...current,
+        [request.sessionID]: (current[request.sessionID] || []).filter((item) => item.id !== request.id),
+      }));
+      await refreshMessages(request.sessionID, true);
+    },
+    [client, pendingPermissionsBySession, refreshMessages],
+  );
+
+  const replyToQuestion = useCallback(
+    async (requestId: string, answers: PendingQuestionAnswer[]) => {
+      const request = Object.values(pendingQuestionsBySession).flat().find((item) => item.id === requestId);
+      if (!request) {
+        throw new Error('This question is no longer available.');
+      }
+      await replyToPendingQuestion(client, request.id, answers);
+      setPendingQuestionsBySession((current) => ({
+        ...current,
+        [request.sessionID]: (current[request.sessionID] || []).filter((item) => item.id !== request.id),
+      }));
+      await refreshMessages(request.sessionID, true);
+    },
+    [client, pendingQuestionsBySession, refreshMessages],
+  );
+
+  const rejectQuestion = useCallback(
+    async (requestId: string) => {
+      const request = Object.values(pendingQuestionsBySession).flat().find((item) => item.id === requestId);
+      if (!request) {
+        throw new Error('This question is no longer available.');
+      }
+      await rejectPendingQuestion(client, request.id);
+      setPendingQuestionsBySession((current) => ({
+        ...current,
+        [request.sessionID]: (current[request.sessionID] || []).filter((item) => item.id !== request.id),
+      }));
+      await refreshMessages(request.sessionID, true);
+    },
+    [client, pendingQuestionsBySession, refreshMessages],
+  );
+
+  const updateChatPreferences = useCallback((patch: Partial<ChatPreferences>) => {
+    setChatPreferences((current) => {
+      const configuredProviderIds = new Set(availableProviders.filter((provider) => provider.configured).map((provider) => provider.id));
+      const configuredModels = availableModels.filter((model) => configuredProviderIds.has(model.providerID));
+      const enabledModelIds = getEnabledModelIds(configuredModels, patch.enabledModelIds ?? current.enabledModelIds);
+      const enabledModels = configuredModels.filter((model) => enabledModelIds.includes(model.id));
+      const nextProviderId = patch.providerId ?? current.providerId;
+      const safeProviderId = nextProviderId && enabledModels.some((model) => model.providerID === nextProviderId)
+        ? nextProviderId
+        : getInitialProviderId(enabledModels, undefined, current.providerId, patch.modelId ?? current.modelId);
+      const requestedModelId = patch.modelId ?? current.modelId;
+      const nextProviderModelSelections = patch.modelId
+        ? {
+            ...current.providerModelSelections,
+            [patch.providerId ?? safeProviderId ?? patch.modelId.split('/')[0]]: patch.modelId,
+          }
+        : current.providerModelSelections;
+      const nextModelId = getModelIdForProvider(
+        enabledModels,
+        safeProviderId,
+        requestedModelId,
+        safeProviderId ? nextProviderModelSelections[safeProviderId] : undefined,
+      );
+
+      return {
+        ...current,
+        ...patch,
+        providerId: safeProviderId,
+        modelId: nextModelId,
+        enabledModelIds,
+        providerModelSelections:
+          safeProviderId && nextModelId
+            ? {
+                ...nextProviderModelSelections,
+                [safeProviderId]: nextModelId,
+              }
+            : nextProviderModelSelections,
+      };
+    });
+  }, [availableModels, availableProviders]);
+
+  const configureProvider = useCallback(
+    async (providerId: string) => {
+      const latestConfig = currentConfig || (await client.config.get()).data;
+      if (!latestConfig) {
+        throw new Error('OpenCode did not return its configuration.');
+      }
+      const enabledProviders = new Set(latestConfig.enabled_providers || []);
+      enabledProviders.add(providerId);
+
+      const updatedConfig = (await client.config.update({
+        config: {
+          ...latestConfig,
+          disabled_providers: (latestConfig.disabled_providers || []).filter((id) => id !== providerId),
+          enabled_providers: [...enabledProviders].sort(),
+        },
+      })).data;
+      if (!updatedConfig) {
+        throw new Error('OpenCode did not return its updated configuration.');
+      }
+
+      setCurrentConfig(updatedConfig);
+      await refreshChatCapabilities();
+      setChatPreferences((current) => ({
+        ...current,
+        providerId: current.providerId || providerId,
+      }));
+    },
+    [client, currentConfig, refreshChatCapabilities],
+  );
+
+  const setProviderAuth = useCallback(
+    async (providerId: string, values: Record<string, string>) => {
+      const key = values.key?.trim();
+      const token = values.token?.trim();
+      if (!key) {
+        throw new Error('Enter a provider credential first.');
+      }
+
+      const metadata = Object.fromEntries(
+        Object.entries(values)
+          .filter(([name, value]) => name !== 'key' && name !== 'token' && value.trim())
+          .map(([name, value]) => [name, value.trim()]),
+      );
+      const auth = token
+        ? { type: 'wellknown' as const, key, token }
+        : { type: 'api' as const, key, ...(Object.keys(metadata).length > 0 ? { metadata } : {}) };
+
+      await client.auth.set({ providerID: providerId, auth });
+      await configureProvider(providerId);
+      await refreshChatCapabilities();
+    },
+    [client, configureProvider, refreshChatCapabilities],
+  );
+
+  const removeProvider = useCallback(async (providerId: string) => {
+    await client.auth.remove({ providerID: providerId });
+    const latestConfig = currentConfig || (await client.config.get()).data;
+    if (latestConfig) {
+      const updatedConfig = (await client.config.update({
+        config: {
+          ...latestConfig,
+          disabled_providers: [...new Set([...(latestConfig.disabled_providers || []), providerId])].sort(),
+          enabled_providers: (latestConfig.enabled_providers || []).filter((id) => id !== providerId),
+        },
+      })).data;
+      setCurrentConfig(updatedConfig);
+    }
+    await refreshChatCapabilities();
+  }, [client, currentConfig, refreshChatCapabilities]);
+
+  const startProviderOAuth = useCallback(
+    async (providerId: string, methodIndex: number, inputs?: Record<string, string>) => {
+      const authorization = (await client.provider.oauth.authorize({
+        providerID: providerId,
+        method: methodIndex,
+        inputs,
+      })).data;
+      if (!authorization) {
+        throw new Error('OpenCode did not return OAuth authorization details.');
+      }
+
+      return {
+        url: authorization.url,
+        instructions: authorization.instructions,
+        method: authorization.method,
+      };
+    },
+    [client],
+  );
+
+  const completeAutomaticProviderOAuth = useCallback(async (providerId: string) => {
+    const providers = (await client.provider.list()).data;
+    if (!providers?.connected.includes(providerId)) {
+      throw new Error('Provider sign-in was not completed. Finish authentication in the browser and try again.');
+    }
+    await configureProvider(providerId);
+  }, [client, configureProvider]);
+
+  const completeProviderOAuth = useCallback(async (providerId: string, methodIndex: number, code: string) => {
+    await client.provider.oauth.callback({
+      providerID: providerId,
+      method: methodIndex,
+      code: code.trim() || undefined,
+    });
+    await configureProvider(providerId);
+    await refreshChatCapabilities();
+  }, [client, configureProvider, refreshChatCapabilities]);
+
+  const setAutoApprove = useCallback(
+    async (enabled: boolean) => {
+      const latestConfig = currentConfig || (await client.config.get()).data;
+      const nextConfig = mergePermissionConfig(latestConfig, enabled);
+      const updatedConfig = (await client.config.update({ config: nextConfig })).data;
+      if (!updatedConfig) {
+        throw new Error('OpenCode did not return its updated configuration.');
+      }
+
+      setCurrentConfig(updatedConfig);
+      setChatPreferences((current) => ({
+        ...current,
+        autoApprove: enabled,
+      }));
+    },
+    [client, currentConfig],
+  );
+
+  const sendPrompt = useCallback(
+    async (
+      sessionId: string,
+      prompt: string,
+      attachments?: { uri: string; mime?: string; filename?: string }[],
+    ) => {
+      const trimmedPrompt = prompt.trim();
+      if (!trimmedPrompt && (!attachments || attachments.length === 0)) {
+        return false;
+      }
+
+      if (promptSubmissionRef.current.active) {
+        return false;
+      }
+
+      promptSubmissionRef.current = { active: true, sessionId };
+      setPromptError(undefined);
+
+      const currentSession = sessions.find((session) => session.id === sessionId);
+      let promptAccepted = false;
+
+      try {
+        busyNotificationSessionIdsRef.current.delete(sessionId);
+        notificationRequestedAtRef.current.set(sessionId, Date.now());
+        pendingNotificationSessionIdsRef.current.add(sessionId);
+        if (activeProjectPath && rhythmAccount.user) {
+          const notificationOrigin = {
+            accountUserId: rhythmAccount.user.id,
+            serverUrl: settingsRef.current.serverUrl,
+          };
+          pendingNotificationOriginBySessionIdRef.current.set(
+            sessionId,
+            notificationOrigin,
+          );
+          await trackPendingTaskFinishedNotification({
+            accountUserId: rhythmAccount.user.id,
+            sessionId,
+            sessionTitle: currentSession?.title,
+            projectPath: activeProjectPath,
+            settings: {
+              serverUrl: settingsRef.current.serverUrl,
+              username: settingsRef.current.username,
+            },
+            requestedAt: Date.now(),
+          }).catch(() => undefined);
+        }
+
+        setSendingState({ active: true, sessionId });
+        const selectedModel = availableModels.find((model) => model.id === chatPreferences.modelId);
+        if (attachments?.length && !selectedModel) {
+          throw new Error('Select a model that supports attachments first.');
+        }
+        if (attachments?.length && !selectedModel?.supportsAttachments) {
+          throw new Error(`${selectedModel?.label || 'The selected model'} does not support file attachments.`);
+        }
+        if (attachments?.length && selectedModel?.inputModalities?.length) {
+          const unsupported = attachments.find((attachment) => {
+            const mime = attachment.mime || '';
+            const modality = mime.startsWith('image/') ? 'image'
+              : mime.startsWith('audio/') ? 'audio'
+                : mime.startsWith('video/') ? 'video'
+                  : mime === 'application/pdf' ? 'pdf'
+                    : undefined;
+            return modality && !selectedModel.inputModalities.includes(modality);
+          });
+          if (unsupported) {
+            throw new Error(`${selectedModel.label} does not support ${unsupported.mime || 'this attachment type'} input.`);
+          }
+        }
+
+        // Prepare file parts. For local URIs (file://, content://, asset://) read the
+        // file and convert it to a data URL so the server receives the attachment bytes.
+        // Mobile-local URIs are not reachable from the OpenCode server.
+        const preparedFileParts: { type: 'file'; mime: string; filename?: string; url: string }[] = [];
+
+        if (attachments && attachments.length > 0) {
+          for (const att of attachments) {
+            const filename = att.filename || att.uri.split('/').pop();
+            const mime = att.mime || 'application/octet-stream';
+
+            // Remote and picker-provided data URLs are already server-readable.
+            if (/^(?:https?:\/\/|data:)/i.test(att.uri)) {
+              preparedFileParts.push({ type: 'file', mime, filename, url: att.uri });
+              continue;
+            }
+
+            try {
+              const FileSystem = await import('expo-file-system/legacy');
+              const info = await FileSystem.getInfoAsync(att.uri);
+              if (info.exists && typeof info.size === 'number' && info.size > 10 * 1024 * 1024) {
+                throw new Error('File exceeds the 10 MB attachment limit.');
+              }
+              const base64 = await FileSystem.readAsStringAsync(att.uri, { encoding: 'base64' });
+              const dataUrl = `data:${mime};base64,${base64}`;
+              preparedFileParts.push({ type: 'file', mime, filename, url: dataUrl });
+            } catch (error) {
+              const reason = error instanceof Error ? error.message : 'unknown error';
+              throw new Error(`Could not read attachment${filename ? ` \"${filename}\"` : ''}: ${reason}`);
+            }
+          }
+        }
+
+        const parts: (TextPartInput | FilePartInput)[] = [];
+        if (trimmedPrompt) {
+          parts.push({ type: 'text', text: trimmedPrompt });
+        }
+        parts.push(...preparedFileParts);
+
+        await client.session.promptAsync({
+          sessionID: sessionId,
+          agent: chatPreferences.mode,
+          model: getSelectedModelParts(chatPreferences.modelId),
+          system: buildSystemPrompt(chatPreferences),
+          parts,
+        });
+        promptAccepted = true;
+        promptSubmissionRef.current = { active: false, sessionId: undefined };
+        if (!isCurrentClient(client)) {
+          return true;
+        }
+        setTimeout(() => void refreshSessions(true).catch(() => undefined), 5000);
+
+        setCurrentSessionId(sessionId);
+        const nextSessions = await fetchSessions(true);
+        await Promise.all([
+          refreshMessages(sessionId, true),
+          refreshSessionDiff(sessionId, true),
+          refreshSessionTodos(sessionId),
+        ]);
+
+        const refreshedSession = nextSessions.find((session) => session.id === sessionId);
+        if (!refreshedSession?.title?.trim()) {
+          try {
+            await summarizeSessionTitle(sessionId, nextSessions);
+          } catch {
+            // Leave the session untitled if summarization is unavailable.
+          }
+        }
+        return true;
+      } catch (error) {
+        promptSubmissionRef.current = { active: false, sessionId: undefined };
+        if (promptAccepted) {
+          scheduleSessionRefresh(sessionId, { sessions: true, messages: true, diff: true, todos: true, delayMs: 1000 });
+          return true;
+        }
+        setPromptError({
+          message: error instanceof Error ? error.message : 'OpenCode could not send that message.',
+          occurredAt: Date.now(),
+          sessionId,
+        });
+        if (!promptAccepted) {
+          pendingNotificationSessionIdsRef.current.delete(sessionId);
+          notificationRequestedAtRef.current.delete(sessionId);
+          await clearTrackedPendingNotification(sessionId).catch(() => undefined);
+        }
+
+        throw error;
+      } finally {
+        setSendingState({ active: false, sessionId: undefined });
+      }
+    },
+    [activeProjectPath, availableModels, chatPreferences, clearTrackedPendingNotification, client, fetchSessions, isCurrentClient, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions, rhythmAccount.user, scheduleSessionRefresh, sessions, summarizeSessionTitle],
+  );
+
+  const abortSession = useCallback(
+    async (sessionId: string) => {
+      pendingNotificationSessionIdsRef.current.delete(sessionId);
+      busyNotificationSessionIdsRef.current.delete(sessionId);
+      notificationRequestedAtRef.current.delete(sessionId);
+      await clearTrackedPendingNotification(sessionId);
+      await client.session.abort({ sessionID: sessionId });
+
+      await Promise.all([
+        refreshSessions(true),
+        refreshMessages(sessionId, true),
+        refreshSessionDiff(sessionId, true),
+        refreshSessionTodos(sessionId),
+      ]);
+    },
+    [clearTrackedPendingNotification, client, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions],
+  );
+
+  const speechInput = useSpeechInput({
+    levelStep: 2,
+    locale: chatPreferences.speechLocale,
+    onResult: (transcript, isFinal) => {
+      if (conversationPhaseRef.current !== 'listening') {
+        return;
+      }
+
+      const nextTranscript = transcript.trim();
+      if (!nextTranscript) {
+        return;
+      }
+
+      pendingConversationTranscriptRef.current = nextTranscript;
+      setConversationLatestHeardText(nextTranscript);
+      if (conversationFinalResultTimeoutRef.current) {
+        clearTimeout(conversationFinalResultTimeoutRef.current);
+        conversationFinalResultTimeoutRef.current = undefined;
+      }
+
+      if (isFinal) {
+        conversationFinalResultTimeoutRef.current = setTimeout(() => {
+          conversationFinalResultTimeoutRef.current = undefined;
+          flushPendingConversationResultRef.current();
+        }, CONVERSATION_FINAL_RESULT_SETTLE_MS);
+      }
+    },
+    preferOnDevice: chatPreferences.preferOnDeviceRecognition,
+    volumeUpdateIntervalMillis: 400,
+  });
+  const {
+    abort: abortSpeechInput,
+    error: speechInputError,
+    errorCode: speechInputErrorCode,
+    isListening: isConversationListening,
+    isStarting: isConversationListeningStarting,
+    level: conversationListeningLevel,
+    start: startSpeechInput,
+  } = speechInput;
+
+  const flushPendingConversationResult = useCallback(() => {
+    const transcript = pendingConversationTranscriptRef.current?.trim();
+    clearPendingConversationResult();
+    if (!transcript || conversationPhaseRef.current !== 'listening') {
+      return;
+    }
+
+    conversationPhaseRef.current = 'submitting';
+    conversationSubmittingRef.current = true;
+    abortSpeechInput();
+    setPendingConversationTurn(transcript);
+    setConversationPhase('submitting');
+  }, [abortSpeechInput, clearPendingConversationResult]);
+  flushPendingConversationResultRef.current = flushPendingConversationResult;
+
+  const getLatestConversationAssistantEntry = useCallback(
+    (sessionId?: string) => {
+      if (!sessionId) {
+        return undefined;
+      }
+
+        const transcript = (messagesBySession[sessionId] || []).map(toTranscriptEntry).filter(isTranscriptDisplayMessage);
+      return [...transcript].reverse().find((entry) => entry.role === 'assistant' && entry.text.trim());
+    },
+    [messagesBySession],
+  );
+
+  const clearConversationFeedback = useCallback(() => {
+    setConversationFeedback(undefined);
+  }, []);
+
+  const stopConversationMode = useCallback(async () => {
+    clearPendingConversationResult();
+    if (conversationResumeTimeoutRef.current) {
+      clearTimeout(conversationResumeTimeoutRef.current);
+      conversationResumeTimeoutRef.current = undefined;
+    }
+    if (conversationListeningRestartTimeoutRef.current) {
+      clearTimeout(conversationListeningRestartTimeoutRef.current);
+      conversationListeningRestartTimeoutRef.current = undefined;
+    }
+
+    conversationCancelRequestedRef.current = true;
+    conversationSubmittingRef.current = false;
+    conversationPhaseRef.current = 'off';
+    abortSpeechInput();
+    await stopSpeaking().catch(() => undefined);
+    await stopWorkingSoundAsync().catch(() => undefined);
+    setPendingConversationTurn(undefined);
+    setQueuedConversationPrompt(undefined);
+    setConversationLatestHeardText(undefined);
+    setConversationPhase('off');
+    setConversationSessionId(undefined);
+  }, [abortSpeechInput, clearPendingConversationResult]);
+
+  const startConversationListening = useCallback(async (sessionId?: string) => {
+    if (!sessionId && !conversationSessionId) {
+      return false;
+    }
+
+    clearPendingConversationResult();
+    if (conversationResumeTimeoutRef.current) {
+      clearTimeout(conversationResumeTimeoutRef.current);
+      conversationResumeTimeoutRef.current = undefined;
+    }
+    if (conversationListeningRestartTimeoutRef.current) {
+      clearTimeout(conversationListeningRestartTimeoutRef.current);
+      conversationListeningRestartTimeoutRef.current = undefined;
+    }
+
+    conversationCancelRequestedRef.current = false;
+    conversationSubmittingRef.current = false;
+    setPendingConversationTurn(undefined);
+    setQueuedConversationPrompt(undefined);
+    await stopWorkingSoundAsync().catch(() => undefined);
+
+    const started = await startSpeechInput({ continuous: true });
+    if (!started) {
+      conversationPhaseRef.current = 'off';
+      setConversationPhase('off');
+      return false;
+    }
+
+    conversationPhaseRef.current = 'listening';
+    setConversationPhase('listening');
+    return true;
+  }, [clearPendingConversationResult, conversationSessionId, startSpeechInput]);
+
+  const toggleConversationMode = useCallback(async () => {
+    if (conversationPhase !== 'off') {
+      await stopConversationMode();
+      return;
+    }
+
+    if (connection.status !== 'connected') {
+      setConversationFeedback('Connect to OpenCode before starting conversation mode.');
+      return;
+    }
+
+    if (sendingState.active) {
+      setConversationFeedback('Wait for the current reply to finish before starting conversation mode.');
+      return;
+    }
+
+    const pendingInteractionCount = currentSessionId
+      ? (pendingPermissionsBySession[currentSessionId] || []).length + (pendingQuestionsBySession[currentSessionId] || []).length
+      : 0;
+    if (pendingInteractionCount > 0) {
+      setConversationFeedback('Answer the current request before starting conversation mode.');
+      return;
+    }
+
+    const sessionId = currentSessionId || (await ensureActiveSession());
+    if (!sessionId) {
+      return;
+    }
+
+    abortSpeechInput();
+    await stopSpeaking().catch(() => undefined);
+    await stopWorkingSoundAsync().catch(() => undefined);
+    setCurrentSessionId(sessionId);
+    setConversationSessionId(sessionId);
+    setConversationFeedback(undefined);
+    setPendingConversationTurn(undefined);
+    setQueuedConversationPrompt(undefined);
+    assistantReplyBaselineIdRef.current = getLatestConversationAssistantEntry(sessionId)?.id;
+    const started = await startConversationListening(sessionId);
+    if (!started) {
+      setConversationSessionId(undefined);
+    }
+  }, [
+    abortSpeechInput,
+    connection.status,
+    conversationPhase,
+    currentSessionId,
+    ensureActiveSession,
+    getLatestConversationAssistantEntry,
+    pendingPermissionsBySession,
+    pendingQuestionsBySession,
+    sendingState.active,
+    startConversationListening,
+    stopConversationMode,
+  ]);
+
+  useEffect(() => {
+    Object.entries(sessionStatuses).forEach(([sessionId, status]) => {
+      if (status.type !== 'idle' && pendingNotificationSessionIdsRef.current.has(sessionId)) {
+        busyNotificationSessionIdsRef.current.add(sessionId);
+      }
+    });
+  }, [sessionStatuses]);
+
+  useEffect(() => {
+    conversationPhaseRef.current = conversationPhase;
+    if (conversationPhase !== 'submitting') {
+      conversationSubmittingRef.current = false;
+    }
+  }, [conversationPhase]);
+
+  useEffect(() => {
+    if (conversationPhase !== 'listening' || isConversationListening || isConversationListeningStarting) {
+      if (conversationListeningRestartTimeoutRef.current) {
+        clearTimeout(conversationListeningRestartTimeoutRef.current);
+        conversationListeningRestartTimeoutRef.current = undefined;
+      }
+      return;
+    }
+
+    if (conversationCancelRequestedRef.current || conversationSubmittingRef.current) {
+      return;
+    }
+
+    conversationListeningRestartTimeoutRef.current = setTimeout(() => {
+      conversationListeningRestartTimeoutRef.current = undefined;
+      if (
+        conversationPhaseRef.current !== 'listening' ||
+        conversationCancelRequestedRef.current ||
+        conversationSubmittingRef.current
+      ) {
+        return;
+      }
+
+      void startConversationListening();
+    }, CONVERSATION_LISTENING_RESTART_MS);
+
+    return () => {
+      if (conversationListeningRestartTimeoutRef.current) {
+        clearTimeout(conversationListeningRestartTimeoutRef.current);
+        conversationListeningRestartTimeoutRef.current = undefined;
+      }
+    };
+  }, [conversationPhase, isConversationListening, isConversationListeningStarting, startConversationListening]);
+
+  useConversationKeepAwake(conversationPhase, CONVERSATION_KEEP_AWAKE_TAG);
+  useConversationScreenDim(conversationPhase);
+
+  useEffect(() => {
+    if (!speechInputError) {
+      return;
+    }
+
+    if (
+      conversationPhaseRef.current === 'listening' &&
+      (speechInputErrorCode === 'client' || speechInputErrorCode === 'no-speech' || speechInputErrorCode === 'speech-timeout')
+    ) {
+      return;
+    }
+
+    setConversationFeedback(speechInputError);
+    if (conversationPhaseRef.current !== 'off') {
+      void stopConversationMode();
+    }
+  }, [speechInputError, speechInputErrorCode, stopConversationMode]);
+
+  useEffect(() => {
+    if (conversationPhase === 'off' || conversationPhase !== 'submitting' || !pendingConversationTurn || !conversationSessionId) {
+      return;
+    }
+
+    setQueuedConversationPrompt(pendingConversationTurn);
+    setPendingConversationTurn(undefined);
+  }, [conversationPhase, conversationSessionId, pendingConversationTurn]);
+
+  useEffect(() => {
+    if (conversationPhase === 'off' || conversationPhase !== 'submitting' || !queuedConversationPrompt || !conversationSessionId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const submitPrompt = async () => {
+      try {
+        assistantReplyBaselineIdRef.current = getLatestConversationAssistantEntry(conversationSessionId)?.id;
+        await sendPrompt(conversationSessionId, queuedConversationPrompt);
+        if (cancelled) {
+          return;
+        }
+
+        if (conversationCancelRequestedRef.current || conversationPhaseRef.current === 'off') {
+          setQueuedConversationPrompt(undefined);
+          setPendingConversationTurn(undefined);
+          return;
+        }
+
+        setQueuedConversationPrompt(undefined);
+        setConversationPhase('waiting');
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        const message = error instanceof Error ? error.message : 'Voice conversation failed while sending your message.';
+        setQueuedConversationPrompt(undefined);
+        setPendingConversationTurn(undefined);
+        setConversationFeedback(message);
+        await stopConversationMode();
+      }
+    };
+
+    void submitPrompt();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    conversationPhase,
+    conversationSessionId,
+    getLatestConversationAssistantEntry,
+    queuedConversationPrompt,
+    sendPrompt,
+    stopConversationMode,
+  ]);
+
+  useEffect(() => {
+    if (conversationPhase === 'off' || conversationPhase !== 'waiting') {
+      return;
+    }
+
+    const pendingInteractions = conversationSessionId
+      ? (pendingPermissionsBySession[conversationSessionId] || []).length + (pendingQuestionsBySession[conversationSessionId] || []).length
+      : 0;
+    const latestAssistantEntry = getLatestConversationAssistantEntry(conversationSessionId);
+    const sessionStatus = conversationSessionId ? sessionStatuses[conversationSessionId] : undefined;
+    const isSessionRunning = conversationSessionId
+      ? sendingState.sessionId === conversationSessionId || sendingState.active || (!!sessionStatus && sessionStatus.type !== 'idle')
+      : false;
+
+    if (pendingInteractions > 0) {
+      setConversationFeedback('Conversation mode paused because the assistant needs your input on screen.');
+      void stopConversationMode();
+      return;
+    }
+
+    if (isSessionRunning) {
+      return () => {
+        void stopWorkingSoundAsync().catch(() => undefined);
+      };
+    }
+
+    void stopWorkingSoundAsync().catch(() => undefined);
+    if (latestAssistantEntry && latestAssistantEntry.id !== assistantReplyBaselineIdRef.current) {
+      void (async () => {
+        const started = await speakText({
+          language: chatPreferences.speechLocale,
+          onDone: () => {
+            if (conversationPhaseRef.current !== 'off' && chatPreferences.resumeListeningAfterReply) {
+              void startConversationListening();
+            } else {
+              void stopConversationMode();
+            }
+          },
+          onError: () => {
+            setConversationFeedback('Unable to play this assistant reply.');
+            void stopConversationMode();
+          },
+          onStart: () => {
+            setConversationPhase('speaking');
+          },
+          rate: chatPreferences.speechRate,
+          text: latestAssistantEntry.text,
+          voice: chatPreferences.speechVoiceId,
+        });
+
+        if (!started) {
+          if (chatPreferences.resumeListeningAfterReply) {
+            void startConversationListening();
+          } else {
+            void stopConversationMode();
+          }
+        }
+      })();
+      return;
+    }
+
+    conversationResumeTimeoutRef.current = setTimeout(() => {
+      if (conversationPhaseRef.current === 'waiting' && !isSessionRunning) {
+        void startConversationListening();
+      }
+    }, 1200);
+
+    return () => {
+      if (conversationResumeTimeoutRef.current) {
+        clearTimeout(conversationResumeTimeoutRef.current);
+        conversationResumeTimeoutRef.current = undefined;
+      }
+    };
+  }, [
+    chatPreferences.resumeListeningAfterReply,
+    chatPreferences.speechLocale,
+    chatPreferences.speechRate,
+    chatPreferences.speechVoiceId,
+    conversationPhase,
+    conversationSessionId,
+    getLatestConversationAssistantEntry,
+    pendingPermissionsBySession,
+    pendingQuestionsBySession,
+    sendingState.active,
+    sendingState.sessionId,
+    sessionStatuses,
+    startConversationListening,
+    stopConversationMode,
+  ]);
+
+  useEffect(() => {
+    if (conversationPhase === 'off' || connection.status === 'connected') {
+      return;
+    }
+
+    setConversationFeedback(connection.message || 'OpenCode disconnected. Conversation mode will resume when the connection returns.');
+  }, [connection.message, connection.status, conversationPhase]);
+
+  useEffect(() => {
+    if (connection.status !== 'connected') {
+      return;
+    }
+
+    setConversationFeedback((current) => {
+      if (!current) {
+        return current;
+      }
+
+      if (current === connection.message || current.includes('resume when the connection returns')) {
+        return undefined;
+      }
+
+      return current;
+    });
+  }, [connection.message, connection.status]);
+
+  useEffect(() => {
+    if (connection.status !== 'connected' || !activeProjectPath) {
+      setEventStreamStatus('idle');
+      return;
+    }
+
+    let mounted = true;
+    let activeAbortController: AbortController | undefined;
+    const seenEventIds = new Set<string>();
+    const rememberEvent = (event: GlobalEvent['payload']) => {
+      const id = getStableRecoveryEventId(event);
+      if (!id) return true;
+      if (seenEventIds.has(id)) return false;
+      seenEventIds.add(id);
+      if (seenEventIds.size > 2048) {
+        const oldest = seenEventIds.values().next().value;
+        if (oldest) seenEventIds.delete(oldest);
+      }
+      return true;
+    };
+
+    const handleEvent = (event: GlobalEvent['payload']) => {
+      switch (event.type) {
+        case 'session.created':
+        case 'session.updated':
+        case 'session.deleted':
+          void refreshSessions(true);
+          void refreshArchivedSessions();
+          return;
+        case 'session.status': {
+          const sessionId = event.properties.sessionID;
+          setSessionStatuses((current) => ({
+            ...current,
+            [sessionId]: event.properties.status,
+          }));
+          scheduleSessionRefresh(sessionId, { sessions: true, messages: true, diff: true, todos: true });
+          return;
+        }
+        case 'session.idle': {
+          const sessionId = event.properties.sessionID;
+          setSessionStatuses((current) => ({
+            ...current,
+            [sessionId]: { type: 'idle' },
+          }));
+          scheduleSessionRefresh(sessionId, { sessions: true, messages: true, diff: true, todos: true, delayMs: 50 });
+          void refreshPendingInteractions();
+          void refreshServerFeatures();
+          return;
+        }
+        case 'session.error': {
+          const sessionId = event.properties.sessionID;
+          const error = event.properties.error;
+          const message = error && 'data' in error && error.data && 'message' in error.data
+            ? error.data.message
+            : error && 'message' in error
+              ? error.message
+              : 'OpenCode could not complete the request.';
+          setPromptError({
+            message: error?.name ? `${error.name}: ${message}` : String(message),
+            occurredAt: Date.now(),
+            sessionId,
+          });
+          if (sessionId) {
+            scheduleSessionRefresh(sessionId, { sessions: true, messages: true });
+          }
+          return;
+        }
+        case 'message.updated': {
+          scheduleSessionRefresh(event.properties.sessionID, { messages: true });
+          return;
+        }
+        case 'message.removed':
+        case 'message.part.updated':
+        case 'message.part.removed': {
+          scheduleSessionRefresh(event.properties.sessionID, { messages: true });
+          return;
+        }
+        case 'session.compacted': {
+          scheduleSessionRefresh(event.properties.sessionID, { sessions: true, messages: true, diff: true, todos: true });
+          return;
+        }
+        case 'project.updated':
+          void refreshWorkspaceCatalog(true);
+          return;
+        case 'file.edited':
+        case 'vcs.branch.updated':
+          void refreshServerFeatures();
+          return;
+        case 'pty.created':
+        case 'pty.updated':
+        case 'pty.exited':
+        case 'pty.deleted':
+          void refreshTerminals();
+          return;
+        case 'worktree.ready':
+        case 'worktree.failed':
+          void refreshWorktrees();
+          void refreshWorkspaceCatalog(true);
+          return;
+        case 'mcp.tools.changed':
+        case 'mcp.browser.open.failed':
+          void refreshMcpServers();
+          return;
+        case 'lsp.updated':
+          void refreshDiagnostics();
+          return;
+        case 'session.diff': {
+          const sessionId = event.properties.sessionID;
+          if (event.properties.diff.length > 0) {
+            setDiffsBySession((current) => ({
+              ...current,
+              [sessionId]: event.properties.diff,
+            }));
+          } else {
+            scheduleSessionRefresh(sessionId, { diff: true, delayMs: 50 });
+          }
+          return;
+        }
+        case 'todo.updated': {
+          const sessionId = event.properties.sessionID;
+          setTodosBySession((current) => ({
+            ...current,
+            [sessionId]: event.properties.todos,
+          }));
+          return;
+        }
+        case 'permission.asked': {
+          const request = event.properties;
+          setPendingPermissionsBySession((current) => ({
+            ...current,
+            [request.sessionID]: [
+              ...(current[request.sessionID] || []).filter((item) => item.id !== request.id),
+              request,
+            ],
+          }));
+          return;
+        }
+        case 'permission.replied': {
+          const { sessionID, requestID } = event.properties;
+          setPendingPermissionsBySession((current) => ({
+            ...current,
+            [sessionID]: (current[sessionID] || []).filter((item) => item.id !== requestID),
+          }));
+          return;
+        }
+        case 'question.asked': {
+          const request = event.properties;
+          setPendingQuestionsBySession((current) => ({
+            ...current,
+            [request.sessionID]: [
+              ...(current[request.sessionID] || []).filter((item) => item.id !== request.id),
+              request,
+            ],
+          }));
+          return;
+        }
+        case 'question.replied':
+        case 'question.rejected': {
+          const { sessionID, requestID } = event.properties;
+          setPendingQuestionsBySession((current) => ({
+            ...current,
+            [sessionID]: (current[sessionID] || []).filter((item) => item.id !== requestID),
+          }));
+          return;
+        }
+        default:
+          return;
+      }
+    };
+
+    const subscribe = async () => {
+      let retryAttempt = 0;
+      while (mounted) {
+        const abortController = new AbortController();
+        activeAbortController = abortController;
+        setEventStreamStatus(retryAttempt === 0 ? 'connecting' : 'error');
+
+        try {
+          const eventClient = pairedHost.client ? client : catalogClient;
+          const subscription = await eventClient.global.event({ signal: abortController.signal, sseMaxRetryAttempts: 1 });
+          setEventStreamStatus('connected');
+          await Promise.all([
+            refreshSessions(true),
+            refreshArchivedSessions(),
+            refreshPendingInteractions(),
+            refreshServerFeatures(),
+            refreshCurrentSession(true),
+          ]);
+          for await (const envelope of subscription.stream) {
+            if (!mounted || abortController.signal.aborted) {
+              break;
+            }
+            if (envelope?.directory === activeProjectPath) {
+              setEventStreamStatus('connected');
+              retryAttempt = 0;
+              if (rememberEvent(envelope.payload)) {
+                handleEvent(envelope.payload);
+              }
+            }
+          }
+          if (mounted && !abortController.signal.aborted) {
+            throw new Error('OpenCode event stream ended.');
+          }
+        } catch {
+          if (!mounted || abortController.signal.aborted) {
+            break;
+          }
+          setEventStreamStatus('error');
+          const retryDelay = getRecoveryDelayMs(retryAttempt);
+          retryAttempt += 1;
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+        }
+      }
+    };
+
+    void subscribe();
+
+    return () => {
+      mounted = false;
+      activeAbortController?.abort();
+    };
+  }, [activeProjectPath, catalogClient, client, connection.status, pairedHost.client, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, scheduleSessionRefresh]);
+
+  useEffect(
+    () => () => {
+      Object.values(sessionRefreshTimeoutsRef.current).forEach((timeout) => clearTimeout(timeout));
+      sessionRefreshTimeoutsRef.current = {};
+      sessionRefreshOptionsRef.current = {};
+      if (conversationResumeTimeoutRef.current) {
+        clearTimeout(conversationResumeTimeoutRef.current);
+      }
+      if (conversationFinalResultTimeoutRef.current) {
+        clearTimeout(conversationFinalResultTimeoutRef.current);
+      }
+
+      void stopSpeaking().catch(() => undefined);
+      void unloadWorkingSoundAsync().catch(() => undefined);
+      terminalSocketRef.current?.close();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (connection.status !== 'connected' || !activeProjectPath) {
+      return;
+    }
+
+    const hasBusySession = Object.values(sessionStatuses).some((status) => status.type !== 'idle');
+    const hasConversationActivity = conversationPhase !== 'off';
+    const useSafetyPolling = eventStreamStatus !== 'connected';
+    const shouldKeepSafetyPoll = useSafetyPolling || hasBusySession || sendingState.active || hasConversationActivity;
+
+    if (!shouldKeepSafetyPoll) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const currentHasBusySession = Object.values(sessionStatuses).some((status) => status.type !== 'idle');
+      const currentHasConversationActivity = conversationPhase !== 'off';
+
+      if (currentHasConversationActivity || currentHasBusySession || sendingState.active || useSafetyPolling) {
+        void refreshSessions(true);
+        void refreshPendingInteractions();
+      }
+
+      if (currentSessionId && (currentHasConversationActivity || currentHasBusySession || sendingState.active || useSafetyPolling)) {
+        void Promise.all([
+          refreshMessages(currentSessionId, true),
+          refreshSessionDiff(currentSessionId, true),
+          refreshSessionTodos(currentSessionId),
+        ]);
+      }
+
+      if (conversationSessionId && conversationSessionId !== currentSessionId && (currentHasConversationActivity || currentHasBusySession || sendingState.active || useSafetyPolling)) {
+        void Promise.all([
+          refreshMessages(conversationSessionId, true),
+          refreshSessionDiff(conversationSessionId, true),
+          refreshSessionTodos(conversationSessionId),
+        ]);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [activeProjectPath, connection.status, conversationPhase, conversationSessionId, currentSessionId, eventStreamStatus, refreshMessages, refreshPendingInteractions, refreshSessionDiff, refreshSessionTodos, refreshSessions, sendingState.active, sessionStatuses]);
+
+  useEffect(() => {
+    const busy = sendingState.active || Object.values(sessionStatuses).some((status) => status.type !== 'idle');
+    const shouldPlay = Platform.OS !== 'web' && chatPreferences.workingSoundEnabled && busy && conversationPhase !== 'listening' && conversationPhase !== 'speaking';
+    if (shouldPlay) {
+      void startWorkingSoundAsync(chatPreferences.workingSoundVariant, chatPreferences.workingSoundVolume).catch(() => undefined);
+      return;
+    }
+    void stopWorkingSoundAsync().catch(() => undefined);
+  }, [chatPreferences.workingSoundEnabled, chatPreferences.workingSoundVariant, chatPreferences.workingSoundVolume, conversationPhase, sendingState.active, sessionStatuses]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function flushCompletedNotifications() {
+      const pendingIds = [...pendingNotificationSessionIdsRef.current];
+      if (pendingIds.length === 0) {
+        return;
+      }
+
+      for (const sessionId of pendingIds) {
+        const status = sessionStatuses[sessionId];
+        const oldEnough = Date.now() - (notificationRequestedAtRef.current.get(sessionId) || Date.now()) >= 5000;
+        if ((!busyNotificationSessionIdsRef.current.has(sessionId) && !oldEnough) || (status && status.type !== 'idle') || (sendingState.active && sendingState.sessionId === sessionId)) {
+          continue;
+        }
+
+        const session = sessions.find((item) => item.id === sessionId);
+        if (!session) {
+          pendingNotificationSessionIdsRef.current.delete(sessionId);
+          busyNotificationSessionIdsRef.current.delete(sessionId);
+          notificationRequestedAtRef.current.delete(sessionId);
+          await clearTrackedPendingNotification(sessionId).catch(() => undefined);
+          continue;
+        }
+        await clearTrackedPendingNotification(sessionId);
+        if (cancelled) {
+          return;
+        }
+
+        pendingNotificationSessionIdsRef.current.delete(sessionId);
+        busyNotificationSessionIdsRef.current.delete(sessionId);
+        notificationRequestedAtRef.current.delete(sessionId);
+        const title = session.title || 'Task complete';
+        await notifyTaskFinished('OpenCode finished a task', title);
+      }
+    }
+
+    void flushCompletedNotifications();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [clearTrackedPendingNotification, sendingState.active, sendingState.sessionId, sessionStatuses, sessions]);
+
+  const updateSettings = useCallback((patch: Partial<OpencodeConnectionSettings>) => {
+    const connectionChanged = (['serverUrl', 'username', 'password'] as const)
+      .some((key) => patch[key] !== undefined && patch[key] !== settingsRef.current[key]);
+    if (connectionChanged) {
+      if (Platform.OS === 'web' && !pairedHost.client && !pairedHost.host) {
+        const nextSettings = { ...settingsRef.current, ...patch };
+        connectionTargetRef.current =
+          `direct:${nextSettings.serverUrl}:${nextSettings.username}:${nextSettings.password}`;
+      }
+      scopeGenerationRef.current += 1;
+      serverGenerationRef.current += 1;
+      setConnection({ status: 'idle', message: 'Connection settings changed. Reconnect to apply them.' });
+      setActiveProjectPath(undefined);
+      clearProjectState();
+      setMessagesBySession({});
+      setDiffsBySession({});
+      setTodosBySession({});
+      setServerProjects([]);
+      setCurrentProjectPath(undefined);
+      setServerRootPath(undefined);
+      setDiagnostics(undefined);
+    }
+    setSettings((current) => ({
+      ...current,
+      ...patch,
+    }));
+  }, [clearProjectState, pairedHost.client, pairedHost.host]);
+  const clearPromptError = useCallback(() => setPromptError(undefined), []);
+
+  useEffect(() => {
+    if (!currentSessionId) {
+      return;
+    }
+
+    if (sessions.some((session) => session.id === currentSessionId)) {
+      return;
+    }
+
+    const rememberedSessionId = activeProjectPath ? lastSessionByProject[activeProjectPath] : undefined;
+    const fallbackSessionId = sessions.find((session) => session.id === rememberedSessionId)?.id || sessions[0]?.id;
+    setCurrentSessionId(fallbackSessionId);
+  }, [activeProjectPath, currentSessionId, lastSessionByProject, sessions]);
+
+  const activeSession = useMemo(
+    () => sessions.find((session) => session.id === currentSessionId),
+    [currentSessionId, sessions],
+  );
+
+  const currentMessages = useMemo(
+    () => (currentSessionId ? messagesBySession[currentSessionId] || [] : []),
+    [currentSessionId, messagesBySession],
+  );
+  const currentDiffs = useMemo(
+    () => (currentSessionId ? diffsBySession[currentSessionId] || [] : []),
+    [currentSessionId, diffsBySession],
+  );
+  const currentTodos = useMemo(
+    () => (currentSessionId ? todosBySession[currentSessionId] || [] : []),
+    [currentSessionId, todosBySession],
+  );
+  const currentPendingPermissions = useMemo(
+    () => getCurrentPendingRequests(currentSessionId, sendingState.sessionId, pendingPermissionsBySession),
+    [currentSessionId, pendingPermissionsBySession, sendingState.sessionId],
+  );
+  const currentPendingQuestions = useMemo(
+    () => getCurrentPendingRequests(currentSessionId, sendingState.sessionId, pendingQuestionsBySession),
+    [currentSessionId, pendingQuestionsBySession, sendingState.sessionId],
+  );
+  const configuredProviders = useMemo(() => getConfiguredProviders(availableProviders), [availableProviders]);
+  const usagePricingByModel = useMemo(
+    () => Object.fromEntries(availableModels.flatMap((model) => model.pricing ? [[`${model.providerID}/${model.modelID}`, model.pricing] as const] : [])),
+    [availableModels],
+  );
+  const currentUsage = useMemo(() => aggregateSessionUsage(currentMessages, usagePricingByModel), [currentMessages, usagePricingByModel]);
+  const latestAssistantTurnUsage = useMemo(
+    () => getLatestAssistantTurnUsage(currentMessages, usagePricingByModel),
+    [currentMessages, usagePricingByModel],
+  );
+  const currentTranscript = useMemo(() => getTranscript(currentMessages), [currentMessages]);
+  const conversationMessages = useMemo(
+    () => (conversationSessionId ? messagesBySession[conversationSessionId] || [] : []),
+    [conversationSessionId, messagesBySession],
+  );
+  const conversationTranscript = useMemo(() => getTranscript(conversationMessages), [conversationMessages]);
+  const conversationCurrentActivityLabel = useMemo(() => getTranscriptActivityLabelForEntries(conversationTranscript), [conversationTranscript]);
+  const conversationActive = conversationPhase !== 'off';
+  const conversationStatusLabel = useMemo(() => getConversationStatusLabel(conversationPhase, conversationCurrentActivityLabel), [conversationCurrentActivityLabel, conversationPhase]);
+  const sessionPreviewById = useMemo(() => getSessionPreviewById(messagesBySession), [messagesBySession]);
+
+  const contextValue = useMemo<OpencodeContextValue>(
+    () => ({
+      isHydrated,
+      settings,
+      buildScopedClient,
+      updateSettings,
+      connection,
+      projects,
+      activeProjectPath,
+      activeProject,
+      selectProject,
+      serverProjects,
+      currentProjectPath,
+      serverRootPath,
+      isRefreshingWorkspaceCatalog,
+      refreshWorkspaceCatalog,
+      refreshWorkspaceStatus: refreshServerFeatures,
+      sessions,
+      archivedSessions,
+      sessionStatuses,
+      currentSessionId,
+      activeSession,
+      currentMessages,
+      currentUsage,
+      latestAssistantTurnUsage,
+      currentDiffs,
+      currentTranscript,
+      currentTodos,
+      currentPendingPermissions,
+      currentPendingQuestions,
+      sessionPreviewById,
+      isRefreshingSessions,
+      isRefreshingMessages,
+      isRefreshingDiffs,
+      isBootstrappingChat,
+      currentConfig,
+      availableProviders,
+      providerAuthMethodsById,
+      configuredProviders,
+      availableModels,
+      availableAgents,
+      chatPreferences,
+      updateChatPreferences,
+      conversation: {
+        active: conversationActive,
+        feedback: conversationFeedback,
+        isListening: isConversationListening,
+        level: conversationListeningLevel,
+        latestHeardText: conversationLatestHeardText,
+        phase: conversationPhase,
+        sessionId: conversationSessionId,
+        statusLabel: conversationStatusLabel,
+      },
+      clearConversationFeedback,
+      toggleConversationMode,
+      configureProvider,
+      completeAutomaticProviderOAuth,
+      setProviderAuth,
+      removeProvider,
+      startProviderOAuth,
+      completeProviderOAuth,
+      setAutoApprove,
+      sendingState,
+      promptError,
+      clearPromptError,
+      connect,
+      refreshSessions,
+      openSession,
+      refreshCurrentSession,
+      refreshCurrentTodos,
+      ensureActiveSession,
+      createSession,
+      deleteSession,
+      archiveSession,
+      restoreSession,
+      refreshArchivedSessions,
+      renameSession,
+      forkSession,
+      revertSession,
+      unrevertSession,
+      getSessionChildren,
+      deleteSessionMessage,
+      updateSessionTextPart,
+      deleteSessionPart,
+      initializeSession,
+      runSessionShell,
+      sendPrompt,
+      abortSession,
+      replyToPermission,
+      replyToQuestion,
+      rejectQuestion,
+      commands,
+      executeCommand,
+      workspaceFiles,
+      workspaceFileStatuses,
+      selectedWorkspaceFile,
+      vcsInfo,
+      searchWorkspaceFiles,
+      listWorkspaceDirectory,
+      searchWorkspaceText,
+      searchWorkspaceSymbols,
+      getWorkspaceVcsStatus,
+      getWorkspaceVcsDiff,
+      getWorkspaceRawVcsDiff,
+      openWorkspaceFile,
+      saveWorkspaceFile,
+      updateProjectMetadata,
+      initializeProjectGit,
+      worktrees,
+      refreshWorktrees,
+      createWorktree,
+      resetWorktree,
+      removeWorktree,
+      mcpStatuses,
+      refreshMcpServers,
+      addMcpServer,
+      connectMcpServer,
+      disconnectMcpServer,
+      setMcpServerEnabled,
+      startMcpOAuth,
+      completeMcpOAuth,
+      removeMcpOAuth,
+      loadOpenCodeInspection,
+      reloadOpenCodeSkills,
+      reloadOpenCodeConfig,
+      terminals,
+      terminalShells,
+      activeTerminalId,
+      terminalOutput,
+      terminalConnection,
+      refreshTerminals,
+      createTerminal,
+      getTerminalDetail,
+      resizeTerminal,
+      openTerminal,
+      sendTerminalInput,
+      closeTerminal,
+      diagnostics,
+      refreshDiagnostics,
+      eventStreamStatus,
+    }),
+    [
+      activeSession,
+      activeProject,
+      activeProjectPath,
+      connect,
+      connection,
+      currentConfig,
+      availableProviders,
+      providerAuthMethodsById,
+      configuredProviders,
+      currentDiffs,
+      createSession,
+      deleteSession,
+      renameSession,
+      forkSession,
+      revertSession,
+      unrevertSession,
+      getSessionChildren,
+      deleteSessionMessage,
+      updateSessionTextPart,
+      deleteSessionPart,
+      initializeSession,
+      runSessionShell,
+      configureProvider,
+      completeAutomaticProviderOAuth,
+      currentMessages,
+      currentUsage,
+      latestAssistantTurnUsage,
+      currentSessionId,
+      currentTranscript,
+      currentTodos,
+      currentPendingPermissions,
+      currentPendingQuestions,
+      chatPreferences,
+      clearConversationFeedback,
+      clearPromptError,
+      conversationActive,
+      conversationFeedback,
+      conversationLatestHeardText,
+      conversationListeningLevel,
+      conversationPhase,
+      conversationSessionId,
+      conversationStatusLabel,
+      ensureActiveSession,
+      availableAgents,
+      availableModels,
+      isConversationListening,
+      isBootstrappingChat,
+      isRefreshingDiffs,
+      isHydrated,
+      isRefreshingMessages,
+      isRefreshingWorkspaceCatalog,
+      isRefreshingSessions,
+      openSession,
+      promptError,
+      currentProjectPath,
+      projects,
+      refreshCurrentSession,
+      refreshCurrentTodos,
+      refreshWorkspaceCatalog,
+      refreshServerFeatures,
+      refreshSessions,
+      replyToPermission,
+      replyToQuestion,
+      rejectQuestion,
+      selectProject,
+      setAutoApprove,
+      sendPrompt,
+      abortSession,
+      sendingState,
+      serverRootPath,
+      sessionPreviewById,
+      sessionStatuses,
+      sessions,
+      serverProjects,
+      settings,
+      buildScopedClient,
+      setProviderAuth,
+      removeProvider,
+      startProviderOAuth,
+      completeProviderOAuth,
+      toggleConversationMode,
+      updateChatPreferences,
+      updateSettings,
+      commands,
+      executeCommand,
+      workspaceFiles,
+      workspaceFileStatuses,
+      selectedWorkspaceFile,
+      vcsInfo,
+      searchWorkspaceFiles,
+      listWorkspaceDirectory,
+      searchWorkspaceText,
+      searchWorkspaceSymbols,
+      getWorkspaceVcsStatus,
+      getWorkspaceVcsDiff,
+      getWorkspaceRawVcsDiff,
+      openWorkspaceFile,
+      diagnostics,
+      refreshDiagnostics,
+      eventStreamStatus,
+      archivedSessions,
+      archiveSession,
+      restoreSession,
+      refreshArchivedSessions,
+      saveWorkspaceFile,
+      updateProjectMetadata,
+      initializeProjectGit,
+      worktrees,
+      refreshWorktrees,
+      createWorktree,
+      resetWorktree,
+      removeWorktree,
+      mcpStatuses,
+      refreshMcpServers,
+      addMcpServer,
+      connectMcpServer,
+      disconnectMcpServer,
+      setMcpServerEnabled,
+      startMcpOAuth,
+      completeMcpOAuth,
+      removeMcpOAuth,
+      loadOpenCodeInspection,
+      reloadOpenCodeSkills,
+      reloadOpenCodeConfig,
+      terminals,
+      terminalShells,
+      activeTerminalId,
+      terminalOutput,
+      terminalConnection,
+      refreshTerminals,
+      createTerminal,
+      getTerminalDetail,
+      resizeTerminal,
+      openTerminal,
+      sendTerminalInput,
+      closeTerminal,
+    ],
+  );
+
+  return <OpencodeContext.Provider value={contextValue}>{children}</OpencodeContext.Provider>;
+}
+
+export function useOpencode() {
+  const context = useContext(OpencodeContext);
+  if (!context) {
+    throw new Error('useOpencode must be used inside OpencodeProvider');
+  }
+
+  return context;
+}

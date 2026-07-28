@@ -287,6 +287,18 @@ export const Info = Schema.Struct({
       mcp_timeout: Schema.optional(PositiveInt).annotate({
         description: "Timeout in milliseconds for model context protocol (MCP) requests",
       }),
+      model_stream_scheduler: Schema.optional(
+        Schema.Struct({
+          max_concurrency: Schema.optional(PositiveInt).annotate({
+            description: "Maximum concurrently active model streams (default: 50)",
+          }),
+          provider_limits: Schema.optional(Schema.Record(Schema.String, PositiveInt)).annotate({
+            description: "Optional per-provider concurrency ceilings keyed by provider ID",
+          }),
+        }),
+      ).annotate({
+        description: "Provider-agnostic model stream scheduling and backpressure limits",
+      }),
     }),
   ),
 }).annotate({ identifier: "Config" })

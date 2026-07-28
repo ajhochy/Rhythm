@@ -2,42 +2,62 @@
 
 ## Current focus
 
-Hand off the live-verified provider-stream inactivity recovery for #1211.
+Resolve the physical-iPhone smoke failures found after successful Google sign-in,
+pairing, session creation, streaming, force-quit recovery, and automatic
+Tailscale reconnection on PR #1165.
 
 ## Active branch / PR
 
-- Branch: `codex/issue-1211-stalled-stream`.
-- PR: [#1212](https://github.com/ajhochy/Rhythm/pull/1212) (draft only; do not merge).
-- Issue: [#1211](https://github.com/ajhochy/Rhythm/issues/1211).
-- The config-doctor work remains in draft PR #1207 and is outside this branch.
-- The separate MEM-OKF PR #1205 remains outside this branch and may require a
-  project-state reconciliation if both branches land.
+- Local branch: `codex/mobile-1172-agents-activity`
+- Remote PR branch: `feat/rhythm-agent-ios-roadmap`
+- Draft PR: #1165, `WIP: consolidate unfinished Rhythm Agents iOS prototype`
+- Exact local/pushed candidate: `e79605ac3`
 
 ## In progress
 
-- Keep draft PR #1212 unmerged pending human review/manual smoke.
+- #1237: make paired-Mac state authoritative across Settings and Agents.
+- #1238: make the chat composer keyboard-safe and preserve/reveal the complete
+  transcript.
+- #1239: expose desktop Mobile Access pairing and revocation as a persistent
+  Settings destination.
+- Resume the remaining #1199 physical-device matrix only after those failures
+  are repaired.
 
 ## Risks / known issues
 
-- GitNexus rated the edited LLM stream and delegated-task paths LOW risk.
-- The 180-second default is intentionally provider-boundary inactivity, not a
-  whole-turn deadline; long-running tools are unaffected.
-- Fork typecheck still reports three pre-existing errors in
-  `src/bus/global.ts` and `test/file/path-traversal.test.ts`.
+- The signed iOS build can pair, create a session, and chat, but the current
+  physical-device matrix is a mixed result and is not a release pass.
+- Settings can remain stale as Connected after the Mac becomes unreachable,
+  while other paired-Mac screens spin or eventually report offline.
+- Long prompt composition and transcript reading are obstructed by the keyboard;
+  complete assistant output may be view-clipped or transport-truncated and must
+  be distinguished by a regression test.
+- Desktop QR/revocation implementation exists but its only Settings entry is
+  conditional on Agent Server Ready and was not discoverable in the tested
+  workflow. Earlier pairing used a direct app link.
+- Session synchronization, navigation taxonomy, model attribution, blank Tool
+  tabs, oversized headers, and profile capability scoping remain tracked in
+  #1231–#1236.
+- Credentials, signing assets, pairing/device tokens, private hostnames, user
+  content, and iPhone identifiers must not be committed or attached to issues.
 
 ## Test status
 
-- `ai-workflow checks --level issue`: PASS (Flutter analyze/format, API tsc).
-- `ai-workflow checks --level pr`: PASS.
-- Fork focused suite: PASS, 34/34; fork full suite: PASS.
-- API full suite and build: PASS.
-- Acceptance contract: PASS, 6/6.
-- Fork single-binary build/smoke: PASS.
-- Foreground sandbox stalled-provider contract: PASS, 1/1.
-- Sandbox health and engine-health probes: PASS; ports 4097/4098 clear after
-  teardown.
+- Exact-head GitHub checks for `e79605ac3`: PASS.
+- Google OAuth, pairing, session creation, and agent response: PASS on a
+  physical iPhone.
+- Force-quit/relaunch recovery: PASS.
+- Background/foreground session survival: PASS.
+- Tailscale off/on automatic reconnect: PASS, with stale/infinite-loading UI
+  failure tracked by #1237.
+- Multiline authoring, keyboard dismissal, and complete transcript visibility:
+  FAIL, tracked by #1238.
+- Visible desktop QR/revocation workflow: BLOCKED, tracked by #1239.
+- Full #1199 physical-device and #1200 TestFlight matrices: NOT COMPLETE.
 
 ## Next step
 
-Human review and manual smoke of the #1211 draft PR; do not merge
-automatically.
+Repair #1237–#1239, then repeat the bounded physical smoke for disconnect/
+reconnect, long prompt/response with background recovery, visible QR pairing,
+revocation, and replacement pairing before continuing the remaining #1199 and
+#1200 release gates.

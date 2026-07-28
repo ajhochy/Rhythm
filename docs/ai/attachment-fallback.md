@@ -1,20 +1,27 @@
 # Attachment fallback: what to do when a file type has no reader
 
-Issue #1137. The composer (and the `@`-mention attach path) can only hand an
-agent a file in one of three ways:
+Issue #1137. The composer and the `@`-mention attach path allow every file
+type. They hand an agent a file in one of three ways:
 
 1. **Inline text** — text/log/code/markdown/etc. decoded as UTF-8 and dropped
    straight into the prompt.
 2. **Native media FilePart** (`data:` URI) — images and PDFs the model can
    read directly.
-3. **`file:` reference** — Office documents (`.docx/.doc/.xlsx/.xls/.pptx/.ppt`)
-   are attached as a `file:` URL pointing at the real path on disk. The
-   engine's Read tool opens it and a skill (`docx`/`xlsx`/`pptx`, if
-   installed for the target agent) extracts the text.
+3. **`file:` reference** — every other binary format, including Office
+   documents and unknown MIME types, is attached as a `file:` URL. Native
+   pickers use the selected path directly. Workspace `@` mentions first pass
+   through the API containment guard and use only its canonical contained
+   path. Browser-selected bytes are written with mode `0600` under the
+   engine-owned temporary attachment tree, then handled as the same `file:`
+   reference. The temporary session directory is removed with the session.
 
-Anything else — a genuinely unknown binary format with no skill able to read
-it — still gets the "unsupported file type" rejection at attach time. There
-is no generic fallback that magically reads arbitrary binary formats.
+If Read cannot parse the binary, the engine does not forward opaque bytes to
+the model and does not reject the attachment. It injects an actionable reader
+discovery task containing the exact local path, MIME, and extension. The engine
+also searches the session's permission-filtered skill catalog and allowlisted
+MCP catalog by format, surfaces concrete matching readers immediately, and
+requires the agent to search online for a trusted compatible skill/server/tool
+when no reader is already available.
 
 ## The fallback procedure (do this, don't just reject)
 
@@ -25,23 +32,24 @@ When a user (or an agent asked to open a file) hits an unreadable attachment:
      already connected for this session).
    - A skill (`~/.config/opencode/skills/` or the agent's allow-listed
      skills) written for that file type — same mechanism `docx` uses.
-2. **If a reader exists but isn't attached to this agent profile**, say so
-   explicitly and ask whether to enable it (skill allow-lists are per-agent —
-   see `skill_allowlist.test.ts` / `docs/ai/decisions/2026-06-28-skill-scope-enforcement.md`).
-3. **If no reader exists**, tell the user plainly which format failed and
-   that no MCP tool/skill currently reads it — don't silently truncate or
-   guess at binary content.
+2. **If a reader exists but isn't attached to this agent profile**, surface
+   the exact reader and the installation/permission requirement (skill
+   allow-lists are per-agent — see `skill_allowlist.test.ts` and
+   `docs/ai/decisions/2026-06-28-skill-scope-enforcement.md`).
+3. **If no reader exists**, use the agent's web-search capability to look for
+   a trusted format-specific skill, MCP server, or tool. Tell the user plainly
+   what was found and what would be required to use it; never silently
+   truncate or guess at binary content.
 4. **If this keeps coming up for a given format**, that's a signal to add a
    skill or MCP tool for it (out of scope for a single attach attempt — file
    an issue instead of hacking around it inline).
 
 ## Why this isn't "just widen the allow-list"
 
-Widening a picker's MIME allow-list without a reader behind it lets the user
-attach a file that then silently fails (provider rejects the media type, or
-the agent sees nothing useful). The fix in #1137 routes Office docs through
-the `file:` protocol specifically *because* a reader (the `docx` skill) exists
-for them via the engine's Read tool. Don't repeat the "loosen the gate" fix
-for a new format unless you've confirmed a reader is actually reachable —
-otherwise you've traded one failure mode (rejected at attach) for a worse one
-(silently accepted, then unreadable in-session).
+Simply widening a picker MIME list would let unsupported provider media fail
+before the agent can act. #1137 instead removes the picker gate, proves the
+post-selection consumer accepts arbitrary binaries, and routes non-native
+formats through a local `file:` reference. The engine consumes what Read
+already supports and turns the remaining formats into an explicit agentic
+discovery task with real catalog matches, so a reader can be found without
+losing the attachment path or silently accepting unreadable bytes.

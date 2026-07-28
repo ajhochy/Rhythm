@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
-import { setDb } from '../database/db';
+import { getDb, setDb } from '../database/db';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import type { AgentKind } from '../models/agent_session';
@@ -90,6 +90,7 @@ describe('manager delegation authorization contracts', () => {
     // Regression caught: delegation runs under the caller profile or bypasses the
     // runner, so the target profile's resolveProfileScope path is never used.
     const result = await delegateToAgent({
+      authenticatedUserId: 42,
       callerSessionId: seedCallerSession('manager'),
       targetAgentConfigId: 'specialist',
       prompt: 'Implement the focused task.',
@@ -119,6 +120,7 @@ describe('manager delegation authorization contracts', () => {
     // specialists, or delegated specialists recursively fan out.
     await expect(
       delegateToAgent({
+        authenticatedUserId: 42,
         callerSessionId: seedCallerSession('manager'),
         targetAgentConfigId: 'other-specialist',
         prompt: 'Do this.',
@@ -127,6 +129,7 @@ describe('manager delegation authorization contracts', () => {
 
     await expect(
       delegateToAgent({
+        authenticatedUserId: 42,
         callerSessionId: seedCallerSession('non-manager'),
         targetAgentConfigId: 'specialist',
         prompt: 'Do this.',
@@ -135,6 +138,7 @@ describe('manager delegation authorization contracts', () => {
 
     await expect(
       delegateToAgent({
+        authenticatedUserId: 42,
         callerSessionId: seedCallerSession('manager'),
         targetAgentConfigId: 'manager',
         prompt: 'Do this.',
@@ -147,6 +151,7 @@ describe('manager delegation authorization contracts', () => {
   it('issue-914: resolves caller identity from the session row and rejects spoofed caller ids', async () => {
     await expect(
       delegateToAgent({
+        authenticatedUserId: 42,
         callerSessionId: seedCallerSession('non-manager'),
         callerAgentConfigId: 'manager',
         targetAgentConfigId: 'specialist',
@@ -159,6 +164,7 @@ describe('manager delegation authorization contracts', () => {
 
   it('issue-914: derives depth from the caller session row and enforces the cap', async () => {
     const result = await delegateToAgent({
+      authenticatedUserId: 42,
       callerSessionId: seedCallerSession('manager', { depth: 1 }),
       targetAgentConfigId: 'specialist',
       prompt: 'Implement the task.',
@@ -174,6 +180,7 @@ describe('manager delegation authorization contracts', () => {
 
     await expect(
       delegateToAgent({
+        authenticatedUserId: 42,
         callerSessionId: seedCallerSession('manager', { depth: 2 }),
         targetAgentConfigId: 'specialist',
         prompt: 'Do this.',
@@ -192,6 +199,7 @@ describe('manager delegation authorization contracts', () => {
 
     await expect(
       delegateToAgent({
+        authenticatedUserId: 42,
         callerSessionId: seedCallerSession('manager'),
         targetAgentConfigId: 'specialist',
         prompt: 'Do this.',
@@ -200,5 +208,32 @@ describe('manager delegation authorization contracts', () => {
       statusCode: 500,
       message: 'target MCP is not connected',
     });
+  });
+
+  it('issue-1135-c5: rejects a security-locked delegate even if enabled drifts back to 1', async () => {
+    const configsRepo = new AgentConfigsRepository();
+    expect(
+      configsRepo.lockForSecurity(
+        'specialist',
+        'security audit rejected privileged prompt',
+        'security-reviewer',
+      ),
+    ).not.toBeNull();
+    getDb()
+      .prepare(`UPDATE agent_configs SET enabled = 1 WHERE id = 'specialist'`)
+      .run();
+
+    await expect(
+      delegateToAgent({
+        authenticatedUserId: 42,
+        callerSessionId: seedCallerSession('manager'),
+        targetAgentConfigId: 'specialist',
+        prompt: 'Do not run this.',
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining('security-locked'),
+    });
+    expect(runMock).not.toHaveBeenCalled();
   });
 });

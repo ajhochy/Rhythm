@@ -11,7 +11,17 @@
         "rhythm_get_dashboard",
         "rhythm_list_scheduled_tasks",
         "rhythm_search_memory",
+        "rhythm_remember_memory",
+        "rhythm_request_approval",
         "rhythm_run_external_discovery"
+      ]
+    },
+    "mcp-registry": {
+      "inherit": true,
+      "allowedTools": [
+        "search_mcp_registry",
+        "suggest_connectors",
+        "list_connectors"
       ]
     }
   },

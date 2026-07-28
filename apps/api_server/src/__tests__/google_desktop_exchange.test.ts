@@ -6,6 +6,7 @@ import { env } from '../config/env';
 import { GoogleOAuthService } from '../services/google_oauth_service';
 import { AuthService } from '../services/auth_service';
 import { IntegrationAccountsRepository } from '../repositories/integration_accounts_repository';
+import { UsersRepository } from '../repositories/users_repository';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -113,6 +114,10 @@ describe('Google desktop PKCE exchange', () => {
       );
 
     const oauth = new GoogleOAuthService();
+    new UsersRepository().create({
+      name: 'Preprovisioned Alice',
+      email: 'alice@example.com',
+    });
     const authService = new AuthService();
     const { tokens, profile } = await oauth.exchangeDesktopCode({
       code: 'c',

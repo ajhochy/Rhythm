@@ -7,7 +7,10 @@
 library;
 
 import 'dart:async';
+import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
+import 'package:file_picker/src/platform/file_picker_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -66,6 +69,8 @@ class _StubAgentsRepository implements AgentsRepository {
     'type': 'text',
     'content': 'file body',
   };
+  Object? fileContentError;
+  int fileContentCallCount = 0;
 
   @override
   Stream<AgentWsMessage> get messages => _msg.stream;
@@ -109,11 +114,40 @@ class _StubAgentsRepository implements AgentsRepository {
   }
 
   @override
-  Future<Map<String, dynamic>> fileContent(String sessionId, String path) =>
-      Future.value(fileContentResult);
+  Future<Map<String, dynamic>> fileContent(
+    String sessionId,
+    String path,
+  ) async {
+    fileContentCallCount++;
+    if (fileContentError != null) throw fileContentError!;
+    return fileContentResult;
+  }
 
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _StubFilePickerPlatform extends FilePickerPlatform {
+  _StubFilePickerPlatform(this.result);
+
+  final FilePickerResult? result;
+
+  @override
+  Future<FilePickerResult?> pickFiles({
+    String? dialogTitle,
+    String? initialDirectory,
+    FileType type = FileType.any,
+    List<String>? allowedExtensions,
+    Function(FilePickerStatus)? onFileLoading,
+    int compressionQuality = 0,
+    bool allowMultiple = false,
+    bool withData = false,
+    bool withReadStream = false,
+    bool lockParentWindow = false,
+    bool readSequential = false,
+    bool cancelUploadOnWindowBlur = true,
+  }) async =>
+      result;
 }
 
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
@@ -345,7 +379,11 @@ void main() {
       // before fetchFileContent) — if this were used, the test would still
       // pass only by accident, so leave it at a shape that would fail the
       // old code path's assertions.
-      repo.fileContentResult = const {'type': 'binary', 'content': ''};
+      repo.fileContentResult = const {
+        'type': 'binary',
+        'content': '',
+        'resolvedPath': '/tmp/report.docx',
+      };
 
       await tester.pumpWidget(_wrap(controller));
       await tester.pump();
@@ -374,6 +412,124 @@ void main() {
 
       // No "unsupported file type" rejection SnackBar.
       expect(find.textContaining('unsupported file type'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'issue-1137-c1: REAL-SURFACE composer attaches an arbitrary binary '
+    '@-mention as a file: ref without a type gate',
+    (tester) async {
+      // Regression caught: the composer used to accept the file selection,
+      // fetch its binary proxy shape, and then reject it with a SnackBar.
+      repo.findFilesResult = const ['assets/fixture.rhythmfixture'];
+      repo.fileContentResult = const {
+        'type': 'binary',
+        'mimeType': 'application/octet-stream',
+        'content': '',
+        'resolvedPath': '/tmp/assets/fixture.rhythmfixture',
+      };
+
+      await tester.pumpWidget(_wrap(controller));
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const ValueKey('agent-composer-input')),
+        '@fixture',
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byKey(const ValueKey('at-mention-item-0')));
+      await tester.pump();
+      await tester.pump();
+
+      final part = controller.pendingAttachmentsFor('s1').single;
+      expect(part['type'], 'file');
+      expect(part['mime'], 'application/octet-stream');
+      expect(part['url'], 'file:///tmp/assets/fixture.rhythmfixture');
+      expect(find.textContaining('unsupported file type'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'issue-1137 security: traversal-shaped binary mention is rejected before '
+    'a prompt attachment is created',
+    (tester) async {
+      repo.findFilesResult = const ['../../outside.rhythmfixture'];
+      repo.fileContentError = Exception('PATH_TRAVERSAL');
+
+      await tester.pumpWidget(_wrap(controller));
+      await tester.pump();
+      await tester.enterText(
+        find.byKey(const ValueKey('agent-composer-input')),
+        '@outside',
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byKey(const ValueKey('at-mention-item-0')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(repo.fileContentCallCount, 1);
+      expect(controller.pendingAttachmentsFor('s1'), isEmpty);
+      expect(find.textContaining('PATH_TRAVERSAL'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'issue-1137 native picker: arbitrary binary selection reaches the real '
+    'composer and unreadable paths surface an error',
+    (tester) async {
+      final originalPicker = FilePickerPlatform.instance;
+      final scratch = Directory.systemTemp.createTempSync('rhythm-1137-');
+      addTearDown(() {
+        FilePickerPlatform.instance = originalPicker;
+        scratch.deleteSync(recursive: true);
+      });
+      final fixture = File('${scratch.path}/fixture.rhythmfixture');
+      fixture.writeAsBytesSync(const [0, 255, 1, 2]);
+      FilePickerPlatform.instance = _StubFilePickerPlatform(
+        FilePickerResult([
+          PlatformFile(
+            name: 'fixture.rhythmfixture',
+            size: fixture.lengthSync(),
+            path: fixture.path,
+          ),
+        ]),
+      );
+
+      await tester.pumpWidget(_wrap(controller));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await tester.tap(find.byTooltip('Attach files'));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pump();
+      await tester.pump();
+
+      expect(controller.pendingAttachmentsFor('s1').single, {
+        'type': 'file',
+        'mime': 'application/octet-stream',
+        'filename': 'fixture.rhythmfixture',
+        'url': Uri.file(fixture.path).toString(),
+      });
+
+      controller.clearPendingAttachments('s1');
+      FilePickerPlatform.instance = _StubFilePickerPlatform(
+        FilePickerResult([
+          PlatformFile(
+            name: 'missing.rhythmfixture',
+            size: 4,
+            path: '${scratch.path}/missing.rhythmfixture',
+          ),
+        ]),
+      );
+      await tester.runAsync(() async {
+        await tester.tap(find.byTooltip('Attach files'));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pump();
+      await tester.pump();
+
+      expect(controller.pendingAttachmentsFor('s1'), isEmpty);
+      expect(find.textContaining('Could not attach missing.rhythmfixture'),
+          findsOneWidget);
     },
   );
 }

@@ -1,0 +1,46 @@
+{
+  "issue": 1168,
+  "generated": "2026-07-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1168-c1",
+      "text": "Authentication runs before project resolution",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1168_mobile_gateway_security.test.ts",
+      "test_id": "issue-1168-c1: authentication rejects the request before any project lookup",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1168-c2",
+      "text": "Roots come only from Rhythm’s registered project repository with realpath containment",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/mobile_project_scope.test.ts",
+      "test_id": "issue-1168-c2: repository-owned roots are canonical and every mobile path remains contained",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1168-c3",
+      "text": "All negative security cases are tested",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1168_mobile_gateway_security.test.ts",
+      "test_id": "issue-1168-c3: the HTTP boundary rejects every negative security case",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1168-c4",
+      "text": "Live tests use only tools/dev/sandbox.sh (4098/4097), never direct api_server startup",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1168_mobile_gateway_live.test.ts",
+      "test_id": "issue-1168-c4: live sandbox enforces device auth and registered-project containment",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1168-c5",
+      "text": "GitNexus impact/detect-changes and independent review pass",
+      "mode": "manual",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

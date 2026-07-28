@@ -11,6 +11,7 @@ import { ModelID, ProviderID } from "../../src/provider/schema"
 import { TaskTool, childSkillAllowlist, isSkillAllowlist, type TaskPromptOps } from "../../src/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
+import { modelStreamScheduler } from "@/session/model-stream-scheduler"
 import { disposeAllInstances } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
@@ -233,6 +234,49 @@ describe("tool.task", () => {
       expect(result.metadata.sessionId).toBe(child.id)
       expect(result.output).toContain(`task_id: ${child.id}`)
       expect(seen?.sessionID).toBe(child.id)
+    }),
+  )
+
+  it.instance("execute yields the parent model-stream lease before awaiting the child", () =>
+    Effect.gen(function* () {
+      const { chat, assistant } = yield* seed()
+      const parentLease = yield* Effect.promise(() =>
+        modelStreamScheduler.acquire({
+          sessionID: chat.id,
+          providerID: "test",
+          modelID: "parent",
+        }),
+      )
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      let activeWhileChildRuns = -1
+      const promptOps = stubOps({
+        onPrompt: () => {
+          activeWhileChildRuns = modelStreamScheduler.snapshot().active
+        },
+      })
+
+      yield* def.execute(
+        {
+          description: "inspect bug",
+          prompt: "look into the cache key path",
+          subagent_type: "general",
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: { promptOps },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      expect(activeWhileChildRuns).toBe(0)
+      expect(modelStreamScheduler.snapshot().active).toBe(0)
+      parentLease.release()
     }),
   )
 

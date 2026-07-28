@@ -1,6 +1,6 @@
 import { Provider } from "@/provider/provider"
 import * as Log from "@opencode-ai/core/util/log"
-import { Context, Effect, Layer, Record, Semaphore } from "effect"
+import { Context, Effect, Layer, Record } from "effect"
 import * as Stream from "effect/Stream"
 import { streamText, wrapLanguageModel, type ModelMessage, type Tool, tool, jsonSchema } from "ai"
 import type {
@@ -28,13 +28,12 @@ import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import * as Option from "effect/Option"
 import * as OtelTracer from "@effect/opentelemetry/Tracer"
+import { modelStreamScheduler, providerBackpressureDelay } from "./model-stream-scheduler"
 
 const log = Log.create({ service: "llm" })
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 type Result = Awaited<ReturnType<typeof streamText>>
-const OPENAI_FULL_STREAM_MAX_CONCURRENCY = 2
 export const PROVIDER_STREAM_INACTIVITY_DEFAULT_MS = 180_000
-const streamLimiters = new Map<string, Semaphore.Semaphore>()
 
 export class ProviderStreamInactivityError extends Error {
   constructor(readonly timeoutMs: number) {
@@ -150,19 +149,6 @@ function providerStreamInactivityMiddleware(input: StreamRequest): LanguageModel
 // Avoid re-instantiating remeda's deep merge types in this hot LLM path; the runtime behavior is still mergeDeep.
 const mergeOptions = (target: Record<string, any>, source: Record<string, any> | undefined): Record<string, any> =>
   mergeDeep(target, source ?? {}) as Record<string, any>
-
-function streamLimiter(input: StreamInput) {
-  if (input.small) return
-  if (input.model.providerID !== "openai") return
-
-  const key = `${input.model.providerID}:full`
-  const hit = streamLimiters.get(key)
-  if (hit) return hit
-
-  const next = Semaphore.makeUnsafe(OPENAI_FULL_STREAM_MAX_CONCURRENCY)
-  streamLimiters.set(key, next)
-  return next
-}
 
 export type StreamInput = {
   user: MessageV2.User
@@ -558,14 +544,41 @@ const live: Layer.Layer<
               Effect.sync(() => new AbortController()),
               (ctrl) => Effect.sync(() => ctrl.abort()),
             )
-            const limiter = streamLimiter(input)
-            if (limiter) {
-              yield* Effect.acquireRelease(limiter.take(1), () => limiter.release(1))
-            }
+            const cfg = yield* config.get()
+            modelStreamScheduler.configure({
+              maxConcurrency: cfg.experimental?.model_stream_scheduler?.max_concurrency,
+              providerLimits: cfg.experimental?.model_stream_scheduler?.provider_limits,
+            })
+            const reportBackpressure = (error: unknown) =>
+              Effect.sync(() => {
+                const delay = providerBackpressureDelay(error)
+                if (delay === undefined) return
+                modelStreamScheduler.reportBackpressure(input.model.providerID, delay, "provider_throttled")
+              })
+            yield* Effect.acquireRelease(
+              Effect.tryPromise({
+                try: () =>
+                  modelStreamScheduler.acquire({
+                    sessionID: input.sessionID,
+                    parentSessionID: input.parentSessionID,
+                    providerID: input.model.providerID,
+                    modelID: input.model.id,
+                    signal: ctrl.signal,
+                  }),
+                catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+              }),
+              (lease) => Effect.sync(() => lease.release()),
+            )
 
-            const result = yield* run({ ...input, abort: ctrl.signal, abortRequest: () => ctrl.abort() })
+            const result = yield* run({
+              ...input,
+              abort: ctrl.signal,
+              abortRequest: () => ctrl.abort(),
+            }).pipe(Effect.tapError(reportBackpressure))
 
-            return Stream.fromAsyncIterable(result.fullStream, (e) => (e instanceof Error ? e : new Error(String(e))))
+            return Stream.fromAsyncIterable(result.fullStream, (e) =>
+              e instanceof Error ? e : new Error(String(e)),
+            ).pipe(Stream.tapError(reportBackpressure))
           }),
         ),
       )

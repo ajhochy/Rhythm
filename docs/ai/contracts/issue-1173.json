@@ -1,0 +1,168 @@
+{
+  "issue": 1173,
+  "generated": "2026-07-25",
+  "criteria": [
+    {
+      "criterion_id": "issue-1173-c1",
+      "text": "A typed Rhythm tools service routes production-owned Email and Gallery through Rhythm Cloud and all paired-Mac tools through the authenticated mobile gateway without exposing either credential.",
+      "mode": "security",
+      "test_file": "apps/mobile/tests/issue-1173-tools-service.test.mjs",
+      "test_id": "issue-1173-c1: tool transports stay origin and credential isolated",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c2",
+      "text": "Brain supports list, search, detail, create, edit, and confirmed delete using secret-free read-only offline cache.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-core.spec.mjs",
+      "test_id": "issue-1173-c2: Brain CRUD search and offline cache",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c3",
+      "text": "Research supports create, progress/status, detail/report, retry, and delete with safe summaries.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-core.spec.mjs",
+      "test_id": "issue-1173-c3: Research lifecycle",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c4",
+      "text": "Scheduled Jobs supports create, edit, enable/disable, confirmed run-now, run status, and confirmed delete.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-core.spec.mjs",
+      "test_id": "issue-1173-c4: Scheduled Job lifecycle and confirmations",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c5",
+      "text": "Webhooks supports create, copy URL, rotate/revoke, and confirmed delete while secrets are displayed exactly once and are never persisted.",
+      "mode": "security",
+      "test_file": "apps/mobile/tests/issue-1173-tools-service.test.mjs",
+      "test_id": "issue-1173-c5: webhook secrets remain one-time and uncached",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c6",
+      "text": "Profiles supports prompt, model, delegation, and permission-scope edits; preserves null-versus-empty scope semantics; and waits for server projection confirmation before refresh.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-admin.spec.mjs",
+      "test_id": "issue-1173-c6: Profile edits preserve scope and projection ordering",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c7",
+      "text": "Cookbook supports recipe CRUD and confirmed run with useful execution feedback.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-admin.spec.mjs",
+      "test_id": "issue-1173-c7: Cookbook CRUD and confirmed execution",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c8",
+      "text": "Review Queue exposes proposal details and approve/reject actions with high-risk approval confirmation, while Report Card renders run-quality summaries.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-admin.spec.mjs",
+      "test_id": "issue-1173-c8: Review Queue risk controls and Report Card",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c9",
+      "text": "Email and Gallery remain usable through production Rhythm Cloud while the paired Mac is offline, use least-privilege summaries, and never cache full email bodies or OAuth data.",
+      "mode": "security",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-integrations.spec.mjs",
+      "test_id": "issue-1173-c9: cloud tools survive paired host outage without sensitive caching",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c10",
+      "text": "Skills, Playbooks, MCP, and Providers/Models expose approved metadata and lifecycle operations, compatibility-feature gating, OAuth handoff, and destructive confirmations by reusing existing provider services.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-integrations.spec.mjs",
+      "test_id": "issue-1173-c10: paired integrations lifecycle and feature gating",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c11",
+      "text": "Every dedicated tool screen handles loading, empty, secret-free offline cache, forbidden, expired-auth, and retryable server error with accessible Dynamic Type and dark-mode-safe UI.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/issue-1173-tools-service.test.mjs",
+      "test_id": "issue-1173-c11: every screen declares resilient accessible states",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c12",
+      "text": "Contract, fake-server, E2E, lint, typecheck, accessibility, and independent security/quality reviews pass.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/e2e/rhythm-tools-navigation.spec.mjs",
+      "test_id": "issue-1173-c12: all fourteen tools are navigable and reviewed",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c13",
+      "text": "Each signed-in account receives a stable distinct Tools cache scope even while unpaired; paired, unpaired, switched-account, and signed-out Email/Gallery cache keys never alias.",
+      "mode": "security",
+      "test_file": "apps/mobile/tests/issue-1173-corrective.test.mjs",
+      "test_id": "issue-1173-c13: tool cache keys are stable and isolated across account lifecycle",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c14",
+      "text": "Brain detail renders the selected memory and edit persists its title and content through the real screen.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/issue-1173-corrective.spec.mjs",
+      "test_id": "issue-1173-c14: Brain detail and edit persist through the real tool screen",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c15",
+      "text": "Scheduled Jobs visibly supports edit, enable/disable, confirmed run-now with resulting run status, and confirmed delete.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/issue-1173-corrective.spec.mjs",
+      "test_id": "issue-1173-c15: Scheduled Jobs supports edit toggle run status and confirmed delete",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c16",
+      "text": "Profiles visibly supports create/edit of prompt, model, MCP permission scope, manager/delegation fields and confirmed delete while forbidden server responses remain visible and the edit is not falsely reported as saved.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/issue-1173-corrective.spec.mjs",
+      "test_id": "issue-1173-c16: Profiles create edit full policy fields deny truthfully and delete",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c17",
+      "text": "Cookbook, Skills, and Playbooks visibly persist edits and require confirmation before destructive deletes.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/issue-1173-corrective.spec.mjs",
+      "test_id": "issue-1173-c17: Cookbook Skills and Playbooks edit and confirm destructive deletes",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c18",
+      "text": "Webhooks can copy a usable receive URL, rotate a secret with the replacement shown exactly once, and delete only after confirmation.",
+      "mode": "security",
+      "test_file": "apps/mobile/tests/e2e/issue-1173-corrective.spec.mjs",
+      "test_id": "issue-1173-c18: Webhooks copy URL rotate a one-time secret and delete",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c19",
+      "text": "MCP OAuth opens the authorization URL returned by the engine and truthfully renders callback rejection and successful completion.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/issue-1173-corrective.spec.mjs",
+      "test_id": "issue-1173-c19: MCP OAuth opens returned URL and reports callback error then completion",
+      "status": "green"
+    },
+    {
+      "criterion_id": "issue-1173-c20",
+      "text": "Providers & Models exposes provider OAuth handoff, callback completion, and confirmed credential removal with truthful lifecycle feedback.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/issue-1173-corrective.spec.mjs",
+      "test_id": "issue-1173-c20: Providers and Models expose truthful OAuth and credential lifecycle",
+      "status": "green"
+    }
+  ],
+  "stack": "typescript/react-native",
+  "not_tested": []
+}

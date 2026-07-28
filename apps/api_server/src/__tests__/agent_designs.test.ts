@@ -184,6 +184,17 @@ describe('D1 — /agent-designs CRUD (authenticated)', () => {
         });
         expect(response.status).toBe(400);
       }
+      const forgedPathApproval = await fetch(`${baseUrl}/agent-designs`, {
+        method: 'POST',
+        headers: { ...authHeader, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: 'Forged path approval',
+          provider: 'local',
+          localPath: secret,
+          userApprovedPath: true,
+        }),
+      });
+      expect(forgedPathApproval.status).toBe(400);
       for (const body of [
         { title: 'Unsafe URL', provider: 'built-in', artifactUrl: 'http://example.test/file.png' },
         { title: 'Unsafe URL', provider: 'built-in', artifactUrl: 'file:///secret.png' },

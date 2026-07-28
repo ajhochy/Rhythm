@@ -583,12 +583,12 @@ describeLive.sequential('live E2E — MEM-OKF #1187–#1196', () => {
     expect((await readNote(memory.path)).raw).toBe(beforeUnauthorized);
   });
 
-  it('uses the real built MCP stdio server for tool count, machine lifecycle, and explicit recall', async () => {
+  it('uses the real built MCP stdio server for tool count and fail-closed memory lifecycle', async () => {
     if (!mcp) throw new Error('MCP client unavailable');
     const listed = await mcp.request<{
       tools: Array<{ name: string }>;
     }>('tools/list');
-    expect(listed.tools).toHaveLength(82);
+    expect(listed.tools).toHaveLength(83);
     expect(listed.tools.map(({ name }) => name)).toEqual(
       expect.arrayContaining([
         'rhythm_remember_memory',
@@ -598,20 +598,23 @@ describeLive.sequential('live E2E — MEM-OKF #1187–#1196', () => {
     );
 
     const marker = `mcpmachine${RUN_TOKEN.slice(0, 10)}`;
-    const remembered = JSON.parse(toolText(await mcp.callTool(
-      'rhythm_remember_memory',
+    const remembered = await createMemory(
+      `MCP machine lifecycle ${marker}.[^mcp-source]`,
       {
-        kind: 'fact',
-        content: `MCP machine lifecycle ${marker}.[^mcp-source]`,
         sources: [{
           id: 'mcp-source',
           resource: `rhythm://live-e2e/${marker}`,
         }],
       },
-    ))) as MemoryResult;
-    memoryIds.add(remembered.id);
+    );
+    const before = (await searchMemories(marker))
+      .find((row) => row.sourceId === remembered.path);
+    expect(before).toMatchObject({
+      status: 'stable',
+      trustTier: 'unverified',
+    });
 
-    const verified = JSON.parse(toolText(await mcp.callTool(
+    const blocked = await mcp.callTool(
       'rhythm_verify_memory',
       {
         id: remembered.id,
@@ -619,27 +622,21 @@ describeLive.sequential('live E2E — MEM-OKF #1187–#1196', () => {
         by: 'human:forged@example.test',
         staleAfter: '2026-12-31',
       },
-    ))) as MemoryRow;
-    expect(verified.trustTier).toBe('machine');
-    expect(JSON.parse(verified.verifiedJson)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ by: 'agent:rhythm-mcp/1' }),
-      ]),
     );
+    expect(blocked.isError).toBe(true);
+    expect(
+      blocked.content?.some(({ text }) =>
+        text?.includes('trusted Rhythm session/turn metadata is unavailable'),
+      ),
+    ).toBe(true);
 
-    await mcp.callTool('rhythm_verify_memory', {
-      id: remembered.id,
-      action: 'deprecate',
+    const unchanged = (await searchMemories(marker))
+      .find((row) => row.sourceId === remembered.path);
+    expect(unchanged).toMatchObject({
+      status: 'stable',
+      trustTier: before?.trustTier,
     });
-    const explicit = JSON.parse(toolText(await mcp.callTool(
-      'rhythm_search_memory',
-      { q: marker, limit: 20 },
-    ))) as MemoryRow[];
-    expect(explicit.some((row) => (
-      row.sourceId === remembered.path &&
-      row.status === 'deprecated' &&
-      row.content.includes('[^mcp-source]')
-    ))).toBe(true);
+    expect(unchanged?.verifiedJson).toBe(before?.verifiedJson);
   });
 
   it('stamps ambient session sources, rewrites source collisions, generates navigation, and keeps link expansion off by default', async () => {

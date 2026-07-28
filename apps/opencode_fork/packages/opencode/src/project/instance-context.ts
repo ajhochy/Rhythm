@@ -1,5 +1,5 @@
 import { LocalContext } from "@/util/local-context"
-import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { containsReal } from "@opencode-ai/core/filesystem"
 import type * as Project from "./project"
 
 export interface InstanceContext {
@@ -22,9 +22,9 @@ export const context = LocalContext.create<InstanceContext>("instance")
  * is treated as NOT contained.
  */
 export function containsPath(filepath: string, ctx: InstanceContext): boolean {
-  if (AppFileSystem.containsReal(ctx.directory, filepath)) return true
+  if (containsReal(ctx.directory, filepath)) return true
   // Non-git projects set worktree to "/" which would match ANY absolute path.
   // Skip worktree check in this case to preserve external_directory permissions.
   if (ctx.worktree === "/") return false
-  return AppFileSystem.containsReal(ctx.worktree, filepath)
+  return containsReal(ctx.worktree, filepath)
 }

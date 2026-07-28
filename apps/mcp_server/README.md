@@ -69,9 +69,9 @@ In Claude, ask: *"Call rhythm_ping to check the connection."*
 
 Expected response: Rhythm API status and the email address your token authenticates as.
 
-## Available tools (82 total)
+## Available tools (83 total)
 
-Rhythm exposes 82 tools; this table lists the core and creative-platform tools.
+Rhythm exposes 83 tools; this table lists the core and creative-platform tools.
 
 | Tool | Description |
 |------|-------------|

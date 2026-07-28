@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { registerFeedbackSensorTools } from '../feedbackSensors.js';
+import { RHYTHM_SECURITY_CONTEXT_META_KEY } from '../../security/security_context.js';
+import { UNTRUSTED_FENCE_OPEN } from '../../untrusted_context.js';
 
-type ToolHandler = (args: Record<string, unknown>) => Promise<{
+type ToolHandler = (args: Record<string, unknown>, extra?: unknown) => Promise<{
   content: Array<{ type: 'text'; text: string }>;
   isError?: true;
 }>;
@@ -22,9 +24,27 @@ function makeStubServer(): { server: unknown; tools: Map<string, RegisteredTool>
 
 const API_URL = 'http://x';
 const API_TOKEN = 'tok';
+const SECURITY_EXTRA = {
+  _meta: {
+    [RHYTHM_SECURITY_CONTEXT_META_KEY]: {
+      sdkSessionId: 'sdk-feedback-test',
+      turnId: 'turn-feedback-test',
+      agentName: 'church-admin',
+      toolCallId: 'call-feedback-test',
+    },
+  },
+};
 
 function makeFetchOk(body: unknown) {
-  return vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => body });
+  return vi.fn(async (input: string | URL) =>
+    String(input).endsWith('/agent-approvals/external-content/taint')
+      ? {
+          ok: true,
+          status: 201,
+          json: async () => ({ taintId: 'feedback-test-taint' }),
+        }
+      : { ok: true, status: 200, json: async () => body },
+  );
 }
 
 describe('registerFeedbackSensorTools', () => {
@@ -39,12 +59,16 @@ describe('registerFeedbackSensorTools', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerFeedbackSensorTools(server as any, API_URL, API_TOKEN);
 
-      const result = await tools.get('rhythm_verify_pco_staffing')!.handler({
-        service_type_id: 'st1',
-        plan_id: 'p1',
-      });
+      const result = await tools.get('rhythm_verify_pco_staffing')!.handler(
+        {
+          service_type_id: 'st1',
+          plan_id: 'p1',
+        },
+        SECURITY_EXTRA,
+      );
 
-      expect(result.content[0].text).toMatch(/^PASS/);
+      expect(result.content[0].text).toContain(UNTRUSTED_FENCE_OPEN);
+      expect(result.content[0].text).toContain('PASS:');
     });
 
     it('FAILs and lists unfilled positions when needed-positions is non-empty', async () => {
@@ -56,12 +80,15 @@ describe('registerFeedbackSensorTools', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerFeedbackSensorTools(server as any, API_URL, API_TOKEN);
 
-      const result = await tools.get('rhythm_verify_pco_staffing')!.handler({
-        service_type_id: 'st1',
-        plan_id: 'p1',
-      });
+      const result = await tools.get('rhythm_verify_pco_staffing')!.handler(
+        {
+          service_type_id: 'st1',
+          plan_id: 'p1',
+        },
+        SECURITY_EXTRA,
+      );
 
-      expect(result.content[0].text).toMatch(/^FAIL/);
+      expect(result.content[0].text).toContain('FAIL:');
       expect(result.content[0].text).toContain('Worship Leader');
     });
   });
@@ -74,11 +101,13 @@ describe('registerFeedbackSensorTools', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerFeedbackSensorTools(server as any, API_URL, API_TOKEN);
 
-      const result = await tools.get('rhythm_verify_email_sent')!.handler({ query: 'Sunday reminder' });
+      const result = await tools
+        .get('rhythm_verify_email_sent')!
+        .handler({ query: 'Sunday reminder' }, SECURITY_EXTRA);
 
       const [url] = mockFetch.mock.calls[0] as [string];
       expect(url).toContain('in%3Asent');
-      expect(result.content[0].text).toMatch(/^PASS/);
+      expect(result.content[0].text).toContain('PASS:');
     });
 
     it('FAILs when no matching sent message is found', async () => {
@@ -87,9 +116,11 @@ describe('registerFeedbackSensorTools', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerFeedbackSensorTools(server as any, API_URL, API_TOKEN);
 
-      const result = await tools.get('rhythm_verify_email_sent')!.handler({ query: 'nope' });
+      const result = await tools
+        .get('rhythm_verify_email_sent')!
+        .handler({ query: 'nope' }, SECURITY_EXTRA);
 
-      expect(result.content[0].text).toMatch(/^FAIL/);
+      expect(result.content[0].text).toContain('FAIL:');
     });
   });
 
@@ -100,9 +131,11 @@ describe('registerFeedbackSensorTools', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerFeedbackSensorTools(server as any, API_URL, API_TOKEN);
 
-      const result = await tools.get('rhythm_verify_task_complete')!.handler({ task_id: 't1' });
+      const result = await tools
+        .get('rhythm_verify_task_complete')!
+        .handler({ task_id: 't1' }, SECURITY_EXTRA);
 
-      expect(result.content[0].text).toMatch(/^PASS/);
+      expect(result.content[0].text).toContain('PASS:');
     });
 
     it('FAILs when the task status is not done', async () => {
@@ -111,9 +144,11 @@ describe('registerFeedbackSensorTools', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       registerFeedbackSensorTools(server as any, API_URL, API_TOKEN);
 
-      const result = await tools.get('rhythm_verify_task_complete')!.handler({ task_id: 't1' });
+      const result = await tools
+        .get('rhythm_verify_task_complete')!
+        .handler({ task_id: 't1' }, SECURITY_EXTRA);
 
-      expect(result.content[0].text).toMatch(/^FAIL/);
+      expect(result.content[0].text).toContain('FAIL:');
     });
   });
 });

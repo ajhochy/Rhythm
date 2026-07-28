@@ -49,7 +49,7 @@ import { Shell } from "@/shell/shell"
 import { ShellID } from "@/tool/shell/id"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Truncate } from "@/tool/truncate"
-import { decodeDataUrl } from "@/util/data-url"
+import { decodeDataUrl, decodeDataUrlBytes } from "@/util/data-url"
 import { Process } from "@/util/process"
 import { Cause, Effect, Exit, Latch, Layer, Option, Scope, Context, Schema, Types } from "effect"
 import * as EffectLogger from "@opencode-ai/core/effect/logger"
@@ -68,6 +68,7 @@ import * as DateTime from "effect/DateTime"
 import { eq } from "@/storage/db"
 import * as Database from "@/storage/db"
 import { SessionTable } from "./session.sql"
+import { Global } from "@opencode-ai/core/global"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -664,7 +665,13 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               )
               const result: Awaited<ReturnType<NonNullable<typeof execute>>> = yield* Effect.gen(function* () {
                 yield* ctx.ask({ permission: key, metadata: {}, patterns: ["*"], always: ["*"] })
-                return yield* Effect.promise(() => execute(args, opts))
+                const trustedOptions = MCP.withRhythmSecurityContext(opts, {
+                  sdkSessionId: ctx.sessionID,
+                  turnId: ctx.messageID,
+                  agentName: ctx.agent,
+                  toolCallId: opts.toolCallId,
+                })
+                return yield* Effect.promise(() => execute(args, trustedOptions))
               }).pipe(
                 Effect.withSpan("Tool.execute", {
                   attributes: {
@@ -1389,7 +1396,27 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   { ...part, messageID: info.id, sessionID: input.sessionID },
                 ]
               }
-              break
+              if (part.mime.startsWith("image/") || part.mime === "application/pdf") break
+
+              // Browsers cannot provide a stable local path. Persist the
+              // selected binary in the engine-owned temp tree so the same
+              // real Read → reader-discovery path used by native clients runs
+              // instead of forwarding opaque bytes to the provider.
+              const safeName = path
+                .basename(part.filename || "attachment.bin")
+                .replaceAll(/[^A-Za-z0-9._-]/g, "_")
+              const filepath = path.join(
+                Global.Path.tmp,
+                "attachments",
+                input.sessionID,
+                `${ulid()}-${safeName || "attachment.bin"}`,
+              )
+              yield* fsys.writeWithDirs(filepath, decodeDataUrlBytes(part.url), 0o600).pipe(Effect.orDie)
+              return yield* resolvePart({
+                ...part,
+                url: pathToFileURL(filepath).href,
+                filename: part.filename || safeName,
+              })
             case "file:": {
               log.info("file", { mime: part.mime })
               const filepath = fileURLToPath(part.url)
@@ -1541,28 +1568,161 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 ]
               }
 
-              return [
+              const args = { filePath: filepath }
+              const pieces: Draft<MessageV2.Part>[] = [
                 ...(referenceContext ? [{ ...referenceContext, messageID: info.id, sessionID: input.sessionID }] : []),
                 {
                   messageID: info.id,
                   sessionID: input.sessionID,
                   type: "text",
                   synthetic: true,
-                  text: `Called the Read tool with the following input: {"filePath":"${filepath}"}`,
-                },
-                {
-                  id: part.id,
-                  messageID: info.id,
-                  sessionID: input.sessionID,
-                  type: "file",
-                  url:
-                    `data:${mime};base64,` +
-                    Buffer.from(yield* fsys.readFile(filepath).pipe(Effect.catch(Effect.die))).toString("base64"),
-                  mime,
-                  filename: part.filename!,
-                  source: part.source,
+                  text: `Called the Read tool with the following input: ${JSON.stringify(args)}`,
                 },
               ]
+              const exit = yield* execRead(args).pipe(Effect.exit)
+              if (Exit.isSuccess(exit)) {
+                pieces.push({
+                  messageID: info.id,
+                  sessionID: input.sessionID,
+                  type: "text",
+                  synthetic: true,
+                  text: exit.value.output,
+                })
+                if (exit.value.attachments?.length) {
+                  pieces.push(
+                    ...exit.value.attachments.map((attachment) => ({
+                      ...attachment,
+                      synthetic: true,
+                      filename: attachment.filename ?? part.filename,
+                      messageID: info.id,
+                      sessionID: input.sessionID,
+                    })),
+                  )
+                }
+                return pieces
+              }
+
+              const error = Cause.squash(exit.cause)
+              const message = error instanceof Error ? error.message : String(error)
+              log.error("failed to read attached file", { error, filepath, mime })
+              pieces.push({
+                messageID: info.id,
+                sessionID: input.sessionID,
+                type: "text",
+                synthetic: true,
+                text: `Read tool failed to read ${filepath} with the following error: ${message}`,
+              })
+              if (message.includes("Cannot read binary file:")) {
+                const extension = path.extname(filepath).toLowerCase() || "(no extension)"
+                const officeHint =
+                  extension === ".docx"
+                    ? " Check the existing `docx` skill first."
+                    : extension === ".xlsx"
+                      ? " Check the existing `xlsx` skill first."
+                      : extension === ".pptx"
+                        ? " Check the existing `pptx` skill first."
+                        : ""
+                const extensionTerm = extension.startsWith(".") ? extension.slice(1) : ""
+                const mimeSubtype = mime.toLowerCase().split("/")[1] ?? ""
+                const terms = [extensionTerm, ...mime.toLowerCase().split(/[^a-z0-9]+/)].filter(
+                  (term) =>
+                    term.length >= 3 &&
+                    !["application", "binary", "file", "octet", "stream"].includes(term),
+                )
+                const compact = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "")
+                const score = (value: string) => {
+                  const normalized = value.toLowerCase()
+                  const compacted = compact(value)
+                  let result = 0
+                  // Exact format signals dominate generic MIME words. Without
+                  // this weighting, a large catalog full of unrelated "Rhythm"
+                  // descriptions alphabetically crowds a real
+                  // `rhythmfixture-reader` out of the five surfaced results.
+                  if (extensionTerm && compacted.includes(compact(extensionTerm))) result += 100
+                  if (mimeSubtype && compacted.includes(compact(mimeSubtype))) result += 75
+                  for (const term of terms) {
+                    if (normalized.includes(term)) result += 10
+                  }
+                  return result
+                }
+                const strongest = <T extends { value: string; name: string }>(items: T[]) => {
+                  const ranked = items
+                    .map((item) => ({ item, score: score(item.value) }))
+                    .filter((entry) => entry.score > 0)
+                    .toSorted(
+                      (a, b) => b.score - a.score || a.item.name.localeCompare(b.item.name),
+                    )
+                  const best = ranked[0]?.score ?? 0
+                  // When an exact extension/subtype match exists, omit weak
+                  // one-token coincidences rather than calling them compatible.
+                  const floor = best >= 50 ? best * 0.5 : 1
+                  return ranked
+                    .filter((entry) => entry.score >= floor)
+                    .slice(0, 5)
+                    .map((entry) => entry.item)
+                }
+                const currentSession = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
+                const skillCatalog = (yield* sys.skills(ag, currentSession.skillAllowlist)) ?? ""
+                const skillCandidates = strongest(
+                  Array.from(
+                    skillCatalog.matchAll(
+                      /<skill>\s*<name>([^<]+)<\/name>\s*<description>([^<]*)<\/description>[\s\S]*?<\/skill>/g,
+                    ),
+                    (match) => ({
+                      name: match[1],
+                      description: match[2],
+                      value: `${match[1]} ${match[2]}`,
+                    }),
+                  ),
+                )
+
+                const mcpTools = yield* mcp.tools()
+                const keyToServer = yield* mcp.toolClientNames()
+                const allowedMcp = filterMcpToolsByAllowlist(
+                  Object.keys(mcpTools),
+                  keyToServer,
+                  currentSession.mcpAllowlist,
+                )
+                const mcpCandidates = strongest(
+                  allowedMcp.map((name) => ({
+                    name,
+                    value: `${name} ${mcpTools[name]?.description ?? ""}`,
+                  })),
+                )
+                const surfacedSkills = skillCandidates.length
+                  ? `Compatible skills already available: ${skillCandidates
+                      .map((item) => `\`${item.name}\` — ${item.description || "no description"}`)
+                      .join("; ")}. Use the skill tool to load the best match.`
+                  : "No installed skill name or description exactly matches this format."
+                const surfacedMcp = mcpCandidates.length
+                  ? `Compatible MCP tools already available: ${mcpCandidates.map((item) => `\`${item.name}\``).join(", ")}.`
+                  : "No allowlisted MCP tool name or description exactly matches this format."
+
+                pieces.push({
+                  messageID: info.id,
+                  sessionID: input.sessionID,
+                  type: "text",
+                  synthetic: true,
+                  text: [
+                    "Attachment reader discovery required.",
+                    `The local file ${filepath} has MIME type ${mime} and extension ${extension}, which the built-in Read tool cannot parse.`,
+                    "Do not ignore or reject this attachment, and do not guess at its binary contents.",
+                    `Before answering, inspect the session's available skills for a format-specific reader.${officeHint}`,
+                    "Also inspect the available MCP tools and servers for a compatible reader.",
+                    surfacedSkills,
+                    surfacedMcp,
+                    "If no compatible reader is available, use web search to search online for a trusted skill, MCP server, or tool that supports this exact format; surface the best option and any installation or permission requirement rather than silently failing.",
+                    `Keep the original local path (${filepath}) so the selected reader can consume it.`,
+                  ].join("\n"),
+                })
+                return pieces
+              }
+
+              yield* bus.publish(Session.Event.Error, {
+                sessionID: input.sessionID,
+                error: new NamedError.Unknown({ message }).toObject(),
+              })
+              return pieces
             }
           }
         }

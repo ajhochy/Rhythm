@@ -17,6 +17,9 @@ agentConfigsRouter.post('/import', controller.import.bind(controller));
 // #958 — agent→skill wiring lint. Registered before '/:id' so "skill-wiring"
 // is never treated as an id.
 agentConfigsRouter.get('/skill-wiring', controller.skillWiringLint.bind(controller));
+agentConfigsRouter.post('/:id/security-lock', controller.securityLock.bind(controller));
+agentConfigsRouter.post('/:id/reviewed-reenable', controller.reviewedReenable.bind(controller));
+agentConfigsRouter.get('/:id/security-events', controller.securityEvents.bind(controller));
 agentConfigsRouter.get('/:id', controller.getOne.bind(controller));
 agentConfigsRouter.post('/', controller.create.bind(controller));
 agentConfigsRouter.patch('/:id', controller.patch.bind(controller));

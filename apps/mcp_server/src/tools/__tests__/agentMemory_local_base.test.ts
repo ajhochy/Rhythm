@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { registerAgentMemoryTools } from '../agentMemory';
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { registerAgentMemoryTools } from "../agentMemory";
+import { RHYTHM_SECURITY_CONTEXT_META_KEY } from "../../security/security_context.js";
 
 /**
  * #804 — the memory MCP tools (remember/search/list/forget) must target the
@@ -9,7 +10,10 @@ import { registerAgentMemoryTools } from '../agentMemory';
  * dual-endpoint invariant agent-sessions hold.
  */
 
-type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
+type ToolHandler = (
+  args: Record<string, unknown>,
+  extra?: unknown,
+) => Promise<unknown>;
 
 class FakeServer {
   registered = new Map<string, ToolHandler>();
@@ -24,64 +28,96 @@ class FakeServer {
   }
 }
 
-const LOCAL = 'http://localhost:4001';
+const LOCAL = "http://localhost:4001";
+const SECURITY_EXTRA = {
+  _meta: {
+    [RHYTHM_SECURITY_CONTEXT_META_KEY]: {
+      sdkSessionId: "sdk-memory-test",
+      turnId: "turn-memory-test",
+      agentName: "ffb",
+      toolCallId: "call-memory-test",
+    },
+  },
+};
 
 function buildServer(base: string): FakeServer {
   const server = new FakeServer();
-  registerAgentMemoryTools(server as never, base, 'tok-1');
+  registerAgentMemoryTools(server as never, base, "tok-1");
   return server;
 }
 
 /** Stub global fetch, capture the URL/body each memory tool actually sends. */
-function stubFetch(): { calls: string[]; bodies: unknown[] } {
+function stubFetch(): {
+  calls: string[];
+  bodies: unknown[];
+  securityBodies: unknown[];
+} {
   const calls: string[] = [];
   const bodies: unknown[] = [];
+  const securityBodies: unknown[] = [];
   const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+    if (String(url).endsWith("/agent-approvals/consume")) {
+      securityBodies.push(
+        typeof init?.body === "string" ? JSON.parse(init.body) : init?.body,
+      );
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ allowed: true, consumed: false }),
+      } as unknown as Response;
+    }
+    if (String(url).endsWith("/agent-approvals/external-content/taint")) {
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({ taintId: "test-taint" }),
+      } as unknown as Response;
+    }
     calls.push(String(url));
     bodies.push(
-      typeof init?.body === 'string' ? JSON.parse(init.body) : init?.body,
+      typeof init?.body === "string" ? JSON.parse(init.body) : init?.body,
     );
     return {
       ok: true,
       status: 200,
-      json: async () => ({ ok: true, id: 'mem-1', results: [] }),
+      json: async () => ({ ok: true, id: "mem-1", results: [] }),
     } as unknown as Response;
   });
-  vi.stubGlobal('fetch', fetchMock);
-  return { calls, bodies };
+  vi.stubGlobal("fetch", fetchMock);
+  return { calls, bodies, securityBodies };
 }
 
-describe('#804 memory MCP tools resolve to the local agent server', () => {
+describe("#804 memory MCP tools resolve to the local agent server", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
-  it('rhythm_remember_memory POSTs to localhost:4001, not prod', async () => {
+  it("rhythm_remember_memory POSTs to localhost:4001, not prod", async () => {
     const { calls } = stubFetch();
     const server = buildServer(LOCAL);
-    const handler = server.registered.get('rhythm_remember_memory');
+    const handler = server.registered.get("rhythm_remember_memory");
     expect(handler).toBeDefined();
 
-    await handler!({ content: 'remember this', kind: 'note' });
+    await handler!({ content: "remember this", kind: "note" }, SECURITY_EXTRA);
 
     expect(calls).toHaveLength(1);
     expect(calls[0]).toBe(`${LOCAL}/agent-memory`);
     expect(calls[0].startsWith(LOCAL)).toBe(true);
-    expect(calls[0]).not.toContain('vcrcapps.com');
+    expect(calls[0]).not.toContain("vcrcapps.com");
   });
 
-  it('rhythm_search_memory GETs from localhost:4001', async () => {
+  it("rhythm_search_memory GETs from localhost:4001", async () => {
     const { calls } = stubFetch();
     const server = buildServer(LOCAL);
-    const handler = server.registered.get('rhythm_search_memory');
+    const handler = server.registered.get("rhythm_search_memory");
     expect(handler).toBeDefined();
 
-    await handler!({ q: 'project x' });
+    await handler!({ q: "project x" }, SECURITY_EXTRA);
 
     expect(calls).toHaveLength(1);
     expect(calls[0].startsWith(`${LOCAL}/agent-memory/search`)).toBe(true);
-    expect(calls[0]).not.toContain('vcrcapps.com');
+    expect(calls[0]).not.toContain("vcrcapps.com");
   });
 
   it('rhythm_remember_memory threads known source-session context unchanged', async () => {
@@ -89,12 +125,15 @@ describe('#804 memory MCP tools resolve to the local agent server', () => {
     const server = buildServer(LOCAL);
     const handler = server.registered.get('rhythm_remember_memory');
 
-    await handler!({
-      content: 'remember this',
-      kind: 'fact',
-      sessionId: 'source-session-42',
-      sdkSessionId: 'sdk-ambient-42',
-    });
+    await handler!(
+      {
+        content: 'remember this',
+        kind: 'fact',
+        sessionId: 'source-session-42',
+        sdkSessionId: 'sdk-ambient-42',
+      },
+      SECURITY_EXTRA,
+    );
 
     expect(bodies[0]).toMatchObject({
       content: 'remember this',
@@ -108,13 +147,16 @@ describe('#804 memory MCP tools resolve to the local agent server', () => {
     const server = buildServer(LOCAL);
     const handler = server.registered.get('rhythm_remember_memory');
 
-    await handler!({
-      content: 'Mike owns Sunday service.',
-      kind: 'project',
-      links: [
-        { target: '/person/pastor-mike.md', label: 'Pastor Mike' },
-      ],
-    });
+    await handler!(
+      {
+        content: 'Mike owns Sunday service.',
+        kind: 'project',
+        links: [
+          { target: '/person/pastor-mike.md', label: 'Pastor Mike' },
+        ],
+      },
+      SECURITY_EXTRA,
+    );
 
     expect(bodies[0]).toMatchObject({
       links: [
@@ -126,57 +168,76 @@ describe('#804 memory MCP tools resolve to the local agent server', () => {
   it('rhythm_list_memories GETs from localhost:4001', async () => {
     const { calls } = stubFetch();
     const server = buildServer(LOCAL);
-    const handler = server.registered.get('rhythm_list_memories');
+    const handler = server.registered.get("rhythm_list_memories");
     expect(handler).toBeDefined();
 
-    await handler!({ kind: 'fact' });
+    await handler!({ kind: "fact" }, SECURITY_EXTRA);
 
     expect(calls).toHaveLength(1);
     expect(calls[0].startsWith(`${LOCAL}/agent-memory`)).toBe(true);
-    expect(calls[0]).not.toContain('vcrcapps.com');
+    expect(calls[0]).not.toContain("vcrcapps.com");
   });
 
-  it('rhythm_forget_memory DELETEs against localhost:4001', async () => {
+  it("rhythm_forget_memory DELETEs against localhost:4001", async () => {
     const { calls } = stubFetch();
     const server = buildServer(LOCAL);
-    const handler = server.registered.get('rhythm_forget_memory');
+    const handler = server.registered.get("rhythm_forget_memory");
     expect(handler).toBeDefined();
 
-    await handler!({ id: 'mem-1' });
+    await handler!({ id: "mem-1" }, SECURITY_EXTRA);
 
     expect(calls).toHaveLength(1);
     expect(calls[0]).toBe(`${LOCAL}/agent-memory/mem-1`);
-    expect(calls[0]).not.toContain('vcrcapps.com');
+    expect(calls[0]).not.toContain("vcrcapps.com");
   });
 
-  it('rhythm_update_memory PATCHes against localhost:4001 (#862)', async () => {
+  it("rhythm_update_memory PATCHes against localhost:4001 (#862)", async () => {
     const { calls } = stubFetch();
     const server = buildServer(LOCAL);
-    const handler = server.registered.get('rhythm_update_memory');
+    const handler = server.registered.get("rhythm_update_memory");
     expect(handler).toBeDefined();
 
-    await handler!({ id: 'mem-1', content: 'edited content' });
+    await handler!(
+      { id: "mem-1", content: "edited content" },
+      SECURITY_EXTRA,
+    );
 
     expect(calls).toHaveLength(1);
     expect(calls[0]).toBe(`${LOCAL}/agent-memory/mem-1`);
-    expect(calls[0]).not.toContain('vcrcapps.com');
+    expect(calls[0]).not.toContain("vcrcapps.com");
   });
 
   it('rhythm_verify_memory uses the fixed local agent-lifecycle endpoint (#1190)', async () => {
-    const { calls } = stubFetch();
+    const { calls, bodies, securityBodies } = stubFetch();
     const server = buildServer(LOCAL);
     const handler = server.registered.get('rhythm_verify_memory');
     expect(handler).toBeDefined();
 
-    await handler!({
-      id: 'mem-1',
-      action: 'verify',
-      staleAfter: '2026-10-01',
-      by: 'human:forged@example.com',
-    });
+    await handler!(
+      {
+        id: 'mem-1',
+        action: 'verify',
+        staleAfter: '2026-10-01',
+        by: 'human:forged@example.com',
+      },
+      SECURITY_EXTRA,
+    );
 
     expect(calls).toEqual([
       `${LOCAL}/agent-memory/mem-1/agent-lifecycle`,
+    ]);
+    expect(securityBodies).toEqual([
+      expect.objectContaining({
+        action: 'memory.lifecycle',
+        payload: {
+          id: 'mem-1',
+          action: 'verify',
+          staleAfter: '2026-10-01',
+        },
+      }),
+    ]);
+    expect(bodies).toEqual([
+      { action: 'verify', staleAfter: '2026-10-01' },
     ]);
   });
 
@@ -187,14 +248,14 @@ describe('#804 memory MCP tools resolve to the local agent server', () => {
     // if a *different* (prod) base exists in the environment.
     const { calls } = stubFetch();
     const prevApi = process.env.RHYTHM_API_URL;
-    process.env.RHYTHM_API_URL = 'https://api.vcrcapps.com';
+    process.env.RHYTHM_API_URL = "https://api.vcrcapps.com";
     try {
       const server = buildServer(LOCAL);
-      const handler = server.registered.get('rhythm_remember_memory');
-      await handler!({ content: 'x' });
+      const handler = server.registered.get("rhythm_remember_memory");
+      await handler!({ content: "x" }, SECURITY_EXTRA);
       // Changing the prod URL env did not move the memory request off local.
       expect(calls[0]).toBe(`${LOCAL}/agent-memory`);
-      expect(calls[0]).not.toContain('vcrcapps.com');
+      expect(calls[0]).not.toContain("vcrcapps.com");
     } finally {
       if (prevApi === undefined) delete process.env.RHYTHM_API_URL;
       else process.env.RHYTHM_API_URL = prevApi;

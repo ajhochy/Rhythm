@@ -1,0 +1,40 @@
+{
+  "issue": 1161,
+  "generated": "2026-07-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-1161-c1",
+      "text": "When boundConfigId is present, the recipe should run with that agent profile and inherit its model, MCP scope, skill scope, core permissions, and projected agent identity.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_740_cookbook_run.test.ts",
+      "test_id": "issue-1161-c1: bound recipe forwards profile identity and session metadata",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1161-c2",
+      "text": "Unbound recipes should preserve the existing fallback behavior.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_740_cookbook_run.test.ts",
+      "test_id": "issue-1161-c2: unbound recipe preserves the default profile fallback",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1161-c3",
+      "text": "Validate a non-null stale/deleted binding and return an actionable 4xx instead of silently using defaults.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_740_cookbook_run.test.ts",
+      "test_id": "issue-1161-c3: stale recipe binding returns an actionable 4xx",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1161-c4",
+      "text": "Live test: create uniquely identifiable profile + bound recipe, run through HTTP, assert session agentKind/engine agent/model/profile behavior; preserve unbound fallback.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1161_cookbook_bound_profile.test.ts",
+      "test_id": "issue-1161-c4: bound and unbound cookbook runs use their observable live profile identities",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { env } from '../config/env';
 import { AppError } from '../errors/app_error';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentConfigInput } from '../repositories/agent_configs_repository';
@@ -60,6 +61,50 @@ const PRESET_PROTECTED_FIELDS = ['label', 'icon', 'isAgent'];
 const VALID_MODEL_TIER_HINTS = new Set(['cheap', 'standard', 'frontier']);
 const VALID_CORE_PERMISSION_ACTIONS = new Set(['allow', 'ask', 'deny']);
 const AGENT_CONFIG_ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const SECURITY_STATE_FIELDS = new Set([
+  'locked',
+  'disabledReason',
+  'lockedAt',
+  'lockedBy',
+]);
+
+function requiredTrimmedText(
+  body: Record<string, unknown>,
+  field: string,
+  maxLength: number,
+): string {
+  const value = body[field];
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw AppError.badRequest(`${field} must be a non-empty string`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length > maxLength) {
+    throw AppError.badRequest(`${field} must be ${maxLength} characters or fewer`);
+  }
+  return trimmed;
+}
+
+function assertSecurityTransitionAuthorized(req: Request): void {
+  // The local agent server is loopback-only and intentionally has no user
+  // auth. Any networked/non-local deployment must use a real admin/system
+  // identity for these exceptional transitions.
+  if (env.agentLocal) return;
+  const actor = req.auth?.user;
+  if (!actor) throw AppError.unauthorized('Authentication required');
+  if (actor.role !== 'admin' && actor.role !== 'system') {
+    throw AppError.forbidden('Only admins can change an agent security lock');
+  }
+}
+
+function auditedActor(
+  req: Request,
+  body: Record<string, unknown>,
+  localField: string,
+): string {
+  return env.agentLocal
+    ? requiredTrimmedText(body, localField, 320)
+    : req.auth!.user.email;
+}
 
 function validateCorePermissionsJson(value: unknown): void {
   if (value === undefined || value === null) return;
@@ -304,6 +349,19 @@ export class AgentConfigsController {
       if (!existing) throw AppError.notFound('AgentConfig');
 
       const body = req.body as Record<string, unknown>;
+      const suppliedSecurityFields = Object.keys(body).filter((field) =>
+        SECURITY_STATE_FIELDS.has(field),
+      );
+      if (suppliedSecurityFields.length > 0) {
+        throw AppError.badRequest(
+          `Security lock fields can only be changed through the dedicated reviewed transition: ${suppliedSecurityFields.join(', ')}`,
+        );
+      }
+      if (existing.locked === true && body.enabled !== undefined && Boolean(body.enabled)) {
+        throw AppError.conflict(
+          'This agent is security-locked and cannot be re-enabled with the generic PATCH; use the reviewed-reenable transition',
+        );
+      }
 
       // Preset rows: only allow patching enabled and command
       if (existing.presetId !== null) {
@@ -360,6 +418,89 @@ export class AgentConfigsController {
       await reloadAgentProfilesBestEffort();
       broadcastAgentConfigsChanged();
       res.json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * #1135 — exceptional, auditable security disable. This is intentionally
+   * separate from the ordinary PATCH enabled toggle.
+   */
+  async securityLock(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      assertSecurityTransitionAuthorized(req);
+      const existing = repo.getById(req.params.id);
+      if (!existing) throw AppError.notFound('AgentConfig');
+      if (existing.locked === true) {
+        throw AppError.conflict('AgentConfig is already security-locked');
+      }
+      const body = req.body as Record<string, unknown>;
+      const reason = requiredTrimmedText(body, 'reason', 2_000);
+      const updated = repo.lockForSecurity(
+        req.params.id,
+        reason,
+        auditedActor(req, body, 'actor'),
+      );
+      if (!updated) {
+        throw AppError.conflict('AgentConfig lock state changed; reload and retry');
+      }
+      syncAgentProfileFileForState(updated);
+      await reloadAgentProfilesBestEffort();
+      broadcastAgentConfigsChanged();
+      res.json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * #1135 — reviewed re-enable with optimistic concurrency. A reviewer must
+   * acknowledge the exact reason + lock timestamp currently persisted; stale
+   * review payloads cannot unlock a newer security finding.
+   */
+  async reviewedReenable(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      assertSecurityTransitionAuthorized(req);
+      const existing = repo.getById(req.params.id);
+      if (!existing) throw AppError.notFound('AgentConfig');
+      if (existing.locked !== true) {
+        throw AppError.conflict('AgentConfig is not security-locked');
+      }
+      const body = req.body as Record<string, unknown>;
+      const expectedLockedAt = requiredTrimmedText(body, 'expectedLockedAt', 100);
+      const expectedDisabledReason = requiredTrimmedText(
+        body,
+        'expectedDisabledReason',
+        2_000,
+      );
+      const reviewNote = requiredTrimmedText(body, 'reviewNote', 4_000);
+      const updated = repo.reviewedReenable(req.params.id, {
+        expectedLockedAt,
+        expectedDisabledReason,
+        reviewedBy: auditedActor(req, body, 'reviewedBy'),
+        reviewNote,
+      });
+      if (!updated) {
+        throw AppError.conflict(
+          'AgentConfig lock state does not match the reviewed reason/version; reload and review the current lock',
+        );
+      }
+      syncAgentProfileFileForState(updated);
+      await reloadAgentProfilesBestEffort();
+      broadcastAgentConfigsChanged();
+      res.json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  securityEvents(req: Request, res: Response, next: NextFunction): void {
+    try {
+      assertSecurityTransitionAuthorized(req);
+      const existing = repo.getById(req.params.id);
+      if (!existing) throw AppError.notFound('AgentConfig');
+      res.json({ events: repo.listSecurityEvents(req.params.id) });
     } catch (err) {
       next(err);
     }

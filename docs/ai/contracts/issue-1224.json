@@ -1,0 +1,40 @@
+{
+  "issue": 1224,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1224-c1",
+      "text": "Direct-Mac credentials and connection metadata are scoped by authenticated Rhythm user and host/origin.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/issue-1224.test.mjs",
+      "test_id": "issue-1224-c1: direct-Mac storage keys include account and origin scope",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1224-c2",
+      "text": "Sign-out purges the departing user's direct-Mac credentials, metadata, and background polling state.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/issue-1224.test.mjs",
+      "test_id": "issue-1224-c2: sign-out purges all direct-Mac state for the departing account",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1224-c3",
+      "text": "Pairing replacement and revocation purge superseded credentials and cached connection state.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/issue-1224.test.mjs",
+      "test_id": "issue-1224-c3: pairing replacement and revocation purge superseded direct-Mac state",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1224-c4",
+      "text": "Automated tests demonstrate that a second account cannot read or reuse the first account's connection state.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/issue-1224.test.mjs",
+      "test_id": "issue-1224-c4: account B cannot resolve account A connection state",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

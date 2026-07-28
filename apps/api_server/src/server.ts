@@ -4,7 +4,10 @@ import { config as loadDotenv } from 'dotenv';
 import { Agent as UndiciAgent, setGlobalDispatcher } from 'undici';
 import { opencodeClient } from './services/opencode_engine';
 import { managedChromeService } from './services/managed_chrome_service';
+import { MobilePtyProxy } from './services/mobile_pty_proxy';
 import { runAdvisoryCheck, formatStartupWarning } from './security/security_advisories';
+import { env } from './config/env';
+import { validateHumanApprovalConfiguration } from './security/human_approval_security';
 
 // #1039 Cause B — Node's built-in fetch (undici) aborts any request whose
 // response HEADERS haven't arrived within ~300s (UND_ERR_HEADERS_TIMEOUT).
@@ -36,6 +39,9 @@ async function main() {
     { agentMemoryService },
     { startMemoryVaultSyncJob },
     { sundayPrepService },
+    { createMobileGatewayRouter },
+    { createMobileGatewaySurface },
+    { mobileGatewayListenPort },
   ] = await Promise.all([
     import('./app'),
     import('./database/db'),
@@ -47,9 +53,34 @@ async function main() {
     import('./services/agentMemoryService'),
     import('./jobs/memory_vault_sync_job'),
     import('./services/sundayPrepService'),
+    import('./routes/mobile_gateway_routes'),
+    import('./mobile_gateway_surface'),
+    import('./mobile_gateway_config'),
   ]);
 
   const port = Number(process.env.PORT ?? 4000);
+  // #1175 — AGENT_LOCAL bypass is safe only behind an explicit IPv4 loopback
+  // bind. The config resolver already refuses a non-loopback override; this
+  // startup assertion keeps that invariant adjacent to the actual listen().
+  const apiBindHost = env.agentLocal ? '127.0.0.1' : env.apiBindHost;
+  if (env.agentLocal && apiBindHost !== '127.0.0.1') {
+    throw new Error(
+      'Refusing AGENT_LOCAL startup on a non-loopback primary API bind',
+    );
+  }
+  try {
+    // Direct API development may run without a Flutter parent. Keep the API
+    // healthy in that case, but leave approval GET/PATCH fail-closed with 503.
+    // The shipping Flutter launcher refuses to start without both values.
+    validateHumanApprovalConfiguration({
+      capabilitySha256: env.humanApprovalCapabilitySha256,
+      publicKey: env.humanApprovalPublicKey,
+    });
+  } catch (error) {
+    logger.warn(
+      `[server] human approval verification unavailable; approval decisions are disabled: ${String(error)}`,
+    );
+  }
 
   // #877 — supply-chain advisory scan. stdlib-only (no network request),
   // reads the already-resolved package-lock.json; a warning here is the
@@ -83,7 +114,6 @@ async function main() {
   // and never attaches the WS gateway. The DEFAULT ('all') preserves today's
   // behavior. `agentSchedulerJob`/`wss` stay declared (nullable / no-op WSS)
   // so the single shutdown handler below remains valid in every role.
-  const { env } = await import('./config/env');
   let agentSchedulerJob: { stop: () => void } | null = null;
   // Issue #770 WI6: the Memory-Vault mirror-sync writes into agent_memory, so it
   // is an agent-execution surface and is gated with the rest. Declared nullable
@@ -391,14 +421,30 @@ async function main() {
     );
   }
 
-  const app = createApp();
+  const mobileGatewayRouter = env.agentExecutionEnabled
+    ? createMobileGatewayRouter()
+    : undefined;
+  const app = createApp({ mobileGatewayRouter });
 
   const httpServer = http.createServer(app);
+  const mobileGatewayServer = mobileGatewayRouter
+    ? http.createServer(createMobileGatewaySurface(mobileGatewayRouter))
+    : null;
+  const mobilePtyProxy = env.agentExecutionEnabled
+    ? new MobilePtyProxy()
+    : undefined;
+  if (mobileGatewayServer && mobilePtyProxy) {
+    mobileGatewayServer.on('upgrade', (request, socket, head) => {
+      if (!mobilePtyProxy.handleUpgrade(request, socket, head)) {
+        socket.destroy();
+      }
+    });
+  }
   // WS gateway is an agent-execution surface (#755). In the 'cloud' role we
   // create a no-op WSS so `wss.close()` in the shutdown handler is still valid,
   // but never attach the upgrade/connection handlers.
   const wss = env.agentExecutionEnabled
-    ? attachWsGateway(httpServer)
+    ? attachWsGateway(httpServer, mobilePtyProxy)
     : new (await import('ws')).WebSocketServer({ noServer: true });
 
   if (env.agentExecutionEnabled) {
@@ -522,6 +568,28 @@ async function main() {
         logger.warn(`[server] session status resync failed (non-fatal): ${String(e)}`);
       }
 
+      // #1175 — durable async delegation wakes can be left in `waking` when
+      // api_server exits after OpenCode accepts the deterministic parent
+      // message but before SQLite records `notified`. Reconcile only after the
+      // engine and persisted session mappings are ready. The service scans a
+      // bounded parent set and inspects the engine transcript before retrying,
+      // so an accepted wake is never duplicated.
+      try {
+        const { asyncDelegationCompletionService } = await import(
+          './services/async_delegation_completion_service'
+        );
+        const recovered =
+          await asyncDelegationCompletionService.recoverAfterRestart();
+        logger.info(
+          `[server] async delegation recovery complete: ` +
+            `parents=${recovered.parentsExamined} remaining=${recovered.claimsRemaining}`,
+        );
+      } catch (e) {
+        logger.warn(
+          `[server] async delegation recovery failed (non-fatal): ${String(e)}`,
+        );
+      }
+
       // Dual-accounts Task B — the Rhythm accounts store is the source of
       // truth for Claude tokens once it has accounts. Boot order:
       //   1. Store empty + Claude Code creds readable → one-time migration
@@ -639,9 +707,17 @@ async function main() {
 
   }
 
-  httpServer.listen(port, () => {
-    logger.info(`Rhythm API listening on port ${port}`);
+  httpServer.listen(port, apiBindHost, () => {
+    logger.info(`Rhythm API listening on ${apiBindHost}:${port}`);
   });
+  if (mobileGatewayServer) {
+    const mobileGatewayPort = mobileGatewayListenPort();
+    mobileGatewayServer.listen(mobileGatewayPort, '127.0.0.1', () => {
+      logger.info(
+        `Rhythm mobile gateway listening on 127.0.0.1:${mobileGatewayPort}`,
+      );
+    });
+  }
 
   // #614 — Clean shutdown handler.
   // Registered once here so it applies to both SIGTERM (Flutter kill) and
@@ -690,10 +766,17 @@ async function main() {
       // Allow the timeout to be garbage-collected if the server closes cleanly.
       if (forceExit.unref) forceExit.unref();
 
-      httpServer.close(() => {
-        logger.info('[server] clean shutdown complete');
-        process.exit(0);
-      });
+      const closeHttpServer = () => {
+        httpServer.close(() => {
+          logger.info('[server] clean shutdown complete');
+          process.exit(0);
+        });
+      };
+      if (mobileGatewayServer) {
+        mobileGatewayServer.close(closeHttpServer);
+      } else {
+        closeHttpServer();
+      }
     });
   };
 

@@ -1,0 +1,123 @@
+{
+  "run_id": "2026-07-25-issue-1171",
+  "issue": 1171,
+  "date": "2026-07-25",
+  "smoke_result": "pass",
+  "verification_claimed": "FAIL",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1171-c1",
+      "text": "Handles Tailscale missing/logged-out/wrong target/healthy states",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Six service cases and eight desktop widget cases exercised all four diagnostics and idempotent correction."
+    },
+    {
+      "criterion_id": "issue-1171-c2",
+      "text": "QR contains only tailnet gateway URL + one-time code",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The live sandbox and desktop widget test both asserted the exact two-field payload, expiry, and regeneration."
+    },
+    {
+      "criterion_id": "issue-1171-c3",
+      "text": "Device token is Keychain-only; pairing code discarded after exchange",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Mobile tests prove SecureStore-only token persistence and pairing-code erasure; the live API proves hash-at-rest and one-time exchange."
+    },
+    {
+      "criterion_id": "issue-1171-c4",
+      "text": "States cover unpaired/pairing/connected/offline/Tailscale unavailable/revoked/incompatible/unhealthy",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "The 11-scenario state-machine suite covers all states, replacement, cleanup, and cloud/Mac independence; native settings rendered the independent card."
+    },
+    {
+      "criterion_id": "issue-1171-c5",
+      "text": "Flutter format/analyze/tests and mobile tests/E2E pass",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Flutter full suite was 997/997; mobile foundation gate and Playwright were green using the accepted coordinator protocol fingerprint."
+    },
+    {
+      "criterion_id": "issue-1171-c6",
+      "text": "Independent security/accessibility review passes",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Security/accessibility regression suites pass. Coordinator will commission independent review against the immutable commit."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "base-test-regression",
+      "description": "The aggregate API gate is red in unchanged issue #723 code because a Function-wrapped dynamic import lacks a Vitest VM callback.",
+      "detected_by": "Two npm test runs, isolated issue #723 reproduction, and zero diff from base in the test and service."
+    },
+    {
+      "process_category": "native-build-infrastructure",
+      "description": "The Xcode MCP connection closed during a long simulator build and a generated build cache exhausted disk before direct xcodebuild passed.",
+      "detected_by": "Xcode MCP transport output, filesystem capacity check, and successful direct Release simulator build after regenerable cache cleanup."
+    },
+    {
+      "process_category": "foundation-manifest-drift",
+      "description": "The exact reviewed base computes a different OpenAPI fingerprint than its accepted checked-in mobile manifest, so the raw foundation wrapper stops before tests.",
+      "detected_by": "Foundation manifest check on the branch and a fully green rerun against the coordinator's accepted #1166-#1169 protocol source."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "failure-postmortem",
+      "project-state-updater"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "failure-postmortem",
+        "description": "The postmortem completion checklist was tracked inside the existing run plan rather than expanded item-by-item at skill entry.",
+        "detected_by": "Transcript and update_plan inspection."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/routes/mobile_gateway_routes.ts",
+    "apps/api_server/src/services/tailscale_serve_service.ts",
+    "apps/api_server/src/services/__tests__/tailscale_serve_service.test.ts",
+    "apps/api_server/src/__tests__/issue_1171_mobile_access_live.test.ts",
+    "apps/desktop_flutter/lib/features/settings/views/settings_view.dart",
+    "apps/desktop_flutter/lib/features/agents/data/mobile_access_data_source.dart",
+    "apps/desktop_flutter/lib/features/agents/views/mobile_access_dialog.dart",
+    "apps/desktop_flutter/test/features/agents/mobile_access_dialog_test.dart",
+    "apps/mobile/app/pair.tsx",
+    "apps/mobile/components/settings/paired-mac-section.tsx",
+    "apps/mobile/lib/pairing/paired-host-store.ts",
+    "apps/mobile/lib/transport/paired-mac-client.ts",
+    "apps/mobile/providers/paired-host-provider.tsx"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Keep the live one-time exchange and native deep-link probes; repair the unrelated #723 Vitest dynamic-import seam in its own reviewed slice."
+}

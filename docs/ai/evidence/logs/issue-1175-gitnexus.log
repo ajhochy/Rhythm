@@ -1,0 +1,29 @@
+Source head: 8701432480f585fe90119cbaee66382d062da879
+Command: node .gitnexus/run.cjs detect_changes --repo Rhythm-1172 --scope compare --base-ref main --limit 8
+Exit code: 0
+
+Changes: 987 files, 7076 symbols
+Affected processes: 21
+Risk level: critical
+
+Representative changed symbols:
+- apps/opencode_fork/packages/llm/AGENTS.md
+- apps/opencode_fork/packages/opencode/AGENTS.md
+
+Affected execution flows:
+- SettingsScreen -> SerializePendingNotificationSessions
+- HandleKeyDown -> GetNodeLength
+- HandleKeyDown -> GetTextLength
+- SettingsScreen -> CanUseNotifications
+- SettingsScreen -> CanUseBackgroundMonitoring
+- SettingsScreen -> GetBackgroundTaskStatusLabel
+- HandleKeyDown -> PromptLength
+- HandleKeyDown -> CreatePill
+- SeedOrgOptimizerTask -> RowToModel
+- SecurityLock -> GetDb
+- 11 additional flows in the GitNexus report
+
+Review result: all 21 flows map to the cumulative mobile roadmap, the vendored
+OpenCode fork, or explicitly linked issue work. Unexpected flows: 0. The
+critical rating reflects the intentionally aggregate branch size, not an
+unreviewed out-of-scope runtime dependency.

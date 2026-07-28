@@ -61,6 +61,9 @@ export function validateAgentDesignInput(input: Record<string, unknown>): Valida
   if (input.thumbnailUrl !== undefined) {
     throw new Error('Remote thumbnails are not supported; use the authenticated artifact API for local previews');
   }
+  if (input.userApprovedPath !== undefined) {
+    throw new Error('userApprovedPath is not accepted; local artifacts must remain under ~/Downloads/Rhythm Studio');
+  }
   const projectUrlValue = input.projectUrl ?? input.canvaUrl;
   const projectUrl = projectUrlValue === undefined ? undefined : normalizeHttpsUrl(projectUrlValue, 'Project URL');
   if (input.projectUrl !== undefined && input.canvaUrl !== undefined && input.projectUrl !== input.canvaUrl) {
@@ -68,7 +71,7 @@ export function validateAgentDesignInput(input: Record<string, unknown>): Valida
   }
 
   const localArtifact = localPath
-    ? resolveLocalArtifact(localPath, input.userApprovedPath === true)
+    ? resolveLocalArtifact(localPath)
     : undefined;
   const remoteType = artifactUrl ? artifactTypeForPath(new URL(artifactUrl).pathname) : undefined;
   if (artifactUrl && !remoteType) throw new Error('Unsupported finished artifact URL type');
@@ -87,15 +90,15 @@ export function validateAgentDesignInput(input: Record<string, unknown>): Valida
   };
 }
 
-export function resolveLocalArtifact(filePath: string, userApprovedPath = false): { path: string; artifactType: string } {
+export function resolveLocalArtifact(filePath: string): { path: string; artifactType: string } {
   if (!filePath || !existsSync(filePath)) throw new Error('Local artifact file does not exist');
   const resolved = realpathSync(filePath);
   if (!statSync(resolved).isFile()) throw new Error('Local artifact must be a file');
   const artifactType = artifactTypeForPath(resolved);
   if (!artifactType) throw new Error('Unsupported local artifact type');
   const studio = resolve(process.env.HOME ?? '', 'Downloads', 'Rhythm Studio');
-  if (!userApprovedPath && !containsReal(studio, resolved)) {
-    throw new Error('Local artifact must be under ~/Downloads/Rhythm Studio or explicitly approved');
+  if (!containsReal(studio, resolved)) {
+    throw new Error('Local artifact must be under ~/Downloads/Rhythm Studio');
   }
   return { path: resolved, artifactType };
 }

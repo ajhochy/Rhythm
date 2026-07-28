@@ -1,0 +1,47 @@
+{
+  "run_id": "2026-07-27-issue-1175-google-ios-client-device-smoke",
+  "issue": 1175,
+  "date": "2026-07-27",
+  "smoke_result": "fail",
+  "verification_claimed": "PARTIAL",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1175-c5",
+      "text": "A signed development build runs on a physical iPhone and verifies pairing, isolation failures, chat/SSE/PTY, approvals, every Tool, revocation, and background recovery; committed evidence uses only a non-sensitive model label, never a device UDID.",
+      "contract_status": "pending",
+      "smoke_status": "fail",
+      "category": "C5",
+      "notes": "A locally Xcode-signed development-variant standalone app installed and launched on an iPhone 13 mini, but Google sign-in stopped at the explicit runtime guard because the build shell had no EXPO_PUBLIC_GOOGLE_MOBILE_CLIENT_ID or matching redirect URI. The built bundle inspection confirmed that neither OAuth value was embedded. The real Google iOS client remains an existing human release prerequisite in #1198/#1199, so this failure does not contradict a passing physical-device claim."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "release-build-config",
+      "description": "The ad hoc Xcode standalone build proved Apple signing and device launch but bypassed the repository-owned EAS release environment, so it could not supply the separately provisioned Google iOS OAuth client configuration.",
+      "detected_by": "Physical-device error plus secret-safe inspection of the build shell, local env-key names, and embedded Metro bundle."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "failure-postmortem",
+      "failure-triage",
+      "project-state-updater",
+      "verification-gate"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [],
+  "failure_output": "Physical iPhone: Google mobile client ID is not configured.",
+  "overall_category": "C5",
+  "suggested_follow_up": "Complete existing #1198/#1199 prerequisites: provision or reveal the real Google iOS OAuth client and matching reverse-client redirect through secure local/EAS configuration, configure the isolated API with the same pair, then rebuild the exact reviewed source and rerun sign-in before the remaining physical-device matrix. Do not invent, commit, or print the client configuration."
+}

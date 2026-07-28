@@ -1,0 +1,57 @@
+{
+  "run_id": "2026-07-25-issue-1175-final-sandbox-failed",
+  "issue": 1175,
+  "date": "2026-07-25",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1175-c4",
+      "text": "Real gateway and engine behavior passes through tools/dev/sandbox.sh on API 4098 and engine 4097 while listeners 4001 and 4096 remain untouched.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C5",
+      "notes": "The first Codex-hosted rerun launched tools/dev/sandbox.sh up in a command cell that ended immediately after readiness. The host then reaped the background API process group. Both Vitest files reached cleanup after connection failure and reported missing mobile tables because no mobile request had initialized the lazy SQLite schema. Keeping the launcher shell alive corrected the environment without a source change."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "automation-process-lifetime",
+      "description": "The sandbox launcher backgrounds the API and returns, which is stable in an interactive terminal but not under an automation host that reaps descendant processes when the command cell exits.",
+      "detected_by": "The sandbox initially returned healthy, then curl could not reach 127.0.0.1:4098, the recorded PID was gone without a shutdown log, and the corrected run passed while the launcher shell remained alive."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-triage",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "tools/dev/sandbox.sh",
+    "apps/api_server/src/__tests__/issue_1166_pairing_live.test.ts",
+    "apps/api_server/src/__tests__/issue_1168_mobile_gateway_live.test.ts",
+    "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy_live.test.ts"
+  ],
+  "failure_output": "issue_1166_pairing_live.test.ts: SqliteError: no such table: mobile_devices; issue_1168_mobile_gateway_live.test.ts: SqliteError: no such table: mobile_pairing_codes. A follow-up curl failed to connect to 127.0.0.1:4098 and the recorded API PID no longer existed.",
+  "overall_category": "C5",
+  "suggested_follow_up": "Add an explicit foreground or automation-hold mode to tools/dev/sandbox.sh so command-cell hosts cannot reap the verified sandbox before live tests begin."
+}

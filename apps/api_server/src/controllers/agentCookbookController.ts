@@ -1,14 +1,17 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { AgentCookbookRepository } from '../repositories/agent_cookbook_repository';
 import * as AgentRunner from '../services/agent_runner';
 
 const repo = new AgentCookbookRepository();
 
 export class AgentCookbookController {
-  async list(_req: Request, res: Response, next: NextFunction) {
+  async list(req: Request, res: Response, next: NextFunction) {
     try {
-      const recipes = await repo.listAllAsync();
+      const recipes = req.mobileDevice
+        ? await repo.listForOwnerAsync(req.mobileDevice.userId)
+        : await repo.listAllAsync();
       res.json(recipes);
     } catch (err) {
       next(err);
@@ -17,7 +20,12 @@ export class AgentCookbookController {
 
   async get(req: Request, res: Response, next: NextFunction) {
     try {
-      const recipe = await repo.findByIdAsync(req.params.id);
+      const recipe = req.mobileDevice
+        ? await repo.findByIdForOwnerAsync(
+            req.params.id,
+            req.mobileDevice.userId,
+          )
+        : await repo.findByIdAsync(req.params.id);
       if (!recipe) throw AppError.notFound('AgentCookbook');
       res.json(recipe);
     } catch (err) {
@@ -48,6 +56,10 @@ export class AgentCookbookController {
         stepsJson: resolvedStepsJson,
         boundConfigId:
           typeof boundConfigId === 'string' ? boundConfigId : undefined,
+        // Ownership comes only from verified middleware context. Local/system
+        // callers without auth intentionally create an org-global recipe,
+        // which paired Activity excludes.
+        ownerUserId: req.mobileDevice?.userId ?? req.auth?.user.id ?? null,
       });
 
       res.status(201).json(recipe);
@@ -59,7 +71,9 @@ export class AgentCookbookController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const existing = await repo.findByIdAsync(id);
+      const existing = req.mobileDevice
+        ? await repo.findByIdForOwnerAsync(id, req.mobileDevice.userId)
+        : await repo.findByIdAsync(id);
       if (!existing) throw AppError.notFound('AgentCookbook');
 
       const { title, description, stepsJson, steps, boundConfigId } =
@@ -77,7 +91,10 @@ export class AgentCookbookController {
       if (typeof boundConfigId === 'string' || boundConfigId === null)
         patch.boundConfigId = boundConfigId as string | undefined;
 
-      const updated = await repo.updateAsync(id, patch);
+      const updated = req.mobileDevice
+        ? await repo.updateForOwnerAsync(id, req.mobileDevice.userId, patch)
+        : await repo.updateAsync(id, patch);
+      if (!updated) throw AppError.notFound('AgentCookbook');
       res.json(updated);
     } catch (err) {
       next(err);
@@ -86,7 +103,12 @@ export class AgentCookbookController {
 
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      const deleted = await repo.deleteAsync(req.params.id);
+      const deleted = req.mobileDevice
+        ? await repo.deleteForOwnerAsync(
+            req.params.id,
+            req.mobileDevice.userId,
+          )
+        : await repo.deleteAsync(req.params.id);
       if (!deleted) throw AppError.notFound('AgentCookbook');
       res.status(204).end();
     } catch (err) {
@@ -97,8 +119,21 @@ export class AgentCookbookController {
   /** POST /agent-cookbook/:id/run — execute the recipe via AgentRunner */
   async runRecipe(req: Request, res: Response, next: NextFunction) {
     try {
-      const recipe = await repo.findByIdAsync(req.params.id);
+      const recipe = req.mobileDevice
+        ? await repo.findByIdForOwnerAsync(
+            req.params.id,
+            req.mobileDevice.userId,
+          )
+        : await repo.findByIdAsync(req.params.id);
       if (!recipe) throw AppError.notFound('AgentCookbook');
+      if (
+        recipe.boundConfigId &&
+        !new AgentConfigsRepository().getById(recipe.boundConfigId)
+      ) {
+        throw AppError.badRequest(
+          `Bound agent profile "${recipe.boundConfigId}" no longer exists; update or clear the recipe binding`,
+        );
+      }
 
       // Compile description + steps_json into a prompt string
       const stepsText = _compileStepsToPrompt(recipe.stepsJson);
@@ -109,7 +144,20 @@ export class AgentCookbookController {
         .filter(Boolean)
         .join('\n\n');
 
-      const result = await AgentRunner.run({ prompt, outputTarget: 'session' });
+      const result = await AgentRunner.run({
+        prompt,
+        outputTarget: 'session',
+        sessionName: recipe.title,
+        ...(req.mobileDevice
+          ? { ownerUserId: req.mobileDevice.userId }
+          : {}),
+        ...(recipe.boundConfigId
+          ? {
+              agentConfigId: recipe.boundConfigId,
+              agentKind: recipe.boundConfigId,
+            }
+          : {}),
+      });
 
       res.status(202).json({ sessionId: result.sessionId, status: result.status });
     } catch (err) {

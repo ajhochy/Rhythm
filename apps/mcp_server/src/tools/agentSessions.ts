@@ -22,10 +22,12 @@
  *   GET /agent-sessions              → { sessions, resumable }
  *   GET /agent-sessions/:id/messages → { messages }
  */
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
-import { apiGet, toolResult, toolError } from '../api_client.js';
-import { registerTool } from './_tool.js';
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { apiGet, toolResult, toolError } from "../api_client.js";
+import { registerTool } from "./_tool.js";
+import { scanContextContentAndRecordExternalContentTaint } from "../security/external_content_boundary.js";
+import { trustedSecurityContext } from "../security/security_context.js";
 
 /** Subset of the session row the consolidation read needs. */
 interface AgentSessionLite {
@@ -45,27 +47,27 @@ interface AgentSessionMessageLite {
 
 function pickSession(s: Record<string, unknown>): AgentSessionLite {
   return {
-    id: String(s.id ?? ''),
-    name: typeof s.name === 'string' ? s.name : '',
-    agentKind: typeof s.agentKind === 'string' ? s.agentKind : '',
+    id: String(s.id ?? ""),
+    name: typeof s.name === "string" ? s.name : "",
+    agentKind: typeof s.agentKind === "string" ? s.agentKind : "",
     lastActivityAt:
-      typeof s.lastActivityAt === 'string' ? s.lastActivityAt : null,
+      typeof s.lastActivityAt === "string" ? s.lastActivityAt : null,
   };
 }
 
 function pickMessage(m: Record<string, unknown>): AgentSessionMessageLite {
   // Prefer the stripped (display) text; fall back to the raw text.
   const body =
-    typeof m.strippedText === 'string' && m.strippedText.length > 0
+    typeof m.strippedText === "string" && m.strippedText.length > 0
       ? m.strippedText
-      : typeof m.rawText === 'string'
+      : typeof m.rawText === "string"
         ? m.rawText
-        : '';
+        : "";
   return {
-    id: typeof m.id === 'number' ? m.id : Number(m.id ?? 0),
-    role: typeof m.role === 'string' ? m.role : '',
+    id: typeof m.id === "number" ? m.id : Number(m.id ?? 0),
+    role: typeof m.role === "string" ? m.role : "",
     body,
-    createdAt: typeof m.createdAt === 'string' ? m.createdAt : '',
+    createdAt: typeof m.createdAt === "string" ? m.createdAt : "",
   };
 }
 
@@ -77,7 +79,7 @@ export function registerAgentSessionTools(
 ) {
   registerTool(
     server,
-    'rhythm_list_sessions',
+    "rhythm_list_sessions",
     `List recent agent sessions, or read one session's messages.
 
 Without arguments: returns recent agent sessions (id, name, agentKind, lastActivityAt) so you can find the ones worth reviewing.
@@ -94,14 +96,18 @@ Used by the Memory Consolidation task to review the past day's sessions before c
       limit: z
         .number()
         .optional()
-        .describe('Max items to return (default: server default).'),
+        .describe("Max items to return (default: server default)."),
     },
-    async ({ sessionId, limit }: { sessionId?: string; limit?: number }) => {
+    async (
+      { sessionId, limit }: { sessionId?: string; limit?: number },
+      extra,
+    ) => {
       try {
-        if (sessionId && sessionId.trim() !== '') {
+        let result: unknown;
+        if (sessionId && sessionId.trim() !== "") {
           const params = new URLSearchParams();
-          if (limit) params.set('limit', String(limit));
-          const query = params.toString() ? `?${params}` : '';
+          if (limit) params.set("limit", String(limit));
+          const query = params.toString() ? `?${params}` : "";
           const res = await apiGet<{ messages?: unknown[] }>(
             agentUrl,
             agentToken,
@@ -111,18 +117,31 @@ Used by the Memory Consolidation task to review the past day's sessions before c
             ? res.messages.map((m) => pickMessage(m as Record<string, unknown>))
             : [];
           // SAFETY: do not log message bodies — return them only in the result.
-          return toolResult(JSON.stringify({ sessionId, messages }, null, 2));
+          result = { sessionId, messages };
+        } else {
+          const res = await apiGet<{ sessions?: unknown[] }>(
+            agentUrl,
+            agentToken,
+            "/agent-sessions",
+          );
+          const sessions = Array.isArray(res?.sessions)
+            ? res.sessions.map((s) => pickSession(s as Record<string, unknown>))
+            : [];
+          result = { sessions };
         }
-
-        const res = await apiGet<{ sessions?: unknown[] }>(
+        const ingress = await scanContextContentAndRecordExternalContentTaint({
           agentUrl,
-          agentToken,
-          '/agent-sessions',
-        );
-        const sessions = Array.isArray(res?.sessions)
-          ? res.sessions.map((s) => pickSession(s as Record<string, unknown>))
-          : [];
-        return toolResult(JSON.stringify({ sessions }, null, 2));
+          context: trustedSecurityContext(extra),
+          source: "agent-session.list",
+          label: "user-authored agent sessions and messages",
+          rawContent: JSON.stringify(result, null, 2),
+        });
+        return ingress.blocked
+          ? {
+              content: [{ type: "text" as const, text: ingress.text }],
+              isError: true as const,
+            }
+          : toolResult(ingress.text);
       } catch (err) {
         return toolError(err);
       }

@@ -55,6 +55,19 @@ vi.mock('../repositories/agent_configs_repository', () => ({
   AgentConfigsRepository: class {
     getById = mockGetById;
   },
+  agentConfigExecutionBlockReason: (config: {
+    id: string;
+    enabled: boolean;
+    locked?: boolean;
+    disabledReason?: string | null;
+  }) => {
+    if (config.locked === true) {
+      return config.disabledReason
+        ? `agent security-locked: '${config.id}' (${config.disabledReason})`
+        : `agent security-locked: '${config.id}'`;
+    }
+    return config.enabled ? null : `agent disabled: '${config.id}'`;
+  },
 }));
 
 import { run, resolveRunModel } from '../services/agent_runner';

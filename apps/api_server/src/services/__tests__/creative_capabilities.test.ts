@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { listCreativeCapabilities } from '../creative_capabilities';
+import {
+  CREATIVE_INSTALL_RECIPES,
+  creativeSetupPlan,
+  creativeSetupPlanDigest,
+} from '../creative_dependency_support';
 
 const IDS = [
   'blender',
@@ -30,7 +35,43 @@ describe('listCreativeCapabilities', () => {
       expect(capability.approval.required).toBe(true);
       expect(capability.approval.summary).not.toBe('');
       expect(capability.status).toBe('missing');
+      expect(capability.setup.planDigest).toMatch(/^[a-f0-9]{64}$/);
+      expect(capability.setup.dependencies.length).toBeGreaterThan(0);
+      expect(capability.setup.installLocation).toBe(
+        'Rhythm managed application storage',
+      );
     }
+  });
+
+  it('discloses the installer artifact pins from one source of truth and binds them into the plan digest', () => {
+    const plan = creativeSetupPlan('blender');
+    expect(plan.verifiedArtifacts).toEqual(
+      CREATIVE_INSTALL_RECIPES.blender.artifacts,
+    );
+    expect(plan.verifiedArtifacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          filename: 'blender.dmg',
+          url: expect.stringMatching(/^https:\/\//),
+          sha256:
+            'ed4d8390166dec5ea0a2813a03db6221f206ce016442be7f59f41d760972568a',
+        }),
+      ]),
+    );
+    expect(
+      plan.dependencies.find(({ name }) => name === 'Blender')?.license,
+    ).toBe('GPL-2.0-or-later');
+
+    const { planDigest, ...disclosure } = plan;
+    const changed = {
+      ...disclosure,
+      verifiedArtifacts: disclosure.verifiedArtifacts.map((artifact, index) =>
+        index === 0 ? { ...artifact, sha256: 'f'.repeat(64) } : artifact,
+      ),
+    };
+    expect(creativeSetupPlanDigest(disclosure)).toBe(planDigest);
+    expect(creativeSetupPlanDigest(changed)).not.toBe(planDigest);
+    expect(JSON.stringify(plan)).not.toContain('/Users/');
   });
 
   it('reports fixed managed paths as installed and probes only fixed localhost services', async () => {
@@ -63,7 +104,9 @@ describe('listCreativeCapabilities', () => {
     });
 
     expect(capabilities.find(({ id }) => id === 'blender')?.status).toBe('unhealthy');
-    expect(capabilities.find(({ id }) => id === 'comfyui')?.status).toBe('missing');
+    expect(capabilities.find(({ id }) => id === 'comfyui')?.status).toBe(
+      'missing',
+    );
   });
 
   it('keeps the model pack separate, optional, and advanced', async () => {
@@ -104,6 +147,10 @@ describe('listCreativeCapabilities', () => {
       tcpProbe: async () => true,
     });
 
-    expect(capabilities.every(({ status }) => status === 'missing')).toBe(true);
+    expect(
+      capabilities
+        .filter(({ id }) => id !== 'comfyui-model-pack')
+        .every(({ status }) => status === 'missing'),
+    ).toBe(true);
   });
 });

@@ -27,10 +27,18 @@ runQualityRouter.get('/', (req: Request, res: Response) => {
       typeof windowDaysRaw === 'string' && Number.isFinite(Number(windowDaysRaw)) && Number(windowDaysRaw) > 0
         ? Number(windowDaysRaw)
         : undefined;
-    const rollup = getRunQualityRollup({ windowDays });
+    const rollup = getRunQualityRollup({
+      windowDays,
+      ...(req.mobileDevice
+        ? { ownerUserId: req.mobileDevice.userId }
+        : {}),
+    });
     res.json(rollup);
   } catch (err) {
-    res.status(503).json({ error: 'run quality rollup unavailable', detail: String(err) });
+    res.status(503).json({
+      error: 'run quality rollup unavailable',
+      ...(!req.mobileDevice ? { detail: String(err) } : {}),
+    });
   }
 });
 

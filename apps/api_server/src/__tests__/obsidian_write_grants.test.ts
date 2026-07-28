@@ -123,10 +123,10 @@ describe('issue-834: obsidian write grant is opt-in to secretary + worship-plann
     // existing files' obsidian tool lists — it never added or removed a role
     // file. #830 (org-optimizer-14) later added exactly two new role files
     // (org-optimizer.mcp.json, org-external-discovery.mcp.json), bringing the
-    // count to 15 — an intentional, expected addition for that issue, not a
-    // #834 regression. Pin the count so an UNEXPECTED add/remove is still
-    // caught.
-    expect(files.length).toBe(15);
+    // count to 15. #1134 later added exactly one disjoint read-free
+    // email-outbound role, bringing the expected inventory to 16. Pin the
+    // count so an UNEXPECTED add/remove is still caught.
+    expect(files.length).toBe(16);
 
     const readSet = new Set(OBSIDIAN_READ_TOOLS);
 
