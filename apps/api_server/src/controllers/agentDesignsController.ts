@@ -1,7 +1,11 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { AgentDesignsRepository, publicAgentDesign } from '../repositories/agent_designs_repository';
-import { resolveLocalArtifact, validateAgentDesignInput } from '../services/agent_design_artifacts';
+import {
+  generateLocalVideoPoster,
+  resolveLocalArtifact,
+  validateAgentDesignInput,
+} from '../services/agent_design_artifacts';
 
 const repo = new AgentDesignsRepository();
 
@@ -60,6 +64,24 @@ export class AgentDesignsController {
       }
       res.type(artifact.artifactType === 'jpg' ? 'jpeg' : artifact.artifactType);
       res.sendFile(artifact.path);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async thumbnail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const design = await repo.findByIdAsync(req.params.id);
+      if (!design?.filePath || design.artifactType !== 'mp4') {
+        throw AppError.notFound('AgentDesign thumbnail');
+      }
+      try {
+        const posterPath = await generateLocalVideoPoster(design.filePath);
+        res.type('png');
+        res.sendFile(posterPath);
+      } catch {
+        throw AppError.notFound('AgentDesign thumbnail');
+      }
     } catch (err) {
       next(err);
     }

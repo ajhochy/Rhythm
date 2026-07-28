@@ -243,6 +243,9 @@ class _DesignCard extends StatelessWidget {
       _isLocalArtifact &&
       const {'png', 'jpg', 'jpeg', 'webp', 'gif'}.contains(design.artifactType);
 
+  bool get _canPreviewLocalVideo =>
+      _isLocalArtifact && design.artifactType == 'mp4';
+
   String get _providerLabel => design.provider
       .split('-')
       .map((part) =>
@@ -269,9 +272,14 @@ class _DesignCard extends StatelessWidget {
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(RhythmRadius.md - 1),
               ),
-              child: _canPreviewLocalImage
+              child: _canPreviewLocalImage || _canPreviewLocalVideo
                   ? Image.network(
-                      '${AppConstants.agentLocalBaseUrl}/agent-designs/${design.id}/artifact',
+                      _canPreviewLocalVideo
+                          ? '${AppConstants.agentLocalBaseUrl}/agent-designs/${design.id}/thumbnail'
+                          : '${AppConstants.agentLocalBaseUrl}/agent-designs/${design.id}/artifact',
+                      key: _canPreviewLocalVideo
+                          ? ValueKey('gallery-poster-${design.id}')
+                          : null,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) => _ArtifactPlaceholder(
                         rhythm: rhythm,
@@ -313,6 +321,11 @@ class _DesignCard extends StatelessWidget {
                 if (design.artifactUrl != null || _isLocalArtifact) ...[
                   const SizedBox(height: 2),
                   GestureDetector(
+                    key: ValueKey(
+                      design.artifactUrl == null
+                          ? 'gallery-open-/agent-designs/${design.id}/artifact'
+                          : 'gallery-open-${design.artifactUrl}',
+                    ),
                     onTap: () => _openArtifact(context),
                     child: Text(
                       'Open deliverable',
