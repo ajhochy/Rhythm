@@ -516,6 +516,60 @@ export class OpencodeClientService {
     this._removedPendingRestart.delete(name);
   }
 
+  /** #1221 — default durable deletion-intent store, separate from opencode.json. */
+  private mcpDeletionPath(): string {
+    const { join } = require('path') as typeof import('path');
+    const { homedir } = require('os') as typeof import('os');
+    return join(homedir(), '.config', 'rhythm', 'mcp-deletions.json');
+  }
+
+  /** #1221 — read names explicitly deleted by the user. */
+  private readMcpDeletions(path = this.mcpDeletionPath()): Set<string> {
+    const { existsSync, readFileSync } = require('fs') as typeof import('fs');
+    if (!existsSync(path)) return new Set();
+    try {
+      const parsed = JSON.parse(readFileSync(path, 'utf8')) as {
+        deleted?: unknown;
+      };
+      if (!Array.isArray(parsed.deleted)) {
+        throw new Error('expected a deleted array');
+      }
+      return new Set(
+        parsed.deleted.filter((name): name is string => typeof name === 'string'),
+      );
+    } catch (err) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `could not read durable MCP deletions: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /** #1221 — persist or clear one user's deletion intent. */
+  private writeMcpDeletion(
+    name: string,
+    deleted: boolean,
+    path = this.mcpDeletionPath(),
+  ): void {
+    const { existsSync, writeFileSync, mkdirSync } =
+      require('fs') as typeof import('fs');
+    const { dirname } = require('path') as typeof import('path');
+    if (!deleted && !existsSync(path)) return;
+    const deletions = this.readMcpDeletions(path);
+    if (deleted) {
+      deletions.add(name);
+    } else {
+      deletions.delete(name);
+    }
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(
+      path,
+      JSON.stringify({ deleted: [...deletions].sort() }, null, 2) + '\n',
+      'utf8',
+    );
+  }
+
   get isReady(): boolean {
     return this.status === 'ready';
   }
@@ -2686,6 +2740,9 @@ export class OpencodeClientService {
       // #723 — a re-added server must reappear in listMcp(): clear any stale
       // removed-pending-restart marker for this name.
       this.markMcpPresent(name);
+      // #1221 — an explicit add is the user's opt-in to restore a server they
+      // previously deleted, so clear its durable deletion intent.
+      this.writeMcpDeletion(name, false);
     } catch (err) {
       throw new AppError(
         502,
@@ -2937,6 +2994,8 @@ export class OpencodeClientService {
     configPath?: string;
     register?: boolean;
     tokenResolver?: CuratedTokenResolver;
+    /** #1221 — override the durable deletion store for isolated tests. */
+    deletionPath?: string;
     /**
      * Curated server list to ensure. Defaults to {@link CURATED_MCP_SERVERS}.
      * Overridable so the token-bridge mechanism stays unit-covered with a
@@ -3025,8 +3084,12 @@ export class OpencodeClientService {
     };
 
     const curatedServers = opts?.servers ?? CURATED_MCP_SERVERS;
+    const deletedServers = this.readMcpDeletions(opts?.deletionPath);
     const changedServers: CuratedMcpServer[] = [];
     for (const server of curatedServers) {
+      // #1221 — deletion is authoritative across restarts. All callers,
+      // including the org-optimizer installer, share this ensure guard.
+      if (deletedServers.has(server.id)) continue;
       const bridgedEnv = await resolveBridgedEnv(server);
       // null → token-bridged server with no connected account: skip entirely.
       if (bridgedEnv === null) continue;
@@ -3189,12 +3252,18 @@ export class OpencodeClientService {
    *
    * OPC-M4-3 typed wrapper.
    */
-  async removeMcp(name: string): Promise<void> {
+  async removeMcp(
+    name: string,
+    opts?: { deletionPath?: string },
+  ): Promise<void> {
     // #723 — record the removal up front so listMcp() filters it out even
     // though the running engine keeps reporting it from in-memory state until
     // restart. Recorded before any fs/SDK work so it holds regardless of
     // whether the config write below short-circuits.
     this.markMcpRemoved(name);
+    // #1221 — persist deletion intent before touching the engine/config. A
+    // failure here must surface rather than acknowledge a non-durable delete.
+    this.writeMcpDeletion(name, true, opts?.deletionPath);
 
     // 1. Disconnect first (best-effort — ignore "not connected" errors).
     try {
