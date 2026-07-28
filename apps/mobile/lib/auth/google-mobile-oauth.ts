@@ -71,5 +71,5 @@ export async function startGoogleMobileOAuth({
     throw new Error('Google sign-in did not return a valid authorization code.');
   }
 
-  return { code, codeVerifier, nonce };
+  return { code, codeVerifier, nonce, clientId, redirectUri };
 }

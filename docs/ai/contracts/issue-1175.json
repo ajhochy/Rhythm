@@ -257,6 +257,14 @@
       "test_file": "apps/mobile/tests/issue-1175-pairing-compatibility.test.mjs",
       "test_id": "issue-1175-c32: shipping mobile and gateway fingerprints match the generated contract",
       "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1175-c33",
+      "text": "Mobile Google OAuth sends the configured iOS client ID and redirect URI for compatibility with the currently deployed exchange route, while the hardened server continues to ignore caller-selected OAuth configuration.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/google-mobile-oauth.test.mjs",
+      "test_id": "issue-1175-c33: OAuth result carries configured compatibility fields to the exchange body",
+      "status": "pass"
     }
   ],
   "stack": "typescript",

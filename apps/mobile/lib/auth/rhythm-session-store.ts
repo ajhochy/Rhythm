@@ -46,6 +46,8 @@ export interface SignInParams {
   code: string;
   codeVerifier: string;
   nonce: string;
+  clientId: string;
+  redirectUri: string;
 }
 
 export interface SessionStoreClient {

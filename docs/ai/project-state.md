@@ -2,21 +2,22 @@
 
 ## Current focus
 
-Resolve Claude’s seven Important findings (#1224–#1230) on the consolidated
-Rhythm Agents mobile PR, including a transparent agent-guided dependency
-installer for #1227.
+Finish PR #1165's release evidence after restoring compatibility between the
+mobile Google OAuth exchange request and the currently deployed Cloud route.
 
 ## Active branch / PR
 
 - Local branch: `codex/mobile-1172-agents-activity`
 - Remote PR branch: `feat/rhythm-agent-ios-roadmap`
 - Draft PR: #1165, `WIP: consolidate unfinished Rhythm Agents iOS prototype`
-- Review repair commit: `e45769de7`, pushed and green in GitHub CI.
+- Last pushed review repair: `8b62b6241`; the locally verified OAuth
+  compatibility repair is the next exact-head candidate for PR #1165.
 
 ## In progress
 
-- Human review and release gates only; no implementation repair remains open
-  for #1224–#1230.
+- Push the OAuth compatibility repair, then wait for exact-head CI.
+- Continue the remaining #1175 physical-device and release matrix after this
+  focused authentication/pairing path.
 
 ## Risks / known issues
 
@@ -44,11 +45,15 @@ installer for #1227.
 - #1230 immutable Cloud/local identity live test: PASS after correcting a
   throwaway test-capability hashing mismatch; no product code changed.
 - `git diff --check`, stale-copy search, and credential-pattern scan: PASS.
-- GitHub exact-head checks for `e45769de7`: 7/7 PASS across Desktop, Server,
-  MCP, OpenCode Fork, and both Mobile triggers.
+- Mobile OAuth compatibility contracts: PASS. The signed development build
+  launched on a physical iPhone and the user reported `Connected`.
+- Issue- and PR-level local gates: PASS on the OAuth repair working tree.
+- Broad #1175 physical coverage remains pending: the focused result does not
+  prove the complete tools, isolation, streaming, approval, revocation,
+  background-recovery, production archive, or TestFlight matrix.
 
 ## Next step
 
-Human review of PR #1165, followed by signed physical-iPhone validation,
-production archive/TestFlight, migration review, final manual smoke, and
-explicit merge approval.
+Push the focused repair into PR #1165 and wait for exact-head CI; then resume
+the remaining signed-device, production archive/TestFlight, migration review,
+final manual smoke, and explicit merge-approval gates.

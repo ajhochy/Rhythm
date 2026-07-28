@@ -216,6 +216,8 @@ function makeExchangeResponse(token = 'sess-token-abc') {
         code: 'auth-code',
         codeVerifier: 'verifier',
         nonce: 'nonce_abcdefghijklmnopqrstuvwxyz123456',
+        clientId: 'mobile-client-id',
+        redirectUri: 'com.googleusercontent.apps.mobile:/oauth-callback',
       });
       return makeExchangeResponse(exchangeToken);
     },
@@ -227,6 +229,8 @@ function makeExchangeResponse(token = 'sess-token-abc') {
     code: 'auth-code',
     codeVerifier: 'verifier',
     nonce: 'nonce_abcdefghijklmnopqrstuvwxyz123456',
+    clientId: 'mobile-client-id',
+    redirectUri: 'com.googleusercontent.apps.mobile:/oauth-callback',
   });
 
   assert.equal(result.state, 'signedIn', 'signIn must return signedIn state');

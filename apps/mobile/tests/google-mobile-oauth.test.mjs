@@ -50,6 +50,8 @@ const [providerSource, settingsSource, accountSectionSource] = await Promise.all
     code: 'google-code',
     codeVerifier: 'pkce-verifier',
     nonce: 'nonce_abcdefghijklmnopqrstuvwxyz123456',
+    clientId: 'mobile-client-id',
+    redirectUri: 'com.googleusercontent.apps.mobile:/oauth-callback',
   });
   assert.equal(config.responseType, 'code');
   assert.equal(config.usePKCE, true);
@@ -58,7 +60,7 @@ const [providerSource, settingsSource, accountSectionSource] = await Promise.all
     nonce: 'nonce_abcdefghijklmnopqrstuvwxyz123456',
   });
   assert.equal(discovery, GOOGLE_DISCOVERY);
-  console.log('  ✓ Google OAuth starts PKCE authorization and returns exchange parameters');
+  console.log('  ✓ Google OAuth returns PKCE and legacy live-server compatibility parameters');
 }
 
 {
