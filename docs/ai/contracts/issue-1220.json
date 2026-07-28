@@ -1,0 +1,16 @@
+{
+  "issue": 1220,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1220-c1",
+      "text": "A stdio MCP whose process dies reports a connection/transport error, not a missing-API-key message.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1220_mcp_transport_error.test.ts",
+      "test_id": "issue-1220-c1: failed stdio transport preserves its error instead of requesting credentials",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
