@@ -2,79 +2,28 @@
 
 ## Current focus
 
-Resolve the physical-iPhone smoke failures found after successful Google sign-in,
-pairing, session creation, streaming, force-quit recovery, and automatic
-Tailscale reconnection on PR #1165.
+2026-07-28 MEGA PR run complete: 16 issues implemented, verified, and merged into one integration branch. Draft MEGA PR against `main` awaiting human review + manual smoke. Details: [runs/2026-07-28-mega-pr-run.md](runs/2026-07-28-mega-pr-run.md).
 
 ## Active branch / PR
 
-- Local branch: `codex/mobile-1172-agents-activity`
-- Remote PR branch: `feat/rhythm-agent-ios-roadmap`
-- Draft PR: #1165, `WIP: consolidate unfinished Rhythm Agents iOS prototype`
-- Exact local/pushed candidate: `e79605ac3`
+- Branch: `mega/run-2026-07-28` @ `6fe8edda9` (11 group branches merged; per-group worktrees under `.worktrees/`, git-excluded)
+- PR: draft MEGA PR against `main` (see run log for number once opened). **Do not merge — manual human review + smoke required.**
 
 ## In progress
 
-- #1237: make paired-Mac state authoritative across Settings and Agents.
-- #1238: make the chat composer keyboard-safe and preserve/reveal the complete
-  transcript.
-- #1239: expose desktop Mobile Access pairing and revocation as a persistent
-  Settings destination.
-- Resume the remaining #1199 physical-device matrix only after those failures
-  are repaired.
+- Nothing in flight. All 11 implementation groups landed: scheduler (#1213 #1222 #1214), mcp-status (#1216 #1217), mcp-catalog (#1220 #1221), proposals (#1223), memory (#1218 #1215), gallery (#1208), profile-editor (#1236), mobile-access (#1239), mobile agents/model-picker/tools (#1232 #1233 #1234).
 
 ## Risks / known issues
 
-- The signed iOS build can pair, create a session, and chat, but the current
-  physical-device matrix is a mixed result and is not a release pass.
-- Settings can remain stale as Connected after the Mac becomes unreachable,
-  while other paired-Mac screens spin or eventually report offline.
-- Long prompt composition and transcript reading are obstructed by the keyboard;
-  complete assistant output may be view-clipped or transport-truncated and must
-  be distinguished by a regression test.
-- Desktop QR/revocation implementation exists but its only Settings entry is
-  conditional on Agent Server Ready and was not discoverable in the tested
-  workflow. Earlier pairing used a direct app link.
-- Session synchronization, navigation taxonomy, model attribution, blank Tool
-  tabs, oversized headers, and profile capability scoping remain tracked in
-  #1231–#1236.
-- Credentials, signing assets, pairing/device tokens, private hostnames, user
-  content, and iPhone identifiers must not be committed or attached to issues.
+- `issue_1186_sandbox_foreground` is load-flaky on unmodified main — filed #1240.
+- Desktop visual click-through deferred to human manual smoke (orchestrator cannot launch a second desktop instance while the live app owns port 4001 / real DB).
+- #1214 quarantine stops future prod scheduler ticking; existing legacy prod rows need the manual operator procedure in docs/release/hosted_deployment_synology_cloudflare.md.
+- iOS epics #1170–#1173/#1231 deferred (overlap with this run's corrective issues); #1209 (fork rebuild) and #1219 (design-first, post-MEM-OKF re-scope) deferred; release gates #1197–#1200 need human/hardware.
 
 ## Test status
 
-- Exact-head GitHub checks for `e79605ac3`: PASS.
-- Google OAuth, pairing, session creation, and agent response: PASS on a
-  physical iPhone.
-- Force-quit/relaunch recovery: PASS.
-- Background/foreground session survival: PASS.
-- Tailscale off/on automatic reconnect: PASS, with stale/infinite-loading UI
-  failure tracked by #1237.
-- Multiline authoring, keyboard dismissal, and complete transcript visibility:
-  FAIL, tracked by #1238.
-- Visible desktop QR/revocation workflow: BLOCKED, tracked by #1239.
-- Full #1199 physical-device and #1200 TestFlight matrices: NOT COMPLETE.
+Final tip `6fe8edda9`: api_server 3631✓/1 known-flake, build ✓ · mcp_server 108✓ + tsc ✓ · flutter 1006✓ + macos debug build ✓ · mobile static ✓ + Playwright e2e 55✓ · checks --level issue exit 0 · live e2e suites 5/5 + scheduler live evidence against isolated sandboxes.
 
 ## Next step
 
-Repair #1237–#1239, then repeat the bounded physical smoke for disconnect/
-reconnect, long prompt/response with background recovery, visible QR pairing,
-revocation, and replacement pairing before continuing the remaining #1199 and
-#1200 release gates.
-
-## Recent coding-agent runs
-
-### 2026-07-28 — issue #1236 structured profile capability editor
-- Files modified: desktop profile sheet/model/MCP data source; new capability
-  editor widget; api_server MCP catalog wrapper/route; contract and tests.
-- Checks run: issue-level static checks PASS; api_server build PASS; Flutter
-  widget/API listener tests and sandbox live gate BLOCKED by managed environment
-  socket/network restrictions (see
-  `docs/ai/runs/2026-07-28-profile-editor-1236.md`).
-- Decisions made: preserve `null = unrestricted`, `{}` = deny-all, and encode
-  granular MCP scope as `{server: [tool]}` with an empty list meaning all tools
-  for that selected server, matching the real api_server expander contract.
-- Deviations from spec: no commit, live round-trip, or screenshot because the
-  required verification gate could not execute.
-- Concerns: legacy profile-picker tests must be run alongside the new contract
-  once Flutter test sockets and the fork dependency cache are available.
+Human: review the draft MEGA PR, run manual desktop smoke (Settings→Mobile Access, Gallery MP4 posters, Agent Profile capability editor), then merge on GitHub. After merge: run the manual operator procedure for legacy prod scheduler rows; consider a follow-up run for the deferred iOS epics.
