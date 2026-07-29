@@ -34,6 +34,7 @@ export default function ToolsScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}>
       <Appbar.Header
+        testID="compact-tools-header"
         elevated={false}
         style={{ backgroundColor: palette.background }}>
         <Appbar.Content

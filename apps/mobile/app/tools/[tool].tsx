@@ -1,6 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import * as WebBrowser from 'expo-web-browser';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -242,41 +242,81 @@ export default function RhythmToolScreen() {
       `${item.title ?? ''} ${item.content ?? ''}`.toLowerCase().includes(needle),
     );
   }, [search, state.items, tool]);
+  const routeHeader = <Stack.Screen options={{ headerShown: false }} />;
+  const toolHeader = (
+    <Appbar.Header
+      testID="compact-tool-header"
+      style={{ backgroundColor: palette.background }}>
+      <Appbar.BackAction
+        accessibilityLabel="Back to Tools"
+        onPress={() => router.replace('/(tabs)/tools' as never)}
+      />
+      <Appbar.Content title={manifest?.title ?? 'Tool'} />
+      {manifest && tool ? (
+        <Appbar.Action
+          accessibilityLabel={`Refresh ${manifest.title}`}
+          icon="refresh"
+          onPress={() => void refresh(tool)}
+        />
+      ) : null}
+    </Appbar.Header>
+  );
 
   if (!manifest || !tool) {
     return (
-      <ToolScreenState
-        actionLabel="Back to Tools"
-        onAction={() => router.replace('/(tabs)/tools' as never)}
-        state="error"
-        title="Tool not found"
-      />
+      <>
+        {routeHeader}
+        {toolHeader}
+        <ToolScreenState
+          actionLabel="Back to Tools"
+          onAction={() => router.replace('/(tabs)/tools' as never)}
+          state="error"
+          title="Tool not found"
+        />
+      </>
     );
   }
   if (state.loading && state.items.length === 0) {
-    return <ToolScreenState state="loading" title={`Loading ${manifest.title}`} />;
+    return (
+      <>
+        {routeHeader}
+        {toolHeader}
+        <ToolScreenState
+          state="loading"
+          title={`Loading ${manifest.title}`}
+        />
+      </>
+    );
   }
   if (state.errorState && state.items.length === 0) {
     return (
-      <ToolScreenState
-        actionLabel={state.errorState === 'error' ? 'Try again' : 'Back to Tools'}
-        message={state.error ?? undefined}
-        onAction={() =>
-          state.errorState === 'error'
-            ? void refresh(tool)
-            : router.replace('/(tabs)/tools' as never)}
-        state={state.errorState}
-      />
+      <>
+        {routeHeader}
+        {toolHeader}
+        <ToolScreenState
+          actionLabel={state.errorState === 'error' ? 'Try again' : 'Back to Tools'}
+          message={state.error ?? undefined}
+          onAction={() =>
+            state.errorState === 'error'
+              ? void refresh(tool)
+              : router.replace('/(tabs)/tools' as never)}
+          state={state.errorState}
+        />
+      </>
     );
   }
   if (state.offline && state.items.length === 0) {
     return (
-      <ToolScreenState
-        actionLabel="Back to Tools"
-        onAction={() => router.replace('/(tabs)/tools' as never)}
-        state="offline-cache"
-        title={`${manifest.title} unavailable offline`}
-      />
+      <>
+        {routeHeader}
+        {toolHeader}
+        <ToolScreenState
+          actionLabel="Back to Tools"
+          onAction={() => router.replace('/(tabs)/tools' as never)}
+          state="offline-cache"
+          title={`${manifest.title} unavailable offline`}
+        />
+      </>
     );
   }
 
@@ -817,21 +857,11 @@ export default function RhythmToolScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}>
-      <Appbar.Header style={{ backgroundColor: palette.background }}>
-        <Appbar.BackAction
-          accessibilityLabel="Back to Tools"
-          onPress={() => router.replace('/(tabs)/tools' as never)}
-        />
-        <Appbar.Content title={manifest.title} />
-        <Appbar.Action
-          accessibilityLabel={`Refresh ${manifest.title}`}
-          icon="refresh"
-          onPress={() => void refresh(tool)}
-        />
-      </Appbar.Header>
+      {routeHeader}
+      {toolHeader}
       <ScrollView contentContainerStyle={styles.content}>
         {tool === 'skills' ? (
-          <Text variant="titleMedium">Approved skills</Text>
+          <Text variant="labelLarge">Approved skills</Text>
         ) : null}
         {tool === 'skills' || tool === 'models' || tool === 'mcp' ? (
           <Surface style={[styles.runtimeInspection, { backgroundColor: palette.surfaceAlt }]}>

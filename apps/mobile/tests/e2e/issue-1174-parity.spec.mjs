@@ -77,7 +77,8 @@ test('issue-1174: chat session maintenance initializes, shells, edits, and delet
   await page.getByTestId('chat-primary-button').click();
   await expect(page.getByText(/Finished: Create an editable message/).first()).toBeVisible({ timeout: 20_000 });
 
-  await page.getByTestId('chat-session-tools-toggle').click();
+  await page.getByLabel('Chat menu').locator('visible=true').click();
+  await page.getByTestId('chat-session-tools-toggle').locator('visible=true').click();
   await page.getByTestId('chat-session-children-button').click();
   await expect(page.getByText('No child sessions.', { exact: true })).toBeVisible();
 

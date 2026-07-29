@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, ScrollView, Text as NativeText, View } from 'react-native';
 import { useState } from 'react';
-import { Appbar, Portal, ProgressBar, Text } from 'react-native-paper';
+import { Appbar, Button, Menu, Portal, ProgressBar, Text } from 'react-native-paper';
 
 import { Colors } from '@/constants/theme';
 import { getSessionSubtitle } from '@/lib/opencode/format';
@@ -23,12 +23,18 @@ type ChatHeaderProps = {
   };
   insetsTop: number;
   isCreatingSession: boolean;
+  diffCount: number;
+  running: boolean;
+  showingChanges: boolean;
   onBack: () => void;
   onCloseMenu: () => void;
   onConfirmStopConversation: () => void;
   onCreateSession: () => void;
   onOpenSession: (sessionId: string) => void;
   onOpenSessionMenu: () => void;
+  onManage: () => void;
+  onOpenSettings: () => void;
+  onShowChanges: () => void;
   onToggleConversationMode: () => void;
   palette: Palette;
   selectedSession?: Session;
@@ -38,7 +44,6 @@ type ChatHeaderProps = {
   contextLimit?: number;
   contextTokens?: number;
   isUsageLoading: boolean;
-  latestAssistantTurnUsage?: SessionUsage;
   usage: SessionUsage;
 };
 
@@ -51,25 +56,40 @@ export function ChatHeader({
   isUsageLoading,
   insetsTop,
   isCreatingSession,
+  diffCount,
+  running,
+  showingChanges,
   onBack,
   onCloseMenu,
   onConfirmStopConversation,
   onCreateSession,
   onOpenSession,
   onOpenSessionMenu,
+  onManage,
+  onOpenSettings,
+  onShowChanges,
   onToggleConversationMode,
   palette,
   selectedSession,
   sessionMenuVisible,
   sessions,
-  latestAssistantTurnUsage,
   usage,
 }: ChatHeaderProps) {
   const [usageVisible, setUsageVisible] = useState(false);
+  const [actionsVisible, setActionsVisible] = useState(false);
+  const connectionLabel = running
+    ? 'Running'
+    : connectionStatus === 'connected'
+      ? 'Connected'
+      : connectionStatus === 'connecting'
+        ? 'Connecting'
+        : connectionStatus === 'error'
+          ? 'Connection error'
+          : 'Offline';
+  const statusLabel = isUsageLoading
+    ? `${connectionLabel} · Syncing`
+    : connectionLabel;
   const usageLabel = usage.costStatus === 'pricing-unavailable' ? 'Pricing unavailable' : `Estimated API cost ${formatEstimatedCost(usage.cost)}`;
-  const lastResponseLabel = latestAssistantTurnUsage
-    ? latestAssistantTurnUsage.costStatus === 'pricing-unavailable' ? 'Last response: Pricing unavailable' : `Last response: ${formatEstimatedCost(latestAssistantTurnUsage.cost)}`
-    : undefined;
   const contextProgress = contextLimit && contextTokens !== undefined ? Math.min(contextTokens / contextLimit, 1) : undefined;
   const usageIcon = contextProgress === undefined
     ? 'circle-outline'
@@ -83,6 +103,7 @@ export function ChatHeader({
   return (
     <>
       <Appbar.Header
+        testID="compact-chat-header"
         style={[styles.header, { backgroundColor: palette.surface, paddingTop: insetsTop, height: 64 + insetsTop }]}
         statusBarHeight={0}
         elevated>
@@ -91,14 +112,14 @@ export function ChatHeader({
           onPress={onBack}
         />
         <View style={styles.headerMain}>
-          <Pressable onPress={onOpenSessionMenu} style={({ pressed }) => [styles.headerSessionAnchor, pressed && styles.headerSessionAnchorPressed]}>
+          <Pressable accessibilityLabel="Choose chat" onPress={onOpenSessionMenu} style={({ pressed }) => [styles.headerSessionAnchor, pressed && styles.headerSessionAnchorPressed]}>
             <View style={styles.headerSessionContent}>
               <View style={styles.headerSessionTextWrap}>
                 <Text numberOfLines={1} variant="titleMedium" style={[styles.headerTitle, { color: palette.text }]}>
                   {selectedSession?.title || 'Untitled chat'}
                 </Text>
-                <NativeText accessibilityLabel={usageLabel} numberOfLines={1} style={[styles.headerUsage, { color: palette.muted }]}>
-                  {isUsageLoading ? 'Loading usage...' : [usageLabel, lastResponseLabel].filter(Boolean).join('  |  ')}
+                <NativeText accessibilityLabel={`Chat status: ${statusLabel}`} numberOfLines={1} style={[styles.headerUsage, { color: palette.muted }]}>
+                  {statusLabel}
                 </NativeText>
               </View>
               <MaterialCommunityIcons name="chevron-down" size={20} color={palette.muted} />
@@ -106,19 +127,85 @@ export function ChatHeader({
           </Pressable>
         </View>
         <View style={styles.headerActions}>
-          <Appbar.Action icon="plus" onPress={onCreateSession} disabled={isCreatingSession || connectionStatus !== 'connected'} />
-          <Appbar.Action icon={usageIcon} onPress={() => setUsageVisible(true)} accessibilityLabel="Show session usage details" />
-          <Appbar.Action
-            icon={conversation.active ? 'phone-hangup' : 'headset'}
-            onPress={onToggleConversationMode}
-            disabled={connectionStatus !== 'connected' || isCreatingSession}
-          />
+          {diffCount > 0 || showingChanges ? (
+            <Button
+              accessibilityLabel={showingChanges ? 'Session' : `${diffCount} Files Changed`}
+              compact
+              icon={showingChanges ? 'message-outline' : 'file-document-edit-outline'}
+              onPress={onShowChanges}
+              style={styles.headerFilesButton}>
+              {showingChanges ? 'Session' : `${diffCount} Files Changed`}
+            </Button>
+          ) : null}
+          <Menu
+            anchor={
+              <Pressable
+                accessibilityLabel="Chat menu"
+                accessibilityRole="button"
+                onPress={() => setActionsVisible(true)}
+                style={({ pressed }) => [
+                  styles.headerAction,
+                  pressed && styles.headerActionPressed,
+                ]}>
+                <MaterialCommunityIcons
+                  name="dots-horizontal"
+                  size={24}
+                  color={palette.muted}
+                />
+              </Pressable>
+            }
+            onDismiss={() => setActionsVisible(false)}
+            visible={actionsVisible}>
+            <Menu.Item
+              leadingIcon="plus"
+              disabled={isCreatingSession || connectionStatus !== 'connected'}
+              onPress={() => {
+                setActionsVisible(false);
+                onCreateSession();
+              }}
+              title="New chat"
+            />
+            <Menu.Item
+              leadingIcon={usageIcon}
+              onPress={() => {
+                setActionsVisible(false);
+                setUsageVisible(true);
+              }}
+              title="Usage"
+            />
+            <Menu.Item
+              leadingIcon={conversation.active ? 'phone-hangup' : 'headset'}
+              disabled={connectionStatus !== 'connected' || isCreatingSession}
+              onPress={() => {
+                setActionsVisible(false);
+                onToggleConversationMode();
+              }}
+              title={conversation.active ? 'Stop conversation' : 'Conversation mode'}
+            />
+            <Menu.Item
+              testID="chat-session-tools-toggle"
+              leadingIcon="wrench-outline"
+              onPress={() => {
+                setActionsVisible(false);
+                onManage();
+              }}
+              title="Manage"
+            />
+            <Menu.Item
+              leadingIcon="cog-outline"
+              onPress={() => {
+                setActionsVisible(false);
+                onOpenSettings();
+              }}
+              title="Settings"
+            />
+          </Menu>
         </View>
       </Appbar.Header>
       <Portal>
         {sessionMenuVisible ? (
           <View style={styles.sessionPickerOverlay}>
-            <Pressable onPress={onCloseMenu} style={styles.sessionPickerBackdrop}>
+            <Pressable accessibilityLabel="Close chat picker" onPress={onCloseMenu} style={styles.sessionPickerBackdrop}>
               <View style={styles.sessionPickerBackdropFill} />
             </Pressable>
             <View
@@ -133,7 +220,7 @@ export function ChatHeader({
             >
               <View style={[styles.sessionPickerHeader, { borderBottomColor: palette.border }]}>
                 <Text variant="titleMedium" style={{ color: palette.text }}>Chats</Text>
-                <Pressable onPress={onCloseMenu} style={({ pressed }) => [styles.sessionPickerCloseButton, pressed && styles.sessionPickerCloseButtonPressed]}>
+                <Pressable accessibilityLabel="Close chat picker" onPress={onCloseMenu} style={({ pressed }) => [styles.sessionPickerCloseButton, pressed && styles.sessionPickerCloseButtonPressed]}>
                   <NativeText style={[styles.sessionPickerCloseLabel, { color: palette.tint }]}>Close</NativeText>
                 </Pressable>
               </View>
@@ -186,14 +273,14 @@ export function ChatHeader({
         ) : null}
         {usageVisible ? (
           <View style={styles.sessionPickerOverlay}>
-            <Pressable onPress={() => setUsageVisible(false)} style={styles.sessionPickerBackdrop}><View style={styles.sessionPickerBackdropFill} /></Pressable>
+            <Pressable accessibilityLabel="Close session usage" onPress={() => setUsageVisible(false)} style={styles.sessionPickerBackdrop}><View style={styles.sessionPickerBackdropFill} /></Pressable>
             <View style={[styles.sessionPickerSheet, { top: 64 + insetsTop, backgroundColor: palette.surface, borderColor: palette.border }]}>
               <View style={[styles.sessionPickerHeader, { borderBottomColor: palette.border }]}>
                 <View>
                   <Text variant="titleMedium" style={{ color: palette.text }}>Session usage</Text>
                   <Text accessibilityLabel={usageLabel} variant="bodySmall" style={{ color: palette.muted }}>{usageLabel}</Text>
                 </View>
-                <Pressable onPress={() => setUsageVisible(false)} style={styles.sessionPickerCloseButton}><NativeText style={[styles.sessionPickerCloseLabel, { color: palette.tint }]}>Close</NativeText></Pressable>
+                <Pressable accessibilityLabel="Close session usage" onPress={() => setUsageVisible(false)} style={styles.sessionPickerCloseButton}><NativeText style={[styles.sessionPickerCloseLabel, { color: palette.tint }]}>Close</NativeText></Pressable>
               </View>
               <ScrollView contentContainerStyle={styles.sessionPickerList}>
                 <View style={[styles.usageProvider, { borderColor: palette.border }]}>

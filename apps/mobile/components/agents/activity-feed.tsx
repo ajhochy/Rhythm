@@ -261,7 +261,7 @@ export function ActivityFeed({
         }
         ListEmptyComponent={
           <View accessibilityRole="summary" style={styles.empty}>
-            <Text accessibilityRole="header" variant="headlineSmall">
+            <Text accessibilityRole="header" variant="titleMedium">
               {category === 'scheduled'
                 ? 'No matching scheduled tasks'
                 : 'No matching background loops'}

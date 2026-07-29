@@ -1,0 +1,108 @@
+{
+  "issue": 1235,
+  "acceptance_criteria": [
+    {
+      "criterion": "Each Tool and Chat screen has one compact title/navigation header rather than stacked large-title/breadcrumb headers.",
+      "verified_by": [
+        "apps/mobile/tests/contract/issue-1235-compact-headers.test.mjs \u2014 issue-1235-c1",
+        "apps/mobile/tests/e2e/issue-1235-compact-headers.spec.mjs \u2014 agents, chat, and tool single-header assertions and screenshots"
+      ]
+    },
+    {
+      "criterion": "Chat header contains back navigation, human-readable session title, concise running/connection status, and a three-dot overflow menu.",
+      "verified_by": [
+        "apps/mobile/tests/contract/issue-1235-compact-headers.test.mjs \u2014 issue-1235-c2",
+        "apps/mobile/tests/e2e/issue-1235-compact-headers.spec.mjs \u2014 chat default and overflow-open states"
+      ]
+    },
+    {
+      "criterion": "Settings and Manage move to the overflow menu; Files Changed appears as a compact button/badge only when relevant.",
+      "verified_by": [
+        "apps/mobile/tests/contract/issue-1235-compact-headers.test.mjs \u2014 issue-1235-c3",
+        "apps/mobile/tests/e2e/issue-1235-compact-headers.spec.mjs \u2014 overflow entries and zero-diff hidden assertion"
+      ]
+    },
+    {
+      "criterion": "Tool screens combine Tool identity and applicable actions into the same compact header.",
+      "verified_by": [
+        "apps/mobile/tests/contract/issue-1235-compact-headers.test.mjs \u2014 issue-1235-c4",
+        "apps/mobile/tests/e2e/issue-1235-compact-headers.spec.mjs \u2014 Brain tool identity/back/refresh header"
+      ]
+    },
+    {
+      "criterion": "Raw session IDs and mobile breadcrumbs such as Agents / Chats / <sessionId> are not used as prominent titles.",
+      "verified_by": [
+        "apps/mobile/tests/contract/issue-1235-compact-headers.test.mjs \u2014 issue-1235-c5",
+        "apps/mobile/tests/e2e/issue-1235-compact-headers.spec.mjs \u2014 chat breadcrumb absence"
+      ]
+    },
+    {
+      "criterion": "Safe-area behavior, keyboard presentation, scrolling, VoiceOver, Dynamic Type, and landscape layouts remain usable.",
+      "verified_by": [
+        "apps/mobile/tests/contract/issue-1235-compact-headers.test.mjs \u2014 issue-1235-c6 static safe-area and accessibility contracts",
+        "apps/mobile/tests/e2e/issue-1238-keyboard-safe-composer.spec.mjs \u2014 preserved keyboard/composer behavior",
+        "Manual physical-device review \u2014 default/largest Dynamic Type, portrait/landscape, keyboard visible"
+      ]
+    },
+    {
+      "criterion": "The change increases usable content height without shrinking touch targets below platform guidance.",
+      "verified_by": [
+        "apps/mobile/tests/contract/issue-1235-compact-headers.test.mjs \u2014 issue-1235-c7 44-point control contract and persistent-row removal",
+        "apps/mobile/tests/e2e/issue-1235-compact-headers.spec.mjs \u2014 before-review state screenshots",
+        "Manual physical-device review \u2014 usable-height and touch-target confirmation"
+      ]
+    }
+  ],
+  "execution": {
+    "status": "third_round_label_fix_authored",
+    "reason": "The final three failures were strict-mode label duplication from React Native Paper icon-button wrappers. Chat actions and Show activity now use one focusable React Native Pressable each, with one accessibilityLabel and a 44-point target. Static contracts pass locally; browser rerun remains delegated to the orchestrator because this sandbox rejects the fake-server bind with listen EPERM.",
+    "reported_failures_fixed": [
+      "issue-1235-c1: ActivityFeed no longer introduces a second large accessibility header beneath Agents",
+      "issue-1235-c4: the compact Tool refresh action is labeled from manifest.title",
+      "issue-1182: Agents keeps its naturally measured semantic headlineSmall heading while compactness comes from reduced safe-area spacing",
+      "flows.spec.mjs: Files Changed and Session are visible compact header buttons in the same conditional slot",
+      "issue-1174-parity.spec.mjs: Manage remains in overflow and retains chat-session-tools-toggle after opening Chat actions",
+      "issue-1232-agents-categories.spec.mjs: filtered empty states retain semantic heading exposure at the smaller titleMedium level",
+      "rhythm-tools-integrations.spec.mjs: Approved skills remains a subordinate label rather than a duplicate tool identity title",
+      "issue-1235 Playwright: assertions now target the accessible rendered header controls instead of duplicated React Native Web wrapper test IDs",
+      "issue-1174 and issue-1235 chat overflow: Chat actions label moved from Paper Appbar.Action wrappers to one focusable Pressable",
+      "issue-1235 Agents header: Show activity label moved from Paper IconButton wrappers to one focusable Pressable"
+    ],
+    "targeted_checks": [
+      {
+        "command": "node --test tests/issue-1181-1182-dynamic-type.test.mjs tests/contract/issue-1235-compact-headers.test.mjs",
+        "result": "PASS \u2014 9 tests passed, 0 failed"
+      },
+      {
+        "command": "npx playwright test <five affected spec files> --grep <nine previously failing scenarios>",
+        "result": "NOT RUN \u2014 Playwright webServer startup failed with listen EPERM on 127.0.0.1:44096 before tests executed"
+      },
+      {
+        "command": "git diff --check",
+        "result": "PASS"
+      },
+      {
+        "command": "React Native Web renderToStaticMarkup probe for the replacement labeled Pressable",
+        "result": "PASS \u2014 exactly one aria-label emitted"
+      }
+    ],
+    "compatibility_decisions": [
+      "A semantic content heading inside ActivityFeed is compatible with one compact screen navigation header. The #1235 structural test now forbids a second Appbar.Header or large headlineSmall screen title, while allowing the smaller titleMedium empty-state heading required by existing accessibility flows.",
+      "The #1182 naturally measured Agents headlineSmall structure is retained exactly; no fixed-height Appbar.Header was introduced.",
+      "No existing spec is fundamentally incompatible with #1235. Files Changed and Session remain visible in the compact header, while Manage intentionally requires opening the overflow menu.",
+      "The custom Pressables preserve VoiceOver button semantics and 44-point touch targets while avoiding React Native Web's duplicated accessibilityLabel propagation through Paper icon-button wrapper layers."
+    ]
+  },
+  "orchestratorGates": {
+    "contract": "issue-1235 7/7 (red 0/7 pre-change)",
+    "static": "test:ci:static exit 0 (incl. restored issue-1182 Dynamic Type contract)",
+    "e2e": "62/62 full suite (3 new issue-1235 specs; issue-1174 spec entry point migrated to Chat menu per #1235's removal of the selector row \u2014 documented contract conflict resolution)",
+    "rounds": "4 gate rounds: r1 broke 1182+6 flows, r2 selector misalignment, r3 label-substring collision with shipped row labels + hidden duplicate route mounts, r4 orchestrator-applied label rename (Chat menu) + visible-filtered specs",
+    "ui": [
+      "agents-tab.png",
+      "chat-default.png (dialog mid-fade artifact)",
+      "chat-overflow-open.png",
+      "tool-brain.png"
+    ]
+  }
+}

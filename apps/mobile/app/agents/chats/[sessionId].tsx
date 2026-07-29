@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 
 import { ChatView } from '@/components/chat/chat-view';
@@ -19,6 +19,8 @@ export default function AgentChatDetailScreen() {
   const projectId = Array.isArray(params.projectId)
     ? params.projectId[0]
     : params.projectId;
+
+  const routeHeader = <Stack.Screen options={{ headerShown: false }} />;
 
   useEffect(() => {
     if (!sessionId || opencode.connection.status !== 'connected') return;
@@ -56,37 +58,48 @@ export default function AgentChatDetailScreen() {
 
   if (error) {
     return (
-      <ToolScreenState
-        actionLabel="Try again"
-        message={error}
-        onAction={() => {
-          openingRef.current = null;
-          setError(null);
-          if (sessionId) void opencode.openSession(sessionId);
-        }}
-        state="error"
-        title="Could not open chat"
-      />
+      <>
+        {routeHeader}
+        <ToolScreenState
+          actionLabel="Try again"
+          message={error}
+          onAction={() => {
+            openingRef.current = null;
+            setError(null);
+            if (sessionId) void opencode.openSession(sessionId);
+          }}
+          state="error"
+          title="Could not open chat"
+        />
+      </>
     );
   }
 
   if (!sessionId || opencode.currentSessionId !== sessionId) {
     return (
-      <ToolScreenState
-        message={
-          opencode.connection.status === 'connected'
-            ? 'Loading the transcript and agent state.'
-            : 'Reconnect to your paired Mac to open this chat.'
-        }
-        state={
-          opencode.connection.status === 'connected'
-            ? 'loading'
-            : 'offline-cache'
-        }
-        title="Opening chat"
-      />
+      <>
+        {routeHeader}
+        <ToolScreenState
+          message={
+            opencode.connection.status === 'connected'
+              ? 'Loading the transcript and agent state.'
+              : 'Reconnect to your paired Mac to open this chat.'
+          }
+          state={
+            opencode.connection.status === 'connected'
+              ? 'loading'
+              : 'offline-cache'
+          }
+          title="Opening chat"
+        />
+      </>
     );
   }
 
-  return <ChatView />;
+  return (
+    <>
+      {routeHeader}
+      <ChatView />
+    </>
+  );
 }

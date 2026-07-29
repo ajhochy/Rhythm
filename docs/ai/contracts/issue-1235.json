@@ -1,0 +1,65 @@
+{
+  "issue": 1235,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1235-c1",
+      "text": "Each Tool and Chat screen has one compact title/navigation header rather than stacked large-title/breadcrumb headers.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1235-compact-headers.test.mjs",
+      "test_id": "issue-1235-c1: every chat and tool surface owns exactly one compact header",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1235-c2",
+      "text": "Chat header contains back navigation, human-readable session title, concise running/connection status, and a three-dot overflow menu.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1235-compact-headers.test.mjs",
+      "test_id": "issue-1235-c2: chat header exposes navigation, title, status, and overflow",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1235-c3",
+      "text": "Settings and Manage move to the overflow menu; Files Changed appears as a compact button/badge only when relevant.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1235-compact-headers.test.mjs",
+      "test_id": "issue-1235-c3: Settings and Manage live in overflow and Files Changed is conditional",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1235-c4",
+      "text": "Tool screens combine Tool identity and applicable actions into the same compact header.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1235-compact-headers.test.mjs",
+      "test_id": "issue-1235-c4: tool identity and actions share the compact tool header",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1235-c5",
+      "text": "Raw session IDs and mobile breadcrumbs such as `Agents / Chats / <sessionId>` are not used as prominent titles.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1235-compact-headers.test.mjs",
+      "test_id": "issue-1235-c5: raw session IDs and breadcrumbs are never prominent titles",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1235-c6",
+      "text": "Safe-area behavior, keyboard presentation, scrolling, VoiceOver, Dynamic Type, and landscape layouts remain usable.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Static accessibility and safe-area contracts are automated, but largest Dynamic Type, landscape, and keyboard-visible usability require the issue's physical-device review."
+    },
+    {
+      "criterion_id": "issue-1235-c7",
+      "text": "The change increases usable content height without shrinking touch targets below platform guidance.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "The structural contract enforces 44-point controls and removal of the persistent chat row; physical-device review must confirm the resulting usable height."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-1235-c6",
+    "issue-1235-c7"
+  ]
+}

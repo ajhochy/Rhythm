@@ -1,6 +1,7 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
-import { IconButton, SegmentedButtons, Text } from 'react-native-paper';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { SegmentedButtons, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ActivityFeed } from '@/components/agents/activity-feed';
@@ -30,16 +31,26 @@ export default function AgentsScreen() {
     <View style={[styles.screen, { backgroundColor: palette.background }]}>
       <SafeAreaView
         edges={['top']}
+        testID="compact-agents-header"
         style={[styles.header, { backgroundColor: palette.background }]}>
         <View style={styles.headerRow}>
           <Text accessibilityRole="header" variant="headlineSmall">
             Agents
           </Text>
-          <IconButton
+          <Pressable
             accessibilityLabel="Show activity"
-            icon="pulse"
+            accessibilityRole="button"
             onPress={() => setSection('activity')}
-          />
+            style={({ pressed }) => [
+              styles.headerAction,
+              pressed && styles.headerActionPressed,
+            ]}>
+            <MaterialCommunityIcons
+              name="pulse"
+              size={24}
+              color={palette.text}
+            />
+          </Pressable>
         </View>
       </SafeAreaView>
       <SegmentedButtons
@@ -131,11 +142,18 @@ export default function AgentsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  header: { paddingBottom: 12, paddingHorizontal: 16, paddingTop: 12 },
+  header: { paddingBottom: 6, paddingHorizontal: 16, paddingTop: 4 },
   headerRow: {
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  headerAction: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+    minWidth: 44,
+  },
+  headerActionPressed: { opacity: 0.72 },
   sections: { marginHorizontal: 16, marginBottom: 8 },
 });
