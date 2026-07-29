@@ -11,17 +11,17 @@ export type GlobalEvent = {
 class GlobalBusEmitter extends EventEmitter<{
   event: [GlobalEvent]
 }> {
-  // Mirror @types/node's generic EventEmitter signature while retaining the
-  // event payload hook. A string | symbol override is too narrow because K is
-  // intentionally unconstrained in the base declaration.
-  override emit<K>(eventName: "event" | K, ...args: K extends "event" ? [GlobalEvent] : never): boolean {
+  // This emitter only ever carries the "event" channel; the wide
+  // string|symbol signature is what the base emit overloads require under
+  // tsgo, with the payload hook applied only to the "event" channel.
+  override emit(eventName: string | symbol, ...args: unknown[]): boolean {
     if (eventName === "event") {
-      const event = args[0]
+      const event = args[0] as GlobalEvent
       if (event.payload && typeof event.payload === "object" && !("id" in event.payload)) {
         event.payload.id = event.payload.syncEvent?.id ?? Identifier.create("evt", "ascending")
       }
     }
-    return super.emit(eventName, ...args)
+    return super.emit(eventName as "event", ...(args as [GlobalEvent]))
   }
 }
 
