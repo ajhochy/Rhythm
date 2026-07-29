@@ -1,0 +1,119 @@
+{
+  "issue": 1172,
+  "execution": {
+    "mode": "targeted-failure-repair",
+    "suites_run": true,
+    "servers_started": false,
+    "commits_created": false,
+    "verification": {
+      "contract": {
+        "command": "node --experimental-strip-types --test tests/contract/issue-1172-deltas.test.mjs",
+        "status": "pass",
+        "result": "4 passed, 0 failed"
+      },
+      "e2e": {
+        "command": "npx playwright test tests/e2e/issue-1172-deltas.spec.mjs --project=chromium",
+        "status": "environment-blocked",
+        "result": "Playwright webServer could not bind 127.0.0.1:44096 in the managed sandbox (listen EPERM); no browser assertions executed in this repair session."
+      }
+    }
+  },
+  "criteria": {
+    "1": {
+      "result": "fixed",
+      "summary": "Added All/Active/Completed/Archived lifecycle controls beside the existing All projects filter and wired them to buildAgentChatReadModel.",
+      "tests": [
+        "apps/mobile/tests/contract/issue-1172-deltas.test.mjs",
+        "apps/mobile/tests/e2e/issue-1172-deltas.spec.mjs"
+      ]
+    },
+    "2": {
+      "result": "covered",
+      "summary": "Create/open/rename/archive/restore/delete already existed; fork was already wired through session-service and AgentChatProvider. Added fake-server e2e proof of the list affordance and refreshed fork.",
+      "tests": [
+        "apps/mobile/tests/e2e/flows.spec.mjs",
+        "apps/mobile/tests/e2e/issue-1172-deltas.spec.mjs"
+      ]
+    },
+    "3": {
+      "result": "covered",
+      "summary": "ChatView surfaces child sessions and the permission/question interactions.",
+      "tests": [
+        "apps/mobile/tests/e2e/flows.spec.mjs",
+        "apps/mobile/tests/e2e/issue-1174-parity.spec.mjs"
+      ]
+    },
+    "4": {
+      "result": "covered",
+      "summary": "Chat changes/todos and shared workspace/files/terminal routes are reachable from the session surfaces.",
+      "tests": [
+        "apps/mobile/tests/e2e/flows.spec.mjs",
+        "apps/mobile/tests/e2e/issue-1174-parity.spec.mjs"
+      ]
+    },
+    "5": {
+      "result": "covered",
+      "summary": "Existing #1237 coverage proves bounded reconnect, one authoritative refresh, and duplicate-free recovered transcript/activity state.",
+      "tests": [
+        "apps/mobile/tests/contract/issue-1237-paired-reachability.test.mjs",
+        "apps/mobile/tests/e2e/issue-1237-paired-reachability.spec.mjs"
+      ]
+    },
+    "6": {
+      "result": "covered",
+      "summary": "The API aggregation reads the existing source tables for all six kinds and its test asserts no activity table exists. Added opt-in fake optimizer data and mobile e2e proof for all six rendered sources.",
+      "tests": [
+        "apps/api_server/src/services/__tests__/agent_activity_service.test.ts",
+        "apps/mobile/tests/contract/issue-1172-deltas.test.mjs",
+        "apps/mobile/tests/e2e/issue-1172-deltas.spec.mjs"
+      ]
+    },
+    "7": {
+      "result": "covered",
+      "summary": "The chats-list provider sanitizes the scoped AsyncStorage cache, renders it read-only offline, and every mutation calls assertOnlineMutation; #1237 also proves the list disables Create while disconnected.",
+      "tests": [
+        "apps/mobile/tests/contract/issue-1231-session-catalog.test.mjs",
+        "apps/mobile/tests/e2e/issue-1237-paired-reachability.spec.mjs"
+      ]
+    },
+    "8": {
+      "result": "fixed",
+      "summary": "Added explicit loading and retryable error states to ChatList; existing ActivityFeed and chat-detail surfaces already cover empty/offline/auth/error variants.",
+      "tests": [
+        "apps/mobile/tests/contract/issue-1172-deltas.test.mjs",
+        "apps/mobile/tests/e2e/issue-1232-agents-categories.spec.mjs",
+        "apps/mobile/tests/e2e/issue-1237-paired-reachability.spec.mjs"
+      ]
+    },
+    "9": {
+      "result": "covered",
+      "summary": "The Agents route composes ChatList and ActivityFeed, chat detail composes ChatView, and lifecycle/state behavior extends the existing read-model and ToolScreenState.",
+      "tests": [
+        "apps/mobile/tests/contract/issue-1172-deltas.test.mjs"
+      ]
+    }
+  },
+  "gaps": {
+    "found": [
+      "Criterion 1: missing lifecycle controls in ChatList",
+      "Criterion 8: chats-list loading and error states were presented as empty"
+    ],
+    "fixed": [
+      "Criterion 1",
+      "Criterion 8"
+    ],
+    "deferred": []
+  },
+  "assumptions": [
+    "The issue's completed lifecycle means any non-archived session not in a working/queued status, matching the existing buildAgentChatReadModel classifier.",
+    "Authentication state coverage is shared across Agents surfaces through ActivityFeed/ToolScreenState; the direct OpenCode chat catalog reports gateway authentication failures through its retryable error state.",
+    "The e2e runtime uses the fake server's direct /mobile-gateway/agent-activity route until a Mac is paired; the all-six-sources control therefore populates that direct payload as well as the paired-gateway payload."
+  ],
+  "followup": null,
+  "orchestratorGates": {
+    "red": "contract 3/4 fail vs pre-change components",
+    "green": "contract 4/4; issue e2e 2/2; full e2e 69/69; static exit 0",
+    "specFix": "orchestrator: fork menuitem selector disambiguated from its -title child",
+    "auditOutcome": "7 criteria already covered by shipped #1231/#1232/#1235/#1237 work (mapped), 2 real gaps fixed (lifecycle view segments incl. Completed; chats-list loading/retryable-error states); fork + six-kind Activity proven by new e2e"
+  }
+}
