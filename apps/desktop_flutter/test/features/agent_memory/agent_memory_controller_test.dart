@@ -17,16 +17,18 @@ import 'package:rhythm_desktop/features/agent_memory/repositories/agent_memory_r
 
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0).toIso8601String();
 
-AgentMemoryEntry _makeEntry(String id, String content,
-        {String kind = 'fact'}) =>
-    AgentMemoryEntry(
-      id: id,
-      kind: kind,
-      content: content,
-      tags: const [],
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+AgentMemoryEntry _makeEntry(
+  String id,
+  String content, {
+  String kind = 'fact',
+}) => AgentMemoryEntry(
+  id: id,
+  kind: kind,
+  content: content,
+  tags: const [],
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 /// Fake data source: list() returns a fixed seed; update()/delete() operate
 /// on an in-memory map so tests can control success/failure per call.
@@ -77,13 +79,15 @@ void main() {
         _makeEntry('mem-1', 'Original content'),
         _makeEntry('mem-2', 'Unrelated entry'),
       ]);
-      final controller =
-          AgentMemoryController(AgentMemoryRepository(dataSource));
+      final controller = AgentMemoryController(
+        AgentMemoryRepository(dataSource),
+      );
       await controller.refresh();
       expect(controller.entries.length, 2);
 
-      final ok =
-          await controller.update('mem-1', {'content': 'Edited content'});
+      final ok = await controller.update('mem-1', {
+        'content': 'Edited content',
+      });
 
       expect(ok, isTrue);
       expect(controller.error, isNull);
@@ -95,31 +99,35 @@ void main() {
     });
 
     test(
-        'a failed update sets an error and leaves the entry untouched (no silent drop)',
-        () async {
-      final dataSource = _FakeMemoryDataSource([
-        _makeEntry('mem-1', 'Original content'),
-      ]);
-      dataSource.failNextUpdate = true;
-      final controller =
-          AgentMemoryController(AgentMemoryRepository(dataSource));
-      await controller.refresh();
+      'a failed update sets an error and leaves the entry untouched (no silent drop)',
+      () async {
+        final dataSource = _FakeMemoryDataSource([
+          _makeEntry('mem-1', 'Original content'),
+        ]);
+        dataSource.failNextUpdate = true;
+        final controller = AgentMemoryController(
+          AgentMemoryRepository(dataSource),
+        );
+        await controller.refresh();
 
-      final ok =
-          await controller.update('mem-1', {'content': 'Should not stick'});
+        final ok = await controller.update('mem-1', {
+          'content': 'Should not stick',
+        });
 
-      expect(ok, isFalse);
-      expect(controller.error, isNotNull);
-      final entry = controller.entries.firstWhere((e) => e.id == 'mem-1');
-      expect(entry.content, 'Original content');
-    });
+        expect(ok, isFalse);
+        expect(controller.error, isNotNull);
+        final entry = controller.entries.firstWhere((e) => e.id == 'mem-1');
+        expect(entry.content, 'Original content');
+      },
+    );
 
     test('delete still works after update is added (no regression)', () async {
       final dataSource = _FakeMemoryDataSource([
         _makeEntry('mem-1', 'Delete me'),
       ]);
-      final controller =
-          AgentMemoryController(AgentMemoryRepository(dataSource));
+      final controller = AgentMemoryController(
+        AgentMemoryRepository(dataSource),
+      );
       await controller.refresh();
       expect(controller.entries.length, 1);
 

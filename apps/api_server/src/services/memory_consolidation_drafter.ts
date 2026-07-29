@@ -357,7 +357,7 @@ export async function runMemoryConsolidation(
       };
       const rendered = renderMemoryNote(fm, attributedMerge.body);
       await fs.writeFile(survivor.abs, rendered, 'utf8');
-      enqueueMemoryVaultLog(memoryDir, {
+      await enqueueMemoryVaultLog(memoryDir, {
         reason: 'consolidation-merge',
         actor: CONSOLIDATION_MEMORY_ACTOR,
         noteSourceId: survivor.vaultRelKey,
@@ -378,7 +378,7 @@ export async function runMemoryConsolidation(
           /* already gone — fine, still remove the index row */
         }
         if (removed) {
-          enqueueMemoryVaultLog(memoryDir, {
+          await enqueueMemoryVaultLog(memoryDir, {
             reason: 'consolidation-retirement',
             actor: CONSOLIDATION_MEMORY_ACTOR,
             noteSourceId: retiree.vaultRelKey,
@@ -428,7 +428,7 @@ export async function runMemoryConsolidation(
       if (body === document.body) continue;
       const rendered = replaceMemoryNoteBody(document, body);
       await fs.writeFile(note.abs, rendered, 'utf8');
-      enqueueMemoryVaultLog(memoryDir, {
+      await enqueueMemoryVaultLog(memoryDir, {
         reason: 'updated',
         actor: CONSOLIDATION_MEMORY_ACTOR,
         noteSourceId: note.vaultRelKey,
@@ -504,7 +504,7 @@ export async function revertMemoryConsolidation(
     if (changed) {
       await fs.mkdir(path.dirname(abs), { recursive: true });
       await fs.writeFile(abs, entry.fileContent, 'utf8');
-      enqueueMemoryVaultLog(memoryDir, {
+      await enqueueMemoryVaultLog(memoryDir, {
         reason: 'consolidation-revert',
         actor: CONSOLIDATION_MEMORY_ACTOR,
         noteSourceId: entry.vaultRelKey,

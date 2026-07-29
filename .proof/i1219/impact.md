@@ -100,3 +100,18 @@ adds labels to an existing tile.
   implementation and remain unchanged.
 - No delete/forget semantics, production ports, process launch, or remote
   state were touched.
+
+## Verification-gate repair impact
+
+- `enqueueMemoryVaultLog` callers were traced across
+  `memoryVaultWriteService`, `memory_consolidation_drafter`, and
+  `memory_vault_log.test.ts`. The function now returns its existing serialized
+  promise; all product mutation callers await it, while direct queue tests
+  remain compatible with `flushMemoryVaultLog`.
+- `findLatestChangeBySourceIdAsync` is used only by the lifecycle mutation
+  path. It replaces full-history reads on every append and keeps rollback
+  targeting constant-time.
+- The lifecycle lock implementation itself was not changed: inspection showed
+  its `finally` always releases the gate. The timeout came from recursively
+  nested `priorState.verified` payload growth, now replaced by a bounded prior
+  verification summary.

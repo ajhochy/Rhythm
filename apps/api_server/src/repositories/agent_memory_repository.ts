@@ -119,6 +119,26 @@ function changeRowToModel(row: Record<string, unknown>): AgentMemoryChange {
 }
 
 export class AgentMemoryRepository {
+  async findLatestChangeBySourceIdAsync(
+    memorySourceId: string,
+  ): Promise<AgentMemoryChange | null> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `SELECT * FROM agent_memory_changes
+         WHERE memory_source_id = $1
+         ORDER BY changed_at DESC, id DESC LIMIT 1`,
+        [memorySourceId],
+      );
+      return result.rows[0] ? changeRowToModel(result.rows[0]) : null;
+    }
+    const row = getDb().prepare(
+      `SELECT * FROM agent_memory_changes
+       WHERE memory_source_id = ?
+       ORDER BY changed_at DESC, id DESC LIMIT 1`,
+    ).get(memorySourceId) as Record<string, unknown> | undefined;
+    return row ? changeRowToModel(row) : null;
+  }
+
   async appendChangeAsync(input: {
     memoryId: string;
     memorySourceId: string;
@@ -164,9 +184,10 @@ export class AgentMemoryRepository {
       id, input.memoryId, input.memorySourceId, input.action, input.actor,
       input.changedAt, priorStateJson, previous?.id ?? null, sourceContextJson,
     );
-    return (await this.listChangesAsync(input.memoryId)).find(
-      (change) => change.id === id,
-    )!;
+    const row = getDb().prepare(
+      `SELECT * FROM agent_memory_changes WHERE id = ?`,
+    ).get(id) as Record<string, unknown>;
+    return changeRowToModel(row);
   }
 
   async listChangesAsync(memoryId: string): Promise<AgentMemoryChange[]> {

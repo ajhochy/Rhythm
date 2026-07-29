@@ -1020,7 +1020,7 @@ export async function rememberToVault(
     options.beforeNotePromotion,
     options.afterNotePromotion,
   );
-  enqueueMemoryVaultLog(memoryDir, {
+  await enqueueMemoryVaultLog(memoryDir, {
     reason: semanticMerge
       ? 'merge-on-capture'
       : foundExisting
@@ -1109,14 +1109,24 @@ async function mutateMemoryLifecycle(
       [sourceId],
     ))[0];
     if (!indexed) return null;
-    const previousChanges = await auditRepo.listChangesAsync(indexed.id);
-    const rollbackTarget = previousChanges.length > 0
-      ? previousChanges[previousChanges.length - 1].id
+    const previousChange = await auditRepo.findLatestChangeBySourceIdAsync(
+      sourceId,
+    );
+    const rollbackTarget = previousChange?.id ?? null;
+    const lastVerification = document.verified.length > 0
+      ? document.verified[document.verified.length - 1]
       : null;
     const priorState = {
       status: document.status,
       staleAfter: document.staleAfter ?? null,
-      verified: document.verified,
+      verificationCount: document.verified.length,
+      lastVerification: lastVerification
+        ? {
+            by: lastVerification.by,
+            at: lastVerification.at,
+            action: lastVerification.action ?? 'verified',
+          }
+        : null,
       sources: document.sources,
       generated: document.generated ?? null,
     };
@@ -1183,7 +1193,7 @@ async function mutateMemoryLifecycle(
       options.afterNotePromotion,
     );
     if (lifecycleChanged) {
-      enqueueMemoryVaultLog(memoryDir, {
+      await enqueueMemoryVaultLog(memoryDir, {
         reason: status === 'deprecated' ? 'deprecated' : 'verified',
         actor,
         noteSourceId: sourceId,
@@ -1356,7 +1366,7 @@ export async function forgetFromVault(
     if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
   }
   if (removed) {
-    enqueueMemoryVaultLog(memoryDir, {
+    await enqueueMemoryVaultLog(memoryDir, {
       reason: 'forgotten',
       actor: DEFAULT_MEMORY_ACTOR,
       noteSourceId: vaultRelKey,
@@ -1584,7 +1594,7 @@ export async function updateMemoryInVault(
     options.afterNotePromotion,
   );
   const newVaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), newAbs);
-  enqueueMemoryVaultLog(memoryDir, {
+  await enqueueMemoryVaultLog(memoryDir, {
     reason: 'updated',
     actor: DEFAULT_MEMORY_ACTOR,
     noteSourceId: newVaultRelKey,

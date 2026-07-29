@@ -2,6 +2,17 @@
   "issue": 1219,
   "status": "authored_not_executed",
   "execution_note": "Per the execution split, code and tests were authored but no tests, builds, servers, sandbox commands, or background processes were run.",
+  "verification_gate_repairs": {
+    "memory_injection_index_vault_delete_race": {
+      "root_cause": "enqueueMemoryVaultLog returned void and deliberately ran log.md temp-file/rename work after rememberToVault resolved. The index-sourced recall test immediately removed the vault, racing that hidden writer and intermittently receiving ENOTEMPTY when the writer populated memory/ during recursive deletion.",
+      "fix": "enqueueMemoryVaultLog now returns its serialized fail-open promise, and every product mutation/consolidation call site awaits it before resolving. Direct batching tests may still enqueue and use flushMemoryVaultLog. No retry was added to rmSync."
+    },
+    "memory_verification_concurrent_timeout": {
+      "root_cause": "Each verification entry embedded priorState.verified, which contained all earlier entries, whose priorState values recursively contained still earlier entries. The canonical YAML and ledger JSON therefore grew exponentially across the 20 serialized mutations; the per-note lock was releasing, but parse/render/write cost exploded until the test timeout.",
+      "fix": "Prior-state snapshots are now bounded: lifecycle fields, source/generated provenance, verification count, and only the last verification's by/at/action. The immutable ledger rollback pointer retains the exact prior audit target. Latest-change lookup and inserted-row retrieval are O(1) instead of repeatedly parsing the full audit history."
+    },
+    "verification_status": "Fixes authored but not executed in this sandbox; the external orchestrator must rerun the two focused tests and full api_server suite."
+  },
   "decision": "docs/ai/decisions/2026-07-28-memory-provenance-lifecycle-1219.md",
   "acceptance_criteria": {
     "canonical provenance fields and immutable source list": [
@@ -69,6 +80,8 @@
     "apps/api_server/src/database/migrations.ts",
     "apps/api_server/src/database/postgres_bootstrap.ts",
     "apps/api_server/src/repositories/agent_memory_repository.ts",
+    "apps/api_server/src/services/memory_consolidation_drafter.ts",
+    "apps/api_server/src/services/memory_vault_log.ts",
     "apps/api_server/src/services/memoryVaultWriteService.ts",
     "apps/api_server/src/__tests__/issue_755_role_separation.test.ts",
     "apps/api_server/src/__tests__/memory_vault_authority.test.ts",
