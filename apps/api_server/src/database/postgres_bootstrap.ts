@@ -578,6 +578,60 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       );
   `);
 
+  // #1178 — production-owned transcript sharing is mounted in the cloud role,
+  // so its schema must be installed before the agent-execution early return.
+  // source_session_id remains provenance rather than an FK. The audit table
+  // likewise deliberately has no share FK so history survives share deletion.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS shared_transcripts (
+      id TEXT PRIMARY KEY,
+      snapshot_json JSONB NOT NULL,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      recipient_user_ids_json JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked_at TIMESTAMPTZ,
+      source_session_id TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_shared_transcripts_owner_created
+      ON shared_transcripts(owner_user_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS share_audit_log (
+      id TEXT PRIMARY KEY,
+      share_id TEXT NOT NULL,
+      actor_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      action TEXT NOT NULL CHECK (action IN ('share', 'view', 'revoke', 'delete')),
+      timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_share_audit_log_share_timestamp
+      ON share_audit_log(share_id, timestamp);
+    ALTER TABLE share_audit_log
+      DROP CONSTRAINT IF EXISTS share_audit_log_share_id_fkey;
+
+    CREATE OR REPLACE FUNCTION reject_shared_transcript_snapshot_update()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      RAISE EXCEPTION 'shared transcript snapshots are immutable';
+    END;
+    $$;
+    DROP TRIGGER IF EXISTS shared_transcripts_snapshot_immutable
+      ON shared_transcripts;
+    CREATE TRIGGER shared_transcripts_snapshot_immutable
+      BEFORE UPDATE OF snapshot_json ON shared_transcripts
+      FOR EACH ROW EXECUTE FUNCTION reject_shared_transcript_snapshot_update();
+
+    CREATE OR REPLACE FUNCTION reject_share_audit_delete()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      RAISE EXCEPTION 'share audit history is append-only';
+    END;
+    $$;
+    DROP TRIGGER IF EXISTS share_audit_log_no_delete ON share_audit_log;
+    CREATE TRIGGER share_audit_log_no_delete
+      BEFORE DELETE ON share_audit_log
+      FOR EACH ROW EXECUTE FUNCTION reject_share_audit_delete();
+  `);
+
   // ── Agent-EXECUTION tables (#755) ──────────────────────────────────────────
   // Created ONLY when the deployment role runs the agent runtime
   // (RHYTHM_ROLE=all|local; the DEFAULT preserves today's behavior). The
@@ -655,6 +709,31 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_memory_changes_memory ON agent_memory_changes(memory_id, changed_at)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_memory_changes_source ON agent_memory_changes(memory_source_id, changed_at)`);
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION guard_agent_memory_changes()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF TG_OP <> 'INSERT' THEN
+        RAISE EXCEPTION 'agent_memory_changes is append-only';
+      END IF;
+      IF NEW.rollback_target IS NOT NULL AND NOT EXISTS (
+        SELECT 1
+          FROM agent_memory_changes target
+         WHERE target.id = NEW.rollback_target
+           AND target.memory_source_id = NEW.memory_source_id
+      ) THEN
+        RAISE EXCEPTION
+          'rollback_target must reference the same memory_source_id';
+      END IF;
+      RETURN NEW;
+    END;
+    $$;
+    DROP TRIGGER IF EXISTS agent_memory_changes_append_only
+      ON agent_memory_changes;
+    CREATE TRIGGER agent_memory_changes_append_only
+      BEFORE INSERT OR UPDATE OR DELETE ON agent_memory_changes
+      FOR EACH ROW EXECUTE FUNCTION guard_agent_memory_changes();
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_webhook_endpoints (
@@ -1110,34 +1189,6 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS idx_agent_async_delegations_parent_status
       ON agent_async_delegations(parent_session_id, status, created_at);
-  `);
-
-  // #1178 — Postgres parity for immutable internal transcript shares. The
-  // source id remains provenance rather than an FK so source deletion can be
-  // detected and denied without cascading away the share/audit evidence.
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS shared_transcripts (
-      id TEXT PRIMARY KEY,
-      snapshot_json JSONB NOT NULL,
-      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      recipient_user_ids_json JSONB NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      expires_at TIMESTAMPTZ NOT NULL,
-      revoked_at TIMESTAMPTZ,
-      source_session_id TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_shared_transcripts_owner_created
-      ON shared_transcripts(owner_user_id, created_at);
-
-    CREATE TABLE IF NOT EXISTS share_audit_log (
-      id TEXT PRIMARY KEY,
-      share_id TEXT NOT NULL REFERENCES shared_transcripts(id) ON DELETE CASCADE,
-      actor_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      action TEXT NOT NULL CHECK (action IN ('share', 'view', 'revoke', 'delete')),
-      timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_share_audit_log_share_timestamp
-      ON share_audit_log(share_id, timestamp);
   `);
 
   // One-time repair, marker-guarded (schema_meta) — same contract as the

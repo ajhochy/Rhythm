@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  deriveTranscriptShareReview,
   sanitizeTranscriptShare,
   type TranscriptShareReview,
 } from './transcript_share_sanitizer';
@@ -67,5 +68,59 @@ describe('transcript share sanitizer', () => {
     (source.items[0].content as { text: string }).text = 'after';
     const reread = JSON.parse(storedJson) as TranscriptShareReview;
     expect(reread.items[0].content).toEqual({ text: 'before' });
+  });
+
+  it('derives protected categories from persisted roles, part types, tools, and flags', () => {
+    const review = deriveTranscriptShareReview([
+      {
+        id: 1,
+        role: 'system',
+        rawText: '',
+        parts: [{ id: 'system', type: 'text', text: 'hidden' }],
+      },
+      {
+        id: 2,
+        role: 'output',
+        rawText: '',
+        parts: [
+          { id: 'tool', type: 'tool', tool: 'read', state: { output: 'private' } },
+          { id: 'email', type: 'tool', tool: 'gmail_search' },
+          { id: 'pco', type: 'tool', tool: 'pco_people_search' },
+          { id: 'attachment', type: 'text', attachment: true, text: 'upload' },
+          { id: 'file', type: 'file_content', fileContent: 'contents' },
+        ],
+      },
+    ]);
+    expect(review.items.map(({ id, category }) => ({ id, category }))).toEqual([
+      { id: 'system', category: 'system_prompt' },
+      { id: 'tool', category: 'tool_output' },
+      { id: 'email', category: 'email' },
+      { id: 'pco', category: 'pco_data' },
+      { id: 'attachment', category: 'attachment' },
+      { id: 'file', category: 'file_content' },
+    ]);
+  });
+
+  it.each([
+    ['PEM block', '-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----', 'secret'],
+    ['JWT', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature', 'eyJhbGci'],
+    ['AWS AKIA key', 'AKIAIOSFODNN7EXAMPLE', 'AKIA'],
+    ['AWS ASIA key', 'ASIAIOSFODNN7EXAMPLE', 'ASIA'],
+    ['Google API key', 'AIzaSyA12345678901234567890123456789012', 'AIza'],
+    ['Set-Cookie', 'Set-Cookie: session=very-private-value; HttpOnly', 'very-private'],
+    ['session cookie', 'session=very-private-value', 'very-private'],
+    ['Postgres URL', 'postgres://user:pass@db.example/app', 'user:pass'],
+    ['MySQL URL', 'mysql://user:pass@db.example/app', 'user:pass'],
+    ['Mongo URL', 'mongodb://user:pass@db.example/app', 'user:pass'],
+    ['Bearer header', 'Authorization: Bearer opaque-access-value', 'opaque-access'],
+    ['macOS path', '/Users/alice/private/file.txt', '/Users/alice'],
+    ['Linux path', '/home/alice/private/file.txt', '/home/alice'],
+  ])('redacts %s', (_label, secret, forbiddenSubstring) => {
+    const snapshot = sanitizeTranscriptShare({
+      items: [{ id: 'part-1', category: 'tool_output', content: secret }],
+    }, ['part-1']);
+    const json = JSON.stringify(snapshot);
+    expect(json).not.toContain(forbiddenSubstring);
+    expect(json).toContain('[REDACTED]');
   });
 });

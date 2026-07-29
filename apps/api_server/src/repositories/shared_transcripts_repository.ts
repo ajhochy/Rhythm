@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { env } from '../config/env';
 import { getDb, getPostgresPool } from '../database/db';
-import type { TranscriptShareReview } from '../services/transcript_share_sanitizer';
+import {
+  deriveTranscriptShareReview,
+  type SourceTranscriptMessage,
+  type TranscriptShareReview,
+} from '../services/transcript_share_sanitizer';
 
 export type ShareAuditAction = 'share' | 'view' | 'revoke' | 'delete';
 
@@ -77,6 +81,80 @@ export class SharedTranscriptsRepository {
       .prepare(`SELECT COUNT(*) AS count FROM users WHERE id IN (${placeholders})`)
       .get(...userIds) as { count: number };
     return row.count === userIds.length;
+  }
+
+  async recipientsShareWorkspace(
+    ownerUserId: number,
+    recipientUserIds: readonly number[],
+  ): Promise<boolean> {
+    if (recipientUserIds.length === 0) return false;
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<{ count: string }>(
+        `SELECT COUNT(DISTINCT recipient.user_id)::text AS count
+           FROM workspace_members owner
+           JOIN workspace_members recipient
+             ON recipient.workspace_id = owner.workspace_id
+          WHERE owner.user_id = $1
+            AND recipient.user_id = ANY($2::int[])`,
+        [ownerUserId, recipientUserIds],
+      );
+      return Number(result.rows[0]?.count ?? 0) === recipientUserIds.length;
+    }
+    const placeholders = recipientUserIds.map(() => '?').join(',');
+    const row = getDb().prepare(
+      `SELECT COUNT(DISTINCT recipient.user_id) AS count
+         FROM workspace_members owner
+         JOIN workspace_members recipient
+           ON recipient.workspace_id = owner.workspace_id
+        WHERE owner.user_id = ?
+          AND recipient.user_id IN (${placeholders})`,
+    ).get(ownerUserId, ...recipientUserIds) as { count: number };
+    return row.count === recipientUserIds.length;
+  }
+
+  async sourceTranscriptReview(
+    sourceSessionId: string,
+  ): Promise<TranscriptShareReview> {
+    type MessageRow = {
+      id: number | string;
+      role: string;
+      raw_text: string;
+      parts_json: string | unknown[] | null;
+    };
+    const rows = env.dbClient === 'postgres'
+      ? (await getPostgresPool().query<MessageRow>(
+        `SELECT id, role, raw_text, parts_json
+           FROM agent_session_messages
+          WHERE session_id = $1
+          ORDER BY created_at ASC, id ASC`,
+        [sourceSessionId],
+      )).rows
+      : getDb().prepare(
+        `SELECT id, role, raw_text, parts_json
+           FROM agent_session_messages
+          WHERE session_id = ?
+          ORDER BY created_at ASC, id ASC`,
+      ).all(sourceSessionId) as MessageRow[];
+    const messages: SourceTranscriptMessage[] = rows.map((row) => {
+      let parts: unknown[] = [];
+      if (Array.isArray(row.parts_json)) {
+        parts = row.parts_json;
+      } else if (typeof row.parts_json === 'string') {
+        try {
+          const parsed = JSON.parse(row.parts_json) as unknown;
+          if (Array.isArray(parsed)) parts = parsed;
+        } catch {
+          parts = [];
+        }
+      }
+      return {
+        id: row.id,
+        role: row.role,
+        rawText: row.raw_text,
+        parts,
+      };
+    });
+    return deriveTranscriptShareReview(messages);
   }
 
   async create(input: {

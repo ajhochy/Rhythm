@@ -206,4 +206,45 @@ describe('issue #1219 memory provenance and lifecycle contract', () => {
     );
     expect(await repo.listChangesAsync(rebuilt.id)).toHaveLength(2);
   });
+
+  it('keeps lifecycle ledger rows append-only under direct database writes', async () => {
+    const created = await rememberToVault({
+      kind: 'fact',
+      content: 'Protect this lifecycle history.',
+    }, { memoryDir, index });
+    await verifyMemory(created.path, 'human:reviewer', {
+      memoryDir,
+      index,
+      at: '2026-07-28T14:00:00.000Z',
+    });
+    const [memory] = await repo.findBySourceIdsAsync(
+      'obsidian-memory',
+      [created.path],
+    );
+    const [change] = await repo.listChangesAsync(memory.id);
+
+    expect(() => db.prepare(
+      `UPDATE agent_memory_changes SET actor = 'attacker' WHERE id = ?`,
+    ).run(change.id)).toThrow(/append-only/i);
+    expect(() => db.prepare(
+      'DELETE FROM agent_memory_changes WHERE id = ?',
+    ).run(change.id)).toThrow(/append-only/i);
+  });
+
+  it('rejects rollback targets belonging to a different memory source', () => {
+    db.prepare(
+      `INSERT INTO agent_memory_changes
+         (id, memory_id, memory_source_id, action, actor, changed_at,
+          prior_state_json, rollback_target, source_context_json)
+       VALUES ('change-a', 'memory-a', 'source-a', 'verified', 'human:a',
+               '2026-07-28T15:00:00.000Z', '{}', NULL, '{}')`,
+    ).run();
+    expect(() => db.prepare(
+      `INSERT INTO agent_memory_changes
+         (id, memory_id, memory_source_id, action, actor, changed_at,
+          prior_state_json, rollback_target, source_context_json)
+       VALUES ('change-b', 'memory-b', 'source-b', 'rollback', 'human:b',
+               '2026-07-28T16:00:00.000Z', '{}', 'change-a', '{}')`,
+    ).run()).toThrow(/same memory_source_id/i);
+  });
 });

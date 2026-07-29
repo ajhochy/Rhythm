@@ -21,6 +21,13 @@ export interface TranscriptShareReview {
   items: TranscriptShareItem[];
 }
 
+export interface SourceTranscriptMessage {
+  id: number | string;
+  role: string;
+  rawText: string;
+  parts: unknown[];
+}
+
 const EXCLUDED_BY_DEFAULT = new Set<TranscriptShareCategory>([
   'file_content',
   'tool_output',
@@ -31,6 +38,12 @@ const EXCLUDED_BY_DEFAULT = new Set<TranscriptShareCategory>([
 ]);
 
 const SECRET_PATTERNS = [
+  /-----BEGIN [A-Z0-9 ]+-----[\s\S]*?-----END [A-Z0-9 ]+-----/g,
+  /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
+  /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g,
+  /\bAIza[A-Za-z0-9_-]{35}\b/g,
+  /\b(?:set-cookie\s*:\s*|(?:session|sessionid|connect\.sid)\s*=)[^\r\n;]+/gi,
+  /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^\s"',}]+/gi,
   /\b(?:authorization|proxy-authorization)\s*:\s*(?:bearer|basic)\s+\S+/gi,
   /\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|password)\s*[:=]\s*["']?[^\s"',}]+/gi,
   /\b(?:sk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{16,}\b/g,
@@ -85,6 +98,86 @@ function redact(value: unknown, key?: string): unknown {
     );
   }
   return value;
+}
+
+function stringField(
+  value: Record<string, unknown>,
+  ...keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    if (typeof value[key] === 'string') return value[key] as string;
+  }
+  return undefined;
+}
+
+function deriveCategory(
+  role: string,
+  part: Record<string, unknown>,
+): TranscriptShareCategory {
+  if (role === 'system') return 'system_prompt';
+  const type = (stringField(part, 'type') ?? '').toLowerCase();
+  const toolName = (
+    stringField(part, 'tool', 'toolName', 'name') ??
+    (part.state && typeof part.state === 'object'
+      ? stringField(part.state as Record<string, unknown>, 'tool', 'toolName', 'name')
+      : undefined) ??
+    ''
+  ).toLowerCase();
+  if (/gmail|email|mail/.test(toolName)) return 'email';
+  // \b fails on snake_case (pco_people_search); split on _- before matching.
+  if (/planning.?center|\bpco\b/.test(toolName.replace(/[_-]/g, ' '))) {
+    return 'pco_data';
+  }
+  if (
+    type.includes('tool') ||
+    'toolCallId' in part ||
+    'tool_call_id' in part
+  ) {
+    return 'tool_output';
+  }
+  if (
+    part.attachment === true ||
+    part.isAttachment === true ||
+    type === 'attachment' ||
+    type === 'file'
+  ) {
+    return 'attachment';
+  }
+  if (
+    type === 'file_content' ||
+    part.fileContent !== undefined ||
+    part.file_content !== undefined
+  ) {
+    return 'file_content';
+  }
+  return 'message';
+}
+
+/**
+ * Build the only trusted review input from persisted source messages. Caller
+ * categories and content never participate in classification or snapshotting.
+ */
+export function deriveTranscriptShareReview(
+  messages: readonly SourceTranscriptMessage[],
+): TranscriptShareReview {
+  return {
+    items: messages.flatMap((message) => {
+      const parts = message.parts.length > 0
+        ? message.parts
+        : [{ type: 'text', text: message.rawText }];
+      return parts.map((rawPart, index) => {
+        const part = rawPart && typeof rawPart === 'object'
+          ? rawPart as Record<string, unknown>
+          : { type: 'text', text: String(rawPart ?? '') };
+        const id = stringField(part, 'id') ?? `${message.id}:${index}`;
+        return {
+          id,
+          category: deriveCategory(message.role, part),
+          content: part,
+        };
+      });
+    }),
+  };
 }
 
 export function sanitizeTranscriptShare(

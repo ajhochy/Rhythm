@@ -1415,6 +1415,31 @@ export function runMigrations(db: Database.Database): void {
       ON agent_memory_changes(memory_id, changed_at);
     CREATE INDEX IF NOT EXISTS idx_agent_memory_changes_source
       ON agent_memory_changes(memory_source_id, changed_at);
+
+    CREATE TRIGGER IF NOT EXISTS agent_memory_changes_no_update
+      BEFORE UPDATE ON agent_memory_changes
+      BEGIN
+        SELECT RAISE(ABORT, 'agent_memory_changes is append-only');
+      END;
+    CREATE TRIGGER IF NOT EXISTS agent_memory_changes_no_delete
+      BEFORE DELETE ON agent_memory_changes
+      BEGIN
+        SELECT RAISE(ABORT, 'agent_memory_changes is append-only');
+      END;
+    CREATE TRIGGER IF NOT EXISTS agent_memory_changes_validate_rollback_target
+      BEFORE INSERT ON agent_memory_changes
+      WHEN NEW.rollback_target IS NOT NULL
+      BEGIN
+        SELECT CASE WHEN NOT EXISTS (
+          SELECT 1
+            FROM agent_memory_changes target
+           WHERE target.id = NEW.rollback_target
+             AND target.memory_source_id = NEW.memory_source_id
+        ) THEN RAISE(
+          ABORT,
+          'rollback_target must reference the same memory_source_id'
+        ) END;
+      END;
   `);
 
   // FTS5 virtual table for agent_memory full-text search.
@@ -3000,6 +3025,31 @@ If someone asks for creative work that needs a local capability:
   // #1178 — immutable, privacy-reviewed transcript snapshots shared only with
   // named Rhythm users. source_session_id is intentionally not an FK: deleting
   // the source makes reads fail closed while preserving provenance/audit rows.
+  const shareAuditForeignKeys = db.pragma(
+    'foreign_key_list(share_audit_log)',
+  ) as Array<{ table: string }>;
+  if (shareAuditForeignKeys.some((foreignKey) =>
+    foreignKey.table === 'shared_transcripts')) {
+    db.transaction(() => {
+      db.exec(`
+        DROP TRIGGER IF EXISTS share_audit_log_no_delete;
+        DROP INDEX IF EXISTS idx_share_audit_log_share_timestamp;
+        ALTER TABLE share_audit_log RENAME TO share_audit_log_legacy;
+        CREATE TABLE share_audit_log (
+          id TEXT PRIMARY KEY,
+          share_id TEXT NOT NULL,
+          actor_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          action TEXT NOT NULL CHECK (action IN ('share', 'view', 'revoke', 'delete')),
+          timestamp TEXT NOT NULL
+        );
+        INSERT INTO share_audit_log
+          (id, share_id, actor_user_id, action, timestamp)
+        SELECT id, share_id, actor_user_id, action, timestamp
+          FROM share_audit_log_legacy;
+        DROP TABLE share_audit_log_legacy;
+      `);
+    })();
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS shared_transcripts (
       id TEXT PRIMARY KEY,
@@ -3016,12 +3066,25 @@ If someone asks for creative work that needs a local capability:
 
     CREATE TABLE IF NOT EXISTS share_audit_log (
       id TEXT PRIMARY KEY,
-      share_id TEXT NOT NULL REFERENCES shared_transcripts(id) ON DELETE CASCADE,
+      -- Deliberately no FK: audit history must survive any administrative or
+      -- direct deletion of the share row.
+      share_id TEXT NOT NULL,
       actor_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       action TEXT NOT NULL CHECK (action IN ('share', 'view', 'revoke', 'delete')),
       timestamp TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_share_audit_log_share_timestamp
       ON share_audit_log(share_id, timestamp);
+
+    CREATE TRIGGER IF NOT EXISTS shared_transcripts_snapshot_immutable
+      BEFORE UPDATE OF snapshot_json ON shared_transcripts
+      BEGIN
+        SELECT RAISE(ABORT, 'shared transcript snapshots are immutable');
+      END;
+    CREATE TRIGGER IF NOT EXISTS share_audit_log_no_delete
+      BEFORE DELETE ON share_audit_log
+      BEGIN
+        SELECT RAISE(ABORT, 'share audit history is append-only');
+      END;
   `);
 }

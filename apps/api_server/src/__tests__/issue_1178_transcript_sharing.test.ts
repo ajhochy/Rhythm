@@ -7,7 +7,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { errorHandler } from '../middleware/error_handler';
-import { sharedTranscriptsRouter } from '../routes/shared_transcripts_routes';
+import {
+  sharedTranscriptsRouter,
+  transcriptShareCreationRouter,
+} from '../routes/shared_transcripts_routes';
 import { SharedTranscriptsRepository } from '../repositories/shared_transcripts_repository';
 
 describe('issue #1178 transcript sharing contracts', () => {
@@ -22,6 +25,7 @@ describe('issue #1178 transcript sharing contracts', () => {
   };
 
   beforeAll(async () => {
+    db.pragma('foreign_keys = ON');
     runMigrations(db);
     setDb(db);
     for (const [role, principal] of Object.entries(users)) {
@@ -33,7 +37,27 @@ describe('issue #1178 transcript sharing contracts', () => {
         `INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)`,
       ).run(principal.token, principal.id, new Date(Date.now() + 60_000).toISOString());
     }
+    const sameWorkspaceId = Number(db.prepare(
+      `INSERT INTO workspaces (name, join_code, created_by)
+       VALUES ('Same org', ?, ?)`,
+    ).run(randomUUID(), users.owner.id).lastInsertRowid);
+    db.prepare(
+      `INSERT INTO workspace_members (workspace_id, user_id, role)
+       VALUES (?, ?, 'admin'), (?, ?, 'staff')`,
+    ).run(
+      sameWorkspaceId, users.owner.id,
+      sameWorkspaceId, users.recipient.id,
+    );
+    const otherWorkspaceId = Number(db.prepare(
+      `INSERT INTO workspaces (name, join_code, created_by)
+       VALUES ('Other org', ?, ?)`,
+    ).run(randomUUID(), users.other.id).lastInsertRowid);
+    db.prepare(
+      `INSERT INTO workspace_members (workspace_id, user_id, role)
+       VALUES (?, ?, 'admin')`,
+    ).run(otherWorkspaceId, users.other.id);
     app.use(express.json());
+    app.use(transcriptShareCreationRouter);
     app.use('/shares', sharedTranscriptsRouter);
     app.use(errorHandler);
     server = app.listen(0);
@@ -87,6 +111,29 @@ describe('issue #1178 transcript sharing contracts', () => {
       db.prepare('DELETE FROM agent_sessions WHERE id = ?').run(sourceId);
     }
     return id;
+  }
+
+  function seedStructuredSource(): string {
+    const sourceId = randomUUID();
+    db.prepare(
+      `INSERT INTO agent_sessions
+         (id, agent_kind, status, cwd, name, owner_user_id)
+       VALUES (?, 'codex', 'idle', '/tmp/issue-1178', 'source', ?)`,
+    ).run(sourceId, users.owner.id);
+    db.prepare(
+      `INSERT INTO agent_session_messages
+         (session_id, role, raw_text, stripped_text, sdk_message_id, parts_json)
+       VALUES (?, 'system', 'hidden', 'hidden', ?, ?),
+              (?, 'input', 'hello', 'hello', ?, ?)`,
+    ).run(
+      sourceId, randomUUID(), JSON.stringify([
+        { id: 'system-part', type: 'text', text: 'hidden instruction' },
+      ]),
+      sourceId, randomUUID(), JSON.stringify([
+        { id: 'user-part', type: 'text', text: 'hello from source' },
+      ]),
+    );
+    return sourceId;
   }
 
   it('issue-1178-c3: enforces the complete read authorization matrix', async () => {
@@ -152,6 +199,88 @@ describe('issue #1178 transcript sharing contracts', () => {
     ).run(sourceId);
     expect((await repository.findWithLiveSource(share.id))?.snapshot)
       .toEqual({ items: [{ id: 'preview', category: 'message', content: 'before' }] });
+  });
+
+  it('derives classifications and content from source parts, ignoring caller misclassification', async () => {
+    const sourceId = seedStructuredSource();
+    const response = await fetch(`${baseUrl}/agent-sessions/${sourceId}/shares`, {
+      method: 'POST',
+      headers: {
+        ...bearer(users.owner.token),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        recipientUserIds: [users.recipient.id],
+        review: {
+          items: [
+            {
+              id: 'system-part',
+              category: 'message',
+              content: 'attacker replacement',
+            },
+            {
+              id: 'user-part',
+              category: 'system_prompt',
+              content: 'attacker replacement',
+            },
+          ],
+        },
+      }),
+    });
+    expect(response.status).toBe(201);
+    const share = await response.json() as { id: string };
+    const stored = db.prepare(
+      'SELECT snapshot_json FROM shared_transcripts WHERE id = ?',
+    ).get(share.id) as { snapshot_json: string };
+    expect(JSON.parse(stored.snapshot_json)).toEqual({
+      items: [{
+        id: 'user-part',
+        category: 'message',
+        content: { id: 'user-part', type: 'text', text: 'hello from source' },
+      }],
+    });
+  });
+
+  it('fails closed with 403 for recipients outside the source owner workspace', async () => {
+    const sourceId = seedStructuredSource();
+    const response = await fetch(`${baseUrl}/agent-sessions/${sourceId}/shares`, {
+      method: 'POST',
+      headers: {
+        ...bearer(users.owner.token),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        recipientUserIds: [users.other.id],
+        review: {
+          items: [{ id: 'user-part', category: 'message', content: 'hello' }],
+        },
+      }),
+    });
+    expect(response.status).toBe(403);
+  });
+
+  it('enforces snapshot immutability and audit retention through direct SQL', async () => {
+    const sourceId = seedStructuredSource();
+    const repository = new SharedTranscriptsRepository();
+    const share = await repository.create({
+      snapshot: { items: [{ id: 'safe', category: 'message', content: 'before' }] },
+      ownerUserId: users.owner.id,
+      recipientUserIds: [users.recipient.id],
+      sourceSessionId: sourceId,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    expect(() => db.prepare(
+      `UPDATE shared_transcripts SET snapshot_json = ? WHERE id = ?`,
+    ).run('{"items":[]}', share.id)).toThrow(/immutable/i);
+    expect(() => db.prepare(
+      'DELETE FROM share_audit_log WHERE share_id = ?',
+    ).run(share.id)).toThrow(/append-only/i);
+
+    db.prepare('DELETE FROM shared_transcripts WHERE id = ?').run(share.id);
+    const auditCount = db.prepare(
+      'SELECT COUNT(*) AS count FROM share_audit_log WHERE share_id = ?',
+    ).get(share.id) as { count: number };
+    expect(auditCount.count).toBe(1);
   });
 
   it('issue-1178-c1/c7: requires reviewed content and contains no external auto-share path', () => {

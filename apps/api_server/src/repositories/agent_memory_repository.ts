@@ -152,37 +152,43 @@ export class AgentMemoryRepository {
     const priorStateJson = JSON.stringify(input.priorState);
     const sourceContextJson = JSON.stringify(input.sourceContext);
     if (env.dbClient === 'postgres') {
-      const previous = await getPostgresPool().query(
-        `SELECT id FROM agent_memory_changes
-         WHERE memory_source_id = $1 ORDER BY changed_at DESC, id DESC LIMIT 1`,
-        [input.memorySourceId],
-      );
-      const rollbackTarget = (previous.rows[0]?.id as string | undefined) ?? null;
       const result = await getPostgresPool().query(
         `INSERT INTO agent_memory_changes
            (id, memory_id, memory_source_id, action, actor, changed_at,
             prior_state_json, rollback_target, source_context_json)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         SELECT $1,$2,$3,$4,$5,$6,$7,
+                (
+                  SELECT previous.id
+                    FROM agent_memory_changes previous
+                   WHERE previous.memory_source_id = $3
+                   ORDER BY previous.changed_at DESC, previous.id DESC
+                   LIMIT 1
+                ),
+                $8
          RETURNING *`,
         [
           id, input.memoryId, input.memorySourceId, input.action, input.actor,
-          input.changedAt, priorStateJson, rollbackTarget, sourceContextJson,
+          input.changedAt, priorStateJson, sourceContextJson,
         ],
       );
       return changeRowToModel(result.rows[0]);
     }
-    const previous = getDb().prepare(
-      `SELECT id FROM agent_memory_changes
-       WHERE memory_source_id = ? ORDER BY changed_at DESC, id DESC LIMIT 1`,
-    ).get(input.memorySourceId) as { id: string } | undefined;
     getDb().prepare(
       `INSERT INTO agent_memory_changes
          (id, memory_id, memory_source_id, action, actor, changed_at,
           prior_state_json, rollback_target, source_context_json)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
+       SELECT ?,?,?,?,?,?,?,
+              (
+                SELECT previous.id
+                  FROM agent_memory_changes previous
+                 WHERE previous.memory_source_id = ?
+                 ORDER BY previous.changed_at DESC, previous.id DESC
+                 LIMIT 1
+              ),
+              ?`,
     ).run(
       id, input.memoryId, input.memorySourceId, input.action, input.actor,
-      input.changedAt, priorStateJson, previous?.id ?? null, sourceContextJson,
+      input.changedAt, priorStateJson, input.memorySourceId, sourceContextJson,
     );
     const row = getDb().prepare(
       `SELECT * FROM agent_memory_changes WHERE id = ?`,

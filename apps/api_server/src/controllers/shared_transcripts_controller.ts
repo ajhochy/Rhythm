@@ -60,6 +60,14 @@ export class SharedTranscriptsController {
       if (!await repo.usersExist(recipientUserIds)) {
         throw AppError.badRequest('Every recipient must be a Rhythm user');
       }
+      if (
+        sourceOwnerId == null ||
+        !await repo.recipientsShareWorkspace(sourceOwnerId, recipientUserIds)
+      ) {
+        throw AppError.forbidden(
+          'Transcript recipients must belong to the source owner workspace',
+        );
+      }
 
       const review = validateReview(req.body?.review);
       const explicitInclusions = Array.isArray(req.body?.explicitlyIncludedItemIds)
@@ -75,7 +83,14 @@ export class SharedTranscriptsController {
       }
 
       const share = await repo.create({
-        snapshot: sanitizeTranscriptShare(review, explicitInclusions),
+        snapshot: sanitizeTranscriptShare(
+          {
+            items: (await repo.sourceTranscriptReview(sourceSessionId)).items
+              .filter((sourceItem) =>
+                review.items.some((requested) => requested.id === sourceItem.id)),
+          },
+          explicitInclusions,
+        ),
         ownerUserId: actor.id,
         recipientUserIds,
         sourceSessionId,
