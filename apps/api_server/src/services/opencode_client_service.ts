@@ -1276,6 +1276,42 @@ export class OpencodeClientService {
   }
 
   /**
+   * #1231 — Keep desktop lifecycle edits on the same engine session consumed
+   * by the mobile gateway. This writes metadata only; messages remain owned by
+   * OpenCode and are never copied into another transcript store.
+   */
+  async updateSessionCatalogMetadata(
+    sessionId: string,
+    update: { title?: string; archived?: boolean },
+  ): Promise<boolean> {
+    try {
+      const client = await this.v2Client();
+      const raw = await client.session.update({
+        sessionID: sessionId,
+        ...(update.title !== undefined ? { title: update.title } : {}),
+        ...(update.archived !== undefined
+          ? { time: { archived: update.archived ? Date.now() : 0 } }
+          : {}),
+      });
+      if (raw.error) {
+        logger.warn(
+          '[OpencodeClientService] updateSessionCatalogMetadata SDK error for session %s: %o',
+          sessionId,
+          raw.error,
+        );
+        return false;
+      }
+      return true;
+    } catch (err) {
+      logger.error(
+        '[OpencodeClientService] updateSessionCatalogMetadata failed:',
+        err,
+      );
+      return false;
+    }
+  }
+
+  /**
    * #775 (skill-scope): PATCH /session/:id with { skillAllowlist: { skills } }.
    * Updates the fork session's skill allowlist so the next prompt scopes the
    * model's available skills to `skills`. Called by ws_gateway when the per-turn

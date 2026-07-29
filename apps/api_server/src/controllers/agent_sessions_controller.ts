@@ -796,9 +796,9 @@ export class AgentSessionsController {
       // with task title + notes that the user can edit before hitting Enter).
       // The server no longer fabricates "I need help with: ..." prompts.
 
-      // Re-read so the response payload carries any worktree metadata just
-      // persisted (OCU-17 #1058); falls back to the insert result otherwise.
-      res.status(201).json(worktreeMeta ? (repo.findById(session.id) ?? session) : session);
+      // Re-read so every client receives the durable SDK identity (and any
+      // worktree metadata) assigned during creation.
+      res.status(201).json(repo.findById(session.id) ?? session);
     } catch (err) {
       next(err);
     }
@@ -917,12 +917,41 @@ export class AgentSessionsController {
         if (typeof body.archived !== 'boolean') {
           throw AppError.badRequest('archived must be a boolean');
         }
+        if (
+          session.sdkSessionId &&
+          typeof opencodeClient.updateSessionCatalogMetadata === 'function' &&
+          !(await opencodeClient.updateSessionCatalogMetadata(
+            session.sdkSessionId,
+            { archived: body.archived },
+          ))
+        ) {
+          throw new AppError(
+            502,
+            'SESSION_CATALOG_SYNC_FAILED',
+            'OpenCode rejected the session archive update',
+          );
+        }
         const updated = repo.setArchived(session.id, body.archived);
         if (updated) broadcastSessionUpdated(updated);
         res.json(updated ?? repo.findById(session.id)!);
         return;
       }
 
+      if (
+        fields.name !== undefined &&
+        session.sdkSessionId &&
+        typeof opencodeClient.updateSessionCatalogMetadata === 'function' &&
+        !(await opencodeClient.updateSessionCatalogMetadata(
+          session.sdkSessionId,
+          { title: fields.name },
+        ))
+      ) {
+        throw new AppError(
+          502,
+          'SESSION_CATALOG_SYNC_FAILED',
+          'OpenCode rejected the session rename',
+        );
+      }
       repo.updateFields(session.id, fields);
       const updated = repo.findById(session.id)!;
       broadcastSessionUpdated(updated);

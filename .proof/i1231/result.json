@@ -1,0 +1,144 @@
+{
+  "issue": 1231,
+  "status": "regression_fixes_targeted_pass_full_suite_blocked_by_executor",
+  "execution_split": "Focused non-network contracts, the repository catalog suite, the original #1231 API/mobile contracts, and TypeScript pass. The required full API suite was attempted, but this agent sandbox denies all loopback listen() calls with EPERM; the run was terminated after repeated 15-second HTTP hook timeouts. No sandbox server, live E2E, commit, or PR action was performed.",
+  "criteria": [
+    {
+      "criterion_id": "issue-1231-c1",
+      "status": "authored",
+      "tests": [
+        "apps/api_server/src/__tests__/issue_1231_session_catalog_live.test.ts :: issue-1231-c1/c2/c3"
+      ]
+    },
+    {
+      "criterion_id": "issue-1231-c2",
+      "status": "targeted_contract_passed_with_named_deferral",
+      "tests": [
+        "apps/api_server/src/__tests__/issue_1231_session_catalog_live.test.ts :: issue-1231-c1/c2/c3",
+        "apps/mobile/tests/contract/issue-1231-session-catalog.test.mjs :: issue-1231-c2"
+      ],
+      "deferral": "Historical/live transcript hydration for mobile-created sessions is deferred to .proof/i1231/followup.md; bidirectional list visibility and lifecycle adoption are implemented."
+    },
+    {
+      "criterion_id": "issue-1231-c3",
+      "status": "authored",
+      "tests": [
+        "apps/api_server/src/__tests__/issue_1231_session_catalog_live.test.ts :: issue-1231-c1/c2/c3"
+      ]
+    },
+    {
+      "criterion_id": "issue-1231-c4",
+      "status": "targeted_contract_passed_with_named_deferral",
+      "tests": [
+        "apps/api_server/src/contract/issue_1231_session_catalog_sync.test.ts :: issue-1231-c4",
+        "apps/mobile/tests/contract/issue-1231-session-catalog.test.mjs :: issue-1231-c2"
+      ],
+      "deferral": "Catalog identity is stable and list refresh is deduplicated. Cross-client transcript hydration/reconnect deduplication is the named follow-up in .proof/i1231/followup.md."
+    },
+    {
+      "criterion_id": "issue-1231-c5",
+      "status": "targeted_contract_passed",
+      "tests": [
+        "apps/api_server/src/contract/issue_1231_session_catalog_sync.test.ts :: ownership upsert",
+        "apps/api_server/src/contract/issue_1231_session_catalog_sync.test.ts :: issue-1231-c5"
+      ]
+    },
+    {
+      "criterion_id": "issue-1231-c6",
+      "status": "targeted_contract_passed",
+      "tests": [
+        "apps/mobile/tests/contract/issue-1231-session-catalog.test.mjs :: issue-1231-c6"
+      ]
+    },
+    {
+      "criterion_id": "issue-1231-c7",
+      "status": "manual_required",
+      "tests": [
+        "apps/api_server/src/__tests__/issue_1231_session_catalog_live.test.ts :: issue-1231-c1/c2/c3"
+      ],
+      "manual": "Physical iPhone plus desktop smoke remains required: create one chat on each client, confirm both appear on both clients without duplicates, then rename/archive/restore/delete from each side."
+    }
+  ],
+  "authored_tests_not_run": [
+    "apps/api_server/src/__tests__/issue_1231_session_catalog_live.test.ts"
+  ],
+  "targeted_verification": [
+    {
+      "command": "cd apps/api_server && npx vitest run src/contract/issue_1231_session_catalog_sync.test.ts --no-file-parallelism",
+      "result": "pass",
+      "summary": "1 file passed; 3 tests passed"
+    },
+    {
+      "command": "cd apps/mobile && node --test tests/contract/issue-1231-session-catalog.test.mjs",
+      "result": "pass",
+      "summary": "2 tests passed; Node emitted only the existing MODULE_TYPELESS_PACKAGE_JSON warning"
+    },
+    {
+      "command": "cd apps/api_server && npx vitest run src/contract/issue_1175_security_review.test.ts -t \"issue-1175-c11|issue-1175-c15\" --no-file-parallelism --reporter=verbose",
+      "result": "pass",
+      "summary": "2 targeted security tests passed"
+    },
+    {
+      "command": "cd apps/api_server && npx vitest run src/contract/issue_1175_corrective_security.test.ts -t \"issue-1175-c26\" --no-file-parallelism --reporter=verbose",
+      "result": "pass",
+      "summary": "1 targeted cross-user ownership test passed"
+    },
+    {
+      "command": "cd apps/api_server && npx vitest run src/__tests__/issue_1169_mobile_opencode_proxy.test.ts -t \"issue-1169-c2\" --no-file-parallelism --reporter=verbose",
+      "result": "pass",
+      "summary": "1 targeted directory-injection test passed"
+    },
+    {
+      "command": "cd apps/api_server && npx vitest run src/__tests__/opencode_client_typed_wrappers.test.ts -t \"ZERO `as unknown as` occurrences\" --no-file-parallelism --reporter=verbose",
+      "result": "pass",
+      "summary": "typed-wrapper no-double-cast contract passed"
+    },
+    {
+      "command": "cd apps/api_server && npx vitest run src/repositories/agent_sessions_repository.test.ts --no-file-parallelism",
+      "result": "pass",
+      "summary": "1 file passed; 20 repository catalog tests passed"
+    },
+    {
+      "command": "cd apps/api_server && node_modules/.bin/tsc --noEmit",
+      "result": "pass",
+      "summary": "TypeScript completed with exit 0"
+    },
+    {
+      "command": "cd apps/api_server && npm test -- --no-file-parallelism",
+      "result": "executor_blocked",
+      "summary": "The managed filesystem/network sandbox rejects Node listen() on both 0.0.0.0 and 127.0.0.1 with EPERM. HTTP-test beforeEach hooks wait 15 seconds and then fail before assertions; the run was terminated rather than misclassify sandbox denial as a product regression."
+    }
+  ],
+  "failure_repairs": [
+    {
+      "failure": "API contract fixture FOREIGN KEY constraint failed",
+      "root_cause": "fixture bug: project_id referenced a project that the in-memory test database never inserted; task_id was null and owner_user_id referenced a valid user",
+      "fix": "create alpha and beta projects with ProjectsRepository before inserting scoped agent_sessions rows"
+    },
+    {
+      "failure": "mobile contract ERR_MODULE_NOT_FOUND for the Expo @/ alias",
+      "root_cause": "the plain node --test runner cannot resolve session-service.ts imports through the Expo path alias",
+      "fix": "exercise the merged-list contract with structural source assertions and keep runtime cache assertions on the alias-free agent-chat-service module"
+    },
+    {
+      "failure": "default, category, system-session, and scheduled-run catalog slicing regressed",
+      "root_cause": "authenticated owner predicates were added ahead of the existing category/is_system/scheduled_task filters, hiding established null-owner rows and changing the desktop catalog contract",
+      "fix": "restore the established AgentSessionsRepository list queries and controller calls; gateway ownership remains the user/project admission boundary"
+    },
+    {
+      "failure": "paired gateway security shaping and directory forwarding regressed",
+      "root_cause": "gateway reconciliation ran as an unconditional database side effect under permissive/mock ownership and isResourceOwnedBy widened admission through agent_sessions fallback",
+      "fix": "require a matching explicit ownership row for production reconciliation, remove the agent_sessions ownership fallback, and keep reconciliation failure from bypassing or breaking the existing proxy shaping/transport contract"
+    },
+    {
+      "failure": "opencode_client_service.ts reintroduced a forbidden as unknown as cast",
+      "root_cause": "the new metadata update wrapper ignored the vendored v2 SDK's typed session.update parameters",
+      "fix": "call the generated typed session.update method directly with sessionID, title, and time.archived"
+    }
+  ],
+  "proof": {
+    "impact": ".proof/i1231/impact.md",
+    "followup": ".proof/i1231/followup.md",
+    "contract": "docs/ai/contracts/issue-1231.json"
+  }
+}

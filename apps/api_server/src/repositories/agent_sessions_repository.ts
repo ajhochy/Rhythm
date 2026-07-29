@@ -1,4 +1,5 @@
 import { getDb } from '../database/db';
+import { initializeMobileOpenCodeOwnershipSchema } from './mobile_opencode_ownership_repository';
 import type {
   AgentSession,
   AgentSessionStatus,
@@ -275,11 +276,132 @@ export class AgentSessionsRepository {
    */
   setSdkSessionId(id: string, sdkSessionId: string): void {
     const now = new Date().toISOString();
-    getDb()
-      .prepare(
+    const db = getDb();
+    initializeMobileOpenCodeOwnershipSchema(db);
+    db.transaction(() => {
+      db.prepare(
         `UPDATE agent_sessions SET sdk_session_id = ?, updated_at = ? WHERE id = ?`,
-      )
-      .run(sdkSessionId, now, id);
+      ).run(sdkSessionId, now, id);
+
+      const owner = db.prepare(
+        `SELECT owner_user_id, project_id
+           FROM agent_sessions
+          WHERE id = ?
+            AND owner_user_id IS NOT NULL
+            AND project_id IS NOT NULL
+          LIMIT 1`,
+      ).get(id) as {
+        owner_user_id: number;
+        project_id: string;
+      } | undefined;
+      if (!owner) return;
+
+      db.prepare(
+        `INSERT INTO mobile_opencode_resource_owners
+           (resource_kind, resource_id, owner_user_id, project_id, created_at)
+         VALUES ('session', ?, ?, ?, ?)
+         ON CONFLICT(resource_kind, resource_id) DO NOTHING`,
+      ).run(sdkSessionId, owner.owner_user_id, owner.project_id, now);
+
+      const claimed = db.prepare(
+        `SELECT 1
+           FROM mobile_opencode_resource_owners
+          WHERE resource_kind = 'session'
+            AND resource_id = ?
+            AND owner_user_id = ?
+            AND project_id = ?`,
+      ).get(sdkSessionId, owner.owner_user_id, owner.project_id);
+      if (!claimed) {
+        throw new Error(
+          `OpenCode session ownership conflict for ${sdkSessionId}`,
+        );
+      }
+    })();
+  }
+
+  /**
+   * #1231 — Adopt or refresh a mobile-created engine session into the one
+   * authoritative Rhythm catalog. The SDK id is the durable identity key, so
+   * repeated gateway refreshes update one row instead of copying transcripts
+   * or creating duplicate chats.
+   */
+  reconcileMobileSession(input: {
+    sdkSessionId: string;
+    ownerUserId: number;
+    projectId: string;
+    cwd: string;
+    name: string;
+    archivedAt: string | null;
+    updatedAt?: string;
+  }): AgentSession | null {
+    if (
+      !input.sdkSessionId ||
+      !Number.isSafeInteger(input.ownerUserId) ||
+      input.ownerUserId <= 0 ||
+      !input.projectId ||
+      !input.cwd
+    ) {
+      return null;
+    }
+    const db = getDb();
+    return db.transaction(() => {
+      const existing = db.prepare(
+        `SELECT id, owner_user_id, project_id
+           FROM agent_sessions
+          WHERE sdk_session_id = ?
+          LIMIT 1`,
+      ).get(input.sdkSessionId) as {
+        id: string;
+        owner_user_id: number | null;
+        project_id: string | null;
+      } | undefined;
+      if (
+        existing &&
+        (existing.owner_user_id !== input.ownerUserId ||
+          existing.project_id !== input.projectId)
+      ) {
+        return null;
+      }
+
+      const now = input.updatedAt ?? new Date().toISOString();
+      if (existing) {
+        db.prepare(
+          `UPDATE agent_sessions
+              SET name = ?,
+                  cwd = ?,
+                  archived_at = ?,
+                  updated_at = ?
+            WHERE id = ?`,
+        ).run(
+          input.name || 'Untitled chat',
+          input.cwd,
+          input.archivedAt,
+          now,
+          existing.id,
+        );
+        return this.findById(existing.id);
+      }
+
+      const id = crypto.randomUUID();
+      db.prepare(
+        `INSERT INTO agent_sessions
+           (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
+            sdk_session_id, owner_user_id, category, archived_at, created_at,
+            updated_at)
+         VALUES (?, NULL, NULL, '', 'idle', ?, ?, ?, ?, ?, 'chat', ?, ?, ?)`,
+      ).run(
+        id,
+        input.cwd,
+        input.name || 'Untitled chat',
+        input.projectId,
+        input.sdkSessionId,
+        input.ownerUserId,
+        input.archivedAt,
+        now,
+        now,
+      );
+      return this.findById(id);
+    })();
   }
 
   /**
@@ -412,10 +534,37 @@ export class AgentSessionsRepository {
 
   /** Hard-delete a single session row. Foreign-key cascade removes messages. */
   deleteById(id: string): number {
-    const result = getDb()
-      .prepare(`DELETE FROM agent_sessions WHERE id = ?`)
-      .run(id);
-    return result.changes;
+    const db = getDb();
+    initializeMobileOpenCodeOwnershipSchema(db);
+    return db.transaction(() => {
+      const session = db.prepare(
+        `SELECT sdk_session_id, owner_user_id, project_id
+           FROM agent_sessions
+          WHERE id = ?`,
+      ).get(id) as {
+        sdk_session_id: string | null;
+        owner_user_id: number | null;
+        project_id: string | null;
+      } | undefined;
+      if (
+        session?.sdk_session_id &&
+        session.owner_user_id !== null &&
+        session.project_id !== null
+      ) {
+        db.prepare(
+          `DELETE FROM mobile_opencode_resource_owners
+            WHERE resource_kind = 'session'
+              AND resource_id = ?
+              AND owner_user_id = ?
+              AND project_id = ?`,
+        ).run(
+          session.sdk_session_id,
+          session.owner_user_id,
+          session.project_id,
+        );
+      }
+      return db.prepare(`DELETE FROM agent_sessions WHERE id = ?`).run(id).changes;
+    })();
   }
 
   /** #602 — update agent_kind for agent-less sessions on first model pick. */
