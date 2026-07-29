@@ -151,6 +151,11 @@ const config: ExpoConfig = {
   },
   ios: {
     bundleIdentifier: iosBundleIdentifier,
+    // Prebuild writes this into the generated Xcode project's
+    // DEVELOPMENT_TEAM build setting. Without it a local `xcodebuild
+    // archive` fails with "Signing for RhythmAgents requires a development
+    // team" — EAS injects credentials remotely, so only local builds notice.
+    appleTeamId: env('EXPO_APPLE_TEAM_ID') ?? '56Q69NYP9H',
     buildNumber: '1',
     supportsTablet: false,
     infoPlist: allowLocalHttp
