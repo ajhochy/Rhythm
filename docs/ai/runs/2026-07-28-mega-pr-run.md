@@ -2,7 +2,7 @@
 date: 2026-07-28
 repo: Rhythm
 branch: mega/run-2026-07-28
-pr: TBD (draft MEGA PR against main)
+pr: "#1241 (draft)"
 issues: [1208, 1213, 1214, 1215, 1216, 1217, 1218, 1220, 1221, 1222, 1223, 1232, 1233, 1234, 1236, 1239]
 status: verified — awaiting human review + manual smoke
 tags: [run, Rhythm, mega-pr]

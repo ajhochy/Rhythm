@@ -7,7 +7,7 @@
 ## Active branch / PR
 
 - Branch: `mega/run-2026-07-28` @ `6fe8edda9` (11 group branches merged; per-group worktrees under `.worktrees/`, git-excluded)
-- PR: draft MEGA PR against `main` (see run log for number once opened). **Do not merge — manual human review + smoke required.**
+- PR: [#1241](https://github.com/ajhochy/Rhythm/pull/1241) (draft). **Do not merge — manual human review + smoke required.**
 
 ## In progress
 
