@@ -115,7 +115,7 @@ async function dispatchProd(task: Record<string, unknown>): Promise<{
 }> {
   mockFindDueAsync.mockResolvedValue([task]);
   const cronTask = startAgentSchedulerJob();
-  cronTask.stop();
+  cronTask?.stop();
   await new Promise<void>((resolve) => setTimeout(resolve, 100));
   // Production path must NOT invoke AgentRunner.run — it inserts a trigger.
   expect(mockRun).not.toHaveBeenCalled();

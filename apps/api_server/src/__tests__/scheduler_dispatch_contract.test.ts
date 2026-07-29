@@ -101,7 +101,7 @@ function makeDueTask(overrides: Record<string, unknown> = {}) {
 async function dispatchAndCaptureRunArg(task: Record<string, unknown>): Promise<Record<string, unknown>> {
   mockFindDueAsync.mockResolvedValue([task]);
   const cronTask = startAgentSchedulerJob();
-  cronTask.stop();
+  cronTask?.stop();
   await new Promise<void>((resolve) => setTimeout(resolve, 100));
   expect(mockRun).toHaveBeenCalledOnce();
   return mockRun.mock.calls[0][0] as Record<string, unknown>;

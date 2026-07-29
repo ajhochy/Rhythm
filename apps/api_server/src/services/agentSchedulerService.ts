@@ -15,7 +15,7 @@
  *  • Uses node-cron (already in deps) for the tick, not a raw asyncio loop
  */
 
-import cron, { type ScheduledTask as CronTask } from 'node-cron';
+import cron from 'node-cron';
 import { randomUUID } from 'node:crypto';
 import { logger } from '../utils/logger';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
@@ -24,6 +24,7 @@ import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
 import * as AgentRunner from './agent_runner';
 import { resolveProfileScope } from './agent_profile_scope';
+import { opencodeClient } from './opencode_engine';
 
 // ── scope inheritance (scheduled tasks inherit profile scope) ──────────────
 //
@@ -249,6 +250,32 @@ function _computeNextCron(expression: string, after: Date, tz: string): string |
   return null;
 }
 
+// ── Boot-time engine readiness wait (#1222 Problem 2) ──────────────────────
+//
+// server.ts kicks off `opencodeClient.initialize()` in a separate,
+// non-blocking `.then()` chain LATER in its startup sequence than
+// `startAgentSchedulerJob()` is called. The scheduler's boot-time immediate
+// catch-up pass (below) can therefore run any due task while the engine
+// client is still null — every such task used to hit `createSession`
+// instantly and permanently ("N schedules errored at the identical
+// timestamp"). Wait, bounded, ONLY for this one boot-time pass before
+// letting it fire — a genuinely broken engine still fails visibly (via
+// createSession's own accurate error, see opencode_client_service.ts) rather
+// than hanging forever. The regular 1-minute cron tick is untouched: by then
+// the engine has had ample time and this would be pure overhead.
+
+function _engineReadyBootWaitMs(): number {
+  return Number(process.env.AGENT_SCHEDULER_BOOT_ENGINE_WAIT_MS ?? 90_000);
+}
+
+async function _waitForEngineReadyOnBoot(): Promise<void> {
+  const POLL_INTERVAL_MS = 500;
+  const deadline = Date.now() + _engineReadyBootWaitMs();
+  while (!opencodeClient.isReady && Date.now() < deadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+}
+
 // ── Trigger insertion ─────────────────────────────────────────────────────
 
 /**
@@ -445,28 +472,73 @@ async function checkDueTasks(): Promise<void> {
   }
 }
 
-export function startAgentSchedulerJob(): CronTask {
+export function startAgentSchedulerJob(): { stop: () => void } | null {
+  // #1214 — a Postgres-backed deployment (hosted/cloud production, per
+  // AGENTS.md "Production is Postgres") never OWNS agent-schedule ticking,
+  // regardless of RHYTHM_ROLE/AGENT_LOCAL drift on that specific host. The
+  // scheduler's only ownership signal used to be `env.agentLocal` inside
+  // `checkDueTasks()` below, which decides EXECUTION MECHANISM (direct
+  // AgentRunner.run() vs. inserting a pending trigger) — never whether
+  // ticking should happen at all. A Postgres deployment could still
+  // advance/fire its own independent `agent_scheduled_tasks` copy either
+  // way — exactly how #1213/#1222's legacy 26-row, 100%-failure-rate
+  // collection came to exist and keeps re-firing. `env.dbClient` (the same
+  // signal `resetStaleRunning`/`reapStuckSessions` below already use) is the
+  // correct, documented local-vs-hosted boundary: a Postgres-backed process
+  // never advances or fires ANY due task. This is fully recoverable — no row
+  // is deleted, disabled, or migrated by this gate; see
+  // docs/release/hosted_deployment_synology_cloudflare.md "Scheduler
+  // quarantine" for the operator backup/disable procedure.
+  if (env.dbClient === 'postgres') {
+    repo
+      .listAllAsync()
+      .then((tasks) => {
+        const enabledCount = tasks.filter((t) => t.enabled).length;
+        if (enabledCount > 0) {
+          logger.warn(
+            `[AgentScheduler] QUARANTINED (#1214): this is a Postgres-backed (non-owner) ` +
+              `deployment with ${enabledCount} enabled agent_scheduled_tasks row(s) that will ` +
+              `NEVER run or advance here. See ` +
+              `docs/release/hosted_deployment_synology_cloudflare.md "Scheduler quarantine" ` +
+              `for the backup/disable operator procedure.`,
+          );
+        }
+      })
+      .catch((err) => {
+        logger.warn(`[AgentScheduler] quarantine diagnostic check failed (non-fatal): ${String(err)}`);
+      });
+    return null;
+  }
+
   // #738-fix: Reset any agent_sessions left in status='running' from a prior
   // crash so they don't appear stuck in the CHATS list forever.
-  // SQLite-only: agent_sessions lives on the local server; Postgres path is
-  // production and does not have this table.
-  if (env.dbClient !== 'postgres') {
-    try {
-      const staleCount = new AgentSessionsRepository().resetStaleRunning(
-        'Server restarted — run interrupted',
-      );
-      if (staleCount > 0) {
-        logger.info(`[AgentScheduler] Reset ${staleCount} stale running session(s) to error on boot`);
-      }
-    } catch (err) {
-      logger.warn(`[AgentScheduler] Could not reset stale running sessions: ${String(err)}`);
+  // SQLite-only: agent_sessions lives on the local server. (The #1214 guard
+  // above already returned for the Postgres/production path, so reaching
+  // here means this IS the SQLite-backed owner — no redundant re-check.)
+  try {
+    const staleCount = new AgentSessionsRepository().resetStaleRunning(
+      'Server restarted — run interrupted',
+    );
+    if (staleCount > 0) {
+      logger.info(`[AgentScheduler] Reset ${staleCount} stale running session(s) to error on boot`);
     }
+  } catch (err) {
+    logger.warn(`[AgentScheduler] Could not reset stale running sessions: ${String(err)}`);
   }
 
   // Run once immediately on startup to catch any tasks that fired while the
   // server was down (Odysseus does the same with the "pushed next_run forward"
   // pattern on startup — here we simply let them fire immediately).
-  void checkDueTasks();
+  // #1222 — on the local-execution path, wait (bounded) for the engine to
+  // finish initializing first; see _waitForEngineReadyOnBoot above. The
+  // trigger-insertion path (env.agentLocal === false) never touches the
+  // engine, so it skips the wait entirely.
+  void (async () => {
+    if (env.agentLocal) {
+      await _waitForEngineReadyOnBoot();
+    }
+    await checkDueTasks();
+  })();
 
   // 1-minute tick — same granularity as Odysseus's asyncio loop
   const task = cron.schedule('* * * * *', () => {

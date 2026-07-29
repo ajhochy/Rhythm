@@ -605,7 +605,10 @@ export async function handleInputFrame(
             wsSkillNames,
             resolvedTurnProviderId,
           );
-          if (!freshSession) {
+          // #1222 — createSession no longer returns a bare `null`; check `.id`
+          // explicitly so a truthy `{ error }` failure object is never
+          // mistaken for a successful session.
+          if (!freshSession.id) {
             ws.send(
               JSON.stringify({
                 v: 1,
@@ -643,7 +646,8 @@ export async function handleInputFrame(
           wsSkillNames,
           resolvedTurnProviderId,
         );
-        if (!opencodeSession) {
+        // #1222 — check `.id` explicitly (see comment on the sibling branch above).
+        if (!opencodeSession.id) {
           ws.send(
             JSON.stringify({
               v: 1,

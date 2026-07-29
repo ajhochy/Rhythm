@@ -59,7 +59,12 @@ registerNotificationTools(server, RHYTHM_AGENT_URL);
 // #1134 — Gmail reads persist server-owned taint; sends consume bound approval.
 registerGoogleTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN, RHYTHM_AGENT_URL);
 registerPcoTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
-registerAgentScheduleTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+// #1213 — the scheduler is agent-EXECUTION state owned by the local desktop
+// API (agent_scheduled_tasks lives on :4001's SQLite, ticked by the local
+// AgentRunner), not production. Route at RHYTHM_AGENT_URL like memory,
+// sessions, profiles, delegation, approvals, and org-optimizer below —
+// never RHYTHM_API_URL (production), which holds an unrelated, unticked copy.
+registerAgentScheduleTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN, RHYTHM_AGENT_URL);
 registerAgentDelegationTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 // #804 — memory lives on the LOCAL agent server (vault-first write + derived
 // index on :4001), NOT prod. Route the memory tools at RHYTHM_AGENT_URL so the

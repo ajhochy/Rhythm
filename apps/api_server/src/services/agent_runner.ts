@@ -888,11 +888,24 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     );
 
     if (!sessionResult?.id) {
+      // #1222 — surface the REAL cause (engine not initialized / SDK error /
+      // no id — see opencode_client_service.ts createSession) instead of the
+      // fixed generic string every prior failure collapsed into. Also
+      // durably record the failure on the session row (not just the return
+      // value) — this branch used to skip `_markSessionError` entirely,
+      // leaving a scheduled run's session stuck at whatever status
+      // `_recordSession` set it to, with no failure reason anywhere durable.
+      const reason =
+        sessionResult && 'error' in sessionResult && sessionResult.error
+          ? `AgentRunner: ${sessionResult.error}`
+          : 'AgentRunner: failed to create opencode session (no further detail available)';
+      logger.error(`[AgentRunner] ${reason}`);
+      _markSessionError(rhythmSessionId, reason);
       return {
         sessionId: rhythmSessionId ?? '',
         result: '',
         status: 'error',
-        error: 'AgentRunner: failed to create opencode session',
+        error: reason,
       };
     }
 
