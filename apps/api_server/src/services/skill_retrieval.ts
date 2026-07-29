@@ -28,7 +28,11 @@
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import type { AgentSkill } from '../models/agent_skill';
 
-const THRESHOLD = 0.3;
+// Re-derived from the checked-in issue #1209 replay plus the established
+// multi-skill injection fixture. 0.45 retains a clearly relevant secondary
+// skill whose boosted score is ~48.3% of the best score, while the unchanged
+// top-N cap bounds prompt growth.
+const RELATIVE_THRESHOLD = 0.45;
 const DEFAULT_TOP_N = 5;
 /** Draft skills must clear this confidence bar to be eligible (fail-closed). */
 const DRAFT_CONFIDENCE_GATE = 0.6;
@@ -58,15 +62,8 @@ function tokenize(text: string | null | undefined): Set<string> {
   return out;
 }
 
-function jaccard(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 || b.size === 0) return 0;
-  let inter = 0;
-  for (const x of a) {
-    if (b.has(x)) inter++;
-  }
-  const union = a.size + b.size - inter;
-  return union === 0 ? 0 : inter / union;
-}
+const BM25_K1 = 1.2;
+const BM25_B = 0.75;
 
 /**
  * Coerce a possibly-missing/garbage confidence to a float, mirroring Odysseus
@@ -110,43 +107,72 @@ export function isEligible(skill: AgentSkill): boolean {
 }
 
 /**
- * Score a single skill against an already-lowercased raw query + its token set.
- * Mirrors the Odysseus scoring order exactly:
- *   1. jaccard over (title + description + whenToUse + tags + steps) tokens
- *   2. tag boost: any tag whose tokens are a whole-token subset of the query
- *      → score = max(score, 0.3) * 1.3
- *   3. description substring: raw lowercased query inside description
- *      → score = max(score, 0.6)
+ * Apply the pre-existing eligibility-neutral boosts after the BM25 base score:
+ *   1. tag boost for a whole-token tag match
+ *   2. description substring floor
  *   4. confidence multiplier: score *= 1 + (confidence ?? 0.5) * 0.1
  *   5. usage multiplier: uses > 0 → score *= 1.05
  *
  * Exported so tests can assert the raw score independent of threshold/sort.
  */
-export function scoreSkill(query: string, skill: AgentSkill): number {
+function skillText(skill: AgentSkill): string {
+  return [
+    skill.title ?? '',
+    skill.description ?? '',
+    skill.whenToUse ?? '',
+    (skill.tags ?? []).join(' '),
+    (skill.steps ?? []).join(' '),
+  ].join(' ');
+}
+
+/**
+ * Corpus-aware BM25 with Robertson/Sparck Jones IDF and document-length
+ * normalization. Token sets preserve the scorer's pre-existing dedupe
+ * semantics; term frequency is therefore either zero or one.
+ */
+export function scoreSkillsBm25(query: string, skills: AgentSkill[]): number[] {
+  if (skills.length === 0) return [];
+  const queryTokens = tokenize(query);
+  if (queryTokens.size === 0) return skills.map(() => 0);
+  const documents = skills.map((skill) => tokenize(skillText(skill)));
+  const averageLength =
+    documents.reduce((sum, document) => sum + document.size, 0) / documents.length;
+
+  return documents.map((document) => {
+    let score = 0;
+    for (const term of queryTokens) {
+      if (!document.has(term)) continue;
+      const documentFrequency = documents.reduce(
+        (count, candidate) => count + (candidate.has(term) ? 1 : 0),
+        0,
+      );
+      const idf = Math.log(
+        1 + (documents.length - documentFrequency + 0.5) / (documentFrequency + 0.5),
+      );
+      const lengthNormalization =
+        1 - BM25_B + BM25_B * (document.size / Math.max(averageLength, 1));
+      score += idf * ((BM25_K1 + 1) / (1 + BM25_K1 * lengthNormalization));
+    }
+    return score;
+  });
+}
+
+function applyScoreBoosts(query: string, skill: AgentSkill, baseScore: number): number {
   const rawQuery = query.toLowerCase();
   const queryTokens = tokenize(query);
 
   const tags = skill.tags ?? [];
-  const steps = skill.steps ?? [];
-  const text = [
-    skill.title ?? '',
-    skill.description ?? '',
-    skill.whenToUse ?? '',
-    tags.join(' '),
-    steps.join(' '),
-  ].join(' ');
-
-  let score = jaccard(queryTokens, tokenize(text));
+  let score = baseScore;
 
   for (const tag of tags) {
     const tagTokens = tokenize(tag);
     if (isSubset(tagTokens, queryTokens)) {
-      score = Math.max(score, 0.3) * 1.3;
+      score += 1.5;
     }
   }
 
   if ((skill.description ?? '').toLowerCase().includes(rawQuery)) {
-    score = Math.max(score, 0.6);
+    score = Math.max(score, 3);
   }
 
   score *= 1.0 + toFloat(skill.confidence, 0.5) * 0.1;
@@ -156,6 +182,11 @@ export function scoreSkill(query: string, skill: AgentSkill): number {
   }
 
   return score;
+}
+
+/** Score one skill for compatibility with existing callers/tests. */
+export function scoreSkill(query: string, skill: AgentSkill): number {
+  return applyScoreBoosts(query, skill, scoreSkillsBm25(query, [skill])[0] ?? 0);
 }
 
 /**
@@ -186,7 +217,7 @@ function parseAllowlist(allowedSkillsJson: string | null | undefined): Set<strin
 
 /**
  * Rank all stored skills against `query` and return the top-N eligible matches
- * scoring at or above the 0.3 threshold (descending by score).
+ * scoring at or above the replay-derived relative threshold.
  *
  * - Empty store or empty/whitespace-only query → [].
  * - Loads every skill via AgentSkillsRepository.list() (no owner scoping).
@@ -216,9 +247,15 @@ export function getRelevantSkills(
   });
 
   const scored: Array<{ score: number; skill: AgentSkill }> = [];
-  for (const skill of eligible) {
-    const score = scoreSkill(query, skill);
-    if (score >= THRESHOLD) {
+  const baseScores = scoreSkillsBm25(query, eligible);
+  const boostedScores = eligible.map((skill, index) =>
+    applyScoreBoosts(query, skill, baseScores[index] ?? 0),
+  );
+  const threshold = Math.max(...boostedScores, 0) * RELATIVE_THRESHOLD;
+  for (let index = 0; index < eligible.length; index++) {
+    const skill = eligible[index];
+    const score = boostedScores[index];
+    if (score > 0 && score >= threshold) {
       scored.push({ score, skill });
     }
   }

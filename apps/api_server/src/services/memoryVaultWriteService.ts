@@ -46,7 +46,10 @@ import {
   enqueueMemoryVaultLog,
   localCalendarDate as auditLocalCalendarDate,
 } from './memory_vault_log';
-import type { AgentMemory, AgentMemoryRepository } from '../repositories/agent_memory_repository';
+import {
+  AgentMemoryRepository,
+  type AgentMemory,
+} from '../repositories/agent_memory_repository';
 import { logger } from '../utils/logger';
 import {
   MEMORY_MERGE_THRESHOLD,
@@ -343,6 +346,19 @@ function appendVerificationHistory(
     seen.add(key);
     combined.push(entry);
   }
+  return combined.length > 0 ? combined : undefined;
+}
+
+function appendSourceHistory(
+  frontmatter: Record<string, unknown>,
+  incoming: MemorySource[],
+): MemorySource[] | undefined {
+  const combined = memorySources({
+    sources: [
+      ...(Array.isArray(frontmatter.sources) ? frontmatter.sources : []),
+      ...incoming,
+    ],
+  });
   return combined.length > 0 ? combined : undefined;
 }
 
@@ -983,9 +999,10 @@ export async function rememberToVault(
       : {}),
     ...(!attributionMerge && requestedSources.supplied
       ? {
-          sources: requestedSources.sources.length > 0
-            ? requestedSources.sources
-            : undefined,
+          sources: appendSourceHistory(
+            frontmatterToPreserve,
+            requestedSources.sources,
+          ),
         }
       : {}),
     ...(!attributionMerge && input.usageWindow !== undefined
@@ -1003,7 +1020,7 @@ export async function rememberToVault(
     options.beforeNotePromotion,
     options.afterNotePromotion,
   );
-  enqueueMemoryVaultLog(memoryDir, {
+  await enqueueMemoryVaultLog(memoryDir, {
     reason: semanticMerge
       ? 'merge-on-capture'
       : foundExisting
@@ -1070,12 +1087,6 @@ async function mutateMemoryLifecycle(
     throw new MemoryWriteError('actor must follow the OKF actor convention.');
   }
   const at = options.at ?? new Date().toISOString();
-  const [entry] = verificationEntries({
-    verified: [{ by: actor, at }],
-  });
-  if (!entry) {
-    throw new MemoryWriteError('verification time must be an ISO-8601 UTC timestamp.');
-  }
   const replacementStaleAfter = assertValidStaleAfter(options.staleAfter);
 
   const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
@@ -1092,6 +1103,51 @@ async function mutateMemoryLifecycle(
     }
 
     const document = parseMemoryNote(raw);
+    const auditRepo = new AgentMemoryRepository();
+    const indexed = (await auditRepo.findBySourceIdsAsync(
+      MEMORY_VAULT_SOURCE,
+      [sourceId],
+    ))[0];
+    if (!indexed) return null;
+    const previousChange = await auditRepo.findLatestChangeBySourceIdAsync(
+      sourceId,
+    );
+    const rollbackTarget = previousChange?.id ?? null;
+    const lastVerification = document.verified.length > 0
+      ? document.verified[document.verified.length - 1]
+      : null;
+    const priorState = {
+      status: document.status,
+      staleAfter: document.staleAfter ?? null,
+      verificationCount: document.verified.length,
+      lastVerification: lastVerification
+        ? {
+            by: lastVerification.by,
+            at: lastVerification.at,
+            action: lastVerification.action ?? 'verified',
+          }
+        : null,
+      sources: document.sources,
+      generated: document.generated ?? null,
+    };
+    const sourceContext = {
+      source: MEMORY_VAULT_SOURCE,
+      sourceId,
+      sources: document.sources,
+    };
+    const [entry] = verificationEntries({
+      verified: [{
+        by: actor,
+        at,
+        action: status === 'deprecated' ? 'deprecated' : 'verified',
+        priorState,
+        rollbackTarget,
+        sourceContext,
+      }],
+    });
+    if (!entry) {
+      throw new MemoryWriteError('verification time must be an ISO-8601 UTC timestamp.');
+    }
     const existingRaw = Array.isArray(document.frontmatter.verified)
       ? [...document.frontmatter.verified]
       : [];
@@ -1137,7 +1193,7 @@ async function mutateMemoryLifecycle(
       options.afterNotePromotion,
     );
     if (lifecycleChanged) {
-      enqueueMemoryVaultLog(memoryDir, {
+      await enqueueMemoryVaultLog(memoryDir, {
         reason: status === 'deprecated' ? 'deprecated' : 'verified',
         actor,
         noteSourceId: sourceId,
@@ -1148,6 +1204,17 @@ async function mutateMemoryLifecycle(
       sourceId,
       parsed: parseNote(rendered),
     });
+    if (lifecycleChanged) {
+      await auditRepo.appendChangeAsync({
+        memoryId: indexed.id,
+        memorySourceId: sourceId,
+        action: status === 'deprecated' ? 'deprecated' : 'verified',
+        actor,
+        changedAt: at,
+        priorState,
+        sourceContext,
+      });
+    }
     await regenerateMemoryVaultNavigation(memoryDir);
 
     return { id, path: sourceId, kind: document.kind };
@@ -1299,7 +1366,7 @@ export async function forgetFromVault(
     if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') throw err;
   }
   if (removed) {
-    enqueueMemoryVaultLog(memoryDir, {
+    await enqueueMemoryVaultLog(memoryDir, {
       reason: 'forgotten',
       actor: DEFAULT_MEMORY_ACTOR,
       noteSourceId: vaultRelKey,
@@ -1527,7 +1594,7 @@ export async function updateMemoryInVault(
     options.afterNotePromotion,
   );
   const newVaultRelKey = toVaultRelativeKey(resolveVaultRootForMemoryDir(memoryDir), newAbs);
-  enqueueMemoryVaultLog(memoryDir, {
+  await enqueueMemoryVaultLog(memoryDir, {
     reason: 'updated',
     actor: DEFAULT_MEMORY_ACTOR,
     noteSourceId: newVaultRelKey,

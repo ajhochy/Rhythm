@@ -153,6 +153,38 @@ function directActivityPayload() {
         profileId: null,
         projectId: state.project.id,
       },
+      ...(state.includeOptimizerActivity
+        ? [
+            {
+              id: 'activity-human-target',
+              source: 'human',
+              status: 'completed',
+              title: 'Human target activity',
+              summary: 'Open the completed human-initiated run.',
+              occurredAt: new Date().toISOString(),
+              startedAt: null,
+              completedAt,
+              sessionId: null,
+              resultUrl: null,
+              profileId: null,
+              projectId: state.project.id,
+            },
+            {
+              id: 'activity-optimizer-target',
+              source: 'optimizer',
+              status: 'completed',
+              title: 'Optimizer target activity',
+              summary: 'Review the completed organization optimizer run.',
+              occurredAt: new Date(Date.now() - 1_000).toISOString(),
+              startedAt: null,
+              completedAt,
+              sessionId: null,
+              resultUrl: '/agent-org-proposals?auditRunId=optimizer-target',
+              profileId: 'org-optimizer',
+              projectId: state.project.id,
+            },
+          ]
+        : []),
     ],
     nextCursor: null,
   };
@@ -285,6 +317,29 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && pathname === '/__control/mobile-reachability') {
+      const body = await readJson(req);
+      if (!['online', 'error', 'timeout'].includes(body?.mode)) {
+        sendJson(res, 400, { error: 'mode must be online, error, or timeout' });
+        return;
+      }
+      state.mobileReachability = body.mode;
+      if (body.mode !== 'online') {
+        for (const client of state.sseClients.keys()) client.end();
+      }
+      sendJson(res, 200, { mode: state.mobileReachability });
+      return;
+    }
+
+    if (req.method === 'POST' && pathname === '/__control/activity-sources') {
+      const body = await readJson(req);
+      state.includeOptimizerActivity = body?.includeOptimizer === true;
+      sendJson(res, 200, {
+        includeOptimizer: state.includeOptimizerActivity,
+      });
+      return;
+    }
+
     if (req.method === 'POST' && pathname === '/__control/mobile-revoke-failure') {
       const body = await readJson(req);
       state.mobileOldRevokeFailure = body?.enabled === true;
@@ -350,6 +405,16 @@ const server = http.createServer(async (req, res) => {
         projectId: req.headers['x-rhythm-project-id'] ?? null,
         queryKeys: [...requestUrl.searchParams.keys()].sort(),
       });
+
+      if (state.mobileReachability === 'timeout') {
+        return;
+      }
+      if (state.mobileReachability === 'error') {
+        sendJson(res, 503, {
+          error: { code: 'UNAVAILABLE', message: 'Paired Mac unavailable' },
+        });
+        return;
+      }
 
       if (
         req.method === 'GET' &&
@@ -544,6 +609,22 @@ const server = http.createServer(async (req, res) => {
               profileId: null,
               projectId: state.project.id,
             },
+            ...(state.includeOptimizerActivity
+              ? [{
+                  id: 'activity-optimizer-target',
+                  source: 'optimizer',
+                  status: 'completed',
+                  title: 'Optimizer target activity',
+                  summary: 'Review the completed organization optimizer run.',
+                  occurredAt: new Date(Date.now() - 1_000).toISOString(),
+                  startedAt: null,
+                  completedAt: new Date().toISOString(),
+                  sessionId: null,
+                  resultUrl: '/agent-org-proposals?auditRunId=optimizer-target',
+                  profileId: 'org-optimizer',
+                  projectId: state.project.id,
+                }]
+              : []),
           ],
           nextCursor: null,
         });

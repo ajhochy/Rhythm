@@ -1,0 +1,28 @@
+{
+  "issue": 1171,
+  "result": "gap-filled",
+  "summary": "Five criteria were already implemented with automated proof. The QR contract had one real gap: hostId was included as a third QR field. The desktop now emits only gatewayUrl and pairingCode, and iOS derives and verifies hostId through the gateway preflight.",
+  "newTests": [
+    "Strengthened apps/desktop_flutter/test/features/agents/mobile_access_dialog_test.dart to require exactly gatewayUrl and pairingCode and reject hostId.",
+    "Strengthened apps/mobile/tests/paired-host.test.mjs to reject hostId or any other extra QR field while preserving replacement and recycled-endpoint coverage.",
+    "Strengthened apps/api_server/src/__tests__/issue_1171_mobile_access_live.test.ts to enforce the two-field QR payload."
+  ],
+  "testsRun": false,
+  "testsRunReason": "The orchestrator ran apps/mobile/tests/paired-host.test.mjs and reported a failure at the recycled replacement request-count assertion. This agent did not rerun tests per the execution split.",
+  "verificationStatus": "blocked-diagnosis-contradicts-reported-root-cause",
+  "verificationFailure": {
+    "file": "apps/mobile/tests/paired-host.test.mjs",
+    "assertion": "recycled replacement path expected __publicRequests().length === 2; actual was 3",
+    "diagnosis": "PairedHostStore.pair performs exactly one /mobile-gateway/health preflight per attempt. The shared request log already contains two requests from pairedStore() (health plus pair); the replacement attempt adds one required health preflight to derive hostId, producing the cumulative total of three. No duplicate health probe exists in pair().",
+    "action": "No production or test assertion change made because the fail-loudly rule forbids rationalizing an expectation bump when the requested diagnosis contradicts the trace. Orchestrator direction is required on whether the assertion should measure the per-attempt delta or filter/count only health requests."
+  },
+  "gitNexus": "waived by the orchestrator-provided GATE WAIVER",
+  "commitCreated": false,
+  "commitBlocker": "The managed filesystem denies creation of the worktree index lock at /Users/ajhochhalter/Documents/Rhythm/.git/worktrees/rt-i1171/index.lock; the orchestrator must stage and commit the prepared changes.",
+  "orchestratorGates": {
+    "mobile test:ci:static": "exit 0",
+    "paired-host.test.mjs": "red 1 fail (pre-change store) -> green 1 pass; replacement-attempt delta assertion tightened to exactly one /mobile-gateway/health probe",
+    "flutter mobile_access_dialog_test": "9/9 pass; dart format applied; flutter analyze exit 0",
+    "live E2E issue_1171_mobile_access_live": "1/1 pass vs isolated sandbox :4188 (QR exchange, device health, revocation; server booted with throwaway HUMAN_APPROVAL_* material per testing-guide)"
+  }
+}

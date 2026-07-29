@@ -1,0 +1,101 @@
+{
+  "issue": 1178,
+  "status": "authored_pending_orchestrator_verification",
+  "execution_split": {
+    "code_and_tests_authored": true,
+    "tests_run": false,
+    "servers_started": false,
+    "commits_created": false
+  },
+  "acceptance_criteria": [
+    {
+      "criterion": 1,
+      "proof": [
+        "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts \u2014 issue-1178-c1/c7 requires review.items and scans the actual share controller, repository, routes, sanitizer, and app mount",
+        "apps/api_server/src/__tests__/issue_1178_transcript_sharing_live.test.ts \u2014 create request supplies review and explicit inclusion selections"
+      ]
+    },
+    {
+      "criterion": 2,
+      "proof": [
+        "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts \u2014 issue-1178-c2 creates a stored share, mutates the source agent_sessions row, and re-reads the unchanged snapshot",
+        "apps/api_server/src/__tests__/issue_1178_transcript_sharing_live.test.ts \u2014 asserts owner, recipient JSON, and sanitized stored bytes directly"
+      ]
+    },
+    {
+      "criterion": 3,
+      "proof": [
+        "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts \u2014 owner, recipient, unrelated user, guessed id, expired, revoked, and deleted-source matrix"
+      ]
+    },
+    {
+      "criterion": 4,
+      "proof": [
+        "apps/api_server/src/services/transcript_share_sanitizer.test.ts \u2014 individual default-exclusion assertions for file contents, tool outputs, emails, PCO data, system prompts, and secret-pattern matches; explicit inclusion; secret and host-path redaction"
+      ]
+    },
+    {
+      "criterion": 5,
+      "proof": [
+        "apps/api_server/src/__tests__/issue_1178_transcript_sharing_live.test.ts \u2014 real HTTP create, recipient read, owner revoke, immediate 404, and direct share/view/revoke audit-row assertions"
+      ]
+    },
+    {
+      "criterion": 6,
+      "proof": [
+        "Deferred by orchestrator: desktop Flutter is explicitly out of scope",
+        ".proof/i1178/followup.md \u2014 drafted UI follow-up issue"
+      ]
+    },
+    {
+      "criterion": 7,
+      "proof": [
+        "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts \u2014 grep-style scan of the actual controller, repository, routes, sanitizer, and app mount rejects OPENCODE_AUTO_SHARE and opncd.ai"
+      ]
+    }
+  ],
+  "decisions": [
+    "Named same-instance Rhythm users only; no public or bearer links in v1.",
+    "Default expiration is 30 days; owner revocation is immediate.",
+    "File contents, tool outputs, emails, PCO data, secret matches, system prompts, and attachments are excluded by default; protected categories require explicit per-item inclusion.",
+    "Secret-shaped values, authorization fields, and host paths are redacted even inside explicitly included items.",
+    "Share/view/revoke/delete audit records contain actor and timestamp but no transcript content and are visible to the owner.",
+    "Owners and admins may revoke; stored snapshots are immutable and source ids are provenance rather than read dependencies via foreign keys."
+  ],
+  "migrations": [
+    {
+      "database": "SQLite",
+      "file": "apps/api_server/src/database/migrations.ts",
+      "changes": [
+        "CREATE TABLE IF NOT EXISTS shared_transcripts",
+        "CREATE TABLE IF NOT EXISTS share_audit_log",
+        "additive owner/audit indexes"
+      ],
+      "rollback": "Manual rollback may DROP share_audit_log first, then shared_transcripts and their indexes. This is destructive and must not run in production without export/retention review."
+    },
+    {
+      "database": "Postgres",
+      "file": "apps/api_server/src/database/postgres_bootstrap.ts",
+      "changes": [
+        "CREATE TABLE IF NOT EXISTS shared_transcripts with JSONB snapshot/recipient arrays",
+        "CREATE TABLE IF NOT EXISTS share_audit_log",
+        "additive owner/audit indexes"
+      ],
+      "rollback": "Manual rollback may DROP share_audit_log first, then shared_transcripts and their indexes. This is destructive and requires production review and backup."
+    }
+  ],
+  "deferred": [
+    "Desktop Flutter UI, documented in .proof/i1178/followup.md"
+  ],
+  "verification": {
+    "gitnexus": "waived; inferred impact recorded in .proof/i1178/impact.md",
+    "test_execution": "intentionally left to the orchestrator",
+    "live_e2e": "authored and env-gated; not run"
+  },
+  "orchestratorGates": {
+    "red": "4 fail with routes/migration stashed",
+    "green": "full api suite 3659/0; build clean",
+    "live": "issue_1178_transcript_sharing_live 1/1 vs isolated sandbox :4588 (share create -> recipient read -> revoke -> read fails; DB-row assertions)",
+    "decisions": "named in-instance recipients only, 30d default expiry, exclude-by-default snapshot categories, full audit; recorded in docs/ai/decisions/2026-07-28-transcript-sharing-1178.md"
+  }
+}

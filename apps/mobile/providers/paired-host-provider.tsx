@@ -22,6 +22,27 @@ import type { PairedMacClient } from '@/lib/transport/paired-mac-client';
 import { useRhythmAccount } from '@/providers/rhythm-account-provider';
 import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
 
+export const PAIRED_HOST_PROBE_TIMEOUT_MS = 4_000;
+export const PAIRED_HOST_PROBE_INTERVAL_MS = 5_000;
+export const PAIRED_HOST_PROBE_BACKOFF_MS = [
+  5_000,
+  10_000,
+  20_000,
+  60_000,
+] as const;
+
+export function nextPairedHostProbeInterval(current: number): number {
+  const index = PAIRED_HOST_PROBE_BACKOFF_MS.indexOf(
+    current as (typeof PAIRED_HOST_PROBE_BACKOFF_MS)[number],
+  );
+  return PAIRED_HOST_PROBE_BACKOFF_MS[
+    Math.min(
+      index < 0 ? 1 : index + 1,
+      PAIRED_HOST_PROBE_BACKOFF_MS.length - 1,
+    )
+  ] ?? PAIRED_HOST_PROBE_BACKOFF_MS.at(-1)!;
+}
+
 export interface PairedHostContextValue {
   state: PairedHostState;
   host: PairedHost | null;
@@ -49,36 +70,134 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
   );
   const [client, setClient] = useState<PairedMacClient | null>(null);
   const mountedRef = useRef(true);
+  const refreshInFlightRef = useRef<Promise<PairedHostSnapshot> | null>(null);
+  const clientScopeRef = useRef<string | null>(null);
+  const [probeIntervalMs, setProbeIntervalMs] = useState(
+    PAIRED_HOST_PROBE_INTERVAL_MS,
+  );
+  const [probeScheduleEpoch, setProbeScheduleEpoch] = useState(0);
+  const probeIntervalRef = useRef(PAIRED_HOST_PROBE_INTERVAL_MS);
+
+  const resetProbeInterval = useCallback(() => {
+    probeIntervalRef.current = PAIRED_HOST_PROBE_INTERVAL_MS;
+    setProbeIntervalMs(PAIRED_HOST_PROBE_INTERVAL_MS);
+    setProbeScheduleEpoch((current) => current + 1);
+  }, []);
+
+  const backOffProbeInterval = useCallback(() => {
+    const next = nextPairedHostProbeInterval(probeIntervalRef.current);
+    probeIntervalRef.current = next;
+    setProbeIntervalMs(next);
+  }, []);
 
   const apply = useCallback(
     (next: PairedHostSnapshot) => {
       if (mountedRef.current) {
+        if (next.state === 'connected') resetProbeInterval();
         setSnapshot(next);
-        setClient(store.client());
+        const nextClientScope =
+          next.host && next.host.rhythmUserId === account.user?.id
+            ? [
+                next.host.rhythmUserId,
+                next.host.hostId,
+                next.host.deviceId,
+                next.host.gatewayUrl,
+              ].join(':')
+            : null;
+        if (clientScopeRef.current !== nextClientScope) {
+          clientScopeRef.current = nextClientScope;
+          setClient(store.client());
+        }
       }
       return next;
     },
-    [store],
+    [account.user?.id, resetProbeInterval, store],
   );
+
+  const runBoundedRefresh = useCallback(() => {
+    const current = store.snapshot();
+    if (!current.host) return Promise.resolve(current);
+    if (refreshInFlightRef.current) return refreshInFlightRef.current;
+    const abortController = new AbortController();
+    const timeout = setTimeout(
+      () => abortController.abort(),
+      PAIRED_HOST_PROBE_TIMEOUT_MS,
+    );
+    let pending: Promise<PairedHostSnapshot>;
+    pending = store.refresh(abortController.signal)
+      .then(apply)
+      .finally(() => {
+        clearTimeout(timeout);
+        if (refreshInFlightRef.current === pending) {
+          refreshInFlightRef.current = null;
+        }
+      });
+    refreshInFlightRef.current = pending;
+    return pending;
+  }, [apply, store]);
 
   useEffect(() => {
     mountedRef.current = true;
+    clientScopeRef.current = null;
     setClient(null);
     store.setAccountUserId(account.user?.id ?? null);
-    void store.restore().then(apply);
+    const abortController = new AbortController();
+    const timeout = setTimeout(
+      () => abortController.abort(),
+      PAIRED_HOST_PROBE_TIMEOUT_MS,
+    );
+    void store.restore(abortController.signal)
+      .then(apply)
+      .finally(() => clearTimeout(timeout));
     return () => {
       mountedRef.current = false;
+      abortController.abort();
+      refreshInFlightRef.current = null;
       store.cancelPending();
     };
   }, [account.user?.id, apply, store]);
 
   useEffect(() => {
     const onStateChange = (state: AppStateStatus) => {
-      if (state === 'active') void store.refresh().then(apply);
+      if (state === 'active' && snapshot.host) {
+        resetProbeInterval();
+        void runBoundedRefresh();
+      }
     };
     const subscription = AppState.addEventListener('change', onStateChange);
     return () => subscription.remove();
-  }, [apply, store]);
+  }, [resetProbeInterval, runBoundedRefresh, snapshot.host]);
+
+  useEffect(() => {
+    if (
+      !snapshot.host ||
+      !['connected', 'offline', 'tailscaleUnavailable'].includes(snapshot.state)
+    ) {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      const backoffApplies =
+        snapshot.state === 'offline' ||
+        snapshot.state === 'tailscaleUnavailable';
+      void runBoundedRefresh().then((next) => {
+        if (
+          backoffApplies &&
+          (next.state === 'offline' ||
+            next.state === 'tailscaleUnavailable')
+        ) {
+          backOffProbeInterval();
+        }
+      });
+    }, probeIntervalMs);
+    return () => clearTimeout(timeout);
+  }, [
+    backOffProbeInterval,
+    probeIntervalMs,
+    probeScheduleEpoch,
+    runBoundedRefresh,
+    snapshot.host,
+    snapshot.state,
+  ]);
 
   const pair = useCallback(
     async (payload: string, options: { replaceExisting?: boolean } = {}) => {
@@ -90,6 +209,7 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
         state: 'pairing',
         message: 'Pairing securely with your Mac…',
       });
+      clientScopeRef.current = null;
       setClient(null);
       try {
         return apply(
@@ -112,8 +232,11 @@ export function PairedHostProvider({ children }: PropsWithChildren) {
   );
 
   const refresh = useCallback(
-    async () => apply(await store.refresh()),
-    [apply, store],
+    async () => {
+      resetProbeInterval();
+      return runBoundedRefresh();
+    },
+    [resetProbeInterval, runBoundedRefresh],
   );
   const revoke = useCallback(
     async () => {

@@ -23,6 +23,20 @@ export interface AgentMemory {
   ownerUserId: number | null;
   createdAt: string;
   updatedAt: string;
+  lifecycleState?: 'active' | 'stale' | 'deprecated';
+  unverifiable?: boolean;
+}
+
+export interface AgentMemoryChange {
+  id: string;
+  memoryId: string;
+  memorySourceId: string;
+  action: 'verified' | 'deprecated' | 'rollback';
+  actor: string;
+  changedAt: string;
+  priorState: Record<string, unknown>;
+  rollbackTarget: string | null;
+  sourceContext: Record<string, unknown>;
 }
 
 export interface CreateAgentMemoryInput {
@@ -45,6 +59,11 @@ export interface MemorySearchOptions {
 }
 
 function rowToModel(row: Record<string, unknown>): AgentMemory {
+  const status = (row.status as MemoryStatus) ?? 'stable';
+  const staleAfter = (row.stale_after as string | null) ?? null;
+  const verifiedJson = (row.verified_json as string) ?? '[]';
+  const sourcesJson = (row.sources_json as string) ?? '[]';
+  const today = new Date().toISOString().slice(0, 10);
   return {
     id: row.id as string,
     kind: (row.kind as string) ?? 'fact',
@@ -52,12 +71,16 @@ function rowToModel(row: Record<string, unknown>): AgentMemory {
     source: (row.source as string | null) ?? null,
     sourceId: (row.source_id as string | null) ?? null,
     tagsJson: (row.tags_json as string) ?? '[]',
-    status: (row.status as MemoryStatus) ?? 'stable',
-    staleAfter: (row.stale_after as string | null) ?? null,
-    verifiedJson: (row.verified_json as string) ?? '[]',
-    sourcesJson: (row.sources_json as string) ?? '[]',
+    status,
+    staleAfter,
+    verifiedJson,
+    sourcesJson,
     generatedBy: (row.generated_by as string | null) ?? null,
-    generatedAt: (row.generated_at as string | null) ?? null,
+    generatedAt: row.generated_at == null
+      ? null
+      : typeof row.generated_at === 'string'
+        ? row.generated_at
+        : (row.generated_at as Date).toISOString(),
     trustTier: (row.trust_tier as MemoryTrustTier) ?? 'unverified',
     ownerUserId: (row.owner_user_id as number | null) ?? null,
     createdAt:
@@ -68,10 +91,130 @@ function rowToModel(row: Record<string, unknown>): AgentMemory {
       typeof row.updated_at === 'string'
         ? row.updated_at
         : (row.updated_at as Date).toISOString(),
+    lifecycleState: status === 'deprecated'
+      ? 'deprecated'
+      : staleAfter !== null && staleAfter <= today
+        ? 'stale'
+        : 'active',
+    unverifiable: verifiedJson === '[]' && sourcesJson === '[]',
+  };
+}
+
+function changeRowToModel(row: Record<string, unknown>): AgentMemoryChange {
+  return {
+    id: row.id as string,
+    memoryId: row.memory_id as string,
+    memorySourceId: row.memory_source_id as string,
+    action: row.action as AgentMemoryChange['action'],
+    actor: row.actor as string,
+    changedAt: typeof row.changed_at === 'string'
+      ? row.changed_at
+      : (row.changed_at as Date).toISOString(),
+    priorState: JSON.parse(row.prior_state_json as string) as Record<string, unknown>,
+    rollbackTarget: (row.rollback_target as string | null) ?? null,
+    sourceContext: JSON.parse(
+      (row.source_context_json as string | null) ?? '{}',
+    ) as Record<string, unknown>,
   };
 }
 
 export class AgentMemoryRepository {
+  async findLatestChangeBySourceIdAsync(
+    memorySourceId: string,
+  ): Promise<AgentMemoryChange | null> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `SELECT * FROM agent_memory_changes
+         WHERE memory_source_id = $1
+         ORDER BY changed_at DESC, id DESC LIMIT 1`,
+        [memorySourceId],
+      );
+      return result.rows[0] ? changeRowToModel(result.rows[0]) : null;
+    }
+    const row = getDb().prepare(
+      `SELECT * FROM agent_memory_changes
+       WHERE memory_source_id = ?
+       ORDER BY changed_at DESC, id DESC LIMIT 1`,
+    ).get(memorySourceId) as Record<string, unknown> | undefined;
+    return row ? changeRowToModel(row) : null;
+  }
+
+  async appendChangeAsync(input: {
+    memoryId: string;
+    memorySourceId: string;
+    action: AgentMemoryChange['action'];
+    actor: string;
+    changedAt: string;
+    priorState: Record<string, unknown>;
+    sourceContext: Record<string, unknown>;
+  }): Promise<AgentMemoryChange> {
+    const id = randomUUID();
+    const priorStateJson = JSON.stringify(input.priorState);
+    const sourceContextJson = JSON.stringify(input.sourceContext);
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `INSERT INTO agent_memory_changes
+           (id, memory_id, memory_source_id, action, actor, changed_at,
+            prior_state_json, rollback_target, source_context_json)
+         SELECT $1,$2,$3,$4,$5,$6,$7,
+                (
+                  SELECT previous.id
+                    FROM agent_memory_changes previous
+                   WHERE previous.memory_source_id = $3
+                   ORDER BY previous.changed_at DESC, previous.id DESC
+                   LIMIT 1
+                ),
+                $8
+         RETURNING *`,
+        [
+          id, input.memoryId, input.memorySourceId, input.action, input.actor,
+          input.changedAt, priorStateJson, sourceContextJson,
+        ],
+      );
+      return changeRowToModel(result.rows[0]);
+    }
+    getDb().prepare(
+      `INSERT INTO agent_memory_changes
+         (id, memory_id, memory_source_id, action, actor, changed_at,
+          prior_state_json, rollback_target, source_context_json)
+       SELECT ?,?,?,?,?,?,?,
+              (
+                SELECT previous.id
+                  FROM agent_memory_changes previous
+                 WHERE previous.memory_source_id = ?
+                 ORDER BY previous.changed_at DESC, previous.id DESC
+                 LIMIT 1
+              ),
+              ?`,
+    ).run(
+      id, input.memoryId, input.memorySourceId, input.action, input.actor,
+      input.changedAt, priorStateJson, input.memorySourceId, sourceContextJson,
+    );
+    const row = getDb().prepare(
+      `SELECT * FROM agent_memory_changes WHERE id = ?`,
+    ).get(id) as Record<string, unknown>;
+    return changeRowToModel(row);
+  }
+
+  async listChangesAsync(memoryId: string): Promise<AgentMemoryChange[]> {
+    const memory = await this.findByIdAsync(memoryId);
+    const sourceId = memory?.sourceId ?? '';
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query(
+        `SELECT * FROM agent_memory_changes
+         WHERE memory_id = $1 OR memory_source_id = $2
+         ORDER BY changed_at ASC, id ASC`,
+        [memoryId, sourceId],
+      );
+      return result.rows.map(changeRowToModel);
+    }
+    const rows = getDb().prepare(
+      `SELECT * FROM agent_memory_changes
+       WHERE memory_id = ? OR memory_source_id = ?
+       ORDER BY changed_at ASC, id ASC`,
+    ).all(memoryId, sourceId) as Record<string, unknown>[];
+    return rows.map(changeRowToModel);
+  }
   async createAsync(input: CreateAgentMemoryInput): Promise<AgentMemory> {
     const id = randomUUID();
     const now = new Date().toISOString();
@@ -81,7 +224,10 @@ export class AgentMemoryRepository {
         `INSERT INTO agent_memory
            (id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-         RETURNING id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at`,
+         RETURNING id, kind, content, source, source_id, tags_json,
+                   status, stale_after, verified_json, sources_json,
+                   generated_by, generated_at, trust_tier,
+                   owner_user_id, created_at, updated_at`,
         [
           id, input.kind ?? 'fact', input.content,
           input.source ?? null, input.sourceId ?? null,
@@ -119,7 +265,11 @@ export class AgentMemoryRepository {
   async findByIdAsync(id: string): Promise<AgentMemory | null> {
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(
-        `SELECT id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at FROM agent_memory WHERE id = $1`,
+        `SELECT id, kind, content, source, source_id, tags_json,
+                status, stale_after, verified_json, sources_json,
+                generated_by, generated_at, trust_tier,
+                owner_user_id, created_at, updated_at
+         FROM agent_memory WHERE id = $1`,
         [id],
       );
       return r.rows.length > 0 ? rowToModel(r.rows[0]) : null;
@@ -142,14 +292,28 @@ export class AgentMemoryRepository {
   ): Promise<AgentMemory[]> {
     if (env.dbClient === 'postgres') {
       const params: unknown[] = [query];
-      const ownerFilter = ownerUserId != null ? `AND owner_user_id = $2` : '';
-      if (ownerUserId != null) params.push(ownerUserId);
+      const filters: string[] = [];
+      if (ownerUserId != null) {
+        params.push(ownerUserId);
+        filters.push(`owner_user_id = $${params.length}`);
+      }
+      if (options.activeOnly) {
+        filters.push(`status != 'deprecated'`);
+        params.push(options.today ?? new Date().toISOString().slice(0, 10));
+        filters.push(`(stale_after IS NULL OR stale_after > $${params.length})`);
+      }
       params.push(limit);
+      const extraFilters = filters.length > 0
+        ? `AND ${filters.join(' AND ')}`
+        : '';
       const r = await getPostgresPool().query(
-        `SELECT id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at,
+        `SELECT id, kind, content, source, source_id, tags_json,
+                status, stale_after, verified_json, sources_json,
+                generated_by, generated_at, trust_tier,
+                owner_user_id, created_at, updated_at,
                 ts_rank(search_vector, plainto_tsquery('english', $1)) AS rank
          FROM agent_memory
-         WHERE search_vector @@ plainto_tsquery('english', $1) ${ownerFilter}
+         WHERE search_vector @@ plainto_tsquery('english', $1) ${extraFilters}
          ORDER BY rank DESC
          LIMIT $${params.length}`,
         params,
@@ -217,7 +381,10 @@ export class AgentMemoryRepository {
       const ownerFilter = ownerUserId != null ? `AND owner_user_id = $3` : 'AND owner_user_id IS NULL';
       if (ownerUserId != null) params.push(ownerUserId);
       const r = await getPostgresPool().query(
-        `SELECT id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at
+        `SELECT id, kind, content, source, source_id, tags_json,
+                status, stale_after, verified_json, sources_json,
+                generated_by, generated_at, trust_tier,
+                owner_user_id, created_at, updated_at
          FROM agent_memory WHERE source = $1 AND source_id = ANY($2::text[]) ${ownerFilter}`,
         params,
       );
@@ -247,7 +414,10 @@ export class AgentMemoryRepository {
       params.push(limit);
       const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
       const r = await getPostgresPool().query(
-        `SELECT id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at
+        `SELECT id, kind, content, source, source_id, tags_json,
+                status, stale_after, verified_json, sources_json,
+                generated_by, generated_at, trust_tier,
+                owner_user_id, created_at, updated_at
          FROM agent_memory ${where} ORDER BY created_at DESC LIMIT $${params.length}`,
         params,
       );
@@ -306,20 +476,35 @@ export class AgentMemoryRepository {
       if (existing.rows.length > 0) {
         await getPostgresPool().query(
           `UPDATE agent_memory
-             SET kind = $1, content = $2, tags_json = $3, updated_at = $4
-           WHERE id = $5`,
-          [input.kind, input.content, input.tagsJson, now, existing.rows[0].id],
+             SET kind = $1, content = $2, tags_json = $3,
+                 status = $4, stale_after = $5, verified_json = $6,
+                 sources_json = $7, generated_by = $8, generated_at = $9,
+                 trust_tier = $10, updated_at = $11
+           WHERE id = $12`,
+          [
+            input.kind, input.content, input.tagsJson,
+            input.status ?? 'stable', input.staleAfter ?? null,
+            input.verifiedJson ?? '[]', input.sourcesJson ?? '[]',
+            input.generatedBy ?? null, input.generatedAt ?? null,
+            input.trustTier ?? 'unverified', now, existing.rows[0].id,
+          ],
         );
         return false;
       }
       const id = randomUUID();
       await getPostgresPool().query(
         `INSERT INTO agent_memory
-           (id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+           (id, kind, content, source, source_id, tags_json,
+            status, stale_after, verified_json, sources_json,
+            generated_by, generated_at, trust_tier,
+            owner_user_id, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
         [
           id, input.kind, input.content, input.source, input.sourceId,
-          input.tagsJson, input.ownerUserId ?? null, now, now,
+          input.tagsJson, input.status ?? 'stable', input.staleAfter ?? null,
+          input.verifiedJson ?? '[]', input.sourcesJson ?? '[]',
+          input.generatedBy ?? null, input.generatedAt ?? null,
+          input.trustTier ?? 'unverified', input.ownerUserId ?? null, now, now,
         ],
       );
       return true;

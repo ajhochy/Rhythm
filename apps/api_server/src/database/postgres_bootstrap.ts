@@ -578,6 +578,60 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       );
   `);
 
+  // #1178 — production-owned transcript sharing is mounted in the cloud role,
+  // so its schema must be installed before the agent-execution early return.
+  // source_session_id remains provenance rather than an FK. The audit table
+  // likewise deliberately has no share FK so history survives share deletion.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS shared_transcripts (
+      id TEXT PRIMARY KEY,
+      snapshot_json JSONB NOT NULL,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      recipient_user_ids_json JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked_at TIMESTAMPTZ,
+      source_session_id TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_shared_transcripts_owner_created
+      ON shared_transcripts(owner_user_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS share_audit_log (
+      id TEXT PRIMARY KEY,
+      share_id TEXT NOT NULL,
+      actor_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      action TEXT NOT NULL CHECK (action IN ('share', 'view', 'revoke', 'delete')),
+      timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_share_audit_log_share_timestamp
+      ON share_audit_log(share_id, timestamp);
+    ALTER TABLE share_audit_log
+      DROP CONSTRAINT IF EXISTS share_audit_log_share_id_fkey;
+
+    CREATE OR REPLACE FUNCTION reject_shared_transcript_snapshot_update()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      RAISE EXCEPTION 'shared transcript snapshots are immutable';
+    END;
+    $$;
+    DROP TRIGGER IF EXISTS shared_transcripts_snapshot_immutable
+      ON shared_transcripts;
+    CREATE TRIGGER shared_transcripts_snapshot_immutable
+      BEFORE UPDATE OF snapshot_json ON shared_transcripts
+      FOR EACH ROW EXECUTE FUNCTION reject_shared_transcript_snapshot_update();
+
+    CREATE OR REPLACE FUNCTION reject_share_audit_delete()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      RAISE EXCEPTION 'share audit history is append-only';
+    END;
+    $$;
+    DROP TRIGGER IF EXISTS share_audit_log_no_delete ON share_audit_log;
+    CREATE TRIGGER share_audit_log_no_delete
+      BEFORE DELETE ON share_audit_log
+      FOR EACH ROW EXECUTE FUNCTION reject_share_audit_delete();
+  `);
+
   // ── Agent-EXECUTION tables (#755) ──────────────────────────────────────────
   // Created ONLY when the deployment role runs the agent runtime
   // (RHYTHM_ROLE=all|local; the DEFAULT preserves today's behavior). The
@@ -591,15 +645,95 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     return;
   }
 
-  // ── agent_memory — REMOVED (#807, memory epic #801) ───────────────────────
-  // Agent memory is now LOCAL-ONLY: the source of truth is the Obsidian
-  // Memory-Vault and the searchable store is the disposable SQLite index
-  // (migrations.ts + agent_memory_repository.ts), served by the local agent
-  // server on :4001. There is no cloud/prod agent_memory store anymore — the
-  // Postgres table + its FTS/owner indexes that used to be created here have
-  // been removed. Start-fresh: no data migration (prod held nothing durable).
-  // Do NOT re-add a Postgres agent_memory table; memory must not be re-coupled
-  // to the production base. See docs/ai/decisions/2026-06-28-remove-prod-agent-memory-store.md.
+  // #1219 — keep the agent-memory projection schema compatible anywhere the
+  // agent-execution role is enabled. The vault remains canonical; these rows
+  // are still a derived query index plus an append-only lifecycle ledger.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_memory (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL DEFAULT 'fact',
+      content TEXT NOT NULL,
+      source TEXT,
+      source_id TEXT,
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'stable',
+      stale_after TEXT,
+      verified_json TEXT NOT NULL DEFAULT '[]',
+      sources_json TEXT NOT NULL DEFAULT '[]',
+      generated_by TEXT,
+      generated_at TIMESTAMPTZ,
+      trust_tier TEXT NOT NULL DEFAULT 'unverified',
+      search_vector TSVECTOR GENERATED ALWAYS AS (
+        to_tsvector('english', content)
+      ) STORED,
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'stable'`);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS stale_after TEXT`);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS verified_json TEXT NOT NULL DEFAULT '[]'`);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS sources_json TEXT NOT NULL DEFAULT '[]'`);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS generated_by TEXT`);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS generated_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS trust_tier TEXT NOT NULL DEFAULT 'unverified'`);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', content)) STORED`);
+  await pool.query(`UPDATE agent_memory SET verified_json = '[]' WHERE verified_json IS NULL`);
+  await pool.query(`UPDATE agent_memory SET sources_json = '[]' WHERE sources_json IS NULL`);
+  await pool.query(`UPDATE agent_memory SET trust_tier = 'unverified' WHERE trust_tier IS NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_memory_owner ON agent_memory(owner_user_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_memory_kind ON agent_memory(kind)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_memory_active ON agent_memory(status, stale_after)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_memory_search ON agent_memory USING GIN(search_vector)`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_memory_changes (
+      id TEXT PRIMARY KEY,
+      memory_id TEXT NOT NULL,
+      memory_source_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      changed_at TIMESTAMPTZ NOT NULL,
+      prior_state_json TEXT NOT NULL,
+      rollback_target TEXT,
+      source_context_json TEXT NOT NULL DEFAULT '{}'
+    )
+  `);
+  await pool.query(`ALTER TABLE agent_memory_changes ADD COLUMN IF NOT EXISTS memory_source_id TEXT`);
+  await pool.query(`
+    UPDATE agent_memory_changes changes
+       SET memory_source_id = memory.source_id
+      FROM agent_memory memory
+     WHERE changes.memory_source_id IS NULL
+       AND memory.id = changes.memory_id
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_memory_changes_memory ON agent_memory_changes(memory_id, changed_at)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_memory_changes_source ON agent_memory_changes(memory_source_id, changed_at)`);
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION guard_agent_memory_changes()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF TG_OP <> 'INSERT' THEN
+        RAISE EXCEPTION 'agent_memory_changes is append-only';
+      END IF;
+      IF NEW.rollback_target IS NOT NULL AND NOT EXISTS (
+        SELECT 1
+          FROM agent_memory_changes target
+         WHERE target.id = NEW.rollback_target
+           AND target.memory_source_id = NEW.memory_source_id
+      ) THEN
+        RAISE EXCEPTION
+          'rollback_target must reference the same memory_source_id';
+      END IF;
+      RETURN NEW;
+    END;
+    $$;
+    DROP TRIGGER IF EXISTS agent_memory_changes_append_only
+      ON agent_memory_changes;
+    CREATE TRIGGER agent_memory_changes_append_only
+      BEFORE INSERT OR UPDATE OR DELETE ON agent_memory_changes
+      FOR EACH ROW EXECUTE FUNCTION guard_agent_memory_changes();
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_webhook_endpoints (

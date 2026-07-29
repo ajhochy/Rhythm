@@ -1,0 +1,171 @@
+{
+  "issue": 1173,
+  "criteria": {
+    "a": "production-owned Email/Gallery usable when Mac offline",
+    "b": "paired-Mac tools show secret-free read-only cache offline",
+    "c": "webhook secrets one-time display only, never persisted",
+    "d": "profile scope preserves null-vs-empty semantics and confirms projection before refresh",
+    "e": "destructive/run-now/high-risk actions require confirmation",
+    "f": "screen handles loading, empty, offline, forbidden, expired-auth, server-error states"
+  },
+  "evidence": {
+    "issue-1173-c1": {
+      "test": "apps/mobile/tests/contract/issue-1173-completeness-audit.test.mjs :: issue-1173-c1",
+      "code": [
+        "apps/mobile/providers/services/rhythm-tools-service.ts :: TOOL_SCREEN_MANIFEST, listEmailSignals, listGalleryDesigns",
+        "apps/mobile/providers/rhythm-tools-provider.tsx :: availabilityFor"
+      ]
+    },
+    "issue-1173-c2": {
+      "test": "apps/mobile/tests/contract/issue-1173-completeness-audit.test.mjs :: issue-1173-c2",
+      "code": [
+        "apps/mobile/providers/services/rhythm-tools-service.ts :: CACHE_FIELDS, sanitizeToolCache",
+        "apps/mobile/providers/rhythm-tools-provider.tsx :: refresh, perform"
+      ]
+    },
+    "issue-1173-c3": {
+      "test": "apps/mobile/tests/contract/issue-1173-completeness-audit.test.mjs :: issue-1173-c3",
+      "code": [
+        "apps/mobile/providers/services/rhythm-tools-service.ts :: CACHE_FIELDS.webhooks, sanitizeToolCache",
+        "apps/mobile/app/tools/[tool].tsx :: oneTimeSecret"
+      ]
+    },
+    "issue-1173-c4": {
+      "test": "apps/mobile/tests/contract/issue-1173-completeness-audit.test.mjs :: issue-1173-c4",
+      "code": [
+        "apps/mobile/app/tools/[tool].tsx :: profileInput, saveProfile",
+        "apps/mobile/providers/services/rhythm-tools-service.ts :: updateProfile",
+        "apps/mobile/providers/rhythm-tools-provider.tsx :: perform"
+      ]
+    },
+    "issue-1173-c5": {
+      "test": "apps/mobile/tests/contract/issue-1173-completeness-audit.test.mjs :: issue-1173-c5",
+      "code": [
+        "apps/mobile/app/tools/[tool].tsx :: confirmAction, renderActions, high-risk proposal action"
+      ]
+    },
+    "issue-1173-c6": {
+      "test": "apps/mobile/tests/contract/issue-1173-completeness-audit.test.mjs :: issue-1173-c6",
+      "code": [
+        "apps/mobile/providers/services/rhythm-tools-service.ts :: TOOL_RESILIENT_STATES, TOOL_SCREEN_MANIFEST",
+        "apps/mobile/providers/rhythm-tools-provider.tsx :: refresh",
+        "apps/mobile/app/tools/[tool].tsx :: shared state rendering",
+        "apps/mobile/components/tools/tool-screen-state.tsx :: ToolScreenState"
+      ]
+    }
+  },
+  "matrix": {
+    "brain": {
+      "a": "n/a",
+      "b": "covered-by issue-1173-c2",
+      "c": "n/a",
+      "d": "n/a",
+      "e": "covered-by issue-1173-c5",
+      "f": "covered-by issue-1173-c6"
+    },
+    "research": {
+      "a": "n/a",
+      "b": "covered-by issue-1173-c2",
+      "c": "n/a",
+      "d": "n/a",
+      "e": "covered-by issue-1173-c5",
+      "f": "covered-by issue-1173-c6"
+    },
+    "schedules": {
+      "a": "n/a",
+      "b": "covered-by issue-1173-c2",
+      "c": "n/a",
+      "d": "n/a",
+      "e": "covered-by issue-1173-c5",
+      "f": "covered-by issue-1173-c6"
+    },
+    "webhooks": {
+      "a": "n/a",
+      "b": "covered-by issue-1173-c2",
+      "c": "covered-by issue-1173-c3",
+      "d": "n/a",
+      "e": "covered-by issue-1173-c5",
+      "f": "covered-by issue-1173-c6"
+    },
+    "profiles": {
+      "a": "n/a",
+      "b": "covered-by issue-1173-c2",
+      "c": "n/a",
+      "d": "covered-by issue-1173-c4",
+      "e": "covered-by issue-1173-c5",
+      "f": "covered-by issue-1173-c6"
+    },
+    "cookbook": {
+      "a": "n/a",
+      "b": "covered-by issue-1173-c2",
+      "c": "n/a",
+      "d": "n/a",
+      "e": "covered-by issue-1173-c5",
+      "f": "covered-by issue-1173-c6"
+    },
+    "review": {
+      "a": "n/a",
+      "b": "covered-by issue-1173-c2",
+      "c": "n/a",
+      "d": "n/a",
+      "e": "covered-by issue-1173-c5",
+      "f": "covered-by issue-1173-c6"
+    },
+    "report-card": {
+      "a": "n/a",
+      "b": "covered-by issue-1173-c2",
+      "c": "n/a",
+      "d": "n/a",
+      "e": "n/a",
+      "f": "covered-by issue-1173-c6"
+    },
+    "email": {
+      "a": "covered-by issue-1173-c1",
+      "b": "n/a",
+      "c": "n/a",
+      "d": "n/a",
+      "e": "n/a",
+      "f": "covered-by issue-1173-c6"
+    },
+    "gallery": {
+      "a": "covered-by issue-1173-c1",
+      "b": "n/a",
+      "c": "n/a",
+      "d": "n/a",
+      "e": "n/a",
+      "f": "covered-by issue-1173-c6"
+    },
+    "skills": {
+      "a": "n/a",
+      "b": "covered-by issue-1173-c2",
+      "c": "n/a",
+      "d": "n/a",
+      "e": "covered-by issue-1173-c5",
+      "f": "covered-by issue-1173-c6"
+    },
+    "playbooks": {
+      "a": "n/a",
+      "b": "covered-by issue-1173-c2",
+      "c": "n/a",
+      "d": "n/a",
+      "e": "covered-by issue-1173-c5",
+      "f": "covered-by issue-1173-c6"
+    },
+    "mcp": {
+      "a": "n/a",
+      "b": "covered-by issue-1173-c2",
+      "c": "n/a",
+      "d": "n/a",
+      "e": "covered-by issue-1173-c5",
+      "f": "covered-by issue-1173-c6"
+    },
+    "models": {
+      "a": "n/a",
+      "b": "covered-by issue-1173-c2",
+      "c": "n/a",
+      "d": "n/a",
+      "e": "covered-by issue-1173-c5",
+      "f": "covered-by issue-1173-c6"
+    }
+  }
+}

@@ -217,11 +217,11 @@ void main() {
       await tester.pump();
       expect(find.byType(QrImageView), findsOneWidget);
       final payload = jsonDecode(pairingCode.qrPayload) as Map<String, dynamic>;
-      expect(payload.keys.toSet(), {'gatewayUrl', 'hostId', 'pairingCode'});
+      expect(payload.keys.toSet(), {'gatewayUrl', 'pairingCode'});
       expect(payload['gatewayUrl'], 'https://rhythm-mac.tail1234.ts.net');
-      expect(payload['hostId'], 'host-1');
       expect(payload['pairingCode'], repeated('b'));
       expect(pairingCode.qrPayload, isNot(contains('deviceToken')));
+      expect(pairingCode.qrPayload, isNot(contains('hostId')));
       await disposeDialog(tester);
     },
   );

@@ -1,0 +1,73 @@
+{
+  "issue": 1238,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1238-c1",
+      "text": "Composer supports multiline input and grows upward from the keyboard/safe area.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1238-keyboard-safe-composer.test.mjs",
+      "test_id": "issue-1238-c1: composer is docked below the independently flexible transcript",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1238-c2",
+      "text": "Composer caps at a defined height and becomes internally scrollable for long drafts.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1238-keyboard-safe-composer.test.mjs",
+      "test_id": "issue-1238-c2: multiline input enables internal scrolling at its explicit cap",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1238-c3",
+      "text": "Draft text, caret, send action, and model/agent controls remain reachable with the keyboard shown.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/issue-1238-keyboard-safe-composer.spec.mjs",
+      "test_id": "issue-1238-c3: focused multiline composer keeps authoring controls reachable",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1238-c4",
+      "text": "Users can dismiss the keyboard by interactive drag/tap behavior and an accessible keyboard action.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1238-keyboard-safe-composer.test.mjs",
+      "test_id": "issue-1238-c4: transcript exposes interactive dismissal and composer exposes a labeled action",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1238-c5",
+      "text": "Transcript can scroll to every message and the final line of every assistant response.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/issue-1238-keyboard-safe-composer.spec.mjs",
+      "test_id": "issue-1238-c5: focused composer does not prevent reaching the final assistant line",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1238-c6",
+      "text": "A regression test distinguishes transport/storage truncation from view clipping and proves the full server transcript is rendered.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/issue-1238-keyboard-safe-composer.spec.mjs",
+      "test_id": "issue-1238-c6: full fake-server transcript tail is rendered and reachable",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1238-c7",
+      "text": "Background/foreground and reconnect preserve the complete draft and transcript without duplication or truncation.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/issue-1238-keyboard-safe-composer.spec.mjs",
+      "test_id": "issue-1238-c7: reconnect keeps one complete transcript tail and the draft",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1238-c8",
+      "text": "Physical-iPhone smoke passes with a long multiline prompt and a long streamed response.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires a physical iPhone and the native software keyboard; browser E2E covers the deterministic layout and focus contract."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-1238-c8"
+  ]
+}

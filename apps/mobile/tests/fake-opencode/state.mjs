@@ -46,6 +46,8 @@ export function createState(scenario) {
     mobileNewRevokeFailure: false,
     mobileCredentialWriteFailure: false,
     mobileCredentialCleanupFailure: false,
+    mobileReachability: 'online',
+    includeOptimizerActivity: false,
     ptys: [],
     worktrees: [],
     mcpStatuses: { filesystem: { status: 'connected' } },

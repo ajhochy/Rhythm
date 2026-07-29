@@ -27,6 +27,7 @@ import {
   buildDeferredToolCatalog,
   formatDeferredToolCatalog,
   isDeferredMcpToolAllowed,
+  isMcpToolDeferred,
   MCP_DISPATCH_TOOL_ID,
 } from "./mcp_deferred_tools"
 import { LSP } from "@/lsp/lsp"
@@ -749,9 +750,19 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       // false/absent (default): unchanged eager behavior — one schema injected
       // per allowlisted tool, exactly as before this patch (back-compat).
       const deferredMcp = input.session.mcpAllowlist?.deferred === true
+      const deferredKeys = new Set(
+        [...allowedKeys].filter((key) =>
+          isMcpToolDeferred(key, keyToServer, input.session.mcpAllowlist),
+        ),
+      )
+      const eagerKeys = new Set([...allowedKeys].filter((key) => !deferredKeys.has(key)))
 
-      if (deferredMcp) {
-        const catalog = buildDeferredToolCatalog(allowedKeys, keyToServer, deferredDescriptions(mcpToolsAll))
+      // Full-deferred sessions keep their dispatcher even with an empty
+      // catalog (contract: dispatch of any name is rejected with the
+      // "No MCP tools" message); per-server deferral only materializes the
+      // dispatcher when it actually has entries.
+      if (deferredMcp || deferredKeys.size > 0) {
+        const catalog = buildDeferredToolCatalog(deferredKeys, keyToServer, deferredDescriptions(mcpToolsAll))
         tools[MCP_DISPATCH_TOOL_ID] = tool({
           description: MCP_DISPATCH_DESCRIPTION + "\n\n" + formatDeferredToolCatalog(catalog),
           inputSchema: jsonSchema({
@@ -781,12 +792,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             // turn; this must fail closed exactly like the eager-mode gate
             // (filterMcpToolsByAllowlist) so deferred mode is never MORE
             // permissive than eager mode for the same allowlist.
-            if (!isDeferredMcpToolAllowed(name, keyToServer, input.session.mcpAllowlist)) {
+            if (
+              !deferredKeys.has(name) ||
+              !isDeferredMcpToolAllowed(name, keyToServer, input.session.mcpAllowlist)
+            ) {
               throw new Error(`MCP tool "${name}" is not permitted for this session's allowlist.`)
             }
             const rawItem = mcpToolsAll[name]
             if (!rawItem) {
-              throw new Error(`MCP tool "${name}" not found. Available tools: ${[...allowedKeys].join(", ") || "none"}`)
+              throw new Error(`MCP tool "${name}" not found. Available deferred tools: ${[...deferredKeys].join(", ") || "none"}`)
             }
             const wrapped = await run.promise(wrapMcpTool(name, rawItem))
             if (!wrapped?.execute) {
@@ -802,13 +816,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             } as ToolExecutionOptions)
           },
         })
-      } else {
-        for (const [key, item] of Object.entries(mcpToolsAll)) {
-          if (!allowedKeys.has(key)) continue
-          const wrapped = yield* wrapMcpTool(key, item)
-          if (!wrapped) continue
-          tools[key] = wrapped
-        }
+      }
+      for (const [key, item] of Object.entries(mcpToolsAll)) {
+        if (!eagerKeys.has(key)) continue
+        const wrapped = yield* wrapMcpTool(key, item)
+        if (!wrapped) continue
+        tools[key] = wrapped
       }
 
       // Rhythm carried patch (mcp-scope): measurement instrument for the per-session
@@ -823,8 +836,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       log.debug("resolveTools complete", {
         resolveToolsCount: Object.keys(tools).length,
         allowlistActive: !!input.session.mcpAllowlist,
-        deferredMcpActive: deferredMcp,
-        deferredMcpCatalogSize: deferredMcp ? allowedKeys.size : undefined,
+        deferredMcpActive: deferredMcp || deferredKeys.size > 0,
+        deferredMcpCatalogSize: deferredKeys.size > 0 ? deferredKeys.size : undefined,
       })
 
       return tools

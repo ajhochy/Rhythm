@@ -1,0 +1,34 @@
+{
+  "issue": 1238,
+  "observed_at": "2026-07-28",
+  "keyboard_avoidance": {
+    "owner": "ChatView",
+    "file": "apps/mobile/components/chat/chat-view.tsx",
+    "wiring": "One KeyboardAvoidingView wraps ChatHeader, tabs/session chrome, ChatContent transcript, send-error card, and ChatComposer.",
+    "behavior": "padding on iOS; height on other platforms",
+    "offset_math": "Platform.OS === 'ios' ? insets.top : 0",
+    "problem": "The iOS top safe-area inset does not represent the rendered Appbar/header height, so including the header in the avoided region shifts and clips the independently useful transcript/composer area."
+  },
+  "composer": {
+    "file": "apps/mobile/components/chat/chat-composer.tsx",
+    "multiline": true,
+    "minimum_height_px": 24,
+    "maximum_height_px": 110,
+    "height_update": "onContentSizeChange clamps ceil(contentSize.height) between 24 and 110",
+    "scroll_enabled": false,
+    "problem": "Once the controlled height reaches 110px, scrolling remains disabled, making longer draft content and the caret unreachable."
+  },
+  "transcript": {
+    "file": "apps/mobile/components/chat/chat-content.tsx",
+    "implementation": "FlashList with flex: 1 and maintainVisibleContentPosition",
+    "keyboard_dismiss_mode": "not set",
+    "keyboard_taps": "handled",
+    "obvious_dismiss_control": "none"
+  },
+  "existing_tests": {
+    "structural_keyboard_contract": "none found",
+    "multiline_cap_and_internal_scroll_e2e": "none found",
+    "focused_transcript_bottom_reachability_e2e": "none found",
+    "accessible_keyboard_dismiss_e2e": "none found"
+  }
+}

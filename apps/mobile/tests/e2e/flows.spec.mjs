@@ -128,7 +128,9 @@ test('permission requests unblock the agent flow', async ({ page, request }) => 
   await sendPrompt(page, 'Trigger a permission request');
 
   await expect(page.getByText('Permission request', { exact: true })).toBeVisible({ timeout: 15_000 });
-  await page.getByText('Allow once').click();
+  const allowOnceButton = page.getByRole('button', { name: 'Allow once', exact: true });
+  await expect(allowOnceButton).toBeEnabled();
+  await allowOnceButton.click();
   await expect(page.getByText(/permission resolved/).first()).toBeVisible({ timeout: 20_000 });
 });
 

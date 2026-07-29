@@ -1,0 +1,70 @@
+{
+  "issue": 1209,
+  "status": "verified",
+  "decisions": {
+    "bm25_swap": true,
+    "swap_justification": "Fixed replay improved recall@5 from 0.08333333333333333 to 1 and precision@5 from 0.016666666666666666 to 0.2.",
+    "bm25_threshold": "positive scores at least 0.45 times the best score",
+    "threshold_reconciliation": "Preserved the existing multi-skill product contract. The secondary fixture skill is genuinely relevant and scores approximately 0.4828 times the primary; the former 0.5 cutoff was rejected.",
+    "top_n": 5,
+    "fat_server_threshold_tools": 30,
+    "authorization_boundary_changed": false,
+    "new_dependencies": []
+  },
+  "criteria": {
+    "issue-1209-c1": {
+      "status": "pass",
+      "test": "issue-1209-c1: checked-in replay exposes measured Jaccard misses"
+    },
+    "issue-1209-c2": {
+      "status": "pass",
+      "test": "issue-1209-c2: production retrieval uses corpus-aware BM25"
+    },
+    "issue-1209-c3": {
+      "status": "pass",
+      "test": "issue-1209-c3: replay improves recall without top-5 precision regression"
+    },
+    "issue-1209-c4": {
+      "status": "pass",
+      "test": "issue-1209-c4: BM25 scorer is deterministic and authz stays fail-closed"
+    },
+    "issue-1209-c5": {
+      "status": "pass",
+      "test": "issue-1209-c5: non-google scoped allowlist marks only fat servers deferred"
+    },
+    "issue-1209-c6": {
+      "status": "pass",
+      "test": "issue-1209-c6: selective deferral estimate reports eager and deferred totals"
+    },
+    "issue-1209-c7": {
+      "status": "pass",
+      "test": "issue-1209-c7: scoped non-google PATCH preserves estimator-selected deferredServers"
+    },
+    "issue-1209-c8": {
+      "status": "pass",
+      "test": "issue-1209-c8: selective dispatcher refuses a tool outside the allowlist"
+    },
+    "issue-1209-c9": {
+      "status": "pass",
+      "test": "#952 geminiUnscopedDeferredAllowlist"
+    },
+    "issue-1209-c10": {
+      "status": "pass",
+      "test": "issue-1209-c10: real engine preserves selective deferred scope across PATCH"
+    }
+  },
+  "checks": {
+    "orchestrator_reported_baseline": "api build exit 0; fork build --single exit 0; 3636 tests passed",
+    "real_regression": "skill_injection_runner multiple matching skills: secondary uses stayed 0 under relative threshold 0.5",
+    "repair": "relative threshold re-derived to 0.45; explicit retrieval regression test added",
+    "suite_run_after_repair": "not run by request; orchestrator owns verification",
+    "commits": "not created by request; orchestrator owns commits"
+  },
+  "orchestratorGates": {
+    "red": "issue_1209_contract 6 fail pre-implementation (Codex-captured) + fork mcp_deferred_tools fails with src stashed",
+    "green": "contract+retrieval+injection 30/30; fork mcp_deferred_tools 12/12",
+    "fullSuite": "3639 passed / 106 skipped / 1 failed (pre-existing sandbox_foreground load flake, fixed by #1240 on mega tip)",
+    "builds": "api tsc clean; fork bun build --single clean",
+    "thresholdFix": "relative BM25 cutoff 0.5 -> 0.45 after skill_injection_runner regression (measured secondary/primary ratio 0.4828)"
+  }
+}

@@ -306,9 +306,12 @@ describe('#755 postgres_bootstrap.ts — agent-execution DDL is role-gated', () 
   it('returns early when agent execution is disabled, before the gated agent-execution DDL', () => {
     const guardIdx = source.indexOf('if (!env.agentExecutionEnabled)');
     expect(guardIdx, 'early-return guard must exist').toBeGreaterThan(-1);
-    // The guard must come before the agent-execution table creates. (#807 removed
-    // the Postgres agent_memory table — agent_webhook_endpoints is now the first
-    // gated table; memory is local-vault/SQLite-only.)
+    // The guard must come before every agent-execution table create.
+    const memoryIdx = source.indexOf(
+      'CREATE TABLE IF NOT EXISTS agent_memory',
+    );
+    expect(memoryIdx, 'agent_memory create must exist').toBeGreaterThan(-1);
+    expect(guardIdx).toBeLessThan(memoryIdx);
     const webhookIdx = source.indexOf(
       'CREATE TABLE IF NOT EXISTS agent_webhook_endpoints',
     );
@@ -319,21 +322,19 @@ describe('#755 postgres_bootstrap.ts — agent-execution DDL is role-gated', () 
     ).toBeLessThan(webhookIdx);
   });
 
-  it('#807: prod bootstrap no longer creates an agent_memory table or its indexes', () => {
-    // Memory is local-only (Obsidian Memory-Vault + disposable SQLite index on
-    // :4001). The Postgres store was removed; prod must not re-create it.
+  it('#1219: role-gated Postgres projection matches the local memory schema', () => {
     expect(
       source.includes('CREATE TABLE IF NOT EXISTS agent_memory'),
-      'postgres_bootstrap must NOT create a Postgres agent_memory table (#807)',
-    ).toBe(false);
+    ).toBe(true);
     expect(
-      source.includes('idx_agent_memory_fts'),
-      'postgres_bootstrap must NOT create the agent_memory FTS index (#807)',
-    ).toBe(false);
+      source.includes('idx_agent_memory_search'),
+    ).toBe(true);
     expect(
       source.includes('idx_agent_memory_owner'),
-      'postgres_bootstrap must NOT create the agent_memory owner index (#807)',
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      source.includes('CREATE TABLE IF NOT EXISTS agent_memory_changes'),
+    ).toBe(true);
   });
 
   it('prod-owned trigger/scheduler DDL stays BEFORE the guard (created in every role)', () => {

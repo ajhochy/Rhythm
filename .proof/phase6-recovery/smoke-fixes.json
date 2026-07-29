@@ -1,0 +1,17 @@
+[
+  {
+    "finding": "Malformed JSON on general api_server routes returned 500 instead of 400",
+    "fix": "apps/api_server/src/middleware/error_handler.ts now classifies body-parser entity.parse.failed SyntaxErrors and body-parser SyntaxErrors carrying status/statusCode 400 as BAD_REQUEST responses with the standard error envelope.",
+    "test": "apps/api_server/src/__tests__/error_handler_malformed_json.test.ts POSTs malformed JSON to /agent-sessions and asserts status 400, the exact standard error envelope, and no stack field leak."
+  },
+  {
+    "finding": "GET /agent-memory/:id could not resolve the frontmatter id returned by POST /agent-memory",
+    "fix": "apps/api_server/src/services/agentMemoryService.ts adds shared dual-id retrieval using DB row id first and frontmatter remember id second; apps/api_server/src/controllers/agentMemoryController.ts uses it before adding audit history.",
+    "test": "apps/api_server/src/__tests__/memory_update_route.test.ts creates a memory through POST /agent-memory, reuses the returned id in GET /agent-memory/:id, and asserts the created row is returned with status 200."
+  },
+  {
+    "finding": "Live-sandbox documentation omitted mobile gateway port and complete desktop-human approval startup requirements",
+    "fix": "docs/ai/testing-guide.md now documents exporting RHYTHM_MOBILE_GATEWAY_PORT at sandbox startup, exporting approval credentials before startup, the base64-encoded 65-byte uncompressed P-256 public-key format, and a local generation example that does not print generated values.",
+    "test": "docs-only"
+  }
+]

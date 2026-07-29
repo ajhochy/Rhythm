@@ -107,3 +107,16 @@ export function isDeferredMcpToolAllowed(
   if (server !== undefined && mcpAllowlist.servers.includes(server)) return true
   return false
 }
+
+/** Whether an allowlisted key belongs in the dispatcher rather than eager schemas. */
+export function isMcpToolDeferred(
+  name: string,
+  keyToServer: Record<string, string>,
+  mcpAllowlist:
+    | { deferred?: boolean; deferredServers?: string[] }
+    | undefined,
+): boolean {
+  if (mcpAllowlist?.deferred === true) return true
+  const server = keyToServer[name]
+  return server !== undefined && (mcpAllowlist?.deferredServers ?? []).includes(server)
+}

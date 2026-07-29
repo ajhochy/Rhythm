@@ -82,8 +82,15 @@ export default function SettingsScreen() {
     updateChatPreferences,
     updateSettings,
   } = useOpencode();
+  const displayedConnection: typeof connection = pairedHost.host
+    ? {
+        status: pairedHost.state === 'connected' ? 'connected' : 'error',
+        message: pairedHost.message,
+        checkedAt: connection.checkedAt,
+      }
+    : connection;
   const [isConnecting, setIsConnecting] = useState(false);
-  const [expandedSection, setExpandedSection] = useState(() => connection.status === 'connected' ? 'ai' : 'connection');
+  const [expandedSection, setExpandedSection] = useState(() => displayedConnection.status === 'connected' ? 'ai' : 'connection');
   const [selectedProviderId, setSelectedProviderId] = useState<string>();
   const [selectedMethodIndex, setSelectedMethodIndex] = useState(0);
   const [authValues, setAuthValues] = useState<Record<string, string>>({});
@@ -155,6 +162,11 @@ export default function SettingsScreen() {
   async function handleConnect() {
     setIsConnecting(true);
     try {
+      if (pairedHost.host) {
+        const wasReachable = pairedHost.state === 'connected';
+        const reachability = await pairedHost.refresh();
+        if (!wasReachable || reachability.state !== 'connected') return;
+      }
       await connect();
     } finally {
       setIsConnecting(false);
@@ -261,8 +273,8 @@ export default function SettingsScreen() {
   }, []);
 
   useEffect(() => {
-    setExpandedSection(connection.status === 'connected' ? 'ai' : 'connection');
-  }, [connection.status]);
+    setExpandedSection(displayedConnection.status === 'connected' ? 'ai' : 'connection');
+  }, [displayedConnection.status]);
 
   const selectedSpeechVoiceLabel = useMemo(
     () => availableSpeechVoices.find((voice) => voice.id === chatPreferences.speechVoiceId)?.label || 'System default',
@@ -400,9 +412,9 @@ export default function SettingsScreen() {
             numberOfLines={1}
             variant="bodySmall"
             style={{ color: palette.muted }}>
-            {connection.status === 'connected'
-              ? 'Connected to OpenCode'
-              : connection.message}
+            {displayedConnection.status === 'connected'
+                ? 'Connected to OpenCode'
+                : displayedConnection.message}
           </Text>
         </View>
         <View style={styles.headerActions}>
@@ -444,9 +456,9 @@ export default function SettingsScreen() {
           palette={palette}
         />
         <List.AccordionGroup expandedId={expandedSection} onAccordionPress={(id) => setExpandedSection(expandedSection === String(id) ? '' : String(id))}>
-          <List.Accordion id="connection" title="Connection" description={connection.status === 'connected' ? 'Connected' : connection.message} titleStyle={{ color: palette.text }} descriptionStyle={{ color: palette.muted }} style={[styles.category, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <List.Accordion id="connection" title="Connection" description={displayedConnection.status === 'connected' ? 'Connected' : displayedConnection.message} titleStyle={{ color: palette.text }} descriptionStyle={{ color: palette.muted }} style={[styles.category, { backgroundColor: palette.surface, borderColor: palette.border }]}>
             <ConnectionSection
-              connection={connection}
+              connection={displayedConnection}
               isConnecting={isConnecting}
               onReconnect={() => void handleConnect()}
               palette={palette}

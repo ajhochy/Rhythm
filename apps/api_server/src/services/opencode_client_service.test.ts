@@ -682,6 +682,29 @@ describe('updateSessionAllowlist — mcpAllowlist body shape (#855)', () => {
     expect(allowlist.tools).toEqual([]);
   });
 
+  it('issue-1209-c7: scoped non-google PATCH preserves estimator-selected deferredServers', async () => {
+    const fatProfile: McpRoleConfig = {
+      role: 'worship-production',
+      mcpServers: {
+        'ableton-mcp': {
+          allowedTools: Array.from({ length: 44 }, (_, index) => `tool_${index}`),
+        },
+        rhythm: { allowedTools: ['rhythm_list_tasks'] },
+      },
+      allowedToolsJson: '{}',
+    };
+
+    const ok = await svc.updateSessionAllowlist('sess-selective', fatProfile, 'anthropic');
+
+    expect(ok).toBe(true);
+    const allowlist = capturedUpdate!.mcpAllowlist as {
+      deferred?: boolean;
+      deferredServers?: string[];
+    };
+    expect(allowlist.deferred).toBeUndefined();
+    expect(allowlist.deferredServers).toEqual(['ableton-mcp']);
+  });
+
   it('clear sentinel: null mcpRoleConfig PATCHes mcpAllowlist:null', async () => {
     const ok = await svc.updateSessionAllowlist('sess-clear', null);
 

@@ -1,0 +1,65 @@
+{
+  "issue": 1237,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1237-c1",
+      "text": "Settings and Agents show the same paired-Mac state throughout disconnect and reconnect.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/issue-1237-paired-reachability.spec.mjs",
+      "test_id": "issue-1237-c1: Settings and Agents converge on one paired-Mac reachability state",
+      "status": "authored_execution_blocked"
+    },
+    {
+      "criterion_id": "issue-1237-c2",
+      "text": "Reachability loss resolves to an explicit offline state within a documented bounded timeout.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/issue-1237-paired-reachability.spec.mjs",
+      "test_id": "issue-1237-c2: paired Mac reachability loss becomes offline within the bounded timeout",
+      "status": "authored_execution_blocked"
+    },
+    {
+      "criterion_id": "issue-1237-c3",
+      "text": "No paired-Mac screen can remain in an infinite loading state while the Mac is offline.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/issue-1237-paired-reachability.spec.mjs",
+      "test_id": "issue-1237-c3: session loading exits to an offline state",
+      "status": "authored_execution_blocked"
+    },
+    {
+      "criterion_id": "issue-1237-c4",
+      "text": "Offline copy distinguishes “paired but unreachable” from “not paired” and “Tailscale unavailable.”",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/issue-1237-paired-reachability.test.mjs",
+      "test_id": "issue-1237-c4: authoritative offline copy preserves paired-host distinctions",
+      "status": "passed"
+    },
+    {
+      "criterion_id": "issue-1237-c5",
+      "text": "Reconnect succeeds automatically and refreshes authoritative state once.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/e2e/issue-1237-paired-reachability.spec.mjs",
+      "test_id": "issue-1237-c5: automatic reconnect performs one authoritative recovery refresh",
+      "status": "authored_execution_blocked"
+    },
+    {
+      "criterion_id": "issue-1237-c6",
+      "text": "Automated tests cover disconnect, stale Settings state, bounded timeout, and reconnect.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/issue-1237-paired-reachability.test.mjs",
+      "test_id": "issue-1237-c6: one bounded paired-host probe drives all paired surfaces",
+      "status": "passed"
+    },
+    {
+      "criterion_id": "issue-1237-c7",
+      "text": "Physical-iPhone smoke repeats the Tailscale-off/on scenario successfully.",
+      "mode": "manual",
+      "status": "manual_pending",
+      "reason": "Requires a signed build, physical iPhone, paired Mac, and real Tailscale network transition."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-1237-c7"
+  ]
+}

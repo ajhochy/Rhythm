@@ -1,0 +1,43 @@
+{
+  "issue": 1237,
+  "captured": "2026-07-28",
+  "branch": "issue/1237-paired-mac-status",
+  "current_behavior": {
+    "paired_host_source": {
+      "file": "apps/mobile/providers/paired-host-provider.tsx",
+      "state": "PairedHostState from PairedHostStore",
+      "refresh_triggers": [
+        "provider restore/account change",
+        "AppState transition to active",
+        "explicit Settings refresh"
+      ],
+      "bounded_background_probe": false
+    },
+    "settings": {
+      "paired_mac_card": "pairedHost.state and pairedHost.message",
+      "header_and_connection_accordion": "opencode.connection.status and opencode.connection.message",
+      "observed_divergence": "The card can remain Connected until AppState activation or manual refresh while transport requests have already failed."
+    },
+    "agents": {
+      "status_source": "opencode.connection.status plus individual request loading flags",
+      "observed_divergence": "Transport/event-stream failures retry independently and do not update pairedHost.state."
+    },
+    "session_loading": {
+      "chat_landing": "Shows an ActivityIndicator whenever no session exists; only changes copy for connection.status === error.",
+      "chat_detail": "Uses opencode.connection.status to choose loading versus offline-cache.",
+      "observed_divergence": "A paired host that remains connected in one source can leave session loading unbounded."
+    },
+    "reconnection": {
+      "paired_host": "refreshes independently",
+      "opencode": "connect/bootstrap/event stream refresh independently",
+      "risk": "Multiple independent recovery paths can overlap refreshes and transcript/activity ingestion."
+    }
+  },
+  "existing_harness": {
+    "unit_contract": "Node node:test tests with mocked transport boundaries",
+    "e2e": "Playwright against an Expo web export and tests/fake-opencode/server.mjs",
+    "fake_health_route": "GET /mobile-gateway/health always returns ready before issue #1237 changes",
+    "baseline_command": "node --test tests/paired-host.test.mjs",
+    "baseline_result": "Existing paired-host tests pass but do not exercise ongoing reachability convergence across Settings, Agents, and session loading."
+  }
+}

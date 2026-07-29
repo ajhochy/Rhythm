@@ -1,0 +1,13 @@
+Superseded local-sandbox diagnostic.
+
+The orchestrator reran verification in the authoritative environment and
+reported:
+- api_server build: exit 0
+- fork build --single: exit 0
+- full suite: 3,636 passed
+- issue_1134 and sandbox_foreground failures: load flakes, green in isolation
+
+One real regression remained:
+skill_injection_runner.test.ts "multiple matching skills" expected both
+relevant skills to be injected and counted, but the 0.5 relative threshold
+dropped the secondary skill. The repair re-derives the threshold to 0.45.

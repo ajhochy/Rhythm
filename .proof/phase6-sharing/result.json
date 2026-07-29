@@ -1,0 +1,103 @@
+{
+  "branch": "fix/phase6-sharing-hardening",
+  "execution": {
+    "tests_run": false,
+    "servers_started": false,
+    "commits_created": false,
+    "note": "Author-only execution split honored; regression tests were added but not executed."
+  },
+  "findings": [
+    {
+      "finding_id": "CRITICAL-1",
+      "root_cause": "The always-mounted cloud transcript-share routes depended on shared_transcripts and share_audit_log, but their Postgres DDL appeared after the agentExecutionEnabled=false early return.",
+      "fix": {
+        "files": [
+          "apps/api_server/src/database/postgres_bootstrap.ts:581"
+        ],
+        "summary": "Moved production-owned share/audit DDL, indexes, retention constraint repair, and guards before the role gate. Kept #1219 agent-memory DDL gated because it is an agent-execution projection."
+      },
+      "tests_added": [
+        "apps/api_server/src/__tests__/phase6_sharing_postgres_bootstrap.test.ts — asserts the cloud-role DDL set includes both share tables and excludes gated agent-memory DDL."
+      ],
+      "status": "fixed"
+    },
+    {
+      "finding_id": "IMPORTANT-2",
+      "root_cause": "Share creation sanitized caller-supplied categories and content directly, allowing a protected persisted part to be mislabeled as a normal message.",
+      "fix": {
+        "files": [
+          "apps/api_server/src/services/transcript_share_sanitizer.ts:103",
+          "apps/api_server/src/repositories/shared_transcripts_repository.ts:115",
+          "apps/api_server/src/controllers/shared_transcripts_controller.ts:72"
+        ],
+        "summary": "Loads persisted transcript messages, derives category from role/part type/tool identity/attachment flags, snapshots persisted content, and uses caller review entries only as requested item IDs."
+      },
+      "tests_added": [
+        "apps/api_server/src/services/transcript_share_sanitizer.test.ts — pins role/type/tool/attachment classification.",
+        "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts:204 — proves system-prompt misclassification remains excluded and caller content is ignored."
+      ],
+      "status": "fixed"
+    },
+    {
+      "finding_id": "IMPORTANT-3",
+      "root_cause": "The sanitizer pattern set omitted multiple common credential, cookie, connection-string, and host-path forms.",
+      "fix": {
+        "files": [
+          "apps/api_server/src/services/transcript_share_sanitizer.ts:40"
+        ],
+        "summary": "Added PEM, JWT, AWS AKIA/ASIA, Google AIza, cookie, Postgres/MySQL/MongoDB URI, bearer authorization, macOS path, and Linux path redaction coverage."
+      },
+      "tests_added": [
+        "apps/api_server/src/services/transcript_share_sanitizer.test.ts — table-driven redaction cases for every requested pattern family."
+      ],
+      "status": "fixed"
+    },
+    {
+      "finding_id": "IMPORTANT-4",
+      "root_cause": "Recipient validation proved only that user IDs existed; it did not establish a common organization/workspace with the source owner.",
+      "fix": {
+        "files": [
+          "apps/api_server/src/repositories/shared_transcripts_repository.ts:86",
+          "apps/api_server/src/controllers/shared_transcripts_controller.ts:63"
+        ],
+        "summary": "Requires every recipient to share at least one workspace with the source owner and returns 403 when the boundary is absent or cannot be established."
+      },
+      "tests_added": [
+        "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts:244 — asserts a cross-workspace recipient receives HTTP 403."
+      ],
+      "status": "fixed"
+    },
+    {
+      "finding_id": "IMPORTANT-5",
+      "root_cause": "Snapshot immutability and audit retention relied on repository behavior, while database users could update snapshot_json or delete/cascade-delete audit rows.",
+      "fix": {
+        "files": [
+          "apps/api_server/src/database/migrations.ts:3025",
+          "apps/api_server/src/database/postgres_bootstrap.ts:581"
+        ],
+        "summary": "Added SQLite/Postgres snapshot-update and audit-delete rejection triggers, removed the audit-to-share cascading FK, and preserved the existing soft-revoke path."
+      },
+      "tests_added": [
+        "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts:262 — direct SQL update/delete attempts fail and audit history survives direct share-row deletion."
+      ],
+      "status": "fixed"
+    },
+    {
+      "finding_id": "IMPORTANT-6",
+      "root_cause": "Memory ledger rows had no database append-only enforcement, Postgres selected the previous entry separately from insert, and rollback_target had no same-source integrity guard.",
+      "fix": {
+        "files": [
+          "apps/api_server/src/database/migrations.ts:1419",
+          "apps/api_server/src/database/postgres_bootstrap.ts:712",
+          "apps/api_server/src/repositories/agent_memory_repository.ts:142"
+        ],
+        "summary": "Added SQLite/Postgres append-only and same-source rollback-target triggers and replaced read-then-insert with a single INSERT ... SELECT in both repository paths."
+      },
+      "tests_added": [
+        "apps/api_server/src/contract/issue_1219_memory_provenance.test.ts:210 — direct UPDATE/DELETE are rejected.",
+        "apps/api_server/src/contract/issue_1219_memory_provenance.test.ts:234 — a rollback target from another memory_source_id is rejected."
+      ],
+      "status": "fixed"
+    }
+  ]
+}

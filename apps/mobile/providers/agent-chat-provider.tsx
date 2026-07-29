@@ -106,7 +106,9 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
   const mountedRef = useRef(true);
   const refreshGenerationRef = useRef(0);
   const previousStreamStatusRef = useRef(eventStreamStatus);
-  const isOnline = connection.status === 'connected';
+  const isOnline =
+    connection.status === 'connected' &&
+    (!pairedHost.host || pairedHost.state === 'connected');
   const storageKey = chatCacheKey(
     account.user && pairedHost.host
       ? `${account.user.id}:${pairedHost.host.hostId}:${pairedHost.host.deviceId}`
@@ -129,9 +131,9 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
       .then((raw) => {
         if (!mountedRef.current) return;
         const cached = parseOfflineCache(raw);
-        if (cached.length > 0 && !isOnline) {
-          setSessions(cached);
+        if (!isOnline) {
           setIsOfflineCache(true);
+          if (cached.length > 0) setSessions(cached);
         }
       })
       .finally(() => {

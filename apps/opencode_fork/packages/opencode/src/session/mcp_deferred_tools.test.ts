@@ -28,6 +28,7 @@ import {
   buildDeferredToolCatalog,
   formatDeferredToolCatalog,
   isDeferredMcpToolAllowed,
+  isMcpToolDeferred,
   MCP_DISPATCH_TOOL_ID,
 } from "./mcp_deferred_tools"
 import { filterMcpToolsByAllowlist } from "./mcp_allowlist"
@@ -87,6 +88,36 @@ describe("issue-843-c1: deferred mode advertises only the dispatcher tool + a na
   test("MCP_DISPATCH_TOOL_ID is a stable, non-empty tool id distinct from any MCP composed key", () => {
     expect(MCP_DISPATCH_TOOL_ID).toBe("mcp_dispatch")
     expect(toolKeys).not.toContain(MCP_DISPATCH_TOOL_ID)
+  })
+})
+
+describe("issue-1209 selective deferred servers", () => {
+  test("defers only tools from the named fat server", () => {
+    const keyToServer = {
+      propresenter_show_slide: "propresenter",
+      rhythm_list_tasks: "rhythm",
+    }
+    const allowlist = {
+      servers: ["propresenter", "rhythm"],
+      tools: [],
+      deferredServers: ["propresenter"],
+    }
+    expect(isMcpToolDeferred("propresenter_show_slide", keyToServer, allowlist)).toBe(true)
+    expect(isMcpToolDeferred("rhythm_list_tasks", keyToServer, allowlist)).toBe(false)
+  })
+
+  test("issue-1209-c8: selective dispatcher refuses a tool outside the allowlist", () => {
+    const keyToServer = {
+      propresenter_show_slide: "propresenter",
+      gmail_send_email: "gmail-work",
+    }
+    const allowlist = {
+      servers: ["propresenter"],
+      tools: [],
+      deferredServers: ["propresenter"],
+    }
+    expect(isMcpToolDeferred("gmail_send_email", keyToServer, allowlist)).toBe(false)
+    expect(isDeferredMcpToolAllowed("gmail_send_email", keyToServer, allowlist)).toBe(false)
   })
 })
 

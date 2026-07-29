@@ -1,0 +1,88 @@
+{
+  "issue": 1170,
+  "audited": "2026-07-28",
+  "execution": "not_run_by_request",
+  "criteria": [
+    {
+      "criterion_id": "issue-1170-c1",
+      "text": "Authentication occurs before stream/upgrade",
+      "code": [
+        "apps/api_server/src/routes/mobile_gateway_routes.ts: requireMobileDevice precedes SSE stream handlers",
+        "apps/api_server/src/services/mobile_sse_proxy.ts:323-327 rejects inactive/invalid devices before fetch",
+        "apps/api_server/src/services/mobile_pty_proxy.ts:232-243 authenticates Device header before project resolution or engineFactory"
+      ],
+      "tests": [
+        "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts:140",
+        "apps/api_server/src/__tests__/issue_1168_mobile_gateway_security.test.ts:135"
+      ],
+      "gap": null
+    },
+    {
+      "criterion_id": "issue-1170-c2",
+      "text": "Revoked tokens cannot connect",
+      "code": [
+        "apps/api_server/src/services/mobile_sse_proxy.ts:323-327 initial fail-closed check",
+        "apps/api_server/src/services/mobile_pty_proxy.ts:239-243 rejects revoked tokens before upstream creation",
+        "apps/api_server/src/services/mobile_pty_proxy.ts:479-499 revalidates active PTY devices and closes with 4401"
+      ],
+      "tests": [
+        "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts:206",
+        "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts:758",
+        "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy_live.test.ts:413-450"
+      ],
+      "gap": "Live mid-PTY revocation was missing; added a real socket close assertion and retained revoked SSE/PTY connect rejection."
+    },
+    {
+      "criterion_id": "issue-1170-c3",
+      "text": "Disconnects release all listeners, sockets, and buffers",
+      "code": [
+        "apps/api_server/src/services/mobile_sse_proxy.ts:382-394 attaches abort/revocation lifecycle",
+        "apps/api_server/src/services/mobile_sse_proxy.ts:472-479 clears timer, aborts upstream, detaches listeners, and clears dedupe state",
+        "apps/api_server/src/services/mobile_pty_proxy.ts:302-310 clears pending listeners/timer",
+        "apps/api_server/src/services/mobile_pty_proxy.ts:413-429 clears active listeners/timer/state and closes both sockets",
+        "apps/api_server/src/services/mobile_pty_proxy.ts:456-466 propagates endpoint close"
+      ],
+      "tests": [
+        "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts:249",
+        "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts:410",
+        "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts:495",
+        "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts:838"
+      ],
+      "gap": "Normal PTY client-disconnect cleanup was only indirectly covered by overload/revocation; added direct endpoint listener, buffer, connection-state, and upstream-close assertions."
+    },
+    {
+      "criterion_id": "issue-1170-c4",
+      "text": "Sandboxed live test observes a real SSE event and PTY input/output round trip",
+      "code": [
+        "apps/api_server/src/services/mobile_sse_proxy.ts:399-470 reconnect loop and event delivery",
+        "apps/api_server/src/services/mobile_pty_proxy.ts:431-469 bidirectional text/binary bridge"
+      ],
+      "tests": [
+        "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy_live.test.ts:149",
+        "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts:624",
+        "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts:695",
+        "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts:758"
+      ],
+      "gap": "Live PTY disconnect/reconnect semantics were missing; added old-ticket rejection, fresh-ticket reconnect, and a second real PTY round trip. SSE heartbeat/reconnect/dedupe already has an in-process fake-upstream contract."
+    },
+    {
+      "criterion_id": "issue-1170-c5",
+      "text": "Tests use only `tools/dev/sandbox.sh` on 4098/4097; never direct server startup",
+      "code": [
+        "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy_live.test.ts:10-16 uses only injected live sandbox URLs and paths"
+      ],
+      "tests": [
+        "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy_live.test.ts:135"
+      ],
+      "gap": null
+    },
+    {
+      "criterion_id": "issue-1170-c6",
+      "text": "GitNexus impact/detect-changes and independent review pass",
+      "code": [],
+      "tests": [],
+      "gap": "Explicit GATE WAIVER: GitNexus and independent execution/review are orchestrator-owned. Static caller/import blast radius is recorded in .proof/i1170/impact.md."
+    }
+  ]
+}
+

@@ -62,6 +62,10 @@ import { createMobileGatewayRouter } from './routes/mobile_gateway_routes';
 import { agentActivityRouter } from './routes/agent_activity_routes';
 import { creativePlatformRouter } from './routes/creative_platform_routes';
 import { setupReadinessRouter } from './routes/setup_readiness_routes';
+import {
+  sharedTranscriptsRouter,
+  transcriptShareCreationRouter,
+} from './routes/shared_transcripts_routes';
 
 export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   const app = express();
@@ -128,6 +132,11 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
   // always-on-in-production posture as /org-skills above (GET is public,
   // PUT requires requireAuth — see org_settings_routes.ts).
   app.use('/org-settings', orgSettingsRouter);
+  // #1178 — privacy-reviewed transcript snapshots are an authenticated,
+  // always-on production API surface. They persist in Postgres in the hosted
+  // cloud role and must not depend on the local OpenCode runtime being enabled.
+  app.use(transcriptShareCreationRouter);
+  app.use('/shares', sharedTranscriptsRouter);
 
   // ── Agent-execution surfaces (#755) ───────────────────────────────────────
   // Registered only when the deployment role enables the agent runtime
@@ -158,11 +167,10 @@ export function createApp(options: { mobileGatewayRouter?: Router } = {}) {
     app.use('/agent-schedules', agentSchedulesRouter);
     // #807 (memory epic #801): /agent-memory is LOCAL-ONLY. It is registered
     // only inside this agent-execution gate, and its backing store is the
-    // disposable SQLite index over the Obsidian Memory-Vault (served by the
-    // local agent server on :4001). The cloud/prod agent_memory Postgres table
-    // was removed (postgres_bootstrap.ts) — prod no longer creates or exposes a
-    // memory store. Do NOT mount this router outside the gate or back it with
-    // the production base.
+    // disposable index over the Obsidian Memory-Vault (served by the local
+    // agent server on :4001). #1219 restores role-gated Postgres schema parity
+    // for agent-execution deployments, but does not expose this router outside
+    // the execution gate or change the vault's canonical authority.
     app.use('/agent-memory', agentMemoryRouter);
     // #1096 WP1 — device-local Engraph backend manager status/action API.
     // Standalone prefix (not nested under /agent-memory) so it never risks

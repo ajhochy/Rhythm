@@ -1,0 +1,65 @@
+{
+  "issue": 1178,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1178-c1",
+      "text": "Sharing is opt-in per transcript and presents a review/redaction step before publication; no automatic or implicit sharing path exists.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts",
+      "test_id": "issue-1178-c1: requires caller-reviewed snapshot content and has no external auto-share path",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1178-c2",
+      "text": "The backend creates an immutable sanitized snapshot with owner, recipient scope, created/expiry/revoked timestamps, and source-session provenance.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/transcript_share_sanitizer.test.ts",
+      "test_id": "issue-1178-c2: stored snapshots remain immutable after the source input changes",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1178-c3",
+      "text": "Recipient authorization is checked on every list/read/download operation. Guessed IDs, revoked links, expired links, cross-organization users, and deleted source sessions fail closed.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts",
+      "test_id": "issue-1178-c3: enforces the complete read authorization matrix",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1178-c4",
+      "text": "A deterministic sanitizer removes credentials, authorization headers, secret-shaped values, host filesystem paths, hidden/system instructions, disallowed tool payloads, and excluded attachments before bytes are stored or transmitted.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/transcript_share_sanitizer.test.ts",
+      "test_id": "issue-1178-c4: deterministically excludes every protected category and redacts secret patterns",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1178-c5",
+      "text": "Owners can revoke immediately; revocation invalidates cached/download access and is durably audited without logging transcript content.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1178_transcript_sharing_live.test.ts",
+      "test_id": "issue-1178-c5: create, recipient read, revoke, and immediate denial are persisted and audited",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1178-c6",
+      "text": "The UI clearly distinguishes the private source session from its shared snapshot and displays recipients, expiration, exclusions, and revocation state.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Desktop Flutter UI is explicitly deferred by the orchestrator for this backend-only slice."
+    },
+    {
+      "criterion_id": "issue-1178-c7",
+      "text": "`OPENCODE_AUTO_SHARE` and external OpenCode share endpoints remain disabled and are guarded by regression tests/config checks.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1178_transcript_sharing.test.ts",
+      "test_id": "issue-1178-c7: share-related api_server source contains no external OpenCode sharing references",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-1178-c6"
+  ]
+}

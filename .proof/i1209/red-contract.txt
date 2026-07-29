@@ -1,0 +1,6 @@
+Command: cd apps/api_server && npx vitest run src/__tests__/issue_1209_contract.test.ts
+Exit: 1
+Observed: 1 failed file; 6 failed tests.
+Failures: replay module absent; scoreSkillsBm25, applySelectiveDeferral, and
+estimateSelectiveDeferral exports absent. This is the expected pre-implementation
+contract failure captured at 2026-07-28 19:32:24 local time.

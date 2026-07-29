@@ -1,0 +1,41 @@
+{
+  "issue": 1172,
+  "criteria": {
+    "1": {
+      "status": "gap",
+      "reason": "All-project filtering existed, but ChatList hard-coded lifecycle=all and exposed no active/completed/archived control."
+    },
+    "2": {
+      "status": "covered-by",
+      "test path": "apps/mobile/tests/e2e/issue-1172-deltas.spec.mjs"
+    },
+    "3": {
+      "status": "covered-by",
+      "test path": "apps/mobile/tests/e2e/flows.spec.mjs"
+    },
+    "4": {
+      "status": "covered-by",
+      "test path": "apps/mobile/tests/e2e/issue-1174-parity.spec.mjs"
+    },
+    "5": {
+      "status": "covered-by",
+      "test path": "apps/mobile/tests/e2e/issue-1237-paired-reachability.spec.mjs"
+    },
+    "6": {
+      "status": "covered-by",
+      "test path": "apps/api_server/src/services/__tests__/agent_activity_service.test.ts"
+    },
+    "7": {
+      "status": "covered-by",
+      "test path": "apps/mobile/tests/contract/issue-1231-session-catalog.test.mjs"
+    },
+    "8": {
+      "status": "gap",
+      "reason": "Activity and chat detail used resilient state components, but an empty chats list mislabeled initial loading and refresh errors as the ordinary empty state."
+    },
+    "9": {
+      "status": "covered-by",
+      "test path": "apps/mobile/tests/contract/issue-1172-deltas.test.mjs"
+    }
+  }
+}

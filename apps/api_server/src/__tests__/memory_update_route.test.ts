@@ -60,6 +60,28 @@ afterAll(async () => {
   }
 });
 
+describe('GET /agent-memory/:id', () => {
+  it('resolves the frontmatter id returned by POST /agent-memory', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-memory`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        kind: 'fact',
+        content: 'Create-to-get dual-id regression marker.',
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const created = (await createRes.json()) as { id: string };
+
+    const getRes = await fetch(`${baseUrl}/agent-memory/${created.id}`, {
+      headers: authHeaders,
+    });
+    expect(getRes.status).toBe(200);
+    const fetched = (await getRes.json()) as { content: string };
+    expect(fetched.content).toBe('Create-to-get dual-id regression marker.');
+  });
+});
+
 describe('PATCH /agent-memory/:id (#862)', () => {
   it('edits content in place and returns the full updated entry', async () => {
     const createRes = await fetch(`${baseUrl}/agent-memory`, {

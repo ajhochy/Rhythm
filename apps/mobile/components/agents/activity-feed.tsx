@@ -197,6 +197,7 @@ export function ActivityFeed({
           const deepLink = getActivityDeepLink(item);
           return (
             <Card
+              testID={`activity-item-${item.id}`}
               accessibilityLabel={`${item.title}. ${item.source}. ${item.status}.`}
               accessibilityRole={deepLink ? 'button' : undefined}
               disabled={!deepLink}
@@ -261,7 +262,7 @@ export function ActivityFeed({
         }
         ListEmptyComponent={
           <View accessibilityRole="summary" style={styles.empty}>
-            <Text accessibilityRole="header" variant="headlineSmall">
+            <Text accessibilityRole="header" variant="titleMedium">
               {category === 'scheduled'
                 ? 'No matching scheduled tasks'
                 : 'No matching background loops'}

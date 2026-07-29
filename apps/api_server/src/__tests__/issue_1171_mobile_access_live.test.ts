@@ -153,14 +153,9 @@ describeLive('live E2E — issue #1171 desktop-to-iPhone mobile access', () => {
       const qrPayload = {
         gatewayUrl:
           access.gatewayUrl ?? 'https://sandbox-device.test-tailnet.ts.net',
-        hostId: code.hostId,
         pairingCode: code.pairingCode,
       };
-      expect(Object.keys(qrPayload).sort()).toEqual([
-        'gatewayUrl',
-        'hostId',
-        'pairingCode',
-      ]);
+      expect(Object.keys(qrPayload).sort()).toEqual(['gatewayUrl', 'pairingCode']);
       expect(JSON.stringify(qrPayload)).not.toMatch(
         /deviceToken|sessionToken|userId/,
       );

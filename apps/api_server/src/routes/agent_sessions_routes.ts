@@ -1,5 +1,8 @@
 import { Router } from 'express';
-import { requireAuth } from '../middleware/auth_middleware';
+import {
+  authenticateIfPresent,
+  requireAuth,
+} from '../middleware/auth_middleware';
 import { AgentSessionsController } from '../controllers/agent_sessions_controller';
 import { env } from '../config/env';
 import { appEvents } from '../utils/app_events';
@@ -8,7 +11,9 @@ import type { AppEvent } from '../utils/app_events';
 const controller = new AgentSessionsController();
 export const agentSessionsRouter = Router();
 
-if (!env.agentLocal) agentSessionsRouter.use(requireAuth);
+agentSessionsRouter.use(
+  env.agentLocal ? authenticateIfPresent : requireAuth,
+);
 
 /**
  * OPC-M4-4 — GET /agent-sessions/agents

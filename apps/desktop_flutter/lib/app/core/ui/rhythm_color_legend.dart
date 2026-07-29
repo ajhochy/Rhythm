@@ -9,13 +9,13 @@ class RhythmColorLegend extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    // Wrap, not Row: legends with many items must flow to the next line at
+    // narrow widths instead of overflowing (latent on Tasks/Weekly Planner).
+    return Wrap(
+      spacing: 10,
+      runSpacing: 4,
       children: [
-        for (var i = 0; i < items.length; i++) ...[
-          if (i > 0) const SizedBox(width: 10),
-          _LegendItem(color: items[i].$1, label: items[i].$2),
-        ],
+        for (final item in items) _LegendItem(color: item.$1, label: item.$2),
       ],
     );
   }

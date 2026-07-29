@@ -101,13 +101,35 @@ class TasksController extends ChangeNotifier {
     final task = _tasks.firstWhere((t) => t.id == id);
     final newStatus =
         task.status == TaskStatus.done ? TaskStatus.open : TaskStatus.done;
+    await updateStatus(id, newStatus);
+  }
+
+  Future<void> updateStatus(String id, TaskStatus status) async {
+    final previousTasks = _tasks;
+    final task = _tasks.firstWhere((task) => task.id == id);
+    if (task.status == status) return;
+
+    _tasks = _tasks
+        .map((task) => task.id == id ? task.copyWith(status: status) : task)
+        .toList();
+    _status = TasksStatus.idle;
+    _errorMessage = null;
+    notifyListeners();
+
     try {
-      final updated = await _repository.update(id, status: newStatus.toJson());
-      _tasks = _tasks.map((t) => t.id == id ? updated : t).toList();
+      final updated = await _repository.update(id, status: status.toJson());
+      _tasks = _tasks
+          .map(
+            (task) => task.id == id
+                ? updated.copyWith(collaborators: task.collaborators)
+                : task,
+          )
+          .toList();
       _status = TasksStatus.idle;
       _errorMessage = null;
       notifyListeners();
     } catch (e) {
+      _tasks = previousTasks;
       _errorMessage = e.toString();
       _status = TasksStatus.error;
       notifyListeners();

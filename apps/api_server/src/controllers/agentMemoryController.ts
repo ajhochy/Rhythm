@@ -17,6 +17,15 @@ import { logger } from '../utils/logger';
 const repo = new AgentMemoryRepository();
 const sessionsRepo = new AgentSessionsRepository();
 
+async function memoryWithAudit(id: string) {
+  const item = await agentMemoryService.get(id);
+  if (!item) return null;
+  return {
+    ...item,
+    auditHistory: await repo.listChangesAsync(item.id),
+  };
+}
+
 function resolveHumanActor(req: Request): {
   actor: string;
   ownerUserId: number;
@@ -118,7 +127,7 @@ export class AgentMemoryController {
 
   async get(req: Request, res: Response, next: NextFunction) {
     try {
-      const item = await repo.findByIdAsync(req.params.id);
+      const item = await memoryWithAudit(req.params.id);
       if (!item) throw AppError.notFound('AgentMemory');
       res.json(item);
     } catch (err) { next(err); }
@@ -189,7 +198,8 @@ export class AgentMemoryController {
       );
       if (!result) throw AppError.notFound('AgentMemory');
       const rows = await repo.listAsync(undefined, undefined, 1000);
-      res.json(rows.find((row) => row.sourceId === result.path) ?? result);
+      const item = rows.find((row) => row.sourceId === result.path);
+      res.json(item ? await memoryWithAudit(item.id) : result);
     } catch (err) {
       if (err instanceof MemoryWriteError) {
         return next(AppError.badRequest(err.message));
@@ -208,7 +218,8 @@ export class AgentMemoryController {
       );
       if (!result) throw AppError.notFound('AgentMemory');
       const rows = await repo.listAsync(undefined, undefined, 1000);
-      res.json(rows.find((row) => row.sourceId === result.path) ?? result);
+      const item = rows.find((row) => row.sourceId === result.path);
+      res.json(item ? await memoryWithAudit(item.id) : result);
     } catch (err) {
       if (err instanceof MemoryWriteError) {
         return next(AppError.badRequest(err.message));
@@ -243,7 +254,8 @@ export class AgentMemoryController {
           );
       if (!result) throw AppError.notFound('AgentMemory');
       const rows = await repo.listAsync(undefined, undefined, 1000);
-      res.json(rows.find((row) => row.sourceId === result.path) ?? result);
+      const item = rows.find((row) => row.sourceId === result.path);
+      res.json(item ? await memoryWithAudit(item.id) : result);
     } catch (err) {
       if (err instanceof MemoryWriteError) {
         return next(AppError.badRequest(err.message));

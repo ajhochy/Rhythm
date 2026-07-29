@@ -21,6 +21,8 @@ export interface McpAllowlist {
   servers: string[];
   /** Explicit tool grants in "<sanitized-server>_<sanitized-tool>" format. */
   tools: string[];
+  /** Servers whose schemas are exposed through the deferred dispatcher. */
+  deferredServers?: string[];
 }
 
 // ── Canonical sanitize ────────────────────────────────────────────────────────

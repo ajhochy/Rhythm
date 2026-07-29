@@ -1,0 +1,12 @@
+[
+  {
+    "finding": "IMPORTANT-7",
+    "fix": "apps/api_server/src/services/mobile_opencode_proxy.ts now makes create/update (rename/archive) reconciliation required and throws a scrubbed 500 AppError on authoritative-write failure, while list reconciliation logs a structured error with sdk_session_id and remains non-fatal; the existing delete persistence path continues to surface a scrubbed 502 instead of reporting success.",
+    "test": "apps/api_server/src/__tests__/issue_1231_reconcile_failure_contract.test.ts now uses real in-memory project, user, session, and ownership rows so ID-addressed mutations pass authorization before repository persistence is failed. Focused Vitest result: 5/5 passed; the three previously failing mutating cases (rename, archive, delete) are 3/3 passed. Create/update failures assert scrubbed 500 SESSION_CATALOG_PERSISTENCE_FAILED; delete asserts scrubbed 502 OPENCODE_UNAVAILABLE; list remains successful with structured sdk_session_id logging."
+  },
+  {
+    "finding": "IMPORTANT-8",
+    "fix": "apps/mobile/providers/paired-host-provider.tsx replaces the perpetual 5-second interval with a 5/10/20/60-second capped offline timeout schedule, retains the 4-second probe timeout and initial 5-second connected cadence, and resets scheduling on recovery, AppState active, and public user retry.",
+    "test": "apps/mobile/tests/contract/issue-1237-paired-reachability.test.mjs uses fake timers to pin 5/10/20/60/60-second scheduling and asserts recovery, foreground, and manual-retry reset wiring while preserving the existing bounded-probe contract. Verification-gate reported this mobile contract passing 4/4; it was not rerun during the API-fixture correction."
+  }
+]

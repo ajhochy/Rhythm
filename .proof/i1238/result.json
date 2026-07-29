@@ -1,0 +1,14 @@
+{
+  "issue": 1238,
+  "acceptance": {
+    "composer multiline grows upward to cap then scrolls internally": "issue-1238-keyboard-safe-composer.test.mjs + e2e multiline-grown state",
+    "composer sits above keyboard/safe area (correct KAV offset)": "contract test (offset derivation); chat-view.tsx KAV rewiring",
+    "transcript independently scrollable, complete responses reachable": "e2e long-transcript-bottom assertion + screenshot",
+    "standard dismiss gesture + accessible control": "contract test (keyboardDismissMode + labeled dismiss button); keyboard-focused screenshot"
+  },
+  "redGreen": "contract test 0 pass/3 fail pre-change (red-contract.txt) -> 3/3 post; e2e suite 59 passed incl. 4 new (green-e2e.txt)",
+  "gates": {"test:ci:static": "exit 0", "playwright": "59 passed"},
+  "inferredImpact": "chat-view/chat-composer/chat-content/chat-view-styles consumed by agents/chat.tsx and agents/chats/[sessionId].tsx only (grep); no api surface touched",
+  "ui": [".proof/i1238/ui/default.png", "multiline-grown.png", "keyboard-focused.png", "long-transcript-bottom.png"],
+  "migrations": [], "deferred": ["#1235 header consolidation intentionally untouched (same surface, next batch)"]
+}

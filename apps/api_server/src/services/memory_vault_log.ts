@@ -5,11 +5,10 @@
  * closed reason enum. Note bodies and caller-authored prose are deliberately
  * absent from the API so sensitive memory content cannot leak into history.
  *
- * Writes are serialized per vault and fail open. Mutations do not await this
- * derived audit artifact; tests may use {@link flushMemoryVaultLog} to observe
- * all queued work deterministically. The queue is intentionally process-local:
- * an immediate process exit can lose a just-enqueued entry, which is the
- * durability tradeoff for keeping prompt-path mutations non-blocking/fail-open.
+ * Writes are serialized per vault and fail open. Mutation boundaries await the
+ * returned promise so no derived writer outlives the mutation and races a
+ * delete/shutdown. Tests may also use {@link flushMemoryVaultLog} to observe
+ * work enqueued directly.
  */
 
 import { promises as fs } from 'node:fs';
@@ -462,14 +461,15 @@ async function appendEntry(
 }
 
 /**
- * Queue one non-blocking audit append. The returned mutation result never
- * depends on this best-effort, derived history file.
+ * Queue one fail-open audit append and return the serialized work. Product
+ * mutation boundaries await this promise so the vault has no hidden writer
+ * after they resolve; direct callers may batch and await/flush explicitly.
  */
 export function enqueueMemoryVaultLog(
   memoryDir: string,
   entry: MemoryVaultLogEntry,
   options: MemoryVaultLogOptions = {},
-): void {
+): Promise<void> {
   const key = path.resolve(memoryDir);
   const previous = logWriteTails.get(key) ?? Promise.resolve();
   const work = previous
@@ -483,6 +483,7 @@ export function enqueueMemoryVaultLog(
   void work.finally(() => {
     if (logWriteTails.get(key) === work) logWriteTails.delete(key);
   });
+  return work;
 }
 
 /** Wait for all currently queued writes for one vault (tests/controlled shutdown). */

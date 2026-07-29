@@ -56,3 +56,25 @@ export async function requireAuth(
     next(err);
   }
 }
+
+/**
+ * Local desktop routes remain usable without a token, but when the desktop
+ * supplies its normal Bearer token we must attach the same user context as an
+ * authenticated deployment. This lets user/project-owned resources created on
+ * the loopback API participate in paired mobile ownership without weakening
+ * the AGENT_LOCAL no-token compatibility path.
+ *
+ * A present but invalid/malformed Authorization header fails closed through
+ * requireAuth; only a genuinely absent header receives the local bypass.
+ */
+export async function authenticateIfPresent(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  if (!(req.header('Authorization') ?? '').trim()) {
+    next();
+    return;
+  }
+  await requireAuth(req, res, next);
+}

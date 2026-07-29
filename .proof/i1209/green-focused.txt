@@ -1,0 +1,11 @@
+Focused verification:
+- skill retrieval: 16 passed / 16
+- issue #1209 + Opencode client + Gemini: 71 passed / 71
+- fork deferred helper: 12 passed / 12
+- api_server npm run build: exit 0
+
+Commands:
+cd apps/api_server && npx vitest run src/__tests__/skill_retrieval.test.ts
+cd apps/api_server && npx vitest run src/__tests__/issue_1209_contract.test.ts src/services/opencode_client_service.test.ts src/services/__tests__/gemini_tool_cap.test.ts
+cd apps/opencode_fork/packages/opencode && bun test --config=/dev/null src/session/mcp_deferred_tools.test.ts
+cd apps/api_server && npm run build

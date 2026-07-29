@@ -1334,10 +1334,8 @@ export function runMigrations(db: Database.Database): void {
   // DERIVED, DISPOSABLE index — the Obsidian Memory-Vault is the source of truth
   // and MemoryIndexService.rebuildIndexFromVault() can wipe + rebuild it from a
   // full vault scan at any time. No durable data lives here that isn't in the
-  // vault. #807: this SQLite index is now the ONLY agent_memory store — the
-  // Postgres/prod agent_memory table was removed from postgres_bootstrap.ts;
-  // memory is local-only (served by the local agent server on :4001). Schema is
-  // unchanged — this note documents intent only.
+  // vault. #1219 keeps a matching derived projection in role-gated Postgres
+  // deployments so schema selection cannot drop provenance fields at runtime.
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_memory (
       id TEXT PRIMARY KEY,
@@ -1401,6 +1399,47 @@ export function runMigrations(db: Database.Database): void {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_agent_memory_active
       ON agent_memory(status, stale_after);
+
+    CREATE TABLE IF NOT EXISTS agent_memory_changes (
+      id TEXT PRIMARY KEY,
+      memory_id TEXT NOT NULL,
+      memory_source_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      changed_at TEXT NOT NULL,
+      prior_state_json TEXT NOT NULL,
+      rollback_target TEXT,
+      source_context_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_changes_memory
+      ON agent_memory_changes(memory_id, changed_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_changes_source
+      ON agent_memory_changes(memory_source_id, changed_at);
+
+    CREATE TRIGGER IF NOT EXISTS agent_memory_changes_no_update
+      BEFORE UPDATE ON agent_memory_changes
+      BEGIN
+        SELECT RAISE(ABORT, 'agent_memory_changes is append-only');
+      END;
+    CREATE TRIGGER IF NOT EXISTS agent_memory_changes_no_delete
+      BEFORE DELETE ON agent_memory_changes
+      BEGIN
+        SELECT RAISE(ABORT, 'agent_memory_changes is append-only');
+      END;
+    CREATE TRIGGER IF NOT EXISTS agent_memory_changes_validate_rollback_target
+      BEFORE INSERT ON agent_memory_changes
+      WHEN NEW.rollback_target IS NOT NULL
+      BEGIN
+        SELECT CASE WHEN NOT EXISTS (
+          SELECT 1
+            FROM agent_memory_changes target
+           WHERE target.id = NEW.rollback_target
+             AND target.memory_source_id = NEW.memory_source_id
+        ) THEN RAISE(
+          ABORT,
+          'rollback_target must reference the same memory_source_id'
+        ) END;
+      END;
   `);
 
   // FTS5 virtual table for agent_memory full-text search.
@@ -2981,5 +3020,71 @@ If someone asks for creative work that needs a local capability:
     );
     CREATE INDEX IF NOT EXISTS idx_agent_async_delegations_parent_status
       ON agent_async_delegations(parent_session_id, status, created_at);
+  `);
+
+  // #1178 — immutable, privacy-reviewed transcript snapshots shared only with
+  // named Rhythm users. source_session_id is intentionally not an FK: deleting
+  // the source makes reads fail closed while preserving provenance/audit rows.
+  const shareAuditForeignKeys = db.pragma(
+    'foreign_key_list(share_audit_log)',
+  ) as Array<{ table: string }>;
+  if (shareAuditForeignKeys.some((foreignKey) =>
+    foreignKey.table === 'shared_transcripts')) {
+    db.transaction(() => {
+      db.exec(`
+        DROP TRIGGER IF EXISTS share_audit_log_no_delete;
+        DROP INDEX IF EXISTS idx_share_audit_log_share_timestamp;
+        ALTER TABLE share_audit_log RENAME TO share_audit_log_legacy;
+        CREATE TABLE share_audit_log (
+          id TEXT PRIMARY KEY,
+          share_id TEXT NOT NULL,
+          actor_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          action TEXT NOT NULL CHECK (action IN ('share', 'view', 'revoke', 'delete')),
+          timestamp TEXT NOT NULL
+        );
+        INSERT INTO share_audit_log
+          (id, share_id, actor_user_id, action, timestamp)
+        SELECT id, share_id, actor_user_id, action, timestamp
+          FROM share_audit_log_legacy;
+        DROP TABLE share_audit_log_legacy;
+      `);
+    })();
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shared_transcripts (
+      id TEXT PRIMARY KEY,
+      snapshot_json TEXT NOT NULL,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      recipient_user_ids_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT,
+      source_session_id TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_shared_transcripts_owner_created
+      ON shared_transcripts(owner_user_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS share_audit_log (
+      id TEXT PRIMARY KEY,
+      -- Deliberately no FK: audit history must survive any administrative or
+      -- direct deletion of the share row.
+      share_id TEXT NOT NULL,
+      actor_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      action TEXT NOT NULL CHECK (action IN ('share', 'view', 'revoke', 'delete')),
+      timestamp TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_share_audit_log_share_timestamp
+      ON share_audit_log(share_id, timestamp);
+
+    CREATE TRIGGER IF NOT EXISTS shared_transcripts_snapshot_immutable
+      BEFORE UPDATE OF snapshot_json ON shared_transcripts
+      BEGIN
+        SELECT RAISE(ABORT, 'shared transcript snapshots are immutable');
+      END;
+    CREATE TRIGGER IF NOT EXISTS share_audit_log_no_delete
+      BEFORE DELETE ON share_audit_log
+      BEGIN
+        SELECT RAISE(ABORT, 'share audit history is append-only');
+      END;
   `);
 }

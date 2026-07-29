@@ -48,12 +48,39 @@ pairing/device live-test files to one default Vitest invocation: file workers
 can create temporary rows concurrently and invalidate isolation assertions
 even though each suite cleans up its own records.
 
+Mobile-gateway live suites also need a distinct
+`RHYTHM_MOBILE_GATEWAY_PORT` exported when `sandbox.sh up` starts (for example,
+`:4189`). The launcher and suite must inherit the same value; setting it only
+after the sandbox is running does not reconfigure the gateway.
+
 Live suites that exercise desktop-human approval must also start the sandbox
 with `HUMAN_APPROVAL_CAPABILITY_SHA256` set to the SHA-256 digest of a
 throwaway test capability and `HUMAN_APPROVAL_PUBLIC_KEY` set to a throwaway
-P-256 public key. Pass the original capability value to Vitest as
-`RHYTHM_LIVE_HUMAN_CAPABILITY`. Generate the values locally without printing
-them; never reuse or record a real capability or private key.
+P-256 public key encoded as the base64 form of its 65-byte uncompressed point.
+Pass the original capability value to Vitest as
+`RHYTHM_LIVE_HUMAN_CAPABILITY`. All three values must be exported before
+`sandbox.sh up`. Generate them locally without printing them; never reuse or
+record a real capability or private key. For example, this keeps the generated
+values inside command substitution while exporting them into the current
+shell:
+
+```bash
+eval "$(node <<'NODE'
+const { createECDH, createHash, randomBytes } = require('node:crypto');
+const capability = randomBytes(32).toString('base64url');
+const ecdh = createECDH('prime256v1');
+ecdh.generateKeys();
+const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+process.stdout.write([
+  `export RHYTHM_LIVE_HUMAN_CAPABILITY=${quote(capability)}`,
+  `export HUMAN_APPROVAL_CAPABILITY_SHA256=${quote(createHash('sha256').update(capability).digest('hex'))}`,
+  `export HUMAN_APPROVAL_PUBLIC_KEY=${quote(ecdh.getPublicKey(undefined, 'uncompressed').toString('base64'))}`,
+].join('\n'));
+NODE
+)"
+export RHYTHM_MOBILE_GATEWAY_PORT=4189
+tools/dev/sandbox.sh up
+```
 
 For automation hosts that reap descendants when a command finishes, use the
 explicit foreground hold. It performs the same build and readiness checks as

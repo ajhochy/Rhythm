@@ -9,7 +9,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChatComposer } from '@/components/chat/chat-composer';
 import { ChatContent } from '@/components/chat/chat-content';
 import { ChatHeader } from '@/components/chat/chat-header';
-import { TopTab } from '@/components/chat/chat-controls';
 import { styles } from '@/components/chat/chat-view-styles';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -52,7 +51,6 @@ export function ChatView() {
     ensureActiveSession,
     isRefreshingDiffs,
     isRefreshingMessages,
-    latestAssistantTurnUsage,
     openSession,
     refreshCurrentSession,
     replyToPermission,
@@ -505,10 +503,7 @@ export function ChatView() {
 
   return (
     <>
-      <KeyboardAvoidingView
-        style={[styles.screen, { backgroundColor: palette.background }]}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}>
+      <View style={[styles.screen, { backgroundColor: palette.background }]}>
         <ChatHeader
           connectionStatus={connection.status}
           conversation={conversation}
@@ -518,6 +513,9 @@ export function ChatView() {
           isUsageLoading={isRefreshingMessages}
           insetsTop={insets.top}
           isCreatingSession={isCreatingSession}
+          diffCount={diffCount}
+          running={running}
+          showingChanges={activeTab === 'changes'}
           onBack={() => router.replace('/(tabs)/agents')}
           onCloseMenu={() => setSessionMenuVisible(false)}
           onConfirmStopConversation={handleConfirmStopConversation}
@@ -527,27 +525,21 @@ export function ChatView() {
             void openSession(sessionId);
           }}
           onOpenSessionMenu={() => setSessionMenuVisible(true)}
+          onManage={() => setSessionToolsVisible((visible) => !visible)}
+          onOpenSettings={() => router.push('/(tabs)/settings' as never)}
+          onShowChanges={() => setActiveTab((tab) => tab === 'changes' ? 'session' : 'changes')}
           onToggleConversationMode={() => void toggleConversationMode()}
           palette={palette}
           selectedSession={selectedSession}
           sessionMenuVisible={sessionMenuVisible}
           sessions={visibleSessions}
-          latestAssistantTurnUsage={latestAssistantTurnUsage}
           usage={currentUsage}
         />
 
-        <View style={[styles.tabsRow, { backgroundColor: palette.surface, borderBottomColor: palette.border }]}>
-          <TopTab active={activeTab === 'session'} label="Session" onPress={() => setActiveTab('session')} />
-          <TopTab active={activeTab === 'changes'} label={`${diffCount} Files Changed`} onPress={() => setActiveTab('changes')} />
-          <Button
-            testID="chat-session-tools-toggle"
-            compact
-            icon={sessionToolsVisible ? 'chevron-up' : 'wrench-outline'}
-            onPress={() => setSessionToolsVisible((visible) => !visible)}>
-            Manage
-          </Button>
-        </View>
-
+        <KeyboardAvoidingView
+          style={styles.keyboardArea}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}>
         {sessionToolsVisible && currentSessionId ? (
           <Card mode="contained" style={{ margin: 10, marginBottom: 0 }}>
             <Card.Title
@@ -814,7 +806,8 @@ export function ChatView() {
           updateChatPreferences={updateChatPreferences}
           visibleModels={visibleModels}
         />
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </View>
 
       <Snackbar visible={Boolean(copiedMessageId)} onDismiss={() => setCopiedMessageId(undefined)} duration={1800}>
         {copiedMessageId === '__send-error__' ? 'Error details copied' : 'Message copied to clipboard'}

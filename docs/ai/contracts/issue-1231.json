@@ -1,0 +1,65 @@
+{
+  "issue": 1231,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1231-c1",
+      "text": "After pairing to the same Mac and selecting the same project/user, mobile and desktop list the same eligible existing sessions.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1231_session_catalog_live.test.ts",
+      "test_id": "issue-1231-c1: desktop-created session is visible through the paired mobile gateway",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1231-c2",
+      "text": "A session created on mobile appears on desktop, and a session created on desktop appears on mobile, through realtime delivery or a bounded authoritative refresh.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1231_session_catalog_live.test.ts",
+      "test_id": "issue-1231-c2: creation through either surface converges through bounded refresh",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1231-c3",
+      "text": "Rename, archive/restore, and delete state converge across both clients.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1231_session_catalog_live.test.ts",
+      "test_id": "issue-1231-c3: mobile lifecycle mutations reconcile into the desktop catalog",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1231-c4",
+      "text": "Session identity remains stable across refresh/reconnect; no duplicate rows or transcript messages are introduced.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1231_session_catalog_sync.test.ts",
+      "test_id": "issue-1231-c4: repeated authoritative refresh preserves one local identity",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1231-c5",
+      "text": "Project and user ownership filtering remains server-side and fail-closed.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1231_session_catalog_sync.test.ts",
+      "test_id": "issue-1231-c5: ownership rejects cross-user and cross-project access",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1231-c6",
+      "text": "Offline mobile cache is secret-free, clearly marked stale/read-only, and reconciles on reconnect.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/issue-1231-session-catalog.test.mjs",
+      "test_id": "issue-1231-c6: offline cache is sanitized read-only and replaced on reconnect",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1231-c7",
+      "text": "Automated coverage exercises two clients against the same gateway, and a physical-device smoke confirms cross-device visibility.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Automated two-surface coverage is authored in the live E2E, but the required physical iPhone plus desktop smoke needs human hardware."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-1231-c7"
+  ]
+}

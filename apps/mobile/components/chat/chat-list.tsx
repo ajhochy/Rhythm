@@ -17,17 +17,21 @@ import {
   Menu,
   Portal,
   Searchbar,
+  SegmentedButtons,
   Snackbar,
   Text,
   TextInput,
 } from 'react-native-paper';
 
+import { ToolScreenState } from '@/components/tools/tool-screen-state';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAgentChat } from '@/providers/agent-chat-provider';
 import { useOpencode } from '@/providers/opencode-provider';
+import { usePairedHost } from '@/providers/paired-host-provider';
 import {
   buildAgentChatReadModel,
+  type AgentChatLifecycle,
   type AgentChatRecord,
 } from '@/providers/services/agent-chat-service';
 
@@ -48,11 +52,14 @@ function flattenChats(
 export function ChatList() {
   const router = useRouter();
   const opencode = useOpencode();
+  const pairedHost = usePairedHost();
   const chat = useAgentChat();
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
   const [query, setQuery] = useState('');
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [lifecycle, setLifecycle] =
+    useState<AgentChatLifecycle | 'all'>('all');
   const [projectMenuVisible, setProjectMenuVisible] = useState(false);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{
@@ -69,10 +76,10 @@ export function ChatList() {
   const readModel = useMemo(
     () =>
       buildAgentChatReadModel(chat.sessions, {
-        lifecycle: 'all',
+        lifecycle,
         projectId,
       }),
-    [chat.sessions, projectId],
+    [chat.sessions, lifecycle, projectId],
   );
   const rows = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -246,8 +253,40 @@ export function ChatList() {
             />
           ))}
         </Menu>
+        <SegmentedButtons
+          buttons={[
+            {
+              value: 'all',
+              label: 'All',
+              accessibilityLabel: 'All chat states',
+              testID: 'chat-lifecycle-all',
+            },
+            {
+              value: 'active',
+              label: 'Active',
+              accessibilityLabel: 'Active chats',
+              testID: 'chat-lifecycle-active',
+            },
+            {
+              value: 'completed',
+              label: 'Completed',
+              accessibilityLabel: 'Completed chats',
+              testID: 'chat-lifecycle-completed',
+            },
+            {
+              value: 'archived',
+              label: 'Archived',
+              accessibilityLabel: 'Archived chats',
+              testID: 'chat-lifecycle-archived',
+            },
+          ]}
+          onValueChange={(value) =>
+            setLifecycle(value as AgentChatLifecycle | 'all')}
+          value={lifecycle}
+        />
         {chat.isOfflineCache ? (
           <Card
+            testID="paired-mac-offline-state"
             accessibilityLabel="Offline saved chats. Actions are unavailable."
             mode="contained"
             style={{ backgroundColor: palette.surfaceAlt }}>
@@ -255,7 +294,7 @@ export function ChatList() {
               <Text
                 style={{ color: palette.warning }}
                 variant="bodyMedium">
-                Mac offline — showing a read-only saved list.
+                {pairedHost.message}
               </Text>
             </Card.Content>
           </Card>
@@ -366,6 +405,7 @@ export function ChatList() {
                             'Chat forked.',
                           )
                         : undefined}
+                    testID={`chat-action-fork-${item.id}`}
                     title="Fork"
                   />
                   <Divider />
@@ -384,20 +424,33 @@ export function ChatList() {
           </Card>
         )}
         ListEmptyComponent={
-          <View accessibilityRole="summary" style={styles.empty}>
-            <Text
-              accessibilityRole="header"
-              style={{ color: palette.text }}
-              variant="headlineSmall">
-              {query.trim() || projectId ? 'No matching chats' : 'No chats yet'}
-            </Text>
-            <Text style={{ color: palette.muted }} variant="bodyLarge">
-              {chat.error ??
-                (chat.isOnline
+          chat.isLoading ? (
+            <ToolScreenState state="loading" title="Loading chats" />
+          ) : chat.error && !chat.isOfflineCache ? (
+            <ToolScreenState
+              actionLabel="Try again"
+              message={chat.error}
+              onAction={() => void chat.refresh()}
+              state="error"
+              title="Could not load chats"
+            />
+          ) : (
+            <View accessibilityRole="summary" style={styles.empty}>
+              <Text
+                accessibilityRole="header"
+                style={{ color: palette.text }}
+                variant="headlineSmall">
+                {query.trim() || projectId || lifecycle !== 'all'
+                  ? 'No matching chats'
+                  : 'No chats yet'}
+              </Text>
+              <Text style={{ color: palette.muted }} variant="bodyLarge">
+                {chat.isOnline
                   ? 'Pull to refresh or create a new chat.'
-                  : 'Reconnect to your paired Mac to load chats.')}
-            </Text>
-          </View>
+                  : 'Reconnect to your paired Mac to load chats.'}
+              </Text>
+            </View>
+          )
         }
       />
 

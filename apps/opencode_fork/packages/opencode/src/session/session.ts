@@ -223,6 +223,9 @@ export const McpAllowlist = Schema.Struct({
   // resolved allowlist — undefined/absent = eager mode (back-compat, matches
   // every session created before this patch).
   deferred: Schema.optional(Schema.Boolean),
+  // Issue #1209: selectively defer only estimator-identified fat servers.
+  // The authorization lists above remain the sole scope boundary.
+  deferredServers: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
 })
 
 // Rhythm carried patch (skill-scope, #775): per-session SKILL allowlist schema.

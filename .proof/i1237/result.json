@@ -1,0 +1,154 @@
+{
+  "issue": 1237,
+  "branch": "issue/1237-paired-mac-status",
+  "status": "implementation_corrected_browser_verification_blocked",
+  "what_was_wrong": [
+    "The E2E runtime intentionally boots with no paired-host credential, but AgentChatProvider required PairedHostState to be connected even when pairedHost.host was null. Its initial unpaired state therefore disabled Create chat and stalled every legacy fake-engine flow.",
+    "The session-detail route also treated paired-host state as mandatory in direct-web mode and could leave an already-selected paired session rendered after the paired Mac became unreachable.",
+    "Every SSE retry failure could request another paired-host refresh, coupling the reconnect loop to repeated health probes.",
+    "Every successful cadence probe also rebuilt the paired client object, which could restart the SSE effect and its recovery refreshes every five seconds even though the host had not changed.",
+    "The new Playwright cases used exact tab names that did not match the icon-prefixed accessible names and did not consistently account for Expo Router's hidden duplicate mounts.",
+    "The fake mobile gateway needed an explicit healthy reachability default so a reset never depended on a prior control request."
+  ],
+  "what_changed": [
+    "Paired-host reachability gates OpenCode/chat behavior only when pairedHost.host exists; unpaired web/E2E sessions continue to derive availability from the direct OpenCode connection.",
+    "The bounded health refresh returns immediately without a host, and AppState/polling probes only start for a persisted paired host.",
+    "Paired session and Agents routes render the authoritative paired-host offline state before any loaded-session or spinner branch; unpaired connection failures retain the original OpenCode offline fallback.",
+    "The SSE loop reports one paired reachability failure per outage and resets that guard only after receiving a real event.",
+    "The paired client is stable for the same account, host, device, and gateway scope, so successful health polling cannot restart SSE.",
+    "Fake-server state resets to mobileReachability=online, and its control endpoint can switch paired gateway traffic to error or timeout modes.",
+    "The c3, mutations, and c5 cases use visible-filtered locators and exact or end-anchored, non-substring accessible names.",
+    "The c5 recovery case asserts one visible final transcript line and unique Activity item IDs after reconnect."
+  ],
+  "criteria": [
+    {
+      "criterion": "One authoritative reachability source that all paired-Mac surfaces derive from.",
+      "tests": [
+        "issue-1237-c1: Settings and Agents converge on one paired-Mac reachability state",
+        "issue-1237-c6: one bounded paired-host probe drives all paired surfaces",
+        "issue-1237-regression: unpaired direct-web chat stays online"
+      ],
+      "status": "contract_passed_ui_execution_blocked"
+    },
+    {
+      "criterion": "Unreachable flips Settings AND Agents to offline within a bounded timeout.",
+      "tests": [
+        "issue-1237-c1: Settings and Agents converge on one paired-Mac reachability state",
+        "issue-1237-c2: paired Mac reachability loss becomes offline within the bounded timeout"
+      ],
+      "status": "implemented_ui_execution_blocked"
+    },
+    {
+      "criterion": "Session loading exits to a clear offline state with no infinite spinner.",
+      "tests": [
+        "issue-1237-c3: session loading exits to an offline state",
+        "issue-1237-regression: unpaired direct-web chat stays online"
+      ],
+      "status": "contract_passed_ui_execution_blocked"
+    },
+    {
+      "criterion": "Paired-Mac mutations are disabled while offline.",
+      "tests": [
+        "issue-1237-mutations: paired-Mac mutations stay disabled while offline",
+        "issue-1237-c3: session loading exits to an offline state"
+      ],
+      "status": "implemented_ui_execution_blocked"
+    },
+    {
+      "criterion": "Reconnect restores everything via one authoritative refresh, with no duplicate transcript or Activity items.",
+      "tests": [
+        "issue-1237-c5: automatic reconnect performs one authoritative recovery refresh"
+      ],
+      "status": "implemented_ui_execution_blocked"
+    },
+    {
+      "criterion": "Offline copy distinguishes paired but unreachable, not paired, and Tailscale unavailable.",
+      "tests": [
+        "issue-1237-c4: authoritative offline copy preserves paired-host distinctions"
+      ],
+      "status": "passed"
+    },
+    {
+      "criterion": "Automated tests cover disconnect, stale Settings state, bounded timeout, reconnect, and unpaired regression.",
+      "tests": [
+        "issue-1237-c1: Settings and Agents converge on one paired-Mac reachability state",
+        "issue-1237-c2: paired Mac reachability loss becomes offline within the bounded timeout",
+        "issue-1237-c5: automatic reconnect performs one authoritative recovery refresh",
+        "issue-1237-c6: one bounded paired-host probe drives all paired surfaces",
+        "issue-1237-regression: unpaired direct-web chat stays online"
+      ],
+      "status": "contract_passed_e2e_discovered_execution_blocked"
+    },
+    {
+      "criterion": "Physical-iPhone smoke repeats the Tailscale-off/on scenario successfully.",
+      "tests": [],
+      "status": "manual_required",
+      "reason": "Requires a signed build, physical iPhone, paired Mac, and real Tailscale transition."
+    }
+  ],
+  "verification": [
+    {
+      "command": "npm run lint",
+      "cwd": "apps/mobile",
+      "result": "pass (exit 0)"
+    },
+    {
+      "command": "npm run typecheck",
+      "cwd": "apps/mobile",
+      "result": "pass (exit 0)"
+    },
+    {
+      "command": "node --test tests/contract/issue-1237-paired-reachability.test.mjs tests/paired-host.test.mjs",
+      "cwd": "apps/mobile",
+      "result": "pass: 4 tests, 0 failures; paired-host state-machine script reports 22 scenarios passed"
+    },
+    {
+      "command": "npm run build:web:ci -- --clear",
+      "cwd": "apps/mobile",
+      "result": "pass (exit 0); exported 15 static routes to dist-e2e"
+    },
+    {
+      "command": "npx playwright test tests/e2e/flows.spec.mjs tests/e2e/issue-1237-paired-reachability.spec.mjs --list --project=chromium",
+      "cwd": "apps/mobile",
+      "result": "pass (exit 0); discovered 21 tests: 16 legacy flows and 5 issue-1237 cases"
+    },
+    {
+      "command": "npx playwright test tests/e2e/flows.spec.mjs tests/e2e/issue-1237-paired-reachability.spec.mjs --grep 'happy path keeps|issue-1237-c3|issue-1237-mutations|issue-1237-c5' --project=chromium",
+      "cwd": "apps/mobile",
+      "result": "blocked before test execution: fake server could not bind 127.0.0.1:44096 (listen EPERM: operation not permitted); no application assertion ran"
+    },
+    {
+      "command": "git diff --check",
+      "cwd": ".",
+      "result": "pass (exit 0)"
+    }
+  ],
+  "remaining_verification": [
+    "Run the focused Playwright command, then the full 21-test selection, in an environment permitted to bind localhost ports.",
+    "Confirm .proof/i1237/ui/offline.png and recovered.png are produced and inspect both screenshots.",
+    "Run the physical-iPhone Tailscale off/on smoke."
+  ],
+  "failure_triage": {
+    "classification": "environment",
+    "status": "BLOCKED \u2014 cannot execute localhost-bound Playwright in this managed sandbox",
+    "diagnosis": "Playwright's configured fake server is denied while calling listen(2) on 127.0.0.1:44096, before browser launch or any test assertion; the same failure reproduced on every focused attempt.",
+    "required_human_or_external_action": "Run the focused and full Playwright selections in a socket-capable environment and inspect the two generated screenshots."
+  },
+  "artifacts": {
+    "contract": "docs/ai/contracts/issue-1237.json",
+    "contract_tests": "apps/mobile/tests/contract/issue-1237-paired-reachability.test.mjs",
+    "e2e_tests": "apps/mobile/tests/e2e/issue-1237-paired-reachability.spec.mjs",
+    "impact_and_recon": ".proof/i1237/impact.md",
+    "offline_screenshot": ".proof/i1237/ui/offline.png (not produced because the corrected E2E could not start)",
+    "recovered_screenshot": ".proof/i1237/ui/recovered.png (pre-existing draft from the earlier stalled attempt; inspected but not accepted as final corrected-run evidence)"
+  },
+  "orchestratorGates": {
+    "red": "contract 2/3 fail vs pre-change providers",
+    "green": "contract 3/3; flows 15/15 restored after round-2 fix (probe initially gated unpaired e2e flows offline \u2014 all 15 hung); full e2e 64/64; static green post-rebase (c32 fingerprint inherited from tip)",
+    "specFix": "orchestrator: multi-surface offline banner asserted via .first() (message legitimately renders on every converged surface)",
+    "ui": [
+      "offline.png (inspected: bounded banner, single header)",
+      "recovered.png"
+    ]
+  }
+}

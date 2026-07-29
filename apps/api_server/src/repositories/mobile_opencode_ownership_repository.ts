@@ -11,6 +11,12 @@ export interface MobileOpenCodeOwnershipReader {
     ownerUserId: number,
     projectId: string,
   ): boolean;
+  isResourceExplicitlyOwnedBy?(
+    kind: MobileOpenCodeResourceKind,
+    resourceId: string,
+    ownerUserId: number,
+    projectId: string,
+  ): boolean;
 }
 
 export interface MobileOpenCodeOwnershipStore
@@ -91,8 +97,12 @@ export class MobileOpenCodeOwnershipRepository
           project_id: string | null;
         } | undefined;
       if (desktopOwner) {
-        return desktopOwner.owner_user_id === ownerUserId &&
-          desktopOwner.project_id === projectId;
+        if (
+          desktopOwner.owner_user_id !== ownerUserId ||
+          desktopOwner.project_id !== projectId
+        ) {
+          return false;
+        }
       }
     }
     this.db
@@ -128,22 +138,21 @@ export class MobileOpenCodeOwnershipRepository
           LIMIT 1`,
       )
       .get(kind, resourceId, ownerUserId, projectId);
-    if (owned) return true;
+    return owned !== undefined;
+  }
 
-    // Desktop-created OpenCode sessions already have a durable local mapping.
-    // A NULL owner/project is legacy state and deliberately fails closed.
-    if (kind !== 'session') return false;
-    const desktopOwned = this.db
-      .prepare(
-        `SELECT 1
-           FROM agent_sessions
-          WHERE sdk_session_id = ?
-            AND owner_user_id = ?
-            AND project_id = ?
-          LIMIT 1`,
-      )
-      .get(resourceId, ownerUserId, projectId);
-    return desktopOwned !== undefined;
+  isResourceExplicitlyOwnedBy(
+    kind: MobileOpenCodeResourceKind,
+    resourceId: string,
+    ownerUserId: number,
+    projectId: string,
+  ): boolean {
+    return this.isResourceOwnedBy(
+      kind,
+      resourceId,
+      ownerUserId,
+      projectId,
+    );
   }
 
   releaseResource(

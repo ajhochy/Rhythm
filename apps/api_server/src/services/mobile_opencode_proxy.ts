@@ -6,6 +6,7 @@ import { AppError } from '../errors/app_error';
 import {
   type MobileOpenCodeOwnershipStore,
 } from '../repositories/mobile_opencode_ownership_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { logger } from '../utils/logger';
 import { OPENCODE_ENGINE_PORT } from './opencode_client_service';
 import {
@@ -179,6 +180,85 @@ function stripRootFields(value: unknown): unknown {
       .filter(([field]) => !ROOT_FIELDS.has(field.toLowerCase()))
       .map(([field, child]) => [field, stripRootFields(child)]),
   );
+}
+
+function recordField(
+  value: unknown,
+  field: string,
+): unknown {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)[field]
+    : undefined;
+}
+
+function stringRecordField(
+  value: unknown,
+  ...fields: string[]
+): string | null {
+  for (const field of fields) {
+    const candidate = recordField(value, field);
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function reconcileCatalogSession(
+  value: unknown,
+  input: MobileOpenCodeForwardInput,
+  ownership: MobileOpenCodeOwnershipStore,
+  failureMode: 'required' | 'opportunistic',
+): void {
+  const sdkSessionId = stringRecordField(value, 'id');
+  if (
+    !sdkSessionId ||
+    !ownership.isResourceExplicitlyOwnedBy?.(
+      'session',
+      sdkSessionId,
+      input.userId,
+      input.project.id,
+    )
+  ) {
+    return;
+  }
+  const time = recordField(value, 'time');
+  const archived = recordField(time, 'archived');
+  const updated = recordField(time, 'updated');
+  const updatedAt =
+    typeof updated === 'number' && Number.isFinite(updated)
+      ? new Date(updated).toISOString()
+      : undefined;
+  const archivedAt =
+    typeof archived === 'number' && archived > 0
+      ? new Date(archived).toISOString()
+      : null;
+  try {
+    new AgentSessionsRepository().reconcileMobileSession({
+      sdkSessionId,
+      ownerUserId: input.userId,
+      projectId: input.project.id,
+      cwd: input.project.root,
+      name: stringRecordField(value, 'title', 'name') ?? 'Untitled chat',
+      archivedAt,
+      updatedAt,
+    });
+  } catch (error) {
+    if (failureMode === 'required') {
+      throw new AppError(
+        500,
+        'SESSION_CATALOG_PERSISTENCE_FAILED',
+        'Session catalog update failed',
+      );
+    }
+    logger.error(
+      '[MobileOpenCodeProxy] opportunistic session catalog reconciliation failed',
+      {
+        error_class: error instanceof Error ? error.name : 'UnknownError',
+        sdk_session_id: sdkSessionId,
+      },
+    );
+  }
 }
 
 function invalidPromptFileUrl(): AppError {
@@ -678,6 +758,50 @@ export class MobileOpenCodeProxy {
         }
         if (operation.operationId === 'pty.create') {
           claim('pty', responseResourceId(value));
+        }
+        if (
+          operation.operationId === 'session.create' ||
+          operation.operationId === 'session.update'
+        ) {
+          reconcileCatalogSession(value, input, ownership, 'required');
+        }
+        if (
+          operation.operationId === 'session.list' ||
+          operation.operationId === 'experimental.session.list'
+        ) {
+          for (const session of Array.isArray(value) ? value : []) {
+            reconcileCatalogSession(
+              session,
+              input,
+              ownership,
+              'opportunistic',
+            );
+          }
+        }
+        if (operation.operationId === 'session.delete') {
+          const deletedSdkSessionId = operationPathParameter(
+            operation.path,
+            input.path,
+            'sessionID',
+          );
+          if (
+            deletedSdkSessionId &&
+            ownership.isResourceOwnedBy(
+              'session',
+              deletedSdkSessionId,
+              input.userId,
+              input.project.id,
+            )
+          ) {
+            const catalog = new AgentSessionsRepository();
+            const local = catalog.findBySdkSessionId(deletedSdkSessionId);
+            if (
+              local?.ownerUserId === input.userId &&
+              local.projectId === input.project.id
+            ) {
+              catalog.deleteById(local.id);
+            }
+          }
         }
         releaseDeletedOwnership();
         const safeValue = await shapeMobileOpenCodeResponse(

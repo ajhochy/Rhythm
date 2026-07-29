@@ -1,0 +1,17 @@
+{
+  "issue": 1240,
+  "captured": "2026-07-28",
+  "machineState": "under load: 4 concurrent Codex jobs + npm installs (matches the flake's trigger conditions)",
+  "measured": {
+    "newTest_5_iterations_wall_s": 11.16,
+    "perIteration_avg_s": 2.2,
+    "targetTestFile_total": "7 passed"
+  },
+  "redArithmetic": {
+    "oldBudget": "20 iterations inside one 30s vitest timeout -> requires <=1.5s/iteration",
+    "observedUnderLoad": "2.2s/iteration avg on this machine while loaded",
+    "oldProjected_s": 44,
+    "conclusion": "44s > 30s: old test deterministically times out at observed load; matches 5-worktree failure evidence recorded in the issue"
+  },
+  "newBudget": "default 5 iterations, 10s per-iteration deadline, outer timeout scales with iteration count; RHYTHM_RELIABILITY_ITERATIONS=20 restores the full loop for controlled-load CI"
+}
