@@ -69,6 +69,7 @@ export function ToolScreenState({
 
   return (
     <View
+      accessibilityLiveRegion={state === 'loading' ? 'polite' : 'assertive'}
       accessibilityRole="summary"
       accessibilityLabel={`${title ?? copy.title}. ${message ?? copy.message}`}
       style={[styles.screen, { backgroundColor: palette.background }]}>

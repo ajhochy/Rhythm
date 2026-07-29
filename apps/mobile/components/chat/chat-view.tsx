@@ -22,6 +22,7 @@ import {
 import { speakText, stopSpeaking } from '@/lib/voice/speech-output';
 import { useSpeechInput } from '@/lib/voice/use-speech-input';
 import { useOpencode } from '@/providers/opencode-provider';
+import { selectModelPickerGroups } from '@/providers/opencode-provider-selectors';
 
 export function ChatView() {
   const router = useRouter();
@@ -110,11 +111,28 @@ export function ChatView() {
   const hasDraftInput = !!draft.trim() || attachments.length > 0;
   const showSendAction = !running || hasDraftInput;
   const visibleModels = useMemo(() => {
-    const configuredProviderIds = new Set(configuredProviders.map((provider) => provider.id));
+    const connectedProviderIds = new Set(configuredProviders
+      .filter((provider) => provider.connected)
+      .map((provider) => provider.id));
     const enabledModelIds = new Set(chatPreferences.enabledModelIds);
 
-    return availableModels.filter((model) => configuredProviderIds.has(model.providerID) && (enabledModelIds.size === 0 || enabledModelIds.has(model.id)));
+    return availableModels.filter((model) =>
+      connectedProviderIds.has(model.providerID)
+      && (enabledModelIds.size === 0 || enabledModelIds.has(model.id)));
   }, [availableModels, chatPreferences.enabledModelIds, configuredProviders]);
+  const modelPickerGroups = useMemo(() => selectModelPickerGroups({
+    availableModels,
+    availableProviders: configuredProviders,
+    enabledModelIds: chatPreferences.enabledModelIds,
+    recentModelIds: Object.values(chatPreferences.providerModelSelections),
+    selectedModelId: chatPreferences.modelId,
+  }), [
+    availableModels,
+    chatPreferences.enabledModelIds,
+    chatPreferences.modelId,
+    chatPreferences.providerModelSelections,
+    configuredProviders,
+  ]);
   const diffDetails = useMemo(
     () => currentTranscript.flatMap((entry) => entry.details.filter((detail) => detail.kind === 'patch')),
     [currentTranscript],
@@ -764,6 +782,7 @@ export function ChatView() {
           isSpeechInputListening={isSpeechInputListening}
           isStoppingSession={isStoppingSession}
           isUpdatingAutoApprove={isUpdatingAutoApprove}
+          modelPickerGroups={modelPickerGroups}
           onAttach={() => void handleAttach()}
           onDraftChange={(value) => {
             setSendFeedback(undefined);

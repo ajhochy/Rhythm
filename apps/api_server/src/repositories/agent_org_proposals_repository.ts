@@ -79,7 +79,7 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   proposed: ['approved', 'rejected', 'applied', 'failed'],
   approved: ['applied'],
   applied: ['measuring'],
-  measuring: ['active', 'reverted'],
+  measuring: ['active', 'reverted', 'rejected'],
   rejected: [],
   active: ['reverted'],
   reverted: [],

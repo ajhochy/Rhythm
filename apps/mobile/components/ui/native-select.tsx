@@ -18,6 +18,7 @@ export type NativeSelectOption<T extends string = string> = {
   value: T;
   label: string;
   description?: string;
+  sectionLabel?: string;
   leadingIcon?: (props: { size: number; color: string; selected: boolean }) => ReactNode;
 };
 
@@ -67,7 +68,7 @@ export function NativeSelect<T extends string>({
       return;
     }
 
-    if (Platform.OS === 'ios') {
+    if (Platform.OS === 'ios' && !options.some((option) => option.sectionLabel)) {
       ActionSheetIOS.showActionSheetWithOptions(
         {
           cancelButtonIndex: options.length,
@@ -95,7 +96,7 @@ export function NativeSelect<T extends string>({
         openState: visible,
         selectedOption,
       })}
-      {Platform.OS === 'ios' ? null : (
+      {Platform.OS === 'ios' && !options.some((option) => option.sectionLabel) ? null : (
         <Modal animationType="fade" transparent visible={visible} onRequestClose={close}>
           <View style={styles.overlay}>
             <Pressable style={styles.backdrop} onPress={close} />
@@ -109,38 +110,47 @@ export function NativeSelect<T extends string>({
                 </Pressable>
               </View>
               <ScrollView contentContainerStyle={styles.optionList} keyboardShouldPersistTaps="handled">
-                {options.map((option) => {
+                {options.map((option, index) => {
                   const selected = option.value === selectedValue;
                   const color = selected ? palette.tint : palette.muted;
+                  const showSection = option.sectionLabel && (
+                    index === 0 || options[index - 1]?.sectionLabel !== option.sectionLabel
+                  );
 
                   return (
-                    <Pressable
-                      key={option.value}
-                      accessibilityRole="button"
-                      onPress={() => handleSelect(option.value)}
-                      style={({ pressed }) => [
-                        styles.option,
-                        {
-                          backgroundColor: selected ? palette.background : palette.surface,
-                          borderColor: selected ? palette.tint : palette.border,
-                        },
-                        pressed && styles.pressed,
-                      ]}>
-                      <View style={styles.optionBody}>
-                        {option.leadingIcon ? (
-                          <View style={[styles.optionIcon, { backgroundColor: `${color}14` }]}>
-                            {option.leadingIcon({ color, selected, size: 18 })}
-                          </View>
-                        ) : null}
-                        <View style={styles.optionTextWrap}>
-                          <Text style={[styles.optionLabel, { color: palette.text }]}>{option.label}</Text>
-                          {option.description ? (
-                            <Text style={[styles.optionDescription, { color: palette.muted }]}>{option.description}</Text>
+                    <View key={option.value}>
+                      {showSection ? (
+                        <Text accessibilityRole="header" style={[styles.sectionLabel, { color: palette.muted }]}>
+                          {option.sectionLabel}
+                        </Text>
+                      ) : null}
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => handleSelect(option.value)}
+                        style={({ pressed }) => [
+                          styles.option,
+                          {
+                            backgroundColor: selected ? palette.background : palette.surface,
+                            borderColor: selected ? palette.tint : palette.border,
+                          },
+                          pressed && styles.pressed,
+                        ]}>
+                        <View style={styles.optionBody}>
+                          {option.leadingIcon ? (
+                            <View style={[styles.optionIcon, { backgroundColor: `${color}14` }]}>
+                              {option.leadingIcon({ color, selected, size: 18 })}
+                            </View>
                           ) : null}
+                          <View style={styles.optionTextWrap}>
+                            <Text style={[styles.optionLabel, { color: palette.text }]}>{option.label}</Text>
+                            {option.description ? (
+                              <Text style={[styles.optionDescription, { color: palette.muted }]}>{option.description}</Text>
+                            ) : null}
+                          </View>
+                          {selected ? <MaterialCommunityIcons name="check" size={20} color={palette.tint} /> : null}
                         </View>
-                        {selected ? <MaterialCommunityIcons name="check" size={20} color={palette.tint} /> : null}
-                      </View>
-                    </Pressable>
+                      </Pressable>
+                    </View>
                   );
                 })}
               </ScrollView>
@@ -201,6 +211,16 @@ const styles = StyleSheet.create({
   option: {
     borderRadius: 16,
     borderWidth: 1,
+  },
+  sectionLabel: {
+    fontFamily: Fonts.sans,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    paddingHorizontal: 4,
+    paddingBottom: 6,
+    paddingTop: 10,
+    textTransform: 'uppercase',
   },
   optionBody: {
     alignItems: 'center',

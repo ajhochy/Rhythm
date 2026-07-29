@@ -1,0 +1,72 @@
+{
+  "issue": 1223,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1223-c1",
+      "text": "The missing-scope generator emits **MCP server names** for `allowedMcpsJson`, never `<server>_<tool>` ids.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/generators/__tests__/workflow_signal_generator.test.ts",
+      "test_id": "issue-1223-c1: missing-scope tool identifiers normalize to server names",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1223-c2",
+      "text": "If the intent is per-tool scoping, it targets the tools-map form (`{\"gitnexus\": [\"query\"]}`) rather than adding a tool id as a server.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/generators/__tests__/workflow_signal_generator.test.ts",
+      "test_id": "issue-1223-c2: generated allowlist entries never use model-facing tool ids as servers",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1223-c3",
+      "text": "`validateBroadenScope` rejects an `add` entry that is not a known MCP server name, with an actionable reason, at both propose and approve time.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1223_contract.test.ts",
+      "test_id": "issue-1223-c3: broaden-scope validation rejects a tool id",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1223-c4",
+      "text": "The same validation applies to `tighten-scope`/`prune-scope` `remove` entries.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1223_contract.test.ts",
+      "test_id": "issue-1223-c4: removal proposals reject non-server MCP entries",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1223-c5",
+      "text": "`tighten-scope` cannot strip a server name that the profile's prompt/skills demonstrably require.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1223_contract.test.ts",
+      "test_id": "issue-1223-c5: required server is not proposed for tightening",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1223-c6",
+      "text": "Existing malformed rows are migrated or invalidated so the loop stops for already-affected profiles.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1223_contract.test.ts",
+      "test_id": "issue-1223-c6: migration invalidates malformed scope rows",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1223-c7",
+      "text": "A proposal cannot remain in `measuring` indefinitely — measure is retried, timed out into a terminal state, or the row is surfaced in the review queue.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1223_contract.test.ts",
+      "test_id": "issue-1223-c7: approval awaits measurement to a terminal state",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1223-c8",
+      "text": "Approving a scope proposal produces a verifiable capability change, or fails loudly.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1223_scope_approval.test.ts",
+      "test_id": "issue-1223-c8: live approval grants server capability and prevents regeneration",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

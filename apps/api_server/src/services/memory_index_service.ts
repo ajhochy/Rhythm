@@ -34,6 +34,7 @@ import { resolveMemoryVaultPath } from '../config/env';
 import { logger } from '../utils/logger';
 import {
   MEMORY_VAULT_SOURCE,
+  classifyVaultNoteKind,
   scanVaultNotes,
   type ParsedNote,
 } from './memoryVaultSyncService';
@@ -109,7 +110,7 @@ export class MemoryIndexService {
    */
   async upsertNote(note: IndexedNote): Promise<void> {
     await this.repo.upsertBySourceAsync({
-      kind: note.parsed.kind,
+      kind: classifyVaultNoteKind(note.sourceId, note.parsed.kind),
       content: note.parsed.content,
       source: MEMORY_VAULT_SOURCE,
       sourceId: note.sourceId,

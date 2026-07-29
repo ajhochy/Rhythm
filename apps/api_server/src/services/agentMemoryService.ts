@@ -36,6 +36,12 @@ import {
   type UpdateMemoryPatch,
   type VerifyMemoryOptions,
 } from './memoryVaultWriteService';
+import {
+  MEMORY_CONSOLIDATION_ALLOWED_MCPS_JSON,
+  MEMORY_CONSOLIDATION_ALLOWED_SKILLS_JSON,
+  MEMORY_CONSOLIDATION_PROMPT,
+  MEMORY_CONSOLIDATION_SEED_NAME,
+} from './memory_consolidation_seed';
 
 const memRepo = new AgentMemoryRepository();
 const schedRepo = new AgentScheduledTasksRepository();
@@ -180,9 +186,9 @@ export const agentMemoryService = {
    * Safe to call on every startup — idempotent (checks before inserting).
    */
   async seedConsolidationTask() {
-    const marker = 'seeded_task:Memory Consolidation';
+    const marker = `seeded_task:${MEMORY_CONSOLIDATION_SEED_NAME}`;
     const existing = await schedRepo.listAllAsync();
-    const alreadySeeded = existing.some((t) => t.name === 'Memory Consolidation');
+    const alreadySeeded = existing.some((t) => t.name === MEMORY_CONSOLIDATION_SEED_NAME);
     if (alreadySeeded) {
       recordSeedMarker(marker); // adopt pre-marker installs
       return;
@@ -191,28 +197,15 @@ export const agentMemoryService = {
     if (seedMarkerExists(marker)) return;
 
     await schedRepo.createAsync({
-      name: 'Memory Consolidation',
+      name: MEMORY_CONSOLIDATION_SEED_NAME,
       description: 'Scan recent agent session messages and extract durable facts into the memory store.',
       scheduleType: 'daily',
       scheduledTime: '02:00',
       timezone: 'America/Los_Angeles',
-      prompt: `You are the Memory Consolidation agent for Rhythm.
-
-Your job:
-1. Use rhythm_list_sessions (or the agent_session_messages table) to read recent session messages from the past 24 hours.
-2. Identify facts, preferences, and important context worth remembering long-term.
-3. For each item, call rhythm_remember_memory with kind='fact' or
-   kind='preference', the extracted content, and sessionId set to the EXACT
-   source-session id returned by rhythm_list_sessions for the message. Never
-   invent or omit that sessionId when the source session is known.
-4. Skip information that is transient, task-specific, or already stored.
-5. Deduplicate: before storing, search rhythm_search_memory for similar entries.
-
-Keep entries concise (< 200 chars each). Aim for 3–10 high-value memories per run.
-Report how many memories were added.`,
+      prompt: MEMORY_CONSOLIDATION_PROMPT,
       agentKind: 'opencode',
-      allowedMcpsJson: JSON.stringify(['rhythm']),
-      allowedSkillsJson: JSON.stringify(['anthropic-skills:consolidate-memory']),
+      allowedMcpsJson: MEMORY_CONSOLIDATION_ALLOWED_MCPS_JSON,
+      allowedSkillsJson: MEMORY_CONSOLIDATION_ALLOWED_SKILLS_JSON,
     });
 
     recordSeedMarker(marker);

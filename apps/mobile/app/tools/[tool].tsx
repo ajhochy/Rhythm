@@ -1056,9 +1056,10 @@ export default function RhythmToolScreen() {
           </Surface>
         ) : null}
         {items.length === 0 ? (
-          <Text style={{ color: palette.muted }} variant="bodyLarge">
-            Nothing here yet.
-          </Text>
+          <ToolScreenState
+            message={`${manifest.title} items will appear here when they are available.`}
+            state="empty"
+          />
         ) : (
           items.map((item) => {
             const title = recordTitle(tool, item);

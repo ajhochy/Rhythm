@@ -1,0 +1,40 @@
+{
+  "issue": 1217,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1217-c1",
+      "text": "Make `rhythm doctor` report live MCP status accurately — read live /opencode/mcp status from the local API when available.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/cli/issue_1217_doctor_live_mcp.test.ts",
+      "test_id": "issue-1217-c1: reports live failed/disabled/connected statuses from the local API",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1217-c2",
+      "text": "Fall back to config-only MCP status with an explicit label when the local API is unavailable.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/cli/issue_1217_doctor_live_mcp.test.ts",
+      "test_id": "issue-1217-c2: labels results config-only when the API is down",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1217-c3",
+      "text": "Redact secrets from `rhythm doctor` MCP status output.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/cli/issue_1217_doctor_live_mcp.test.ts",
+      "test_id": "issue-1217-c3: never renders secret values returned by the API",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1217-c4",
+      "text": "Keep the live MCP status request timeout-bounded.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/cli/issue_1217_doctor_live_mcp.test.ts",
+      "test_id": "issue-1217-c4: the default local API read is timeout-bounded",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

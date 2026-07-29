@@ -1,0 +1,64 @@
+{
+  "issue": 1218,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1218-c1",
+      "text": "Source/synthesis documents remain indexed and explicitly searchable.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1218_curated_vs_synthesis.test.ts",
+      "test_id": "issue-1218-c1: synthesis documents remain explicitly searchable",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1218-c2",
+      "text": "Synthesis documents are classified separately from atomic facts/preferences/projects.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1218_curated_vs_synthesis.test.ts",
+      "test_id": "issue-1218-c2: synthesis paths are classified separately during vault sync",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1218-c3",
+      "text": "Default memory prompt injection prioritizes concise curated memories.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1218_curated_vs_synthesis.test.ts",
+      "test_id": "issue-1218-c3: prompt retrieval prioritizes concise curated memories",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1218-c4",
+      "text": "A relevant atomic memory outranks a large synthesis document for the same query.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/issue_1218_curated_vs_synthesis.test.ts",
+      "test_id": "issue-1218-c4: atomic memory outranks a large synthesis document",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1218-c5",
+      "text": "Retrieval results preserve vault-note provenance/path.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1218_curated_vs_synthesis.test.ts",
+      "test_id": "issue-1218-c5: ranked results preserve the vault-relative source path",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1218-c6",
+      "text": "Reindexing is deterministic and does not require rewriting the source vault.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1218_curated_vs_synthesis.test.ts",
+      "test_id": "issue-1218-c6: repeated reindexing is deterministic and leaves vault files unchanged",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1218-c7",
+      "text": "Existing owner scoping remains intact.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1218_curated_vs_synthesis.test.ts",
+      "test_id": "issue-1218-c7: ranking never crosses owner scope",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

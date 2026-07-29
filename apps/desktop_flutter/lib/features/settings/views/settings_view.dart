@@ -219,6 +219,8 @@ class _SettingsViewState extends State<SettingsView> {
           const SizedBox(height: 24),
           const _AgentServerSection(),
           const SizedBox(height: 24),
+          const MobileAccessSettingsSection(),
+          const SizedBox(height: 24),
           const SemanticMemorySection(),
           const SizedBox(height: 24),
           const MemoryVaultSection(),
@@ -1129,15 +1131,102 @@ class _AgentServerReady extends StatelessWidget {
             color: context.rhythm.textPrimary,
           ),
         ),
-        const Spacer(),
-        FilledButton.tonalIcon(
-          key: const Key('enable-mobile-access-button'),
-          onPressed: () => showDialog<void>(
-            context: context,
-            builder: (_) => const MobileAccessDialog(),
+      ],
+    );
+  }
+}
+
+class MobileAccessSettingsSection extends StatelessWidget {
+  const MobileAccessSettingsSection({super.key, this.onOpen});
+
+  final VoidCallback? onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = context.watch<AgentServerController>().status;
+    final ready = status == AgentServerStatus.ready;
+    final statusMessage = switch (status) {
+      AgentServerStatus.starting =>
+        'The agent server is starting. You can open Mobile Access now; '
+            'pairing and device changes will become available when it is ready.',
+      AgentServerStatus.failed =>
+        'The agent server is unavailable. Open Mobile Access to review its '
+            'state, then retry the Agent Server before pairing or revoking.',
+      AgentServerStatus.ready =>
+        'Pair an iPhone, inspect the current connection, or revoke an existing '
+            'device credential.',
+    };
+
+    return Column(
+      key: const Key('mobile-access-settings-item'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'MOBILE ACCESS',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: context.rhythm.textSecondary,
+            letterSpacing: 0.8,
           ),
-          icon: const Icon(Icons.phone_iphone_outlined, size: 17),
-          label: const Text('Enable Mobile Access'),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: context.rhythm.surfaceRaised,
+            borderRadius: BorderRadius.circular(RhythmRadius.xl),
+            border: Border.all(color: context.rhythm.borderSubtle),
+            boxShadow: RhythmElevation.panel,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Icon(
+                ready ? Icons.phone_iphone : Icons.phone_iphone_outlined,
+                color: ready
+                    ? context.rhythm.success
+                    : context.rhythm.textSecondary,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Mobile Access',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: context.rhythm.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      statusMessage,
+                      key: ready
+                          ? const Key('mobile-access-agent-server-ready')
+                          : const Key('mobile-access-agent-server-degraded'),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: context.rhythm.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              FilledButton.tonalIcon(
+                key: const Key('manage-mobile-access-button'),
+                onPressed: onOpen ??
+                    () => showDialog<void>(
+                          context: context,
+                          builder: (_) => const MobileAccessDialog(),
+                        ),
+                icon: const Icon(Icons.settings_outlined, size: 17),
+                label: const Text('Manage Mobile Access'),
+              ),
+            ],
+          ),
         ),
       ],
     );

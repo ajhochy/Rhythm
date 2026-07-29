@@ -1,0 +1,16 @@
+{
+  "issue": 1221,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1221-c1",
+      "text": "Deleting an MCP server remains durable across an api_server restart and ensure/seed paths do not resurrect it.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1221_mcp_delete_persistence.test.ts",
+      "test_id": "issue-1221-c1: a curated MCP deletion survives a new service instance and ensure pass",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

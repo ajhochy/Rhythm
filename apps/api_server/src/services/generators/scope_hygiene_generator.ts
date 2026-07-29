@@ -76,6 +76,8 @@ import { classifyProposalRisk } from '../org_risk_classifier';
 import { AgentOrgProposalsRepository } from '../../repositories/agent_org_proposals_repository';
 import type { OrgAuditSnapshot, OrgAuditGap, SkillOverlapCandidate } from '../org_audit_service';
 import type { AgentOrgProposalInput } from '../../models/agent_org_proposal';
+import { AgentConfigsRepository } from '../../repositories/agent_configs_repository';
+import { AgentSkillsRepository } from '../../repositories/agent_skills_repository';
 
 export type ScopeKind = 'mcp' | 'skill';
 
@@ -96,10 +98,39 @@ export interface ScopeHygieneDeps {
    * module doc comment for what happens when this returns true.
    */
   isUserAuthoredScopeEntry?: (profileId: string, scopeKind: ScopeKind, name: string) => boolean;
+  /**
+   * Returns true when the profile prompt or one of its allowed skills still
+   * requires an MCP server. The default lookup is best-effort so generator
+   * callers with no initialized database retain the original #822 behavior.
+   */
+  isMcpRequiredByProfile?: (profileId: string, serverName: string) => boolean;
 }
 
 function defaultIsUserAuthoredScopeEntry(): boolean {
   return false;
+}
+
+function defaultIsMcpRequiredByProfile(profileId: string, serverName: string): boolean {
+  try {
+    const config = new AgentConfigsRepository().getById(profileId);
+    if (config?.systemPrompt?.includes(serverName)) return true;
+
+    const allowedSkills = config?.allowedSkillsJson
+      ? new Set(
+          (JSON.parse(config.allowedSkillsJson) as unknown[]).filter(
+            (name): name is string => typeof name === 'string',
+          ),
+        )
+      : new Set<string>();
+    return new AgentSkillsRepository()
+      .list()
+      .some(
+        (skill) =>
+          allowedSkills.has(skill.title) && (skill.body?.includes(serverName) ?? false),
+      );
+  } catch {
+    return false;
+  }
 }
 
 function scopeField(scopeKind: ScopeKind): 'allowedMcpsJson' | 'allowedSkillsJson' {
@@ -217,13 +248,14 @@ export async function generateScopeHygieneProposals(
 ): Promise<void> {
   const proposalsRepo = deps.proposalsRepo ?? new AgentOrgProposalsRepository();
   const isUserAuthoredScopeEntry = deps.isUserAuthoredScopeEntry ?? defaultIsUserAuthoredScopeEntry;
+  const isMcpRequiredByProfile = deps.isMcpRequiredByProfile ?? defaultIsMcpRequiredByProfile;
 
   for (const gap of snapshot.gaps) {
     try {
       if (gap.kind === 'prune-scope') {
         await handlePruneGap(gap, snapshot, proposalsRepo, isUserAuthoredScopeEntry);
       } else if (gap.kind === 'tighten-scope') {
-        await handleTightenGap(gap, snapshot, proposalsRepo);
+        await handleTightenGap(gap, snapshot, proposalsRepo, isMcpRequiredByProfile);
       }
       // webhook-wiring gaps are out of scope for this generator (org-optimizer-09).
     } catch (err) {
@@ -275,10 +307,18 @@ async function handleTightenGap(
   gap: OrgAuditGap,
   snapshot: OrgAuditSnapshot,
   proposalsRepo: NonNullable<ScopeHygieneDeps['proposalsRepo']>,
+  isMcpRequiredByProfile: NonNullable<ScopeHygieneDeps['isMcpRequiredByProfile']>,
 ): Promise<void> {
   const parsed = parseTightenEvidence(gap.evidence);
   if (!parsed) {
     logger.warn(`[scope-hygiene-generator] unparseable tighten-scope evidence for gap '${gap.gapId}': '${gap.evidence}'`);
+    return;
+  }
+
+  if (isMcpRequiredByProfile(parsed.profileId, parsed.name)) {
+    logger.info(
+      `[scope-hygiene-generator] skipped tighten-scope for '${parsed.name}' on '${parsed.profileId}' because the profile prompt/skills require it`,
+    );
     return;
   }
 

@@ -516,6 +516,60 @@ export class OpencodeClientService {
     this._removedPendingRestart.delete(name);
   }
 
+  /** #1221 — default durable deletion-intent store, separate from opencode.json. */
+  private mcpDeletionPath(): string {
+    const { join } = require('path') as typeof import('path');
+    const { homedir } = require('os') as typeof import('os');
+    return join(homedir(), '.config', 'rhythm', 'mcp-deletions.json');
+  }
+
+  /** #1221 — read names explicitly deleted by the user. */
+  private readMcpDeletions(path = this.mcpDeletionPath()): Set<string> {
+    const { existsSync, readFileSync } = require('fs') as typeof import('fs');
+    if (!existsSync(path)) return new Set();
+    try {
+      const parsed = JSON.parse(readFileSync(path, 'utf8')) as {
+        deleted?: unknown;
+      };
+      if (!Array.isArray(parsed.deleted)) {
+        throw new Error('expected a deleted array');
+      }
+      return new Set(
+        parsed.deleted.filter((name): name is string => typeof name === 'string'),
+      );
+    } catch (err) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `could not read durable MCP deletions: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /** #1221 — persist or clear one user's deletion intent. */
+  private writeMcpDeletion(
+    name: string,
+    deleted: boolean,
+    path = this.mcpDeletionPath(),
+  ): void {
+    const { existsSync, writeFileSync, mkdirSync } =
+      require('fs') as typeof import('fs');
+    const { dirname } = require('path') as typeof import('path');
+    if (!deleted && !existsSync(path)) return;
+    const deletions = this.readMcpDeletions(path);
+    if (deleted) {
+      deletions.add(name);
+    } else {
+      deletions.delete(name);
+    }
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(
+      path,
+      JSON.stringify({ deleted: [...deletions].sort() }, null, 2) + '\n',
+      'utf8',
+    );
+  }
+
   get isReady(): boolean {
     return this.status === 'ready';
   }
@@ -1008,8 +1062,23 @@ export class OpencodeClientService {
     // omitted by every pre-#1123 caller, so top-level create/resume/AgentRunner
     // behavior stays byte-for-byte unchanged.
     parentSdkSessionId?: string,
-  ): Promise<{ id: string } | null> {
-    if (!this.client) return null;
+    // #1222 — root-cause of the discarded-error bug: every failure branch
+    // below used to collapse to a bare `null`, so callers (AgentRunner in
+    // particular) could only ever report the generic "failed to create
+    // opencode session" — the real cause (engine never initialized, an SDK
+    // error response, or a response with no id) was logged here and nowhere
+    // else, and this process's stdout/stderr are unread pipes to the parent
+    // Rhythm process. Every failure branch now returns `{ error }` with a
+    // cause-specific message instead. This is additive: every existing
+    // caller already narrows on `!result` or `!result?.id` (both still
+    // falsy-safe on `{ error }`, since `.id` is absent) — see ws_gateway.ts
+    // and agent_sessions_controller.ts, updated alongside this change to use
+    // `?.id` explicitly so a truthy `{ error }` object is never mistaken for
+    // success.
+  ): Promise<{ id: string; error?: undefined } | { id?: undefined; error: string }> {
+    if (!this.client) {
+      return { error: 'Opencode engine is not initialized (not ready) — no session was created' };
+    }
 
     // mcp-scope-04: expand the McpRoleConfig into a flat { servers[], tools[] }
     // allowlist and pass it as `mcpAllowlist` on the session.create POST body.
@@ -1091,16 +1160,21 @@ export class OpencodeClientService {
       });
       const id = raw.data?.id;
       if (!id) {
-        logger.error(
-          '[OpencodeClientService] createSession failed: SDK returned %s %s',
-          raw.error ? `error="${JSON.stringify(raw.error)}"` : 'no id',
-          raw.data ? `data=${JSON.stringify(raw.data).slice(0, 200)}` : '',
-        );
+        // #1222 — distinguish "SDK returned an explicit error" from "SDK
+        // returned no id and no error" (an ambiguous but still real cause):
+        // both used to be swallowed into the same generic caller-facing
+        // string; each now carries its own reportable reason.
+        const reason = raw.error
+          ? `Opencode session.create returned an error: ${JSON.stringify(raw.error)}`
+          : `Opencode session.create returned no session id${raw.data ? ` (data=${JSON.stringify(raw.data).slice(0, 200)})` : ' (empty response)'}`;
+        logger.error('[OpencodeClientService] createSession failed: %s', reason);
+        return { error: reason };
       }
-      return id ? { id } : null;
+      return { id };
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       logger.error('[OpencodeClientService] createSession failed:', err);
-      return null;
+      return { error: `Opencode session.create threw: ${message}` };
     }
   }
 
@@ -2616,6 +2690,20 @@ export class OpencodeClientService {
     return reconciled;
   }
 
+  /** Lists the live engine tool ids used by the profile capability editor. */
+  async listToolIds(): Promise<string[]> {
+    const client = this.requireClient();
+    const raw = await client.tool.ids();
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `listToolIds failed: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data ?? [];
+  }
+
   /**
    * #952 — names of MCP servers currently known to the engine, used to
    * synthesize the "all servers, deferred" allowlist for an unscoped Gemini
@@ -2686,6 +2774,9 @@ export class OpencodeClientService {
       // #723 — a re-added server must reappear in listMcp(): clear any stale
       // removed-pending-restart marker for this name.
       this.markMcpPresent(name);
+      // #1221 — an explicit add is the user's opt-in to restore a server they
+      // previously deleted, so clear its durable deletion intent.
+      this.writeMcpDeletion(name, false);
     } catch (err) {
       throw new AppError(
         502,
@@ -2937,6 +3028,8 @@ export class OpencodeClientService {
     configPath?: string;
     register?: boolean;
     tokenResolver?: CuratedTokenResolver;
+    /** #1221 — override the durable deletion store for isolated tests. */
+    deletionPath?: string;
     /**
      * Curated server list to ensure. Defaults to {@link CURATED_MCP_SERVERS}.
      * Overridable so the token-bridge mechanism stays unit-covered with a
@@ -3025,8 +3118,12 @@ export class OpencodeClientService {
     };
 
     const curatedServers = opts?.servers ?? CURATED_MCP_SERVERS;
+    const deletedServers = this.readMcpDeletions(opts?.deletionPath);
     const changedServers: CuratedMcpServer[] = [];
     for (const server of curatedServers) {
+      // #1221 — deletion is authoritative across restarts. All callers,
+      // including the org-optimizer installer, share this ensure guard.
+      if (deletedServers.has(server.id)) continue;
       const bridgedEnv = await resolveBridgedEnv(server);
       // null → token-bridged server with no connected account: skip entirely.
       if (bridgedEnv === null) continue;
@@ -3189,12 +3286,18 @@ export class OpencodeClientService {
    *
    * OPC-M4-3 typed wrapper.
    */
-  async removeMcp(name: string): Promise<void> {
+  async removeMcp(
+    name: string,
+    opts?: { deletionPath?: string },
+  ): Promise<void> {
     // #723 — record the removal up front so listMcp() filters it out even
     // though the running engine keeps reporting it from in-memory state until
     // restart. Recorded before any fs/SDK work so it holds regardless of
     // whether the config write below short-circuits.
     this.markMcpRemoved(name);
+    // #1221 — persist deletion intent before touching the engine/config. A
+    // failure here must surface rather than acknowledge a non-durable delete.
+    this.writeMcpDeletion(name, true, opts?.deletionPath);
 
     // 1. Disconnect first (best-effort — ignore "not connected" errors).
     try {

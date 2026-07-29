@@ -180,6 +180,39 @@ describe('#738 — AgentRunner', () => {
     expect(mockPrompt).not.toHaveBeenCalled();
   });
 
+  // #1222 — the real cause createSession reports (opencode_client_service.ts)
+  // must be forwarded verbatim, not collapsed into the fixed generic string
+  // above. This is the root-cause fix: the discarded error is now the
+  // reported error.
+  it('#1222: forwards the REAL cause from createSession({ error }) instead of the generic message', async () => {
+    mockCreateSession.mockResolvedValue({
+      error: 'Opencode session.create returned an error: {"message":"provider unauthenticated"}',
+    });
+
+    const result = await run({ prompt: 'No session, real cause' });
+
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('provider unauthenticated');
+    expect(mockPrompt).not.toHaveBeenCalled();
+  });
+
+  // #1222 — this failure branch used to skip _markSessionError entirely, so a
+  // scheduled/headless run's agent_sessions row never durably recorded WHY it
+  // failed (only the return value did, and only the scheduler's caller — not
+  // the CHATS-list-visible session row — persisted anything).
+  it('#1222: durably marks the recorded session row as error with the real reason', async () => {
+    setDb(new Database(':memory:'));
+    runMigrations(getDb());
+    mockCreateSession.mockResolvedValue({ error: 'Opencode session.create threw: ECONNRESET' });
+
+    const result = await run({ prompt: 'Durability check' });
+
+    expect(result.status).toBe('error');
+    const recorded = new AgentSessionsRepository().findById(result.sessionId);
+    expect(recorded?.status).toBe('error');
+    expect(recorded?.lastPreview).toContain('ECONNRESET');
+  });
+
   it('issue-1135-c5: rejects a security-locked profile before engine/session work', async () => {
     setDb(new Database(':memory:'));
     runMigrations(getDb());

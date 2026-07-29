@@ -59,7 +59,11 @@ beforeEach(async () => {
   setDb(makeDb());
   resetProposalPluginsForTests();
   mockIsReady = true;
-  listMcp.mockReset().mockResolvedValue({ rhythm: { name: 'rhythm' } });
+  listMcp.mockReset().mockResolvedValue({
+    rhythm: { name: 'rhythm' },
+    gitnexus: { name: 'gitnexus' },
+    nfl_mcp: { name: 'nfl_mcp' },
+  });
   listSkills.mockReset().mockResolvedValue([]);
   const { _resetEngineReadyForTests } = await import('../../skill_extractor');
   _resetEngineReadyForTests();
@@ -97,10 +101,37 @@ function makeSignal(overrides: Partial<WorkflowFailureSignal> = {}): WorkflowFai
 }
 
 describe('issue-935-c1: missing-scope maps to a single broaden-scope proposal', () => {
-  it('creates a high-risk broaden-scope proposal adding the denied tool', async () => {
+  it('issue-1223-c1: normalizes a model-facing denied tool to its MCP server name', async () => {
     const configsRepo = new AgentConfigsRepository();
     configsRepo.insert({ id: 'secretary', label: 'Secretary', icon: 'x', allowedMcpsJson: JSON.stringify(['rhythm']) });
 
+    const signal = makeSignal({
+      category: 'missing-scope',
+      agentConfigId: 'secretary',
+      confidence: 'high',
+      evidence: 'profile=secretary deniedTool=gitnexus_query count=3 sessionIds=s1,s2,s3',
+    });
+
+    const { generateWorkflowSignalProposals } = await import('../workflow_signal_generator');
+    const { created } = await generateWorkflowSignalProposals(baseSnapshot([signal]));
+
+    expect(created).toHaveLength(1);
+    expect(created[0].kind).toBe('broaden-scope');
+    expect(created[0].risk).toBe('high');
+    const change = JSON.parse(created[0].changeJson!);
+    expect(change).toEqual({ agentConfigId: 'secretary', field: 'allowedMcpsJson', add: ['gitnexus'] });
+    expect(created[0].dedupKey).toBe('broaden-scope:secretary:mcp:gitnexus');
+  });
+
+  it.each([
+    ['an empty catalog', {}],
+    ['an unavailable catalog', new Error('engine unavailable')],
+  ])('preserves a plausible server name with %s', async (_label, catalog) => {
+    if (catalog instanceof Error) {
+      listMcp.mockRejectedValueOnce(catalog);
+    } else {
+      listMcp.mockResolvedValueOnce(catalog);
+    }
     const signal = makeSignal({
       category: 'missing-scope',
       agentConfigId: 'secretary',
@@ -112,10 +143,26 @@ describe('issue-935-c1: missing-scope maps to a single broaden-scope proposal', 
     const { created } = await generateWorkflowSignalProposals(baseSnapshot([signal]));
 
     expect(created).toHaveLength(1);
-    expect(created[0].kind).toBe('broaden-scope');
-    expect(created[0].risk).toBe('high');
-    const change = JSON.parse(created[0].changeJson!);
-    expect(change).toEqual({ agentConfigId: 'secretary', field: 'allowedMcpsJson', add: ['nfl_mcp'] });
+    expect(JSON.parse(created[0].changeJson!)).toEqual({
+      agentConfigId: 'secretary',
+      field: 'allowedMcpsJson',
+      add: ['nfl_mcp'],
+    });
+  });
+
+  it('does not pass through a model-facing tool id when the catalog cannot resolve it', async () => {
+    listMcp.mockResolvedValueOnce({});
+    const signal = makeSignal({
+      category: 'missing-scope',
+      agentConfigId: 'secretary',
+      confidence: 'high',
+      evidence: 'profile=secretary deniedTool=gitnexus_query count=3 sessionIds=s1,s2,s3',
+    });
+
+    const { generateWorkflowSignalProposals } = await import('../workflow_signal_generator');
+    const { created } = await generateWorkflowSignalProposals(baseSnapshot([signal]));
+
+    expect(created).toHaveLength(0);
   });
 });
 

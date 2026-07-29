@@ -29,6 +29,7 @@
     "test:dynamic-type": "node --test ./tests/issue-1181-1182-dynamic-type.test.mjs",
     "test:corrective:1224": "node --test ./tests/contract/issue-1224.test.mjs",
     "test:corrective:1225": "node --test ./tests/contract/issue-1225.test.mjs",
+    "test:contract:1233": "node --test ./tests/contract/issue-1233.test.mjs",
     "test:security:1174": "node --test ./tests/issue-1174-security.test.mjs",
     "test:security:1175": "node --test ./tests/issue-1175-security-review.test.mjs ./tests/issue-1175-adversarial-review.test.mjs ./tests/issue-1175-share-privacy.test.mjs",
     "test:acceptance:1167": "node ./tests/issue-1167-acceptance.test.mjs",

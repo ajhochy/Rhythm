@@ -1,6 +1,14 @@
 import type Database from 'better-sqlite3';
 
 import { convertLegacyNumberedCorePermissions } from './core_permissions_repair';
+import {
+  LEGACY_MEMORY_CONSOLIDATION_PROMPT_V1,
+  MEMORY_CONSOLIDATION_ALLOWED_MCPS_JSON,
+  MEMORY_CONSOLIDATION_ALLOWED_SKILLS_JSON,
+  MEMORY_CONSOLIDATION_PROMPT,
+  MEMORY_CONSOLIDATION_REPAIR_KEY,
+  MEMORY_CONSOLIDATION_SEED_NAME,
+} from '../services/memory_consolidation_seed';
 
 export function runMigrations(db: Database.Database): void {
   // ── Write-discipline contract ─────────────────────────────────────────
@@ -37,6 +45,7 @@ export function runMigrations(db: Database.Database): void {
       value TEXT
     )
   `);
+
   const runOnce = (key: string, fn: () => void): void => {
     const done = db.prepare(`SELECT key FROM schema_meta WHERE key = ?`).get(key);
     if (done) return;
@@ -1289,6 +1298,33 @@ export function runMigrations(db: Database.Database): void {
       ON agent_scheduled_tasks(next_run_at)
       WHERE enabled = 1 AND next_run_at IS NOT NULL;
   `);
+
+  // #1215 — repair only the exact managed v1 seed. The prompt + scopes form
+  // the legacy fingerprint, so a user-authored schedule with the same display
+  // name remains untouched. Fresh installs consume this marker before the seed
+  // row exists and receive v2 directly from seedConsolidationTask().
+  runOnce(MEMORY_CONSOLIDATION_REPAIR_KEY, () => {
+    db.prepare(`
+      UPDATE agent_scheduled_tasks
+         SET prompt = ?,
+             allowed_mcps_json = ?,
+             allowed_skills_json = ?,
+             updated_at = datetime('now')
+       WHERE name = ?
+         AND prompt = ?
+         AND allowed_mcps_json = ?
+         AND allowed_skills_json = ?
+         AND created_by_user_id IS NULL
+    `).run(
+      MEMORY_CONSOLIDATION_PROMPT,
+      MEMORY_CONSOLIDATION_ALLOWED_MCPS_JSON,
+      MEMORY_CONSOLIDATION_ALLOWED_SKILLS_JSON,
+      MEMORY_CONSOLIDATION_SEED_NAME,
+      LEGACY_MEMORY_CONSOLIDATION_PROMPT_V1,
+      MEMORY_CONSOLIDATION_ALLOWED_MCPS_JSON,
+      JSON.stringify(['anthropic-skills:consolidate-memory']),
+    );
+  });
 
   // agent_memory — persistent facts extracted by the memory consolidation loop.
   // SQLite FTS5 virtual table enables full-text search over content.

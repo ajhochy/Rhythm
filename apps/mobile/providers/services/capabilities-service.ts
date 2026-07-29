@@ -57,6 +57,7 @@ export async function discoverChatCapabilities(client: OpencodeClient, activePro
         providerID: provider.id,
         providerLabel: provider.name,
         modelID: model.id,
+        recommended: providerData.default[provider.id] === model.id,
         supportsReasoning: model.capabilities.reasoning,
         supportsAttachments: model.capabilities.attachment,
         inputModalities: INPUT_MODALITIES.filter((modality) => model.capabilities.input[modality]),
@@ -79,8 +80,10 @@ export async function discoverChatCapabilities(client: OpencodeClient, activePro
     .map((provider) => ({
       id: provider.id,
       label: provider.name,
+      accountLabel: provider.name,
       modelCount: Object.keys(provider.models).length,
       configured: configuredProviderIds.has(provider.id),
+      connected: providerData.connected.includes(provider.id),
     }))
     .sort((left, right) => left.label.localeCompare(right.label)));
   const nextAgents = uniqueById(agentData.map(toAgentOption));

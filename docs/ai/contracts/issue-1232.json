@@ -1,0 +1,48 @@
+{
+  "issue": 1232,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1232-c1",
+      "text": "Organize the iOS app's Agents surface around Chats, Scheduled Tasks, and Background Loops as its primary categories instead of lifecycle filters.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1232.test.mjs",
+      "test_id": "issue-1232-c1: Agents uses Chats, Scheduled Tasks, and Background Loops as its primary categories",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1232-c2",
+      "text": "Show counts for Chats, Scheduled Tasks, and Background Loops.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1232.test.mjs",
+      "test_id": "issue-1232-c2: every primary category exposes its current item count",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1232-c3",
+      "text": "Provide category-specific empty states.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1232.test.mjs",
+      "test_id": "issue-1232-c3: each category has a specific, actionable empty state",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1232-c4",
+      "text": "Open Chats, Scheduled Tasks, and Background Loops through the correct deep links.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1232.test.mjs",
+      "test_id": "issue-1232-c4: category rows deep-link to the corresponding chat or tool detail",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1232-c5",
+      "text": "Search and filter within the selected Agents category without mixing category results.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/issue-1232.test.mjs",
+      "test_id": "issue-1232-c5: search and status filters apply inside the selected category without cross-category leakage",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

@@ -1,0 +1,32 @@
+{
+  "issue": 1216,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1216-c1",
+      "text": "Fail scheduled runs fast when required MCPs are unavailable — expand MCP preflight to reject failed/disabled servers (not just needs_auth) and surface remediation detail.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1216_mcp_preflight.test.ts",
+      "test_id": "issue-1216-c1: rejects a required MCP whose live status is failed/disabled before session creation",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1216-c2",
+      "text": "Fail scheduled runs fast when required MCPs are missing and surface remediation detail.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1216_mcp_preflight.test.ts",
+      "test_id": "issue-1216-c2: rejects a required MCP missing from the live status map with configuration remediation",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1216-c3",
+      "text": "Distinguish optional vs required MCP servers.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1216_mcp_preflight.test.ts",
+      "test_id": "issue-1216-c3: ignores an unhealthy optional MCP that is not required by the run scope",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

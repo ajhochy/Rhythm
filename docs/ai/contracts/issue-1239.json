@@ -1,0 +1,65 @@
+{
+  "issue": 1239,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1239-c1",
+      "text": "Mobile Access is a persistent Settings item, not a control that disappears with Agent Server readiness.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/settings/issue_1239_mobile_access_destination_contract_test.dart",
+      "test_id": "issue-1239-c1-widget: destination renders outside Agent Server ready row",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1239-c2",
+      "text": "Missing, logged-out, wrong-target, offline, starting, failed, and healthy states are all reachable from the same destination.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/settings/issue_1239_mobile_access_destination_contract_test.dart",
+      "test_id": "issue-1239-c2-widget: starting and failed states explain prerequisites",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1239-c3",
+      "text": "A paired iPhone is visible with status and a clear Revoke action.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/mobile_access_dialog_test.dart",
+      "test_id": "issue-1171-c4/c6: active device shows replacement warning and accessible revoke",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1239-c4",
+      "text": "Revocation immediately prevents the existing device credential from reconnecting.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1171_mobile_access_live.test.ts",
+      "test_id": "revokes the paired credential and rejects subsequent authenticated use",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1239-c5",
+      "text": "QR generation remains restricted to a healthy private Tailscale configuration and reveals no long-lived secret.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/mobile_access_dialog_test.dart",
+      "test_id": "issue-1171-c2: QR payload contains only host binding and one-time pairing material",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1239-c6",
+      "text": "Desktop UI tests cover entry-point visibility in every Agent Server state.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/settings/issue_1239_mobile_access_destination_contract_test.dart",
+      "test_id": "issue-1239-c6: entry point is visible in every Agent Server state",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1239-c7",
+      "text": "Physical smoke pairs using the visible QR flow, revokes from the same screen, and verifies the old credential fails.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires the orchestrator's final physical-iPhone visual smoke; local sandbox verification covers the same HTTP credential lifecycle without a physical camera."
+    }
+  ],
+  "stack": "dart",
+  "not_tested": [
+    "issue-1239-c7"
+  ]
+}

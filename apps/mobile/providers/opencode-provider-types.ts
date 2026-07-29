@@ -54,8 +54,10 @@ export type { ProviderAuthMethod } from '@/lib/opencode/types';
 export type ProviderOption = {
   id: string;
   label: string;
+  accountLabel?: string;
   modelCount: number;
   configured: boolean;
+  connected: boolean;
 };
 
 export type ConversationPhase = 'off' | 'listening' | 'submitting' | 'waiting' | 'speaking';
