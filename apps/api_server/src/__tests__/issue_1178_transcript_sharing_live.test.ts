@@ -66,6 +66,21 @@ describeLive('issue_1178_transcript_sharing_live', () => {
            (id, agent_kind, status, cwd, name, owner_user_id)
          VALUES (?, 'codex', 'idle', '/tmp/issue-1178', 'live source', ?)`,
       ).run(sourceId, ownerId);
+      // Snapshots derive from persisted parts; the review may only select
+      // derived item ids, so the source transcript must really exist.
+      db.prepare(
+        `INSERT INTO agent_session_messages (session_id, role, raw_text, stripped_text, parts_json)
+         VALUES (?, 'user', 'approved transcript', 'approved transcript', ?)`,
+      ).run(sourceId, JSON.stringify([
+        { id: 'safe', type: 'text', text: 'approved transcript' },
+        { id: 'secret', type: 'text', text: 'Authorization: Bearer abc.def.ghi' },
+      ]));
+      db.prepare(
+        `INSERT INTO agent_session_messages (session_id, role, raw_text, stripped_text, parts_json)
+         VALUES (?, 'output', 'tool result', 'tool result', ?)`,
+      ).run(sourceId, JSON.stringify([
+        { id: 'tool', type: 'tool', tool: 'read', state: { output: 'private tool result' } },
+      ]));
 
       const createdResponse = await fetch(`${baseUrl}/agent-sessions/${sourceId}/shares`, {
         method: 'POST',
