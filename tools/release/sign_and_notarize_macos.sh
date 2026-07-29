@@ -73,12 +73,22 @@ if [[ -z "${IDENTITY_SHA}" ]]; then
   exit 1
 fi
 
-# Preprocess entitlements: expand $(AppIdentifierPrefix) to the actual team ID
-# prefix. codesign does not expand Xcode build variables, so a literal
-# $(AppIdentifierPrefix) in keychain-access-groups causes AMFI to reject the
-# app at exec time on macOS Sequoia and later.
+# Preprocess entitlements: expand $(AppIdentifierPrefix) and
+# $(PRODUCT_BUNDLE_IDENTIFIER) to their signed values. codesign does not expand
+# Xcode build variables, so a literal $(...) in keychain-access-groups causes
+# AMFI to reject the app at exec time on macOS Sequoia and later — and run
+# 30490564260 shipped "TEAMID.$(PRODUCT_BUNDLE_IDENTIFIER)" as the keychain
+# group when only the prefix was expanded.
 PROCESSED_ENTITLEMENTS="$(mktemp -t rhythm-entitlements).plist"
-sed "s/\$(AppIdentifierPrefix)/${APPLE_TEAM_ID}./" "${ENTITLEMENTS_PATH}" > "${PROCESSED_ENTITLEMENTS}"
+APP_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${APP_PATH}/Contents/Info.plist" 2>/dev/null || true)"
+if [[ -z "${APP_BUNDLE_ID}" ]]; then
+  echo "Unable to read CFBundleIdentifier from ${APP_PATH}/Contents/Info.plist for entitlement expansion." >&2
+  exit 1
+fi
+sed \
+  -e "s/\$(AppIdentifierPrefix)/${APPLE_TEAM_ID}./" \
+  -e "s/\$(PRODUCT_BUNDLE_IDENTIFIER)/${APP_BUNDLE_ID}/" \
+  "${ENTITLEMENTS_PATH}" > "${PROCESSED_ENTITLEMENTS}"
 
 # The bundled opencode fork binary is an extensionless Mach-O produced by bun
 # --compile. The find pattern below does NOT match it (no extension), so we must

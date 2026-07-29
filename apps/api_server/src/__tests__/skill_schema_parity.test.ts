@@ -200,7 +200,28 @@ describe('#792 agent_skills dual-DB schema parity', () => {
       'utf8',
     );
 
+    const signer = readFileSync(
+      join(
+        __dirname,
+        '..',
+        '..',
+        '..',
+        '..',
+        'tools',
+        'release',
+        'sign_and_notarize_macos.sh',
+      ),
+      'utf8',
+    );
+
     expect(releaseEntitlements).toContain('<key>keychain-access-groups</key>');
+    // The re-sign must expand BOTH Xcode variables in the keychain group;
+    // codesign leaves $(...) literal, which run 30490564260 proved ships as
+    // "TEAMID.$(PRODUCT_BUNDLE_IDENTIFIER)" when only the prefix is expanded.
+    expect(signer).toContain('s/\\$(AppIdentifierPrefix)/${APPLE_TEAM_ID}./');
+    expect(signer).toContain(
+      's/\\$(PRODUCT_BUNDLE_IDENTIFIER)/${APP_BUNDLE_ID}/',
+    );
     expect(verifier).toContain('require_app_scoped_keychain_group()');
     expect(verifier).toContain(
       'expected_group="${team_identifier}.${bundle_identifier}"',
