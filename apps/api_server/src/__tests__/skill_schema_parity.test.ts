@@ -233,6 +233,38 @@ describe('#792 agent_skills dual-DB schema parity', () => {
     expect(verifier).toContain(
       'reject_entitlement_key "com.apple.security.keychain-access-groups"',
     );
+
+    // v0.18.53 was killed by AMFI at launch: keychain-access-groups is a
+    // RESTRICTED entitlement, legal in a Developer ID app only when an
+    // embedded Developer ID provisioning profile authorizes it (plus the
+    // com.apple.application-identifier entitlement the Data Protection
+    // Keychain needs at runtime). Pin the whole chain: the workflow passes
+    // the profile secret, the signer embeds it and injects the identifier,
+    // and the verifier requires both AND launches the signed app.
+    const releaseWorkflow = readFileSync(
+      join(
+        __dirname,
+        '..',
+        '..',
+        '..',
+        '..',
+        '.github',
+        'workflows',
+        'desktop_release.yml',
+      ),
+      'utf8',
+    );
+    expect(releaseWorkflow).toContain(
+      'APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}',
+    );
+    expect(signer).toContain('APPLE_PROVISIONING_PROFILE_BASE64');
+    expect(signer).toContain('Contents/embedded.provisionprofile');
+    expect(signer).toContain(
+      'Add :com.apple.application-identifier string ${APPLE_TEAM_ID}.${APP_BUNDLE_ID}',
+    );
+    expect(verifier).toContain('embedded.provisionprofile');
+    expect(verifier).toContain('require_application_identifier');
+    expect(verifier).toContain('require_launch_smoke');
   });
 
   it('guards every creative-platform MCP tool in the bundled release', () => {

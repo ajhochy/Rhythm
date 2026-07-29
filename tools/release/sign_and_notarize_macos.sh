@@ -16,6 +16,7 @@ required_vars=(
   APPLE_ID
   APPLE_APP_SPECIFIC_PASSWORD
   APPLE_TEAM_ID
+  APPLE_PROVISIONING_PROFILE_BASE64
 )
 
 for name in "${required_vars[@]}"; do
@@ -89,6 +90,23 @@ sed \
   -e "s/\$(AppIdentifierPrefix)/${APPLE_TEAM_ID}./" \
   -e "s/\$(PRODUCT_BUNDLE_IDENTIFIER)/${APP_BUNDLE_ID}/" \
   "${ENTITLEMENTS_PATH}" > "${PROCESSED_ENTITLEMENTS}"
+
+# keychain-access-groups is a RESTRICTED entitlement: a Developer ID app may
+# carry it only when an embedded Developer ID provisioning profile authorizes
+# it — otherwise AMFI SIGKILLs the app at exec (v0.18.53 shipped notarized but
+# was dead on arrival). The Data Protection Keychain used by
+# HumanApprovalSigner additionally requires com.apple.application-identifier
+# at runtime; the same profile authorizes it.
+/usr/libexec/PlistBuddy \
+  -c "Add :com.apple.application-identifier string ${APPLE_TEAM_ID}.${APP_BUNDLE_ID}" \
+  "${PROCESSED_ENTITLEMENTS}"
+
+echo "${APPLE_PROVISIONING_PROFILE_BASE64}" | base64 --decode \
+  > "${APP_PATH}/Contents/embedded.provisionprofile"
+if ! security cms -D -i "${APP_PATH}/Contents/embedded.provisionprofile" > /dev/null 2>&1; then
+  echo "APPLE_PROVISIONING_PROFILE_BASE64 did not decode to a valid provisioning profile." >&2
+  exit 1
+fi
 
 # The bundled opencode fork binary is an extensionless Mach-O produced by bun
 # --compile. The find pattern below does NOT match it (no extension), so we must
