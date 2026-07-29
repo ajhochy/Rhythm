@@ -1,6 +1,6 @@
 {
   "issue": 1170,
-  "generated": "2026-07-25",
+  "generated": "2026-07-28",
   "criteria": [
     {
       "criterion_id": "issue-1170-c1",
@@ -8,7 +8,8 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts",
       "test_id": "issue-1170-c1: authentication is rejected before any upstream SSE or PTY connection",
-      "status": "pass"
+      "status": "pending",
+      "reason": "Authored/existing but not executed under the orchestrator execution split."
     },
     {
       "criterion_id": "issue-1170-c2",
@@ -16,19 +17,17 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts",
       "test_id": "issue-1170-c2: a revoked device cannot open SSE or complete a PTY upgrade",
-      "status": "pass"
+      "status": "pending",
+      "reason": "Authored/existing but not executed under the orchestrator execution split; live mid-stream revocation is additionally covered by issue-1170-c4."
     },
     {
       "criterion_id": "issue-1170-c3",
       "text": "Disconnects release all listeners, sockets, and buffers",
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy.test.ts",
-      "test_id": "issue-1170-c3: disconnect and overload paths abort upstream work and release bounded state",
-      "additional_test_ids": [
-        "issue-1170-c3: fatal SSE frame and buffer overflow abort once, report the error, and release all state",
-        "issue-1170-c3: a stalled downstream drain fails once without reconnecting or retaining state"
-      ],
-      "status": "pass"
+      "test_id": "issue-1170-c3: a normal PTY client disconnect releases both endpoint listeners, buffers, and retained connection state",
+      "status": "pending",
+      "reason": "Authored but not executed under the orchestrator execution split."
     },
     {
       "criterion_id": "issue-1170-c4",
@@ -36,22 +35,24 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy_live.test.ts",
       "test_id": "issue-1170-c4: live sandbox emits real global and session-scoped SSE and propagates PTY data and closure",
-      "status": "pass"
+      "status": "pending",
+      "reason": "Extended but not executed under the orchestrator execution split."
     },
     {
       "criterion_id": "issue-1170-c5",
-      "text": "Tests use only `tools/dev/sandbox.sh` on isolated ports (defaults 4098/4097; distinct ports for parallel runs); never direct server startup",
+      "text": "Tests use only `tools/dev/sandbox.sh` on 4098/4097; never direct server startup",
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/issue_1170_mobile_realtime_proxy_live.test.ts",
       "test_id": "issue-1170-c5: live harness refuses installed-app ports and requires sandbox attestation",
-      "status": "pass"
+      "status": "pending",
+      "reason": "Existing but not executed under the orchestrator execution split."
     },
     {
       "criterion_id": "issue-1170-c6",
       "text": "GitNexus impact/detect-changes and independent review pass",
       "mode": "manual",
-      "status": "pass",
-      "reason": "Impact/change-scope checks and the final independent whole-branch review found no remaining #1170 Critical or Important finding."
+      "status": "pending",
+      "reason": "Explicit GATE WAIVER: static grep impact is recorded in .proof/i1170/impact.md; independent review belongs to the orchestrator."
     }
   ],
   "stack": "typescript",

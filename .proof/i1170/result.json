@@ -1,0 +1,55 @@
+{
+  "issue": 1170,
+  "status": "authored_unexecuted",
+  "criteria_to_tests": {
+    "issue-1170-c1": [
+      "issue-1170-c1: authentication is rejected before any upstream SSE or PTY connection"
+    ],
+    "issue-1170-c2": [
+      "issue-1170-c2: a revoked device cannot open SSE or complete a PTY upgrade",
+      "issue-1170-c4 live test: revocation of an active device closes the real PTY socket with 4401"
+    ],
+    "issue-1170-c3": [
+      "issue-1170-c3: disconnect and overload paths abort upstream work and release bounded state",
+      "issue-1170-c3: fatal SSE frame and buffer overflow abort once, report the error, and release all state",
+      "issue-1170-c3: a stalled downstream drain fails once without reconnecting or retaining state",
+      "issue-1170-c3: a normal PTY client disconnect releases both endpoint listeners, buffers, and retained connection state"
+    ],
+    "issue-1170-c4": [
+      "issue-1170-c4: live sandbox emits real global and session-scoped SSE and propagates PTY data and closure",
+      "roadmap: SSE reconnects, forwards heartbeats, filters projects, and dedupes bounded event IDs",
+      "roadmap: PTY bridge preserves text/binary frames, ticket scope, close codes, and active revocation"
+    ],
+    "issue-1170-c5": [
+      "issue-1170-c5: live harness refuses installed-app ports and requires sandbox attestation"
+    ],
+    "issue-1170-c6": []
+  },
+  "gaps_found": [
+    "No live assertion proved a consumed PTY connect ticket cannot be reused.",
+    "No live assertion proved a fresh PTY ticket reconnects and round-trips data after client disconnect.",
+    "No live assertion proved device revocation closes an already-open PTY socket.",
+    "No direct normal-disconnect unit assertion proved PTY endpoint listeners, buffers, and retained connection state are released."
+  ],
+  "gaps_fixed": [
+    "Extended the env-gated isolated live test with old-ticket 403 rejection, fresh-ticket reconnect, and a second PTY round trip.",
+    "Extended the live test to revoke the paired device while PTY is open and assert close code 4401 with reason device revoked.",
+    "Added an in-process PTY client-disconnect test asserting upstream close propagation, zero active connections, zero buffered bytes, and zero message/close/error listeners on both endpoints."
+  ],
+  "product_code_changes": [],
+  "not_executed": [
+    "test suites",
+    "live tests",
+    "servers",
+    "tools/dev/sandbox.sh",
+    "GitNexus impact/detect-changes",
+    "independent review",
+    "commit"
+  ],
+  "orchestratorGates": {
+    "unit": "issue_1170_mobile_realtime_proxy.test.ts 11/11",
+    "live": "issue_1170_mobile_realtime_proxy_live.test.ts 2/2 vs isolated sandbox :4388/:4387 \u2014 real SSE (global+session-scoped), PTY round trip + reconnect with fresh single-use ticket, reused-ticket rejection, revocation-mid-PTY close 4401, resource release",
+    "portGuard": "re-aligned to #1241 any-isolated-port convention (issue text's 4098/4097 pin is stale); expectedEnginePort now reads RHYTHM_SANDBOX_ENGINE_PORT",
+    "note": "audit-and-prove issue: no product defect found, so no red-green; evidence is the passing live matrix"
+  }
+}

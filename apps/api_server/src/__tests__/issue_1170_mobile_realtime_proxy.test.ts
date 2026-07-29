@@ -835,6 +835,76 @@ describe('issue #1170 mobile realtime proxy contract', () => {
     proxy.close();
   });
 
+  it('issue-1170-c3: a normal PTY client disconnect releases both endpoint listeners, buffers, and retained connection state', async () => {
+    const ptyModule = await loadPtyModule();
+    expect(ptyModule).not.toBeNull();
+    if (!ptyModule) return;
+
+    const socket = () => {
+      const ws = new EventEmitter() as EventEmitter & {
+        readyState: number;
+        bufferedAmount: number;
+        send: ReturnType<typeof vi.fn>;
+        close: ReturnType<typeof vi.fn>;
+        terminate: ReturnType<typeof vi.fn>;
+      };
+      ws.readyState = WebSocket.OPEN;
+      ws.bufferedAmount = 0;
+      ws.send = vi.fn();
+      ws.close = vi.fn((code: number, reason: string) => {
+        ws.readyState = WebSocket.CLOSED;
+        ws.emit('close', code, Buffer.from(reason));
+      });
+      ws.terminate = vi.fn();
+      return ws;
+    };
+    const client = socket();
+    const engine = socket();
+    engine.readyState = WebSocket.CONNECTING;
+    const proxy = new ptyModule.MobilePtyProxy({
+      authenticateDevice: vi.fn(() => ({
+        id: 'device-contract',
+        userId: 1,
+      })),
+      ownershipRepository: permissiveOwnershipRepository,
+      resolveProject: vi.fn(() => ({
+        id: 'project-contract',
+        root: '/sandbox/project',
+      })),
+      engineFactory: vi.fn(() => engine),
+      clientUpgrade: vi.fn((
+        _request: unknown,
+        _socket: unknown,
+        _head: unknown,
+        connected: (connectedClient: typeof client) => void,
+      ) => connected(client)),
+    });
+
+    expect(proxy.handleUpgrade(rawUpgradeRequest({
+      authorization: 'Device active-token',
+      projectId: 'project-contract',
+      ticket: 'ticket-contract-123',
+    }), new PassThrough(), Buffer.alloc(0))).toBe(true);
+    engine.readyState = WebSocket.OPEN;
+    engine.emit('open');
+    expect(proxy.activeConnectionCount()).toBe(1);
+
+    client.bufferedAmount = 17;
+    engine.bufferedAmount = 23;
+    expect(proxy.bufferedBytes()).toBe(40);
+    client.readyState = WebSocket.CLOSED;
+    client.emit('close', 1000, Buffer.from('client disconnect'));
+
+    expect(engine.close).toHaveBeenCalledWith(1000, 'client disconnect');
+    expect(proxy.activeConnectionCount()).toBe(0);
+    expect(proxy.bufferedBytes()).toBe(0);
+    for (const event of ['message', 'close', 'error']) {
+      expect(client.listenerCount(event)).toBe(0);
+      expect(engine.listenerCount(event)).toBe(0);
+    }
+    proxy.close();
+  });
+
   it('roadmap: PTY ticket issuance reuses the engine connect-ticket guard without leaking it', async () => {
     const upstream = vi.fn(async (
       input: string | URL | Request,

@@ -15,6 +15,9 @@ const baseUrl = (process.env.RHYTHM_LIVE_URL ?? '').replace(/\/$/, '');
 const engineUrl = (process.env.RHYTHM_LIVE_ENGINE_URL ?? '').replace(/\/$/, '');
 const dbPath = process.env.RHYTHM_LIVE_DB_PATH ?? '';
 const sandboxDir = process.env.RHYTHM_SANDBOX_DIR ?? '';
+const expectedApiPort = process.env.RHYTHM_SANDBOX_API_PORT ?? '';
+const expectedEnginePort =
+  process.env.RHYTHM_SANDBOX_ENGINE_PORT ?? '';
 const humanCapability =
   process.env.RHYTHM_LIVE_HUMAN_CAPABILITY ?? '';
 
@@ -135,6 +138,26 @@ describeLive('live E2E — issue #1170 mobile realtime proxy', () => {
   it('issue-1170-c5: live harness refuses installed-app ports and requires sandbox attestation', () => {
     const api = new URL(baseUrl);
     const engine = new URL(engineUrl);
+    // Accept any declared isolated sandbox port (#1241 convention): never a
+    // live/installed-app port, and the URL must match the declared port.
+    if (
+      !/^\d{4,5}$/.test(expectedApiPort) ||
+      ['4000', '4001', '4096'].includes(expectedApiPort) ||
+      baseUrl !== `http://127.0.0.1:${expectedApiPort}`
+    ) {
+      throw new Error(
+        'RHYTHM_LIVE_URL must use the declared isolated sandbox API port',
+      );
+    }
+    if (
+      !/^\d{4,5}$/.test(expectedEnginePort) ||
+      ['4000', '4001', '4096'].includes(expectedEnginePort) ||
+      engineUrl !== `http://127.0.0.1:${expectedEnginePort}`
+    ) {
+      throw new Error(
+        'RHYTHM_LIVE_ENGINE_URL must use the declared isolated sandbox engine port',
+      );
+    }
     expect(process.env.RHYTHM_LIVE_E2E_ISOLATED).toBe('1');
     expect(api.hostname).toBe('127.0.0.1');
     expect(engine.hostname).toBe('127.0.0.1');
@@ -351,30 +374,55 @@ describeLive('live E2E — issue #1170 mobile realtime proxy', () => {
         frame.data.toString().includes(binaryMarker.toString().trim()),
       )).toBe(true);
 
-      const ptyClosed = new Promise<{ code: number; reason: string }>(
-        (resolveClose, rejectClose) => {
-          const timer = setTimeout(() => {
-            rejectClose(new Error('PTY upstream close propagation timeout'));
-          }, 10_000);
-          ptySocket!.once('close', (code, reason) => {
-            clearTimeout(timer);
-            resolveClose({ code, reason: reason.toString() });
-          });
-        },
-      );
-      const deletePty = await fetch(
-        `${baseUrl}/mobile-gateway/opencode/pty/${encodeURIComponent(ptyId)}`,
+      const firstPtyClosed = new Promise<void>((resolveClose) => {
+        ptySocket!.once('close', () => resolveClose());
+      });
+      ptySocket.close(1000, 'reconnect contract');
+      await firstPtyClosed;
+      ptySocket = null;
+
+      // Regression caught: forwarding a connect ticket as a reusable bearer
+      // credential would allow the disconnected socket to reconnect forever.
+      expect(await websocketUpgradeStatus(
+        wsUrl.toString(),
+        gatewayHeaders(deviceToken, projectId),
+      )).toBe(403);
+
+      const freshTicketResponse = await fetch(
+        `${baseUrl}/mobile-gateway/opencode/pty/${encodeURIComponent(ptyId)}/connect-token`,
         {
-          method: 'DELETE',
+          method: 'POST',
           headers: gatewayHeaders(deviceToken, projectId),
         },
       );
-      expect(deletePty.status).toBe(200);
-      ptyId = null;
-      const propagatedClose = await ptyClosed;
-      expect(propagatedClose.code).not.toBe(1006);
-      expect(ptySocket.readyState).toBe(WebSocket.CLOSED);
-      ptySocket = null;
+      expect(freshTicketResponse.status).toBe(200);
+      const freshTicket = (await freshTicketResponse.json()) as {
+        ticket: string;
+      };
+      expect(freshTicket.ticket).not.toBe(ticketBody.ticket);
+      const reconnectUrl = new URL(wsUrl);
+      reconnectUrl.searchParams.set('ticket', freshTicket.ticket);
+      ptySocket = await openPty(
+        reconnectUrl.toString(),
+        gatewayHeaders(deviceToken, projectId),
+      );
+      const reconnectMarker = `RECONNECT-${runId}\n`;
+      const reconnectOutput = new Promise<string>(
+        (resolveOutput, rejectOutput) => {
+          const timer = setTimeout(() => {
+            rejectOutput(new Error('PTY reconnect round-trip timeout'));
+          }, 10_000);
+          ptySocket!.on('message', (data) => {
+            const output = data.toString();
+            if (!output.includes(reconnectMarker.trim())) return;
+            clearTimeout(timer);
+            resolveOutput(output);
+          });
+        },
+      );
+      ptySocket.send(reconnectMarker);
+      expect(await reconnectOutput).toContain(reconnectMarker.trim());
+
       const deleteSession = await fetch(
         `${baseUrl}/mobile-gateway/opencode/session/${encodeURIComponent(sessionId)}`,
         {
@@ -385,9 +433,28 @@ describeLive('live E2E — issue #1170 mobile realtime proxy', () => {
       expect(deleteSession.status).toBe(200);
       sessionId = null;
 
+      const revokedPtyClosed = new Promise<{ code: number; reason: string }>(
+        (resolveClose, rejectClose) => {
+          const timer = setTimeout(() => {
+            rejectClose(new Error('PTY revocation close timeout'));
+          }, 10_000);
+          ptySocket!.once('close', (code, reason) => {
+            clearTimeout(timer);
+            resolveClose({ code, reason: reason.toString() });
+          });
+        },
+      );
       db.prepare(
         'UPDATE mobile_devices SET revoked_at = ? WHERE id = ?',
       ).run(new Date().toISOString(), deviceId);
+      const revokedClose = await revokedPtyClosed;
+      expect(revokedClose).toEqual({
+        code: 4401,
+        reason: 'device revoked',
+      });
+      expect(ptySocket.readyState).toBe(WebSocket.CLOSED);
+      ptySocket = null;
+
       const revokedSse = await fetch(
         `${baseUrl}/mobile-gateway/events`,
         { headers: gatewayHeaders(deviceToken, projectId) },
@@ -407,13 +474,15 @@ describeLive('live E2E — issue #1170 mobile realtime proxy', () => {
     } finally {
       sessionSseAbort?.abort();
       ptySocket?.close();
-      if (ptyId && deviceToken) {
+      if (ptyId) {
+        const cleanupUrl = new URL(
+          `/pty/${encodeURIComponent(ptyId)}`,
+          engineUrl,
+        );
+        cleanupUrl.searchParams.set('directory', projectRoot);
         await fetch(
-          `${baseUrl}/mobile-gateway/opencode/pty/${encodeURIComponent(ptyId)}`,
-          {
-            method: 'DELETE',
-            headers: gatewayHeaders(deviceToken, projectId),
-          },
+          cleanupUrl,
+          { method: 'DELETE' },
         ).catch(() => undefined);
       }
       if (sessionId && deviceToken) {
