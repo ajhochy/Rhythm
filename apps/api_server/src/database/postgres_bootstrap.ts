@@ -1122,7 +1122,8 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS delegation_depth INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS status_message TEXT;
-    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id) ON DELETE SET NULL;
+    -- projects is intentionally SQLite/local-only; Postgres stores its id as a logical reference.
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS project_id TEXT;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS mcp_role TEXT;
   `);
   await pool.query(`
