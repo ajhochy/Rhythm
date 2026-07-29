@@ -36,6 +36,11 @@ assert.equal(production.owner, 'ajhochys-team');
 assert.equal(production.ios.bundleIdentifier, 'org.visaliacrc.rhythm.agents');
 assert.equal(production.extra.eas.projectId, 'bd873c89-2fe2-45db-805c-ab819e582e5c');
 assert.equal(
+  production.ios.infoPlist?.NSPhotoLibraryUsageDescription,
+  'Allow Rhythm Agents to access photos you choose to attach to a conversation.',
+  'production must explain why a user-selected photo may be attached',
+);
+assert.equal(
   production.ios.infoPlist?.NSAppTransportSecurity,
   undefined,
   'production must not emit an ATS bypass',
