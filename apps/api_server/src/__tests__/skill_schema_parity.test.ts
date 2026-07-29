@@ -170,6 +170,50 @@ describe('#792 agent_skills dual-DB schema parity', () => {
     expect(mobileGatewayPort).not.toBe(apiPort);
   });
 
+  it('requires the signed desktop app to use only its app-scoped keychain group', () => {
+    const verifier = readFileSync(
+      join(
+        __dirname,
+        '..',
+        '..',
+        '..',
+        '..',
+        'tools',
+        'release',
+        'verify_desktop_oauth_build.sh',
+      ),
+      'utf8',
+    );
+    const releaseEntitlements = readFileSync(
+      join(
+        __dirname,
+        '..',
+        '..',
+        '..',
+        '..',
+        'apps',
+        'desktop_flutter',
+        'macos',
+        'Runner',
+        'Release.entitlements',
+      ),
+      'utf8',
+    );
+
+    expect(releaseEntitlements).toContain('<key>keychain-access-groups</key>');
+    expect(verifier).toContain('require_app_scoped_keychain_group()');
+    expect(verifier).toContain(
+      'expected_group="${team_identifier}.${bundle_identifier}"',
+    );
+    expect(verifier).toContain("Print :keychain-access-groups:0");
+    expect(verifier).toContain("Print :keychain-access-groups:1");
+    expect(verifier).toMatch(/\n  require_app_scoped_keychain_group\n/);
+    expect(verifier).not.toContain('reject_entitlement_key "keychain-access-groups"');
+    expect(verifier).toContain(
+      'reject_entitlement_key "com.apple.security.keychain-access-groups"',
+    );
+  });
+
   it('guards every creative-platform MCP tool in the bundled release', () => {
     const workflow = readFileSync(
       join(__dirname, '..', '..', '..', '..', '.github', 'workflows', 'desktop_release.yml'),

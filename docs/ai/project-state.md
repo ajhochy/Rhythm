@@ -2,56 +2,54 @@
 
 ## Current focus
 
-2026-07-29: restore production API deployability after merged `main`
-(`0dcd826c7`) added an invalid Postgres foreign key from
-`agent_sessions.project_id` to the intentionally SQLite-only `projects` table.
-Production is healthy after rollback to `sha-80d1552`; the verified hotfix is
-documented in
-[runs/2026-07-29-postgres-project-fk-hotfix.md](runs/2026-07-29-postgres-project-fk-hotfix.md).
+2026-07-29: repair Desktop Release v0.18.53 after run
+[`30490564260`](https://github.com/ajhochy/Rhythm/actions/runs/30490564260)
+signed and notarized the app successfully but the stale OAuth verifier rejected
+the required app-scoped `keychain-access-groups` entitlement.
 
 ## Active branch / PR
 
-- Branch: `codex/hotfix-postgres-project-fk`, based on `main` at `0dcd826c7`.
-- PR: pending draft creation after commit, push, and branch CI.
-- No production or Synology state is being changed from this branch.
+- Branch: `codex/fix-desktop-keychain-entitlement-verifier`, based on `main` at
+  `125df4747`.
+- PR: pending commit, push, and draft creation.
+- Run record:
+  [runs/2026-07-29-desktop-keychain-entitlement-verifier.md](runs/2026-07-29-desktop-keychain-entitlement-verifier.md).
 
 ## In progress
 
-- Final diff review, commit, push, CI gate, and draft PR creation.
-- Production remains deliberately pinned to the last known-good immutable image
-  until the hotfix is reviewed, merged, and republished.
+- Commit and push the verified release-validator repair, open a draft PR, and
+  require green branch CI.
+- After a human merges the repair, dispatch a fresh v0.18.53 Desktop Release
+  from the new `main`; do not rerun the failed old-SHA workflow.
 
 ## Risks / known issues
 
-- Running the normal Synology compose update without an explicit image override
-  would select the currently broken `:main` image and restart the crash loop.
+- Production API is healthy but still pinned on Synology to rollback image
+  `sha-80d1552`; the repaired final-main image published successfully but has
+  not yet been manually deployed.
+- TestFlight upload is paused. A production iOS 1.0.8 (build 2) IPA from
+  `125df4747` passed local metadata, OAuth, ATS, provisioning, and entitlement
+  checks, but no upload occurred.
 - A separate pre-existing `DB_CLIENT=postgres` + default `RHYTHM_ROLE=all`
   runtime error was found after healthy startup: stream status reconciliation
   calls the SQLite-only session repository. Follow-up:
   [postgres-all-role-stream-bridge-reconciliation.md](generated-issues/postgres-all-role-stream-bridge-reconciliation.md).
-- The failed desktop release and the post-merge TestFlight build are tracked by
-  the parallel release investigation; this hotfix does not alter desktop/mobile
-  release assets.
 
 ## Test status
 
-- GitNexus `runPostgresBootstrap` impact: LOW, one direct caller (`initDb`).
-- Failure reproduced on disposable PostgreSQL 16 before the fix with exact
-  `42P01 relation "projects" does not exist`.
-- Normal-CI schema regression: 2 passed; env-gated live contract skipped.
-- Live PostgreSQL contract after the fix: 1 passed, including two bootstrap
-  runs, absent `projects`, no FK, nullable column, and logical-ID persistence.
-- `ai-workflow checks --level issue`: all configured checks passed.
-- `ai-workflow checks --level pr`: all Flutter, API, MCP, fork, and mobile
-  checks passed.
-- Fresh Postgres-backed API/fork sandbox: `/health` OK and
-  `/opencode/health` ready.
-- GitNexus compare-main change detection: LOW risk, zero affected indexed
-  processes.
+- GitNexus verifier impact: LOW, zero runtime callers/processes.
+- Regression test reproduced the stale rejection, then passed 13/13 after the
+  repair.
+- Bash syntax, ShellCheck, API lint, and diff checks passed.
+- `ai-workflow checks --level issue` passed.
+- `ai-workflow checks --level pr` passed every configured Flutter, API, MCP,
+  opencode-fork, and mobile check/build.
+- GitNexus compare-`origin/main`: LOW risk, zero affected processes.
+- Server/live API, UI screenshot, and packaged-runtime smoke are N/A because
+  this branch changes release validation only, not app/runtime behavior.
 
 ## Next step
 
-Commit and push the hotfix, require green branch CI, and open a draft PR for
-human review. After a human merges it and the corrected `:main` image publishes,
-manually deploy that image on Synology and confirm `/health.commit` matches the
-hotfix merge before removing the rollback pin.
+Commit, push, open a draft PR, and monitor branch CI. Human merge remains
+required. Then dispatch a new v0.18.53 Desktop Release and verify its published
+artifacts before resuming the Synology API update and TestFlight upload.

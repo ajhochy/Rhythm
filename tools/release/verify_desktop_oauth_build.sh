@@ -106,6 +106,48 @@ require_entitlement_key() {
   fi
 }
 
+require_app_scoped_keychain_group() {
+  local bundle_identifier
+  local team_identifier
+  local expected_group
+  local actual_group
+
+  bundle_identifier="$(
+    /usr/libexec/PlistBuddy \
+      -c 'Print :CFBundleIdentifier' \
+      "${INFO_PLIST}" 2>/dev/null || true
+  )"
+  team_identifier="$(
+    codesign -dvvv "${APP_PATH}" 2>&1 |
+      sed -n 's/^TeamIdentifier=//p'
+  )"
+
+  if [[ -z "${bundle_identifier}" || -z "${team_identifier}" ]]; then
+    echo "Desktop OAuth verification failed: could not resolve the signed app identity for keychain validation." >&2
+    exit 1
+  fi
+
+  expected_group="${team_identifier}.${bundle_identifier}"
+  require_entitlement_key "keychain-access-groups"
+  actual_group="$(
+    /usr/libexec/PlistBuddy \
+      -c 'Print :keychain-access-groups:0' \
+      "${ENTITLEMENTS_XML}" 2>/dev/null || true
+  )"
+
+  if [[ "${actual_group}" != "${expected_group}" ]]; then
+    echo "Desktop OAuth verification failed: expected keychain access group '${expected_group}', found '${actual_group:-<missing>}'." >&2
+    exit 1
+  fi
+
+  if /usr/libexec/PlistBuddy \
+    -c 'Print :keychain-access-groups:1' \
+    "${ENTITLEMENTS_XML}" >/dev/null 2>&1; then
+    echo "Desktop OAuth verification failed: unexpected additional keychain access group present." >&2
+    exit 1
+  fi
+}
+
 reject_entitlement_key() {
   local needle="$1"
   if grep -Fq "<key>${needle}</key>" "${ENTITLEMENTS_XML}"; then
@@ -128,7 +170,7 @@ if [[ "${MODE}" == "signed" ]]; then
 
   require_entitlement_key "com.apple.security.network.client"
   require_entitlement_key "com.apple.security.network.server"
-  reject_entitlement_key "keychain-access-groups"
+  require_app_scoped_keychain_group
   reject_entitlement_key "com.apple.security.keychain-access-groups"
 fi
 
