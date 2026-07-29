@@ -1,14 +1,19 @@
 import Database from 'better-sqlite3';
+import type { NextFunction, Request, Response } from 'express';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
+import { authenticateIfPresent } from '../middleware/auth_middleware';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import {
   initializeMobileOpenCodeOwnershipSchema,
   MobileOpenCodeOwnershipRepository,
 } from '../repositories/mobile_opencode_ownership_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
+import { SessionsRepository } from '../repositories/sessions_repository';
 import { UsersRepository } from '../repositories/users_repository';
 import { MobileOpenCodeProxy } from '../services/mobile_opencode_proxy';
 
@@ -84,6 +89,100 @@ describe('issue #1231 authoritative desktop/mobile session catalog', () => {
       owner_user_id: userId,
       project_id: projectId,
     });
+  });
+
+  it('resolves a local desktop bearer before persisting catalog ownership', async () => {
+    // Live regression caught: AGENT_LOCAL bypassed requireAuth even when the
+    // desktop supplied a valid bearer, leaving owner_user_id null. The strict
+    // ownership upsert then correctly skipped the unscoped row.
+    const bearer = new SessionsRepository().create(userId).token;
+    const request = {
+      header: (name: string) =>
+        name.toLowerCase() === 'authorization'
+          ? `Bearer ${bearer}`
+          : undefined,
+    } as unknown as Request;
+    const next = vi.fn();
+
+    await authenticateIfPresent(
+      request,
+      {} as Response,
+      next as NextFunction,
+    );
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(next).toHaveBeenCalledWith();
+    expect(request.auth?.user.id).toBe(userId);
+
+    const session = sessions.insert({
+      agentKind: 'codex',
+      taskId: null,
+      cwd: '/projects/alpha',
+      name: 'Authenticated local desktop session',
+      projectId,
+      ownerUserId: request.auth?.user.id ?? null,
+    });
+    sessions.setSdkSessionId(session.id, 'ses-local-auth-1231');
+    expect(
+      owners.isResourceExplicitlyOwnedBy(
+        'session',
+        'ses-local-auth-1231',
+        userId,
+        projectId,
+      ),
+    ).toBe(true);
+
+    // Pin the real AGENT_LOCAL router wiring as well as the middleware behavior.
+    const routeSource = readFileSync(
+      join(__dirname, '..', 'routes', 'agent_sessions_routes.ts'),
+      'utf8',
+    );
+    expect(routeSource).toContain(
+      'env.agentLocal ? authenticateIfPresent : requireAuth',
+    );
+  });
+
+  it('inherits and claims parent scope when the stream bridge persists a child SDK identity', () => {
+    const parent = sessions.insert({
+      agentKind: 'codex',
+      taskId: null,
+      cwd: '/projects/alpha',
+      name: 'Desktop parent',
+      projectId,
+      ownerUserId: userId,
+    });
+    sessions.setSdkSessionId(parent.id, 'ses-parent-1231');
+
+    const child = sessions.upsertChildSession(
+      'ses-child-1231',
+      'ses-parent-1231',
+      'Delegated work (@researcher subagent)',
+      '/projects/alpha',
+    );
+    const repeated = sessions.upsertChildSession(
+      'ses-child-1231',
+      'ses-parent-1231',
+      'Delegated work (@researcher subagent)',
+      '/projects/alpha',
+    );
+
+    expect(child).not.toBeNull();
+    expect(child?.ownerUserId).toBe(userId);
+    expect(child?.projectId).toBe(projectId);
+    expect(repeated?.id).toBe(child?.id);
+    expect(
+      owners.isResourceExplicitlyOwnedBy(
+        'session',
+        'ses-child-1231',
+        userId,
+        projectId,
+      ),
+    ).toBe(true);
+    expect(db.prepare(
+      `SELECT COUNT(*) AS count
+         FROM mobile_opencode_resource_owners
+        WHERE resource_kind = 'session' AND resource_id = ?`,
+    ).get('ses-child-1231')).toEqual({ count: 1 });
   });
 
   it('issue-1231-c5: ownership rejects cross-user and cross-project access', () => {

@@ -1,13 +1,14 @@
 {
   "issue": 1231,
-  "status": "regression_fixes_targeted_pass_full_suite_blocked_by_executor",
-  "execution_split": "Focused non-network contracts, the repository catalog suite, the original #1231 API/mobile contracts, and TypeScript pass. The required full API suite was attempted, but this agent sandbox denies all loopback listen() calls with EPERM; the run was terminated after repeated 15-second HTTP hook timeouts. No sandbox server, live E2E, commit, or PR action was performed.",
+  "status": "live_wiring_fix_authored_pending_orchestrator_reverification",
+  "execution_split": "The orchestrator's live sandbox run exposed a local-mode authentication wiring miss after the focused contracts had passed. The real POST /agent-sessions path was traced and fixed, including the stream-created child SDK identity path. Per the current execution split, no test suite, live sandbox, server, commit, or PR action was run after this fix; orchestrator reverification is required.",
   "criteria": [
     {
       "criterion_id": "issue-1231-c1",
-      "status": "authored",
+      "status": "authored_pending_live_reverification",
       "tests": [
-        "apps/api_server/src/__tests__/issue_1231_session_catalog_live.test.ts :: issue-1231-c1/c2/c3"
+        "apps/api_server/src/__tests__/issue_1231_session_catalog_live.test.ts :: issue-1231-c1/c2/c3",
+        "apps/api_server/src/contract/issue_1231_session_catalog_sync.test.ts :: resolves a local desktop bearer before persisting catalog ownership"
       ]
     },
     {
@@ -21,7 +22,7 @@
     },
     {
       "criterion_id": "issue-1231-c3",
-      "status": "authored",
+      "status": "authored_pending_live_reverification",
       "tests": [
         "apps/api_server/src/__tests__/issue_1231_session_catalog_live.test.ts :: issue-1231-c1/c2/c3"
       ]
@@ -31,6 +32,7 @@
       "status": "targeted_contract_passed_with_named_deferral",
       "tests": [
         "apps/api_server/src/contract/issue_1231_session_catalog_sync.test.ts :: issue-1231-c4",
+        "apps/api_server/src/contract/issue_1231_session_catalog_sync.test.ts :: inherits and claims parent scope when the stream bridge persists a child SDK identity",
         "apps/mobile/tests/contract/issue-1231-session-catalog.test.mjs :: issue-1231-c2"
       ],
       "deferral": "Catalog identity is stable and list refresh is deduplicated. Cross-client transcript hydration/reconnect deduplication is the named follow-up in .proof/i1231/followup.md."
@@ -40,6 +42,8 @@
       "status": "targeted_contract_passed",
       "tests": [
         "apps/api_server/src/contract/issue_1231_session_catalog_sync.test.ts :: ownership upsert",
+        "apps/api_server/src/contract/issue_1231_session_catalog_sync.test.ts :: resolves a local desktop bearer before persisting catalog ownership",
+        "apps/api_server/src/contract/issue_1231_session_catalog_sync.test.ts :: inherits and claims parent scope when the stream bridge persists a child SDK identity",
         "apps/api_server/src/contract/issue_1231_session_catalog_sync.test.ts :: issue-1231-c5"
       ]
     },
@@ -60,7 +64,9 @@
     }
   ],
   "authored_tests_not_run": [
-    "apps/api_server/src/__tests__/issue_1231_session_catalog_live.test.ts"
+    "apps/api_server/src/__tests__/issue_1231_session_catalog_live.test.ts",
+    "apps/api_server/src/contract/issue_1231_session_catalog_sync.test.ts :: resolves a local desktop bearer before persisting catalog ownership",
+    "apps/api_server/src/contract/issue_1231_session_catalog_sync.test.ts :: inherits and claims parent scope when the stream bridge persists a child SDK identity"
   ],
   "targeted_verification": [
     {
@@ -107,6 +113,11 @@
       "command": "cd apps/api_server && npm test -- --no-file-parallelism",
       "result": "executor_blocked",
       "summary": "The managed filesystem/network sandbox rejects Node listen() on both 0.0.0.0 and 127.0.0.1 with EPERM. HTTP-test beforeEach hooks wait 15 seconds and then fail before assertions; the run was terminated rather than misclassify sandbox denial as a product regression."
+    },
+    {
+      "command": "orchestrator live sandbox: issue_1231_session_catalog_live.test.ts",
+      "result": "failed_before_fix",
+      "summary": "After desktop POST /agent-sessions returned 201 with an SDK id, the paired gateway list returned []; the AGENT_LOCAL route had skipped parsing the valid desktop bearer, so owner_user_id was null and the fail-closed ownership upsert intentionally created no row."
     }
   ],
   "failure_repairs": [
@@ -134,6 +145,11 @@
       "failure": "opencode_client_service.ts reintroduced a forbidden as unknown as cast",
       "root_cause": "the new metadata update wrapper ignored the vendored v2 SDK's typed session.update parameters",
       "fix": "call the generated typed session.update method directly with sessionID, title, and time.archived"
+    },
+    {
+      "failure": "live gateway list omitted a desktop-created session immediately after POST /agent-sessions returned it",
+      "root_cause": "the sandbox runs AGENT_LOCAL=true, and the agent-sessions router bypassed requireAuth entirely in that mode. Although the desktop sent a valid Bearer token, req.auth was never populated, the catalog row stored owner_user_id=NULL, and the strict user/project ownership upsert correctly refused to claim the engine session. SDK identity persistence itself is synchronous before the 201 response, and the live test's explicit projectId and cwd match the paired device's selected project.",
+      "fix": "use optional authentication on local agent-session routes: requests without a token retain loopback compatibility, while a present Bearer token is validated and attached (invalid tokens fail closed). Keep ownership creation transactional with setSdkSessionId, and make stream-bridge child rows inherit the parent's owner/project and claim their SDK identity in the same transaction. No polling was added because the desktop persistence event is synchronous."
     }
   ],
   "proof": {
