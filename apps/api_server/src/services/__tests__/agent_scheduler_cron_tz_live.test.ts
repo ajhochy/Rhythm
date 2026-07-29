@@ -40,7 +40,7 @@ describe.skipIf(!liveEnabled)('live scheduler cron timezone behavior (#1089)', (
     });
 
     const scheduler = startAgentSchedulerJob();
-    scheduler.stop();
+    scheduler?.stop();
 
     let observed = await repo.findByIdAsync(task.id);
     const deadline = Date.now() + 3_000;

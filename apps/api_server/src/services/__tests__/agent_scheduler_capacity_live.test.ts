@@ -46,7 +46,7 @@ describe.skipIf(!liveEnabled)('live scheduler capacity behavior', () => {
 
     const dispatchedAt = Date.now();
     const scheduler = startAgentSchedulerJob();
-    scheduler.stop();
+    scheduler?.stop();
 
     let observed = await repo.findByIdAsync(task.id);
     const deadline = Date.now() + 2_000;

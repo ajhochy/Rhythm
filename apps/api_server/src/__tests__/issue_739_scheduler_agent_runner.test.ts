@@ -124,7 +124,7 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
     mockFindDueAsync.mockResolvedValue([makeDueTask()]);
 
     const task = startAgentSchedulerJob();
-    task.stop();
+    task?.stop();
 
     // Give async chain time to resolve
     await new Promise<void>((resolve) => setTimeout(resolve, 100));
@@ -148,7 +148,7 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
     mockFindDueAsync.mockResolvedValue([makeDueTask()]);
 
     const task = startAgentSchedulerJob();
-    task.stop();
+    task?.stop();
 
     await new Promise<void>((resolve) => setTimeout(resolve, 100));
 
@@ -176,7 +176,7 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
       .mockResolvedValueOnce({ sessionId: 'sess-2', result: 'ok', status: 'done' });
 
     const cronTask = startAgentSchedulerJob();
-    cronTask.stop();
+    cronTask?.stop();
 
     await new Promise<void>((resolve) => setTimeout(resolve, 100));
 
@@ -199,7 +199,7 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
 
     const beforeDispatch = Date.now();
     const cronTask = startAgentSchedulerJob();
-    cronTask.stop();
+    cronTask?.stop();
     await new Promise<void>((resolve) => setTimeout(resolve, 100));
 
     const capacityUpdate = mockUpdateNextRunAsync.mock.calls.find(
@@ -225,7 +225,7 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
     });
 
     const cronTask = startAgentSchedulerJob();
-    cronTask.stop();
+    cronTask?.stop();
     await new Promise<void>((resolve) => setTimeout(resolve, 100));
 
     const runningUpdate = mockUpdateNextRunAsync.mock.calls.find(
@@ -249,7 +249,7 @@ describe('#739 — Scheduler AgentRunner wiring', () => {
     mockFindDueAsync.mockResolvedValue([]);
 
     const cronTask = startAgentSchedulerJob();
-    cronTask.stop();
+    cronTask?.stop();
 
     await new Promise<void>((resolve) => setTimeout(resolve, 100));
 

@@ -122,7 +122,11 @@ Minimum required variables:
 
 - `NODE_ENV=production`
 - `PORT=4000`
-- `DB_PATH=/data/rhythm.db`
+- `DB_CLIENT=postgres` (this hosted deployment is Postgres-backed; also the
+  scheduler-ownership signal — see "Scheduler quarantine" below)
+- `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_SSL`
+- `RHYTHM_ROLE=cloud` (recommended — disables agent-execution routes/scheduler/
+  opencode engine on this host; see "Scheduler quarantine" below)
 - `CORS_ALLOWED_ORIGINS=<hosted client origins>`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
@@ -135,6 +139,50 @@ Minimum required variables:
 - `PCO_SECRET`
 - `PCO_REDIRECT_URI=https://api.vcrcapps.com/auth/planning-center/callback`
 - `TUNNEL_TOKEN`
+
+## Scheduler quarantine (#1214)
+
+`agent_scheduled_tasks` on this hosted API is a legacy, independent dataset
+never reconciled with the local SQLite "owned" set the Flutter app and its
+embedded agent server use (see #1213). As of this fix, `DB_CLIENT=postgres`
+(above) makes `startAgentSchedulerJob()` refuse to advance or fire ANY row
+here — it only logs a startup diagnostic naming how many enabled rows are
+stranded. No row is deleted, disabled, or migrated automatically.
+
+**This section is a manual operator procedure. Nothing in it is executed by
+any agent or CI job — a human runs each step by hand, against the real
+production database, after taking a backup.**
+
+1. **Back up first.** Take a full backup of the production Postgres database
+   (or at minimum, export `agent_scheduled_tasks`) before touching any row:
+   ```bash
+   pg_dump -h <host> -U rhythm_user -d rhythm -t agent_scheduled_tasks \
+     > agent_scheduled_tasks_backup_$(date +%Y%m%d).sql
+   ```
+2. **Inspect what's stranded.** After deploying the quarantine fix, check the
+   `rhythm-api` container logs for the `[AgentScheduler] QUARANTINED (#1214)`
+   line — it names the enabled-row count. Read the full row set with a
+   read-only query before deciding anything:
+   ```sql
+   SELECT id, name, enabled, created_by_user_id, last_run_status, last_run_at
+   FROM agent_scheduled_tasks ORDER BY created_at DESC;
+   ```
+3. **Reconcile duplicates.** Cross-reference against the local SQLite
+   `agent_scheduled_tasks` (via the Flutter app's Scheduler screen, or
+   `GET /agent-schedules` on `:4001`). Most legacy rows here duplicate a
+   working local schedule — for those, disable (never delete) the stranded
+   Postgres row once its local counterpart is confirmed to exist and to have
+   run successfully:
+   ```sql
+   UPDATE agent_scheduled_tasks SET enabled = false WHERE id = '<row-id>';
+   ```
+4. **Rows with no local counterpart** (e.g. any that never migrated) need a
+   human decision: recreate them on the local instance (via the Flutter UI or
+   `POST /agent-schedules` on `:4001`) before disabling the stranded row here,
+   or consciously retire the recurring job if it's no longer needed.
+5. **Never `DELETE`** a production row as part of this procedure — `enabled =
+   false` is fully recoverable; a delete is not. If full removal is ever
+   warranted, it requires its own explicit, separately-reviewed decision.
 
 ## Cloudflare requirements
 

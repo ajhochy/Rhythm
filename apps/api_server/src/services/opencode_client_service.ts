@@ -1008,8 +1008,23 @@ export class OpencodeClientService {
     // omitted by every pre-#1123 caller, so top-level create/resume/AgentRunner
     // behavior stays byte-for-byte unchanged.
     parentSdkSessionId?: string,
-  ): Promise<{ id: string } | null> {
-    if (!this.client) return null;
+    // #1222 — root-cause of the discarded-error bug: every failure branch
+    // below used to collapse to a bare `null`, so callers (AgentRunner in
+    // particular) could only ever report the generic "failed to create
+    // opencode session" — the real cause (engine never initialized, an SDK
+    // error response, or a response with no id) was logged here and nowhere
+    // else, and this process's stdout/stderr are unread pipes to the parent
+    // Rhythm process. Every failure branch now returns `{ error }` with a
+    // cause-specific message instead. This is additive: every existing
+    // caller already narrows on `!result` or `!result?.id` (both still
+    // falsy-safe on `{ error }`, since `.id` is absent) — see ws_gateway.ts
+    // and agent_sessions_controller.ts, updated alongside this change to use
+    // `?.id` explicitly so a truthy `{ error }` object is never mistaken for
+    // success.
+  ): Promise<{ id: string; error?: undefined } | { id?: undefined; error: string }> {
+    if (!this.client) {
+      return { error: 'Opencode engine is not initialized (not ready) — no session was created' };
+    }
 
     // mcp-scope-04: expand the McpRoleConfig into a flat { servers[], tools[] }
     // allowlist and pass it as `mcpAllowlist` on the session.create POST body.
@@ -1091,16 +1106,21 @@ export class OpencodeClientService {
       });
       const id = raw.data?.id;
       if (!id) {
-        logger.error(
-          '[OpencodeClientService] createSession failed: SDK returned %s %s',
-          raw.error ? `error="${JSON.stringify(raw.error)}"` : 'no id',
-          raw.data ? `data=${JSON.stringify(raw.data).slice(0, 200)}` : '',
-        );
+        // #1222 — distinguish "SDK returned an explicit error" from "SDK
+        // returned no id and no error" (an ambiguous but still real cause):
+        // both used to be swallowed into the same generic caller-facing
+        // string; each now carries its own reportable reason.
+        const reason = raw.error
+          ? `Opencode session.create returned an error: ${JSON.stringify(raw.error)}`
+          : `Opencode session.create returned no session id${raw.data ? ` (data=${JSON.stringify(raw.data).slice(0, 200)})` : ' (empty response)'}`;
+        logger.error('[OpencodeClientService] createSession failed: %s', reason);
+        return { error: reason };
       }
-      return id ? { id } : null;
+      return { id };
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       logger.error('[OpencodeClientService] createSession failed:', err);
-      return null;
+      return { error: `Opencode session.create threw: ${message}` };
     }
   }
 

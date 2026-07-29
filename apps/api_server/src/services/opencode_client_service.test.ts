@@ -307,10 +307,14 @@ describe('OpencodeClientService', () => {
     expect(result).toBe(false);
   });
 
-  it('returns null for createSession when not initialized', async () => {
+  // #1222 — createSession no longer collapses every failure to a bare
+  // `null`; the "not initialized" cause now reports its own reason so
+  // callers (AgentRunner) can surface it instead of a generic message.
+  it('returns a distinguishable "not initialized" error for createSession when not initialized', async () => {
     const service = new OpencodeClientService();
     const session = await service.createSession('test-session');
-    expect(session).toBeNull();
+    expect(session?.id).toBeUndefined();
+    expect(session?.error).toMatch(/not initialized/i);
   });
 
   it('returns null for prompt when not initialized', async () => {
@@ -526,6 +530,73 @@ describe('createSession — mcpAllowlist body field (mcp-scope-04)', () => {
 
     expect(capturedBody).toHaveProperty('skillAllowlist');
     expect(capturedBody.skillAllowlist).toEqual({ skills: [] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #1222: createSession must distinguish WHY it failed — "engine not
+// ready", "SDK error response", and "no id (no further detail)" used to all
+// collapse into the same bare `null`, so AgentRunner (agent_runner.ts) could
+// only ever report the fixed generic string "AgentRunner: failed to create
+// opencode session" regardless of the real cause. Every failure branch now
+// returns `{ error: string }` with a cause-specific message.
+// ---------------------------------------------------------------------------
+describe('createSession — distinguishable failure causes (#1222)', () => {
+  it('"engine not ready": returns { error } mentioning "not initialized", no id', async () => {
+    const service = new OpencodeClientService();
+    const result = await service.createSession('s');
+    expect(result.id).toBeUndefined();
+    expect(result.error).toMatch(/not initialized/i);
+  });
+
+  it('"SDK error response": returns { error } containing the SDK error detail, not a generic string', async () => {
+    const svc = new OpencodeClientService();
+    injectReadyClient(svc, {
+      session: { create: vi.fn().mockResolvedValue({ error: { message: 'invalid provider configuration' } }) },
+    });
+    const result = await svc.createSession('s');
+    expect(result.id).toBeUndefined();
+    expect(result.error).toContain('invalid provider configuration');
+  });
+
+  it('"no id" (no error field either): returns { error } mentioning "no session id"', async () => {
+    const svc = new OpencodeClientService();
+    injectReadyClient(svc, {
+      session: { create: vi.fn().mockResolvedValue({ data: {} }) },
+    });
+    const result = await svc.createSession('s');
+    expect(result.id).toBeUndefined();
+    expect(result.error).toMatch(/no session id/i);
+  });
+
+  it('thrown exception: returns { error } containing the thrown message', async () => {
+    const svc = new OpencodeClientService();
+    injectReadyClient(svc, {
+      session: { create: vi.fn().mockRejectedValue(new Error('ECONNRESET boom')) },
+    });
+    const result = await svc.createSession('s');
+    expect(result.id).toBeUndefined();
+    expect(result.error).toContain('ECONNRESET boom');
+  });
+
+  // Regression guard: the whole point of #1222 is that these were previously
+  // indistinguishable (all discarded in favor of one fixed caller-facing
+  // string). Prove the three causes now produce three DIFFERENT messages.
+  it('the three failure causes produce three DIFFERENT error messages', async () => {
+    const notReady = await new OpencodeClientService().createSession('s');
+
+    const svcErr = new OpencodeClientService();
+    injectReadyClient(svcErr, {
+      session: { create: vi.fn().mockResolvedValue({ error: { message: 'bad' } }) },
+    });
+    const sdkErr = await svcErr.createSession('s');
+
+    const svcNoId = new OpencodeClientService();
+    injectReadyClient(svcNoId, { session: { create: vi.fn().mockResolvedValue({ data: {} }) } });
+    const noId = await svcNoId.createSession('s');
+
+    const messages = new Set([notReady.error, sdkErr.error, noId.error]);
+    expect(messages.size).toBe(3);
   });
 });
 

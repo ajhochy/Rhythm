@@ -753,7 +753,9 @@ export class AgentSessionsController {
         mcpRoleConfig,
       );
       logger.info(`[Opencode][timing] opencodeClient.createSession took ${Date.now() - tSdkCreate}ms for session ${session.id}`);
-      if (!opencodeSession) {
+      // #1222 — check `.id` explicitly: createSession no longer returns a bare
+      // `null` on failure, so a truthy `{ error }` object must not pass `!x`.
+      if (!opencodeSession.id) {
         repo.markClosed(session.id);
         throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
       }
@@ -1371,7 +1373,8 @@ export class AgentSessionsController {
           `[AgentSessionsController] resume: no sdk_session_id on session ${session.id} — creating fresh SDK session (legacy path)`,
         );
         const opencodeSession = await opencodeClient.createSession(session.name, session.cwd);
-        if (!opencodeSession) {
+        // #1222 — check `.id` explicitly (see comment on the sibling create() path above).
+        if (!opencodeSession.id) {
           throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
         }
         sdkSessionId = opencodeSession.id;
