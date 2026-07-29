@@ -1112,6 +1112,34 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       ON agent_async_delegations(parent_session_id, status, created_at);
   `);
 
+  // #1178 — Postgres parity for immutable internal transcript shares. The
+  // source id remains provenance rather than an FK so source deletion can be
+  // detected and denied without cascading away the share/audit evidence.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS shared_transcripts (
+      id TEXT PRIMARY KEY,
+      snapshot_json JSONB NOT NULL,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      recipient_user_ids_json JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked_at TIMESTAMPTZ,
+      source_session_id TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_shared_transcripts_owner_created
+      ON shared_transcripts(owner_user_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS share_audit_log (
+      id TEXT PRIMARY KEY,
+      share_id TEXT NOT NULL REFERENCES shared_transcripts(id) ON DELETE CASCADE,
+      actor_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      action TEXT NOT NULL CHECK (action IN ('share', 'view', 'revoke', 'delete')),
+      timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_share_audit_log_share_timestamp
+      ON share_audit_log(share_id, timestamp);
+  `);
+
   // One-time repair, marker-guarded (schema_meta) — same contract as the
   // SQLite twin in migrations.ts ('nonmanager_delegates_wipe_v1'): this
   // bootstrap runs on EVERY boot, so an unguarded content UPDATE here

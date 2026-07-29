@@ -2996,4 +2996,32 @@ If someone asks for creative work that needs a local capability:
     CREATE INDEX IF NOT EXISTS idx_agent_async_delegations_parent_status
       ON agent_async_delegations(parent_session_id, status, created_at);
   `);
+
+  // #1178 — immutable, privacy-reviewed transcript snapshots shared only with
+  // named Rhythm users. source_session_id is intentionally not an FK: deleting
+  // the source makes reads fail closed while preserving provenance/audit rows.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shared_transcripts (
+      id TEXT PRIMARY KEY,
+      snapshot_json TEXT NOT NULL,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      recipient_user_ids_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT,
+      source_session_id TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_shared_transcripts_owner_created
+      ON shared_transcripts(owner_user_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS share_audit_log (
+      id TEXT PRIMARY KEY,
+      share_id TEXT NOT NULL REFERENCES shared_transcripts(id) ON DELETE CASCADE,
+      actor_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      action TEXT NOT NULL CHECK (action IN ('share', 'view', 'revoke', 'delete')),
+      timestamp TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_share_audit_log_share_timestamp
+      ON share_audit_log(share_id, timestamp);
+  `);
 }
