@@ -1,0 +1,29 @@
+{
+  "scope": "kanban-only",
+  "files_changed": [
+    "apps/desktop_flutter/lib/features/tasks/controllers/tasks_controller.dart",
+    "apps/desktop_flutter/lib/features/tasks/views/tasks_view.dart",
+    "apps/desktop_flutter/lib/features/tasks/views/tasks_kanban_view.dart",
+    "apps/desktop_flutter/test/features/tasks/issue_1037_kanban_view_test.dart",
+    ".proof/i1037/impact.md",
+    ".proof/i1037/result.json"
+  ],
+  "toggle_pattern_used": "Mirrored TasksView's existing local StatefulWidget plus RhythmSegmentedControl pattern. Weekly Planner and Automations are separate AppShell destinations, while list and Kanban are two presentations of the same TasksController data, so no new shell navigation destination was added.",
+  "deferred_items": [
+    "No API/server, schema, migration, or new HTTP route work was included.",
+    "Manual visual smoke and all Flutter format/analyze/test commands remain for the orchestrator under the requested execution split."
+  ],
+  "status": "done",
+  "reason": "Kanban implementation is complete. The shared RhythmColorLegend now wraps, and the board branch no longer rigidly forces the compact task-create Column into 220px: its viewport is capped to available height, remains scrollable when compressed, and reserves an Expanded region for the Kanban board.",
+  "orchestratorGates": {
+    "red": "kanban tests fail on base lib (view absent)",
+    "green": "tasks feature 24/24; full flutter suite 1014/1014; analyze exit 0; dart format clean",
+    "latentBugsFixedAtRoot": "RhythmColorLegend non-wrapping Row (108px overflow, also hit Weekly Planner) -> Wrap; sticky create-bar delegate heights 6px short (96/220 -> 102/226) \u2014 both pre-existing on base, proven by probe test pumping TasksView on unmodified tree",
+    "followUps": [
+      "#1243 Goals",
+      "#1244 tags+priority",
+      "#1245 dopamine loop",
+      "#1246 milestones"
+    ]
+  }
+}

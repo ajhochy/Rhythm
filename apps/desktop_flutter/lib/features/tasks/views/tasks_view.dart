@@ -9,6 +9,7 @@ import '../../../app/core/workspace/workspace_controller.dart';
 import '../controllers/tasks_controller.dart';
 import '../data/collaborators_data_source.dart';
 import '../models/task.dart';
+import 'tasks_kanban_view.dart';
 // ignore_for_file: use_build_context_synchronously
 
 class TasksView extends StatefulWidget {
@@ -23,6 +24,8 @@ class TasksView extends StatefulWidget {
 /// range" acceptance criterion; this adds the requested explicit sort on
 /// top of it rather than replacing grouping with a flat list).
 enum TaskSortField { dueDate, createdDate, status, title }
+
+enum TasksPresentation { list, kanban }
 
 /// #908 — sort applied within each time-range group. A missing due date
 /// sorts last (regardless of direction) so tasks without one don't jump
@@ -52,6 +55,7 @@ class _TasksViewState extends State<TasksView> {
   String _searchQuery = '';
   String? _activeTimeFilter; // null = all, 'today', 'week', 'month'
   TaskSortField _sortField = TaskSortField.dueDate;
+  TasksPresentation _presentation = TasksPresentation.list;
 
   @override
   void initState() {
@@ -82,7 +86,8 @@ class _TasksViewState extends State<TasksView> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildHeader(context, controller, visibleTasks.length),
-                if (controller.status == TasksStatus.error)
+                if (controller.status == TasksStatus.error &&
+                    _presentation == TasksPresentation.list)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(
                       RhythmSpacing.md,
@@ -99,12 +104,54 @@ class _TasksViewState extends State<TasksView> {
                   child: LayoutBuilder(
                     builder: (context, constraints) {
                       final createBarStacks = constraints.maxWidth < 900;
+                      // Heights must cover RhythmTaskCreateBar's rendered
+                      // content; the old 220/96 were 6px short and clipped
+                      // (latent pre-#1037, exposed by the kanban toggle test).
+                      final createBarHeight = createBarStacks ? 226.0 : 102.0;
+                      if (_presentation == TasksPresentation.kanban) {
+                        const minimumBoardHeight = 120.0;
+                        final availableCreateBarHeight =
+                            (constraints.maxHeight - minimumBoardHeight)
+                                .clamp(0.0, createBarHeight)
+                                .toDouble();
+                        return Column(
+                          children: [
+                            SizedBox(
+                              height: availableCreateBarHeight,
+                              child: SingleChildScrollView(
+                                child: RhythmTaskCreateBar(
+                                  addLabel: 'Add task',
+                                  onSubmit: (
+                                    title, {
+                                    notes,
+                                    scheduledDate,
+                                    collaboratorId,
+                                  }) {
+                                    controller.createTask(
+                                      title,
+                                      notes: notes,
+                                      scheduledDate: scheduledDate,
+                                      collaboratorId: collaboratorId,
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: TasksKanbanView(
+                                controller: controller,
+                                tasks: visibleTasks,
+                              ),
+                            ),
+                          ],
+                        );
+                      }
                       return CustomScrollView(
                         slivers: [
                           SliverPersistentHeader(
                             pinned: true,
                             delegate: _StickyBarDelegate(
-                              height: createBarStacks ? 220 : 96,
+                              height: createBarHeight,
                               child: RhythmTaskCreateBar(
                                 addLabel: 'Add task',
                                 onSubmit: (
@@ -138,7 +185,7 @@ class _TasksViewState extends State<TasksView> {
   }
 
   List<Task> _visibleTasks(TasksController controller) {
-    final tasks = _showCompleted
+    final tasks = _presentation == TasksPresentation.kanban || _showCompleted
         ? controller.tasks.toList()
         : controller.tasks
             .where((task) => task.status != TaskStatus.done)
@@ -239,36 +286,55 @@ class _TasksViewState extends State<TasksView> {
         ),
       ],
       actions: [
-        // #908 — sort control (applies within each time-range group).
-        PopupMenuButton<TaskSortField>(
-          key: const ValueKey('tasks-sort-menu'),
-          tooltip: 'Sort tasks',
-          initialValue: _sortField,
-          onSelected: (v) => setState(() => _sortField = v),
-          itemBuilder: (_) => const [
-            PopupMenuItem(
-              value: TaskSortField.dueDate,
-              child: Text('Due date'),
+        RhythmSegmentedControl<TasksPresentation>(
+          key: const ValueKey('tasks-view-toggle'),
+          compact: true,
+          value: _presentation,
+          onChanged: (value) => setState(() => _presentation = value),
+          segments: const [
+            RhythmSegment(
+              value: TasksPresentation.list,
+              label: 'List',
+              icon: Icons.view_list_outlined,
             ),
-            PopupMenuItem(
-              value: TaskSortField.createdDate,
-              child: Text('Created date'),
-            ),
-            PopupMenuItem(
-              value: TaskSortField.status,
-              child: Text('Status'),
-            ),
-            PopupMenuItem(
-              value: TaskSortField.title,
-              child: Text('Title'),
+            RhythmSegment(
+              value: TasksPresentation.kanban,
+              label: 'Board',
+              icon: Icons.view_kanban_outlined,
             ),
           ],
-          child: const RhythmBadge(
-            label: 'Sort',
-            icon: Icons.sort_rounded,
-            compact: true,
-          ),
         ),
+        // #908 — sort control (applies within each time-range group).
+        if (_presentation == TasksPresentation.list)
+          PopupMenuButton<TaskSortField>(
+            key: const ValueKey('tasks-sort-menu'),
+            tooltip: 'Sort tasks',
+            initialValue: _sortField,
+            onSelected: (v) => setState(() => _sortField = v),
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: TaskSortField.dueDate,
+                child: Text('Due date'),
+              ),
+              PopupMenuItem(
+                value: TaskSortField.createdDate,
+                child: Text('Created date'),
+              ),
+              PopupMenuItem(
+                value: TaskSortField.status,
+                child: Text('Status'),
+              ),
+              PopupMenuItem(
+                value: TaskSortField.title,
+                child: Text('Title'),
+              ),
+            ],
+            child: const RhythmBadge(
+              label: 'Sort',
+              icon: Icons.sort_rounded,
+              compact: true,
+            ),
+          ),
         RhythmBadge(
           label: '$visibleCount tasks',
           icon: Icons.format_list_bulleted,
