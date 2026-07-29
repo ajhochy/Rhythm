@@ -11,14 +11,14 @@ the required app-scoped `keychain-access-groups` entitlement.
 
 - Branch: `codex/fix-desktop-keychain-entitlement-verifier`, based on `main` at
   `125df4747`.
-- PR: pending commit, push, and draft creation.
+- Draft PR:
+  [#1250](https://github.com/ajhochy/Rhythm/pull/1250).
 - Run record:
   [runs/2026-07-29-desktop-keychain-entitlement-verifier.md](runs/2026-07-29-desktop-keychain-entitlement-verifier.md).
 
 ## In progress
 
-- Commit and push the verified release-validator repair, open a draft PR, and
-  require green branch CI.
+- Monitor every check on draft PR #1250 to green.
 - After a human merges the repair, dispatch a fresh v0.18.53 Desktop Release
   from the new `main`; do not rerun the failed old-SHA workflow.
 
@@ -50,6 +50,7 @@ the required app-scoped `keychain-access-groups` entitlement.
 
 ## Next step
 
-Commit, push, open a draft PR, and monitor branch CI. Human merge remains
-required. Then dispatch a new v0.18.53 Desktop Release and verify its published
-artifacts before resuming the Synology API update and TestFlight upload.
+Require green CI on draft PR #1250, then hand it off for human review and
+merge. After merge, dispatch a new v0.18.53 Desktop Release and verify its
+published artifacts before resuming the Synology API update and TestFlight
+upload.

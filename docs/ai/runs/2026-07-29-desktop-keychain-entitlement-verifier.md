@@ -2,9 +2,9 @@
 date: 2026-07-29
 repo: Rhythm
 branch: codex/fix-desktop-keychain-entitlement-verifier
-pr: pending
+pr: 1250
 issues: []
-status: verified-local
+status: ci-pending
 tags: [run, Rhythm]
 index: "[[Rhythm]]"
 ---
@@ -37,6 +37,7 @@ index: "[[Rhythm]]"
 
 ## Notes
 
+- Draft PR: [#1250](https://github.com/ajhochy/Rhythm/pull/1250).
 - Failed release run
   [`30490564260`](https://github.com/ajhochy/Rhythm/actions/runs/30490564260)
   completed build, package, signing, notarization, and the bundled-server smoke
