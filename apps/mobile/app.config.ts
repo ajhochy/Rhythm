@@ -140,7 +140,7 @@ const config: ExpoConfig = {
     versionCode: 7,
     adaptiveIcon: {
       foregroundImage: './assets/images/adaptive-icon.png',
-      backgroundColor: "#202020"
+      backgroundColor: "#FFFFFF"
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
