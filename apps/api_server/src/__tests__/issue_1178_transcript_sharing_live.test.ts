@@ -50,6 +50,17 @@ describeLive('issue_1178_transcript_sharing_live', () => {
         .run(ownerToken, ownerId, new Date(Date.now() + 600_000).toISOString());
       db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)')
         .run(recipientToken, recipientId, new Date(Date.now() + 600_000).toISOString());
+      // Recipients must share a workspace with the owner (fail-closed 403).
+      const workspaceId = Number(db.prepare(
+        `INSERT INTO workspaces (name, join_code, created_by) VALUES (?, ?, ?)`,
+      ).run(`Issue 1178 Workspace ${runId}`, `join-${runId}`, ownerId)
+        .lastInsertRowid);
+      db.prepare(
+        'INSERT INTO workspace_members (workspace_id, user_id) VALUES (?, ?)',
+      ).run(workspaceId, ownerId);
+      db.prepare(
+        'INSERT INTO workspace_members (workspace_id, user_id) VALUES (?, ?)',
+      ).run(workspaceId, recipientId);
       db.prepare(
         `INSERT INTO agent_sessions
            (id, agent_kind, status, cwd, name, owner_user_id)
@@ -109,11 +120,22 @@ describeLive('issue_1178_transcript_sharing_live', () => {
       expect(audit.map((entry) => entry.actor_user_id))
         .toEqual([ownerId, recipientId, ownerId]);
     } finally {
-      if (shareId) db.prepare('DELETE FROM shared_transcripts WHERE id = ?').run(shareId);
-      db.prepare('DELETE FROM agent_sessions WHERE id = ?').run(sourceId);
-      db.prepare('DELETE FROM sessions WHERE token IN (?, ?)').run(ownerToken, recipientToken);
-      if (ownerId !== null) db.prepare('DELETE FROM users WHERE id = ?').run(ownerId);
-      if (recipientId !== null) db.prepare('DELETE FROM users WHERE id = ?').run(recipientId);
+      // Share/audit rows are protected by append-only DB triggers, and user
+      // deletion cascades into them — the guard correctly refuses. The
+      // sandbox DB is destroyed after the run, so leave protected fixtures
+      // in place rather than fighting the trigger.
+      const tryDelete = (sql: string, ...args: unknown[]) => {
+        try {
+          db.prepare(sql).run(...args);
+        } catch {
+          // blocked by the append-only audit guard — expected
+        }
+      };
+      if (shareId) tryDelete('DELETE FROM shared_transcripts WHERE id = ?', shareId);
+      tryDelete('DELETE FROM agent_sessions WHERE id = ?', sourceId);
+      tryDelete('DELETE FROM sessions WHERE token IN (?, ?)', ownerToken, recipientToken);
+      if (ownerId !== null) tryDelete('DELETE FROM users WHERE id = ?', ownerId);
+      if (recipientId !== null) tryDelete('DELETE FROM users WHERE id = ?', recipientId);
       db.close();
     }
   });
