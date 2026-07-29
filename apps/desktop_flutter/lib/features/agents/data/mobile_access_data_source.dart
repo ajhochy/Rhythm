@@ -39,7 +39,6 @@ class MobilePairingCode {
 
   String get qrPayload => jsonEncode(<String, String>{
         'gatewayUrl': gatewayUrl,
-        'hostId': hostId,
         'pairingCode': code,
       });
 }

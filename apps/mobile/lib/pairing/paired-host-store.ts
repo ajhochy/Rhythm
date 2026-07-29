@@ -59,7 +59,6 @@ export interface PairedHostSnapshot {
 
 export interface PairingPayload {
   gatewayUrl: string;
-  hostId: string;
   pairingCode: string;
 }
 
@@ -148,12 +147,9 @@ export function parsePairingPayload(raw: string): PairingPayload {
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record).sort();
   if (
-    keys.length !== 3 ||
+    keys.length !== 2 ||
     keys[0] !== 'gatewayUrl' ||
-    keys[1] !== 'hostId' ||
-    keys[2] !== 'pairingCode' ||
-    typeof record.hostId !== 'string' ||
-    !/^[A-Za-z0-9_-]{1,128}$/.test(record.hostId) ||
+    keys[1] !== 'pairingCode' ||
     typeof record.pairingCode !== 'string' ||
     record.pairingCode.length < 32 ||
     record.pairingCode.length > 128 ||
@@ -163,7 +159,6 @@ export function parsePairingPayload(raw: string): PairingPayload {
   }
   return {
     gatewayUrl: safeGatewayUrl(record.gatewayUrl),
-    hostId: record.hostId,
     pairingCode: record.pairingCode,
   };
 }
@@ -555,7 +550,6 @@ export class PairedHostStore {
     this.apply('pairing', 'Pairing securely with your Mac…');
     let payload: PairingPayload = {
       gatewayUrl: '',
-      hostId: '',
       pairingCode: '',
     };
     let newDeviceToken = '';
@@ -569,22 +563,6 @@ export class PairedHostStore {
         );
       }
       const existing = this.host ?? (await this.loadHost());
-      const recycledEndpoint =
-        existing !== null &&
-        existing.gatewayUrl === payload.gatewayUrl &&
-        existing.hostId !== payload.hostId;
-      if (
-        existing &&
-        (existing.gatewayUrl !== payload.gatewayUrl ||
-          existing.hostId !== payload.hostId ||
-          existing.rhythmUserId !== input.userId) &&
-        !input.replaceExisting
-      ) {
-        throw new PairedHostError(
-          'replacementRequired',
-          `Replace ${existing.gatewayUrl.replace('https://', '')} with this Mac?`,
-        );
-      }
       if (existing) {
         existingDeviceToken = await this.getCredential(
           PAIRED_DEVICE_SECURE_KEY,
@@ -610,10 +588,20 @@ export class PairedHostStore {
           'The Mac returned an invalid compatibility response.',
         );
       }
-      if (health.hostId !== payload.hostId) {
+      const recycledEndpoint =
+        existing !== null &&
+        existing.gatewayUrl === payload.gatewayUrl &&
+        existing.hostId !== health.hostId;
+      if (
+        existing &&
+        (existing.gatewayUrl !== payload.gatewayUrl ||
+          existing.hostId !== health.hostId ||
+          existing.rhythmUserId !== input.userId) &&
+        !input.replaceExisting
+      ) {
         throw new PairedHostError(
-          'invalidPayload',
-          'This pairing QR code belongs to a different Mac.',
+          'replacementRequired',
+          `Replace ${existing.gatewayUrl.replace('https://', '')} with this Mac?`,
         );
       }
       const preflightIncompatibility = compatibilityError(health);
@@ -626,7 +614,7 @@ export class PairedHostStore {
           method: 'POST',
           body: JSON.stringify({
             pairingCode: payload.pairingCode,
-            hostId: payload.hostId,
+            hostId: health.hostId,
             deviceName: input.deviceName,
           }),
         },
@@ -683,7 +671,7 @@ export class PairedHostStore {
           'The Mac returned an invalid pairing response.',
         );
       }
-      if (response.hostId !== payload.hostId) {
+      if (response.hostId !== health.hostId) {
         await revokeNewDevice();
         throw new PairedHostError(
           'invalidPayload',
@@ -880,7 +868,7 @@ export class PairedHostStore {
       this.apply(this.host ? 'offline' : 'unpaired', safe.message, this.host);
       throw safe;
     } finally {
-      payload = { gatewayUrl: '', hostId: '', pairingCode: '' };
+      payload = { gatewayUrl: '', pairingCode: '' };
       newDeviceToken = '';
       existingDeviceToken = null;
     }

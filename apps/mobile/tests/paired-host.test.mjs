@@ -159,7 +159,6 @@ const CODE = 'a'.repeat(43);
 const TOKEN = 'device-token-secret';
 const PAYLOAD = JSON.stringify({
   gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
-  hostId: 'host-1',
   pairingCode: CODE,
 });
 const compatibility = {
@@ -198,16 +197,16 @@ async function pairedStore() {
 {
   assert.deepEqual(parsePairingPayload(PAYLOAD), {
     gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
-    hostId: 'host-1',
     pairingCode: CODE,
   });
   for (const invalid of [
     'not-json',
-    JSON.stringify({ gatewayUrl: 'http://rhythm-mac.tail1234.ts.net', hostId: 'host-1', pairingCode: CODE }),
-    JSON.stringify({ gatewayUrl: 'https://example.com', hostId: 'host-1', pairingCode: CODE }),
-    JSON.stringify({ gatewayUrl: 'https://rhythm-mac.tail1234.ts.net', hostId: 'host-1', pairingCode: '!'.repeat(43) }),
-    JSON.stringify({ gatewayUrl: 'https://rhythm-mac.tail1234.ts.net', hostId: 'host-1', pairingCode: CODE, token: 'extra' }),
-    JSON.stringify({ gatewayUrl: 'https://rhythm-mac.tail1234.ts.net', pairingCode: CODE }),
+    JSON.stringify({ gatewayUrl: 'http://rhythm-mac.tail1234.ts.net', pairingCode: CODE }),
+    JSON.stringify({ gatewayUrl: 'https://example.com', pairingCode: CODE }),
+    JSON.stringify({ gatewayUrl: 'https://rhythm-mac.tail1234.ts.net', pairingCode: '!'.repeat(43) }),
+    JSON.stringify({ gatewayUrl: 'https://rhythm-mac.tail1234.ts.net', pairingCode: CODE, hostId: 'host-1' }),
+    JSON.stringify({ gatewayUrl: 'https://rhythm-mac.tail1234.ts.net', pairingCode: CODE, token: 'extra' }),
+    JSON.stringify({ gatewayUrl: 'https://rhythm-mac.tail1234.ts.net' }),
   ]) {
     assert.throws(() => parsePairingPayload(invalid), PairedHostError);
   }
@@ -332,19 +331,21 @@ async function pairedStore() {
 {
   __reset();
   const store = await pairedStore();
-  __setPublicHandler(async () => {
-    throw new Error('must not be called');
+  __setPublicHandler(async (path) => {
+    if (path === '/mobile-gateway/health') {
+      return { ...healthResponse, hostId: 'host-2' };
+    }
+    throw new Error('must not consume pairing code before confirmation');
   });
   const otherPayload = JSON.stringify({
     gatewayUrl: 'https://other-mac.tail1234.ts.net',
-    hostId: 'host-2',
     pairingCode: 'b'.repeat(43),
   });
   await assert.rejects(
     () => store.pair(otherPayload, { userId: 7, deviceName: 'AJ iPhone' }),
     (error) => error instanceof PairedHostError && error.kind === 'replacementRequired',
   );
-  assert.equal(__publicRequests().length, 2);
+  assert.equal(__publicRequests().length, 3);
 }
 
 // issue-1171-c4/c5: compatibility is checked before the one-time code is
@@ -414,7 +415,6 @@ async function pairedStore() {
   const oldMetadata = JSON.parse(__async().get(PAIRED_HOST_META_KEY));
   const otherPayload = JSON.stringify({
     gatewayUrl: 'https://other-mac.tail1234.ts.net',
-    hostId: 'host-2',
     pairingCode: 'b'.repeat(43),
   });
   __setPublicHandler(async (path) => {
@@ -461,12 +461,15 @@ async function pairedStore() {
   const store = await pairedStore();
   const recycledPayload = JSON.stringify({
     gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
-    hostId: 'host-2',
     pairingCode: 'b'.repeat(43),
   });
-  __setPublicHandler(async () => {
+  __setPublicHandler(async (path) => {
+    if (path === '/mobile-gateway/health') {
+      return { ...healthResponse, hostId: 'host-2' };
+    }
     throw new Error('must not consume before replacement confirmation');
   });
+  const requestsBeforeReplacementAttempt = __publicRequests().length;
   await assert.rejects(
     () => store.pair(recycledPayload, {
       userId: 7,
@@ -476,7 +479,11 @@ async function pairedStore() {
       error instanceof PairedHostError &&
       error.kind === 'replacementRequired',
   );
-  assert.equal(__publicRequests().length, 2);
+  const replacementAttemptRequests = __publicRequests().slice(
+    requestsBeforeReplacementAttempt,
+  );
+  assert.equal(replacementAttemptRequests.length, 1);
+  assert.equal(replacementAttemptRequests[0].path, '/mobile-gateway/health');
 
   __setPublicHandler(async (path) => {
     if (path === '/mobile-gateway/health') {
@@ -517,7 +524,6 @@ async function pairedStore() {
   const store = await pairedStore();
   const recycledPayload = JSON.stringify({
     gatewayUrl: 'https://rhythm-mac.tail1234.ts.net',
-    hostId: 'host-2',
     pairingCode: 'c'.repeat(43),
   });
   __setPublicHandler(async (path) => {
@@ -566,7 +572,6 @@ async function secureWriteReplacement({
   const oldMetadata = __async().get(PAIRED_HOST_META_KEY);
   const otherPayload = JSON.stringify({
     gatewayUrl: 'https://other-mac.tail1234.ts.net',
-    hostId: 'host-2',
     pairingCode: 'b'.repeat(43),
   });
   __failSecureWrite();
@@ -690,7 +695,6 @@ async function secureWriteReplacement({
   const oldMetadata = __async().get(PAIRED_HOST_META_KEY);
   const otherPayload = JSON.stringify({
     gatewayUrl: 'https://other-mac.tail1234.ts.net',
-    hostId: 'host-2',
     pairingCode: 'b'.repeat(43),
   });
   __setPublicHandler(async (path) => {
@@ -743,7 +747,6 @@ async function secureWriteReplacement({
   const store = await pairedStore();
   const otherPayload = JSON.stringify({
     gatewayUrl: 'https://other-mac.tail1234.ts.net',
-    hostId: 'host-2',
     pairingCode: 'b'.repeat(43),
   });
   __setPublicHandler(async (path) => {
@@ -804,7 +807,6 @@ async function secureWriteReplacement({
   const oldMetadata = __async().get(PAIRED_HOST_META_KEY);
   const otherPayload = JSON.stringify({
     gatewayUrl: 'https://other-mac.tail1234.ts.net',
-    hostId: 'host-2',
     pairingCode: 'b'.repeat(43),
   });
   __setPublicHandler(async (path) => {
@@ -852,7 +854,6 @@ async function secureWriteReplacement({
   const store = await pairedStore();
   const otherPayload = JSON.stringify({
     gatewayUrl: 'https://other-mac.tail1234.ts.net',
-    hostId: 'host-2',
     pairingCode: 'b'.repeat(43),
   });
   __setPublicHandler(async (path) => {

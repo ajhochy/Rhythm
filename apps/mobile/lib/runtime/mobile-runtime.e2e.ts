@@ -150,7 +150,6 @@ export const mobileRuntimeVariant: MobileRuntimeVariant = {
       gatewayUrl: hasExistingHost
         ? 'https://other-mac.tail1234.ts.net'
         : 'https://rhythm-mac.tail1234.ts.net',
-      hostId: hasExistingHost ? 'host-2' : 'host-1',
       pairingCode: hasExistingHost ? 'b'.repeat(43) : 'a'.repeat(43),
     }),
 };

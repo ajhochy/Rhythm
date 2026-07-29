@@ -1,0 +1,83 @@
+{
+  "issue": 1171,
+  "auditedAt": "2026-07-28",
+  "criteria": [
+    {
+      "criterion": "handles Tailscale missing/loggedOut/wrongTarget/healthy",
+      "status": "already-implemented",
+      "implementingFiles": [
+        "apps/api_server/src/services/tailscale_serve_service.ts",
+        "apps/desktop_flutter/lib/features/agents/data/mobile_access_data_source.dart",
+        "apps/desktop_flutter/lib/features/agents/views/mobile_access_dialog.dart"
+      ],
+      "provingTests": [
+        "apps/api_server/src/services/__tests__/tailscale_serve_service.test.ts — issue-1171-c1: Tailscale Serve diagnostics",
+        "apps/desktop_flutter/test/features/agents/mobile_access_dialog_test.dart — issue-1171-c1: desktop Tailscale diagnostics"
+      ]
+    },
+    {
+      "criterion": "QR payload contains ONLY tailnet gateway URL + one-time code (no secrets/filesystem paths)",
+      "status": "gap-filled",
+      "implementingFiles": [
+        "apps/desktop_flutter/lib/features/agents/data/mobile_access_data_source.dart",
+        "apps/mobile/lib/pairing/paired-host-store.ts"
+      ],
+      "provingTests": [
+        "apps/desktop_flutter/test/features/agents/mobile_access_dialog_test.dart — issue-1171-c2: QR payload contains only host binding and one-time pairing material",
+        "apps/mobile/tests/paired-host.test.mjs — issue-1171-c2/c3: the scanner payload is exact and constrained to tailnet HTTPS",
+        "apps/api_server/src/__tests__/issue_1171_mobile_access_live.test.ts — drives diagnostics, one-time QR exchange, device health, and revocation through the sandbox API"
+      ],
+      "gap": "The existing QR included hostId as a third field. The QR and parser now accept exactly gatewayUrl and pairingCode; hostId is derived from the gateway health preflight and checked against the pairing response."
+    },
+    {
+      "criterion": "device token Keychain/SecureStore-only, pairing code discarded after exchange",
+      "status": "already-implemented",
+      "implementingFiles": [
+        "apps/mobile/lib/pairing/paired-host-store.ts",
+        "apps/api_server/src/services/mobile_pairing_service.ts"
+      ],
+      "provingTests": [
+        "apps/mobile/tests/paired-host.test.mjs — issue-1171-c3: the one-time code is sent once and never enters persisted metadata",
+        "apps/api_server/src/services/__tests__/mobile_pairing_service.test.ts — generates a 32-byte pairing code and persists only its SHA-256 verifier",
+        "apps/api_server/src/services/__tests__/mobile_pairing_service.test.ts — allows a pairing code to be used only once"
+      ]
+    },
+    {
+      "criterion": "UI states cover unpaired/pairing/connected/offline/tailscaleUnavailable/revoked/incompatible/unhealthy",
+      "status": "already-implemented",
+      "implementingFiles": [
+        "apps/mobile/lib/pairing/paired-host-store.ts",
+        "apps/mobile/providers/paired-host-provider.tsx",
+        "apps/mobile/app/(tabs)/settings.tsx"
+      ],
+      "provingTests": [
+        "apps/mobile/tests/paired-host.test.mjs — issue-1171-c4 paired-host state transition contracts"
+      ]
+    },
+    {
+      "criterion": "idempotent Tailscale Serve configuration via argument arrays never shell strings",
+      "status": "already-implemented",
+      "implementingFiles": [
+        "apps/api_server/src/services/tailscale_serve_service.ts"
+      ],
+      "provingTests": [
+        "apps/api_server/src/services/__tests__/tailscale_serve_service.test.ts — configures with an argument array, then verifies the resulting target",
+        "apps/api_server/src/services/__tests__/tailscale_serve_service.test.ts — is idempotent and never runs configure when Serve is already healthy"
+      ]
+    },
+    {
+      "criterion": "revoke and one-active-host replacement UX",
+      "status": "already-implemented",
+      "implementingFiles": [
+        "apps/desktop_flutter/lib/features/agents/views/mobile_access_dialog.dart",
+        "apps/mobile/app/pair.tsx",
+        "apps/mobile/lib/pairing/paired-host-store.ts"
+      ],
+      "provingTests": [
+        "apps/desktop_flutter/test/features/agents/mobile_access_dialog_test.dart — issue-1171-c4/c6: active device shows replacement warning and accessible revoke",
+        "apps/mobile/tests/paired-host.test.mjs — issue-1171-c4/c6: replacing a paired Mac requires explicit confirmation and does not consume the new one-time code before confirmation",
+        "apps/mobile/tests/e2e/pairing.spec.mjs — confirmed replacement revokes the old Mac before committing the new one"
+      ]
+    }
+  ]
+}
