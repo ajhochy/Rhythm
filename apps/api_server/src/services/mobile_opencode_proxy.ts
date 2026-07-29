@@ -208,6 +208,7 @@ function reconcileCatalogSession(
   value: unknown,
   input: MobileOpenCodeForwardInput,
   ownership: MobileOpenCodeOwnershipStore,
+  failureMode: 'required' | 'opportunistic',
 ): void {
   const sdkSessionId = stringRecordField(value, 'id');
   if (
@@ -243,10 +244,19 @@ function reconcileCatalogSession(
       updatedAt,
     });
   } catch (error) {
-    logger.warn(
-      '[MobileOpenCodeProxy] session catalog reconciliation failed (%s/%s)',
-      error instanceof Error ? error.name : 'UnknownError',
-      sdkSessionId,
+    if (failureMode === 'required') {
+      throw new AppError(
+        500,
+        'SESSION_CATALOG_PERSISTENCE_FAILED',
+        'Session catalog update failed',
+      );
+    }
+    logger.error(
+      '[MobileOpenCodeProxy] opportunistic session catalog reconciliation failed',
+      {
+        error_class: error instanceof Error ? error.name : 'UnknownError',
+        sdk_session_id: sdkSessionId,
+      },
     );
   }
 }
@@ -753,14 +763,19 @@ export class MobileOpenCodeProxy {
           operation.operationId === 'session.create' ||
           operation.operationId === 'session.update'
         ) {
-          reconcileCatalogSession(value, input, ownership);
+          reconcileCatalogSession(value, input, ownership, 'required');
         }
         if (
           operation.operationId === 'session.list' ||
           operation.operationId === 'experimental.session.list'
         ) {
           for (const session of Array.isArray(value) ? value : []) {
-            reconcileCatalogSession(session, input, ownership);
+            reconcileCatalogSession(
+              session,
+              input,
+              ownership,
+              'opportunistic',
+            );
           }
         }
         if (operation.operationId === 'session.delete') {

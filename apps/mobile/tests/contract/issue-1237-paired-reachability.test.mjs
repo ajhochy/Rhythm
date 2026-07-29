@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import ts from 'typescript';
 
 const repoRoot = new URL('../../../../', import.meta.url);
 const read = (path) => readFile(new URL(path, repoRoot), 'utf8');
@@ -57,6 +58,78 @@ test('issue-1237-c6: one bounded paired-host probe drives all paired surfaces', 
   assert.doesNotMatch(
     settings,
     /connection\.status === 'connected'\s*\?\s*'Connected to OpenCode'/,
+  );
+});
+
+test('issue-1237-backoff: unreachable probes back off and every recovery trigger resets to 5s', async (t) => {
+  const pairedProvider = await read(
+    'apps/mobile/providers/paired-host-provider.tsx',
+  );
+  const scheduling = pairedProvider.match(
+    /export const PAIRED_HOST_PROBE_TIMEOUT_MS[\s\S]*?(?=export interface PairedHostContextValue)/,
+  )?.[0];
+  assert.ok(scheduling, 'provider must expose its bounded probe schedule');
+  const compiled = ts.transpileModule(scheduling, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  const module = { exports: {} };
+  Function('module', 'exports', compiled)(module, module.exports);
+  const {
+    PAIRED_HOST_PROBE_TIMEOUT_MS,
+    PAIRED_HOST_PROBE_INTERVAL_MS,
+    PAIRED_HOST_PROBE_BACKOFF_MS,
+    nextPairedHostProbeInterval,
+  } = module.exports;
+
+  assert.equal(PAIRED_HOST_PROBE_TIMEOUT_MS, 4_000);
+  assert.equal(PAIRED_HOST_PROBE_INTERVAL_MS, 5_000);
+  assert.deepEqual(PAIRED_HOST_PROBE_BACKOFF_MS, [
+    5_000,
+    10_000,
+    20_000,
+    60_000,
+  ]);
+
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const firedAt = [];
+  let elapsed = 0;
+  let delay = PAIRED_HOST_PROBE_INTERVAL_MS;
+  const schedule = () => {
+    setTimeout(() => {
+      elapsed += delay;
+      firedAt.push(elapsed);
+      delay = nextPairedHostProbeInterval(delay);
+      schedule();
+    }, delay);
+  };
+  schedule();
+  for (const advance of [5_000, 10_000, 20_000, 60_000, 60_000]) {
+    t.mock.timers.tick(advance);
+  }
+  assert.deepEqual(firedAt, [5_000, 15_000, 35_000, 95_000, 155_000]);
+
+  assert.match(
+    pairedProvider,
+    /if \(next\.state === 'connected'\) resetProbeInterval\(\)/,
+    'a successful recovery must restore the base cadence',
+  );
+  assert.match(
+    pairedProvider,
+    /state === 'active'[\s\S]*resetProbeInterval\(\)[\s\S]*runBoundedRefresh/,
+    'foregrounding must reset before the immediate probe',
+  );
+  assert.match(
+    pairedProvider,
+    /const refresh = useCallback\([\s\S]*resetProbeInterval\(\)[\s\S]*return runBoundedRefresh/,
+    'the public user retry must reset before probing',
+  );
+  assert.match(
+    pairedProvider,
+    /snapshot\.state === 'offline'[\s\S]*backOffProbeInterval/,
+    'backoff must only advance after an offline state already exists',
   );
 });
 

@@ -3,6 +3,21 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { logger } from '../utils/logger';
 
+function isMalformedJsonBody(err: unknown): boolean {
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    'type' in err &&
+    err.type === 'entity.parse.failed'
+  ) {
+    return true;
+  }
+  if (!(err instanceof SyntaxError)) return false;
+  const status = 'status' in err ? Number(err.status) : undefined;
+  const statusCode = 'statusCode' in err ? Number(err.statusCode) : undefined;
+  return status === 400 || statusCode === 400;
+}
+
 export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction) {
   if (
     req.path === '/mobile-gateway' ||
@@ -50,6 +65,22 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
         code,
         message,
         ...(statusCode === 500 ? { correlationId } : {}),
+      },
+    });
+    return;
+  }
+
+  if (isMalformedJsonBody(err)) {
+    logger.error(
+      `Handled BAD_REQUEST ${req.method} ${req.originalUrl} — Malformed JSON request body`,
+      {
+        authUserId: req.auth?.user?.id ?? null,
+      },
+    );
+    res.status(400).json({
+      error: {
+        code: 'BAD_REQUEST',
+        message: 'Malformed JSON request body',
       },
     });
     return;

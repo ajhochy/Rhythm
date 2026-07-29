@@ -18,7 +18,7 @@ const repo = new AgentMemoryRepository();
 const sessionsRepo = new AgentSessionsRepository();
 
 async function memoryWithAudit(id: string) {
-  const item = await repo.findByIdAsync(id);
+  const item = await agentMemoryService.get(id);
   if (!item) return null;
   return {
     ...item,

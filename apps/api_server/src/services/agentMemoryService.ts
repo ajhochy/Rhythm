@@ -81,6 +81,15 @@ export const agentMemoryService = {
     return memRepo.listAsync(ownerUserId, kind, limit);
   },
 
+  /** Resolve either the derived index-row id or the frontmatter id returned by remember(). */
+  async get(id: string, options?: MemoryVaultWriteOptions) {
+    let row = await memRepo.findByIdAsync(id);
+    if (!row) {
+      row = await findMemoryRowByRememberId(id, memRepo, options);
+    }
+    return row;
+  },
+
   /**
    * Issue #803 — vault-first `forget`: look up the index row by id to find its
    * vault-relative note path, delete the note FILE (confined to the memory
