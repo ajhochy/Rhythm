@@ -68,7 +68,6 @@ describe('issue #1231 session-catalog reconciliation failures', () => {
     project = {
       id: insertedProject.id,
       root: insertedProject.cwd,
-      name: insertedProject.name,
     };
     const ownedSession = sessions.insert({
       agentKind: 'codex',
