@@ -24,7 +24,9 @@ test('issue-1173-c12: all fourteen tools are navigable and reviewed', async ({ p
     const link = page.getByRole('button', { name: new RegExp(`^${tool}\\.`) });
     await expect(link).toBeVisible();
     await link.click();
-    await expect(page.getByRole('heading', { name: tool })).toBeVisible();
+    // exact: substring name matching also hits the transient "Loading <tool>"
+    // heading — strict-mode flake seen on Research/Scheduled Jobs/Webhooks.
+    await expect(page.getByRole('heading', { name: tool, exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Back to Tools' }).click();
   }
 });
