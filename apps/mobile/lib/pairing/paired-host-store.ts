@@ -383,7 +383,7 @@ export class PairedHostStore {
     return neutralizeDeviceToken(this.options);
   }
 
-  async restore(): Promise<PairedHostSnapshot> {
+  async restore(signal?: AbortSignal): Promise<PairedHostSnapshot> {
     const operation = ++this.operation;
     let token: string | null;
     let host: PairedHost | null;
@@ -429,10 +429,10 @@ export class PairedHostStore {
         'This iPhone no longer has a valid Mac credential. Pair it again.',
       );
     }
-    return this.refresh();
+    return this.refresh(signal);
   }
 
-  async refresh(): Promise<PairedHostSnapshot> {
+  async refresh(signal?: AbortSignal): Promise<PairedHostSnapshot> {
     const operation = ++this.operation;
     let host = this.host;
     try {
@@ -477,7 +477,7 @@ export class PairedHostStore {
       });
       const health = await client.request<HealthResponse>(
         '/mobile-gateway/health',
-        { method: 'GET' },
+        { method: 'GET', signal },
       );
       if (operation !== this.operation) return this.snapshot();
       if (health.status !== 'ready') {
@@ -522,7 +522,10 @@ export class PairedHostStore {
           'This iPhone was revoked by the paired Mac. Pair it again.',
         );
       }
-      if (error instanceof ApiError && error.code === 'NETWORK_ERROR') {
+      if (
+        error instanceof ApiError &&
+        (error.code === 'NETWORK_ERROR' || error.status >= 500)
+      ) {
         if (!(await internetAvailable())) {
           return this.apply(
             'offline',

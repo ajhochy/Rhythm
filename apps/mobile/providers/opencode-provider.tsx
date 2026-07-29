@@ -219,6 +219,11 @@ function authenticatedWebSocket(
 
 export function OpencodeProvider({ children }: PropsWithChildren) {
   const pairedHost = usePairedHost();
+  const pairedHostClient = pairedHost.client;
+  const pairedHostRecord = pairedHost.host;
+  const pairedHostMessage = pairedHost.message;
+  const refreshPairedHost = pairedHost.refresh;
+  const pairedHostState = pairedHost.state;
   const rhythmAccount = useRhythmAccount();
   const [settings, setSettings] = useState<OpencodeConnectionSettings>(defaultConnectionSettings);
   const [connection, setConnection] = useState<ConnectionState>({
@@ -1362,7 +1367,15 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   }, [clearProjectState]);
 
   const connect = useCallback(async () => {
-    if (!pairedHost.client && Platform.OS !== 'web') {
+    if (pairedHostRecord && pairedHostState !== 'connected') {
+      setConnection({
+        status: 'error',
+        message: pairedHostMessage,
+        checkedAt: Date.now(),
+      });
+      return;
+    }
+    if (!pairedHostClient && Platform.OS !== 'web') {
       setConnection({
         status: 'idle',
         message: 'Pair this iPhone with your Mac to use Rhythm Agents.',
@@ -1380,7 +1393,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
     setConnection({
       status: 'connecting',
-      message: pairedHost.client
+      message: pairedHostClient
         ? 'Connecting securely to your paired Mac…'
         : `Connecting to ${getNormalizedServerUrl(settingsRef.current.serverUrl)}...`,
     });
@@ -1394,7 +1407,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
       setConnection({
         status: 'connected',
-        message: pairedHost.client
+        message: pairedHostClient
           ? 'Connected securely to your paired Mac.'
           : `Connected to ${getNormalizedServerUrl(settingsRef.current.serverUrl)}`,
         checkedAt: Date.now(),
@@ -1414,12 +1427,18 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       if (!isCurrentCatalogClient(catalogClient)) {
         return;
       }
+      const reachability = pairedHostClient
+        ? await refreshPairedHost()
+        : null;
       setServerProjects([]);
       setCurrentProjectPath(undefined);
       setServerRootPath(undefined);
       setConnection({
         status: 'error',
-        message: getConnectionError(settingsRef.current.serverUrl, error),
+        message:
+          reachability && reachability.state !== 'connected'
+            ? reachability.message
+            : getConnectionError(settingsRef.current.serverUrl, error),
         checkedAt: Date.now(),
       });
       setSessions([]);
@@ -1435,7 +1454,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     catalogClient,
     isCurrentCatalogClient,
     loadWorkspaceCatalog,
-    pairedHost.client,
+    pairedHostClient,
+    pairedHostMessage,
+    pairedHostRecord,
+    pairedHostState,
+    refreshPairedHost,
   ]);
 
   const ensureActiveSessionRef = useRef(ensureActiveSession);
@@ -1443,8 +1466,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     if (!isHydrated) return;
-    const target = pairedHost.client && pairedHost.host
-      ? `paired:${pairedHost.host.rhythmUserId}:${pairedHost.host.hostId}:${pairedHost.host.deviceId}`
+    const target = pairedHostClient && pairedHostRecord
+      ? `paired:${pairedHostRecord.rhythmUserId}:${pairedHostRecord.hostId}:${pairedHostRecord.deviceId}:${pairedHostState}`
       : Platform.OS === 'web'
         ? `direct:${settings.serverUrl}:${settings.username}:${settings.password}`
         : 'native:unpaired';
@@ -1468,8 +1491,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     catalogClient,
     connect,
     isHydrated,
-    pairedHost.client,
-    pairedHost.host,
+    pairedHostClient,
+    pairedHostRecord,
+    pairedHostState,
     settings.password,
     settings.serverUrl,
     settings.username,
@@ -2526,13 +2550,14 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
     const subscribe = async () => {
       let retryAttempt = 0;
+      let reachabilityFailureReported = false;
       while (mounted) {
         const abortController = new AbortController();
         activeAbortController = abortController;
         setEventStreamStatus(retryAttempt === 0 ? 'connecting' : 'error');
 
         try {
-          const eventClient = pairedHost.client ? client : catalogClient;
+          const eventClient = pairedHostClient ? client : catalogClient;
           const subscription = await eventClient.global.event({ signal: abortController.signal, sseMaxRetryAttempts: 1 });
           setEventStreamStatus('connected');
           await Promise.all([
@@ -2549,6 +2574,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             if (envelope?.directory === activeProjectPath) {
               setEventStreamStatus('connected');
               retryAttempt = 0;
+              reachabilityFailureReported = false;
               if (rememberEvent(envelope.payload)) {
                 handleEvent(envelope.payload);
               }
@@ -2562,6 +2588,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             break;
           }
           setEventStreamStatus('error');
+          if (pairedHostClient && !reachabilityFailureReported) {
+            reachabilityFailureReported = true;
+            void refreshPairedHost();
+          }
           const retryDelay = getRecoveryDelayMs(retryAttempt);
           retryAttempt += 1;
           await new Promise((resolve) => setTimeout(resolve, retryDelay));
@@ -2575,7 +2605,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       mounted = false;
       activeAbortController?.abort();
     };
-  }, [activeProjectPath, catalogClient, client, connection.status, pairedHost.client, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, scheduleSessionRefresh]);
+  }, [activeProjectPath, catalogClient, client, connection.status, pairedHostClient, refreshArchivedSessions, refreshChatCapabilities, refreshCurrentSession, refreshDiagnostics, refreshMcpServers, refreshPairedHost, refreshPendingInteractions, refreshServerFeatures, refreshSessions, refreshTerminals, refreshWorktrees, refreshWorkspaceCatalog, scheduleSessionRefresh]);
 
   useEffect(
     () => () => {

@@ -285,6 +285,20 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && pathname === '/__control/mobile-reachability') {
+      const body = await readJson(req);
+      if (!['online', 'error', 'timeout'].includes(body?.mode)) {
+        sendJson(res, 400, { error: 'mode must be online, error, or timeout' });
+        return;
+      }
+      state.mobileReachability = body.mode;
+      if (body.mode !== 'online') {
+        for (const client of state.sseClients.keys()) client.end();
+      }
+      sendJson(res, 200, { mode: state.mobileReachability });
+      return;
+    }
+
     if (req.method === 'POST' && pathname === '/__control/mobile-revoke-failure') {
       const body = await readJson(req);
       state.mobileOldRevokeFailure = body?.enabled === true;
@@ -350,6 +364,16 @@ const server = http.createServer(async (req, res) => {
         projectId: req.headers['x-rhythm-project-id'] ?? null,
         queryKeys: [...requestUrl.searchParams.keys()].sort(),
       });
+
+      if (state.mobileReachability === 'timeout') {
+        return;
+      }
+      if (state.mobileReachability === 'error') {
+        sendJson(res, 503, {
+          error: { code: 'UNAVAILABLE', message: 'Paired Mac unavailable' },
+        });
+        return;
+      }
 
       if (
         req.method === 'GET' &&

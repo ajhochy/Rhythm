@@ -43,6 +43,7 @@ export function PairedMacSection({
   palette,
 }: PairedMacSectionProps) {
   const busy = state === 'pairing';
+  const reachable = state === 'connected';
   return (
     <Surface
       accessibilityRole="summary"
@@ -94,7 +95,7 @@ export function PairedMacSection({
           maxFontSizeMultiplier={1.8}
           mode={host ? 'outlined' : 'contained'}
           icon="qrcode-scan"
-          disabled={busy}
+          disabled={busy || Boolean(host && !reachable)}
           accessibilityLabel={host ? 'Pair a different Mac' : 'Pair a Mac'}
           onPress={onPair}>
           {host ? 'Pair different Mac' : 'Pair a Mac'}
@@ -113,6 +114,7 @@ export function PairedMacSection({
           <Button
             maxFontSizeMultiplier={1.8}
             textColor={palette.danger}
+            disabled={!reachable}
             accessibilityLabel="Revoke this iPhone from the paired Mac"
             onPress={onRevoke}>
             Revoke

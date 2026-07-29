@@ -197,6 +197,7 @@ export function ActivityFeed({
           const deepLink = getActivityDeepLink(item);
           return (
             <Card
+              testID={`activity-item-${item.id}`}
               accessibilityLabel={`${item.title}. ${item.source}. ${item.status}.`}
               accessibilityRole={deepLink ? 'button' : undefined}
               disabled={!deepLink}

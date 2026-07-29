@@ -6,10 +6,12 @@ import { ChatView } from '@/components/chat/chat-view';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useOpencode } from '@/providers/opencode-provider';
+import { usePairedHost } from '@/providers/paired-host-provider';
 
 export default function AgentChatScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
+  const pairedHost = usePairedHost();
   const {
     activeProject,
     connection,
@@ -26,6 +28,23 @@ export default function AgentChatScreen() {
 
     void ensureActiveSession();
   }, [activeProject, connection.status, currentSessionId, ensureActiveSession, isBootstrappingChat, isHydrated]);
+
+  if (pairedHost.host && pairedHost.state !== 'connected') {
+    return (
+      <View
+        testID="paired-mac-offline-state"
+        style={[styles.center, { backgroundColor: palette.background }]}>
+        <Surface style={[styles.panel, { backgroundColor: palette.surface }]} elevation={1}>
+          <Text variant="headlineSmall" style={[styles.title, { color: palette.text }]}>
+            Paired Mac unavailable
+          </Text>
+          <Text variant="bodyMedium" style={[styles.copy, { color: palette.muted }]}>
+            {pairedHost.message}
+          </Text>
+        </Surface>
+      </View>
+    );
+  }
 
   if (currentSessionId) {
     return <ChatView />;

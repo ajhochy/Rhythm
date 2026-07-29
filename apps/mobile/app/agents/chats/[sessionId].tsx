@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChatView } from '@/components/chat/chat-view';
 import { ToolScreenState } from '@/components/tools/tool-screen-state';
 import { useOpencode } from '@/providers/opencode-provider';
+import { usePairedHost } from '@/providers/paired-host-provider';
 
 export default function AgentChatDetailScreen() {
   const params = useLocalSearchParams<{
@@ -11,6 +12,11 @@ export default function AgentChatDetailScreen() {
     projectId?: string;
   }>();
   const opencode = useOpencode();
+  const pairedHost = usePairedHost();
+  const pairedHostAvailable =
+    !pairedHost.host || pairedHost.state === 'connected';
+  const sessionTransportAvailable =
+    pairedHostAvailable && opencode.connection.status === 'connected';
   const [error, setError] = useState<string | null>(null);
   const openingRef = useRef<string | null>(null);
   const sessionId = Array.isArray(params.sessionId)
@@ -56,6 +62,16 @@ export default function AgentChatDetailScreen() {
     sessionId,
   ]);
 
+  if (!pairedHostAvailable) {
+    return (
+      <ToolScreenState
+        message={pairedHost.message}
+        state="offline-cache"
+        title="Opening chat"
+      />
+    );
+  }
+
   if (error) {
     return (
       <>
@@ -81,15 +97,11 @@ export default function AgentChatDetailScreen() {
         {routeHeader}
         <ToolScreenState
           message={
-            opencode.connection.status === 'connected'
+            sessionTransportAvailable
               ? 'Loading the transcript and agent state.'
-              : 'Reconnect to your paired Mac to open this chat.'
+              : opencode.connection.message
           }
-          state={
-            opencode.connection.status === 'connected'
-              ? 'loading'
-              : 'offline-cache'
-          }
+          state={sessionTransportAvailable ? 'loading' : 'offline-cache'}
           title="Opening chat"
         />
       </>

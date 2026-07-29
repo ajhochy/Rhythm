@@ -26,6 +26,7 @@ import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAgentChat } from '@/providers/agent-chat-provider';
 import { useOpencode } from '@/providers/opencode-provider';
+import { usePairedHost } from '@/providers/paired-host-provider';
 import {
   buildAgentChatReadModel,
   type AgentChatRecord,
@@ -48,6 +49,7 @@ function flattenChats(
 export function ChatList() {
   const router = useRouter();
   const opencode = useOpencode();
+  const pairedHost = usePairedHost();
   const chat = useAgentChat();
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
@@ -248,6 +250,7 @@ export function ChatList() {
         </Menu>
         {chat.isOfflineCache ? (
           <Card
+            testID="paired-mac-offline-state"
             accessibilityLabel="Offline saved chats. Actions are unavailable."
             mode="contained"
             style={{ backgroundColor: palette.surfaceAlt }}>
@@ -255,7 +258,7 @@ export function ChatList() {
               <Text
                 style={{ color: palette.warning }}
                 variant="bodyMedium">
-                Mac offline — showing a read-only saved list.
+                {pairedHost.message}
               </Text>
             </Card.Content>
           </Card>
