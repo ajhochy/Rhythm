@@ -1,0 +1,15 @@
+Command: cd apps/mobile && node --test tests/contract/issue-1238-keyboard-safe-composer.test.mjs
+Exit: 1
+
+TAP version 13
+not ok 1 - issue-1238-c1: composer is docked below the independently flexible transcript
+  AssertionError: assert.ok(headerIndex >= 0 && avoiderIndex > headerIndex)
+not ok 2 - issue-1238-c2: multiline input enables internal scrolling at its explicit cap
+  AssertionError: source did not match /scrollEnabled=\{inputHeight >= maxInputHeight\}/
+not ok 3 - issue-1238-c4: transcript exposes interactive dismissal and composer exposes a labeled action
+  AssertionError: source did not match /keyboardDismissMode="interactive"/
+
+tests 3
+pass 0
+fail 3
+duration_ms 58.300834

@@ -4,6 +4,7 @@ import { Fonts } from '@/constants/theme';
 
 export const styles = StyleSheet.create({
   screen: { flex: 1 },
+  keyboardArea: { flex: 1 },
   header: { elevation: 0 },
   headerMain: { flex: 1, minWidth: 0, alignSelf: 'stretch', justifyContent: 'center' },
   headerActions: { flexDirection: 'row', alignItems: 'center', flexShrink: 0 },
@@ -62,13 +63,10 @@ export const styles = StyleSheet.create({
   composerDockRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   inputShell: { borderWidth: 1, borderRadius: 22, paddingLeft: 12, paddingRight: 6, paddingTop: 0, paddingBottom: 0, minHeight: 48, justifyContent: 'center' },
   inputShellFlex: { flex: 1 },
-  // Row containing the input and inline icon. Center children by default so the
-  // input visually floats vertically when single-line.
-  composerRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  // Keep input flexible but start very compact
-  // Input text area: keep the text container small; inner padding provides the 4px top/bottom
-  // Keep text vertically centered by default; multiline growth still allowed.
-  input: { flex: 1, minHeight: 24, maxHeight: 120, fontSize: 17, lineHeight: 22, marginHorizontal: -4, paddingVertical: 0, textAlignVertical: 'center' },
+  // Keep actions anchored while multiline text grows upward.
+  composerRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 4 },
+  // The native input takes over scrolling after reaching the explicit cap.
+  input: { flex: 1, minHeight: 24, maxHeight: 132, fontSize: 17, lineHeight: 22, marginHorizontal: -4, paddingVertical: 0, textAlignVertical: 'top' },
   inputContentCompact: { paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, fontFamily: Fonts.sans },
   controlsRow: { flexDirection: 'row', flexWrap: 'nowrap', gap: 6, paddingHorizontal: 0, alignItems: 'center', width: '100%' },
   attachmentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 2 },
@@ -79,6 +77,7 @@ export const styles = StyleSheet.create({
   conversationBannerHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'center' },
   voiceStatusRow: { paddingHorizontal: 2 },
   voiceStatusChip: { alignSelf: 'flex-start' },
+  composerDismissButton: { margin: 0, alignSelf: 'flex-end' },
   composerVoiceButton: { margin: 0, alignSelf: 'center' },
   composerPrimaryButton: { margin: 0, width: 44, height: 44, borderRadius: 999, alignSelf: 'center' },
   composerActionButton: { margin: 0 },

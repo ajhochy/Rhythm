@@ -107,6 +107,7 @@ export function ChatContent({
         <FlashList
           key={currentSessionId || 'no-session'}
           ref={transcriptRef}
+          testID="chat-transcript"
           data={displayTranscript}
           style={styles.scroll}
           contentContainerStyle={[
@@ -114,6 +115,7 @@ export function ChatContent({
             currentTodos.length > 0 ? { paddingBottom: todosExpanded ? 320 : 76 } : null,
           ]}
           extraData={{ copiedMessageId, speakingMessageId }}
+          keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           keyExtractor={(entry) => `${entry.id}-${entry.createdAt}`}
           maintainVisibleContentPosition={{

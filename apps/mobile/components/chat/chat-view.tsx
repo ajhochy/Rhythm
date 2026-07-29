@@ -505,10 +505,7 @@ export function ChatView() {
 
   return (
     <>
-      <KeyboardAvoidingView
-        style={[styles.screen, { backgroundColor: palette.background }]}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}>
+      <View style={[styles.screen, { backgroundColor: palette.background }]}>
         <ChatHeader
           connectionStatus={connection.status}
           conversation={conversation}
@@ -536,7 +533,11 @@ export function ChatView() {
           usage={currentUsage}
         />
 
-        <View style={[styles.tabsRow, { backgroundColor: palette.surface, borderBottomColor: palette.border }]}>
+        <KeyboardAvoidingView
+          style={styles.keyboardArea}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}>
+          <View style={[styles.tabsRow, { backgroundColor: palette.surface, borderBottomColor: palette.border }]}>
           <TopTab active={activeTab === 'session'} label="Session" onPress={() => setActiveTab('session')} />
           <TopTab active={activeTab === 'changes'} label={`${diffCount} Files Changed`} onPress={() => setActiveTab('changes')} />
           <Button
@@ -814,7 +815,8 @@ export function ChatView() {
           updateChatPreferences={updateChatPreferences}
           visibleModels={visibleModels}
         />
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </View>
 
       <Snackbar visible={Boolean(copiedMessageId)} onDismiss={() => setCopiedMessageId(undefined)} duration={1800}>
         {copiedMessageId === '__send-error__' ? 'Error details copied' : 'Message copied to clipboard'}

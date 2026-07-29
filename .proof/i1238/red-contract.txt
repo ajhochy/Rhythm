@@ -1,0 +1,3 @@
+# pass 0
+# fail 3
+(pre-change run of issue-1238 contract test with chat components stashed)

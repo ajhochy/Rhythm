@@ -1,4 +1,4 @@
-import { View } from 'react-native';
+import { Keyboard, View } from 'react-native';
 import { Chip, IconButton, Surface, Text, TextInput } from 'react-native-paper';
 import { useState } from 'react';
 
@@ -75,7 +75,7 @@ export function ChatComposer({
   visibleModels,
 }: ChatComposerProps) {
   const minInputHeight = 24;
-  const maxInputHeight = 110;
+  const maxInputHeight = 132;
   const hasComposerContent = Boolean(draft.trim()) || attachments.length > 0;
   const showOuterAction = showSendAction ? (hasComposerContent ? 'send' : 'attach') : 'stop';
   const outerActionIcon = showOuterAction === 'attach' ? 'plus' : showOuterAction;
@@ -216,7 +216,7 @@ export function ChatComposer({
                }}
                editable={!isSpeechInputListening}
                multiline
-               scrollEnabled={false}
+               scrollEnabled={inputHeight >= maxInputHeight}
                placeholder="Ask anything..."
                placeholderTextColor={palette.muted}
                style={[styles.input, { height: inputHeight, backgroundColor: 'transparent', color: palette.text }]}
@@ -225,6 +225,14 @@ export function ChatComposer({
                activeUnderlineColor="transparent"
                textAlignVertical="top"
              />
+
+            <IconButton
+              accessibilityLabel="Dismiss keyboard"
+              icon="keyboard-close"
+              size={20}
+              style={styles.composerDismissButton}
+              onPress={Keyboard.dismiss}
+            />
 
             <IconButton
               testID="chat-secondary-button"
