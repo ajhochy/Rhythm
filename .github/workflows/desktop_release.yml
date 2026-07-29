@@ -307,7 +307,10 @@ jobs:
           SMOKE_DB="$RUNNER_TEMP/smoke.db"
           rm -rf "$SMOKE_HOME" "$SMOKE_DB"
           mkdir -p "$SMOKE_HOME"
-          AGENT_LOCAL=true MCP_ROLES_DIR="$APP/Contents/Resources/.mcp-roles" HOME="$SMOKE_HOME" PORT=4002 DB_PATH="$SMOKE_DB" NODE_ENV=test "$BUNDLED_NODE" "$SCRIPT" &
+          RHYTHM_MOBILE_GATEWAY_PORT=4003 \
+            AGENT_LOCAL=true MCP_ROLES_DIR="$APP/Contents/Resources/.mcp-roles" \
+            HOME="$SMOKE_HOME" PORT=4002 DB_PATH="$SMOKE_DB" NODE_ENV=test \
+            "$BUNDLED_NODE" "$SCRIPT" &
           PID=$!
           cleanup() {
             kill $PID 2>/dev/null || true

@@ -151,6 +151,25 @@ describe('#792 agent_skills dual-DB schema parity', () => {
     expect(workflow).toContain('require("path").resolve(process.env.BUNDLED_API_SERVER');
   });
 
+  it('keeps the bundled API smoke and mobile gateway on distinct ports', () => {
+    const workflow = readFileSync(
+      join(__dirname, '..', '..', '..', '..', '.github', 'workflows', 'desktop_release.yml'),
+      'utf8',
+    );
+    const smokeStep = workflow.match(
+      /- name: Smoke-test bundled CLI server[\s\S]*?- name: Smoke memory vault authority/,
+    )?.[0];
+    expect(smokeStep).toBeDefined();
+
+    const apiPort = smokeStep?.match(/(?:^|\s)PORT=(\d+)\b/)?.[1];
+    const mobileGatewayPort = smokeStep?.match(
+      /RHYTHM_MOBILE_GATEWAY_PORT=(\d+)\b/,
+    )?.[1];
+    expect(apiPort).toBe('4002');
+    expect(mobileGatewayPort).toBe('4003');
+    expect(mobileGatewayPort).not.toBe(apiPort);
+  });
+
   it('guards every creative-platform MCP tool in the bundled release', () => {
     const workflow = readFileSync(
       join(__dirname, '..', '..', '..', '..', '.github', 'workflows', 'desktop_release.yml'),
