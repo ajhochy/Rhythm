@@ -341,7 +341,7 @@ At least one of content/kind/tags must be provided; omitted fields are left unch
   registerTool(server, 'rhythm_verify_memory',
     `Record a machine confirmation for a memory, or non-destructively deprecate it.
 
-The server assigns the fixed agent identity; callers cannot supply or forge a human actor. Use action="verify" after confirming a fact in conversation, or action="deprecate" when the fact should remain auditable but stop being active.`,
+The server assigns the fixed agent identity; callers cannot supply or forge a human actor. Each successful change appends actor, timestamp, prior state, source context, and rollback target to the memory audit history. Use action="verify" after confirming a fact in conversation, or action="deprecate" when the fact should remain auditable but stop being active.`,
     {
       id: z.string().describe('The memory entry ID to verify or deprecate.'),
       action: z.enum(['verify', 'deprecate']).describe('Lifecycle action to record.'),

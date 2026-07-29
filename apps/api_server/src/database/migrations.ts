@@ -1334,10 +1334,8 @@ export function runMigrations(db: Database.Database): void {
   // DERIVED, DISPOSABLE index — the Obsidian Memory-Vault is the source of truth
   // and MemoryIndexService.rebuildIndexFromVault() can wipe + rebuild it from a
   // full vault scan at any time. No durable data lives here that isn't in the
-  // vault. #807: this SQLite index is now the ONLY agent_memory store — the
-  // Postgres/prod agent_memory table was removed from postgres_bootstrap.ts;
-  // memory is local-only (served by the local agent server on :4001). Schema is
-  // unchanged — this note documents intent only.
+  // vault. #1219 keeps a matching derived projection in role-gated Postgres
+  // deployments so schema selection cannot drop provenance fields at runtime.
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_memory (
       id TEXT PRIMARY KEY,
@@ -1401,6 +1399,22 @@ export function runMigrations(db: Database.Database): void {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_agent_memory_active
       ON agent_memory(status, stale_after);
+
+    CREATE TABLE IF NOT EXISTS agent_memory_changes (
+      id TEXT PRIMARY KEY,
+      memory_id TEXT NOT NULL,
+      memory_source_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      changed_at TEXT NOT NULL,
+      prior_state_json TEXT NOT NULL,
+      rollback_target TEXT,
+      source_context_json TEXT NOT NULL DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_changes_memory
+      ON agent_memory_changes(memory_id, changed_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_changes_source
+      ON agent_memory_changes(memory_source_id, changed_at);
   `);
 
   // FTS5 virtual table for agent_memory full-text search.

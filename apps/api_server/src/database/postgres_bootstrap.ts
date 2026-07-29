@@ -591,15 +591,70 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     return;
   }
 
-  // ── agent_memory — REMOVED (#807, memory epic #801) ───────────────────────
-  // Agent memory is now LOCAL-ONLY: the source of truth is the Obsidian
-  // Memory-Vault and the searchable store is the disposable SQLite index
-  // (migrations.ts + agent_memory_repository.ts), served by the local agent
-  // server on :4001. There is no cloud/prod agent_memory store anymore — the
-  // Postgres table + its FTS/owner indexes that used to be created here have
-  // been removed. Start-fresh: no data migration (prod held nothing durable).
-  // Do NOT re-add a Postgres agent_memory table; memory must not be re-coupled
-  // to the production base. See docs/ai/decisions/2026-06-28-remove-prod-agent-memory-store.md.
+  // #1219 — keep the agent-memory projection schema compatible anywhere the
+  // agent-execution role is enabled. The vault remains canonical; these rows
+  // are still a derived query index plus an append-only lifecycle ledger.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_memory (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL DEFAULT 'fact',
+      content TEXT NOT NULL,
+      source TEXT,
+      source_id TEXT,
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'stable',
+      stale_after TEXT,
+      verified_json TEXT NOT NULL DEFAULT '[]',
+      sources_json TEXT NOT NULL DEFAULT '[]',
+      generated_by TEXT,
+      generated_at TIMESTAMPTZ,
+      trust_tier TEXT NOT NULL DEFAULT 'unverified',
+      search_vector TSVECTOR GENERATED ALWAYS AS (
+        to_tsvector('english', content)
+      ) STORED,
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'stable'`);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS stale_after TEXT`);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS verified_json TEXT NOT NULL DEFAULT '[]'`);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS sources_json TEXT NOT NULL DEFAULT '[]'`);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS generated_by TEXT`);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS generated_at TIMESTAMPTZ`);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS trust_tier TEXT NOT NULL DEFAULT 'unverified'`);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', content)) STORED`);
+  await pool.query(`UPDATE agent_memory SET verified_json = '[]' WHERE verified_json IS NULL`);
+  await pool.query(`UPDATE agent_memory SET sources_json = '[]' WHERE sources_json IS NULL`);
+  await pool.query(`UPDATE agent_memory SET trust_tier = 'unverified' WHERE trust_tier IS NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_memory_owner ON agent_memory(owner_user_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_memory_kind ON agent_memory(kind)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_memory_active ON agent_memory(status, stale_after)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_memory_search ON agent_memory USING GIN(search_vector)`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_memory_changes (
+      id TEXT PRIMARY KEY,
+      memory_id TEXT NOT NULL,
+      memory_source_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      changed_at TIMESTAMPTZ NOT NULL,
+      prior_state_json TEXT NOT NULL,
+      rollback_target TEXT,
+      source_context_json TEXT NOT NULL DEFAULT '{}'
+    )
+  `);
+  await pool.query(`ALTER TABLE agent_memory_changes ADD COLUMN IF NOT EXISTS memory_source_id TEXT`);
+  await pool.query(`
+    UPDATE agent_memory_changes changes
+       SET memory_source_id = memory.source_id
+      FROM agent_memory memory
+     WHERE changes.memory_source_id IS NULL
+       AND memory.id = changes.memory_id
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_memory_changes_memory ON agent_memory_changes(memory_id, changed_at)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_memory_changes_source ON agent_memory_changes(memory_source_id, changed_at)`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_webhook_endpoints (
