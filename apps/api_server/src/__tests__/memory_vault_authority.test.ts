@@ -163,35 +163,31 @@ describe('vault note is the sole authority (#808 AC2)', () => {
   });
 });
 
-// ─────────────── (b) prod store REMOVED; local store intact ────────────────
+// ─────────────── (b) role-gated Postgres parity; local route intact ─────────
 
-describe('prod agent_memory store removed; local store + local-only route intact (#808 AC3, corrected per #807)', () => {
+describe('agent_memory Postgres parity remains role-gated (#1219 supersedes #807 schema removal)', () => {
   const SRC = path.join(__dirname, '..');
   const bootstrap = readFileSync(path.join(SRC, 'database', 'postgres_bootstrap.ts'), 'utf8');
   const appTs = readFileSync(path.join(SRC, 'app.ts'), 'utf8');
   const migrations = readFileSync(path.join(SRC, 'database', 'migrations.ts'), 'utf8');
 
-  it('postgres_bootstrap creates NO agent_memory table', () => {
+  it('postgres_bootstrap creates the derived agent_memory projection and audit ledger', () => {
     expect(
       bootstrap.includes('CREATE TABLE IF NOT EXISTS agent_memory'),
-      'postgres_bootstrap must NOT create a Postgres agent_memory table (#807 removed it)',
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      bootstrap.includes('CREATE TABLE IF NOT EXISTS agent_memory_changes'),
+    ).toBe(true);
   });
 
-  it('postgres_bootstrap creates NO idx_agent_memory_* index', () => {
+  it('postgres_bootstrap creates query and lifecycle indexes', () => {
     expect(
-      bootstrap.includes('idx_agent_memory_fts'),
-      'postgres_bootstrap must NOT create idx_agent_memory_fts',
-    ).toBe(false);
+      bootstrap.includes('idx_agent_memory_search'),
+    ).toBe(true);
     expect(
       bootstrap.includes('idx_agent_memory_owner'),
-      'postgres_bootstrap must NOT create idx_agent_memory_owner',
-    ).toBe(false);
-    // No agent_memory index of any name (catch a renamed re-add too).
-    expect(
-      /CREATE\s+INDEX[^;]*\bON\s+agent_memory\b/i.test(bootstrap),
-      'postgres_bootstrap must NOT create any index ON agent_memory',
-    ).toBe(false);
+    ).toBe(true);
+    expect(bootstrap.includes('idx_agent_memory_changes_source')).toBe(true);
   });
 
   it('the /agent-memory route is LOCAL-ONLY (mounted only inside the agentExecutionEnabled gate)', () => {

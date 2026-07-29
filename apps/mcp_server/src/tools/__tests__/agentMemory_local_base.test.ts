@@ -17,14 +17,18 @@ type ToolHandler = (
 
 class FakeServer {
   registered = new Map<string, ToolHandler>();
+  schemas = new Map<string, Record<string, unknown>>();
+  descriptions = new Map<string, string>();
 
   tool(
     name: string,
-    _description: string,
-    _schema: unknown,
+    description: string,
+    schema: unknown,
     handler: ToolHandler,
   ) {
     this.registered.set(name, handler);
+    this.descriptions.set(name, description);
+    this.schemas.set(name, schema as Record<string, unknown>);
   }
 }
 
@@ -239,6 +243,24 @@ describe("#804 memory MCP tools resolve to the local agent server", () => {
     expect(bodies).toEqual([
       { action: 'verify', staleAfter: '2026-10-01' },
     ]);
+  });
+
+  it('issue-1219-c5: rhythm_verify_memory schema matches the auditable lifecycle API', () => {
+    const server = buildServer(LOCAL);
+    expect(server.schemas.get('rhythm_verify_memory')).toEqual(
+      expect.objectContaining({
+        id: expect.anything(),
+        action: expect.anything(),
+        staleAfter: expect.anything(),
+      }),
+    );
+    expect(server.schemas.get('rhythm_verify_memory')).not.toHaveProperty('actor');
+    expect(server.descriptions.get('rhythm_verify_memory')).toContain(
+      'non-destructively deprecate',
+    );
+    expect(server.descriptions.get('rhythm_verify_memory')).toContain(
+      'server assigns the fixed agent identity',
+    );
   });
 
   it('prod-URL invariant: the base passed to the tools is the only thing that moves the request — index.ts wires RHYTHM_AGENT_URL, never serverConfig.url', async () => {

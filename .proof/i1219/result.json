@@ -1,0 +1,87 @@
+{
+  "issue": 1219,
+  "status": "authored_not_executed",
+  "execution_note": "Per the execution split, code and tests were authored but no tests, builds, servers, sandbox commands, or background processes were run.",
+  "decision": "docs/ai/decisions/2026-07-28-memory-provenance-lifecycle-1219.md",
+  "acceptance_criteria": {
+    "canonical provenance fields and immutable source list": [
+      "issue-1219-c2: repository round-trips canonical provenance and effective lifecycle",
+      "issue-1219-c3: vault write, update-style replay, and reindex preserve immutable provenance"
+    ],
+    "actor and generated-by remain explicit without legacy inference": [
+      "issue-1219-c1: migration backfills legacy rows without inventing actor or sources",
+      "persists provenance and append-only lifecycle audit rows over real HTTP"
+    ],
+    "active stale-after and deprecated lifecycle": [
+      "issue-1219-c2: repository round-trips canonical provenance and effective lifecycle",
+      "issue-1219-c6: memory list shows lifecycle and read-only provenance"
+    ],
+    "append-only verification history": [
+      "issue-1219-c4: verify and deprecate retain the note and append rollback-linked audit history"
+    ],
+    "change log with rollback target prior state and source context": [
+      "issue-1219-c4: verify and deprecate retain the note and append rollback-linked audit history",
+      "persists provenance and append-only lifecycle audit rows over real HTTP"
+    ],
+    "non-destructive staleness and deprecation": [
+      "issue-1219-c2: repository round-trips canonical provenance and effective lifecycle",
+      "issue-1219-c4: verify and deprecate retain the note and append rollback-linked audit history"
+    ],
+    "MCP contract": [
+      "issue-1219-c5: rhythm_verify_memory schema matches the auditable lifecycle API"
+    ],
+    "desktop read-only lifecycle and provenance": [
+      "issue-1219-c6: memory list shows lifecycle and read-only provenance"
+    ],
+    "curated-vs-synthesis behavior preserved": [
+      "issue #1218 curated-vs-synthesis retrieval contract (existing, unchanged)",
+      "live #1218/#1215 memory behavior (existing, unchanged)"
+    ]
+  },
+  "migrations": {
+    "sqlite": [
+      "Add agent_memory_changes with stable memory_source_id, actor, timestamp, prior_state_json, rollback_target, and source_context_json.",
+      "Existing provenance columns retain safe defaults: [] JSON, null generated actor/time, trust_tier unverified."
+    ],
+    "postgres": [
+      "Create the role-gated agent_memory projection when absent.",
+      "ALTER ADD IF NOT EXISTS and UPDATE-backfill provenance columns.",
+      "Add matching append-only agent_memory_changes table and indexes."
+    ],
+    "rollback": "Non-destructive rollback is to stop reading/writing the additive columns and ledger while leaving them in place. Dropping either would destroy provenance history and requires a separately reviewed destructive migration."
+  },
+  "key_decisions": [
+    "Vault frontmatter remains canonical; the database row is a query projection.",
+    "Audit rows are also keyed by stable vault source id so derived-index rebuilds do not erase or orphan history.",
+    "Legacy stable/draft note statuses remain readable; API/UI expose effective active, stale, or deprecated lifecycle.",
+    "Existing source entries are retained and new entries append in first-seen order.",
+    "The existing MCP tool uses a fixed server actor and does not accept caller-supplied identity."
+  ],
+  "tests_authored": [
+    "apps/api_server/src/contract/issue_1219_memory_provenance.test.ts",
+    "apps/api_server/src/__tests__/live_e2e_memory_provenance_1219.test.ts",
+    "apps/mcp_server/src/tools/__tests__/agentMemory_local_base.test.ts",
+    "apps/desktop_flutter/test/features/agent_memory/issue_1219_memory_provenance_view_test.dart"
+  ],
+  "files_touched": [
+    "apps/api_server/src/app.ts",
+    "apps/api_server/src/controllers/agentMemoryController.ts",
+    "apps/api_server/src/database/migrations.ts",
+    "apps/api_server/src/database/postgres_bootstrap.ts",
+    "apps/api_server/src/repositories/agent_memory_repository.ts",
+    "apps/api_server/src/services/memoryVaultWriteService.ts",
+    "apps/api_server/src/__tests__/issue_755_role_separation.test.ts",
+    "apps/api_server/src/__tests__/memory_vault_authority.test.ts",
+    "apps/api_server/src/__tests__/memory_verification.test.ts",
+    "apps/api_server/src/__tests__/live_e2e_memory_provenance_1219.test.ts",
+    "apps/api_server/src/contract/issue_1219_memory_provenance.test.ts",
+    "apps/mcp_server/src/tools/agentMemory.ts",
+    "apps/mcp_server/src/tools/__tests__/agentMemory_local_base.test.ts",
+    "apps/desktop_flutter/lib/features/agent_memory/models/agent_memory_entry.dart",
+    "apps/desktop_flutter/lib/features/agent_memory/views/agent_memory_view.dart",
+    "apps/desktop_flutter/test/features/agent_memory/issue_1219_memory_provenance_view_test.dart",
+    "docs/ai/contracts/issue-1219.json",
+    ".proof/i1219/impact.md",
+    ".proof/i1219/result.json"
+  ]
+}

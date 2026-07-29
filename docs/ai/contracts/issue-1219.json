@@ -1,0 +1,73 @@
+{
+  "issue": 1219,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1219-c1",
+      "text": "A design decision defines canonical provenance fields, actor identity, source references, lifecycle states, and rollback semantics before implementation.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Verified by review of docs/ai/decisions/2026-07-28-memory-provenance-lifecycle-1219.md."
+    },
+    {
+      "criterion_id": "issue-1219-c2",
+      "text": "Provenance survives vault write, reindex, update, and retrieval.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1219_memory_provenance.test.ts",
+      "test_id": "issue-1219-c3: vault write, update-style replay, and reindex preserve immutable provenance",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1219-c3",
+      "text": "Verification/deprecation is non-destructive and auditable.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1219_memory_provenance.test.ts",
+      "test_id": "issue-1219-c4: verify and deprecate retain the note and append rollback-linked audit history",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1219-c4",
+      "text": "Every change records actor, timestamp, prior state or rollback target, and source context.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_memory_provenance_1219.test.ts",
+      "test_id": "persists provenance and append-only lifecycle audit rows over real HTTP",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1219-c5",
+      "text": "Staleness is represented without silently deleting memories.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1219_memory_provenance.test.ts",
+      "test_id": "issue-1219-c2: repository round-trips canonical provenance and effective lifecycle",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1219-c6",
+      "text": "MCP tool schemas and descriptions match the actual API contract.",
+      "mode": "unit",
+      "test_file": "apps/mcp_server/src/tools/__tests__/agentMemory_local_base.test.ts",
+      "test_id": "issue-1219-c5: rhythm_verify_memory schema matches the auditable lifecycle API",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1219-c7",
+      "text": "Existing vault notes and index rows migrate additively with safe defaults.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1219_memory_provenance.test.ts",
+      "test_id": "issue-1219-c1: migration backfills legacy rows without inventing actor or sources",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1219-c8",
+      "text": "UI distinguishes active, stale, deprecated, and unverifiable memories without hiding provenance.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agent_memory/issue_1219_memory_provenance_view_test.dart",
+      "test_id": "issue-1219-c6: memory list shows lifecycle and read-only provenance",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-1219-c1"
+  ]
+}

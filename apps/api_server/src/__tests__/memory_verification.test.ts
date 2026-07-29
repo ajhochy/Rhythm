@@ -88,7 +88,7 @@ describe('MEM-OKF #1190 vault-first verification writes', () => {
     );
 
     const after = readNote(created.path);
-    expect(after.verified).toEqual([
+    expect(after.verified.map(({ by, at }) => ({ by, at }))).toEqual([
       {
         by: 'human:ajh@example.com',
         at: '2026-07-26T10:00:00.000Z',
@@ -98,6 +98,13 @@ describe('MEM-OKF #1190 vault-first verification writes', () => {
         at: '2026-07-26T11:00:00.000Z',
       },
     ]);
+    expect(after.verified[0]).toMatchObject({
+      action: 'verified',
+      priorState: expect.objectContaining({ status: 'stable' }),
+      rollbackTarget: null,
+      sourceContext: expect.objectContaining({ sourceId: created.path }),
+    });
+    expect(after.verified[1].rollbackTarget).toEqual(expect.any(String));
     expect(after.frontmatter.created).toEqual(before.frontmatter.created);
     const [row] = await repo.listAsync(undefined, undefined, 10);
     expect(row.trustTier).toBe('human');
@@ -194,10 +201,11 @@ describe('MEM-OKF #1190 vault-first verification writes', () => {
     expect(existsSync(path.join(vaultRoot, created.path))).toBe(true);
     const note = readNote(created.path);
     expect(note.status).toBe('deprecated');
-    expect(note.verified).toContainEqual({
+    expect(note.verified).toContainEqual(expect.objectContaining({
       by: 'human:ajh@example.com',
       at: '2026-07-26T12:00:00.000Z',
-    });
+      action: 'deprecated',
+    }));
     const rows = await repo.listAsync(undefined, undefined, 10);
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe('deprecated');
@@ -224,9 +232,10 @@ describe('MEM-OKF #1190 vault-first verification writes', () => {
       },
     )).rejects.toThrow('forced index failure');
 
-    expect(readNote(created.path).verified).toContainEqual({
+    expect(readNote(created.path).verified).toContainEqual(expect.objectContaining({
       by: 'human:ajh@example.com',
       at: '2026-07-26T13:00:00.000Z',
-    });
+      action: 'verified',
+    }));
   });
 });
