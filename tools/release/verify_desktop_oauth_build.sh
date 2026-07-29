@@ -92,7 +92,12 @@ print_diagnostics() {
 
 require_codesign_detail() {
   local needle="$1"
-  if ! codesign -dvvv "${APP_PATH}" 2>&1 | grep -Fq "${needle}"; then
+  local details
+  # Capture first, then grep: `codesign | grep -q` under pipefail races —
+  # grep exits at first match, codesign's remaining writes die of SIGPIPE
+  # (141), and the pipeline reports failure despite the successful match.
+  details="$(codesign -dvvv "${APP_PATH}" 2>&1 || true)"
+  if ! grep -Fq "${needle}" <<<"${details}"; then
     echo "Desktop OAuth verification failed: expected codesign detail '${needle}'." >&2
     exit 1
   fi
@@ -148,6 +153,73 @@ require_app_scoped_keychain_group() {
   fi
 }
 
+require_application_identifier() {
+  local bundle_identifier
+  local team_identifier
+  local expected_identifier
+  local actual_identifier
+
+  bundle_identifier="$(
+    /usr/libexec/PlistBuddy \
+      -c 'Print :CFBundleIdentifier' \
+      "${INFO_PLIST}" 2>/dev/null || true
+  )"
+  team_identifier="$(
+    codesign -dvvv "${APP_PATH}" 2>&1 |
+      sed -n 's/^TeamIdentifier=//p'
+  )"
+
+  if [[ -z "${bundle_identifier}" || -z "${team_identifier}" ]]; then
+    echo "Desktop OAuth verification failed: could not resolve the signed app identity for application-identifier validation." >&2
+    exit 1
+  fi
+
+  expected_identifier="${team_identifier}.${bundle_identifier}"
+  require_entitlement_key "com.apple.application-identifier"
+  actual_identifier="$(
+    /usr/libexec/PlistBuddy \
+      -c 'Print :com.apple.application-identifier' \
+      "${ENTITLEMENTS_XML}" 2>/dev/null || true
+  )"
+
+  if [[ "${actual_identifier}" != "${expected_identifier}" ]]; then
+    echo "Desktop OAuth verification failed: expected application identifier '${expected_identifier}', found '${actual_identifier:-<missing>}'." >&2
+    exit 1
+  fi
+}
+
+require_embedded_developer_id_profile() {
+  local profile="${APP_PATH}/Contents/embedded.provisionprofile"
+
+  if [[ ! -f "${profile}" ]]; then
+    echo "Desktop OAuth verification failed: missing Contents/embedded.provisionprofile — the restricted keychain entitlement would be AMFI-killed at launch." >&2
+    exit 1
+  fi
+
+  if ! security cms -D -i "${profile}" 2>/dev/null |
+    grep -Fq '<key>ProvisionsAllDevices</key>'; then
+    echo "Desktop OAuth verification failed: embedded.provisionprofile is not a Developer ID (ProvisionsAllDevices) profile." >&2
+    exit 1
+  fi
+}
+
+require_launch_smoke() {
+  # v0.18.53 shipped fully notarized yet was SIGKILLed by AMFI at exec
+  # (restricted entitlement without a profile). No signature or entitlement
+  # inspection catches that class — only actually launching the signed app.
+  local app_pid
+  "${RUNNER_BINARY}" > /dev/null 2>&1 &
+  app_pid=$!
+  sleep 5
+  if ! kill -0 "${app_pid}" 2>/dev/null; then
+    wait "${app_pid}" 2>/dev/null || true
+    echo "Desktop OAuth verification failed: signed app died within 5s of launch (AMFI/entitlement rejection or startup crash)." >&2
+    exit 1
+  fi
+  kill "${app_pid}" 2>/dev/null || true
+  wait "${app_pid}" 2>/dev/null || true
+}
+
 reject_entitlement_key() {
   local needle="$1"
   if grep -Fq "<key>${needle}</key>" "${ENTITLEMENTS_XML}"; then
@@ -171,7 +243,10 @@ if [[ "${MODE}" == "signed" ]]; then
   require_entitlement_key "com.apple.security.network.client"
   require_entitlement_key "com.apple.security.network.server"
   require_app_scoped_keychain_group
+  require_application_identifier
+  require_embedded_developer_id_profile
   reject_entitlement_key "com.apple.security.keychain-access-groups"
+  require_launch_smoke
 fi
 
 echo "Desktop OAuth build verification passed."

@@ -2,55 +2,63 @@
 
 ## Current focus
 
-2026-07-29: repair Desktop Release v0.18.53 after run
-[`30490564260`](https://github.com/ajhochy/Rhythm/actions/runs/30490564260)
-signed and notarized the app successfully but the stale OAuth verifier rejected
-the required app-scoped `keychain-access-groups` entitlement.
+2026-07-29: v0.18.53 published (run 30496034693) but is **dead on arrival** —
+AMFI SIGKILLs it at launch because the new `keychain-access-groups` restricted
+entitlement shipped without an embedded Developer ID provisioning profile.
+Repair in flight: embed the profile + `com.apple.application-identifier` at
+release signing, and add a launch smoke so a DOA app can never pass CI again.
 
 ## Active branch / PR
 
-- Branch: `codex/fix-desktop-keychain-entitlement-verifier`, based on `main` at
-  `125df4747`.
-- Draft PR:
-  [#1250](https://github.com/ajhochy/Rhythm/pull/1250).
+- Branch: `fix/desktop-devid-provisioning-profile`, based on `main` at
+  `9ae77f5f8`.
 - Run record:
-  [runs/2026-07-29-desktop-keychain-entitlement-verifier.md](runs/2026-07-29-desktop-keychain-entitlement-verifier.md).
+  [runs/2026-07-29-devid-provisioning-profile.md](runs/2026-07-29-devid-provisioning-profile.md).
+- Prior repair (verifier + sed expansion) merged as PR
+  [#1250](https://github.com/ajhochy/Rhythm/pull/1250); flaky mobile nav
+  locator fix open as PR
+  [#1252](https://github.com/ajhochy/Rhythm/pull/1252).
 
 ## In progress
 
-- Monitor every check on draft PR #1250 to green.
-- After a human merges the repair, dispatch a fresh v0.18.53 Desktop Release
-  from the new `main`; do not rerun the failed old-SHA workflow.
+- CI on the provisioning-profile branch, then merge and dispatch Desktop
+  Release v0.18.54 (v0.18.53 assets stay up but are unusable; do not reuse the
+  tag).
 
 ## Risks / known issues
 
-- Production API is healthy but still pinned on Synology to rollback image
-  `sha-80d1552`; the repaired final-main image published successfully but has
-  not yet been manually deployed.
-- TestFlight upload is paused. A production iOS 1.0.8 (build 2) IPA from
-  `125df4747` passed local metadata, OAuth, ATS, provisioning, and entitlement
-  checks, but no upload occurred.
-- A separate pre-existing `DB_CLIENT=postgres` + default `RHYTHM_ROLE=all`
-  runtime error was found after healthy startup: stream status reconciliation
-  calls the SQLite-only session repository. Follow-up:
+- v0.18.53 is published and DOA for anyone who downloads it; users should
+  stay on v0.18.52 until v0.18.54 ships.
+- `APPLE_PROVISIONING_PROFILE_BASE64` repo secret contains profile "Rhythm
+  Developer ID" (expires 2044) bound to the CI signing cert (expires
+  2027-02-01). Rotating the signing cert requires regenerating the profile.
+- Approvals: the server (deployed to production at `9ae77f5f8`) hard-requires
+  signed human decisions; no shipped client can sign until v0.18.54, so new
+  agent approvals are effectively frozen until it ships.
+- Production API deployed and healthy on `9ae77f5f8` (Synology un-pinned from
+  `sha-80d1552`; stray `AGENT_LOCAL=true` removed from `.env.production` —
+  it was forcing a loopback bind under new main and had been silently
+  bypassing JWT on hosted agent endpoints).
+- TestFlight upload is paused (production iOS 1.0.8 build 2 IPA from
+  `125df4747` verified locally, not uploaded).
+- Pre-existing `DB_CLIENT=postgres` + `RHYTHM_ROLE=all` stream-bridge
+  reconciliation error:
   [postgres-all-role-stream-bridge-reconciliation.md](generated-issues/postgres-all-role-stream-bridge-reconciliation.md).
 
 ## Test status
 
-- GitNexus verifier impact: LOW, zero runtime callers/processes.
-- Regression test reproduced the stale rejection, then passed 13/13 after the
-  repair.
-- Bash syntax, ShellCheck, API lint, and diff checks passed.
-- `ai-workflow checks --level issue` passed.
-- `ai-workflow checks --level pr` passed every configured Flutter, API, MCP,
-  opencode-fork, and mobile check/build.
-- GitNexus compare-`origin/main`: LOW risk, zero affected processes.
-- Server/live API, UI screenshot, and packaged-runtime smoke are N/A because
-  this branch changes release validation only, not app/runtime behavior.
+- Release regression (skill_schema_parity): red on unfixed scripts → 13/13
+  green with the profile/identifier/launch-smoke pins.
+- `bash -n` + `shellcheck` on both release scripts; `tsc --noEmit` clean.
+- Local dress rehearsal with the real CI cert: shipped v0.18.53 app +
+  embedded profile + application-identifier launches and runs; new verifier
+  passes it end-to-end (incl. launch smoke) and fails shipped v0.18.53 with
+  a precise message.
+- Also fixed a pre-existing pipefail/SIGPIPE race in
+  `require_codesign_detail` that could flake any release verify step.
 
 ## Next step
 
-Require green CI on draft PR #1250, then hand it off for human review and
-merge. After merge, dispatch a new v0.18.53 Desktop Release and verify its
-published artifacts before resuming the Synology API update and TestFlight
-upload.
+Green CI on `fix/desktop-devid-provisioning-profile` → merge (user
+pre-authorized) → dispatch Desktop Release v0.18.54 from updated `main` →
+verify launch on a real Mac → then TestFlight and PR #1252 merge.
