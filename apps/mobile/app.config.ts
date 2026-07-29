@@ -158,13 +158,17 @@ const config: ExpoConfig = {
     appleTeamId: env('EXPO_APPLE_TEAM_ID') ?? '56Q69NYP9H',
     buildNumber: '1',
     supportsTablet: false,
-    infoPlist: allowLocalHttp
-      ? {
-          NSAppTransportSecurity: {
-            NSAllowsArbitraryLoads: true,
-          },
-        }
-      : {},
+    infoPlist: {
+      NSPhotoLibraryUsageDescription:
+        'Allow Rhythm Agents to access photos you choose to attach to a conversation.',
+      ...(allowLocalHttp
+        ? {
+            NSAppTransportSecurity: {
+              NSAllowsArbitraryLoads: true,
+            },
+          }
+        : {}),
+    },
   },
   plugins: [
     'expo-router',
