@@ -12,7 +12,7 @@ import 'background_status_model.dart';
 /// [ServerConfigService.url] (per the dual-endpoint architecture rule).
 class BackgroundStatusDataSource {
   BackgroundStatusDataSource({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConstants.agentLocalBaseUrl;
+    : _baseUrl = baseUrl ?? AppConstants.agentLocalBaseUrl;
 
   final String _baseUrl;
 

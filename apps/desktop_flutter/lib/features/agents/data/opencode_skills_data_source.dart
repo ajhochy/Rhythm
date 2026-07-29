@@ -164,8 +164,8 @@ class OpencodeSkillEntry {
 /// dual-endpoint architecture in CLAUDE.md). Mirrors [AgentModelsDataSource].
 class OpencodeSkillsDataSource {
   OpencodeSkillsDataSource({http.Client? client})
-      : _baseUrl = AppConstants.agentLocalBaseUrl,
-        _client = client ?? http.Client();
+    : _baseUrl = AppConstants.agentLocalBaseUrl,
+      _client = client ?? http.Client();
 
   final String _baseUrl;
 

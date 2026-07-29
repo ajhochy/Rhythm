@@ -45,8 +45,10 @@ class LocalNotificationService {
       await initialize();
     }
     try {
-      final macos = _plugin.resolvePlatformSpecificImplementation<
-          MacOSFlutterLocalNotificationsPlugin>();
+      final macos = _plugin
+          .resolvePlatformSpecificImplementation<
+            MacOSFlutterLocalNotificationsPlugin
+          >();
       if (macos == null) return false;
       final granted = await macos.requestPermissions(
         alert: true,
@@ -110,7 +112,8 @@ class LocalNotificationService {
       await _plugin.show(id, title, body, details, payload: payload);
     } catch (e) {
       debugPrint(
-          'LocalNotificationService.showAgentAskNotification failed: $e');
+        'LocalNotificationService.showAgentAskNotification failed: $e',
+      );
     }
   }
 

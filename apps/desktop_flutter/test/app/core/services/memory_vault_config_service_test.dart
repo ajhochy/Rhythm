@@ -42,38 +42,44 @@ void main() {
       expect(result.subdir, MemoryVaultConfigService.cleanLayoutSubdir);
     });
 
-    test('falls back to the legacy Memory-Vault when Obsidian vault is absent',
-        () {
-      final result = autoDetectDefault(
-        directoryExists: (_) => false,
-        homeDir: '/Users/alice',
-      );
+    test(
+      'falls back to the legacy Memory-Vault when Obsidian vault is absent',
+      () {
+        final result = autoDetectDefault(
+          directoryExists: (_) => false,
+          homeDir: '/Users/alice',
+        );
 
-      expect(result.path, MemoryVaultConfigService.legacyDefaultPath);
-      expect(result.subdir, MemoryVaultConfigService.legacyDefaultSubdir);
-    });
+        expect(result.path, MemoryVaultConfigService.legacyDefaultPath);
+        expect(result.subdir, MemoryVaultConfigService.legacyDefaultSubdir);
+      },
+    );
   });
 
   group('MemoryVaultConfigService.load', () {
-    test('auto-detects the Obsidian vault as default when no setting saved',
-        () async {
-      final svc = MemoryVaultConfigService(
-        directoryExists: (path) => path.endsWith('AGENT-MEMORY'),
-      );
-      await svc.load();
+    test(
+      'auto-detects the Obsidian vault as default when no setting saved',
+      () async {
+        final svc = MemoryVaultConfigService(
+          directoryExists: (path) => path.endsWith('AGENT-MEMORY'),
+        );
+        await svc.load();
 
-      expect(svc.path, MemoryVaultConfigService.obsidianVaultPath);
-      expect(svc.subdir, MemoryVaultConfigService.cleanLayoutSubdir);
-    });
+        expect(svc.path, MemoryVaultConfigService.obsidianVaultPath);
+        expect(svc.subdir, MemoryVaultConfigService.cleanLayoutSubdir);
+      },
+    );
 
-    test('auto-detects the legacy vault as default when Obsidian vault missing',
-        () async {
-      final svc = MemoryVaultConfigService(directoryExists: (_) => false);
-      await svc.load();
+    test(
+      'auto-detects the legacy vault as default when Obsidian vault missing',
+      () async {
+        final svc = MemoryVaultConfigService(directoryExists: (_) => false);
+        await svc.load();
 
-      expect(svc.path, MemoryVaultConfigService.legacyDefaultPath);
-      expect(svc.subdir, MemoryVaultConfigService.legacyDefaultSubdir);
-    });
+        expect(svc.path, MemoryVaultConfigService.legacyDefaultPath);
+        expect(svc.subdir, MemoryVaultConfigService.legacyDefaultSubdir);
+      },
+    );
 
     test('a previously saved setting overrides auto-detection', () async {
       SharedPreferences.setMockInitialValues({

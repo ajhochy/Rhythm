@@ -39,8 +39,7 @@ class _FakeSchedulesDataSource extends AgentSchedulesDataSource {
   Future<AgentScheduledTask> update(
     String id,
     Map<String, dynamic> patch,
-  ) async =>
-      _tasks.first;
+  ) async => _tasks.first;
 
   @override
   Future<void> delete(String id) async {}
@@ -63,20 +62,19 @@ AgentScheduledTask _task(
   String scheduleType = 'daily',
   String? scheduledTime,
   String? cronExpression,
-}) =>
-    AgentScheduledTask(
-      id: id,
-      name: name,
-      scheduleType: scheduleType,
-      scheduledTime: scheduledTime,
-      cronExpression: cronExpression,
-      timezone: 'America/Los_Angeles',
-      prompt: 'do something',
-      agentKind: 'opencode',
-      enabled: enabled,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+}) => AgentScheduledTask(
+  id: id,
+  name: name,
+  scheduleType: scheduleType,
+  scheduledTime: scheduledTime,
+  cronExpression: cronExpression,
+  timezone: 'America/Los_Angeles',
+  prompt: 'do something',
+  agentKind: 'opencode',
+  enabled: enabled,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 Widget _buildApp({
   required AgentSchedulesController schedulesController,
@@ -143,8 +141,9 @@ void main() {
       expect(find.text('Evening Wrap-up'), findsNothing);
     });
 
-    testWidgets('no-results state renders cleanly for a non-matching search',
-        (tester) async {
+    testWidgets('no-results state renders cleanly for a non-matching search', (
+      tester,
+    ) async {
       await schedulesController.refresh();
       await tester.pumpWidget(
         _buildApp(

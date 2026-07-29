@@ -11,36 +11,36 @@ import 'package:rhythm_desktop/features/agent_configs/repositories/agent_configs
 class _TwoManagerDataSource extends AgentConfigsDataSource {
   @override
   Future<List<AgentConfig>> list() async => [
-        AgentConfig(
-          id: 'workflow-orchestrator',
-          label: 'Workflow Orchestrator',
-          icon: '',
-          enabled: true,
-          isAgent: true,
-          sortOrder: 0,
-          isManager: true,
-          ocAgent: 'workflow-orchestrator',
-        ),
-        AgentConfig(
-          id: 'secretary',
-          label: 'Secretary',
-          icon: '',
-          enabled: true,
-          isAgent: true,
-          sortOrder: 1,
-          isManager: true,
-          ocAgent: 'secretary',
-        ),
-        AgentConfig(
-          id: 'theologian',
-          label: 'Theologian',
-          icon: '',
-          enabled: true,
-          isAgent: true,
-          sortOrder: 2,
-          ocAgent: 'theologian',
-        ),
-      ];
+    AgentConfig(
+      id: 'workflow-orchestrator',
+      label: 'Workflow Orchestrator',
+      icon: '',
+      enabled: true,
+      isAgent: true,
+      sortOrder: 0,
+      isManager: true,
+      ocAgent: 'workflow-orchestrator',
+    ),
+    AgentConfig(
+      id: 'secretary',
+      label: 'Secretary',
+      icon: '',
+      enabled: true,
+      isAgent: true,
+      sortOrder: 1,
+      isManager: true,
+      ocAgent: 'secretary',
+    ),
+    AgentConfig(
+      id: 'theologian',
+      label: 'Theologian',
+      icon: '',
+      enabled: true,
+      isAgent: true,
+      sortOrder: 2,
+      ocAgent: 'theologian',
+    ),
+  ];
 }
 
 /// A catalog with no Secretary profile at all, to prove `secretaryAgent`
@@ -48,47 +48,54 @@ class _TwoManagerDataSource extends AgentConfigsDataSource {
 class _NoSecretaryDataSource extends AgentConfigsDataSource {
   @override
   Future<List<AgentConfig>> list() async => [
-        AgentConfig(
-          id: 'workflow-orchestrator',
-          label: 'Workflow Orchestrator',
-          icon: '',
-          enabled: true,
-          isAgent: true,
-          sortOrder: 0,
-          isManager: true,
-          ocAgent: 'workflow-orchestrator',
-        ),
-      ];
+    AgentConfig(
+      id: 'workflow-orchestrator',
+      label: 'Workflow Orchestrator',
+      icon: '',
+      enabled: true,
+      isAgent: true,
+      sortOrder: 0,
+      isManager: true,
+      ocAgent: 'workflow-orchestrator',
+    ),
+  ];
 }
 
 void main() {
   group('AgentConfigsController.secretaryAgent (#888)', () {
-    test('resolves Secretary by slug even when another manager sorts first',
-        () async {
-      final controller = AgentConfigsController(
-        AgentConfigsRepository(_TwoManagerDataSource()),
-      );
-      await controller.refresh();
+    test(
+      'resolves Secretary by slug even when another manager sorts first',
+      () async {
+        final controller = AgentConfigsController(
+          AgentConfigsRepository(_TwoManagerDataSource()),
+        );
+        await controller.refresh();
 
-      // managerAgent is ambiguous with two managers — it returns the first
-      // (workflow-orchestrator). This is the exact bug the #888 smoke hit.
-      expect(controller.managerAgent?.ocAgent, equals('workflow-orchestrator'));
+        // managerAgent is ambiguous with two managers — it returns the first
+        // (workflow-orchestrator). This is the exact bug the #888 smoke hit.
+        expect(
+          controller.managerAgent?.ocAgent,
+          equals('workflow-orchestrator'),
+        );
 
-      // secretaryAgent must resolve Secretary specifically, NOT the first
-      // manager. If this ever returns 'workflow-orchestrator', quick actions
-      // spawn the wrong agent again.
-      expect(controller.secretaryAgent?.ocAgent, equals('secretary'));
-      expect(controller.secretaryAgent?.id, equals('secretary'));
-    });
+        // secretaryAgent must resolve Secretary specifically, NOT the first
+        // manager. If this ever returns 'workflow-orchestrator', quick actions
+        // spawn the wrong agent again.
+        expect(controller.secretaryAgent?.ocAgent, equals('secretary'));
+        expect(controller.secretaryAgent?.id, equals('secretary'));
+      },
+    );
 
-    test('returns null when no Secretary profile exists (slug fallback path)',
-        () async {
-      final controller = AgentConfigsController(
-        AgentConfigsRepository(_NoSecretaryDataSource()),
-      );
-      await controller.refresh();
+    test(
+      'returns null when no Secretary profile exists (slug fallback path)',
+      () async {
+        final controller = AgentConfigsController(
+          AgentConfigsRepository(_NoSecretaryDataSource()),
+        );
+        await controller.refresh();
 
-      expect(controller.secretaryAgent, isNull);
-    });
+        expect(controller.secretaryAgent, isNull);
+      },
+    );
   });
 }

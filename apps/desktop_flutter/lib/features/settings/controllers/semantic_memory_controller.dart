@@ -7,8 +7,8 @@ class SemanticMemoryController extends ChangeNotifier {
     this._dataSource, {
     Duration pollDelay = const Duration(milliseconds: 500),
     int maxPollAttempts = 240,
-  })  : _pollDelay = pollDelay,
-        _maxPollAttempts = maxPollAttempts;
+  }) : _pollDelay = pollDelay,
+       _maxPollAttempts = maxPollAttempts;
 
   final SemanticMemoryDataSource _dataSource;
   final Duration _pollDelay;

@@ -37,8 +37,9 @@ class _AgentPlaybooksViewState extends State<AgentPlaybooksView> {
       context,
       dataSource: controller.dataSource,
       existingNames: controller.playbookNames,
-      availableAgents:
-          context.read<AgentConfigsController>().sessionSelectableAgents,
+      availableAgents: context
+          .read<AgentConfigsController>()
+          .sessionSelectableAgents,
     );
     if (created != true || !context.mounted) return;
     await controller.loadPlaybooks();
@@ -53,8 +54,9 @@ class _AgentPlaybooksViewState extends State<AgentPlaybooksView> {
       context,
       dataSource: controller.dataSource,
       existingNames: controller.playbookNames,
-      availableAgents:
-          context.read<AgentConfigsController>().sessionSelectableAgents,
+      availableAgents: context
+          .read<AgentConfigsController>()
+          .sessionSelectableAgents,
       playbook: playbook,
     );
     if (updated != true || !context.mounted) return;
@@ -82,8 +84,10 @@ class _AgentPlaybooksViewState extends State<AgentPlaybooksView> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child:
-                Text('Cancel', style: TextStyle(color: ctx.rhythm.textMuted)),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: ctx.rhythm.textMuted),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -124,7 +128,8 @@ class _AgentPlaybooksViewState extends State<AgentPlaybooksView> {
               TextButton.icon(
                 key: const ValueKey('new-playbook-button'),
                 style: TextButton.styleFrom(
-                    foregroundColor: context.rhythm.accent),
+                  foregroundColor: context.rhythm.accent,
+                ),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('New playbook'),
                 onPressed: () => _onCreate(context, controller),
@@ -146,10 +151,7 @@ class _AgentPlaybooksViewState extends State<AgentPlaybooksView> {
     );
   }
 
-  Widget _buildBody(
-    BuildContext context,
-    AgentPlaybooksController controller,
-  ) {
+  Widget _buildBody(BuildContext context, AgentPlaybooksController controller) {
     if (controller.status == AgentPlaybooksStatus.loading &&
         controller.playbooks.isEmpty) {
       return Center(
@@ -321,8 +323,11 @@ class _PlaybookRow extends StatelessWidget {
           if (onEdit != null)
             IconButton(
               key: ValueKey('edit-playbook-${playbook.name}'),
-              icon: Icon(Icons.edit_outlined,
-                  color: rhythm.textSecondary, size: 18),
+              icon: Icon(
+                Icons.edit_outlined,
+                color: rhythm.textSecondary,
+                size: 18,
+              ),
               tooltip: 'Edit',
               onPressed: onEdit,
               padding: EdgeInsets.zero,
@@ -331,8 +336,11 @@ class _PlaybookRow extends StatelessWidget {
           if (onDelete != null)
             IconButton(
               key: ValueKey('delete-playbook-${playbook.name}'),
-              icon: Icon(Icons.delete_outline_rounded,
-                  color: rhythm.textMuted, size: 18),
+              icon: Icon(
+                Icons.delete_outline_rounded,
+                color: rhythm.textMuted,
+                size: 18,
+              ),
               tooltip: 'Delete',
               onPressed: onDelete,
               padding: EdgeInsets.zero,

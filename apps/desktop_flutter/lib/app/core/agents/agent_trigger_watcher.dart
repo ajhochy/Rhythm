@@ -130,12 +130,12 @@ class AgentTriggerWatcher extends ChangeNotifier {
     required AgentsController agentsController,
     Duration interval = const Duration(seconds: 10),
     http.Client? httpClient,
-  })  : _serverConfigService = serverConfigService,
-        _authSessionService = authSessionService,
-        _agentServerController = agentServerController,
-        _agentsController = agentsController,
-        _interval = interval,
-        _httpClient = httpClient ?? http.Client() {
+  }) : _serverConfigService = serverConfigService,
+       _authSessionService = authSessionService,
+       _agentServerController = agentServerController,
+       _agentsController = agentsController,
+       _interval = interval,
+       _httpClient = httpClient ?? http.Client() {
     // F2: re-fire the rhythm MCP auto-install whenever the auth session
     // changes (sign-in / token rotation). AuthSessionService notifies its
     // listeners on token change; the per-token de-dupe inside the controller

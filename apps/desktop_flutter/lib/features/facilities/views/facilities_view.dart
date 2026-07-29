@@ -57,14 +57,18 @@ class _FacilitiesViewState extends State<FacilitiesView> {
               Positioned(
                 top: -90,
                 right: -90,
-                child:
-                    _AmbientOrb(color: context.rhythm.accentMuted, size: 220),
+                child: _AmbientOrb(
+                  color: context.rhythm.accentMuted,
+                  size: 220,
+                ),
               ),
               Positioned(
                 bottom: -110,
                 left: -70,
-                child:
-                    _AmbientOrb(color: context.rhythm.accentMuted, size: 180),
+                child: _AmbientOrb(
+                  color: context.rhythm.accentMuted,
+                  size: 180,
+                ),
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -360,8 +364,9 @@ String _formatRecurringConflictMessage(
   ReservationSeriesConflict conflict,
 ) {
   final date = _parseReservationDateTime(conflict.date);
-  final header =
-      date == null ? conflict.date : _formatFriendlyDate(context, date);
+  final header = date == null
+      ? conflict.date
+      : _formatFriendlyDate(context, date);
   final match = RegExp(
     r'^Conflicts with "(.*)" from ([^ ]+) to ([^.]*)\. Choose a different room or time\.$',
   ).firstMatch(conflict.reason);
@@ -431,8 +436,8 @@ List<String> _roomNamesForReservations(
 
 class _ReservationCluster {
   _ReservationCluster(Iterable<Reservation> reservations)
-      : reservations = List<Reservation>.from(reservations)
-          ..sort(_compareReservationStartTimes);
+    : reservations = List<Reservation>.from(reservations)
+        ..sort(_compareReservationStartTimes);
 
   final List<Reservation> reservations;
 
@@ -527,11 +532,11 @@ Future<void> _deleteReservationCluster(
 ) async {
   final list = reservations.toList();
   final groupedReservation = list.cast<Reservation?>().firstWhere(
-        (reservation) =>
-            reservation?.reservationGroupId != null &&
-            reservation!.reservationGroupId!.isNotEmpty,
-        orElse: () => null,
-      );
+    (reservation) =>
+        reservation?.reservationGroupId != null &&
+        reservation!.reservationGroupId!.isNotEmpty,
+    orElse: () => null,
+  );
   if (groupedReservation != null) {
     await controller.deleteReservation(
       groupedReservation.facilityId,
@@ -719,8 +724,8 @@ String _formatTimeOnly(DateTime date) {
   final hour = date.hour > 12
       ? date.hour - 12
       : date.hour == 0
-          ? 12
-          : date.hour;
+      ? 12
+      : date.hour;
   final minute = date.minute.toString().padLeft(2, '0');
   final period = date.hour >= 12 ? 'PM' : 'AM';
   return '$hour:$minute $period';
@@ -1030,8 +1035,10 @@ class _FacilityDialogState extends State<_FacilityDialog> {
                   const SizedBox(height: 14),
                   TextFormField(
                     controller: _buildingController,
-                    decoration:
-                        _overviewDecoration(context, 'New building name'),
+                    decoration: _overviewDecoration(
+                      context,
+                      'New building name',
+                    ),
                     validator: (value) {
                       if (!_addingNewBuilding) return null;
                       return value == null || value.trim().isEmpty
@@ -1050,8 +1057,9 @@ class _FacilityDialogState extends State<_FacilityDialog> {
                 Row(
                   children: [
                     TextButton(
-                      onPressed:
-                          _saving ? null : () => Navigator.of(context).pop(),
+                      onPressed: _saving
+                          ? null
+                          : () => Navigator.of(context).pop(),
                       child: Text('Cancel'),
                     ),
                     const Spacer(),
@@ -1186,8 +1194,8 @@ class _FacilitiesOverview extends StatelessWidget {
     final facilities = selectedBuilding == null
         ? controller.facilities
         : controller.facilities
-            .where((facility) => facility.building == selectedBuilding)
-            .toList();
+              .where((facility) => facility.building == selectedBuilding)
+              .toList();
     final reservations = controller.overviewReservations;
     final dayKeyedReservations = <DateTime, Map<String, List<Reservation>>>{};
     final undatedReservations = <String, List<Reservation>>{};
@@ -1210,8 +1218,9 @@ class _FacilitiesOverview extends StatelessWidget {
     final setupReservations = reservations
         .where((reservation) => reservation.notes?.trim().isNotEmpty == true)
         .toList();
-    final conflictedReservations =
-        reservations.where((reservation) => reservation.isConflicted).toList();
+    final conflictedReservations = reservations
+        .where((reservation) => reservation.isConflicted)
+        .toList();
     final externallyManagedReservations = reservations
         .where((reservation) => !reservation.createdByRhythm)
         .toList();
@@ -1407,9 +1416,7 @@ class _FacilitiesOverview extends StatelessWidget {
             for (final entry in dayKeyedReservations.entries)
               entry.key: entry.value.values
                   .expand((list) => list)
-                  .where(
-                    (reservation) => reservation.isConflicted,
-                  )
+                  .where((reservation) => reservation.isConflicted)
                   .isNotEmpty,
           },
         ),
@@ -1476,8 +1483,9 @@ class _FacilitiesOverview extends StatelessWidget {
         );
       }
       if (undatedReservations.isNotEmpty) {
-        final clusters =
-            undatedReservations.values.map(_ReservationCluster.new).toList();
+        final clusters = undatedReservations.values
+            .map(_ReservationCluster.new)
+            .toList();
         bodyChildren.add(
           Padding(
             padding: const EdgeInsets.only(bottom: 16),
@@ -1602,7 +1610,8 @@ class _GroupedReservationSummaryDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasChanges = createdRooms.isNotEmpty ||
+    final hasChanges =
+        createdRooms.isNotEmpty ||
         updatedRooms.isNotEmpty ||
         removedRooms.isNotEmpty ||
         conflictMessages.isNotEmpty;
@@ -1650,7 +1659,9 @@ class _GroupedReservationSummaryDialog extends StatelessWidget {
                 Text(
                   'No changes were applied.',
                   style: TextStyle(
-                      fontSize: 12, color: context.rhythm.textSecondary),
+                    fontSize: 12,
+                    color: context.rhythm.textSecondary,
+                  ),
                 ),
             ],
           ),
@@ -1734,8 +1745,10 @@ class _OverviewSignalPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final roomsInUse =
-        reservations.map((item) => item.facilityId).toSet().length;
+    final roomsInUse = reservations
+        .map((item) => item.facilityId)
+        .toSet()
+        .length;
     final highlightReservations = <Reservation>[
       ...conflictedReservations.take(3),
       ...setupReservations
@@ -1827,7 +1840,9 @@ class _OverviewSignalPanel extends StatelessWidget {
                 Text(
                   'No conflicts, setup notes, or imported external changes in this range.',
                   style: TextStyle(
-                      fontSize: 12, color: context.rhythm.textSecondary),
+                    fontSize: 12,
+                    color: context.rhythm.textSecondary,
+                  ),
                 )
               else ...[
                 ...highlightReservations.map(
@@ -2037,7 +2052,8 @@ class _OverviewDayGroup extends StatelessWidget {
     final colors = context.rhythm;
     final today = _startOfDay(DateTime.now());
     final isToday = date != null && _startOfDay(date!) == today;
-    final isTomorrow = date != null &&
+    final isTomorrow =
+        date != null &&
         _startOfDay(date!) == today.add(const Duration(days: 1));
     final hasConflicts = clusters.any((cluster) => cluster.isConflicted);
 
@@ -2071,10 +2087,7 @@ class _OverviewDayGroup extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     '${_kMonthNames[date!.month - 1]} ${date!.day}, ${date!.year}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: colors.textSecondary,
-                    ),
+                    style: TextStyle(fontSize: 12, color: colors.textSecondary),
                   ),
                 ],
               ),
@@ -2124,8 +2137,9 @@ class _OverviewDayGroup extends StatelessWidget {
           const SizedBox(height: 14),
           ...List.generate(clusters.length, (i) {
             return Padding(
-              padding:
-                  EdgeInsets.only(bottom: i == clusters.length - 1 ? 0 : 12),
+              padding: EdgeInsets.only(
+                bottom: i == clusters.length - 1 ? 0 : 12,
+              ),
               child: _OverviewReservationClusterRow(
                 cluster: clusters[i],
                 controller: controller,
@@ -2442,17 +2456,19 @@ class _OverviewReservationClusterRow extends StatelessWidget {
         : null;
     final roomNames = cluster.roomNames(controller);
     final roomLabel = roomNames.join(', ');
-    final buildingNames = cluster.reservations
-        .map(
-          (reservation) => facilitiesById[reservation.facilityId]?.building,
-        )
-        .whereType<String>()
-        .where((building) => building.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
-    final conflictCount =
-        cluster.reservations.where((item) => item.isConflicted).length;
+    final buildingNames =
+        cluster.reservations
+            .map(
+              (reservation) => facilitiesById[reservation.facilityId]?.building,
+            )
+            .whereType<String>()
+            .where((building) => building.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    final conflictCount = cluster.reservations
+        .where((item) => item.isConflicted)
+        .length;
     final noteCount = cluster.reservations
         .where((item) => item.notes?.trim().isNotEmpty == true)
         .length;
@@ -2567,7 +2583,8 @@ class _OverviewReservationClusterRow extends StatelessWidget {
                   const SizedBox(height: 2),
                   _ClusterMetaLine(
                     icon: Icons.person_outline,
-                    text: cluster.createdByName != null &&
+                    text:
+                        cluster.createdByName != null &&
                             cluster.createdByName != cluster.requesterName
                         ? '${cluster.requesterName} · booked by ${cluster.createdByName}'
                         : cluster.requesterName,
@@ -2714,8 +2731,8 @@ class _OverviewReservationClusterRow extends StatelessWidget {
                           cluster.isMultiRoom
                               ? 'Edit reservation group'
                               : series != null
-                                  ? 'Edit series'
-                                  : 'Edit reservation',
+                              ? 'Edit series'
+                              : 'Edit reservation',
                         ),
                       ),
                     if (canManage)
@@ -2725,16 +2742,17 @@ class _OverviewReservationClusterRow extends StatelessWidget {
                           cluster.isMultiRoom
                               ? 'Delete reservation group'
                               : series != null
-                                  ? 'Delete series'
-                                  : 'Delete reservation',
+                              ? 'Delete series'
+                              : 'Delete reservation',
                         ),
                       ),
                   ],
                   child: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color:
-                          context.rhythm.surfaceRaised.withValues(alpha: 0.6),
+                      color: context.rhythm.surfaceRaised.withValues(
+                        alpha: 0.6,
+                      ),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: context.rhythm.borderSubtle),
                     ),
@@ -2858,9 +2876,7 @@ List<_RoomBuildingGroup> _groupRoomsByBuilding(List<Facility> facilities) {
   final groups = <_RoomBuildingGroup>[];
   for (final key in sortedKeys) {
     final rooms = [...byBuilding[key]!]..sort(sortRooms);
-    groups.add(
-      _RoomBuildingGroup(label: key, hasBuilding: true, rooms: rooms),
-    );
+    groups.add(_RoomBuildingGroup(label: key, hasBuilding: true, rooms: rooms));
   }
   if (unassigned.isNotEmpty) {
     final rooms = [...unassigned]..sort(sortRooms);
@@ -2905,7 +2921,9 @@ class _RoomsManagerBar extends StatelessWidget {
                 Text(
                   'Add, edit, or remove rooms used for Facilities reservations.',
                   style: TextStyle(
-                      fontSize: 12, color: context.rhythm.textSecondary),
+                    fontSize: 12,
+                    color: context.rhythm.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -2988,8 +3006,9 @@ class _BuildingHeader extends StatelessWidget {
     final colors = context.rhythm;
     final theme = Theme.of(context);
     final iconColor = group.hasBuilding ? colors.accent : colors.textSecondary;
-    final iconBackground =
-        group.hasBuilding ? colors.accentMuted : colors.surfaceMuted;
+    final iconBackground = group.hasBuilding
+        ? colors.accentMuted
+        : colors.surfaceMuted;
     final roomCount = group.rooms.length;
 
     return Padding(
@@ -3064,7 +3083,7 @@ class _RoomManagementRowState extends State<_RoomManagementRow> {
     final theme = Theme.of(context);
     final reservations =
         widget.controller.reservationsByFacility[widget.facility.id] ??
-            const [];
+        const [];
     final upcomingCount = _countUpcomingReservations(reservations);
     final detailLine = _buildRoomDetailLine(widget.facility);
 
@@ -3156,8 +3175,8 @@ class _RoomManagementRowState extends State<_RoomManagementRow> {
                 PopupMenuButton<_FacilityAction>(
                   tooltip: 'Manage room',
                   onSelected: (value) async {
-                    final viewState =
-                        context.findAncestorStateOfType<_FacilitiesViewState>();
+                    final viewState = context
+                        .findAncestorStateOfType<_FacilitiesViewState>();
                     if (viewState == null) return;
                     switch (value) {
                       case _FacilityAction.edit:
@@ -3509,19 +3528,19 @@ int _countUpcomingReservations(List<Reservation> reservations) {
 
 List<Reservation> _upcomingReservationsSorted(List<Reservation> reservations) {
   final now = DateTime.now();
-  final upcoming = reservations.where((reservation) {
-    final end = _parseReservationDateTime(reservation.endTime);
-    if (end == null) return false;
-    return !end.isBefore(now);
-  }).toList()
-    ..sort((a, b) {
-      final aStart = _parseReservationDateTime(a.startTime);
-      final bStart = _parseReservationDateTime(b.startTime);
-      if (aStart == null && bStart == null) return 0;
-      if (aStart == null) return 1;
-      if (bStart == null) return -1;
-      return aStart.compareTo(bStart);
-    });
+  final upcoming =
+      reservations.where((reservation) {
+        final end = _parseReservationDateTime(reservation.endTime);
+        if (end == null) return false;
+        return !end.isBefore(now);
+      }).toList()..sort((a, b) {
+        final aStart = _parseReservationDateTime(a.startTime);
+        final bStart = _parseReservationDateTime(b.startTime);
+        if (aStart == null && bStart == null) return 0;
+        if (aStart == null) return 1;
+        if (bStart == null) return -1;
+        return aStart.compareTo(bStart);
+      });
   return upcoming;
 }
 
@@ -3614,8 +3633,10 @@ class _LoadingState extends StatelessWidget {
             SizedBox(width: 12),
             Text(
               'Loading facilities',
-              style:
-                  TextStyle(fontSize: 13, color: context.rhythm.textSecondary),
+              style: TextStyle(
+                fontSize: 13,
+                color: context.rhythm.textSecondary,
+              ),
             ),
           ],
         ),
@@ -3742,8 +3763,10 @@ class _ReservationPreviewCard extends StatelessWidget {
               reservation.requesterName,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style:
-                  TextStyle(fontSize: 11, color: context.rhythm.textSecondary),
+              style: TextStyle(
+                fontSize: 11,
+                color: context.rhythm.textSecondary,
+              ),
             ),
             if (reservation.createdByName != null &&
                 reservation.createdByName != reservation.requesterName) ...[
@@ -3753,7 +3776,9 @@ class _ReservationPreviewCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                    fontSize: 11, color: context.rhythm.textSecondary),
+                  fontSize: 11,
+                  color: context.rhythm.textSecondary,
+                ),
               ),
             ],
             if (start != null) ...[
@@ -3763,7 +3788,9 @@ class _ReservationPreviewCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                    fontSize: 11, color: context.rhythm.textSecondary),
+                  fontSize: 11,
+                  color: context.rhythm.textSecondary,
+                ),
               ),
             ],
             if (reservation.notes != null && reservation.notes!.isNotEmpty) ...[
@@ -3773,7 +3800,9 @@ class _ReservationPreviewCard extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                    fontSize: 11, color: context.rhythm.textSecondary),
+                  fontSize: 11,
+                  color: context.rhythm.textSecondary,
+                ),
               ),
             ],
             if (reservation.isConflicted) ...[
@@ -3888,15 +3917,19 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
               facility == null
                   ? 'Room #${reservation.facilityId}'
                   : '${facility.name}${facility.building?.isNotEmpty == true ? ' · ${facility.building}' : ''}',
-              style:
-                  TextStyle(fontSize: 13, color: context.rhythm.textSecondary),
+              style: TextStyle(
+                fontSize: 13,
+                color: context.rhythm.textSecondary,
+              ),
             ),
             if (isGroup) ...[
               const SizedBox(height: 8),
               Text(
                 'Rooms: ${roomNames.join(', ')}',
                 style: TextStyle(
-                    fontSize: 13, color: context.rhythm.textSecondary),
+                  fontSize: 13,
+                  color: context.rhythm.textSecondary,
+                ),
               ),
             ],
             const SizedBox(height: 8),
@@ -3904,27 +3937,35 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
               Text(
                 '${_formatDatePickerValue(start)} · ${_formatTimeOnly(start)}${end != null ? ' - ${_formatTimeOnly(end)}' : ''}',
                 style: TextStyle(
-                    fontSize: 13, color: context.rhythm.textSecondary),
+                  fontSize: 13,
+                  color: context.rhythm.textSecondary,
+                ),
               ),
             const SizedBox(height: 8),
             Text(
               'Requester: ${reservation.requesterName}',
-              style:
-                  TextStyle(fontSize: 13, color: context.rhythm.textSecondary),
+              style: TextStyle(
+                fontSize: 13,
+                color: context.rhythm.textSecondary,
+              ),
             ),
             if (reservation.createdByName != null &&
                 reservation.createdByName != reservation.requesterName)
               Text(
                 'Booked by ${reservation.createdByName}',
                 style: TextStyle(
-                    fontSize: 13, color: context.rhythm.textSecondary),
+                  fontSize: 13,
+                  color: context.rhythm.textSecondary,
+                ),
               ),
             if (reservation.notes != null && reservation.notes!.isNotEmpty) ...[
               const SizedBox(height: 10),
               Text(
                 reservation.notes!,
                 style: TextStyle(
-                    fontSize: 13, color: context.rhythm.textSecondary),
+                  fontSize: 13,
+                  color: context.rhythm.textSecondary,
+                ),
               ),
             ],
             const SizedBox(height: 12),
@@ -3937,13 +3978,14 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
               _series == null && _loadingSeries
                   ? const LinearProgressIndicator(minHeight: 2)
                   : _series != null
-                      ? _SeriesInfoPanel(series: _series!)
-                      : Text(
-                          'This reservation belongs to a recurring series.',
-                          style: TextStyle(
-                              fontSize: 13,
-                              color: context.rhythm.textSecondary),
-                        ),
+                  ? _SeriesInfoPanel(series: _series!)
+                  : Text(
+                      'This reservation belongs to a recurring series.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: context.rhythm.textSecondary,
+                      ),
+                    ),
           ],
         ),
       ),
@@ -3955,8 +3997,8 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
               isGroup
                   ? 'Edit reservation group'
                   : hasRecurringSeries
-                      ? 'Edit entire series'
-                      : 'Edit reservation',
+                  ? 'Edit entire series'
+                  : 'Edit reservation',
             ),
           ),
         if (canManage)
@@ -3969,8 +4011,8 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
               isGroup
                   ? 'Delete reservation group'
                   : hasRecurringSeries
-                      ? 'Delete entire series'
-                      : 'Delete reservation',
+                  ? 'Delete entire series'
+                  : 'Delete reservation',
             ),
           ),
         TextButton(
@@ -4008,7 +4050,8 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
       return;
     }
     if (widget.reservation.seriesId != null) {
-      final series = _series ??
+      final series =
+          _series ??
           _seriesForReservation(widget.controller, widget.reservation);
       if (series == null) return;
       final saved = await showDialog<bool>(
@@ -4217,8 +4260,9 @@ class _GroupedReservationInfoPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final roomNames = _roomNamesForReservations(controller, reservations);
-    final conflicts =
-        reservations.where((reservation) => reservation.isConflicted).length;
+    final conflicts = reservations
+        .where((reservation) => reservation.isConflicted)
+        .length;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
@@ -4245,8 +4289,10 @@ class _GroupedReservationInfoPanel extends StatelessWidget {
               conflicts == reservations.length
                   ? 'All grouped rooms are flagged with conflicts.'
                   : 'Some grouped rooms are flagged with conflicts.',
-              style:
-                  TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
+              style: TextStyle(
+                fontSize: 12,
+                color: context.rhythm.textSecondary,
+              ),
             ),
           ],
         ],
@@ -4312,12 +4358,13 @@ class _ReservationDialogState extends State<_ReservationDialog> {
 
   List<Facility> get _selectedFacilities {
     if (_selectedFacilityIds.isEmpty) return const [];
-    final facilities = widget.facilities
-        .where((facility) => _selectedFacilityIds.contains(facility.id))
-        .toList()
-      ..sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-      );
+    final facilities =
+        widget.facilities
+            .where((facility) => _selectedFacilityIds.contains(facility.id))
+            .toList()
+          ..sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          );
     return facilities;
   }
 
@@ -4336,7 +4383,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
     final selectedDate = _selectedDate;
     if (selectedDate == null) return const [];
     final reservationId = widget.existingReservation?.id;
-    final groupIds = widget.existingGroupReservations
+    final groupIds =
+        widget.existingGroupReservations
             ?.map((reservation) => reservation.id)
             .toSet() ??
         const <int>{};
@@ -4352,8 +4400,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
           start.year == selectedDate.year &&
           start.month == selectedDate.month &&
           start.day == selectedDate.day;
-    }).toList()
-      ..sort(_compareReservationStartTimes);
+    }).toList()..sort(_compareReservationStartTimes);
     return sameDay;
   }
 
@@ -4410,7 +4457,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
     final reservation = widget.existingReservation;
     final series = widget.existingSeries;
     _titleController.text = reservation?.title ?? series?.title ?? '';
-    _requesterController.text = reservation?.requesterName ??
+    _requesterController.text =
+        reservation?.requesterName ??
         series?.requesterName ??
         widget.controller.currentUser?.name ??
         '';
@@ -4433,8 +4481,9 @@ class _ReservationDialogState extends State<_ReservationDialog> {
     if (widget.isEditingSeries && series != null) {
       _isRecurring = true;
       _recurrenceType = _recurrenceTypeFromApiValue(series.recurrenceType);
-      _recurrenceEndDate =
-          series.endDate == null ? null : DateTime.tryParse(series.endDate!);
+      _recurrenceEndDate = series.endDate == null
+          ? null
+          : DateTime.tryParse(series.endDate!);
       _customRecurrenceDates.addAll(
         series.customDates
             .map(DateTime.tryParse)
@@ -4491,12 +4540,12 @@ class _ReservationDialogState extends State<_ReservationDialog> {
     final chipLabel = widget.isEditingSeries
         ? 'Edit series'
         : _isEditingSingleReservation
-            ? 'Edit booking'
-            : (existingGroupCount > 1 || selectedRoomCount > 1)
-                ? '${selectedRoomCount > 1 ? selectedRoomCount : existingGroupCount} rooms'
-                : isTopLevel
-                    ? 'New booking'
-                    : widget.preselectedFacility!.name;
+        ? 'Edit booking'
+        : (existingGroupCount > 1 || selectedRoomCount > 1)
+        ? '${selectedRoomCount > 1 ? selectedRoomCount : existingGroupCount} rooms'
+        : isTopLevel
+        ? 'New booking'
+        : widget.preselectedFacility!.name;
 
     return Dialog(
       insetPadding: const EdgeInsets.all(24),
@@ -4538,8 +4587,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                               isTopLevel
                                   ? 'Choose one or more rooms and capture the booking details in one pass.'
                                   : _selectedFacilityIds.length > 1
-                                      ? 'Capture the booking details for ${_selectedFacilityIds.length} selected rooms.'
-                                      : 'Capture the booking details for ${widget.preselectedFacility!.name}.',
+                                  ? 'Capture the booking details for ${_selectedFacilityIds.length} selected rooms.'
+                                  : 'Capture the booking details for ${widget.preselectedFacility!.name}.',
                               style: TextStyle(
                                 fontSize: 13,
                                 height: 1.45,
@@ -4558,8 +4607,9 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                         decoration: BoxDecoration(
                           color: context.rhythm.canvas.withValues(alpha: 0.7),
                           borderRadius: BorderRadius.circular(999),
-                          border:
-                              Border.all(color: context.rhythm.borderSubtle),
+                          border: Border.all(
+                            color: context.rhythm.borderSubtle,
+                          ),
                         ),
                         child: Text(
                           chipLabel,
@@ -4576,7 +4626,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                   _RoomSelectionSection(
                     facilities: widget.facilities,
                     selectedFacilityIds: _selectedFacilityIds,
-                    enabled: widget.existingReservation == null ||
+                    enabled:
+                        widget.existingReservation == null ||
                         ((widget.existingGroupReservations?.length ?? 0) > 1),
                     onChanged: (ids) => setState(() {
                       _selectedFacilityIds
@@ -4597,16 +4648,17 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                   TextFormField(
                     controller: _requesterController,
                     readOnly: !widget.controller.isFacilitiesManager,
-                    decoration: _fieldDecoration(
-                      context,
-                      widget.controller.isFacilitiesManager
-                          ? 'Requester *'
-                          : 'Requester',
-                    ).copyWith(
-                      helperText: widget.controller.isFacilitiesManager
-                          ? 'Facilities managers can book on behalf of someone else.'
-                          : 'Reservations are created under your account.',
-                    ),
+                    decoration:
+                        _fieldDecoration(
+                          context,
+                          widget.controller.isFacilitiesManager
+                              ? 'Requester *'
+                              : 'Requester',
+                        ).copyWith(
+                          helperText: widget.controller.isFacilitiesManager
+                              ? 'Facilities managers can book on behalf of someone else.'
+                              : 'Reservations are created under your account.',
+                        ),
                     validator: (v) => (v == null || v.trim().isEmpty)
                         ? 'Requester is required'
                         : null,
@@ -4621,7 +4673,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                       selectedEndTime: _selectedEndTime,
                       showRecurringHint:
                           (_isRecurring || widget.isEditingSeries) &&
-                              !_isEditingSingleReservation,
+                          !_isEditingSingleReservation,
                     ),
                   if (_selectedFacilities.isNotEmpty)
                     const SizedBox(height: 14),
@@ -4695,7 +4747,9 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                       subtitle: Text(
                         'Create a weekly, bi-weekly, monthly, or custom-date series.',
                         style: TextStyle(
-                            fontSize: 12, color: context.rhythm.textSecondary),
+                          fontSize: 12,
+                          color: context.rhythm.textSecondary,
+                        ),
                       ),
                       onChanged: (value) {
                         setState(() {
@@ -4742,7 +4796,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                         runSpacing: 8,
                         children: [
                           ..._effectiveCustomDates.map((date) {
-                            final isPrimaryDate = _selectedDate != null &&
+                            final isPrimaryDate =
+                                _selectedDate != null &&
                                 date.year == _selectedDate!.year &&
                                 date.month == _selectedDate!.month &&
                                 date.day == _selectedDate!.day;
@@ -4751,14 +4806,13 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                               onDeleted: isPrimaryDate
                                   ? null
                                   : () => setState(
-                                        () =>
-                                            _customRecurrenceDates.removeWhere(
-                                          (item) =>
-                                              item.year == date.year &&
-                                              item.month == date.month &&
-                                              item.day == date.day,
-                                        ),
+                                      () => _customRecurrenceDates.removeWhere(
+                                        (item) =>
+                                            item.year == date.year &&
+                                            item.month == date.month &&
+                                            item.day == date.day,
                                       ),
+                                    ),
                             );
                           }),
                           ActionChip(
@@ -4795,8 +4849,9 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                   Row(
                     children: [
                       TextButton(
-                        onPressed:
-                            _saving ? null : () => Navigator.pop(context),
+                        onPressed: _saving
+                            ? null
+                            : () => Navigator.pop(context),
                         child: Text('Cancel'),
                       ),
                       const Spacer(),
@@ -4815,8 +4870,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                                 widget.isEditingSeries
                                     ? 'Save series'
                                     : _isEditingSingleReservation
-                                        ? 'Save changes'
-                                        : 'Submit',
+                                    ? 'Save changes'
+                                    : 'Submit',
                               ),
                       ),
                     ],
@@ -4883,8 +4938,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
       final currentUser = widget.controller.currentUser;
       final requesterUserId =
           currentUser != null && trimmedRequester == currentUser.name
-              ? currentUser.id
-              : null;
+          ? currentUser.id
+          : null;
       final existingReservations = <Reservation>[
         if (widget.existingReservation != null) widget.existingReservation!,
         if (widget.existingGroupReservations != null)
@@ -4898,7 +4953,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
         for (final reservation in existingReservations)
           reservation.facilityId: reservation,
       };
-      final isRecurring = (_isRecurring ||
+      final isRecurring =
+          (_isRecurring ||
               widget.isEditingSeries ||
               existingReservations.any(
                 (reservation) => reservation.seriesId != null,
@@ -4908,8 +4964,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
       final seriesEndDate = isCustomSeries
           ? _dateOnly(_effectiveCustomDates.last)
           : _recurrenceEndDate != null
-              ? _dateOnly(_recurrenceEndDate!)
-              : null;
+          ? _dateOnly(_recurrenceEndDate!)
+          : null;
       final notes = _notesController.text.trim();
       if (_overlappingReservations.isNotEmpty &&
           !isRecurring &&
@@ -4931,49 +4987,52 @@ class _ReservationDialogState extends State<_ReservationDialog> {
       final conflictMessages = <String>[];
 
       if (_isMultiRoomMode || existingReservations.length > 1) {
-        final selectedIds =
-            selectedFacilities.map((facility) => facility.id).toList();
+        final selectedIds = selectedFacilities
+            .map((facility) => facility.id)
+            .toList();
         final existingIds = existingReservationsByFacility.keys.toSet();
         if (isRecurring) {
           final recurringResult =
               widget.isEditingSeries && widget.existingSeries != null
-                  ? await widget.controller.updateReservationSeries(
-                      selectedFacilities.first.id,
-                      widget.existingSeries!.id,
-                      title: _titleController.text.trim(),
-                      requesterName: trimmedRequester,
-                      requesterUserId: requesterUserId,
-                      facilityIds: selectedIds,
-                      startTime: startAt.toIso8601String(),
-                      endTime: endAt.toIso8601String(),
-                      startDate: _dateOnly(_selectedDate!),
-                      endDate: seriesEndDate,
-                      customDates: isCustomSeries
-                          ? _effectiveCustomDates.map(_dateOnly).toList()
-                          : null,
-                      recurrenceType: _recurrenceTypeApiValue(_recurrenceType),
-                      recurrenceInterval:
-                          _recurrenceType == _RecurrenceType.weekly ? 1 : null,
-                      notes: notes,
-                    )
-                  : await widget.controller.createReservationSeries(
-                      selectedFacilities.first.id,
-                      title: _titleController.text.trim(),
-                      requesterName: trimmedRequester,
-                      requesterUserId: requesterUserId,
-                      facilityIds: selectedIds,
-                      startTime: startAt.toIso8601String(),
-                      endTime: endAt.toIso8601String(),
-                      startDate: _dateOnly(_selectedDate!),
-                      endDate: seriesEndDate!,
-                      customDates: isCustomSeries
-                          ? _effectiveCustomDates.map(_dateOnly).toList()
-                          : null,
-                      recurrenceType: _recurrenceTypeApiValue(_recurrenceType),
-                      recurrenceInterval:
-                          _recurrenceType == _RecurrenceType.weekly ? 1 : null,
-                      notes: notes,
-                    );
+              ? await widget.controller.updateReservationSeries(
+                  selectedFacilities.first.id,
+                  widget.existingSeries!.id,
+                  title: _titleController.text.trim(),
+                  requesterName: trimmedRequester,
+                  requesterUserId: requesterUserId,
+                  facilityIds: selectedIds,
+                  startTime: startAt.toIso8601String(),
+                  endTime: endAt.toIso8601String(),
+                  startDate: _dateOnly(_selectedDate!),
+                  endDate: seriesEndDate,
+                  customDates: isCustomSeries
+                      ? _effectiveCustomDates.map(_dateOnly).toList()
+                      : null,
+                  recurrenceType: _recurrenceTypeApiValue(_recurrenceType),
+                  recurrenceInterval: _recurrenceType == _RecurrenceType.weekly
+                      ? 1
+                      : null,
+                  notes: notes,
+                )
+              : await widget.controller.createReservationSeries(
+                  selectedFacilities.first.id,
+                  title: _titleController.text.trim(),
+                  requesterName: trimmedRequester,
+                  requesterUserId: requesterUserId,
+                  facilityIds: selectedIds,
+                  startTime: startAt.toIso8601String(),
+                  endTime: endAt.toIso8601String(),
+                  startDate: _dateOnly(_selectedDate!),
+                  endDate: seriesEndDate!,
+                  customDates: isCustomSeries
+                      ? _effectiveCustomDates.map(_dateOnly).toList()
+                      : null,
+                  recurrenceType: _recurrenceTypeApiValue(_recurrenceType),
+                  recurrenceInterval: _recurrenceType == _RecurrenceType.weekly
+                      ? 1
+                      : null,
+                  notes: notes,
+                );
           if (mounted) {
             navigator.pop(widget.isEditingSeries ? true : null);
             await showDialog<void>(
@@ -5082,8 +5141,9 @@ class _ReservationDialogState extends State<_ReservationDialog> {
               ? _effectiveCustomDates.map(_dateOnly).toList()
               : null,
           recurrenceType: _recurrenceTypeApiValue(_recurrenceType),
-          recurrenceInterval:
-              _recurrenceType == _RecurrenceType.weekly ? 1 : null,
+          recurrenceInterval: _recurrenceType == _RecurrenceType.weekly
+              ? 1
+              : null,
           notes: notes,
         );
         if (mounted) {
@@ -5108,8 +5168,9 @@ class _ReservationDialogState extends State<_ReservationDialog> {
               ? _effectiveCustomDates.map(_dateOnly).toList()
               : null,
           recurrenceType: _recurrenceTypeApiValue(_recurrenceType),
-          recurrenceInterval:
-              _recurrenceType == _RecurrenceType.weekly ? 1 : null,
+          recurrenceInterval: _recurrenceType == _RecurrenceType.weekly
+              ? 1
+              : null,
           notes: notes,
         );
         if (mounted) {
@@ -5247,7 +5308,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
   }
 
   Future<void> _pickEndTime() async {
-    final initialTime = _selectedEndTime ??
+    final initialTime =
+        _selectedEndTime ??
         _selectedStartTime?.replacing(minute: _selectedStartTime!.minute) ??
         TimeOfDay.now();
     final picked = await showTimePicker(
@@ -5347,7 +5409,9 @@ class _RoomSelectionSection extends StatelessWidget {
               Text(
                 '${selectedFacilityIds.length} selected',
                 style: TextStyle(
-                    fontSize: 12, color: context.rhythm.textSecondary),
+                  fontSize: 12,
+                  color: context.rhythm.textSecondary,
+                ),
               ),
               const SizedBox(width: 8),
               TextButton(
@@ -5386,7 +5450,9 @@ class _RoomSelectionSection extends StatelessWidget {
                 subtitle: Text(
                   '${entry.value.length} ${entry.value.length == 1 ? 'room' : 'rooms'}',
                   style: TextStyle(
-                      fontSize: 11, color: context.rhythm.textSecondary),
+                    fontSize: 11,
+                    color: context.rhythm.textSecondary,
+                  ),
                 ),
                 children: [
                   ...entry.value.map(
@@ -5454,7 +5520,8 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasSelectedSlot = selectedDate != null &&
+    final hasSelectedSlot =
+        selectedDate != null &&
         selectedStartTime != null &&
         selectedEndTime != null;
     final roomStatuses = selectedFacilities
@@ -5507,8 +5574,8 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
             selectedDate == null
                 ? 'Choose a date to see the room schedule.'
                 : selectedRoomCount == 1
-                    ? '${_formatDatePickerValue(selectedDate!)} · ${roomStatuses.first.dayReservations.length} existing ${roomStatuses.first.dayReservations.length == 1 ? 'reservation' : 'reservations'}'
-                    : '${_formatDatePickerValue(selectedDate!)} · $selectedRoomCount rooms selected',
+                ? '${_formatDatePickerValue(selectedDate!)} · ${roomStatuses.first.dayReservations.length} existing ${roomStatuses.first.dayReservations.length == 1 ? 'reservation' : 'reservations'}'
+                : '${_formatDatePickerValue(selectedDate!)} · $selectedRoomCount rooms selected',
             style: TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
           ),
           if (hasSelectedSlot) ...[
@@ -5531,8 +5598,8 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
                 hasConflict
                     ? 'Selected time overlaps $conflictCount existing ${conflictCount == 1 ? 'reservation' : 'reservations'}.'
                     : selectedRoomCount == 1
-                        ? 'Selected time is open for this room based on current reservations.'
-                        : 'Selected time is open for the selected rooms based on current reservations.',
+                    ? 'Selected time is open for this room based on current reservations.'
+                    : 'Selected time is open for the selected rooms based on current reservations.',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -5547,8 +5614,10 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               'Recurring conflicts are checked across the full series when you save. This preview only covers the selected date.',
-              style:
-                  TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
+              style: TextStyle(
+                fontSize: 12,
+                color: context.rhythm.textSecondary,
+              ),
             ),
           ],
           if (roomStatuses.isNotEmpty) ...[
@@ -5576,8 +5645,7 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
           start.year == dateFilter.year &&
           start.month == dateFilter.month &&
           start.day == dateFilter.day;
-    }).toList()
-      ..sort(_compareReservationStartTimes);
+    }).toList()..sort(_compareReservationStartTimes);
   }
 
   List<Reservation> _conflictingReservationsForFacility(Facility facility) {
@@ -5674,10 +5742,12 @@ class _RoomAvailabilitySummary extends StatelessWidget {
                   facility.building?.isNotEmpty == true
                       ? facility.building!
                       : reservations.isEmpty
-                          ? 'No reservations on this date'
-                          : '${reservations.length} reservation${reservations.length == 1 ? '' : 's'} on this date',
+                      ? 'No reservations on this date'
+                      : '${reservations.length} reservation${reservations.length == 1 ? '' : 's'} on this date',
                   style: TextStyle(
-                      fontSize: 11, color: context.rhythm.textSecondary),
+                    fontSize: 11,
+                    color: context.rhythm.textSecondary,
+                  ),
                 ),
                 if (reservations.isNotEmpty) ...[
                   const SizedBox(height: 6),
@@ -5784,7 +5854,9 @@ class _AvailabilityReservationRow extends StatelessWidget {
                 Text(
                   reservation.requesterName,
                   style: TextStyle(
-                      fontSize: 11, color: context.rhythm.textSecondary),
+                    fontSize: 11,
+                    color: context.rhythm.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -5893,10 +5965,7 @@ class _AutomationCleanupDialogState extends State<_AutomationCleanupDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Manage automation reservations'),
-      content: SizedBox(
-        width: 480,
-        child: _buildBody(context),
-      ),
+      content: SizedBox(width: 480, child: _buildBody(context)),
       actions: _buildActions(context),
     );
   }
@@ -5920,7 +5989,7 @@ class _AutomationCleanupDialogState extends State<_AutomationCleanupDialog> {
           preview.total == 0
               ? 'No automation-created reservations to clean up.'
               : 'This will permanently delete ${preview.total} '
-                  'reservation${preview.total == 1 ? '' : 's'} created by automation rules.',
+                    'reservation${preview.total == 1 ? '' : 's'} created by automation rules.',
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         if (preview.total > 0) ...[
@@ -5944,10 +6013,7 @@ class _AutomationCleanupDialogState extends State<_AutomationCleanupDialog> {
                 child: Text('All facilities'),
               ),
               ...widget.facilities.map(
-                (f) => DropdownMenuItem<int?>(
-                  value: f.id,
-                  child: Text(f.name),
-                ),
+                (f) => DropdownMenuItem<int?>(value: f.id, child: Text(f.name)),
               ),
             ],
             onChanged: (value) {

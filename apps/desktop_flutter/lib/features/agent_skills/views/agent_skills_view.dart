@@ -147,8 +147,8 @@ class _AgentSkillsViewState extends State<AgentSkillsView> {
           result = a.name.toLowerCase().compareTo(b.name.toLowerCase());
         case _SortColumn.description:
           result = (a.description ?? '').toLowerCase().compareTo(
-                (b.description ?? '').toLowerCase(),
-              );
+            (b.description ?? '').toLowerCase(),
+          );
         case _SortColumn.status:
           final byRank = _statusRank(
             _statusOf(a),
@@ -627,8 +627,8 @@ class _HeaderCell extends StatelessWidget {
             Icon(
               active
                   ? (ascending
-                      ? Icons.arrow_upward_rounded
-                      : Icons.arrow_downward_rounded)
+                        ? Icons.arrow_upward_rounded
+                        : Icons.arrow_downward_rounded)
                   : Icons.unfold_more_rounded,
               key: active
                   ? ValueKey('$keyValue-${ascending ? 'asc' : 'desc'}')

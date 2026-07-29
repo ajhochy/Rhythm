@@ -82,8 +82,8 @@ class _ReadyAgentServerController extends AgentServerController {
 /// Stub repository recording WS frames sent via [send].
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-      : _msgController = StreamController.broadcast(),
-        _connectivityController = StreamController.broadcast();
+    : _msgController = StreamController.broadcast(),
+      _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -115,15 +115,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async => (
-            session: _makeSession(id),
-            messages: const <AgentSessionMessage>[],
-          );
+  getSession(String id) async =>
+      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -132,14 +129,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: 'Test Session',
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  agentId: 'claude-code',
+  name: 'Test Session',
+  cwd: '/tmp',
+  status: AgentSessionStatus.idle,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 AgentsController _buildController(_StubAgentsRepository repo) =>
     AgentsController(
@@ -167,34 +164,41 @@ void main() {
 
     const testCommands = [
       SlashCommand(
-          name: 'deploy-notes',
-          description: 'Draft deploy notes',
-          hints: ['\$1', '\$2']),
+        name: 'deploy-notes',
+        description: 'Draft deploy notes',
+        hints: ['\$1', '\$2'],
+      ),
       SlashCommand(name: 'help', description: 'Show help'),
     ];
 
     testWidgets(
-        'argument hint ghost text is shown for a command that declares one',
-        (tester) async {
-      await tester.pumpWidget(_wrapPopover(
-        inputController: inputController,
-        commands: testCommands,
-        onCommandSelected: (_) {},
-      ));
+      'argument hint ghost text is shown for a command that declares one',
+      (tester) async {
+        await tester.pumpWidget(
+          _wrapPopover(
+            inputController: inputController,
+            commands: testCommands,
+            onCommandSelected: (_) {},
+          ),
+        );
 
-      inputController.text = '/';
-      await tester.pump();
+        inputController.text = '/';
+        await tester.pump();
 
-      expect(find.text('\$1 \$2'), findsOneWidget);
-    });
+        expect(find.text('\$1 \$2'), findsOneWidget);
+      },
+    );
 
-    testWidgets('no hint text rendered for a command with no arguments',
-        (tester) async {
-      await tester.pumpWidget(_wrapPopover(
-        inputController: inputController,
-        commands: testCommands,
-        onCommandSelected: (_) {},
-      ));
+    testWidgets('no hint text rendered for a command with no arguments', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrapPopover(
+          inputController: inputController,
+          commands: testCommands,
+          onCommandSelected: (_) {},
+        ),
+      );
 
       inputController.text = '/hel';
       await tester.pump();
@@ -204,39 +208,47 @@ void main() {
     });
 
     testWidgets(
-        'onOpen fires once when the input transitions to starting with "/"',
-        (tester) async {
-      var openCount = 0;
-      await tester.pumpWidget(_wrapPopover(
-        inputController: inputController,
-        commands: testCommands,
-        onCommandSelected: (_) {},
-        onOpen: () => openCount++,
-      ));
+      'onOpen fires once when the input transitions to starting with "/"',
+      (tester) async {
+        var openCount = 0;
+        await tester.pumpWidget(
+          _wrapPopover(
+            inputController: inputController,
+            commands: testCommands,
+            onCommandSelected: (_) {},
+            onOpen: () => openCount++,
+          ),
+        );
 
-      expect(openCount, 0, reason: 'popover starts closed; no open event yet');
+        expect(
+          openCount,
+          0,
+          reason: 'popover starts closed; no open event yet',
+        );
 
-      inputController.text = '/';
-      await tester.pump();
-      expect(openCount, 1);
+        inputController.text = '/';
+        await tester.pump();
+        expect(openCount, 1);
 
-      // Still open (typing more of the same command) — must not re-fire.
-      inputController.text = '/dep';
-      await tester.pump();
-      expect(openCount, 1);
+        // Still open (typing more of the same command) — must not re-fire.
+        inputController.text = '/dep';
+        await tester.pump();
+        expect(openCount, 1);
 
-      // Close then reopen — fires again.
-      inputController.text = 'plain text';
-      await tester.pump();
-      inputController.text = '/';
-      await tester.pump();
-      expect(openCount, 2);
-    });
+        // Close then reopen — fires again.
+        inputController.text = 'plain text';
+        await tester.pump();
+        inputController.text = '/';
+        await tester.pump();
+        expect(openCount, 2);
+      },
+    );
   });
 
   group('#1052 — AgentsController.refreshSlashCommands', () {
-    testWidgets('bypasses the cache guard and refetches the command list',
-        (tester) async {
+    testWidgets('bypasses the cache guard and refetches the command list', (
+      tester,
+    ) async {
       final repo = _StubAgentsRepository();
       final controller = _buildController(repo);
       addTearDown(controller.dispose);
@@ -266,24 +278,26 @@ void main() {
   // ── argument passthrough for a hinted command (existing dispatch path) ──
 
   testWidgets(
-      '#1052 — typed arguments for a hinted command are passed through session.command',
-      (tester) async {
-    final repo = _StubAgentsRepository();
-    final agentsCtrl = _buildController(repo);
-    addTearDown(agentsCtrl.dispose);
-    const sessionId = 'test-session-1052';
+    '#1052 — typed arguments for a hinted command are passed through session.command',
+    (tester) async {
+      final repo = _StubAgentsRepository();
+      final agentsCtrl = _buildController(repo);
+      addTearDown(agentsCtrl.dispose);
+      const sessionId = 'test-session-1052';
 
-    agentsCtrl.setSlashCommandsForTest(sessionId, const [
-      SlashCommand(name: 'deploy-notes', hints: ['\$1', '\$2']),
-    ]);
+      agentsCtrl.setSlashCommandsForTest(sessionId, const [
+        SlashCommand(name: 'deploy-notes', hints: ['\$1', '\$2']),
+      ]);
 
-    agentsCtrl.sendCommand(sessionId, 'deploy-notes', 'v1.2.3 hotfix');
-    await tester.pump(Duration.zero);
+      agentsCtrl.sendCommand(sessionId, 'deploy-notes', 'v1.2.3 hotfix');
+      await tester.pump(Duration.zero);
 
-    final cmdFrames =
-        repo.sentFrames.where((f) => f['type'] == 'session.command');
-    expect(cmdFrames, hasLength(1));
-    expect(cmdFrames.first['command'], 'deploy-notes');
-    expect(cmdFrames.first['arguments'], 'v1.2.3 hotfix');
-  });
+      final cmdFrames = repo.sentFrames.where(
+        (f) => f['type'] == 'session.command',
+      );
+      expect(cmdFrames, hasLength(1));
+      expect(cmdFrames.first['command'], 'deploy-notes');
+      expect(cmdFrames.first['arguments'], 'v1.2.3 hotfix');
+    },
+  );
 }

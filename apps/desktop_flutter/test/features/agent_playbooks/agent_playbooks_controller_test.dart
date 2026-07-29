@@ -29,10 +29,11 @@ void main() {
       final ds = _FakeDataSource()
         ..listResult = const [
           PlaybookEntry(
-              name: 'deploy-notes',
-              description: 'Draft deploy notes',
-              source: 'command',
-              managed: true),
+            name: 'deploy-notes',
+            description: 'Draft deploy notes',
+            source: 'command',
+            managed: true,
+          ),
         ];
       final controller = AgentPlaybooksController(ds);
 
@@ -59,10 +60,11 @@ void main() {
       final ds = _FakeDataSource()
         ..listResult = const [
           PlaybookEntry(
-              name: 'to-delete',
-              description: null,
-              source: 'command',
-              managed: true),
+            name: 'to-delete',
+            description: null,
+            source: 'command',
+            managed: true,
+          ),
         ];
       final controller = AgentPlaybooksController(ds);
       await controller.loadPlaybooks();

@@ -71,8 +71,11 @@ Future<void> openCreateInspector(
 
 Future<void> enterTitle(WidgetTester tester, String title) async {
   final titleField = find.widgetWithText(TextField, 'Task title');
-  expect(titleField, findsOneWidget,
-      reason: 'Create inspector must open with an editable title field');
+  expect(
+    titleField,
+    findsOneWidget,
+    reason: 'Create inspector must open with an editable title field',
+  );
   await tester.enterText(titleField.first, title);
   await tester.pump();
 }
@@ -93,74 +96,94 @@ void main() {
       await tester.tap(find.text('Create task'));
       await tester.pumpAndSettle();
 
-      expect(created, isNotNull,
-          reason: 'Saving must invoke the create callback');
+      expect(
+        created,
+        isNotNull,
+        reason: 'Saving must invoke the create callback',
+      );
       expect(created!.title, 'New planner task');
-      expect(created!.scheduledDate, kDay,
-          reason: 'The selected day must be pre-seeded and persisted');
+      expect(
+        created!.scheduledDate,
+        kDay,
+        reason: 'The selected day must be pre-seeded and persisted',
+      );
     },
   );
 
-  testWidgets(
-    'issue-675-c4: backlog create inspector has no scheduled date '
-    'and saving creates a backlog task',
-    (tester) async {
-      RhythmTaskInspectorSaveRequest? created;
-      await openCreateInspector(
-        tester,
-        scheduledDate: null,
-        onCreate: (request) async => created = request,
-      );
+  testWidgets('issue-675-c4: backlog create inspector has no scheduled date '
+      'and saving creates a backlog task', (tester) async {
+    RhythmTaskInspectorSaveRequest? created;
+    await openCreateInspector(
+      tester,
+      scheduledDate: null,
+      onCreate: (request) async => created = request,
+    );
 
-      await enterTitle(tester, 'New backlog task');
-      await tester.tap(find.text('Create task'));
-      await tester.pumpAndSettle();
+    await enterTitle(tester, 'New backlog task');
+    await tester.tap(find.text('Create task'));
+    await tester.pumpAndSettle();
 
-      expect(created, isNotNull);
-      expect(created!.scheduledDate, isNull,
-          reason: 'Backlog "+" must not seed a scheduled date');
-    },
-  );
+    expect(created, isNotNull);
+    expect(
+      created!.scheduledDate,
+      isNull,
+      reason: 'Backlog "+" must not seed a scheduled date',
+    );
+  });
 
-  testWidgets(
-    'issue-675-c5: notes, due date, and preferred agent are settable '
-    'during creation; collaborator controls hidden for unsaved task',
-    (tester) async {
-      RhythmTaskInspectorSaveRequest? created;
-      await openCreateInspector(
-        tester,
-        scheduledDate: kDay,
-        onCreate: (request) async => created = request,
-      );
+  testWidgets('issue-675-c5: notes, due date, and preferred agent are settable '
+      'during creation; collaborator controls hidden for unsaved task', (
+    tester,
+  ) async {
+    RhythmTaskInspectorSaveRequest? created;
+    await openCreateInspector(
+      tester,
+      scheduledDate: kDay,
+      onCreate: (request) async => created = request,
+    );
 
-      // Schedule + automation controls render in create mode.
-      expect(find.text('Set due date'), findsOneWidget,
-          reason: 'Due date must be settable during creation');
-      expect(find.text('Default agent for this task'), findsOneWidget,
-          reason: 'Preferred agent must be settable during creation');
-      // No collaborator add for a task that has no id yet.
-      expect(find.text('Add collaborator'), findsNothing,
-          reason: 'Collaborator controls are hidden until first save');
+    // Schedule + automation controls render in create mode.
+    expect(
+      find.text('Set due date'),
+      findsOneWidget,
+      reason: 'Due date must be settable during creation',
+    );
+    expect(
+      find.text('Default agent for this task'),
+      findsOneWidget,
+      reason: 'Preferred agent must be settable during creation',
+    );
+    // No collaborator add for a task that has no id yet.
+    expect(
+      find.text('Add collaborator'),
+      findsNothing,
+      reason: 'Collaborator controls are hidden until first save',
+    );
 
-      await enterTitle(tester, 'Task with notes');
-      final notesField = find.byWidgetPredicate(
-        (w) =>
-            w is TextField &&
-            (w.decoration?.hintText ?? '').startsWith('Add notes'),
-      );
-      expect(notesField, findsOneWidget,
-          reason: 'Notes must be editable during creation');
-      await tester.enterText(notesField, 'Prep detail');
-      await tester.pump();
+    await enterTitle(tester, 'Task with notes');
+    final notesField = find.byWidgetPredicate(
+      (w) =>
+          w is TextField &&
+          (w.decoration?.hintText ?? '').startsWith('Add notes'),
+    );
+    expect(
+      notesField,
+      findsOneWidget,
+      reason: 'Notes must be editable during creation',
+    );
+    await tester.enterText(notesField, 'Prep detail');
+    await tester.pump();
 
-      await tester.tap(find.text('Create task'));
-      await tester.pumpAndSettle();
+    await tester.tap(find.text('Create task'));
+    await tester.pumpAndSettle();
 
-      expect(created, isNotNull);
-      expect(created!.notes, 'Prep detail',
-          reason: 'Notes typed during creation must reach the create call');
-    },
-  );
+    expect(created, isNotNull);
+    expect(
+      created!.notes,
+      'Prep detail',
+      reason: 'Notes typed during creation must reach the create call',
+    );
+  });
 
   testWidgets(
     'issue-675-c6: Cancel discards the new task without creating it',
@@ -177,8 +200,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(createCalls, 0, reason: 'Cancel must not create the task');
-      expect(find.text('Create task'), findsNothing,
-          reason: 'Cancel must dismiss the create inspector');
+      expect(
+        find.text('Create task'),
+        findsNothing,
+        reason: 'Cancel must dismiss the create inspector',
+      );
     },
   );
 }

@@ -111,9 +111,9 @@ AgentSessionMessage _makeMessage({
 }
 
 Widget _wrap(Widget w) => MaterialApp(
-      theme: AppTheme.light(),
-      home: Scaffold(body: Center(child: w)),
-    );
+  theme: AppTheme.light(),
+  home: Scaffold(body: Center(child: w)),
+);
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -124,11 +124,13 @@ void main() {
     testWidgets('system-role message renders its text', (tester) async {
       const contextText = 'Task: Deploy to staging';
 
-      await tester.pumpWidget(_wrap(
-        _TestMiniMessageBlock(
-          message: _makeMessage(role: 'system', text: contextText),
+      await tester.pumpWidget(
+        _wrap(
+          _TestMiniMessageBlock(
+            message: _makeMessage(role: 'system', text: contextText),
+          ),
         ),
-      ));
+      );
 
       expect(
         find.text(contextText),
@@ -137,13 +139,12 @@ void main() {
       );
     });
 
-    testWidgets('system-role uses system-bubble key (not output-bubble)',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        _TestMiniMessageBlock(
-          message: _makeMessage(role: 'system'),
-        ),
-      ));
+    testWidgets('system-role uses system-bubble key (not output-bubble)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(_TestMiniMessageBlock(message: _makeMessage(role: 'system'))),
+      );
 
       expect(
         find.byKey(const Key('system-bubble')),
@@ -158,15 +159,18 @@ void main() {
       );
     });
 
-    testWidgets('system text has italic style (visually distinct from output)',
-        (tester) async {
+    testWidgets('system text has italic style (visually distinct from output)', (
+      tester,
+    ) async {
       const contextText = 'Context: meeting prep task';
 
-      await tester.pumpWidget(_wrap(
-        _TestMiniMessageBlock(
-          message: _makeMessage(role: 'system', text: contextText),
+      await tester.pumpWidget(
+        _wrap(
+          _TestMiniMessageBlock(
+            message: _makeMessage(role: 'system', text: contextText),
+          ),
         ),
-      ));
+      );
 
       final textFinder = find.text(contextText);
       expect(textFinder, findsOneWidget);
@@ -180,25 +184,27 @@ void main() {
       );
     });
 
-    testWidgets('output-role message does NOT use system-bubble key',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        _TestMiniMessageBlock(
-          message: _makeMessage(role: 'output'),
-        ),
-      ));
+    testWidgets('output-role message does NOT use system-bubble key', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(_TestMiniMessageBlock(message: _makeMessage(role: 'output'))),
+      );
 
       expect(find.byKey(const Key('system-bubble')), findsNothing);
       expect(find.byKey(const Key('output-bubble')), findsOneWidget);
     });
 
-    testWidgets('input-role message does NOT use system-bubble key',
-        (tester) async {
-      await tester.pumpWidget(_wrap(
-        _TestMiniMessageBlock(
-          message: _makeMessage(role: 'input', text: 'hello agent'),
+    testWidgets('input-role message does NOT use system-bubble key', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          _TestMiniMessageBlock(
+            message: _makeMessage(role: 'input', text: 'hello agent'),
+          ),
         ),
-      ));
+      );
 
       expect(find.byKey(const Key('system-bubble')), findsNothing);
       expect(find.byKey(const Key('input-bubble')), findsOneWidget);

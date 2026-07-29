@@ -28,9 +28,11 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
   @override
   void initState() {
     super.initState();
-    debugPrint('[planner] device tz: ${DateTime.now().timeZoneName} '
-        'offset=${DateTime.now().timeZoneOffset} | '
-        'sample parse: ${DateTime.tryParse("2026-05-04T09:30:00-07:00")?.toUtc().toLocal()}');
+    debugPrint(
+      '[planner] device tz: ${DateTime.now().timeZoneName} '
+      'offset=${DateTime.now().timeZoneOffset} | '
+      'sample parse: ${DateTime.tryParse("2026-05-04T09:30:00-07:00")?.toUtc().toLocal()}',
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<WeeklyPlannerController>().load();
       context.read<WorkspaceController>().loadMembers();
@@ -45,12 +47,12 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
         if (plan != null && controller.selectedTaskId != null) {
           final allTasks = [
             ...plan.days.expand((d) => d.tasks),
-            ...plan.backlog
+            ...plan.backlog,
           ];
           final selectedTask = allTasks.cast<Task?>().firstWhere(
-                (task) => task?.id == controller.selectedTaskId,
-                orElse: () => null,
-              );
+            (task) => task?.id == controller.selectedTaskId,
+            orElse: () => null,
+          );
           if (selectedTask != null &&
               _presentedInspectorTaskId != selectedTask.id) {
             _presentedInspectorTaskId = selectedTask.id;
@@ -123,12 +125,14 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
       onToggleStatus: task.sourceType == 'calendar_shadow_event'
           ? null
           : () =>
-              controller.toggleTaskDone(task, task.status == TaskStatus.done),
+                controller.toggleTaskDone(task, task.status == TaskStatus.done),
       onAddCollaborator: task.sourceType == 'calendar_shadow_event'
           ? null
           : (userId) async {
-              final collaborators =
-                  await collaboratorsDataSource.addToTask(task.id, userId);
+              final collaborators = await collaboratorsDataSource.addToTask(
+                task.id,
+                userId,
+              );
               return collaborators;
             },
       onRemoveCollaborator: task.sourceType == 'calendar_shadow_event'
@@ -182,11 +186,7 @@ class _WeekHeader extends StatelessWidget {
               label: 'Open',
               icon: Icons.radio_button_unchecked,
             ),
-            RhythmSegment(
-              value: true,
-              label: 'All',
-              icon: Icons.visibility,
-            ),
+            RhythmSegment(value: true, label: 'All', icon: Icons.visibility),
           ],
         ),
         const RhythmColorLegend(
@@ -311,18 +311,18 @@ class _EmptyWorkspaceState extends StatelessWidget {
               title,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: colors.textPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
+                color: colors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 6),
             Text(
               message,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                    height: 1.35,
-                  ),
+                color: colors.textSecondary,
+                height: 1.35,
+              ),
             ),
             if (actionLabel != null && onAction != null) ...[
               const SizedBox(height: 12),
@@ -384,8 +384,9 @@ class _PlannerBody extends StatelessWidget {
         final width = constraints.maxWidth;
         final useSideBacklog = showBacklogPane && width >= _sideBacklogLayout;
         final backlogWidth = width >= _wideLayout ? 292.0 : 232.0;
-        final weekMinimumWidth =
-            width >= _sideBacklogLayout ? 0.0 : _minimumWeekWidth;
+        final weekMinimumWidth = width >= _sideBacklogLayout
+            ? 0.0
+            : _minimumWeekWidth;
 
         final weekPane = _DayColumnsPane(
           plan: plan,
@@ -476,16 +477,13 @@ class _BacklogPane extends StatelessWidget {
                   child: Text(
                     'Backlog',
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: colors.textPrimary,
-                          fontWeight: FontWeight.w700,
-                        ),
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 if (backlog.isNotEmpty)
-                  RhythmBadge(
-                    label: '${backlog.length}',
-                    compact: true,
-                  ),
+                  RhythmBadge(label: '${backlog.length}', compact: true),
               ],
             ),
           ),
@@ -625,9 +623,9 @@ class _AddBacklogTaskButton extends StatelessWidget {
                 'Add unscheduled task',
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colors.textSecondary,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  color: colors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],
@@ -679,9 +677,9 @@ class _DayColumnsPane extends StatelessWidget {
                   child: Text(
                     'This week',
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: colors.textPrimary,
-                          fontWeight: FontWeight.w700,
-                        ),
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ],
@@ -790,9 +788,9 @@ class _DayColumnState extends State<_DayColumn> {
                   'Add task to ${widget.dayName}',
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: colors.textSecondary,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    color: colors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -830,8 +828,10 @@ class _DayColumnState extends State<_DayColumn> {
             children: [
               Container(
                 width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: today ? colors.surfaceRaised : colors.surfaceMuted,
                   border: Border(
@@ -848,17 +848,17 @@ class _DayColumnState extends State<_DayColumn> {
                     Text(
                       widget.dayName,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.3,
-                            color: today ? colors.accent : colors.textPrimary,
-                          ),
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.3,
+                        color: today ? colors.accent : colors.textPrimary,
+                      ),
                     ),
                     const SizedBox(width: 4),
                     Text(
                       _shortDate(),
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: today ? colors.accent : colors.textSecondary,
-                          ),
+                        color: today ? colors.accent : colors.textSecondary,
+                      ),
                     ),
                     if (today) ...[
                       const SizedBox(width: 4),
@@ -873,12 +873,12 @@ class _DayColumnState extends State<_DayColumn> {
                         ),
                         child: Text(
                           'Today',
-                          style:
-                              Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    color: colors.accent,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 9,
-                                  ),
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(
+                                color: colors.accent,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 9,
+                              ),
                         ),
                       ),
                     ],
@@ -895,36 +895,38 @@ class _DayColumnState extends State<_DayColumn> {
                               t.isAllDay,
                         )
                         .toList();
-                    final timedEvents = displayTasks
-                        .where(
-                          (t) =>
-                              t.sourceType == 'calendar_shadow_event' &&
-                              !t.isAllDay &&
-                              t.startsAt != null,
-                        )
-                        .toList()
-                      ..sort((a, b) {
-                        final aT = parsePlannerEventDateTime(a.startsAt);
-                        final bT = parsePlannerEventDateTime(b.startsAt);
-                        if (aT == null) return 1;
-                        if (bT == null) return -1;
-                        return aT.compareTo(bT);
-                      });
+                    final timedEvents =
+                        displayTasks
+                            .where(
+                              (t) =>
+                                  t.sourceType == 'calendar_shadow_event' &&
+                                  !t.isAllDay &&
+                                  t.startsAt != null,
+                            )
+                            .toList()
+                          ..sort((a, b) {
+                            final aT = parsePlannerEventDateTime(a.startsAt);
+                            final bT = parsePlannerEventDateTime(b.startsAt);
+                            if (aT == null) return 1;
+                            if (bT == null) return -1;
+                            return aT.compareTo(bT);
+                          });
                     final combinedEvents = [...allDayEvents, ...timedEvents];
-                    final regularTasks = displayTasks
-                        .where(
-                          (t) => t.sourceType != 'calendar_shadow_event',
-                        )
-                        .toList()
-                      ..sort((a, b) {
-                        final aOrder = a.scheduledOrder ?? 10000000;
-                        final bOrder = b.scheduledOrder ?? 10000000;
-                        final cmp = aOrder.compareTo(bOrder);
-                        if (cmp != 0) return cmp;
-                        return a.title.toLowerCase().compareTo(
+                    final regularTasks =
+                        displayTasks
+                            .where(
+                              (t) => t.sourceType != 'calendar_shadow_event',
+                            )
+                            .toList()
+                          ..sort((a, b) {
+                            final aOrder = a.scheduledOrder ?? 10000000;
+                            final bOrder = b.scheduledOrder ?? 10000000;
+                            final cmp = aOrder.compareTo(bOrder);
+                            if (cmp != 0) return cmp;
+                            return a.title.toLowerCase().compareTo(
                               b.title.toLowerCase(),
                             );
-                      });
+                          });
 
                     final hasContent =
                         combinedEvents.isNotEmpty || regularTasks.isNotEmpty;
@@ -952,8 +954,9 @@ class _DayColumnState extends State<_DayColumn> {
                                 for (var i = 0; i < regularTasks.length; i++)
                                   _TaskReorderTarget(
                                     task: regularTasks[i],
-                                    previousTask:
-                                        i > 0 ? regularTasks[i - 1] : null,
+                                    previousTask: i > 0
+                                        ? regularTasks[i - 1]
+                                        : null,
                                     columnDate: widget.date,
                                     controller: widget.controller,
                                     child: Padding(
@@ -1037,10 +1040,9 @@ class _TaskTile extends StatelessWidget {
           ),
           child: Text(
             task.title,
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: colors.textPrimary),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: colors.textPrimary),
           ),
         ),
       ),
@@ -1059,8 +1061,9 @@ class _TaskTile extends StatelessWidget {
     final colors = context.rhythm;
     return GestureDetector(
       onTap: () => controller.selectTask(task.id),
-      onLongPress:
-          isShadowEvent ? null : () => controller.toggleTaskSelection(task.id),
+      onLongPress: isShadowEvent
+          ? null
+          : () => controller.toggleTaskSelection(task.id),
       child: LayoutBuilder(
         builder: (context, constraints) {
           return AnimatedContainer(
@@ -1123,31 +1126,37 @@ class _TaskTile extends StatelessWidget {
                             shadowTimeLabel,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: (compact
-                                    ? Theme.of(context).textTheme.labelSmall
-                                    : Theme.of(context).textTheme.bodySmall)
-                                ?.copyWith(
-                              fontSize: compact ? 9.5 : 10.5,
-                              fontWeight: FontWeight.w700,
-                              color: _plannerAccentColor(context, visualStyle),
-                            ),
+                            style:
+                                (compact
+                                        ? Theme.of(context).textTheme.labelSmall
+                                        : Theme.of(context).textTheme.bodySmall)
+                                    ?.copyWith(
+                                      fontSize: compact ? 9.5 : 10.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: _plannerAccentColor(
+                                        context,
+                                        visualStyle,
+                                      ),
+                                    ),
                           ),
                         ),
                       Text(
                         task.title,
-                        style: (compact
-                                ? Theme.of(context).textTheme.labelSmall
-                                : Theme.of(context).textTheme.bodySmall)
-                            ?.copyWith(
-                          decoration:
-                              isDone ? TextDecoration.lineThrough : null,
-                          color: isDone
-                              ? colors.textMuted
-                              : _plannerTextColor(context, visualStyle),
-                          fontSize: compact ? 11 : null,
-                          fontWeight: FontWeight.w700,
-                          height: compact ? 1.25 : 1.3,
-                        ),
+                        style:
+                            (compact
+                                    ? Theme.of(context).textTheme.labelSmall
+                                    : Theme.of(context).textTheme.bodySmall)
+                                ?.copyWith(
+                                  decoration: isDone
+                                      ? TextDecoration.lineThrough
+                                      : null,
+                                  color: isDone
+                                      ? colors.textMuted
+                                      : _plannerTextColor(context, visualStyle),
+                                  fontSize: compact ? 11 : null,
+                                  fontWeight: FontWeight.w700,
+                                  height: compact ? 1.25 : 1.3,
+                                ),
                       ),
                     ],
                   ),
@@ -1174,10 +1183,7 @@ class _TaskTile extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _DetailPane extends StatefulWidget {
-  const _DetailPane({
-    required this.task,
-    required this.controller,
-  });
+  const _DetailPane({required this.task, required this.controller});
   final Task task;
   final WeeklyPlannerController controller;
 
@@ -1245,8 +1251,8 @@ class _DetailPaneState extends State<_DetailPane> {
       scheduledDate: widget.task.sourceType == 'project_step'
           ? null
           : _datesDirty
-              ? (_scheduledDate ?? '')
-              : null,
+          ? (_scheduledDate ?? '')
+          : null,
       ownerId: _ownerId,
       ownerChanged: _ownerDirty,
     );
@@ -1263,8 +1269,9 @@ class _DetailPaneState extends State<_DetailPane> {
   Future<void> _pickPlannerDate() async {
     final picked = await showDatePicker(
       context: context,
-      initialDate:
-          _plannerDate != null ? DateTime.parse(_plannerDate!) : DateTime.now(),
+      initialDate: _plannerDate != null
+          ? DateTime.parse(_plannerDate!)
+          : DateTime.now(),
       firstDate: DateTime(2020),
       lastDate: DateTime(2035),
     );
@@ -1279,7 +1286,8 @@ class _DetailPaneState extends State<_DetailPane> {
       } else {
         _dueDate = value;
       }
-      _datesDirty = _dueDate != widget.task.dueDate ||
+      _datesDirty =
+          _dueDate != widget.task.dueDate ||
           _scheduledDate != widget.task.scheduledDate;
     });
   }
@@ -1294,7 +1302,8 @@ class _DetailPaneState extends State<_DetailPane> {
       } else {
         _dueDate = null;
       }
-      _datesDirty = _dueDate != widget.task.dueDate ||
+      _datesDirty =
+          _dueDate != widget.task.dueDate ||
           _scheduledDate != widget.task.scheduledDate;
     });
   }
@@ -1309,8 +1318,9 @@ class _DetailPaneState extends State<_DetailPane> {
     final colors = context.rhythm;
     return RhythmDetailPane(
       title: 'Task details',
-      subtitle:
-          isShadowEvent ? 'Read-only calendar context' : 'Notes and planning',
+      subtitle: isShadowEvent
+          ? 'Read-only calendar context'
+          : 'Notes and planning',
       actions: [
         RhythmButton.icon(
           icon: Icons.close,
@@ -1327,15 +1337,16 @@ class _DetailPaneState extends State<_DetailPane> {
             Text(
               task.title,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    decoration: isDone ? TextDecoration.lineThrough : null,
-                    color: isDone ? colors.textMuted : colors.textPrimary,
-                  ),
+                decoration: isDone ? TextDecoration.lineThrough : null,
+                color: isDone ? colors.textMuted : colors.textPrimary,
+              ),
             ),
             const SizedBox(height: 8),
             if (!isShadowEvent)
               RhythmButton.quiet(
-                icon:
-                    isDone ? Icons.check_circle : Icons.radio_button_unchecked,
+                icon: isDone
+                    ? Icons.check_circle
+                    : Icons.radio_button_unchecked,
                 label: isDone ? 'Mark open' : 'Mark done',
                 onPressed: () => widget.controller.toggleTaskDone(task, isDone),
               ),
@@ -1352,11 +1363,7 @@ class _DetailPaneState extends State<_DetailPane> {
                     _editableOwnerRow(context, workspaceMembers),
                     if (task.ownerId != null) ...[
                       const SizedBox(height: 10),
-                      _collaboratorsSection(
-                        context,
-                        task,
-                        workspaceMembers,
-                      ),
+                      _collaboratorsSection(context, task, workspaceMembers),
                     ],
                     const SizedBox(height: 14),
                   ],
@@ -1385,11 +1392,7 @@ class _DetailPaneState extends State<_DetailPane> {
                   if (isShadowEvent && timeLabel != null)
                     _row(context, 'Time', timeLabel),
                   if (task.sourceType != null)
-                    _row(
-                      context,
-                      'Source',
-                      _sourceLabel(task.sourceType!),
-                    ),
+                    _row(context, 'Source', _sourceLabel(task.sourceType!)),
                   if (task.sourceName != null && task.sourceName!.isNotEmpty)
                     _row(
                       context,
@@ -1403,10 +1406,10 @@ class _DetailPaneState extends State<_DetailPane> {
             Text(
               isShadowEvent ? 'Details' : 'Notes',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colors.textSecondary,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.4,
-                  ),
+                color: colors.textSecondary,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.4,
+              ),
             ),
             const SizedBox(height: 8),
             if (isShadowEvent)
@@ -1423,9 +1426,9 @@ class _DetailPaneState extends State<_DetailPane> {
                       ? task.notes!
                       : 'No additional details.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: colors.textPrimary,
-                        height: 1.35,
-                      ),
+                    color: colors.textPrimary,
+                    height: 1.35,
+                  ),
                 ),
               )
             else
@@ -1466,14 +1469,14 @@ class _DetailPaneState extends State<_DetailPane> {
                     onPressed: _saving
                         ? null
                         : () => setState(() {
-                              _notesCtrl.text = widget.task.notes ?? '';
-                              _dueDate = widget.task.dueDate;
-                              _scheduledDate = widget.task.scheduledDate;
-                              _ownerId = widget.task.ownerId;
-                              _notesDirty = false;
-                              _datesDirty = false;
-                              _ownerDirty = false;
-                            }),
+                            _notesCtrl.text = widget.task.notes ?? '';
+                            _dueDate = widget.task.dueDate;
+                            _scheduledDate = widget.task.scheduledDate;
+                            _ownerId = widget.task.ownerId;
+                            _notesDirty = false;
+                            _datesDirty = false;
+                            _ownerDirty = false;
+                          }),
                     label: 'Discard',
                     compact: true,
                   ),
@@ -1518,18 +1521,18 @@ class _DetailPaneState extends State<_DetailPane> {
             child: Text(
               label,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colors.textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                color: colors.textSecondary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           Expanded(
             child: Text(
               value,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textPrimary,
-                    height: 1.35,
-                  ),
+                color: colors.textPrimary,
+                height: 1.35,
+              ),
             ),
           ),
         ],
@@ -1557,9 +1560,9 @@ class _DetailPaneState extends State<_DetailPane> {
               child: Text(
                 label,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colors.textSecondary,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  color: colors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -1626,9 +1629,9 @@ class _DetailPaneState extends State<_DetailPane> {
               child: Text(
                 'Collaborators',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colors.textSecondary,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  color: colors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -1896,18 +1899,18 @@ String _formatClockTime(DateTime dateTime) {
   final hour = dateTime.hour == 0
       ? 12
       : dateTime.hour > 12
-          ? dateTime.hour - 12
-          : dateTime.hour;
+      ? dateTime.hour - 12
+      : dateTime.hour;
   final minute = dateTime.minute.toString().padLeft(2, '0');
   final suffix = dateTime.hour >= 12 ? 'PM' : 'AM';
   return '$hour:$minute $suffix';
 }
 
 String _sourceLabel(String t) => switch (t) {
-      'recurring_rule' => 'Rhythm',
-      'project_step' => 'Project',
-      'calendar_shadow_event' => 'Calendar',
-      'planning_center_signal' => 'Planning Center',
-      'automation_rule' => 'Automation',
-      _ => t,
-    };
+  'recurring_rule' => 'Rhythm',
+  'project_step' => 'Project',
+  'calendar_shadow_event' => 'Calendar',
+  'planning_center_signal' => 'Planning Center',
+  'automation_rule' => 'Automation',
+  _ => t,
+};

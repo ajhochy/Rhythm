@@ -76,8 +76,8 @@ class _ReadyAgentServerController extends AgentServerController {
 /// A stub repository that records revert/unrevert calls and fetchSessionDiff.
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-      : _msgController = StreamController.broadcast(),
-        _connectivityController = StreamController.broadcast();
+    : _msgController = StreamController.broadcast(),
+      _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -120,15 +120,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async => (
-            session: _makeSession(id),
-            messages: const <AgentSessionMessage>[],
-          );
+  getSession(String id) async =>
+      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async {
@@ -162,28 +159,27 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: 'Test Session',
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  agentId: 'claude-code',
+  name: 'Test Session',
+  cwd: '/tmp',
+  status: AgentSessionStatus.idle,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 ChatMessage _makeMessage(
   String id, {
   String sessionId = 'ses-1',
   String role = 'assistant',
   bool isReverted = false,
-}) =>
-    ChatMessage(
-      id: id,
-      sessionId: sessionId,
-      role: role,
-      createdAt: _kEpoch,
-      isReverted: isReverted,
-    );
+}) => ChatMessage(
+  id: id,
+  sessionId: sessionId,
+  role: role,
+  createdAt: _kEpoch,
+  isReverted: isReverted,
+);
 
 AgentsController _buildController(_StubAgentsRepository repo) =>
     AgentsController(
@@ -282,8 +278,10 @@ void main() {
           await tester.pumpAndSettle();
 
           // Dialog must appear with consequence text.
-          expect(find.textContaining('Undo file changes after this point'),
-              findsOneWidget);
+          expect(
+            find.textContaining('Undo file changes after this point'),
+            findsOneWidget,
+          );
         },
       );
 
@@ -405,7 +403,9 @@ void main() {
           await tester.pump();
 
           expect(
-              find.textContaining('Restore reverted changes'), findsOneWidget);
+            find.textContaining('Restore reverted changes'),
+            findsOneWidget,
+          );
         },
       );
 
@@ -433,29 +433,28 @@ void main() {
   group(
     'issue-695-c4: tapping banner dispatches unrevert and clears treatment',
     () {
-      testWidgets(
-        'issue-695-c4: tapping Restore button dispatches unrevert',
-        (tester) async {
-          const sessionId = 'ses-unrevert';
-          controller.setSessionRevertedForTest(sessionId, true);
+      testWidgets('issue-695-c4: tapping Restore button dispatches unrevert', (
+        tester,
+      ) async {
+        const sessionId = 'ses-unrevert';
+        controller.setSessionRevertedForTest(sessionId, true);
 
-          await tester.pumpWidget(
-            _wrapWithController(
-              controller,
-              RevertRestoreBanner(sessionId: sessionId),
-            ),
-          );
-          await tester.pump();
+        await tester.pumpWidget(
+          _wrapWithController(
+            controller,
+            RevertRestoreBanner(sessionId: sessionId),
+          ),
+        );
+        await tester.pump();
 
-          // Tap the restore button (the TextButton labeled exactly "Restore",
-          // not the banner label "Restore reverted changes").
-          await tester.tap(find.widgetWithText(TextButton, 'Restore'));
-          await tester.pumpAndSettle();
+        // Tap the restore button (the TextButton labeled exactly "Restore",
+        // not the banner label "Restore reverted changes").
+        await tester.tap(find.widgetWithText(TextButton, 'Restore'));
+        await tester.pumpAndSettle();
 
-          expect(repo.unrevertCallCount, equals(1));
-          expect(repo.lastUnrevertSessionId, equals(sessionId));
-        },
-      );
+        expect(repo.unrevertCallCount, equals(1));
+        expect(repo.lastUnrevertSessionId, equals(sessionId));
+      });
 
       test(
         'issue-695-c4b: after unrevert success, sessionIsReverted returns false',
@@ -474,43 +473,40 @@ void main() {
 
   // ── c5 ──────────────────────────────────────────────────────────────────────
 
-  group(
-    'issue-695-c5: revert and unrevert both trigger fetchSessionDiff',
-    () {
-      test(
-        'issue-695-c5a: revertSession triggers fetchSessionDiff for that session',
-        () async {
-          const sessionId = 'ses-diff-revert';
+  group('issue-695-c5: revert and unrevert both trigger fetchSessionDiff', () {
+    test(
+      'issue-695-c5a: revertSession triggers fetchSessionDiff for that session',
+      () async {
+        const sessionId = 'ses-diff-revert';
 
-          await controller.revertSession(sessionId, 'msg-x');
+        await controller.revertSession(sessionId, 'msg-x');
 
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-          expect(
-            repo.fetchDiffCallCount[sessionId] ?? 0,
-            greaterThan(0),
-            reason:
-                'fetchSessionDiff must be called after revert to refresh the Changes tab',
-          );
-        },
-      );
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(
+          repo.fetchDiffCallCount[sessionId] ?? 0,
+          greaterThan(0),
+          reason:
+              'fetchSessionDiff must be called after revert to refresh the Changes tab',
+        );
+      },
+    );
 
-      test(
-        'issue-695-c5b: unrevertSession triggers fetchSessionDiff for that session',
-        () async {
-          const sessionId = 'ses-diff-unrevert';
-          controller.setSessionRevertedForTest(sessionId, true);
+    test(
+      'issue-695-c5b: unrevertSession triggers fetchSessionDiff for that session',
+      () async {
+        const sessionId = 'ses-diff-unrevert';
+        controller.setSessionRevertedForTest(sessionId, true);
 
-          await controller.unrevertSession(sessionId);
+        await controller.unrevertSession(sessionId);
 
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-          expect(
-            repo.fetchDiffCallCount[sessionId] ?? 0,
-            greaterThan(0),
-            reason:
-                'fetchSessionDiff must be called after unrevert to refresh the Changes tab',
-          );
-        },
-      );
-    },
-  );
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(
+          repo.fetchDiffCallCount[sessionId] ?? 0,
+          greaterThan(0),
+          reason:
+              'fetchSessionDiff must be called after unrevert to refresh the Changes tab',
+        );
+      },
+    );
+  });
 }

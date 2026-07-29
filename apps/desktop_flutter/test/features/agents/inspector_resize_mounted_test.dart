@@ -115,15 +115,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async => (
-            session: _makeSession(id),
-            messages: const <AgentSessionMessage>[],
-          );
+  getSession(String id) async =>
+      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -144,7 +141,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-      : super(NotificationsRepository(NotificationsDataSource()));
+    : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -181,14 +178,14 @@ class _EmptyTasksLocalDataSource extends TasksLocalDataSource {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: 'Test Session',
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  agentId: 'claude-code',
+  name: 'Test Session',
+  cwd: '/tmp',
+  status: AgentSessionStatus.idle,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 final _claudeCodeConfig = AgentConfig(
   id: 'claude-code',
@@ -199,8 +196,9 @@ final _claudeCodeConfig = AgentConfig(
   sortOrder: 0,
 );
 
-Future<Widget> _buildTestApp(
-    {required AgentsController agentsController}) async {
+Future<Widget> _buildTestApp({
+  required AgentsController agentsController,
+}) async {
   final agentServerController = _ReadyAgentServerController();
   final agentConfigsController = AgentConfigsController(
     AgentConfigsRepository(_FakeAgentConfigsDataSource([_claudeCodeConfig])),
@@ -222,9 +220,7 @@ Future<Widget> _buildTestApp(
       ChangeNotifierProvider<AgentConfigsController>.value(
         value: agentConfigsController,
       ),
-      ChangeNotifierProvider<AgentsController>.value(
-        value: agentsController,
-      ),
+      ChangeNotifierProvider<AgentsController>.value(value: agentsController),
       ChangeNotifierProvider<TasksController>.value(value: tasksController),
       ChangeNotifierProvider<AgentProjectsController>.value(
         value: agentProjectsController,
@@ -267,8 +263,9 @@ void main() {
         controller.setActiveSessionForTest('s1', _makeSession('s1'));
       });
 
-      await tester
-          .pumpWidget(await _buildTestApp(agentsController: controller));
+      await tester.pumpWidget(
+        await _buildTestApp(agentsController: controller),
+      );
       await tester.pump();
       // #905 — the panel now defaults to collapsed; this test exercises the
       // resize handle, so expand it explicitly (after the initial pump,

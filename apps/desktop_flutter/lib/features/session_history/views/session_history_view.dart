@@ -112,7 +112,8 @@ class _TranscriptBody extends StatelessWidget {
 
     return ListView.separated(
       padding: const EdgeInsets.all(RhythmSpacing.md),
-      itemCount: messages.length +
+      itemCount:
+          messages.length +
           (sessionStatus == SessionHistoryStatus.failed ? 1 : 0),
       separatorBuilder: (_, __) => const SizedBox(height: RhythmSpacing.sm),
       itemBuilder: (context, index) {

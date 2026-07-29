@@ -26,9 +26,9 @@ class McpController extends ChangeNotifier {
     McpUrlLauncher? urlLauncher,
     Duration pollDelay = const Duration(seconds: 2),
     int maxPollAttempts = 75,
-  })  : _urlLauncher = urlLauncher ?? _defaultMcpUrlLauncher,
-        _pollDelay = pollDelay,
-        _maxPollAttempts = maxPollAttempts;
+  }) : _urlLauncher = urlLauncher ?? _defaultMcpUrlLauncher,
+       _pollDelay = pollDelay,
+       _maxPollAttempts = maxPollAttempts;
 
   final McpDataSource _dataSource;
 

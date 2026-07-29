@@ -59,8 +59,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-      : _msgController = StreamController.broadcast(),
-        _connectivityController = StreamController.broadcast();
+    : _msgController = StreamController.broadcast(),
+      _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -93,13 +93,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async =>
-          (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+  getSession(String id) async =>
+      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -120,9 +119,10 @@ class _StubAgentsRepository implements AgentsRepository {
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-          String parentSessionId, String childSdkId,
-          {String? cwd}) async =>
-      const [];
+    String parentSessionId,
+    String childSdkId, {
+    String? cwd,
+  }) async => const [];
 
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -134,14 +134,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: 'Test Session',
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  agentId: 'claude-code',
+  name: 'Test Session',
+  cwd: '/tmp',
+  status: AgentSessionStatus.idle,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 AgentsController _buildController(_StubAgentsRepository repo) =>
     AgentsController(
@@ -184,10 +184,16 @@ void main() {
       expect(frame['type'], equals('session.input'));
 
       // Must use parts array (not legacy data string).
-      expect(frame.containsKey('parts'), isTrue,
-          reason: 'parts key required when attachments are present');
-      expect(frame.containsKey('data'), isFalse,
-          reason: 'legacy data key must be absent when parts are used');
+      expect(
+        frame.containsKey('parts'),
+        isTrue,
+        reason: 'parts key required when attachments are present',
+      );
+      expect(
+        frame.containsKey('data'),
+        isFalse,
+        reason: 'legacy data key must be absent when parts are used',
+      );
 
       final parts = frame['parts'] as List<dynamic>;
       // Text part from the user message + the text attachment.
@@ -196,22 +202,30 @@ void main() {
       // The text attachment must appear with type='text' and the file content.
       final matchingParts = parts
           .cast<Map<String, dynamic>>()
-          .where((p) =>
-              p['type'] == 'text' &&
-              (p['text'] as String?)?.contains('Connection refused') == true)
+          .where(
+            (p) =>
+                p['type'] == 'text' &&
+                (p['text'] as String?)?.contains('Connection refused') == true,
+          )
           .toList();
-      expect(matchingParts, isNotEmpty,
-          reason: 'WS frame must include the file content as a text part');
       expect(
-          (matchingParts.first['text'] as String)
-              .contains('Connection refused'),
-          isTrue);
+        matchingParts,
+        isNotEmpty,
+        reason: 'WS frame must include the file content as a text part',
+      );
+      expect(
+        (matchingParts.first['text'] as String).contains('Connection refused'),
+        isTrue,
+      );
 
       // No FilePart with application/octet-stream in the frame.
       for (final p in parts) {
         final partMap = p as Map<String, dynamic>;
-        expect(partMap['mime'], isNot(equals('application/octet-stream')),
-            reason: 'octet-stream must never reach the model');
+        expect(
+          partMap['mime'],
+          isNot(equals('application/octet-stream')),
+          reason: 'octet-stream must never reach the model',
+        );
       }
     },
   );
@@ -248,16 +262,25 @@ void main() {
       final parts = ctrl.chatPartsFor(lastMsg.id);
       // Should have a text part (user prose) + a file chip for the attachment.
       final fileParts = parts.where((p) => p.type == 'file').toList();
-      expect(fileParts, hasLength(1),
-          reason:
-              'One filename chip must appear in the optimistic user bubble');
+      expect(
+        fileParts,
+        hasLength(1),
+        reason: 'One filename chip must appear in the optimistic user bubble',
+      );
 
       final chip = fileParts.first;
-      expect(chip.fileFilename, equals('debug.log'),
-          reason: 'Filename must be preserved in the optimistic chip');
-      expect(chip.fileUrl, isNull,
-          reason: 'Text attachments must not produce a data URI in the chip — '
-              'the model reads the text content from the parts array');
+      expect(
+        chip.fileFilename,
+        equals('debug.log'),
+        reason: 'Filename must be preserved in the optimistic chip',
+      );
+      expect(
+        chip.fileUrl,
+        isNull,
+        reason:
+            'Text attachments must not produce a data URI in the chip — '
+            'the model reads the text content from the parts array',
+      );
     },
   );
 
@@ -289,12 +312,18 @@ void main() {
           .cast<Map<String, dynamic>>()
           .where((p) => p['type'] == 'file')
           .toList();
-      expect(fileParts, isNotEmpty,
-          reason: 'Image attachment must produce a file part');
+      expect(
+        fileParts,
+        isNotEmpty,
+        reason: 'Image attachment must produce a file part',
+      );
       final filePart = fileParts.first;
       expect(filePart['mime'], equals('image/png'));
-      expect(filePart['url'], equals(dataUri),
-          reason: 'Image data URI must be forwarded verbatim');
+      expect(
+        filePart['url'],
+        equals(dataUri),
+        reason: 'Image data URI must be forwarded verbatim',
+      );
     },
   );
 
@@ -331,8 +360,11 @@ void main() {
       final hasLogContent = textParts.any(
         (p) => (p['text'] as String?)?.contains('disk usage') == true,
       );
-      expect(hasLogContent, isTrue,
-          reason: 'File content must appear in the WS parts array');
+      expect(
+        hasLogContent,
+        isTrue,
+        reason: 'File content must appear in the WS parts array',
+      );
     },
   );
 }

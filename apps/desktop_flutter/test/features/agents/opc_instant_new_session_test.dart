@@ -80,8 +80,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-      : _msgController = StreamController.broadcast(),
-        _connectivityController = StreamController.broadcast();
+    : _msgController = StreamController.broadcast(),
+      _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -119,15 +119,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async => (
-            session: _makeSession(id, ''),
-            messages: const <AgentSessionMessage>[]
-          );
+  getSession(String id) async =>
+      (session: _makeSession(id, ''), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<AgentSession> createSession({
@@ -172,15 +169,13 @@ class _StubAgentsRepository implements AgentsRepository {
     bool? fastMode,
     String? anthropicAccountId,
     String? agentId,
-  }) async =>
-      _makeSession(id, '');
+  }) async => _makeSession(id, '');
 
   @override
   Future<AgentSession> updateSessionThinkingBudget(
     String id,
     int? budget,
-  ) async =>
-      _makeSession(id, '');
+  ) async => _makeSession(id, '');
 
   @override
   Future<AgentSession> resumeSession(String id) async => _makeSession(id, '');
@@ -211,9 +206,10 @@ class _StubAgentsRepository implements AgentsRepository {
   Future<void> rejectQuestion(String sessionId, String callId) async {}
 
   @override
-  Future<List<AgentSessionMessage>> getMessages(String id,
-          {int? limit}) async =>
-      const [];
+  Future<List<AgentSessionMessage>> getMessages(
+    String id, {
+    int? limit,
+  }) async => const [];
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -233,14 +229,18 @@ class _StubAgentsRepository implements AgentsRepository {
       const [];
 
   @override
-  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async =>
-      const {'recorded': false, 'memoryIds': [], 'notePaths': []};
+  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async => const {
+    'recorded': false,
+    'memoryIds': [],
+    'notePaths': [],
+  };
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-          String parentSessionId, String childSdkId,
-          {String? cwd}) async =>
-      const [];
+    String parentSessionId,
+    String childSdkId, {
+    String? cwd,
+  }) async => const [];
 
   @override
   Future<AgentSession> forkSession(String sessionId, String messageId) async {
@@ -275,14 +275,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id, String name) => AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: name,
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  agentId: 'claude-code',
+  name: name,
+  cwd: '/tmp',
+  status: AgentSessionStatus.idle,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 AgentsController _buildController(_StubAgentsRepository repo) =>
     AgentsController(
@@ -305,7 +305,8 @@ Widget _wrapHeader(
     providers: [
       ChangeNotifierProvider<AgentsController>.value(value: controller),
       ChangeNotifierProvider<AgentServerController>.value(
-          value: agentServerController),
+        value: agentServerController,
+      ),
     ],
     child: MaterialApp(
       theme: AppTheme.light(),
@@ -342,15 +343,11 @@ void main() {
       final ctrl = _buildController(repo);
 
       await tester.pumpWidget(
-        _wrapHeader(
-          ctrl,
-          () {
-            callCount++;
-            // The real instant-create path would call
-            // controller.createSession(...) here. We just count the tap.
-          },
-          null,
-        ),
+        _wrapHeader(ctrl, () {
+          callCount++;
+          // The real instant-create path would call
+          // controller.createSession(...) here. We just count the tap.
+        }, null),
       );
       await tester.pump();
 
@@ -364,8 +361,11 @@ void main() {
       expect(callCount, 1);
 
       // No dialog appeared (no "Cancel" or confirm buttons present).
-      expect(find.text('Cancel'), findsNothing,
-          reason: 'dialog must NOT open on primary tap');
+      expect(
+        find.text('Cancel'),
+        findsNothing,
+        reason: 'dialog must NOT open on primary tap',
+      );
 
       dialogOpened = false;
       expect(dialogOpened, isFalse);
@@ -414,8 +414,11 @@ void main() {
       (s) => s.id == 'sess-c3',
       orElse: () => throw StateError('session not found in sessions list'),
     );
-    expect(updated.name, 'Auto Title from Server',
-        reason: 'SessionUpdatedMessage must replace the placeholder name');
+    expect(
+      updated.name,
+      'Auto Title from Server',
+      reason: 'SessionUpdatedMessage must replace the placeholder name',
+    );
 
     ctrl.dispose();
   });
@@ -438,9 +441,11 @@ void main() {
           providers: [
             ChangeNotifierProvider<AgentsController>.value(value: ctrl),
             ChangeNotifierProvider<AgentConfigsController>.value(
-                value: agentConfigsCtrl),
+              value: agentConfigsCtrl,
+            ),
             ChangeNotifierProvider<AgentServerController>.value(
-                value: agentServerCtrl),
+              value: agentServerCtrl,
+            ),
           ],
           child: MaterialApp(
             theme: AppTheme.light(),
@@ -459,8 +464,11 @@ void main() {
       await tester.pump();
 
       // Should display the placeholder, not an empty string.
-      expect(find.text('New session'), findsOneWidget,
-          reason: 'empty name must render as "New session" placeholder');
+      expect(
+        find.text('New session'),
+        findsOneWidget,
+        reason: 'empty name must render as "New session" placeholder',
+      );
       expect(
         find.text(''),
         findsNothing,
@@ -483,26 +491,27 @@ void main() {
       final ctrl = _buildController(repo);
 
       await tester.pumpWidget(
-        _wrapHeader(
-          ctrl,
-          () {},
-          () {
-            optionsPressedCount++;
-          },
-        ),
+        _wrapHeader(ctrl, () {}, () {
+          optionsPressedCount++;
+        }),
       );
       await tester.pump();
 
       // The secondary "..." control must exist.
       expect(
-          find.byKey(const Key('new-session-options-button')), findsOneWidget,
-          reason: '"..." options button must be present in the header');
+        find.byKey(const Key('new-session-options-button')),
+        findsOneWidget,
+        reason: '"..." options button must be present in the header',
+      );
 
       await tester.tap(find.byKey(const Key('new-session-options-button')));
       await tester.pumpAndSettle();
 
-      expect(optionsPressedCount, 1,
-          reason: 'options callback must be invoked when "..." tapped');
+      expect(
+        optionsPressedCount,
+        1,
+        reason: 'options callback must be invoked when "..." tapped',
+      );
 
       ctrl.dispose();
     },

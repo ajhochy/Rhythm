@@ -132,8 +132,9 @@ class _QuickActionsBarState extends State<QuickActionsBar> {
     final title = widget.context_.title;
     final description = widget.context_.description?.trim();
     final hasDescription = description != null && description.isNotEmpty;
-    final contextBlock =
-        hasDescription ? '"$title"\n\n$description' : '"$title"';
+    final contextBlock = hasDescription
+        ? '"$title"\n\n$description'
+        : '"$title"';
 
     return switch (kind) {
       _QuickActionKind.help =>
@@ -264,15 +265,17 @@ class _QuickActionsBarState extends State<QuickActionsBar> {
         _presetPrompt(_QuickActionKind.followUpTasks),
       );
     }
-    _showInfo('Created a follow-up task and asked Rhythm to suggest more — '
-        'opening the agent session…');
+    _showInfo(
+      'Created a follow-up task and asked Rhythm to suggest more — '
+      'opening the agent session…',
+    );
     widget.onSessionReady?.call(session.id);
   }
 
   void _showFailure(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   /// Confirmation feedback so the user knows what the tap did (the agent

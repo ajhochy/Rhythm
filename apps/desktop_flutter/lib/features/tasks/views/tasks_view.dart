@@ -107,19 +107,22 @@ class _TasksViewState extends State<TasksView> {
                               height: createBarStacks ? 220 : 96,
                               child: RhythmTaskCreateBar(
                                 addLabel: 'Add task',
-                                onSubmit: (
-                                  title, {
-                                  notes,
-                                  scheduledDate,
-                                  collaboratorId,
-                                }) {
-                                  context.read<TasksController>().createTask(
-                                        title,
-                                        notes: notes,
-                                        scheduledDate: scheduledDate,
-                                        collaboratorId: collaboratorId,
-                                      );
-                                },
+                                onSubmit:
+                                    (
+                                      title, {
+                                      notes,
+                                      scheduledDate,
+                                      collaboratorId,
+                                    }) {
+                                      context
+                                          .read<TasksController>()
+                                          .createTask(
+                                            title,
+                                            notes: notes,
+                                            scheduledDate: scheduledDate,
+                                            collaboratorId: collaboratorId,
+                                          );
+                                    },
                               ),
                             ),
                           ),
@@ -141,8 +144,8 @@ class _TasksViewState extends State<TasksView> {
     final tasks = _showCompleted
         ? controller.tasks.toList()
         : controller.tasks
-            .where((task) => task.status != TaskStatus.done)
-            .toList();
+              .where((task) => task.status != TaskStatus.done)
+              .toList();
     final query = _searchQuery.trim().toLowerCase();
     final searched = query.isEmpty
         ? tasks
@@ -190,11 +193,7 @@ class _TasksViewState extends State<TasksView> {
               label: 'Open',
               icon: Icons.radio_button_unchecked,
             ),
-            RhythmSegment(
-              value: true,
-              label: 'All',
-              icon: Icons.visibility,
-            ),
+            RhythmSegment(value: true, label: 'All', icon: Icons.visibility),
           ],
         ),
         RhythmSegmentedControl<String?>(
@@ -254,14 +253,8 @@ class _TasksViewState extends State<TasksView> {
               value: TaskSortField.createdDate,
               child: Text('Created date'),
             ),
-            PopupMenuItem(
-              value: TaskSortField.status,
-              child: Text('Status'),
-            ),
-            PopupMenuItem(
-              value: TaskSortField.title,
-              child: Text('Title'),
-            ),
+            PopupMenuItem(value: TaskSortField.status, child: Text('Status')),
+            PopupMenuItem(value: TaskSortField.title, child: Text('Title')),
           ],
           child: const RhythmBadge(
             label: 'Sort',
@@ -299,15 +292,15 @@ class _TasksViewState extends State<TasksView> {
           title: controller.tasks.isEmpty
               ? 'No tasks yet'
               : hasSearch
-                  ? 'No matching tasks'
-                  : 'Nothing to show',
+              ? 'No matching tasks'
+              : 'Nothing to show',
           message: controller.tasks.isEmpty
               ? 'Create a task above and it will settle into this workspace.'
               : hasSearch
-                  ? 'Try a different search, or clear the search field to return to the full queue.'
-                  : _showCompleted
-                      ? 'No tasks match the current view.'
-                      : 'Completed tasks are hidden right now. Turn them back on to review finished work.',
+              ? 'Try a different search, or clear the search field to return to the full queue.'
+              : _showCompleted
+              ? 'No tasks match the current view.'
+              : 'Completed tasks are hidden right now. Turn them back on to review finished work.',
           icon: controller.tasks.isEmpty
               ? Icons.task_alt_outlined
               : Icons.checklist_outlined,
@@ -319,10 +312,7 @@ class _TasksViewState extends State<TasksView> {
       final (filterTitle, filterIcon) = switch (_activeTimeFilter) {
         'today' => ('No tasks due today', Icons.today_outlined),
         'week' => ('No tasks due this week', Icons.calendar_view_week_outlined),
-        'month' => (
-            'No tasks due this month',
-            Icons.calendar_month_outlined,
-          ),
+        'month' => ('No tasks due this month', Icons.calendar_month_outlined),
         _ => ('No tasks to show', Icons.checklist_outlined),
       };
       return SliverFillRemaining(
@@ -357,11 +347,7 @@ class _TasksViewState extends State<TasksView> {
   }) {
     return Padding(
       padding: const EdgeInsets.all(RhythmSpacing.xl),
-      child: RhythmEmptyState(
-        title: title,
-        message: message,
-        icon: icon,
-      ),
+      child: RhythmEmptyState(title: title, message: message, icon: icon),
     );
   }
 
@@ -385,12 +371,13 @@ class _TasksViewState extends State<TasksView> {
         continue;
       }
 
-      final dateStr = (task.scheduledDate?.isNotEmpty == true
-              ? task.scheduledDate
-              : task.dueDate?.isNotEmpty == true
+      final dateStr =
+          (task.scheduledDate?.isNotEmpty == true
+                  ? task.scheduledDate
+                  : task.dueDate?.isNotEmpty == true
                   ? task.dueDate
                   : null)
-          ?.trim();
+              ?.trim();
 
       if (dateStr == null) {
         noDueDate.add(task);
@@ -495,9 +482,9 @@ class _TasksViewState extends State<TasksView> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colors.textMuted,
-                    letterSpacing: 0,
-                  ),
+                color: colors.textMuted,
+                letterSpacing: 0,
+              ),
             ),
           ),
         ],
@@ -529,7 +516,8 @@ class _TasksViewState extends State<TasksView> {
     final hasDue = task.dueDate != null && task.dueDate!.trim().isNotEmpty;
     final primaryDateStr = hasSched ? task.scheduledDate : task.dueDate;
     final primaryLabel = _compactDate(primaryDateStr);
-    final showDueHint = hasSched &&
+    final showDueHint =
+        hasSched &&
         hasDue &&
         task.scheduledDate!.trim() != task.dueDate!.trim();
     final dueHintLabel = showDueHint ? _compactDate(task.dueDate) : null;
@@ -544,9 +532,7 @@ class _TasksViewState extends State<TasksView> {
           color: isDone
               ? colors.surfaceMuted.withValues(alpha: 0.45)
               : accentColor.withValues(alpha: 0.09),
-          border: Border(
-            left: BorderSide(color: accentColor, width: 3),
-          ),
+          border: Border(left: BorderSide(color: accentColor, width: 3)),
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -560,8 +546,10 @@ class _TasksViewState extends State<TasksView> {
                   value: isDone,
                   onChanged: (_) => controller.toggleDone(task.id),
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  visualDensity:
-                      const VisualDensity(horizontal: -4, vertical: -4),
+                  visualDensity: const VisualDensity(
+                    horizontal: -4,
+                    vertical: -4,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -575,13 +563,11 @@ class _TasksViewState extends State<TasksView> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                            decoration:
-                                isDone ? TextDecoration.lineThrough : null,
-                            color:
-                                isDone ? colors.textMuted : colors.textPrimary,
-                          ),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        decoration: isDone ? TextDecoration.lineThrough : null,
+                        color: isDone ? colors.textMuted : colors.textPrimary,
+                      ),
                     ),
                     if (hasSourceName)
                       Text(
@@ -589,9 +575,9 @@ class _TasksViewState extends State<TasksView> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: colors.textMuted,
-                              fontSize: 11,
-                            ),
+                          color: colors.textMuted,
+                          fontSize: 11,
+                        ),
                       ),
                   ],
                 ),
@@ -628,11 +614,9 @@ class _TasksViewState extends State<TasksView> {
                       Text(
                         'Due $dueHintLabel',
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
-                              fontSize: 10,
-                            ),
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontSize: 10,
+                        ),
                       ),
                   ],
                 ),
@@ -700,14 +684,17 @@ class _TasksViewState extends State<TasksView> {
       ),
       onToggleStatus: () => controller.toggleDone(task.id),
       onAddCollaborator: (userId) async {
-        final collaborators =
-            await collaboratorsDataSource.addToTask(task.id, userId);
+        final collaborators = await collaboratorsDataSource.addToTask(
+          task.id,
+          userId,
+        );
         return collaborators;
       },
       onRemoveCollaborator: (userId) async {
         await collaboratorsDataSource.removeFromTask(task.id, userId);
-        final collaborators =
-            await collaboratorsDataSource.fetchForTask(task.id);
+        final collaborators = await collaboratorsDataSource.fetchForTask(
+          task.id,
+        );
         return collaborators;
       },
     );

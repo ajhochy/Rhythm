@@ -24,10 +24,10 @@ class RhythmBadge extends StatelessWidget {
     final foreground = _foreground(colors);
     final background = _background(colors, foreground);
     final textStyle = Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: foreground,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0,
-        );
+      color: foreground,
+      fontWeight: FontWeight.w700,
+      letterSpacing: 0,
+    );
 
     return LayoutBuilder(
       builder: (context, constraints) {

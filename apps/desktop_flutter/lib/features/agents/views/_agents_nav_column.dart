@@ -251,19 +251,19 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
     final projectFiltered = (!isChatsScope || selectedProjectId == null)
         ? controller.sessions
         : controller.sessions
-            .where((s) => s.projectId == selectedProjectId)
-            .toList();
+              .where((s) => s.projectId == selectedProjectId)
+              .toList();
 
     final query = _searchQuery.trim().toLowerCase();
     final searchFiltered = query.isEmpty
         ? projectFiltered
         : projectFiltered
-            .where(
-              (s) =>
-                  s.name.toLowerCase().contains(query) ||
-                  (s.lastPreview?.toLowerCase().contains(query) ?? false),
-            )
-            .toList();
+              .where(
+                (s) =>
+                    s.name.toLowerCase().contains(query) ||
+                    (s.lastPreview?.toLowerCase().contains(query) ?? false),
+              )
+              .toList();
 
     // #903 — sortable session list. Default (dateNewest) preserves the prior
     // hardcoded behavior: a freshly created session appears at the TOP of the
@@ -288,8 +288,9 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
           _NavHeader(
             onToggleCollapse: widget.onToggleCollapse,
             onNewSession: canStartSession ? widget.onNewSession : null,
-            onOptionsPressed:
-                canStartSession ? widget.onShowSessionOptions : null,
+            onOptionsPressed: canStartSession
+                ? widget.onShowSessionOptions
+                : null,
           ),
           Divider(height: 1, color: context.rhythm.borderSubtle),
 
@@ -299,10 +300,7 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
             child: TextField(
               key: const ValueKey('nav-search-field'),
               controller: _searchController,
-              style: TextStyle(
-                fontSize: 13,
-                color: context.rhythm.textPrimary,
-              ),
+              style: TextStyle(fontSize: 13, color: context.rhythm.textPrimary),
               decoration: InputDecoration(
                 hintText: 'Search sessions…',
                 hintStyle: TextStyle(
@@ -466,9 +464,7 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
           // self_improvement runs are not project-scoped, so the filter is
           // hidden entirely outside the chats scope (smoke follow-up to #1025).
           if (isChatsScope) ...[
-            _ByProjectSelector(
-              onAddProject: widget.onShowNewProjectDialog,
-            ),
+            _ByProjectSelector(onAddProject: widget.onShowNewProjectDialog),
             const SizedBox(height: 4),
           ],
 
@@ -505,10 +501,9 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
                   FilledButton.tonal(
                     onPressed: _confirmBulkDelete,
                     style: FilledButton.styleFrom(
-                      backgroundColor: Theme.of(context)
-                          .colorScheme
-                          .error
-                          .withValues(alpha: 0.18),
+                      backgroundColor: Theme.of(
+                        context,
+                      ).colorScheme.error.withValues(alpha: 0.18),
                       foregroundColor: Theme.of(context).colorScheme.error,
                       minimumSize: const Size(0, 26),
                       padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -635,10 +630,7 @@ class _NavHeader extends StatelessWidget {
                   SizedBox(width: 4),
                   Text(
                     'New',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                   ),
                 ],
               ),
@@ -745,7 +737,8 @@ class _ByProjectSelector extends StatelessWidget {
           if (ctrl.status == AgentProjectsLoadStatus.error) ...[
             const SizedBox(width: 6),
             Tooltip(
-              message: 'Failed to load projects'
+              message:
+                  'Failed to load projects'
                   '${ctrl.error != null ? ': ${ctrl.error}' : ''}',
               child: Icon(
                 Icons.warning_amber_rounded,
@@ -814,9 +807,7 @@ class _ToolsSection extends StatelessWidget {
             label: 'Brain',
             subtitle: 'Persistent agent memories',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentMemoryView(),
-              ),
+              MaterialPageRoute<void>(builder: (_) => const AgentMemoryView()),
             ),
           ),
           const SizedBox(height: 2),
@@ -870,9 +861,7 @@ class _ToolsSection extends StatelessWidget {
             label: 'Skills',
             subtitle: 'Self-improving skill library',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentSkillsView(),
-              ),
+              MaterialPageRoute<void>(builder: (_) => const AgentSkillsView()),
             ),
           ),
           const SizedBox(height: 2),
@@ -906,9 +895,7 @@ class _ToolsSection extends StatelessWidget {
             label: 'Review Queue',
             subtitle: 'Human-gated org optimizer proposals',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const OrgProposalsView(),
-              ),
+              MaterialPageRoute<void>(builder: (_) => const OrgProposalsView()),
             ),
           ),
           const SizedBox(height: 2),
@@ -918,9 +905,7 @@ class _ToolsSection extends StatelessWidget {
             label: 'Report Card',
             subtitle: 'How agents have been doing lately',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const RunQualityView(),
-              ),
+              MaterialPageRoute<void>(builder: (_) => const RunQualityView()),
             ),
           ),
           const SizedBox(height: 2),
@@ -930,9 +915,7 @@ class _ToolsSection extends StatelessWidget {
             label: 'Email',
             subtitle: 'Gmail signals & assistant',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentEmailView(),
-              ),
+              MaterialPageRoute<void>(builder: (_) => const AgentEmailView()),
             ),
           ),
           const SizedBox(height: 2),
@@ -942,9 +925,7 @@ class _ToolsSection extends StatelessWidget {
             label: 'Gallery',
             subtitle: 'Canva design workspace',
             onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AgentGalleryView(),
-              ),
+              MaterialPageRoute<void>(builder: (_) => const AgentGalleryView()),
             ),
           ),
         ],
@@ -1065,9 +1046,7 @@ class _NavFooter extends StatelessWidget {
             icon: const Icon(Icons.settings_outlined, size: 16),
             tooltip: 'Settings',
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const SettingsView(),
-              ),
+              MaterialPageRoute<void>(builder: (_) => const SettingsView()),
             ),
             style: IconButton.styleFrom(
               foregroundColor: context.rhythm.textMuted,

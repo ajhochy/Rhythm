@@ -59,8 +59,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-      : _msgController = StreamController.broadcast(),
-        _connectivityController = StreamController.broadcast();
+    : _msgController = StreamController.broadcast(),
+      _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -91,15 +91,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async => (
-            session: _makeSession(id),
-            messages: const <AgentSessionMessage>[],
-          );
+  getSession(String id) async =>
+      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   List<Map<String, dynamic>> stagedDiff = const [];
 
@@ -120,14 +117,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: 'Test Session',
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  agentId: 'claude-code',
+  name: 'Test Session',
+  cwd: '/tmp',
+  status: AgentSessionStatus.idle,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 // Two entries totaling +10 / −3.
 const _kDiffFixture = [
@@ -195,8 +192,9 @@ void main() {
         ),
       );
 
-      await tester
-          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
+      await tester.pumpWidget(
+        _wrap(controller, SessionSidePanel(session: session)),
+      );
       await tester.pump();
 
       await tester.tap(find.text('Changes'));
@@ -231,8 +229,9 @@ void main() {
       // Seed a diff — but do NOT seed any messages.
       repo.stagedDiff = _kDiffFixture;
 
-      await tester
-          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
+      await tester.pumpWidget(
+        _wrap(controller, SessionSidePanel(session: session)),
+      );
       await tester.pump();
 
       await tester.tap(find.text('Changes'));
@@ -260,8 +259,9 @@ void main() {
       final session = _makeSession('s1');
       // No diff seeded.
 
-      await tester
-          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
+      await tester.pumpWidget(
+        _wrap(controller, SessionSidePanel(session: session)),
+      );
       await tester.pump();
 
       await tester.tap(find.text('Changes'));

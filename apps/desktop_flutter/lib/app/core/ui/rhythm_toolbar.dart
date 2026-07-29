@@ -112,20 +112,19 @@ class _RhythmToolbarTitle extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: colors.textPrimary,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0,
-                ),
+              color: colors.textPrimary,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0,
+            ),
           ),
         if (subtitle != null)
           Text(
             subtitle!,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: colors.textSecondary),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
           ),
       ],
     );

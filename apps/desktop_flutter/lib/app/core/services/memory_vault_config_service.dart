@@ -20,8 +20,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// serverConfigService.url").
 class MemoryVaultConfigService extends ChangeNotifier {
   MemoryVaultConfigService({bool Function(String path)? directoryExists})
-      : _directoryExists =
-            directoryExists ?? ((path) => Directory(path).existsSync());
+    : _directoryExists =
+          directoryExists ?? ((path) => Directory(path).existsSync());
 
   static const _pathKey = 'memory_vault_path';
   static const _subdirKey = 'memory_vault_subdir';

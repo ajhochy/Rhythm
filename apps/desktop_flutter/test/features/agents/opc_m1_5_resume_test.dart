@@ -68,7 +68,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-      : super(NotificationsRepository(NotificationsDataSource()));
+    : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -84,8 +84,8 @@ class _FakeNotificationsController extends NotificationsController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-      : _msgController = StreamController.broadcast(),
-        _connectivityController = StreamController.broadcast();
+    : _msgController = StreamController.broadcast(),
+      _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -102,10 +102,8 @@ class _StubAgentsRepository implements AgentsRepository {
   /// How many times getSession was called.
   int getSessionCallCount = 0;
 
-  ({
-    AgentSession session,
-    List<AgentSessionMessage> messages
-  })? getSessionResult;
+  ({AgentSession session, List<AgentSessionMessage> messages})?
+  getSessionResult;
 
   List<AgentSession> sessionsToReturn = [];
 
@@ -137,12 +135,11 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      sessionsToReturn;
+  }) async => sessionsToReturn;
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async {
+  getSession(String id) async {
     getSessionCallCount++;
     if (getSessionResult != null) return getSessionResult!;
     return (session: _makeSession(id), messages: <AgentSessionMessage>[]);
@@ -169,16 +166,15 @@ final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 AgentSession _makeSession(
   String id, {
   AgentSessionStatus status = AgentSessionStatus.idle,
-}) =>
-    AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: 'Test Session',
-      cwd: '/tmp',
-      status: status,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+}) => AgentSession(
+  id: id,
+  agentId: 'claude-code',
+  name: 'Test Session',
+  cwd: '/tmp',
+  status: status,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 AgentSessionMessage _makeMsg({
   required String sessionId,
@@ -186,16 +182,15 @@ AgentSessionMessage _makeMsg({
   required String rawText,
   int id = 1,
   String? sdkMessageId,
-}) =>
-    AgentSessionMessage(
-      id: id,
-      sessionId: sessionId,
-      role: role,
-      rawText: rawText,
-      strippedText: rawText,
-      createdAt: DateTime.now(),
-      sdkMessageId: sdkMessageId,
-    );
+}) => AgentSessionMessage(
+  id: id,
+  sessionId: sessionId,
+  role: role,
+  rawText: rawText,
+  strippedText: rawText,
+  createdAt: DateTime.now(),
+  sdkMessageId: sdkMessageId,
+);
 
 // ---------------------------------------------------------------------------
 // Build controller under test
@@ -223,96 +218,101 @@ void main() {
   // c5: resuming triggers exactly one messages rehydrate fetch and renders parts
   // -------------------------------------------------------------------------
   group(
-      'OPC-M1-5 c5: resumeSession triggers one rehydrate fetch and populates chatMessages',
-      () {
-    test(
-      'c5: after resumeSession, chatMessagesFor has the rehydrated message parts',
-      () async {
-        final (:ctrl, :repo) = _buildController();
-        addTearDown(ctrl.dispose);
+    'OPC-M1-5 c5: resumeSession triggers one rehydrate fetch and populates chatMessages',
+    () {
+      test(
+        'c5: after resumeSession, chatMessagesFor has the rehydrated message parts',
+        () async {
+          final (:ctrl, :repo) = _buildController();
+          addTearDown(ctrl.dispose);
 
-        const sessionId = 'sess-resume-c5';
+          const sessionId = 'sess-resume-c5';
 
-        // Set up the resumable session in the repo.
-        final resumableSession =
-            _makeSession(sessionId, status: AgentSessionStatus.resumable);
-        repo.sessionsToReturn = [resumableSession];
-        await ctrl.load();
+          // Set up the resumable session in the repo.
+          final resumableSession = _makeSession(
+            sessionId,
+            status: AgentSessionStatus.resumable,
+          );
+          repo.sessionsToReturn = [resumableSession];
+          await ctrl.load();
 
-        // Resume returns a starting-state session.
-        final startingSession =
-            _makeSession(sessionId, status: AgentSessionStatus.starting);
-        repo.resumeResult = startingSession;
+          // Resume returns a starting-state session.
+          final startingSession = _makeSession(
+            sessionId,
+            status: AgentSessionStatus.starting,
+          );
+          repo.resumeResult = startingSession;
 
-        // getSession (rehydrate) returns a prior message.
-        repo.getSessionResult = (
-          session: startingSession,
-          messages: [
-            _makeMsg(
-              id: 1,
-              sessionId: sessionId,
-              role: 'output',
-              rawText: 'Prior assistant response',
-              sdkMessageId: 'sdk-msg-1',
-            ),
-          ],
-        );
+          // getSession (rehydrate) returns a prior message.
+          repo.getSessionResult = (
+            session: startingSession,
+            messages: [
+              _makeMsg(
+                id: 1,
+                sessionId: sessionId,
+                role: 'output',
+                rawText: 'Prior assistant response',
+                sdkMessageId: 'sdk-msg-1',
+              ),
+            ],
+          );
 
-        // Perform the resume action.
-        await ctrl.resumeSession(sessionId);
-        // Allow async operations to settle.
-        await Future<void>.delayed(Duration.zero);
+          // Perform the resume action.
+          await ctrl.resumeSession(sessionId);
+          // Allow async operations to settle.
+          await Future<void>.delayed(Duration.zero);
 
-        // c5a: exactly one getSession call (the rehydrate fetch).
-        expect(
-          repo.getSessionCallCount,
-          equals(1),
-          reason:
-              'resumeSession must trigger exactly one getSession (rehydrate) call. '
-              'If 0, rehydration is not wired. If >1, something is fetching redundantly.',
-        );
+          // c5a: exactly one getSession call (the rehydrate fetch).
+          expect(
+            repo.getSessionCallCount,
+            equals(1),
+            reason:
+                'resumeSession must trigger exactly one getSession (rehydrate) call. '
+                'If 0, rehydration is not wired. If >1, something is fetching redundantly.',
+          );
 
-        // c5b: chatMessagesFor is populated from the rehydrated REST payload.
-        final msgs = ctrl.chatMessagesFor(sessionId);
-        expect(
-          msgs,
-          isNotEmpty,
-          reason:
-              'After resumeSession, chatMessagesFor must be populated from the '
-              'rehydrated REST messages. OPC-M1-5 requires the transcript to be '
-              'visible after resume.',
-        );
+          // c5b: chatMessagesFor is populated from the rehydrated REST payload.
+          final msgs = ctrl.chatMessagesFor(sessionId);
+          expect(
+            msgs,
+            isNotEmpty,
+            reason:
+                'After resumeSession, chatMessagesFor must be populated from the '
+                'rehydrated REST messages. OPC-M1-5 requires the transcript to be '
+                'visible after resume.',
+          );
 
-        // c5c: The message has parts.
-        final parts = ctrl.chatPartsFor(msgs.first.id);
-        expect(
-          parts,
-          isNotEmpty,
-          reason:
-              'Rehydrated message must have at least one ChatPart (text shim or '
-              'real structured part). OPC-M1-5 requires prior parts to be visible.',
-        );
-      },
-    );
-  });
+          // c5c: The message has parts.
+          final parts = ctrl.chatPartsFor(msgs.first.id);
+          expect(
+            parts,
+            isNotEmpty,
+            reason:
+                'Rehydrated message must have at least one ChatPart (text shim or '
+                'real structured part). OPC-M1-5 requires prior parts to be visible.',
+          );
+        },
+      );
+    },
+  );
 
   // -------------------------------------------------------------------------
   // c6: 410 response surfaces start-fresh affordance
   // -------------------------------------------------------------------------
   group(
-      'OPC-M1-5 c6: 410 response surfaces start-fresh affordance in controller state',
-      () {
-    test(
-      'c6: when resumeSession throws a 410 AppError, controller exposes '
-      'a startFreshSessionId (or equivalent affordance)',
-      () async {
+    'OPC-M1-5 c6: 410 response surfaces start-fresh affordance in controller state',
+    () {
+      test('c6: when resumeSession throws a 410 AppError, controller exposes '
+          'a startFreshSessionId (or equivalent affordance)', () async {
         final (:ctrl, :repo) = _buildController();
         addTearDown(ctrl.dispose);
 
         const sessionId = 'sess-resume-c6-gone';
 
-        final resumableSession =
-            _makeSession(sessionId, status: AgentSessionStatus.resumable);
+        final resumableSession = _makeSession(
+          sessionId,
+          status: AgentSessionStatus.resumable,
+        );
         repo.sessionsToReturn = [resumableSession];
         await ctrl.load();
 
@@ -333,22 +333,22 @@ void main() {
         expect(
           ctrl.sessionGoneId,
           equals(sessionId),
-          reason: 'After a 410 resume failure, the controller must surface the '
+          reason:
+              'After a 410 resume failure, the controller must surface the '
               'session id via sessionGoneId so the view can show the start-fresh '
               'affordance. OPC-M1-5 requires this UX path to be wired.',
         );
-      },
-    );
+      });
 
-    test(
-      'c6b: clearSessionGone resets the affordance state',
-      () async {
+      test('c6b: clearSessionGone resets the affordance state', () async {
         final (:ctrl, :repo) = _buildController();
         addTearDown(ctrl.dispose);
 
         const sessionId = 'sess-resume-c6b';
-        final resumableSession =
-            _makeSession(sessionId, status: AgentSessionStatus.resumable);
+        final resumableSession = _makeSession(
+          sessionId,
+          status: AgentSessionStatus.resumable,
+        );
         repo.sessionsToReturn = [resumableSession];
         await ctrl.load();
 
@@ -369,7 +369,7 @@ void main() {
           isNull,
           reason: 'clearSessionGone() must reset sessionGoneId to null.',
         );
-      },
-    );
-  });
+      });
+    },
+  );
 }

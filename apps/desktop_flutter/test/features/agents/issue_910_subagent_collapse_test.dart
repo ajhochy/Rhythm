@@ -65,8 +65,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-      : _msgController = StreamController.broadcast(),
-        _connectivityController = StreamController.broadcast();
+    : _msgController = StreamController.broadcast(),
+      _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -97,15 +97,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async => (
-            session: _makeSession(id),
-            messages: const <AgentSessionMessage>[],
-          );
+  getSession(String id) async =>
+      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -159,9 +156,7 @@ AgentsController _buildController() {
     repo,
     _ReadyAgentServerController(),
     LocalNotificationService(),
-    NotificationsController(
-      NotificationsRepository(NotificationsDataSource()),
-    ),
+    NotificationsController(NotificationsRepository(NotificationsDataSource())),
   );
 }
 
@@ -245,30 +240,32 @@ void main() {
     },
   );
 
-  testWidgets('Collapse all / Expand all toggles every subagent group at once',
-      (tester) async {
-    await tester.binding.setSurfaceSize(const Size(1600, 900));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets(
+    'Collapse all / Expand all toggles every subagent group at once',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    final controller = _buildController();
-    await tester.pumpWidget(await _buildTestApp(controller));
-    await tester.pump();
+      final controller = _buildController();
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
 
-    expect(find.text('Collapse all'), findsOneWidget);
-    expect(find.text('Subagent A'), findsOneWidget);
+      expect(find.text('Collapse all'), findsOneWidget);
+      expect(find.text('Subagent A'), findsOneWidget);
 
-    await tester.tap(find.text('Collapse all'));
-    await tester.pump();
+      await tester.tap(find.text('Collapse all'));
+      await tester.pump();
 
-    expect(find.text('Subagent A'), findsNothing);
-    expect(find.text('Expand all'), findsOneWidget);
+      expect(find.text('Subagent A'), findsNothing);
+      expect(find.text('Expand all'), findsOneWidget);
 
-    await tester.tap(find.text('Expand all'));
-    await tester.pump();
+      await tester.tap(find.text('Expand all'));
+      await tester.pump();
 
-    expect(find.text('Subagent A'), findsOneWidget);
-    expect(find.text('Collapse all'), findsOneWidget);
+      expect(find.text('Subagent A'), findsOneWidget);
+      expect(find.text('Collapse all'), findsOneWidget);
 
-    controller.dispose();
-  });
+      controller.dispose();
+    },
+  );
 }

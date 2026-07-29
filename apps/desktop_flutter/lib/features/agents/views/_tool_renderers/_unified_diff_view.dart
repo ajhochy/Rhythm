@@ -71,7 +71,8 @@ class _UnifiedDiffViewState extends State<UnifiedDiffView> {
 
   String _filePath() {
     final args = widget.part.toolArgs ?? {};
-    final path = (args['filePath'] as String?) ??
+    final path =
+        (args['filePath'] as String?) ??
         (args['path'] as String?) ??
         (args['file'] as String?) ??
         '';
@@ -90,8 +91,9 @@ class _UnifiedDiffViewState extends State<UnifiedDiffView> {
 
     final bool shouldCollapse =
         !_expanded && lines.length > _kDiffCollapseThreshold;
-    final visibleLines =
-        shouldCollapse ? lines.take(_kDiffCollapseThreshold).toList() : lines;
+    final visibleLines = shouldCollapse
+        ? lines.take(_kDiffCollapseThreshold).toList()
+        : lines;
 
     return Container(
       decoration: BoxDecoration(

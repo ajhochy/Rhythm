@@ -76,8 +76,8 @@ class _ReadyAgentServerController extends AgentServerController {
 /// Stub repository with injectable todo response.
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-      : _msgController = StreamController.broadcast(),
-        _connectivityController = StreamController.broadcast();
+    : _msgController = StreamController.broadcast(),
+      _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -117,15 +117,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async => (
-            session: _makeSession(id),
-            messages: const <AgentSessionMessage>[],
-          );
+  getSession(String id) async =>
+      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -157,14 +154,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: 'Test Session',
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  agentId: 'claude-code',
+  name: 'Test Session',
+  cwd: '/tmp',
+  status: AgentSessionStatus.idle,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 AgentsController _buildController(_StubAgentsRepository repo) =>
     AgentsController(
@@ -190,19 +187,19 @@ const _kTodosFixture = [
     'id': 'todo-1',
     'content': 'First task',
     'status': 'completed',
-    'priority': 'high'
+    'priority': 'high',
   },
   {
     'id': 'todo-2',
     'content': 'Second task',
     'status': 'in-progress',
-    'priority': 'medium'
+    'priority': 'medium',
   },
   {
     'id': 'todo-3',
     'content': 'Third task',
     'status': 'pending',
-    'priority': 'low'
+    'priority': 'low',
   },
 ];
 
@@ -226,207 +223,231 @@ void main() {
   // ── c3: REAL-SURFACE — selecting a session renders the todo panel ──
 
   group(
-      'issue-698-c3: session select fetches todos; nonempty → panel; empty → no panel',
-      () {
-    testWidgets(
-      'c3a: REAL-SURFACE — SessionSidePanel shows todo panel when fetchSessionTodos returns items',
-      (tester) async {
-        final session = _makeSession('session-c3a');
-        repo.stagedTodos = _kTodosFixture;
+    'issue-698-c3: session select fetches todos; nonempty → panel; empty → no panel',
+    () {
+      testWidgets(
+        'c3a: REAL-SURFACE — SessionSidePanel shows todo panel when fetchSessionTodos returns items',
+        (tester) async {
+          final session = _makeSession('session-c3a');
+          repo.stagedTodos = _kTodosFixture;
 
-        // Pre-populate the controller's todo state (simulating a fetch after selection).
-        controller.setSessionTodosForTest('session-c3a', _kTodosFixture);
+          // Pre-populate the controller's todo state (simulating a fetch after selection).
+          controller.setSessionTodosForTest('session-c3a', _kTodosFixture);
 
-        await tester
-            .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
-        await tester.pump();
+          await tester.pumpWidget(
+            _wrap(controller, SessionSidePanel(session: session)),
+          );
+          await tester.pump();
 
-        // The todo panel should be visible with the three items.
-        expect(find.text('First task'), findsOneWidget);
-        expect(find.text('Second task'), findsOneWidget);
-        expect(find.text('Third task'), findsOneWidget);
-      },
-    );
+          // The todo panel should be visible with the three items.
+          expect(find.text('First task'), findsOneWidget);
+          expect(find.text('Second task'), findsOneWidget);
+          expect(find.text('Third task'), findsOneWidget);
+        },
+      );
 
-    testWidgets(
-      'c3b: SessionSidePanel hides the todo panel when todos list is empty',
-      (tester) async {
-        final session = _makeSession('session-c3b');
-        controller.setSessionTodosForTest('session-c3b', _kEmptyTodos);
+      testWidgets(
+        'c3b: SessionSidePanel hides the todo panel when todos list is empty',
+        (tester) async {
+          final session = _makeSession('session-c3b');
+          controller.setSessionTodosForTest('session-c3b', _kEmptyTodos);
 
-        await tester
-            .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
-        await tester.pump();
+          await tester.pumpWidget(
+            _wrap(controller, SessionSidePanel(session: session)),
+          );
+          await tester.pump();
 
-        // None of the todo item texts should be in the tree.
-        expect(find.text('First task'), findsNothing);
-        expect(find.text('Second task'), findsNothing);
-      },
-    );
+          // None of the todo item texts should be in the tree.
+          expect(find.text('First task'), findsNothing);
+          expect(find.text('Second task'), findsNothing);
+        },
+      );
 
-    test('c3c: fetchSessionTodos is called exactly once on selectSession',
+      test(
+        'c3c: fetchSessionTodos is called exactly once on selectSession',
         () async {
-      repo.stagedTodos = _kTodosFixture;
-      await controller.selectSession('session-c3c');
-      // pump to let async fetch complete
-      await Future.delayed(Duration.zero);
+          repo.stagedTodos = _kTodosFixture;
+          await controller.selectSession('session-c3c');
+          // pump to let async fetch complete
+          await Future.delayed(Duration.zero);
 
-      expect(repo.fetchTodoCallCount, equals(1));
-    });
-  });
+          expect(repo.fetchTodoCallCount, equals(1));
+        },
+      );
+    },
+  );
 
   // ── c4: todo.updated WS frame replaces session todo state; cross-session isolation ──
 
   group(
-      'issue-698-c4: todo.updated WS frame replaces state; session-keyed isolation',
-      () {
-    test('c4a: SessionTodoUpdatedMessage for session A replaces its todos',
+    'issue-698-c4: todo.updated WS frame replaces state; session-keyed isolation',
+    () {
+      test(
+        'c4a: SessionTodoUpdatedMessage for session A replaces its todos',
         () async {
-      await controller.initialize();
-      controller.setSessionTodosForTest('session-A', _kTodosFixture);
+          await controller.initialize();
+          controller.setSessionTodosForTest('session-A', _kTodosFixture);
 
-      final updatedTodos = [
-        {
-          'id': 'todo-x',
-          'content': 'Updated item',
-          'status': 'completed',
-          'priority': 'high'
+          final updatedTodos = [
+            {
+              'id': 'todo-x',
+              'content': 'Updated item',
+              'status': 'completed',
+              'priority': 'high',
+            },
+          ];
+
+          repo.injectWsMessage(
+            SessionTodoUpdatedMessage(
+              sessionId: 'session-A',
+              todos: updatedTodos,
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+
+          final todos = controller.sessionTodosFor('session-A');
+          expect(todos.length, equals(1));
+          expect(todos[0]['content'], equals('Updated item'));
         },
-      ];
+      );
 
-      repo.injectWsMessage(SessionTodoUpdatedMessage(
-        sessionId: 'session-A',
-        todos: updatedTodos,
-      ));
-      await Future<void>.delayed(Duration.zero);
-
-      final todos = controller.sessionTodosFor('session-A');
-      expect(todos.length, equals(1));
-      expect(todos[0]['content'], equals('Updated item'));
-    });
-
-    test(
+      test(
         'c4b: SessionTodoUpdatedMessage for session B does not touch session A',
         () async {
-      await controller.initialize();
-      // Set up A with 3 todos and B with 0.
-      controller.setSessionTodosForTest('session-A', _kTodosFixture);
-      controller.setSessionTodosForTest('session-B', _kEmptyTodos);
+          await controller.initialize();
+          // Set up A with 3 todos and B with 0.
+          controller.setSessionTodosForTest('session-A', _kTodosFixture);
+          controller.setSessionTodosForTest('session-B', _kEmptyTodos);
 
-      // Update B only.
-      final updatedBTodos = [
-        {
-          'id': 'todo-b1',
-          'content': 'B item',
-          'status': 'pending',
-          'priority': 'low'
-        },
-        {
-          'id': 'todo-b2',
-          'content': 'B item 2',
-          'status': 'completed',
-          'priority': 'high'
-        },
-      ];
-      repo.injectWsMessage(SessionTodoUpdatedMessage(
-        sessionId: 'session-B',
-        todos: updatedBTodos,
-      ));
-      await Future<void>.delayed(Duration.zero);
+          // Update B only.
+          final updatedBTodos = [
+            {
+              'id': 'todo-b1',
+              'content': 'B item',
+              'status': 'pending',
+              'priority': 'low',
+            },
+            {
+              'id': 'todo-b2',
+              'content': 'B item 2',
+              'status': 'completed',
+              'priority': 'high',
+            },
+          ];
+          repo.injectWsMessage(
+            SessionTodoUpdatedMessage(
+              sessionId: 'session-B',
+              todos: updatedBTodos,
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
 
-      // A must be unchanged.
-      expect(controller.sessionTodosFor('session-A').length, equals(3));
-      // B must be updated.
-      expect(controller.sessionTodosFor('session-B').length, equals(2));
-    });
-  });
+          // A must be unchanged.
+          expect(controller.sessionTodosFor('session-A').length, equals(3));
+          // B must be updated.
+          expect(controller.sessionTodosFor('session-B').length, equals(2));
+        },
+      );
+    },
+  );
 
   // ── c5: panel header shows completed/total; checklist row check states ──
 
   group(
-      'issue-698-c5: panel header shows completed/total count and correct check states',
-      () {
-    testWidgets('c5a: header shows completed/total count (e.g. "1/3")',
-        (tester) async {
-      final session = _makeSession('session-c5a');
-      // 1 completed, 1 in-progress, 1 pending.
-      controller.setSessionTodosForTest('session-c5a', _kTodosFixture);
+    'issue-698-c5: panel header shows completed/total count and correct check states',
+    () {
+      testWidgets('c5a: header shows completed/total count (e.g. "1/3")', (
+        tester,
+      ) async {
+        final session = _makeSession('session-c5a');
+        // 1 completed, 1 in-progress, 1 pending.
+        controller.setSessionTodosForTest('session-c5a', _kTodosFixture);
 
-      await tester
-          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
-      await tester.pump();
+        await tester.pumpWidget(
+          _wrap(controller, SessionSidePanel(session: session)),
+        );
+        await tester.pump();
 
-      // The header progress text "1/3" should be visible.
-      expect(find.text('1/3'), findsOneWidget);
-    });
+        // The header progress text "1/3" should be visible.
+        expect(find.text('1/3'), findsOneWidget);
+      });
 
-    testWidgets(
+      testWidgets(
         'c5b: completed todos have checked checkbox; pending are unchecked',
         (tester) async {
-      final session = _makeSession('session-c5b');
-      controller.setSessionTodosForTest('session-c5b', _kTodosFixture);
+          final session = _makeSession('session-c5b');
+          controller.setSessionTodosForTest('session-c5b', _kTodosFixture);
 
-      await tester
-          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
-      await tester.pump();
+          await tester.pumpWidget(
+            _wrap(controller, SessionSidePanel(session: session)),
+          );
+          await tester.pump();
 
-      // Find all Checkbox widgets; the first (completed) should be checked.
-      final checkboxes =
-          tester.widgetList<Checkbox>(find.byType(Checkbox)).toList();
-      // At least 3 checkboxes (one per todo).
-      expect(checkboxes.length, greaterThanOrEqualTo(3));
+          // Find all Checkbox widgets; the first (completed) should be checked.
+          final checkboxes = tester
+              .widgetList<Checkbox>(find.byType(Checkbox))
+              .toList();
+          // At least 3 checkboxes (one per todo).
+          expect(checkboxes.length, greaterThanOrEqualTo(3));
 
-      // First = completed → value: true.
-      expect(checkboxes[0].value, isTrue);
-      // Second = in-progress → value: null (tristate).
-      expect(checkboxes[1].value, isNull);
-      // Third = pending → value: false.
-      expect(checkboxes[2].value, isFalse);
-    });
-  });
+          // First = completed → value: true.
+          expect(checkboxes[0].value, isTrue);
+          // Second = in-progress → value: null (tristate).
+          expect(checkboxes[1].value, isNull);
+          // Third = pending → value: false.
+          expect(checkboxes[2].value, isFalse);
+        },
+      );
+    },
+  );
 
   // ── c6: collapse state survives session switch ──
 
   group(
-      'issue-698-c6: todo panel collapse state persists across session switches',
-      () {
-    testWidgets(
+    'issue-698-c6: todo panel collapse state persists across session switches',
+    () {
+      testWidgets(
         'c6: collapsing the todo panel then switching sessions preserves collapsed state',
         (tester) async {
-      final sessionA = _makeSession('session-c6-A');
-      final sessionB = _makeSession('session-c6-B');
+          final sessionA = _makeSession('session-c6-A');
+          final sessionB = _makeSession('session-c6-B');
 
-      controller.setSessionTodosForTest('session-c6-A', _kTodosFixture);
-      controller.setSessionTodosForTest('session-c6-B', _kTodosFixture);
+          controller.setSessionTodosForTest('session-c6-A', _kTodosFixture);
+          controller.setSessionTodosForTest('session-c6-B', _kTodosFixture);
 
-      // Pump A's SessionSidePanel.
-      await tester
-          .pumpWidget(_wrap(controller, SessionSidePanel(session: sessionA)));
-      await tester.pump();
+          // Pump A's SessionSidePanel.
+          await tester.pumpWidget(
+            _wrap(controller, SessionSidePanel(session: sessionA)),
+          );
+          await tester.pump();
 
-      // Todo panel is expanded by default — find the collapse button and tap it.
-      expect(find.byIcon(Icons.expand_less), findsOneWidget);
-      await tester.tap(find.byIcon(Icons.expand_less));
-      await tester.pump();
+          // Todo panel is expanded by default — find the collapse button and tap it.
+          expect(find.byIcon(Icons.expand_less), findsOneWidget);
+          await tester.tap(find.byIcon(Icons.expand_less));
+          await tester.pump();
 
-      // After collapse, the todo content text should be hidden.
-      expect(find.text('First task'), findsNothing);
+          // After collapse, the todo content text should be hidden.
+          expect(find.text('First task'), findsNothing);
 
-      // Switch to session B (re-pump with new session).
-      await tester
-          .pumpWidget(_wrap(controller, SessionSidePanel(session: sessionB)));
-      await tester.pump();
+          // Switch to session B (re-pump with new session).
+          await tester.pumpWidget(
+            _wrap(controller, SessionSidePanel(session: sessionB)),
+          );
+          await tester.pump();
 
-      // Session B panel starts fresh (expanded — todos visible).
-      expect(find.text('First task'), findsOneWidget);
+          // Session B panel starts fresh (expanded — todos visible).
+          expect(find.text('First task'), findsOneWidget);
 
-      // Switch back to session A — collapsed state must be remembered.
-      await tester
-          .pumpWidget(_wrap(controller, SessionSidePanel(session: sessionA)));
-      await tester.pump();
+          // Switch back to session A — collapsed state must be remembered.
+          await tester.pumpWidget(
+            _wrap(controller, SessionSidePanel(session: sessionA)),
+          );
+          await tester.pump();
 
-      // Content hidden again (still collapsed).
-      expect(find.text('First task'), findsNothing);
-    });
-  });
+          // Content hidden again (still collapsed).
+          expect(find.text('First task'), findsNothing);
+        },
+      );
+    },
+  );
 }

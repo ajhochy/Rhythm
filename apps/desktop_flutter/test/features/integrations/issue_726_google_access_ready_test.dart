@@ -19,72 +19,55 @@ void main() {
     IntegrationAccount calendarAccount({
       bool connected = true,
       String? scope = calendarScope,
-    }) =>
-        IntegrationAccount(
-          id: 'google_calendar',
-          provider: 'google_calendar',
-          status: connected ? 'connected' : 'disconnected',
-          connected: connected,
-          scope: scope,
-        );
+    }) => IntegrationAccount(
+      id: 'google_calendar',
+      provider: 'google_calendar',
+      status: connected ? 'connected' : 'disconnected',
+      connected: connected,
+      scope: scope,
+    );
 
     IntegrationAccount gmailAccount({
       bool connected = true,
       String? scope = gmailScope,
-    }) =>
-        IntegrationAccount(
-          id: 'gmail',
-          provider: 'gmail',
-          status: connected ? 'connected' : 'disconnected',
-          connected: connected,
-          scope: scope,
-        );
+    }) => IntegrationAccount(
+      id: 'gmail',
+      provider: 'gmail',
+      status: connected ? 'connected' : 'disconnected',
+      connected: connected,
+      scope: scope,
+    );
 
     // -----------------------------------------------------------------------
     // Key regression case — calendar only, NO gmail
-    test(
-      'calendar-only (no gmail account) → ready',
-      () {
-        final accounts = [calendarAccount()];
-        expect(googleAccessReady(accounts), isTrue);
-      },
-    );
+    test('calendar-only (no gmail account) → ready', () {
+      final accounts = [calendarAccount()];
+      expect(googleAccessReady(accounts), isTrue);
+    });
 
-    test(
-      'calendar connected + gmail disconnected/no-scope → ready',
-      () {
-        final accounts = [
-          calendarAccount(),
-          gmailAccount(connected: false, scope: null),
-        ];
-        expect(googleAccessReady(accounts), isTrue);
-      },
-    );
+    test('calendar connected + gmail disconnected/no-scope → ready', () {
+      final accounts = [
+        calendarAccount(),
+        gmailAccount(connected: false, scope: null),
+      ];
+      expect(googleAccessReady(accounts), isTrue);
+    });
 
     // -----------------------------------------------------------------------
     // Calendar requirements still hold
-    test(
-      'no accounts → not ready',
-      () {
-        expect(googleAccessReady([]), isFalse);
-      },
-    );
+    test('no accounts → not ready', () {
+      expect(googleAccessReady([]), isFalse);
+    });
 
-    test(
-      'calendar disconnected → not ready',
-      () {
-        final accounts = [calendarAccount(connected: false)];
-        expect(googleAccessReady(accounts), isFalse);
-      },
-    );
+    test('calendar disconnected → not ready', () {
+      final accounts = [calendarAccount(connected: false)];
+      expect(googleAccessReady(accounts), isFalse);
+    });
 
-    test(
-      'calendar connected but wrong/missing scope → not ready',
-      () {
-        final accounts = [calendarAccount(scope: null)];
-        expect(googleAccessReady(accounts), isFalse);
-      },
-    );
+    test('calendar connected but wrong/missing scope → not ready', () {
+      final accounts = [calendarAccount(scope: null)];
+      expect(googleAccessReady(accounts), isFalse);
+    });
 
     // -----------------------------------------------------------------------
     // Gmail present but not required

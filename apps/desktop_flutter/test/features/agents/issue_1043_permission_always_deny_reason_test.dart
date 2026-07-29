@@ -56,8 +56,8 @@ class _FakeAgentServerController extends AgentServerController {
 
 class _RecordingAgentsRepository implements AgentsRepository {
   _RecordingAgentsRepository()
-      : _msgController = StreamController.broadcast(),
-        _connectivityController = StreamController.broadcast();
+    : _msgController = StreamController.broadcast(),
+      _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -93,8 +93,7 @@ class _RecordingAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      [];
+  }) async => [];
 
   @override
   Future<void> respondPermission(
@@ -122,7 +121,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-      : super(NotificationsRepository(NotificationsDataSource()));
+    : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -145,7 +144,8 @@ Widget _harness({
     providers: [
       ChangeNotifierProvider<AgentsController>.value(value: controller),
       ChangeNotifierProvider<DestructiveModalService>.value(
-          value: destructiveModal),
+        value: destructiveModal,
+      ),
     ],
     child: MaterialApp(
       home: Scaffold(
@@ -186,12 +186,16 @@ void main() {
   });
 
   group('#1043 — standard PermissionCard', () {
-    testWidgets('shows Always allow and calls alwaysAllowPermission',
-        (tester) async {
-      await tester.pumpWidget(_harness(
+    testWidgets('shows Always allow and calls alwaysAllowPermission', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _harness(
           controller: controller,
           destructiveModal: destructiveModal,
-          toolName: 'read'));
+          toolName: 'read',
+        ),
+      );
       await tester.pump();
 
       expect(find.text('Always allow'), findsOneWidget);
@@ -202,12 +206,16 @@ void main() {
       expect(repo.calls, contains(('always', null)));
     });
 
-    testWidgets('Deny reveals a reason field; submit sends the reason',
-        (tester) async {
-      await tester.pumpWidget(_harness(
+    testWidgets('Deny reveals a reason field; submit sends the reason', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _harness(
           controller: controller,
           destructiveModal: destructiveModal,
-          toolName: 'read'));
+          toolName: 'read',
+        ),
+      );
       await tester.pump();
 
       await tester.tap(find.text('Deny'));
@@ -222,12 +230,16 @@ void main() {
       expect(repo.calls, contains(('deny', 'not needed right now')));
     });
 
-    testWidgets('Deny with an empty reason still submits (skippable)',
-        (tester) async {
-      await tester.pumpWidget(_harness(
+    testWidgets('Deny with an empty reason still submits (skippable)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _harness(
           controller: controller,
           destructiveModal: destructiveModal,
-          toolName: 'read'));
+          toolName: 'read',
+        ),
+      );
       await tester.pump();
 
       await tester.tap(find.text('Deny'));
@@ -239,10 +251,13 @@ void main() {
     });
 
     testWidgets('Accept still works', (tester) async {
-      await tester.pumpWidget(_harness(
+      await tester.pumpWidget(
+        _harness(
           controller: controller,
           destructiveModal: destructiveModal,
-          toolName: 'read'));
+          toolName: 'read',
+        ),
+      );
       await tester.pump();
 
       await tester.tap(find.text('Accept'));
@@ -257,12 +272,16 @@ void main() {
       await destructiveModal.setEnabled(true);
     });
 
-    testWidgets('modal shows Always allow and calls alwaysAllowPermission',
-        (tester) async {
-      await tester.pumpWidget(_harness(
+    testWidgets('modal shows Always allow and calls alwaysAllowPermission', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _harness(
           controller: controller,
           destructiveModal: destructiveModal,
-          toolName: 'bash'));
+          toolName: 'bash',
+        ),
+      );
       await tester.pump();
       await tester.pump();
 
@@ -273,12 +292,16 @@ void main() {
       expect(repo.calls, contains(('always', null)));
     });
 
-    testWidgets('modal Deny reveals reason field and submits reason',
-        (tester) async {
-      await tester.pumpWidget(_harness(
+    testWidgets('modal Deny reveals reason field and submits reason', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _harness(
           controller: controller,
           destructiveModal: destructiveModal,
-          toolName: 'bash'));
+          toolName: 'bash',
+        ),
+      );
       await tester.pump();
       await tester.pump();
 

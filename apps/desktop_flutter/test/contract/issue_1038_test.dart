@@ -76,8 +76,9 @@ Future<void> _pumpProjects(
         key: ValueKey(brightness),
         theme: AppTheme.light(),
         darkTheme: AppTheme.dark(),
-        themeMode:
-            brightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light,
+        themeMode: brightness == Brightness.dark
+            ? ThemeMode.dark
+            : ThemeMode.light,
         home: const Scaffold(body: ProjectsView()),
       ),
     ),

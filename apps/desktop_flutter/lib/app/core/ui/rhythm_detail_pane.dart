@@ -50,9 +50,7 @@ class RhythmDetailPane extends StatelessWidget {
                           if (title != null)
                             Text(
                               title!,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
+                              style: Theme.of(context).textTheme.titleMedium
                                   ?.copyWith(
                                     color: colors.textPrimary,
                                     fontWeight: FontWeight.w700,
@@ -61,9 +59,7 @@ class RhythmDetailPane extends StatelessWidget {
                           if (subtitle != null)
                             Text(
                               subtitle!,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
+                              style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(color: colors.textSecondary),
                             ),
                         ],

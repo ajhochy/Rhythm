@@ -82,7 +82,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-      : super(NotificationsRepository(NotificationsDataSource()));
+    : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -94,8 +94,8 @@ class _FakeNotificationsController extends NotificationsController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-      : _msgController = StreamController.broadcast(),
-        _connectivityController = StreamController.broadcast();
+    : _msgController = StreamController.broadcast(),
+      _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -128,16 +128,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      [];
+  }) async => [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async {
-    return (
-      session: _makeSession(id),
-      messages: const <AgentSessionMessage>[],
-    );
+  getSession(String id) async {
+    return (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
   }
 
   @override
@@ -151,14 +147,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: 'Test Session',
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  agentId: 'claude-code',
+  name: 'Test Session',
+  cwd: '/tmp',
+  status: AgentSessionStatus.idle,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 ({AgentsController ctrl, _StubAgentsRepository repo}) _buildController() {
   final repo = _StubAgentsRepository();
@@ -232,21 +228,21 @@ void main() {
     TestWidgetsFlutterBinding.ensureInitialized();
   });
 
-  group(
-      'bash-tool-streaming: bash tool output renders incrementally via '
+  group('bash-tool-streaming: bash tool output renders incrementally via '
       'successive message.part.updated events', () {
-    test(
-        'c1: first message.part.updated (running) sets toolOutput to partial '
+    test('c1: first message.part.updated (running) sets toolOutput to partial '
         'output immediately — no wait for completion', () async {
       final (:ctrl, :repo) = _buildController();
       addTearDown(ctrl.dispose);
       await ctrl.initialize();
 
       // Emit the running update (partial output).
-      repo.emit(MessagePartUpdatedMessage(
-        sessionId: _kSessionId,
-        part: Map<String, dynamic>.from(_kBashPartRunningShape),
-      ));
+      repo.emit(
+        MessagePartUpdatedMessage(
+          sessionId: _kSessionId,
+          part: Map<String, dynamic>.from(_kBashPartRunningShape),
+        ),
+      );
       await Future<void>.delayed(Duration.zero);
 
       final parts = ctrl.chatPartsFor(_kMessageId);
@@ -254,86 +250,112 @@ void main() {
 
       final part = parts.first;
       expect(part.type, equals('tool'), reason: 'Part type must be "tool".');
-      expect(part.toolName, equals('bash'),
-          reason: 'Tool name must be "bash".');
-      expect(part.toolStatus, equals('running'),
-          reason: 'c3: toolStatus must reflect the running state immediately.');
+      expect(
+        part.toolName,
+        equals('bash'),
+        reason: 'Tool name must be "bash".',
+      );
+      expect(
+        part.toolStatus,
+        equals('running'),
+        reason: 'c3: toolStatus must reflect the running state immediately.',
+      );
       expect(
         part.toolOutput,
         equals('1\n2\n'),
-        reason: 'c1: toolOutput must be the partial output string from the '
+        reason:
+            'c1: toolOutput must be the partial output string from the '
             'first message.part.updated — the widget should show live output.',
       );
     });
 
-    test(
-        'c2: second message.part.updated (completed) updates toolOutput to '
+    test('c2: second message.part.updated (completed) updates toolOutput to '
         'full output in-place; part count stays at 1', () async {
       final (:ctrl, :repo) = _buildController();
       addTearDown(ctrl.dispose);
       await ctrl.initialize();
 
       // First update: running, partial output.
-      repo.emit(MessagePartUpdatedMessage(
-        sessionId: _kSessionId,
-        part: Map<String, dynamic>.from(_kBashPartRunningShape),
-      ));
+      repo.emit(
+        MessagePartUpdatedMessage(
+          sessionId: _kSessionId,
+          part: Map<String, dynamic>.from(_kBashPartRunningShape),
+        ),
+      );
       await Future<void>.delayed(Duration.zero);
 
       // Second update: completed, full output.
-      repo.emit(MessagePartUpdatedMessage(
-        sessionId: _kSessionId,
-        part: Map<String, dynamic>.from(_kBashPartCompletedShape),
-      ));
+      repo.emit(
+        MessagePartUpdatedMessage(
+          sessionId: _kSessionId,
+          part: Map<String, dynamic>.from(_kBashPartCompletedShape),
+        ),
+      );
       await Future<void>.delayed(Duration.zero);
 
       final parts = ctrl.chatPartsFor(_kMessageId);
-      expect(parts, hasLength(1),
-          reason: 'c2: a second part.updated for the same partId must update '
-              'in-place, not append a duplicate part.');
+      expect(
+        parts,
+        hasLength(1),
+        reason:
+            'c2: a second part.updated for the same partId must update '
+            'in-place, not append a duplicate part.',
+      );
 
       final part = parts.first;
       expect(
         part.toolOutput,
         equals('1\n2\n3\n'),
-        reason: 'c2: toolOutput must reflect the full output from the '
+        reason:
+            'c2: toolOutput must reflect the full output from the '
             'completed update.',
       );
-      expect(part.toolStatus, equals('completed'),
-          reason: 'c3: toolStatus must be "completed" after the final update.');
+      expect(
+        part.toolStatus,
+        equals('completed'),
+        reason: 'c3: toolStatus must be "completed" after the final update.',
+      );
     });
 
-    test(
-        'c2-grow: toolOutput grows between the running and completed events — '
+    test('c2-grow: toolOutput grows between the running and completed events — '
         'confirms the value actually changed', () async {
       final (:ctrl, :repo) = _buildController();
       addTearDown(ctrl.dispose);
       await ctrl.initialize();
 
       // Running (partial).
-      repo.emit(MessagePartUpdatedMessage(
-        sessionId: _kSessionId,
-        part: Map<String, dynamic>.from(_kBashPartRunningShape),
-      ));
+      repo.emit(
+        MessagePartUpdatedMessage(
+          sessionId: _kSessionId,
+          part: Map<String, dynamic>.from(_kBashPartRunningShape),
+        ),
+      );
       await Future<void>.delayed(Duration.zero);
 
-      final outputAfterRunning =
-          ctrl.chatPartsFor(_kMessageId).first.toolOutput;
+      final outputAfterRunning = ctrl
+          .chatPartsFor(_kMessageId)
+          .first
+          .toolOutput;
 
       // Completed (full).
-      repo.emit(MessagePartUpdatedMessage(
-        sessionId: _kSessionId,
-        part: Map<String, dynamic>.from(_kBashPartCompletedShape),
-      ));
+      repo.emit(
+        MessagePartUpdatedMessage(
+          sessionId: _kSessionId,
+          part: Map<String, dynamic>.from(_kBashPartCompletedShape),
+        ),
+      );
       await Future<void>.delayed(Duration.zero);
 
-      final outputAfterCompleted =
-          ctrl.chatPartsFor(_kMessageId).first.toolOutput;
+      final outputAfterCompleted = ctrl
+          .chatPartsFor(_kMessageId)
+          .first
+          .toolOutput;
 
       expect(
         (outputAfterCompleted?.length ?? 0),
         greaterThan(outputAfterRunning?.length ?? 0),
-        reason: 'c2-grow: toolOutput must grow between the running update and '
+        reason:
+            'c2-grow: toolOutput must grow between the running update and '
             'the completed update, confirming incremental streaming.',
       );
     });

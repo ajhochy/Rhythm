@@ -24,10 +24,7 @@ import '_tool_state_indicator.dart';
 /// and any 7-bit CSI sequences of the form ESC[...{final-byte}.
 String stripAnsi(String text) {
   // Pattern: ESC (0x1B) followed by '[' and then any chars up to a letter.
-  return text.replaceAll(
-    RegExp(r'\x1B\[[0-9;]*[mABCDEFGHJKSTflnsu]'),
-    '',
-  );
+  return text.replaceAll(RegExp(r'\x1B\[[0-9;]*[mABCDEFGHJKSTflnsu]'), '');
 }
 
 /// Renders a bash tool part as a monospace terminal block.
@@ -174,9 +171,7 @@ class _ExitCodeBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: context.rhythm.danger.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: context.rhythm.danger.withValues(alpha: 0.3),
-        ),
+        border: Border.all(color: context.rhythm.danger.withValues(alpha: 0.3)),
       ),
       child: Text(
         'exit: $exitCode',

@@ -45,8 +45,9 @@ class AgentCookbookDataSource {
   }
 
   Future<void> delete(String id) async {
-    final response =
-        await http.delete(Uri.parse('$_baseUrl/agent-cookbook/$id'));
+    final response = await http.delete(
+      Uri.parse('$_baseUrl/agent-cookbook/$id'),
+    );
     if (response.statusCode != 204) {
       assertOk(response);
     }

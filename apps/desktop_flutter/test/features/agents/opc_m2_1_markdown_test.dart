@@ -28,9 +28,9 @@ import 'package:rhythm_desktop/features/agents/views/_markdown_message_body.dart
 
 /// Wraps [child] in a minimal MaterialApp with the Rhythm light theme.
 Widget _wrap(Widget child) => MaterialApp(
-      theme: AppTheme.light(),
-      home: Scaffold(body: SizedBox(width: 600, child: child)),
-    );
+  theme: AppTheme.light(),
+  home: Scaffold(body: SizedBox(width: 600, child: child)),
+);
 
 // ---------------------------------------------------------------------------
 // c1 — markdown renders without raw syntax characters; monospace code;
@@ -39,20 +39,13 @@ Widget _wrap(Widget child) => MaterialApp(
 
 void main() {
   group(
-      'issue-690-c1: markdown renders without raw syntax chars; code monospace; link tapped',
-      () {
-    testWidgets(
-      'c1a: bold text has no literal ** markers',
-      (tester) async {
+    'issue-690-c1: markdown renders without raw syntax chars; code monospace; link tapped',
+    () {
+      testWidgets('c1a: bold text has no literal ** markers', (tester) async {
         const md = '**bold text**';
         final launcherCalls = <String>[];
         await tester.pumpWidget(
-          _wrap(
-            MarkdownMessageBody(
-              text: md,
-              onLinkTap: launcherCalls.add,
-            ),
-          ),
+          _wrap(MarkdownMessageBody(text: md, onLinkTap: launcherCalls.add)),
         );
 
         // The rendered widget must NOT contain the literal '**' string.
@@ -67,12 +60,9 @@ void main() {
           findsWidgets,
           reason: 'Bold text content must be visible.',
         );
-      },
-    );
+      });
 
-    testWidgets(
-      'c1b: heading has no literal # marker',
-      (tester) async {
+      testWidgets('c1b: heading has no literal # marker', (tester) async {
         const md = '# Heading One';
         await tester.pumpWidget(
           _wrap(MarkdownMessageBody(text: md, onLinkTap: (_) {})),
@@ -88,12 +78,11 @@ void main() {
           findsWidgets,
           reason: 'Heading text must be visible.',
         );
-      },
-    );
+      });
 
-    testWidgets(
-      'c1c: inline code has no literal backtick markers',
-      (tester) async {
+      testWidgets('c1c: inline code has no literal backtick markers', (
+        tester,
+      ) async {
         const md = 'Use `code` here.';
         await tester.pumpWidget(
           _wrap(MarkdownMessageBody(text: md, onLinkTap: (_) {})),
@@ -109,21 +98,15 @@ void main() {
           findsWidgets,
           reason: 'Inline code content must be visible.',
         );
-      },
-    );
+      });
 
-    testWidgets(
-      'c1d: link tap invokes the injected launcher with the URL',
-      (tester) async {
+      testWidgets('c1d: link tap invokes the injected launcher with the URL', (
+        tester,
+      ) async {
         const md = '[Visit example](https://example.com)';
         final launcherCalls = <String>[];
         await tester.pumpWidget(
-          _wrap(
-            MarkdownMessageBody(
-              text: md,
-              onLinkTap: launcherCalls.add,
-            ),
-          ),
+          _wrap(MarkdownMessageBody(text: md, onLinkTap: launcherCalls.add)),
         );
 
         // Find the link widget and tap it.
@@ -139,20 +122,20 @@ void main() {
           reason:
               'Tapping the link must call the injected launcher with the URL.',
         );
-      },
-    );
-  });
+      });
+    },
+  );
 
   // -------------------------------------------------------------------------
   // c2 — copy affordance on fenced code blocks
   // -------------------------------------------------------------------------
 
   group(
-      'issue-690-c2: copy button copies fenced code block content to clipboard',
-      () {
-    testWidgets(
-      'c2: tapping copy button sets clipboard to block content',
-      (tester) async {
+    'issue-690-c2: copy button copies fenced code block content to clipboard',
+    () {
+      testWidgets('c2: tapping copy button sets clipboard to block content', (
+        tester,
+      ) async {
         const codeContent = 'const x = 42;';
         final md = '```dart\n$codeContent\n```';
 
@@ -215,9 +198,9 @@ void main() {
           SystemChannels.platform,
           null,
         );
-      },
-    );
-  });
+      });
+    },
+  );
 
   // -------------------------------------------------------------------------
   // c3 — user-role messages render as plain text
@@ -248,7 +231,8 @@ void main() {
         expect(
           find.textContaining('**bold user message**'),
           findsOneWidget,
-          reason: 'User message with ** markers must render them literally '
+          reason:
+              'User message with ** markers must render them literally '
               '(SelectableText, not markdown). If this fails, the user bubble '
               'is incorrectly using markdown rendering.',
         );
@@ -261,160 +245,172 @@ void main() {
   // -------------------------------------------------------------------------
 
   group(
-      'issue-690-c4: streaming delta appends without throw and preserves sibling keys',
-      () {
-    testWidgets(
-      'c4a: MarkdownMessageBody rebuilds with longer text without throwing',
-      (tester) async {
-        // Phase 1: short text
-        var text = 'Hello';
-        await tester.pumpWidget(
-          _wrap(
-            StatefulBuilder(
-              builder: (context, setState) => MarkdownMessageBody(
-                text: text,
-                onLinkTap: (_) {},
+    'issue-690-c4: streaming delta appends without throw and preserves sibling keys',
+    () {
+      testWidgets(
+        'c4a: MarkdownMessageBody rebuilds with longer text without throwing',
+        (tester) async {
+          // Phase 1: short text
+          var text = 'Hello';
+          await tester.pumpWidget(
+            _wrap(
+              StatefulBuilder(
+                builder: (context, setState) =>
+                    MarkdownMessageBody(text: text, onLinkTap: (_) {}),
               ),
             ),
-          ),
-        );
+          );
 
-        // Phase 2: append a delta (simulate streaming)
-        text = 'Hello, world! This is **streaming** markdown.';
-        await tester.pumpWidget(
-          _wrap(
-            StatefulBuilder(
-              builder: (context, setState) => MarkdownMessageBody(
-                text: text,
-                onLinkTap: (_) {},
+          // Phase 2: append a delta (simulate streaming)
+          text = 'Hello, world! This is **streaming** markdown.';
+          await tester.pumpWidget(
+            _wrap(
+              StatefulBuilder(
+                builder: (context, setState) =>
+                    MarkdownMessageBody(text: text, onLinkTap: (_) {}),
               ),
             ),
-          ),
-        );
-        await tester.pump();
+          );
+          await tester.pump();
 
-        // No exception thrown — test passes if we reach here.
-        expect(
-          find.textContaining('streaming'),
-          findsWidgets,
-          reason: 'Streaming delta must update rendered output.',
-        );
-      },
-    );
+          // No exception thrown — test passes if we reach here.
+          expect(
+            find.textContaining('streaming'),
+            findsWidgets,
+            reason: 'Streaming delta must update rendered output.',
+          );
+        },
+      );
 
-    testWidgets(
-      'c4b: sibling keys are preserved when last bubble appends delta',
-      (tester) async {
-        // Two bubbles: bubble A (earlier, key a) and bubble B (later, key b).
-        // After bubble B gets a delta, bubble A's key must remain stable.
-        const keyA = Key('bubble-a');
-        const keyB = Key('bubble-b');
+      testWidgets(
+        'c4b: sibling keys are preserved when last bubble appends delta',
+        (tester) async {
+          // Two bubbles: bubble A (earlier, key a) and bubble B (later, key b).
+          // After bubble B gets a delta, bubble A's key must remain stable.
+          const keyA = Key('bubble-a');
+          const keyB = Key('bubble-b');
 
-        var textB = 'Working';
-        await tester.pumpWidget(
-          _wrap(
-            StatefulBuilder(
-              builder: (context, setState) => Column(
-                children: [
-                  MarkdownMessageBody(
-                    key: keyA,
-                    text: '# Heading\nSome text.',
-                    onLinkTap: (_) {},
-                  ),
-                  const SizedBox(height: 8),
-                  MarkdownMessageBody(
-                    key: keyB,
-                    text: textB,
-                    onLinkTap: (_) {},
-                  ),
-                ],
+          var textB = 'Working';
+          await tester.pumpWidget(
+            _wrap(
+              StatefulBuilder(
+                builder: (context, setState) => Column(
+                  children: [
+                    MarkdownMessageBody(
+                      key: keyA,
+                      text: '# Heading\nSome text.',
+                      onLinkTap: (_) {},
+                    ),
+                    const SizedBox(height: 8),
+                    MarkdownMessageBody(
+                      key: keyB,
+                      text: textB,
+                      onLinkTap: (_) {},
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        );
+          );
 
-        // Verify both keys present before delta.
-        expect(find.byKey(keyA), findsOneWidget,
-            reason: 'Bubble A key must exist before delta.');
-        expect(find.byKey(keyB), findsOneWidget,
-            reason: 'Bubble B key must exist before delta.');
+          // Verify both keys present before delta.
+          expect(
+            find.byKey(keyA),
+            findsOneWidget,
+            reason: 'Bubble A key must exist before delta.',
+          );
+          expect(
+            find.byKey(keyB),
+            findsOneWidget,
+            reason: 'Bubble B key must exist before delta.',
+          );
 
-        // Simulate delta append to bubble B.
-        textB = 'Working on it now…';
-        await tester.pumpWidget(
-          _wrap(
-            StatefulBuilder(
-              builder: (context, setState) => Column(
-                children: [
-                  MarkdownMessageBody(
-                    key: keyA,
-                    text: '# Heading\nSome text.',
-                    onLinkTap: (_) {},
-                  ),
-                  const SizedBox(height: 8),
-                  MarkdownMessageBody(
-                    key: keyB,
-                    text: textB,
-                    onLinkTap: (_) {},
-                  ),
-                ],
+          // Simulate delta append to bubble B.
+          textB = 'Working on it now…';
+          await tester.pumpWidget(
+            _wrap(
+              StatefulBuilder(
+                builder: (context, setState) => Column(
+                  children: [
+                    MarkdownMessageBody(
+                      key: keyA,
+                      text: '# Heading\nSome text.',
+                      onLinkTap: (_) {},
+                    ),
+                    const SizedBox(height: 8),
+                    MarkdownMessageBody(
+                      key: keyB,
+                      text: textB,
+                      onLinkTap: (_) {},
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        );
-        await tester.pump();
+          );
+          await tester.pump();
 
-        // Both keys must still be present — full-list rebuild would change them.
-        expect(find.byKey(keyA), findsOneWidget,
+          // Both keys must still be present — full-list rebuild would change them.
+          expect(
+            find.byKey(keyA),
+            findsOneWidget,
             reason:
                 'Bubble A key must be preserved after bubble B appends delta. '
-                'If absent, the parent ListView did a full rebuild.');
-        expect(find.byKey(keyB), findsOneWidget,
-            reason: 'Bubble B key must be preserved after delta append.');
-      },
-    );
-  });
+                'If absent, the parent ListView did a full rebuild.',
+          );
+          expect(
+            find.byKey(keyB),
+            findsOneWidget,
+            reason: 'Bubble B key must be preserved after delta append.',
+          );
+        },
+      );
+    },
+  );
 
   // -------------------------------------------------------------------------
   // c5 — code block background matches context.rhythm.surfaceMuted
   // -------------------------------------------------------------------------
 
   group(
-      'issue-690-c5: code block background matches context.rhythm.surfaceMuted',
-      () {
-    testWidgets(
-      'c5: fenced code block container uses rhythm.surfaceMuted as background',
-      (tester) async {
-        const codeContent = 'print("hello")';
-        final md = '```python\n$codeContent\n```';
+    'issue-690-c5: code block background matches context.rhythm.surfaceMuted',
+    () {
+      testWidgets(
+        'c5: fenced code block container uses rhythm.surfaceMuted as background',
+        (tester) async {
+          const codeContent = 'print("hello")';
+          final md = '```python\n$codeContent\n```';
 
-        await tester.pumpWidget(
-          _wrap(MarkdownMessageBody(text: md, onLinkTap: (_) {})),
-        );
+          await tester.pumpWidget(
+            _wrap(MarkdownMessageBody(text: md, onLinkTap: (_) {})),
+          );
 
-        // Find the code block container by looking for a Container or
-        // DecoratedBox with the surfaceMuted background.
-        final expectedColor = RhythmColorRoles.light.surfaceMuted;
+          // Find the code block container by looking for a Container or
+          // DecoratedBox with the surfaceMuted background.
+          final expectedColor = RhythmColorRoles.light.surfaceMuted;
 
-        // Walk the widget tree to find a Container with surfaceMuted background.
-        final containers = tester.widgetList<Container>(find.byType(Container));
-        final hasSurfaceMuted = containers.any((c) {
-          final decoration = c.decoration;
-          if (decoration is BoxDecoration) {
-            return decoration.color == expectedColor;
-          }
-          return c.color == expectedColor;
-        });
+          // Walk the widget tree to find a Container with surfaceMuted background.
+          final containers = tester.widgetList<Container>(
+            find.byType(Container),
+          );
+          final hasSurfaceMuted = containers.any((c) {
+            final decoration = c.decoration;
+            if (decoration is BoxDecoration) {
+              return decoration.color == expectedColor;
+            }
+            return c.color == expectedColor;
+          });
 
-        expect(
-          hasSurfaceMuted,
-          isTrue,
-          reason:
-              'The code block background must use context.rhythm.surfaceMuted '
-              '(0x${expectedColor.toARGB32().toRadixString(16)}). '
-              'If this fails, a hard-coded color was used instead of the token.',
-        );
-      },
-    );
-  });
+          expect(
+            hasSurfaceMuted,
+            isTrue,
+            reason:
+                'The code block background must use context.rhythm.surfaceMuted '
+                '(0x${expectedColor.toARGB32().toRadixString(16)}). '
+                'If this fails, a hard-coded color was used instead of the token.',
+          );
+        },
+      );
+    },
+  );
 }

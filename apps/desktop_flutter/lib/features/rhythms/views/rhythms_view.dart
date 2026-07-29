@@ -104,9 +104,7 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
       decoration: BoxDecoration(
         color: context.rhythm.surfaceRaised,
-        border: Border(
-          bottom: BorderSide(color: context.rhythm.borderSubtle),
-        ),
+        border: Border(bottom: BorderSide(color: context.rhythm.borderSubtle)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -128,7 +126,9 @@ class _Header extends StatelessWidget {
                 Text(
                   'Recurring rules that quietly keep the workspace moving.',
                   style: TextStyle(
-                      fontSize: 12, color: context.rhythm.textSecondary),
+                    fontSize: 12,
+                    color: context.rhythm.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -233,8 +233,9 @@ class _RuleTile extends StatelessWidget {
               child: Icon(
                 Icons.repeat,
                 size: 18,
-                color:
-                    dimmed ? context.rhythm.textMuted : context.rhythm.accent,
+                color: dimmed
+                    ? context.rhythm.textMuted
+                    : context.rhythm.accent,
               ),
             ),
             const SizedBox(width: 12),
@@ -246,20 +247,20 @@ class _RuleTile extends StatelessWidget {
                   Text(
                     rule.title,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: dimmed
-                              ? context.rhythm.textMuted
-                              : context.rhythm.textPrimary,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.2,
-                        ),
+                      color: dimmed
+                          ? context.rhythm.textMuted
+                          : context.rhythm.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
                     rule.patternDescription,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: context.rhythm.textSecondary,
-                        ),
+                      color: context.rhythm.textSecondary,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -268,10 +269,8 @@ class _RuleTile extends StatelessWidget {
             ),
             Switch(
               value: rule.enabled,
-              onChanged: (_) => controller.toggleEnabled(
-                rule.id,
-                enabled: !rule.enabled,
-              ),
+              onChanged: (_) =>
+                  controller.toggleEnabled(rule.id, enabled: !rule.enabled),
             ),
             IconButton(
               icon: const Icon(Icons.edit_outlined, size: 16),
@@ -468,8 +467,8 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                 Text(
                   'Used when this rhythm has no steps. Otherwise each step picks its own day.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: context.rhythm.textMuted,
-                      ),
+                    color: context.rhythm.textMuted,
+                  ),
                 ),
               ],
               if (_frequency == 'monthly') ...[
@@ -481,8 +480,8 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                 Text(
                   'Used when this rhythm has no steps. Otherwise each step picks its own day.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: context.rhythm.textMuted,
-                      ),
+                    color: context.rhythm.textMuted,
+                  ),
                 ),
               ],
               if (_frequency == 'annual') ...[
@@ -508,8 +507,8 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                 Text(
                   'Used when this rhythm has no steps. Otherwise each step picks its own day.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: context.rhythm.textMuted,
-                      ),
+                    color: context.rhythm.textMuted,
+                  ),
                 ),
               ],
               const SizedBox(height: 18),
@@ -546,9 +545,11 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                         _steps.add(
                           _StepEditorModel(
                             id: _newStepId(_steps.length),
-                            dayOfWeek:
-                                _frequency == 'weekly' ? _dayOfWeek : null,
-                            dayOfMonth: (_frequency == 'monthly' ||
+                            dayOfWeek: _frequency == 'weekly'
+                                ? _dayOfWeek
+                                : null,
+                            dayOfMonth:
+                                (_frequency == 'monthly' ||
                                     _frequency == 'annual')
                                 ? _dayOfMonth
                                 : null,
@@ -565,12 +566,9 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
               const SizedBox(height: 6),
               Text(
                 'Leave this empty to use the rhythm title as a single recurring task.',
-                style: Theme.of(
-                  context,
-                )
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: context.rhythm.textMuted),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: context.rhythm.textMuted,
+                ),
               ),
               const SizedBox(height: 12),
               if (_steps.isEmpty)
@@ -853,8 +851,8 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                 Text(
                   'Used when this rhythm has no steps. Otherwise each step picks its own day.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: context.rhythm.textMuted,
-                      ),
+                    color: context.rhythm.textMuted,
+                  ),
                 ),
               ],
               if (_frequency == 'monthly') ...[
@@ -866,8 +864,8 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                 Text(
                   'Used when this rhythm has no steps. Otherwise each step picks its own day.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: context.rhythm.textMuted,
-                      ),
+                    color: context.rhythm.textMuted,
+                  ),
                 ),
               ],
               if (_frequency == 'annual') ...[
@@ -893,8 +891,8 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                 Text(
                   'Used when this rhythm has no steps. Otherwise each step picks its own day.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: context.rhythm.textMuted,
-                      ),
+                    color: context.rhythm.textMuted,
+                  ),
                 ),
               ],
               const SizedBox(height: 18),
@@ -931,9 +929,11 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                         _steps.add(
                           _StepEditorModel(
                             id: _newStepId(_steps.length),
-                            dayOfWeek:
-                                _frequency == 'weekly' ? _dayOfWeek : null,
-                            dayOfMonth: (_frequency == 'monthly' ||
+                            dayOfWeek: _frequency == 'weekly'
+                                ? _dayOfWeek
+                                : null,
+                            dayOfMonth:
+                                (_frequency == 'monthly' ||
                                     _frequency == 'annual')
                                 ? _dayOfMonth
                                 : null,
@@ -950,12 +950,9 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
               const SizedBox(height: 6),
               Text(
                 'Leave this empty to keep the rhythm as a single task.',
-                style: Theme.of(
-                  context,
-                )
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: context.rhythm.textMuted),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: context.rhythm.textMuted,
+                ),
               ),
               const SizedBox(height: 12),
               if (_steps.isEmpty)
@@ -1288,21 +1285,18 @@ class _EmptyState extends StatelessWidget {
               'No recurring rules yet',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: context.rhythm.textPrimary,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.2,
-                  ),
+                color: context.rhythm.textPrimary,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.2,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               'Create a rhythm for weekly work, monthly check-ins, or annual reminders. The list will stay quiet until you add one.',
               textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              )
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: context.rhythm.textSecondary),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: context.rhythm.textSecondary,
+              ),
             ),
             const SizedBox(height: 18),
             FilledButton.tonalIcon(

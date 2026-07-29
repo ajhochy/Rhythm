@@ -8,7 +8,7 @@ import '../../../app/core/utils/http_utils.dart';
 
 class UserPreferencesDataSource {
   UserPreferencesDataSource({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 

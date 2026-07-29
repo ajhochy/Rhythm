@@ -31,14 +31,14 @@ import 'package:rhythm_desktop/features/notifications/repositories/notifications
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: 'Test Session',
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  agentId: 'claude-code',
+  name: 'Test Session',
+  cwd: '/tmp',
+  status: AgentSessionStatus.idle,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 class _FakeApiServerService extends ApiServerService {
   @override
@@ -62,8 +62,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-      : _msg = StreamController.broadcast(),
-        _conn = StreamController.broadcast();
+    : _msg = StreamController.broadcast(),
+      _conn = StreamController.broadcast();
   final StreamController<AgentWsMessage> _msg;
   final StreamController<bool> _conn;
 
@@ -90,12 +90,11 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      [_makeSession('s1')];
+  }) async => [_makeSession('s1')];
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async =>
-          (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+  getSession(String id) async =>
+      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -106,9 +105,7 @@ class _StubAgentsRepository implements AgentsRepository {
     repo,
     _ReadyAgentServerController(),
     LocalNotificationService(),
-    NotificationsController(
-      NotificationsRepository(NotificationsDataSource()),
-    ),
+    NotificationsController(NotificationsRepository(NotificationsDataSource())),
   );
   return (ctrl: ctrl, repo: repo);
 }
@@ -137,75 +134,94 @@ void main() {
       );
 
       // 2. Server echoes the user message with its real id (message.updated).
-      repo.emit(MessageUpdatedMessage(
-        sessionId: 's1',
-        info: const {'id': 'msg_user_1', 'role': 'user'},
-      ));
+      repo.emit(
+        MessageUpdatedMessage(
+          sessionId: 's1',
+          info: const {'id': 'msg_user_1', 'role': 'user'},
+        ),
+      );
       await _tick();
 
       // 3. Assistant streams text via message.part.delta (the #761 path
       //    synthesizes the assistant bubble from the first delta).
-      repo.emit(const MessagePartDeltaMessage(
-        sessionId: 's1',
-        messageId: 'msg_asst_1',
-        partId: 'prt_1',
-        field: 'text',
-        delta: 'PO',
-      ));
-      repo.emit(const MessagePartDeltaMessage(
-        sessionId: 's1',
-        messageId: 'msg_asst_1',
-        partId: 'prt_1',
-        field: 'text',
-        delta: 'NG',
-      ));
+      repo.emit(
+        const MessagePartDeltaMessage(
+          sessionId: 's1',
+          messageId: 'msg_asst_1',
+          partId: 'prt_1',
+          field: 'text',
+          delta: 'PO',
+        ),
+      );
+      repo.emit(
+        const MessagePartDeltaMessage(
+          sessionId: 's1',
+          messageId: 'msg_asst_1',
+          partId: 'prt_1',
+          field: 'text',
+          delta: 'NG',
+        ),
+      );
       await _tick();
 
       // 4. The authoritative full-text part arrives (#762 restored) for the
       //    SAME part id — must replace, not append, the delta-accumulated text.
-      repo.emit(const MessagePartUpdatedMessage(
-        sessionId: 's1',
-        part: {
-          'id': 'prt_1',
-          'messageID': 'msg_asst_1',
-          'type': 'text',
-          'text': 'PONG',
-        },
-      ));
+      repo.emit(
+        const MessagePartUpdatedMessage(
+          sessionId: 's1',
+          part: {
+            'id': 'prt_1',
+            'messageID': 'msg_asst_1',
+            'type': 'text',
+            'text': 'PONG',
+          },
+        ),
+      );
       await _tick();
 
       // 5. The assistant message.updated arrives (#762 restored) carrying
       //    tokens + cost — must update the SAME bubble, not create a second.
-      repo.emit(MessageUpdatedMessage(
-        sessionId: 's1',
-        info: const {
-          'id': 'msg_asst_1',
-          'role': 'assistant',
-          'cost': 0.0123,
-          'tokens': {
-            'input': 4096,
-            'output': 128,
-            'reasoning': 0,
-            'cache': {'read': 0, 'write': 0},
+      repo.emit(
+        MessageUpdatedMessage(
+          sessionId: 's1',
+          info: const {
+            'id': 'msg_asst_1',
+            'role': 'assistant',
+            'cost': 0.0123,
+            'tokens': {
+              'input': 4096,
+              'output': 128,
+              'reasoning': 0,
+              'cache': {'read': 0, 'write': 0},
+            },
           },
-        },
-      ));
+        ),
+      );
       await _tick();
 
       // ── Symptom #1: no duplicate bubbles ────────────────────────────────
-      final users =
-          ctrl.chatMessagesFor('s1').where((m) => m.role == 'user').toList();
+      final users = ctrl
+          .chatMessagesFor('s1')
+          .where((m) => m.role == 'user')
+          .toList();
       expect(users, hasLength(1), reason: 'exactly one user bubble');
-      expect(users.single.id, 'msg_user_1',
-          reason: 'optimistic user reconciled to the real id');
+      expect(
+        users.single.id,
+        'msg_user_1',
+        reason: 'optimistic user reconciled to the real id',
+      );
 
       final assistants = ctrl
           .chatMessagesFor('s1')
           .where((m) => m.role == 'assistant')
           .toList();
-      expect(assistants, hasLength(1),
-          reason: 'the synthesized assistant bubble and the message.updated '
-              'bubble must dedupe by message id — not render twice');
+      expect(
+        assistants,
+        hasLength(1),
+        reason:
+            'the synthesized assistant bubble and the message.updated '
+            'bubble must dedupe by message id — not render twice',
+      );
       expect(assistants.single.id, 'msg_asst_1');
 
       // ── Symptom #1 (text): no duplicated assistant text ─────────────────
@@ -214,19 +230,28 @@ void main() {
           .where((p) => p.type == 'text')
           .map((p) => p.text)
           .join();
-      expect(asstText, 'PONG',
-          reason: 'delta-accumulated part and the authoritative part.updated '
-              'share a part id, so the text is replaced, not doubled');
+      expect(
+        asstText,
+        'PONG',
+        reason:
+            'delta-accumulated part and the authoritative part.updated '
+            'share a part id, so the text is replaced, not doubled',
+      );
 
       // ── Symptom #3: context/token usage populated ───────────────────────
-      expect(assistants.single.tokens, isNotNull,
-          reason:
-              'message.updated.info.tokens must reach the assistant bubble');
+      expect(
+        assistants.single.tokens,
+        isNotNull,
+        reason: 'message.updated.info.tokens must reach the assistant bubble',
+      );
       expect(assistants.single.cost, 0.0123);
-      expect(ctrl.sessionContextTokens('s1'), greaterThan(0),
-          reason:
-              'the context-usage gauge reads sessionContextTokens, which is '
-              'starved until message.updated delivers info.tokens (#762/#3)');
+      expect(
+        ctrl.sessionContextTokens('s1'),
+        greaterThan(0),
+        reason:
+            'the context-usage gauge reads sessionContextTokens, which is '
+            'starved until message.updated delivers info.tokens (#762/#3)',
+      );
     },
   );
 }

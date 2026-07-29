@@ -58,7 +58,8 @@ class _IntegrationsViewState extends State<IntegrationsView> {
                   _IntegrationsHeader(
                     connectedCount: connectedCount,
                     totalCount: controller.accounts.length,
-                    syncing: controller.syncingAll ||
+                    syncing:
+                        controller.syncingAll ||
                         controller.status == IntegrationsStatus.loading,
                     onSyncAll: controller.syncAll,
                   ),
@@ -72,7 +73,8 @@ class _IntegrationsViewState extends State<IntegrationsView> {
                       ),
                     ),
                   Expanded(
-                    child: controller.status == IntegrationsStatus.loading &&
+                    child:
+                        controller.status == IntegrationsStatus.loading &&
                             controller.accounts.isEmpty
                         ? const _LoadingState()
                         : ListView(
@@ -228,18 +230,18 @@ class _IntegrationCard extends StatelessWidget {
     final statusColor = hasError
         ? context.rhythm.danger
         : connected
-            ? context.rhythm.success
-            : context.rhythm.textSecondary;
+        ? context.rhythm.success
+        : context.rhythm.textSecondary;
     final statusLabel = hasError
         ? 'Needs attention'
         : connected
-            ? 'Connected'
-            : 'Not connected';
+        ? 'Connected'
+        : 'Not connected';
     final statusBackground = hasError
         ? context.rhythm.danger.withValues(alpha: 0.12)
         : connected
-            ? context.rhythm.success.withValues(alpha: 0.12)
-            : context.rhythm.surfaceMuted;
+        ? context.rhythm.success.withValues(alpha: 0.12)
+        : context.rhythm.surfaceMuted;
 
     return Container(
       decoration: BoxDecoration(
@@ -263,17 +265,17 @@ class _IntegrationCard extends StatelessWidget {
                       Text(
                         title,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              color: context.rhythm.textPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
+                          color: context.rhythm.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       const SizedBox(height: 6),
                       Text(
                         description,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: context.rhythm.textSecondary,
-                              height: 1.45,
-                            ),
+                          color: context.rhythm.textSecondary,
+                          height: 1.45,
+                        ),
                       ),
                     ],
                   ),
@@ -311,21 +313,25 @@ class _IntegrationCard extends StatelessWidget {
                   color: context.rhythm.danger.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(RhythmRadius.lg),
                   border: Border.all(
-                      color: context.rhythm.danger.withValues(alpha: 0.18)),
+                    color: context.rhythm.danger.withValues(alpha: 0.18),
+                  ),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.error_outline,
-                        size: 16, color: context.rhythm.danger),
+                    Icon(
+                      Icons.error_outline,
+                      size: 16,
+                      color: context.rhythm.danger,
+                    ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         account!.errorMessage!,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: context.rhythm.danger,
-                              height: 1.4,
-                            ),
+                          color: context.rhythm.danger,
+                          height: 1.4,
+                        ),
                       ),
                     ),
                   ],
@@ -373,8 +379,8 @@ class _IntegrationCard extends StatelessWidget {
         title == 'Gmail'
             ? 'Sync Gmail'
             : title == 'Planning Center'
-                ? 'Sync Planning Center'
-                : 'Sync Calendar',
+            ? 'Sync Planning Center'
+            : 'Sync Calendar',
       ),
     );
   }
@@ -413,10 +419,9 @@ class _IntegrationCard extends StatelessWidget {
       if (!connected && onConnect == null)
         Text(
           'Coming next',
-          style: Theme.of(context)
-              .textTheme
-              .bodySmall
-              ?.copyWith(color: context.rhythm.textMuted),
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: context.rhythm.textMuted),
         ),
     ];
   }
@@ -459,9 +464,9 @@ class _GmailSignalsList extends StatelessWidget {
             Text(
               'Recent inbox signals',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: context.rhythm.textPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                color: context.rhythm.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             if (unreadCount > 0) ...[
               const SizedBox(width: 8),
@@ -515,20 +520,18 @@ class _GmailSignalsList extends StatelessWidget {
                       children: [
                         Text(
                           signal.subject,
-                          style:
-                              Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    color: context.rhythm.textPrimary,
-                                    fontWeight: signal.isUnread
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
-                                  ),
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: context.rhythm.textPrimary,
+                                fontWeight: signal.isUnread
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                              ),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           signal.fromLabel,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
+                          style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(color: context.rhythm.textSecondary),
                         ),
                         if (signal.snippet != null &&
@@ -538,9 +541,7 @@ class _GmailSignalsList extends StatelessWidget {
                             signal.snippet!,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
+                            style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(color: context.rhythm.textSecondary),
                           ),
                         ],
@@ -618,19 +619,16 @@ class _GoogleCalendarSelectionSectionState
                   Text(
                     'Calendar sources',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: context.rhythm.textPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      color: context.rhythm.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     '${_selectedCalendarIds.length} of ${widget.settings.calendars.length} selected for shadow events',
-                    style: Theme.of(
-                      context,
-                    )
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: context.rhythm.textSecondary),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: context.rhythm.textSecondary,
+                    ),
                   ),
                 ],
               ),
@@ -640,19 +638,19 @@ class _GoogleCalendarSelectionSectionState
               onPressed: widget.saving
                   ? null
                   : () => setState(() {
-                        _selectedCalendarIds = {
-                          for (final calendar in widget.settings.calendars)
-                            calendar.id,
-                        };
-                      }),
+                      _selectedCalendarIds = {
+                        for (final calendar in widget.settings.calendars)
+                          calendar.id,
+                      };
+                    }),
               child: Text('All'),
             ),
             TextButton(
               onPressed: widget.saving
                   ? null
                   : () => setState(() {
-                        _selectedCalendarIds.clear();
-                      }),
+                      _selectedCalendarIds.clear();
+                    }),
               child: Text('None'),
             ),
             const SizedBox(width: 8),
@@ -680,10 +678,10 @@ class _GoogleCalendarSelectionSectionState
             onChanged: widget.saving
                 ? null
                 : (_) => setState(() {
-                      if (!_selectedCalendarIds.remove(calendar.id)) {
-                        _selectedCalendarIds.add(calendar.id);
-                      }
-                    }),
+                    if (!_selectedCalendarIds.remove(calendar.id)) {
+                      _selectedCalendarIds.add(calendar.id);
+                    }
+                  }),
             title: Text(calendar.name),
             subtitle: calendar.isPrimary ? Text('Primary') : null,
             controlAffinity: ListTileControlAffinity.leading,
@@ -729,19 +727,16 @@ class _PlanningCenterFiltersSection extends StatelessWidget {
                   Text(
                     'Task triggers',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: context.rhythm.textPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      color: context.rhythm.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     'Teams: $teamSummary · Positions: $positionSummary',
-                    style: Theme.of(
-                      context,
-                    )
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: context.rhythm.textSecondary),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: context.rhythm.textSecondary,
+                    ),
                   ),
                 ],
               ),
@@ -884,22 +879,24 @@ class _PlanningCenterTaskFiltersDialogState
 
   List<String> _availablePositions() {
     if (_teamIds.isEmpty) {
-      final values = widget.options.positionsByTeamId.values
-          .expand<String>((items) => items)
-          .toSet()
-          .toList()
-        ..sort();
+      final values =
+          widget.options.positionsByTeamId.values
+              .expand<String>((items) => items)
+              .toSet()
+              .toList()
+            ..sort();
       return values;
     }
 
-    final values = _teamIds
-        .expand<String>(
-          (teamId) =>
-              widget.options.positionsByTeamId[teamId] ?? const <String>[],
-        )
-        .toSet()
-        .toList()
-      ..sort();
+    final values =
+        _teamIds
+            .expand<String>(
+              (teamId) =>
+                  widget.options.positionsByTeamId[teamId] ?? const <String>[],
+            )
+            .toSet()
+            .toList()
+          ..sort();
     return values;
   }
 
@@ -1009,7 +1006,8 @@ class _AiImportCard extends StatelessWidget {
               icon: Icon(Icons.open_in_new, size: 16),
               label: Text('Open Import'),
               style: FilledButton.styleFrom(
-                  backgroundColor: context.rhythm.accent),
+                backgroundColor: context.rhythm.accent,
+              ),
             ),
           ],
         ),
@@ -1250,18 +1248,18 @@ class _LoadingState extends StatelessWidget {
             Text(
               'Loading integrations',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: context.rhythm.textPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                color: context.rhythm.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 6),
             Text(
               'Checking connection status, sync settings, and import tools.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: context.rhythm.textSecondary,
-                    height: 1.4,
-                  ),
+                color: context.rhythm.textSecondary,
+                height: 1.4,
+              ),
             ),
           ],
         ),
@@ -1310,17 +1308,17 @@ class _SubtleCallout extends StatelessWidget {
                 Text(
                   title,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: context.rhythm.textPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    color: context.rhythm.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   body,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: context.rhythm.textSecondary,
-                        height: 1.45,
-                      ),
+                    color: context.rhythm.textSecondary,
+                    height: 1.45,
+                  ),
                 ),
               ],
             ),
@@ -1379,12 +1377,10 @@ class _ImportSection extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           'Bring structured work into Rhythm with the AI import flow.',
-          style: Theme.of(
-            context,
-          )
-              .textTheme
-              .bodySmall
-              ?.copyWith(color: context.rhythm.textSecondary, height: 1.4),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: context.rhythm.textSecondary,
+            height: 1.4,
+          ),
         ),
         const SizedBox(height: 12),
         _AiImportCard(
@@ -1442,10 +1438,7 @@ class _GoogleAgentConsentCard extends StatelessWidget {
             'Grant the assistant access to full Google Calendar and Gmail '
             '(read + send) so it can create events, draft emails, and act '
             'on your behalf.',
-            style: TextStyle(
-              fontSize: 13,
-              color: context.rhythm.textSecondary,
-            ),
+            style: TextStyle(fontSize: 13, color: context.rhythm.textSecondary),
           ),
           const SizedBox(height: 16),
           OutlinedButton.icon(

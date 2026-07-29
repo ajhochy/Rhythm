@@ -99,12 +99,11 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async {
+  getSession(String id) async {
     final now = DateTime.now();
     return (
       session: AgentSession(
@@ -168,7 +167,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-      : super(NotificationsRepository(NotificationsDataSource()));
+    : super(NotificationsRepository(NotificationsDataSource()));
 }
 
 class _FakeGalleryDataSource extends AgentGalleryDataSource {
@@ -192,17 +191,16 @@ AgentDesign _makeDesign(
   String? projectUrl,
   String? canvaUrl,
   String? artifactType,
-}) =>
-    AgentDesign(
-      id: id,
-      title: title,
-      provider: provider,
-      artifactUrl: artifactUrl,
-      projectUrl: projectUrl ?? canvaUrl,
-      canvaUrl: canvaUrl,
-      artifactType: artifactType,
-      createdAt: DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
-    );
+}) => AgentDesign(
+  id: id,
+  title: title,
+  provider: provider,
+  artifactUrl: artifactUrl,
+  projectUrl: projectUrl ?? canvaUrl,
+  canvaUrl: canvaUrl,
+  artifactType: artifactType,
+  createdAt: DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
+);
 
 Future<Widget> _buildApp({
   required AgentGalleryController galleryController,
@@ -330,77 +328,55 @@ void main() {
       galleryController.dispose();
     });
 
-    testWidgets('shows provider badge and separate deliverable/project actions',
-        (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(1200, 900));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+    testWidgets(
+      'shows provider badge and separate deliverable/project actions',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 900));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final designs = [
-        _makeDesign('d1', 'Alpha Design',
+        final designs = [
+          _makeDesign(
+            'd1',
+            'Alpha Design',
             provider: 'comfyui',
             artifactUrl: 'https://example.test/d1.png',
-            projectUrl: 'https://example.test/workflow'),
-      ];
-      final dataSource = _FakeGalleryDataSource(designs);
-      final galleryController = AgentGalleryController(
-        AgentGalleryRepository(dataSource),
-      );
-      await galleryController.loadDesigns();
+            projectUrl: 'https://example.test/workflow',
+          ),
+        ];
+        final dataSource = _FakeGalleryDataSource(designs);
+        final galleryController = AgentGalleryController(
+          AgentGalleryRepository(dataSource),
+        );
+        await galleryController.loadDesigns();
 
-      await tester.pumpWidget(
-        await _buildApp(
-          galleryController: galleryController,
-          agentsController: agentsController,
-        ),
-      );
-      await tester.pump();
+        await tester.pumpWidget(
+          await _buildApp(
+            galleryController: galleryController,
+            agentsController: agentsController,
+          ),
+        );
+        await tester.pump();
 
-      expect(
-        find.text('Comfyui'),
-        findsOneWidget,
-      );
-      expect(find.text('Open deliverable'), findsOneWidget);
-      expect(find.text('Open project'), findsOneWidget);
+        expect(find.text('Comfyui'), findsOneWidget);
+        expect(find.text('Open deliverable'), findsOneWidget);
+        expect(find.text('Open project'), findsOneWidget);
 
-      galleryController.dispose();
-    });
+        galleryController.dispose();
+      },
+    );
 
     testWidgets('renders legacy Canva rows as a Canva project', (tester) async {
       await tester.binding.setSurfaceSize(const Size(1200, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       final galleryController = AgentGalleryController(
-        AgentGalleryRepository(_FakeGalleryDataSource([
-          _makeDesign('legacy', 'Legacy Canva',
-              provider: 'canva',
-              canvaUrl: 'https://www.canva.com/design/legacy'),
-        ])),
-      );
-      await galleryController.loadDesigns();
-      await tester.pumpWidget(await _buildApp(
-          galleryController: galleryController,
-          agentsController: agentsController));
-      await tester.pump();
-      expect(find.text('Canva'), findsOneWidget);
-      expect(find.text('Open project'), findsOneWidget);
-      expect(find.text('Open deliverable'), findsNothing);
-      galleryController.dispose();
-    });
-
-    testWidgets(
-        'renders safe local artifact cards for image, PDF, video, and SVG', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(1200, 900));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      final galleryController = AgentGalleryController(
         AgentGalleryRepository(
           _FakeGalleryDataSource([
-            _makeDesign('png', 'Image', artifactType: 'png'),
-            _makeDesign('pdf', 'PDF', artifactType: 'pdf'),
-            _makeDesign('mp4', 'Video', artifactType: 'mp4'),
-            _makeDesign('svg', 'SVG', artifactType: 'svg'),
+            _makeDesign(
+              'legacy',
+              'Legacy Canva',
+              provider: 'canva',
+              canvaUrl: 'https://www.canva.com/design/legacy',
+            ),
           ]),
         ),
       );
@@ -412,9 +388,39 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(find.text('Open deliverable'), findsNWidgets(4));
+      expect(find.text('Canva'), findsOneWidget);
+      expect(find.text('Open project'), findsOneWidget);
+      expect(find.text('Open deliverable'), findsNothing);
       galleryController.dispose();
     });
+
+    testWidgets(
+      'renders safe local artifact cards for image, PDF, video, and SVG',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(1200, 900));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final galleryController = AgentGalleryController(
+          AgentGalleryRepository(
+            _FakeGalleryDataSource([
+              _makeDesign('png', 'Image', artifactType: 'png'),
+              _makeDesign('pdf', 'PDF', artifactType: 'pdf'),
+              _makeDesign('mp4', 'Video', artifactType: 'mp4'),
+              _makeDesign('svg', 'SVG', artifactType: 'svg'),
+            ]),
+          ),
+        );
+        await galleryController.loadDesigns();
+        await tester.pumpWidget(
+          await _buildApp(
+            galleryController: galleryController,
+            agentsController: agentsController,
+          ),
+        );
+        await tester.pump();
+        expect(find.text('Open deliverable'), findsNWidgets(4));
+        galleryController.dispose();
+      },
+    );
 
     testWidgets('tapping launch button creates a creative-media session', (
       tester,
@@ -448,7 +454,8 @@ void main() {
       expect(
         stubRepo.lastCwd,
         isNotEmpty,
-        reason: 'createSession must be called with a non-empty cwd (#1153: '
+        reason:
+            'createSession must be called with a non-empty cwd (#1153: '
             'empty cwd triggers the "cwd is required" 400 banner)',
       );
 

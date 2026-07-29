@@ -111,9 +111,9 @@ class _AtMentionPopoverState extends State<AtMentionPopover> {
     if (sessionId == null) return;
     try {
       final results = await context.read<AgentsController>().searchFiles(
-            sessionId,
-            query,
-          );
+        sessionId,
+        query,
+      );
       if (!mounted || _lastQuery != query) return;
       setState(() => _results = results);
     } catch (_) {
@@ -183,8 +183,10 @@ class _AtMentionPopoverState extends State<AtMentionPopover> {
     // focus node, unlike a sibling Focus around the list only) so
     // arrow/enter/escape key events reach this handler while the field is
     // focused.
-    final wrappedChild =
-        Focus(onKeyEvent: _handleKeyEvent, child: widget.child);
+    final wrappedChild = Focus(
+      onKeyEvent: _handleKeyEvent,
+      child: widget.child,
+    );
     if (!_isOpen) return wrappedChild;
 
     return Column(
@@ -263,8 +265,10 @@ class _AtMentionList extends StatelessWidget {
                 color: isHighlighted
                     ? context.rhythm.accentMuted
                     : Colors.transparent,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
                 child: Text(
                   path,
                   maxLines: 1,

@@ -16,7 +16,8 @@ class AgentDesign {
     return AgentDesign(
       id: json['id'] as String? ?? '',
       title: json['title'] as String? ?? '(Untitled)',
-      provider: json['provider'] as String? ??
+      provider:
+          json['provider'] as String? ??
           (json['canvaUrl'] != null ? 'canva' : 'local'),
       artifactUrl: json['artifactUrl'] as String?,
       projectUrl: (json['projectUrl'] ?? json['canvaUrl']) as String?,
@@ -40,15 +41,15 @@ class AgentDesign {
   final String createdAt;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'provider': provider,
-        if (artifactUrl != null) 'artifactUrl': artifactUrl,
-        if (projectUrl != null) 'projectUrl': projectUrl,
-        if (canvaUrl != null) 'canvaUrl': canvaUrl,
-        if (artifactType != null) 'artifactType': artifactType,
-        if (thumbnailUrl != null) 'thumbnailUrl': thumbnailUrl,
-        if (sessionId != null) 'sessionId': sessionId,
-        'createdAt': createdAt,
-      };
+    'id': id,
+    'title': title,
+    'provider': provider,
+    if (artifactUrl != null) 'artifactUrl': artifactUrl,
+    if (projectUrl != null) 'projectUrl': projectUrl,
+    if (canvaUrl != null) 'canvaUrl': canvaUrl,
+    if (artifactType != null) 'artifactType': artifactType,
+    if (thumbnailUrl != null) 'thumbnailUrl': thumbnailUrl,
+    if (sessionId != null) 'sessionId': sessionId,
+    'createdAt': createdAt,
+  };
 }

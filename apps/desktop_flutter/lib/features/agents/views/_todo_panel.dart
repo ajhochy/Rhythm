@@ -24,11 +24,7 @@ import 'package:rhythm_desktop/app/core/ui/tokens/rhythm_theme.dart';
 /// Returns [SizedBox.shrink] when [todos] is empty so the parent layout
 /// does not allocate any space for it.
 class TodoPanel extends StatefulWidget {
-  const TodoPanel({
-    super.key,
-    required this.todos,
-    required this.collapseKey,
-  });
+  const TodoPanel({super.key, required this.todos, required this.collapseKey});
 
   /// The current todo list for the session. Each map has:
   /// { id, content, status, priority }
@@ -70,9 +66,7 @@ class _TodoPanelState extends State<TodoPanel> {
     return Container(
       decoration: BoxDecoration(
         color: context.rhythm.canvas,
-        border: Border(
-          top: BorderSide(color: context.rhythm.borderSubtle),
-        ),
+        border: Border(top: BorderSide(color: context.rhythm.borderSubtle)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -96,8 +90,10 @@ class _TodoPanelState extends State<TodoPanel> {
                   const SizedBox(width: 6),
                   // Progress count: e.g. "1/3".
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: context.rhythm.surfaceMuted,
                       borderRadius: BorderRadius.circular(10),
@@ -129,9 +125,7 @@ class _TodoPanelState extends State<TodoPanel> {
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
               child: Column(
-                children: [
-                  for (final todo in todos) _TodoRow(todo: todo),
-                ],
+                children: [for (final todo in todos) _TodoRow(todo: todo)],
               ),
             ),
         ],

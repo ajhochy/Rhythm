@@ -55,13 +55,13 @@ class RecurringTaskRuleStep {
   final int? month;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'assigneeId': assigneeId,
-        'dayOfWeek': dayOfWeek,
-        'dayOfMonth': dayOfMonth,
-        'month': month,
-      };
+    'id': id,
+    'title': title,
+    'assigneeId': assigneeId,
+    'dayOfWeek': dayOfWeek,
+    'dayOfMonth': dayOfMonth,
+    'month': month,
+  };
 }
 
 class RecurringTaskRuleProgress {

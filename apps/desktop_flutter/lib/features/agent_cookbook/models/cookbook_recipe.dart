@@ -30,12 +30,12 @@ class CookbookRecipe {
   final String updatedAt;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'description': description,
-        'stepsJson': stepsJson,
-        if (boundConfigId != null) 'boundConfigId': boundConfigId,
-        'createdAt': createdAt,
-        'updatedAt': updatedAt,
-      };
+    'id': id,
+    'title': title,
+    'description': description,
+    'stepsJson': stepsJson,
+    if (boundConfigId != null) 'boundConfigId': boundConfigId,
+    'createdAt': createdAt,
+    'updatedAt': updatedAt,
+  };
 }

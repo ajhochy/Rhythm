@@ -13,16 +13,19 @@ final RegExp _ansi = RegExp(
 );
 
 String _expandCursorMoves(String raw) {
-  return raw.replaceAllMapped(_cursorRight, (m) {
-    final n = int.tryParse(m.group(1) ?? '') ?? 1;
-    return ' ' * (n < 1 ? 1 : n);
-  }).replaceAllMapped(_cursorColumn, (m) {
-    final n = int.parse(m.group(1)!);
-    return ' ' * (n < 1 ? 0 : n - 1);
-  }).replaceAllMapped(_cursorPos, (m) {
-    final c = int.parse(m.group(2)!);
-    return '\n' + ' ' * (c < 1 ? 0 : c - 1);
-  });
+  return raw
+      .replaceAllMapped(_cursorRight, (m) {
+        final n = int.tryParse(m.group(1) ?? '') ?? 1;
+        return ' ' * (n < 1 ? 1 : n);
+      })
+      .replaceAllMapped(_cursorColumn, (m) {
+        final n = int.parse(m.group(1)!);
+        return ' ' * (n < 1 ? 0 : n - 1);
+      })
+      .replaceAllMapped(_cursorPos, (m) {
+        final c = int.parse(m.group(2)!);
+        return '\n' + ' ' * (c < 1 ? 0 : c - 1);
+      });
 }
 
 String stripAnsi(String raw) => _expandCursorMoves(raw).replaceAll(_ansi, '');

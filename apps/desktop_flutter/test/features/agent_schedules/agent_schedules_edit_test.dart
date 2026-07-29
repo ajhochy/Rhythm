@@ -90,17 +90,17 @@ const _kTaskName = 'My Test Task';
 const _kTaskPrompt = 'Do something useful every day';
 
 AgentScheduledTask _makeTask() => AgentScheduledTask(
-      id: _kTaskId,
-      name: _kTaskName,
-      scheduleType: 'daily',
-      scheduledTime: '09:00',
-      timezone: 'America/Los_Angeles',
-      prompt: _kTaskPrompt,
-      agentKind: 'opencode',
-      enabled: true,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: _kTaskId,
+  name: _kTaskName,
+  scheduleType: 'daily',
+  scheduledTime: '09:00',
+  timezone: 'America/Los_Angeles',
+  prompt: _kTaskPrompt,
+  agentKind: 'opencode',
+  enabled: true,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 Widget _buildApp({
   required AgentSchedulesController schedulesController,
@@ -147,57 +147,56 @@ void main() {
       configsController.dispose();
     });
 
-    testWidgets(
-      'edit mode pre-fills name and prompt from existing task',
-      (tester) async {
-        // Load tasks into controller so the list view renders the tile.
-        await schedulesController.refresh();
+    testWidgets('edit mode pre-fills name and prompt from existing task', (
+      tester,
+    ) async {
+      // Load tasks into controller so the list view renders the tile.
+      await schedulesController.refresh();
 
-        await tester.pumpWidget(
-          _buildApp(
-            schedulesController: schedulesController,
-            configsController: configsController,
-          ),
-        );
-        await tester.pump();
+      await tester.pumpWidget(
+        _buildApp(
+          schedulesController: schedulesController,
+          configsController: configsController,
+        ),
+      );
+      await tester.pump();
 
-        // Tap the task tile to open the detail sheet.
-        await tester.tap(find.text(_kTaskName));
-        await tester.pumpAndSettle();
+      // Tap the task tile to open the detail sheet.
+      await tester.tap(find.text(_kTaskName));
+      await tester.pumpAndSettle();
 
-        // Tap the Edit button in the detail sheet.
-        final editButton = find.byKey(const ValueKey('edit-schedule-button'));
-        expect(
-          editButton,
-          findsOneWidget,
-          reason: 'Edit button should appear in the detail sheet',
-        );
-        await tester.tap(editButton);
-        await tester.pumpAndSettle();
+      // Tap the Edit button in the detail sheet.
+      final editButton = find.byKey(const ValueKey('edit-schedule-button'));
+      expect(
+        editButton,
+        findsOneWidget,
+        reason: 'Edit button should appear in the detail sheet',
+      );
+      await tester.tap(editButton);
+      await tester.pumpAndSettle();
 
-        // The form sheet should now be visible in edit mode.
-        expect(
-          find.text('Edit Scheduled Task'),
-          findsOneWidget,
-          reason: 'Form sheet title should read "Edit Scheduled Task"',
-        );
+      // The form sheet should now be visible in edit mode.
+      expect(
+        find.text('Edit Scheduled Task'),
+        findsOneWidget,
+        reason: 'Form sheet title should read "Edit Scheduled Task"',
+      );
 
-        // The name field should be pre-filled.
-        final nameField = find.widgetWithText(TextFormField, _kTaskName);
-        expect(
-          nameField,
-          findsOneWidget,
-          reason: 'Name field should be pre-filled with existing task name',
-        );
+      // The name field should be pre-filled.
+      final nameField = find.widgetWithText(TextFormField, _kTaskName);
+      expect(
+        nameField,
+        findsOneWidget,
+        reason: 'Name field should be pre-filled with existing task name',
+      );
 
-        // The prompt field should be pre-filled.
-        expect(
-          find.text(_kTaskPrompt),
-          findsOneWidget,
-          reason: 'Prompt field should be pre-filled with existing task prompt',
-        );
-      },
-    );
+      // The prompt field should be pre-filled.
+      expect(
+        find.text(_kTaskPrompt),
+        findsOneWidget,
+        reason: 'Prompt field should be pre-filled with existing task prompt',
+      );
+    });
 
     testWidgets(
       'tapping Save in edit mode calls controller.update(id) not create',

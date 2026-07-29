@@ -29,33 +29,35 @@ class _FakeDataSource extends BackgroundStatusDataSource {
   Future<BackgroundStatus> fetch() async => _status;
 }
 
-BackgroundStatus _makeStatus(
-    {int activeCount = 0, List<Map<String, dynamic>>? loops}) {
+BackgroundStatus _makeStatus({
+  int activeCount = 0,
+  List<Map<String, dynamic>>? loops,
+}) {
   final defaultLoops = [
     {
       'name': 'skill_harvester',
       'state': 'idle',
       'lastRunAt': null,
-      'nextRunAt': null
+      'nextRunAt': null,
     },
     {
       'name': 'skill_improver',
       'state': 'idle',
       'lastRunAt': null,
-      'nextRunAt': null
+      'nextRunAt': null,
     },
     {'name': 'memory', 'state': 'idle', 'lastRunAt': null, 'nextRunAt': null},
     {
       'name': 'scheduler',
       'state': 'idle',
       'lastRunAt': null,
-      'nextRunAt': null
+      'nextRunAt': null,
     },
     {
       'name': 'integrations_sync',
       'state': 'idle',
       'lastRunAt': null,
-      'nextRunAt': null
+      'nextRunAt': null,
     },
   ];
   return BackgroundStatus.fromJson({
@@ -78,7 +80,7 @@ BackgroundStatus _makeRunningStatus() {
         'name': 'skill_improver',
         'state': 'idle',
         'lastRunAt': null,
-        'nextRunAt': null
+        'nextRunAt': null,
       },
       {
         'name': 'memory',
@@ -97,7 +99,7 @@ BackgroundStatus _makeRunningStatus() {
         'name': 'integrations_sync',
         'state': 'idle',
         'lastRunAt': null,
-        'nextRunAt': null
+        'nextRunAt': null,
       },
     ],
     'activeCount': 2,
@@ -285,8 +287,9 @@ void main() {
       ctrl.dispose();
     });
 
-    testWidgets('renders idle state when controller has no data yet',
-        (tester) async {
+    testWidgets('renders idle state when controller has no data yet', (
+      tester,
+    ) async {
       final ctrl = BackgroundActivityController(
         _FakeDataSource(_makeStatus()),
         pollInterval: const Duration(hours: 1),

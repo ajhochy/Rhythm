@@ -9,7 +9,7 @@ import '../models/gmail_signal.dart';
 
 class AgentEmailDataSource {
   AgentEmailDataSource({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 
@@ -21,9 +21,7 @@ class AgentEmailDataSource {
     assertOk(response);
     final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
     return data
-        .map(
-          (e) => AgentEmailGmailSignal.fromJson(e as Map<String, dynamic>),
-        )
+        .map((e) => AgentEmailGmailSignal.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 }

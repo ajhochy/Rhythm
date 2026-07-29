@@ -105,9 +105,7 @@ class TodoChecklistView extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Column(
-                children: [
-                  for (final todo in todos) _TodoRow(todo: todo),
-                ],
+                children: [for (final todo in todos) _TodoRow(todo: todo)],
               ),
             )
           else
@@ -115,10 +113,7 @@ class TodoChecklistView extends StatelessWidget {
               padding: const EdgeInsets.all(10),
               child: Text(
                 'No todos',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: context.rhythm.textMuted,
-                ),
+                style: TextStyle(fontSize: 12, color: context.rhythm.textMuted),
               ),
             ),
         ],

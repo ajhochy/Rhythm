@@ -51,8 +51,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-      : _msgController = StreamController.broadcast(),
-        _connectivityController = StreamController.broadcast();
+    : _msgController = StreamController.broadcast(),
+      _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -83,15 +83,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async => (
-            session: _makeSession(id),
-            messages: const <AgentSessionMessage>[],
-          );
+  getSession(String id) async =>
+      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -110,14 +107,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: 'Test Session',
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  agentId: 'claude-code',
+  name: 'Test Session',
+  cwd: '/tmp',
+  status: AgentSessionStatus.idle,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 AgentsController _buildController() {
   final repo = _StubAgentsRepository();
@@ -125,9 +122,7 @@ AgentsController _buildController() {
     repo,
     _ReadyAgentServerController(),
     LocalNotificationService(),
-    NotificationsController(
-      NotificationsRepository(NotificationsDataSource()),
-    ),
+    NotificationsController(NotificationsRepository(NotificationsDataSource())),
   );
 }
 
@@ -155,31 +150,39 @@ void main() {
     c.dispose();
   });
 
-  test('loadInspectorPrefs defaults to collapsed when nothing is persisted',
-      () async {
-    final c = _buildController();
-    await c.loadInspectorPrefs();
-    expect(c.panelCollapsed, true);
-    c.dispose();
-  });
+  test(
+    'loadInspectorPrefs defaults to collapsed when nothing is persisted',
+    () async {
+      final c = _buildController();
+      await c.loadInspectorPrefs();
+      expect(c.panelCollapsed, true);
+      c.dispose();
+    },
+  );
 
-  test('loadInspectorPrefs restores a persisted "expanded" preference',
-      () async {
-    SharedPreferences.setMockInitialValues(
-        {'agents.inspector.collapsed': false});
-    final c = _buildController();
-    await c.loadInspectorPrefs();
-    expect(c.panelCollapsed, false);
-    c.dispose();
-  });
+  test(
+    'loadInspectorPrefs restores a persisted "expanded" preference',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'agents.inspector.collapsed': false,
+      });
+      final c = _buildController();
+      await c.loadInspectorPrefs();
+      expect(c.panelCollapsed, false);
+      c.dispose();
+    },
+  );
 
-  test('loadInspectorPrefs restores a persisted "collapsed" preference',
-      () async {
-    SharedPreferences.setMockInitialValues(
-        {'agents.inspector.collapsed': true});
-    final c = _buildController();
-    await c.loadInspectorPrefs();
-    expect(c.panelCollapsed, true);
-    c.dispose();
-  });
+  test(
+    'loadInspectorPrefs restores a persisted "collapsed" preference',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'agents.inspector.collapsed': true,
+      });
+      final c = _buildController();
+      await c.loadInspectorPrefs();
+      expect(c.panelCollapsed, true);
+      c.dispose();
+    },
+  );
 }

@@ -125,12 +125,11 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      [_session];
+  }) async => [_session];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async {
+  getSession(String id) async {
     return (session: _session, messages: const <AgentSessionMessage>[]);
   }
 
@@ -149,7 +148,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-      : super(NotificationsRepository(NotificationsDataSource()));
+    : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -290,42 +289,37 @@ void main() {
     updatedAt: DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
   );
 
-  group(
-      'issue-639-c2: AgentsController.refreshModelRoutes() must exist and notify',
-      () {
-    test(
-      'refreshModelRoutes() is a public method on AgentsController',
-      () async {
-        // CONTRACT TEST — compile error before implementation (method missing).
-        //
-        // _StubAgentsController declares `@override Future<void> refreshModelRoutes()`
-        // which will fail to compile if the base AgentsController does not
-        // declare that method. This is the expected pre-implementation failure.
-        final repo = _StubAgentsRepository(kSession);
-        final agentServer = _ReadyAgentServerController();
-        final notifService = _FakeLocalNotificationService();
-        final notifController = _FakeNotificationsController();
+  group('issue-639-c2: AgentsController.refreshModelRoutes() must exist and notify', () {
+    test('refreshModelRoutes() is a public method on AgentsController', () async {
+      // CONTRACT TEST — compile error before implementation (method missing).
+      //
+      // _StubAgentsController declares `@override Future<void> refreshModelRoutes()`
+      // which will fail to compile if the base AgentsController does not
+      // declare that method. This is the expected pre-implementation failure.
+      final repo = _StubAgentsRepository(kSession);
+      final agentServer = _ReadyAgentServerController();
+      final notifService = _FakeLocalNotificationService();
+      final notifController = _FakeNotificationsController();
 
-        final controller = _StubAgentsController(
-          repo,
-          agentServer,
-          notifService,
-          notifController,
-        );
-        addTearDown(controller.dispose);
+      final controller = _StubAgentsController(
+        repo,
+        agentServer,
+        notifService,
+        notifController,
+      );
+      addTearDown(controller.dispose);
 
-        // If this compiles and runs, the method exists.
-        // The test here validates that calling the method does not throw.
-        await expectLater(
-          controller.refreshModelRoutes(),
-          completes,
-          reason:
-              'AgentsController.refreshModelRoutes() must be callable without '
-              'throwing. If this line does not compile, add the method to '
-              'AgentsController.',
-        );
-      },
-    );
+      // If this compiles and runs, the method exists.
+      // The test here validates that calling the method does not throw.
+      await expectLater(
+        controller.refreshModelRoutes(),
+        completes,
+        reason:
+            'AgentsController.refreshModelRoutes() must be callable without '
+            'throwing. If this line does not compile, add the method to '
+            'AgentsController.',
+      );
+    });
 
     test(
       'refreshModelRoutes() fires notifyListeners so the picker widget rebuilds',
@@ -433,74 +427,75 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group(
-      'issue-639-c3: AgentsController.refreshModelRoutes() must also call refreshCatalog()',
-      () {
-    test(
-      'refreshModelRoutes() calls refreshCatalog() so the unified picker stays fresh',
-      () async {
-        // CONTRACT TEST — THIS FAILS TODAY.
-        //
-        // Bug: refreshModelRoutes() only calls _loadModelRoutes(). It never
-        // calls refreshCatalog(). After a Settings save (which calls
-        // refreshModelRoutes), the cross-agent unified picker (_catalog) stays
-        // stale — it still shows the old provider list even though the server
-        // URL (and therefore available routes) has changed.
-        //
-        // Fix (2-line addition to AgentsController.refreshModelRoutes):
-        //   Future<void> refreshModelRoutes() async {
-        //     if (_selectedSessionId != null) {
-        //       await _loadModelRoutes(_selectedSessionId!);
-        //     }
-        //     await refreshCatalog();   // ← ADD THIS LINE
-        //   }
-        //
-        // Test design:
-        //   _CatalogCapturingController overrides refreshCatalog() to count
-        //   calls without hitting HTTP. If refreshModelRoutes() does NOT call
-        //   refreshCatalog(), refreshCatalogCallCount remains 0 and the
-        //   assertion below fails — proving the bug is present.
-        //
-        //   After the fix, refreshCatalog() is called, the count becomes ≥ 1,
-        //   and the test passes.
-        final repo = _StubAgentsRepository(kSession);
-        final agentServer = _ReadyAgentServerController();
-        final notifService = _FakeLocalNotificationService();
-        final notifController = _FakeNotificationsController();
+    'issue-639-c3: AgentsController.refreshModelRoutes() must also call refreshCatalog()',
+    () {
+      test(
+        'refreshModelRoutes() calls refreshCatalog() so the unified picker stays fresh',
+        () async {
+          // CONTRACT TEST — THIS FAILS TODAY.
+          //
+          // Bug: refreshModelRoutes() only calls _loadModelRoutes(). It never
+          // calls refreshCatalog(). After a Settings save (which calls
+          // refreshModelRoutes), the cross-agent unified picker (_catalog) stays
+          // stale — it still shows the old provider list even though the server
+          // URL (and therefore available routes) has changed.
+          //
+          // Fix (2-line addition to AgentsController.refreshModelRoutes):
+          //   Future<void> refreshModelRoutes() async {
+          //     if (_selectedSessionId != null) {
+          //       await _loadModelRoutes(_selectedSessionId!);
+          //     }
+          //     await refreshCatalog();   // ← ADD THIS LINE
+          //   }
+          //
+          // Test design:
+          //   _CatalogCapturingController overrides refreshCatalog() to count
+          //   calls without hitting HTTP. If refreshModelRoutes() does NOT call
+          //   refreshCatalog(), refreshCatalogCallCount remains 0 and the
+          //   assertion below fails — proving the bug is present.
+          //
+          //   After the fix, refreshCatalog() is called, the count becomes ≥ 1,
+          //   and the test passes.
+          final repo = _StubAgentsRepository(kSession);
+          final agentServer = _ReadyAgentServerController();
+          final notifService = _FakeLocalNotificationService();
+          final notifController = _FakeNotificationsController();
 
-        final controller = _CatalogCapturingController(
-          repo,
-          agentServer,
-          notifService,
-          notifController,
-        );
-        addTearDown(controller.dispose);
+          final controller = _CatalogCapturingController(
+            repo,
+            agentServer,
+            notifService,
+            notifController,
+          );
+          addTearDown(controller.dispose);
 
-        // Load sessions so _sessions is populated (required for _loadModelRoutes).
-        await controller.load();
+          // Load sessions so _sessions is populated (required for _loadModelRoutes).
+          await controller.load();
 
-        // Select the session so _selectedSessionId is set.
-        await controller.selectSession('session-639');
+          // Select the session so _selectedSessionId is set.
+          await controller.selectSession('session-639');
 
-        // Reset the call counter — selectSession may have triggered side-effects.
-        controller.refreshCatalogCallCount = 0;
+          // Reset the call counter — selectSession may have triggered side-effects.
+          controller.refreshCatalogCallCount = 0;
 
-        // Act: call refreshModelRoutes(). This should trigger BOTH
-        // _loadModelRoutes AND refreshCatalog.
-        await controller.refreshModelRoutes();
+          // Act: call refreshModelRoutes(). This should trigger BOTH
+          // _loadModelRoutes AND refreshCatalog.
+          await controller.refreshModelRoutes();
 
-        // Assert: refreshCatalog must have been called at least once.
-        // FAILS TODAY because refreshModelRoutes() does not call refreshCatalog().
-        expect(
-          controller.refreshCatalogCallCount,
-          greaterThan(0),
-          reason:
-              'AgentsController.refreshModelRoutes() must call refreshCatalog() '
-              'so the cross-agent unified picker (_catalog) is re-fetched when '
-              'the Settings server URL changes. Currently it only calls '
-              '_loadModelRoutes, leaving _catalog stale. '
-              'Fix: add `await refreshCatalog();` inside refreshModelRoutes().',
-        );
-      },
-    );
-  });
+          // Assert: refreshCatalog must have been called at least once.
+          // FAILS TODAY because refreshModelRoutes() does not call refreshCatalog().
+          expect(
+            controller.refreshCatalogCallCount,
+            greaterThan(0),
+            reason:
+                'AgentsController.refreshModelRoutes() must call refreshCatalog() '
+                'so the cross-agent unified picker (_catalog) is re-fetched when '
+                'the Settings server URL changes. Currently it only calls '
+                '_loadModelRoutes, leaving _catalog stale. '
+                'Fix: add `await refreshCatalog();` inside refreshModelRoutes().',
+          );
+        },
+      );
+    },
+  );
 }

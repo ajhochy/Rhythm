@@ -231,8 +231,10 @@ class _CommandList extends StatelessWidget {
                 color: isHighlighted
                     ? context.rhythm.accentMuted
                     : Colors.transparent,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
                 child: Row(
                   children: [
                     Text(

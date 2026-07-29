@@ -242,8 +242,9 @@ class _LoopRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isRunning = loop.isRunning;
-    final dotColor =
-        isRunning ? context.rhythm.accent : context.rhythm.textMuted;
+    final dotColor = isRunning
+        ? context.rhythm.accent
+        : context.rhythm.textMuted;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),

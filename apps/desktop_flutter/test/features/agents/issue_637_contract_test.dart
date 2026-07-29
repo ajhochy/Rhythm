@@ -21,12 +21,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
-  group('issue-637-c2: visibility map default must be false for unknown models',
-      () {
-    test(
-      '_isVisible in _open_router_models_section.dart must use ?? false, '
-      'not ?? true (THIS FAILS before the fix)',
-      () {
+  group(
+    'issue-637-c2: visibility map default must be false for unknown models',
+    () {
+      test('_isVisible in _open_router_models_section.dart must use ?? false, '
+          'not ?? true (THIS FAILS before the fix)', () {
         // Locate the source file relative to this test file.
         // __FILE__ isn't available in Dart; use the known repo-relative path.
         const relPath =
@@ -56,12 +55,9 @@ void main() {
               'Fix: change line 80 of _open_router_models_section.dart from '
               '"?? true" to "?? false".',
         );
-      },
-    );
+      });
 
-    test(
-      'the buggy ?? true default is not present after the fix',
-      () {
+      test('the buggy ?? true default is not present after the fix', () {
         // Companion assertion: once the fix lands, the old form disappears.
         // This test will PASS before the fix (it is not a failing assertion)
         // and must continue to pass after. It documents the removal.
@@ -82,17 +78,21 @@ void main() {
         // to avoid false positives from comments.
         final isVisibleLine = src
             .split('\n')
-            .where((line) =>
-                line.contains('_isVisible') && line.contains('_visibilityMap'))
+            .where(
+              (line) =>
+                  line.contains('_isVisible') &&
+                  line.contains('_visibilityMap'),
+            )
             .join('\n');
 
         expect(
           isVisibleLine.contains('?? true'),
           isFalse,
-          reason: 'The _isVisible method still uses "?? true" (buggy default). '
+          reason:
+              'The _isVisible method still uses "?? true" (buggy default). '
               'Change it to "?? false".',
         );
-      },
-    );
-  });
+      });
+    },
+  );
 }

@@ -95,55 +95,59 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('failureThreshold guard', () {
-    test('does not signal false after only 1 failure with threshold=2',
-        () async {
-      int failCount = 0;
-      final calls = <bool>[];
-      final poller = makePoller(
-        checkFn: () async {
-          // Fail once, then succeed forever.
-          if (failCount == 0) {
-            failCount++;
+    test(
+      'does not signal false after only 1 failure with threshold=2',
+      () async {
+        int failCount = 0;
+        final calls = <bool>[];
+        final poller = makePoller(
+          checkFn: () async {
+            // Fail once, then succeed forever.
+            if (failCount == 0) {
+              failCount++;
+              return false;
+            }
+            return true;
+          },
+          onHealthChanged: calls.add,
+          failureThreshold: 2,
+        );
+
+        poller.start();
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        poller.dispose();
+
+        // Only 1 failure → should never have fired false.
+        expect(calls, isEmpty);
+      },
+    );
+
+    test(
+      'signals false after exactly failureThreshold consecutive failures',
+      () async {
+        int checkCallCount = 0;
+        final calls = <bool>[];
+
+        final poller = makePoller(
+          checkFn: () async {
+            checkCallCount++;
+            // Always fail.
             return false;
-          }
-          return true;
-        },
-        onHealthChanged: calls.add,
-        failureThreshold: 2,
-      );
+          },
+          onHealthChanged: calls.add,
+          failureThreshold: 2,
+        );
 
-      poller.start();
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-      poller.dispose();
+        poller.start();
+        // Wait for at least 2 ticks plus a bit of slack.
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        poller.dispose();
 
-      // Only 1 failure → should never have fired false.
-      expect(calls, isEmpty);
-    });
-
-    test('signals false after exactly failureThreshold consecutive failures',
-        () async {
-      int checkCallCount = 0;
-      final calls = <bool>[];
-
-      final poller = makePoller(
-        checkFn: () async {
-          checkCallCount++;
-          // Always fail.
-          return false;
-        },
-        onHealthChanged: calls.add,
-        failureThreshold: 2,
-      );
-
-      poller.start();
-      // Wait for at least 2 ticks plus a bit of slack.
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-      poller.dispose();
-
-      // At least 2 checks happened and false was signalled exactly once.
-      expect(checkCallCount, greaterThanOrEqualTo(2));
-      expect(calls, [false]);
-    });
+        // At least 2 checks happened and false was signalled exactly once.
+        expect(checkCallCount, greaterThanOrEqualTo(2));
+        expect(calls, [false]);
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------

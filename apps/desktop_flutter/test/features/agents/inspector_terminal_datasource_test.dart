@@ -62,66 +62,57 @@ void main() {
   // resizePty
   // --------------------------------------------------------------------------
 
-  test(
-    'resizePty PATCHes /pty/:id with JSON body {cols, rows}',
-    () async {
-      late http.Request captured;
-      final client = MockClient((request) async {
-        captured = request;
-        return http.Response('', 204);
-      });
+  test('resizePty PATCHes /pty/:id with JSON body {cols, rows}', () async {
+    late http.Request captured;
+    final client = MockClient((request) async {
+      captured = request;
+      return http.Response('', 204);
+    });
 
-      final ds = AgentsDataSource(client: client);
-      await ds.resizePty('pty_1', 80, 24);
+    final ds = AgentsDataSource(client: client);
+    await ds.resizePty('pty_1', 80, 24);
 
-      expect(captured.method, 'PATCH');
-      expect(
-        captured.url.toString(),
-        '${AppConstants.agentLocalBaseUrl}/pty/pty_1',
-      );
-      final body = jsonDecode(captured.body) as Map<String, dynamic>;
-      expect(body['cols'], 80);
-      expect(body['rows'], 24);
-    },
-  );
+    expect(captured.method, 'PATCH');
+    expect(
+      captured.url.toString(),
+      '${AppConstants.agentLocalBaseUrl}/pty/pty_1',
+    );
+    final body = jsonDecode(captured.body) as Map<String, dynamic>;
+    expect(body['cols'], 80);
+    expect(body['rows'], 24);
+  });
 
   // --------------------------------------------------------------------------
   // killPty
   // --------------------------------------------------------------------------
 
-  test(
-    'killPty DELETEs /pty/:id',
-    () async {
-      late http.Request captured;
-      final client = MockClient((request) async {
-        captured = request;
-        return http.Response('', 204);
-      });
+  test('killPty DELETEs /pty/:id', () async {
+    late http.Request captured;
+    final client = MockClient((request) async {
+      captured = request;
+      return http.Response('', 204);
+    });
 
-      final ds = AgentsDataSource(client: client);
-      await ds.killPty('pty_1');
+    final ds = AgentsDataSource(client: client);
+    await ds.killPty('pty_1');
 
-      expect(captured.method, 'DELETE');
-      expect(
-        captured.url.toString(),
-        '${AppConstants.agentLocalBaseUrl}/pty/pty_1',
-      );
-    },
-  );
+    expect(captured.method, 'DELETE');
+    expect(
+      captured.url.toString(),
+      '${AppConstants.agentLocalBaseUrl}/pty/pty_1',
+    );
+  });
 
   // --------------------------------------------------------------------------
   // ptyWsUrl
   // --------------------------------------------------------------------------
 
-  test(
-    'ptyWsUrl returns ws://localhost:4001/ws/pty/:id',
-    () {
-      // No HTTP call for this one — it is a pure URL builder.
-      final ds = AgentsDataSource();
-      expect(
-        ds.ptyWsUrl('pty_1'),
-        '${AppConstants.agentLocalWsBase}/ws/pty/pty_1',
-      );
-    },
-  );
+  test('ptyWsUrl returns ws://localhost:4001/ws/pty/:id', () {
+    // No HTTP call for this one — it is a pure URL builder.
+    final ds = AgentsDataSource();
+    expect(
+      ds.ptyWsUrl('pty_1'),
+      '${AppConstants.agentLocalWsBase}/ws/pty/pty_1',
+    );
+  });
 }

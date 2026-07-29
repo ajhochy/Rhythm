@@ -17,7 +17,8 @@ class NotificationPanel extends StatelessWidget {
     final notifications = controller.notifications;
     final agentItems = controller.agentNotifications;
     final approvals = context.watch<AgentApprovalsController>().pending;
-    final hasAny = notifications.isNotEmpty ||
+    final hasAny =
+        notifications.isNotEmpty ||
         agentItems.isNotEmpty ||
         approvals.isNotEmpty;
 

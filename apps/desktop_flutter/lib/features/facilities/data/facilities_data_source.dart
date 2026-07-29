@@ -11,7 +11,7 @@ import '../models/reservation_series.dart';
 
 class FacilitiesDataSource {
   FacilitiesDataSource({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 
@@ -218,9 +218,9 @@ class FacilitiesDataSource {
     if (endBefore != null && endBefore.isNotEmpty) {
       query['endBefore'] = endBefore;
     }
-    final uri =
-        Uri.parse('$_baseUrl/facilities/automation-reservations/preview')
-            .replace(queryParameters: query.isEmpty ? null : query);
+    final uri = Uri.parse(
+      '$_baseUrl/facilities/automation-reservations/preview',
+    ).replace(queryParameters: query.isEmpty ? null : query);
     final response = await http.get(uri, headers: AuthSessionStore.headers());
     assertOk(response);
     return AutomationReservationPreview.fromJson(
@@ -241,10 +241,13 @@ class FacilitiesDataSource {
     if (endBefore != null && endBefore.isNotEmpty) {
       query['endBefore'] = endBefore;
     }
-    final uri = Uri.parse('$_baseUrl/facilities/automation-reservations')
-        .replace(queryParameters: query.isEmpty ? null : query);
-    final response =
-        await http.delete(uri, headers: AuthSessionStore.headers());
+    final uri = Uri.parse(
+      '$_baseUrl/facilities/automation-reservations',
+    ).replace(queryParameters: query.isEmpty ? null : query);
+    final response = await http.delete(
+      uri,
+      headers: AuthSessionStore.headers(),
+    );
     assertOk(response);
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     return (body['deleted'] as num?)?.toInt() ?? 0;

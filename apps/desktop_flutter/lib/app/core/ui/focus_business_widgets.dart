@@ -101,9 +101,7 @@ class FocusBusinessTaskListPanel extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Expanded(
-                  child: Text(header, style: _FocusType.preH(context)),
-                ),
+                Expanded(child: Text(header, style: _FocusType.preH(context))),
                 ...headerActions,
               ],
             ),
@@ -182,8 +180,10 @@ class FocusBusinessTaskListItem extends StatelessWidget {
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final checkboxWidth =
-              (constraints.maxWidth * 2 / 12).clamp(52.0, 92.0);
+          final checkboxWidth = (constraints.maxWidth * 2 / 12).clamp(
+            52.0,
+            92.0,
+          );
           return Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -313,8 +313,9 @@ class FocusSmallInfo06 extends StatelessWidget {
     final accent = _toneColor(colors, tone);
     final background = subtle ? colors.surface : accent.withValues(alpha: 0.92);
     final foreground = subtle ? colors.textPrimary : colors.canvas;
-    final secondary =
-        subtle ? colors.textSecondary : colors.canvas.withValues(alpha: 0.72);
+    final secondary = subtle
+        ? colors.textSecondary
+        : colors.canvas.withValues(alpha: 0.72);
     final content = Container(
       decoration: BoxDecoration(
         color: background,
@@ -334,9 +335,7 @@ class FocusSmallInfo06 extends StatelessWidget {
                   header.toUpperCase(),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: _FocusType.preH(context).copyWith(
-                    color: foreground,
-                  ),
+                  style: _FocusType.preH(context).copyWith(color: foreground),
                 ),
               ),
               for (final action in actions) ...[
@@ -353,10 +352,9 @@ class FocusSmallInfo06 extends StatelessWidget {
                   value,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: _FocusType.h2(context).copyWith(
-                    color: foreground,
-                    fontSize: 38,
-                  ),
+                  style: _FocusType.h2(
+                    context,
+                  ).copyWith(color: foreground, fontSize: 38),
                 ),
               ),
               Icon(icon, color: subtle ? accent : colors.canvas, size: 38),
@@ -367,9 +365,7 @@ class FocusSmallInfo06 extends StatelessWidget {
             description,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: _FocusType.small(context).copyWith(
-              color: secondary,
-            ),
+            style: _FocusType.small(context).copyWith(color: secondary),
           ),
           if (footer != null) ...[
             const SizedBox(height: RhythmSpacing.md),
@@ -427,8 +423,9 @@ class FocusBusinessProjectProgress extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.rhythm;
-    final accent =
-        pills.isEmpty ? colors.accent : _toneColor(colors, pills[0].tone);
+    final accent = pills.isEmpty
+        ? colors.accent
+        : _toneColor(colors, pills[0].tone);
     final content = _FocusPanel(
       header: panelTitle,
       child: LayoutBuilder(
@@ -508,8 +505,9 @@ class FocusBusinessProjectProgress extends StatelessWidget {
 
   Widget _buildContent02(BuildContext context) {
     final colors = context.rhythm;
-    final accent =
-        pills.isEmpty ? colors.accent : _toneColor(colors, pills[0].tone);
+    final accent = pills.isEmpty
+        ? colors.accent
+        : _toneColor(colors, pills[0].tone);
     return Padding(
       padding: const EdgeInsets.all(RhythmSpacing.xs),
       child: Column(
@@ -539,8 +537,8 @@ class FocusBusinessProjectProgress extends StatelessWidget {
                       style: compact
                           ? _FocusType.h4(context)
                           : constraints.maxWidth > 520
-                              ? _FocusType.h2(context)
-                              : _FocusType.h3(context),
+                          ? _FocusType.h2(context)
+                          : _FocusType.h3(context),
                     ),
                   ),
                 ],
@@ -588,8 +586,10 @@ class FocusBusinessProjectProgress extends StatelessWidget {
                   label: 'Project Manager',
                   avatars: managers,
                 );
-                final teamBlock =
-                    _FocusAvatarBlock(label: 'Team', avatars: team);
+                final teamBlock = _FocusAvatarBlock(
+                  label: 'Team',
+                  avatars: team,
+                );
                 if (stacked) {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -651,10 +651,9 @@ class _FocusOnDeckTable extends StatelessWidget {
                 Expanded(
                   child: Text(
                     title,
-                    style: _FocusType.small(context).copyWith(
-                      color: accent,
-                      fontWeight: FontWeight.w800,
-                    ),
+                    style: _FocusType.small(
+                      context,
+                    ).copyWith(color: accent, fontWeight: FontWeight.w800),
                   ),
                 ),
               ],
@@ -667,9 +666,7 @@ class _FocusOnDeckTable extends StatelessWidget {
                 vertical: 8,
               ),
               decoration: BoxDecoration(
-                border: Border(
-                  top: BorderSide(color: colors.borderSubtle),
-                ),
+                border: Border(top: BorderSide(color: colors.borderSubtle)),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -684,7 +681,7 @@ class _FocusOnDeckTable extends StatelessWidget {
                         onChanged: items[index].onChanged == null
                             ? null
                             : (value) =>
-                                items[index].onChanged!(value ?? false),
+                                  items[index].onChanged!(value ?? false),
                         side: BorderSide(
                           color: colors.textMuted.withValues(alpha: 0.75),
                           width: 1.6,
@@ -780,10 +777,7 @@ class _FocusPanel extends StatelessWidget {
 }
 
 class _FocusStepProgress extends StatelessWidget {
-  const _FocusStepProgress({
-    required this.progress,
-    required this.accent,
-  });
+  const _FocusStepProgress({required this.progress, required this.accent});
 
   final double progress;
   final Color accent;
@@ -809,9 +803,7 @@ class _FocusStepProgress extends StatelessWidget {
           child: Center(
             child: Text(
               '$percent%',
-              style: _FocusType.h4(context).copyWith(
-                color: colors.textPrimary,
-              ),
+              style: _FocusType.h4(context).copyWith(color: colors.textPrimary),
             ),
           ),
         ),
@@ -841,15 +833,18 @@ class _FocusMetricBlock extends StatelessWidget {
             metric.value,
             maxLines: useDetailStyle ? 3 : 2,
             overflow: TextOverflow.ellipsis,
-            style: (useDetailStyle
-                    ? _FocusType.regular(context)
-                    : _FocusType.h3(context))
-                .copyWith(
-              fontWeight: useDetailStyle ? FontWeight.w400 : FontWeight.w800,
-              color: metric.tone == RhythmBadgeTone.neutral
-                  ? colors.textPrimary
-                  : accent,
-            ),
+            style:
+                (useDetailStyle
+                        ? _FocusType.regular(context)
+                        : _FocusType.h3(context))
+                    .copyWith(
+                      fontWeight: useDetailStyle
+                          ? FontWeight.w400
+                          : FontWeight.w800,
+                      color: metric.tone == RhythmBadgeTone.neutral
+                          ? colors.textPrimary
+                          : accent,
+                    ),
           ),
         ],
       ),
@@ -881,8 +876,9 @@ class _FocusTextPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: background,
-        borderRadius:
-            BorderRadius.circular(square ? RhythmRadius.xs : RhythmRadius.pill),
+        borderRadius: BorderRadius.circular(
+          square ? RhythmRadius.xs : RhythmRadius.pill,
+        ),
         border: Border.all(color: foreground.withValues(alpha: 0.18)),
       ),
       child: Row(
@@ -897,10 +893,9 @@ class _FocusTextPill extends StatelessWidget {
               pill.label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: _FocusType.small(context).copyWith(
-                color: foreground,
-                fontWeight: FontWeight.w800,
-              ),
+              style: _FocusType.small(
+                context,
+              ).copyWith(color: foreground, fontWeight: FontWeight.w800),
             ),
           ),
         ],
@@ -1002,55 +997,52 @@ class _FocusType {
   const _FocusType._();
 
   static TextStyle preH(BuildContext context) => _base(context).copyWith(
-        fontSize: 12,
-        height: 1.2,
-        fontWeight: FontWeight.w800,
-        letterSpacing: 0,
-      );
+    fontSize: 12,
+    height: 1.2,
+    fontWeight: FontWeight.w800,
+    letterSpacing: 0,
+  );
 
   static TextStyle h2(BuildContext context) => _base(context).copyWith(
-        fontSize: 30,
-        height: 1.15,
-        fontWeight: FontWeight.w800,
-        letterSpacing: 0,
-      );
+    fontSize: 30,
+    height: 1.15,
+    fontWeight: FontWeight.w800,
+    letterSpacing: 0,
+  );
 
   static TextStyle h3(BuildContext context) => _base(context).copyWith(
-        fontSize: 27,
-        height: 1.15,
-        fontWeight: FontWeight.w800,
-        letterSpacing: 0,
-      );
+    fontSize: 27,
+    height: 1.15,
+    fontWeight: FontWeight.w800,
+    letterSpacing: 0,
+  );
 
   static TextStyle h4(BuildContext context) => _base(context).copyWith(
-        fontSize: 22,
-        height: 1.15,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 0,
-      );
+    fontSize: 22,
+    height: 1.15,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 0,
+  );
 
   static TextStyle regular(BuildContext context) => _base(context).copyWith(
-        fontSize: 13,
-        height: 1.35,
-        fontWeight: FontWeight.w400,
-        letterSpacing: 0,
-      );
+    fontSize: 13,
+    height: 1.35,
+    fontWeight: FontWeight.w400,
+    letterSpacing: 0,
+  );
 
-  static TextStyle regularB(BuildContext context) => regular(context).copyWith(
-        fontWeight: FontWeight.w800,
-      );
+  static TextStyle regularB(BuildContext context) =>
+      regular(context).copyWith(fontWeight: FontWeight.w800);
 
   static TextStyle small(BuildContext context) => _base(context).copyWith(
-        fontSize: 12,
-        height: 1.15,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0,
-      );
+    fontSize: 12,
+    height: 1.15,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0,
+  );
 
-  static TextStyle _base(BuildContext context) => TextStyle(
-        fontFamily: 'Inter',
-        color: context.rhythm.textPrimary,
-      );
+  static TextStyle _base(BuildContext context) =>
+      TextStyle(fontFamily: 'Inter', color: context.rhythm.textPrimary);
 }
 
 Color _toneColor(RhythmColorRoles colors, RhythmBadgeTone tone) {

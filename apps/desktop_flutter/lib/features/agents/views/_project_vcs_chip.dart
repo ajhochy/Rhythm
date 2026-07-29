@@ -60,8 +60,8 @@ class _ProjectVcsChipState extends State<ProjectVcsChip> {
       setState(() => _loadingBranches = true);
       try {
         final b = await context.read<AgentProjectsController>().listBranches(
-              widget.project.id,
-            );
+          widget.project.id,
+        );
         if (mounted) {
           setState(() {
             _branches = b;
@@ -177,11 +177,11 @@ class _ProjectVcsChipState extends State<ProjectVcsChip> {
 
     try {
       await context.read<AgentProjectsController>().checkoutBranch(
-            project.id,
-            branch: branch,
-            stash: stashMode,
-            createBranch: createBranch,
-          );
+        project.id,
+        branch: branch,
+        stash: stashMode,
+        createBranch: createBranch,
+      );
       if (mounted) {
         setState(() {
           _isSwitching = false;

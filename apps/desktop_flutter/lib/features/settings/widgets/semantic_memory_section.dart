@@ -48,7 +48,8 @@ class _SemanticMemorySectionState extends State<SemanticMemorySection> {
   void initState() {
     super.initState();
     _ownsController = widget.controller == null;
-    _controller = widget.controller ??
+    _controller =
+        widget.controller ??
         SemanticMemoryController(SemanticMemoryDataSource());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _controller.initialize();
@@ -316,10 +317,7 @@ class _SemanticMemorySectionState extends State<SemanticMemorySection> {
 }
 
 class _StateBadge extends StatelessWidget {
-  const _StateBadge({
-    required this.label,
-    required this.state,
-  });
+  const _StateBadge({required this.label, required this.state});
 
   final String label;
   final String state;

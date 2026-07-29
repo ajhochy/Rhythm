@@ -12,8 +12,8 @@ import '../models/agent_model_route.dart';
 
 class AgentModelVisibilityDataSource {
   AgentModelVisibilityDataSource({http.Client? client})
-      : _baseUrl = AppConstants.agentLocalBaseUrl,
-        _client = client ?? http.Client();
+    : _baseUrl = AppConstants.agentLocalBaseUrl,
+      _client = client ?? http.Client();
 
   final String _baseUrl;
 
@@ -39,16 +39,16 @@ class AgentModelVisibilityDataSource {
   }
 
   /// Bulk-upserts visibility rows.
-  Future<void> patchVisibility(
-    List<AgentModelVisibility> updates,
-  ) async {
+  Future<void> patchVisibility(List<AgentModelVisibility> updates) async {
     final body = jsonEncode({
       'updates': updates
-          .map((v) => {
-                'provider': v.provider,
-                'modelId': v.modelId,
-                'visible': v.visible,
-              })
+          .map(
+            (v) => {
+              'provider': v.provider,
+              'modelId': v.modelId,
+              'visible': v.visible,
+            },
+          )
           .toList(),
     });
     final res = await _client.patch(

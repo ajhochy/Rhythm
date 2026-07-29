@@ -21,11 +21,7 @@ import 'agent_icon.dart';
 /// SDK replaced the PTY/CLI execution path. Availability is now driven by the
 /// Opencode capabilities map surfaced by `AgentServerController`.
 class AgentCard extends StatefulWidget {
-  const AgentCard({
-    super.key,
-    required this.config,
-    required this.isAvailable,
-  });
+  const AgentCard({super.key, required this.config, required this.isAvailable});
 
   final AgentConfig config;
   final bool isAvailable;
@@ -86,17 +82,17 @@ class _AgentCardState extends State<AgentCard> {
     // entries). Toggles save themselves immediately via [_saveToggle].
     if (widget.config.isPreset) return;
     if (!mounted) return;
-    await context.read<AgentConfigsController>().update(
-      widget.config.id,
-      {'label': _labelCtrl.text.trim()},
-    );
+    await context.read<AgentConfigsController>().update(widget.config.id, {
+      'label': _labelCtrl.text.trim(),
+    });
   }
 
   Future<void> _saveToggle(Map<String, dynamic> patch) async {
     if (!mounted) return;
-    await context
-        .read<AgentConfigsController>()
-        .update(widget.config.id, patch);
+    await context.read<AgentConfigsController>().update(
+      widget.config.id,
+      patch,
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -122,10 +118,7 @@ class _AgentCardState extends State<AgentCard> {
             style: FilledButton.styleFrom(
               backgroundColor: context.rhythm.danger,
             ),
-            child: const Text(
-              'Delete',
-              style: TextStyle(color: Colors.white),
-            ),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -191,20 +184,25 @@ class _AgentCardState extends State<AgentCard> {
                             vertical: 6,
                           ),
                           border: OutlineInputBorder(
-                            borderRadius:
-                                BorderRadius.circular(RhythmRadius.sm),
+                            borderRadius: BorderRadius.circular(
+                              RhythmRadius.sm,
+                            ),
                             borderSide: BorderSide(color: rhythm.border),
                           ),
                           enabledBorder: OutlineInputBorder(
-                            borderRadius:
-                                BorderRadius.circular(RhythmRadius.sm),
+                            borderRadius: BorderRadius.circular(
+                              RhythmRadius.sm,
+                            ),
                             borderSide: BorderSide(color: rhythm.border),
                           ),
                           focusedBorder: OutlineInputBorder(
-                            borderRadius:
-                                BorderRadius.circular(RhythmRadius.sm),
-                            borderSide:
-                                BorderSide(color: rhythm.accent, width: 2),
+                            borderRadius: BorderRadius.circular(
+                              RhythmRadius.sm,
+                            ),
+                            borderSide: BorderSide(
+                              color: rhythm.accent,
+                              width: 2,
+                            ),
                           ),
                           hintText: 'Agent name',
                           hintStyle: TextStyle(color: rhythm.textMuted),
@@ -228,13 +226,14 @@ class _AgentCardState extends State<AgentCard> {
               if (!isPreset) ...[
                 const SizedBox(width: 4),
                 IconButton(
-                  icon: Icon(Icons.delete_outline,
-                      size: 18, color: rhythm.danger),
+                  icon: Icon(
+                    Icons.delete_outline,
+                    size: 18,
+                    color: rhythm.danger,
+                  ),
                   tooltip: 'Delete agent',
                   onPressed: _confirmDelete,
-                  style: IconButton.styleFrom(
-                    padding: const EdgeInsets.all(6),
-                  ),
+                  style: IconButton.styleFrom(padding: const EdgeInsets.all(6)),
                 ),
               ],
             ],
@@ -300,10 +299,7 @@ class _CheckboxRow extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             label,
-            style: TextStyle(
-              fontSize: 13,
-              color: rhythm.textPrimary,
-            ),
+            style: TextStyle(fontSize: 13, color: rhythm.textPrimary),
           ),
         ],
       ),
@@ -339,11 +335,7 @@ class _AvailabilityBadge extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: fg,
-        ),
+        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: fg),
       ),
     );
   }

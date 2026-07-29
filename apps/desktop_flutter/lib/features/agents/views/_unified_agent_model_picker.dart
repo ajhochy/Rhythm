@@ -24,10 +24,7 @@ import '_session_model_picker.dart' show ModelPickerApplyAs;
 
 /// Pill button that shows the current model and opens the unified picker.
 class UnifiedAgentModelPicker extends StatelessWidget {
-  const UnifiedAgentModelPicker({
-    super.key,
-    required this.session,
-  });
+  const UnifiedAgentModelPicker({super.key, required this.session});
 
   final AgentSession session;
 
@@ -111,8 +108,8 @@ class UnifiedAgentModelPicker extends StatelessWidget {
 // Internal: button + popup
 // ---------------------------------------------------------------------------
 
-typedef _OnEntryPicked = void Function(
-    CatalogModelEntry entry, ModelPickerApplyAs applyAs);
+typedef _OnEntryPicked =
+    void Function(CatalogModelEntry entry, ModelPickerApplyAs applyAs);
 
 class _UnifiedPickerButton extends StatefulWidget {
   const _UnifiedPickerButton({
@@ -145,8 +142,9 @@ class _UnifiedPickerButtonState extends State<_UnifiedPickerButton> {
     final pillBorderColor = widget.hasTurnOverride
         ? accent.withValues(alpha: 0.4)
         : context.rhythm.border;
-    final labelColor =
-        widget.hasTurnOverride ? accent : context.rhythm.textSecondary;
+    final labelColor = widget.hasTurnOverride
+        ? accent
+        : context.rhythm.textSecondary;
 
     return PopupMenuButton<_PickerValue>(
       tooltip: 'Pick model',
@@ -210,14 +208,18 @@ class _UnifiedPickerButtonState extends State<_UnifiedPickerButton> {
 
     // Partition: authorized direct, authorized aggregator, unauthorized direct,
     // unauthorized aggregator.
-    final authedDirect =
-        catalog.where((e) => e.authorized && e.isDirect).toList();
-    final authedAggregator =
-        catalog.where((e) => e.authorized && e.isAggregator).toList();
-    final unauthedDirect =
-        catalog.where((e) => !e.authorized && e.isDirect).toList();
-    final unauthedAggregator =
-        catalog.where((e) => !e.authorized && e.isAggregator).toList();
+    final authedDirect = catalog
+        .where((e) => e.authorized && e.isDirect)
+        .toList();
+    final authedAggregator = catalog
+        .where((e) => e.authorized && e.isAggregator)
+        .toList();
+    final unauthedDirect = catalog
+        .where((e) => !e.authorized && e.isDirect)
+        .toList();
+    final unauthedAggregator = catalog
+        .where((e) => !e.authorized && e.isAggregator)
+        .toList();
 
     final items = <PopupMenuEntry<_PickerValue>>[];
 
@@ -282,7 +284,8 @@ class _UnifiedPickerButtonState extends State<_UnifiedPickerButton> {
 
   /// Groups direct entries by a section label (Claude, Codex, Copilot, etc.)
   Map<String, List<CatalogModelEntry>> _groupBySection(
-      List<CatalogModelEntry> direct) {
+    List<CatalogModelEntry> direct,
+  ) {
     final map = <String, List<CatalogModelEntry>>{};
     final order = <String>[];
     for (final e in direct) {
@@ -312,7 +315,9 @@ class _UnifiedPickerButtonState extends State<_UnifiedPickerButton> {
   }
 
   PopupMenuItem<_PickerValue> _sectionHeader(
-      BuildContext context, String label) {
+    BuildContext context,
+    String label,
+  ) {
     return PopupMenuItem<_PickerValue>(
       enabled: false,
       height: 28,
@@ -329,7 +334,9 @@ class _UnifiedPickerButtonState extends State<_UnifiedPickerButton> {
   }
 
   PopupMenuItem<_PickerValue> _providerHeader(
-      BuildContext context, String label) {
+    BuildContext context,
+    String label,
+  ) {
     return PopupMenuItem<_PickerValue>(
       enabled: false,
       height: 24,
@@ -350,8 +357,9 @@ class _UnifiedPickerButtonState extends State<_UnifiedPickerButton> {
     required bool isActive,
   }) {
     final accent = context.rhythm.accent;
-    final routeColor =
-        entry.isDirect ? context.rhythm.success : context.rhythm.warning;
+    final routeColor = entry.isDirect
+        ? context.rhythm.success
+        : context.rhythm.warning;
     final tagLabel = entry.isDirect ? 'direct' : 'via OpenRouter';
 
     return PopupMenuItem<_PickerValue>(
@@ -428,10 +436,7 @@ class _UnifiedPickerButtonState extends State<_UnifiedPickerButton> {
           Expanded(
             child: Text(
               providerLabel,
-              style: TextStyle(
-                fontSize: 13,
-                color: context.rhythm.textMuted,
-              ),
+              style: TextStyle(fontSize: 13, color: context.rhythm.textMuted),
             ),
           ),
           const SizedBox(width: 8),
@@ -528,9 +533,7 @@ class _ApplyAsDialog extends StatelessWidget {
         FilledButton(
           onPressed: () =>
               Navigator.of(context).pop(ModelPickerApplyAs.session),
-          style: FilledButton.styleFrom(
-            backgroundColor: context.rhythm.accent,
-          ),
+          style: FilledButton.styleFrom(backgroundColor: context.rhythm.accent),
           child: const Text('Session default'),
         ),
       ],

@@ -29,14 +29,14 @@ class AnthropicAccount {
 
 class AnthropicAccountsDataSource {
   AnthropicAccountsDataSource({http.Client? client})
-      : _client = client ?? http.Client();
+    : _client = client ?? http.Client();
 
   final http.Client _client;
   final String _base =
       '${AppConstants.agentLocalBaseUrl}/opencode/auth/accounts';
 
   Future<({List<AnthropicAccount> accounts, String? defaultAccountId})>
-      list() async {
+  list() async {
     final res = await _client.get(Uri.parse(_base));
     if (res.statusCode != 200) {
       throw Exception('accounts list failed: HTTP ${res.statusCode}');
@@ -72,7 +72,8 @@ class AnthropicAccountsDataSource {
     if (res.statusCode != 200) {
       String reason = 'HTTP ${res.statusCode}';
       try {
-        reason = (jsonDecode(res.body) as Map<String, dynamic>)['reason']
+        reason =
+            (jsonDecode(res.body) as Map<String, dynamic>)['reason']
                 as String? ??
             reason;
       } catch (_) {}

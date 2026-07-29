@@ -70,8 +70,7 @@ void main() {
       },
     );
 
-    test(
-        'omits MEMORY_VAULT_PATH/SUBDIR entirely when the setting is null '
+    test('omits MEMORY_VAULT_PATH/SUBDIR entirely when the setting is null '
         '(back-compat: api_server falls back to its own default)', () {
       final env = buildApiServerEnvironment(
         baseEnv: const {},
@@ -121,8 +120,7 @@ void main() {
       );
     });
 
-    test(
-        'an explicit MCP_ROLES_DIR already in baseEnv wins over the bundled '
+    test('an explicit MCP_ROLES_DIR already in baseEnv wins over the bundled '
         'default', () {
       final env = buildApiServerEnvironment(
         baseEnv: const {'MCP_ROLES_DIR': '/explicit/override/.mcp-roles'},
@@ -136,8 +134,7 @@ void main() {
       expect(env['MCP_ROLES_DIR'], '/explicit/override/.mcp-roles');
     });
 
-    test(
-        'omits MCP_ROLES_DIR entirely when null (dev: server falls back to '
+    test('omits MCP_ROLES_DIR entirely when null (dev: server falls back to '
         'its own repo-root-relative default)', () {
       final env = buildApiServerEnvironment(
         baseEnv: const {},

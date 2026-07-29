@@ -39,10 +39,7 @@ void main() {
 
       final dataSource = AgentsDataSource(client: client);
 
-      await dataSource.createSession(
-        cwd: '/tmp',
-        mcpRole: 'email-assistant',
-      );
+      await dataSource.createSession(cwd: '/tmp', mcpRole: 'email-assistant');
 
       expect(
         capturedBody,

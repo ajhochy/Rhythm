@@ -56,8 +56,11 @@ class AgentProjectsController extends ChangeNotifier {
     String? icon,
   }) async {
     try {
-      final created =
-          await _repository.create(name: name, cwd: cwd, icon: icon);
+      final created = await _repository.create(
+        name: name,
+        cwd: cwd,
+        icon: icon,
+      );
       _projects = [created, ..._projects];
       notifyListeners();
       return created;

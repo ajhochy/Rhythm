@@ -116,12 +116,11 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async {
+  getSession(String id) async {
     final now = DateTime.now();
     return (
       session: AgentSession(
@@ -191,19 +190,19 @@ class _StubAgentConfigsDataSource extends AgentConfigsDataSource {}
 /// separately in agent_configs_controller_test.dart.
 class _FakeAgentConfigsController extends AgentConfigsController {
   _FakeAgentConfigsController()
-      : super(AgentConfigsRepository(_StubAgentConfigsDataSource()));
+    : super(AgentConfigsRepository(_StubAgentConfigsDataSource()));
 
   @override
   AgentConfig? get secretaryAgent => AgentConfig(
-        id: 'secretary',
-        label: 'Secretary',
-        icon: '',
-        enabled: true,
-        isAgent: true,
-        sortOrder: 0,
-        isManager: true,
-        ocAgent: 'secretary',
-      );
+    id: 'secretary',
+    label: 'Secretary',
+    icon: '',
+    enabled: true,
+    isAgent: true,
+    sortOrder: 0,
+    isManager: true,
+    ocAgent: 'secretary',
+  );
 }
 
 class _FakeLocalNotificationService extends LocalNotificationService {
@@ -217,7 +216,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-      : super(NotificationsRepository(NotificationsDataSource()));
+    : super(NotificationsRepository(NotificationsDataSource()));
 }
 
 /// Fake task creation without touching the network — mirrors the pattern
@@ -317,8 +316,9 @@ void main() {
   });
 
   group('QuickActionsBar', () {
-    testWidgets('renders all four jargon-free quick-action buttons',
-        (tester) async {
+    testWidgets('renders all four jargon-free quick-action buttons', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         await _buildApp(
           agentsController: agentsController,
@@ -353,49 +353,51 @@ void main() {
     });
 
     testWidgets(
-        '"Help me finish this" creates a session and sends context with no typing',
-        (tester) async {
-      await tester.pumpWidget(
-        await _buildApp(
-          agentsController: agentsController,
-          tasksController: tasksController,
-          agentConfigsController: agentConfigsController,
-          quickActionContext: taskContext,
-        ),
-      );
-      await tester.pump();
+      '"Help me finish this" creates a session and sends context with no typing',
+      (tester) async {
+        await tester.pumpWidget(
+          await _buildApp(
+            agentsController: agentsController,
+            tasksController: tasksController,
+            agentConfigsController: agentConfigsController,
+            quickActionContext: taskContext,
+          ),
+        );
+        await tester.pump();
 
-      await tester.tap(
-        find.byKey(const ValueKey('quick-action-help-finish')),
-      );
-      await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('quick-action-help-finish')),
+        );
+        await tester.pumpAndSettle();
 
-      expect(stubAgentsRepo.lastMcpRole, equals('secretary'));
-      // Regression (#888): mcpRole alone only scopes the MCP tool allowlist —
-      // the server resolves which engine agent actually runs the session
-      // from agentId. Without this, the server fell back to the default
-      // catalog entry ("Coding Workflow") instead of Secretary.
-      expect(stubAgentsRepo.lastAgentId, equals('secretary'));
-      expect(stubAgentsRepo.lastTaskId, equals('task-42'));
-      // Regression (#863 smoke): the quick action must pass a NON-EMPTY cwd —
-      // POST /agent-sessions rejects '' with 400 "cwd is required", which
-      // silently broke the agent-launch half of the action in the live app.
-      expect(stubAgentsRepo.lastCwd, isNotNull);
-      expect(stubAgentsRepo.lastCwd, isNotEmpty);
-      expect(agentsController.selectedSessionId, equals('test-session-id'));
+        expect(stubAgentsRepo.lastMcpRole, equals('secretary'));
+        // Regression (#888): mcpRole alone only scopes the MCP tool allowlist —
+        // the server resolves which engine agent actually runs the session
+        // from agentId. Without this, the server fell back to the default
+        // catalog entry ("Coding Workflow") instead of Secretary.
+        expect(stubAgentsRepo.lastAgentId, equals('secretary'));
+        expect(stubAgentsRepo.lastTaskId, equals('task-42'));
+        // Regression (#863 smoke): the quick action must pass a NON-EMPTY cwd —
+        // POST /agent-sessions rejects '' with 400 "cwd is required", which
+        // silently broke the agent-launch half of the action in the live app.
+        expect(stubAgentsRepo.lastCwd, isNotNull);
+        expect(stubAgentsRepo.lastCwd, isNotEmpty);
+        expect(agentsController.selectedSessionId, equals('test-session-id'));
 
-      final inputFrames = stubAgentsRepo.sentMessages
-          .where((m) => m['type'] == 'session.input')
-          .toList();
-      expect(inputFrames, hasLength(1));
-      final sentText = inputFrames.first['data'] as String;
-      expect(sentText, contains('Help me finish this'));
-      expect(sentText, contains('Plan the fall retreat'));
-      expect(sentText, contains('Need a venue, budget'));
-    });
+        final inputFrames = stubAgentsRepo.sentMessages
+            .where((m) => m['type'] == 'session.input')
+            .toList();
+        expect(inputFrames, hasLength(1));
+        final sentText = inputFrames.first['data'] as String;
+        expect(sentText, contains('Help me finish this'));
+        expect(sentText, contains('Plan the fall retreat'));
+        expect(sentText, contains('Need a venue, budget'));
+      },
+    );
 
-    testWidgets('"Draft next steps" sends a next-steps preset prompt',
-        (tester) async {
+    testWidgets('"Draft next steps" sends a next-steps preset prompt', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         await _buildApp(
           agentsController: agentsController,
@@ -444,67 +446,70 @@ void main() {
     });
 
     testWidgets(
-        '"Create follow-up tasks" creates a real linked task and starts an agent',
-        (tester) async {
-      await tester.pumpWidget(
-        await _buildApp(
-          agentsController: agentsController,
-          tasksController: tasksController,
-          agentConfigsController: agentConfigsController,
-          quickActionContext: taskContext,
-        ),
-      );
-      await tester.pump();
+      '"Create follow-up tasks" creates a real linked task and starts an agent',
+      (tester) async {
+        await tester.pumpWidget(
+          await _buildApp(
+            agentsController: agentsController,
+            tasksController: tasksController,
+            agentConfigsController: agentConfigsController,
+            quickActionContext: taskContext,
+          ),
+        );
+        await tester.pump();
 
-      await tester.tap(
-        find.byKey(const ValueKey('quick-action-follow-up-tasks')),
-      );
-      await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('quick-action-follow-up-tasks')),
+        );
+        await tester.pumpAndSettle();
 
-      expect(fakeTasksDataSource.createdCalls, hasLength(1));
-      final created = fakeTasksDataSource.createdCalls.first;
-      expect(created['title'], contains('Plan the fall retreat'));
-      expect(created['notes'], contains('Plan the fall retreat'));
-      expect(created['notes'], contains('task'));
+        expect(fakeTasksDataSource.createdCalls, hasLength(1));
+        final created = fakeTasksDataSource.createdCalls.first;
+        expect(created['title'], contains('Plan the fall retreat'));
+        expect(created['notes'], contains('Plan the fall retreat'));
+        expect(created['notes'], contains('task'));
 
-      // The task actually landed in TasksController's list (real task).
-      expect(
-        tasksController.tasks.any((t) => t.id == 'follow-up-task-id'),
-        isTrue,
-      );
+        // The task actually landed in TasksController's list (real task).
+        expect(
+          tasksController.tasks.any((t) => t.id == 'follow-up-task-id'),
+          isTrue,
+        );
 
-      // An agent session was also started for further follow-up suggestions.
-      expect(stubAgentsRepo.lastMcpRole, equals('secretary'));
-      // Regression (#888): agentId must resolve to the Secretary profile —
-      // otherwise this session also silently ran under "Coding Workflow".
-      expect(stubAgentsRepo.lastAgentId, equals('secretary'));
-    });
+        // An agent session was also started for further follow-up suggestions.
+        expect(stubAgentsRepo.lastMcpRole, equals('secretary'));
+        // Regression (#888): agentId must resolve to the Secretary profile —
+        // otherwise this session also silently ran under "Coding Workflow".
+        expect(stubAgentsRepo.lastAgentId, equals('secretary'));
+      },
+    );
 
     testWidgets(
-        'onSessionReady is called with the new session id for a chat action',
-        (tester) async {
-      String? readySessionId;
-      await tester.pumpWidget(
-        await _buildApp(
-          agentsController: agentsController,
-          tasksController: tasksController,
-          agentConfigsController: agentConfigsController,
-          quickActionContext: taskContext,
-          onSessionReady: (id) => readySessionId = id,
-        ),
-      );
-      await tester.pump();
+      'onSessionReady is called with the new session id for a chat action',
+      (tester) async {
+        String? readySessionId;
+        await tester.pumpWidget(
+          await _buildApp(
+            agentsController: agentsController,
+            tasksController: tasksController,
+            agentConfigsController: agentConfigsController,
+            quickActionContext: taskContext,
+            onSessionReady: (id) => readySessionId = id,
+          ),
+        );
+        await tester.pump();
 
-      await tester.tap(
-        find.byKey(const ValueKey('quick-action-help-finish')),
-      );
-      await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('quick-action-help-finish')),
+        );
+        await tester.pumpAndSettle();
 
-      expect(readySessionId, equals('test-session-id'));
-    });
+        expect(readySessionId, equals('test-session-id'));
+      },
+    );
 
-    testWidgets('a failed createSession shows a clear, visible error',
-        (tester) async {
+    testWidgets('a failed createSession shows a clear, visible error', (
+      tester,
+    ) async {
       stubAgentsRepo.createSessionShouldFail = true;
 
       await tester.pumpWidget(
@@ -517,9 +522,7 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(
-        find.byKey(const ValueKey('quick-action-help-finish')),
-      );
+      await tester.tap(find.byKey(const ValueKey('quick-action-help-finish')));
       await tester.pumpAndSettle();
 
       expect(find.byType(SnackBar), findsOneWidget);

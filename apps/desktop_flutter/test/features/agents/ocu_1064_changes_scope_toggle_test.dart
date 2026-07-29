@@ -55,8 +55,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-      : _msgController = StreamController.broadcast(),
-        _connectivityController = StreamController.broadcast();
+    : _msgController = StreamController.broadcast(),
+      _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -82,12 +82,11 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async =>
-          (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+  getSession(String id) async =>
+      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   List<Map<String, dynamic>> stagedDiff = const [];
   @override
@@ -104,8 +103,7 @@ class _StubAgentsRepository implements AgentsRepository {
   Future<List<Map<String, dynamic>>> getVcsDiff(
     String sessionId,
     String mode,
-  ) async =>
-      vcsDiffByMode[mode] ?? const [];
+  ) async => vcsDiffByMode[mode] ?? const [];
 
   String rawPatch = '';
   @override
@@ -118,14 +116,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: 'Test Session',
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  agentId: 'claude-code',
+  name: 'Test Session',
+  cwd: '/tmp',
+  status: AgentSessionStatus.idle,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 const _kSessionDiffFixture = [
   {
@@ -167,25 +165,22 @@ void main() {
 
   tearDown(() => controller.dispose());
 
-  testWidgets(
-    'REAL-SURFACE: "This session" is the default scope and shows the '
-    'session diff',
-    (tester) async {
-      final session = _makeSession('s1');
-      repo.stagedDiff = _kSessionDiffFixture;
+  testWidgets('REAL-SURFACE: "This session" is the default scope and shows the '
+      'session diff', (tester) async {
+    final session = _makeSession('s1');
+    repo.stagedDiff = _kSessionDiffFixture;
 
-      await tester
-          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
-      await tester.pump();
-      await tester.tap(find.text('Changes'));
-      await tester.pump();
-      await tester.pump();
+    await tester.pumpWidget(
+      _wrap(controller, SessionSidePanel(session: session)),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Changes'));
+    await tester.pump();
+    await tester.pump();
 
-      expect(
-          find.byKey(const ValueKey('changes-scope-session')), findsOneWidget);
-      expect(find.byIcon(Icons.expand_more), findsOneWidget);
-    },
-  );
+    expect(find.byKey(const ValueKey('changes-scope-session')), findsOneWidget);
+    expect(find.byIcon(Icons.expand_more), findsOneWidget);
+  });
 
   testWidgets(
     'REAL-SURFACE: "All uncommitted" scope fetches and renders vcs/diff '
@@ -201,15 +196,17 @@ void main() {
         },
       ];
 
-      await tester
-          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
+      await tester.pumpWidget(
+        _wrap(controller, SessionSidePanel(session: session)),
+      );
       await tester.pump();
       await tester.tap(find.text('Changes'));
       await tester.pump();
       await tester.pump();
 
-      await tester
-          .tap(find.byKey(const ValueKey('changes-scope-allUncommitted')));
+      await tester.tap(
+        find.byKey(const ValueKey('changes-scope-allUncommitted')),
+      );
       await tester.pump(); // triggers fetchVcsDiff
       await tester.pump();
 
@@ -235,15 +232,17 @@ void main() {
         },
       ];
 
-      await tester
-          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
+      await tester.pumpWidget(
+        _wrap(controller, SessionSidePanel(session: session)),
+      );
       await tester.pump();
       await tester.tap(find.text('Changes'));
       await tester.pump();
       await tester.pump();
 
-      await tester
-          .tap(find.byKey(const ValueKey('changes-scope-vsDefaultBranch')));
+      await tester.tap(
+        find.byKey(const ValueKey('changes-scope-vsDefaultBranch')),
+      );
       await tester.pump();
       await tester.pump();
 
@@ -257,15 +256,17 @@ void main() {
       final session = _makeSession('s1');
       // vcsDiffByMode['git'] left unset → empty list.
 
-      await tester
-          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
+      await tester.pumpWidget(
+        _wrap(controller, SessionSidePanel(session: session)),
+      );
       await tester.pump();
       await tester.tap(find.text('Changes'));
       await tester.pump();
       await tester.pump();
 
-      await tester
-          .tap(find.byKey(const ValueKey('changes-scope-allUncommitted')));
+      await tester.tap(
+        find.byKey(const ValueKey('changes-scope-allUncommitted')),
+      );
       await tester.pump();
       await tester.pump();
 
@@ -292,24 +293,25 @@ void main() {
 
       // Initialize a throwaway git repo with the pre-patch file content.
       await Process.run('git', ['init', '-q'], workingDirectory: tmp.path);
-      await Process.run(
-        'git',
-        ['config', 'user.email', 'test@example.com'],
-        workingDirectory: tmp.path,
-      );
-      await Process.run(
-        'git',
-        ['config', 'user.name', 'Test'],
-        workingDirectory: tmp.path,
-      );
+      await Process.run('git', [
+        'config',
+        'user.email',
+        'test@example.com',
+      ], workingDirectory: tmp.path);
+      await Process.run('git', [
+        'config',
+        'user.name',
+        'Test',
+      ], workingDirectory: tmp.path);
       final target = File('${tmp.path}/a.txt');
       await target.writeAsString('line one\nline two\nline three\n');
       await Process.run('git', ['add', '.'], workingDirectory: tmp.path);
-      await Process.run(
-        'git',
-        ['commit', '-q', '-m', 'init'],
-        workingDirectory: tmp.path,
-      );
+      await Process.run('git', [
+        'commit',
+        '-q',
+        '-m',
+        'init',
+      ], workingDirectory: tmp.path);
 
       // The exact shape the Changes-tab "Export patch" action writes: the raw
       // text/x-diff body returned by GET /vcs/diff/raw, verbatim.
@@ -327,11 +329,11 @@ index 0000000..1111111 100644
       final patchFile = File('${tmp.path}/export.patch');
       await patchFile.writeAsString(patch);
 
-      final result = await Process.run(
-        'git',
-        ['apply', '--check', 'export.patch'],
-        workingDirectory: tmp.path,
-      );
+      final result = await Process.run('git', [
+        'apply',
+        '--check',
+        'export.patch',
+      ], workingDirectory: tmp.path);
 
       expect(
         result.exitCode,

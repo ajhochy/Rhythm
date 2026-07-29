@@ -8,8 +8,8 @@ import '../models/task_collaborator.dart';
 
 class CollaboratorsDataSource {
   CollaboratorsDataSource({required String baseUrl, http.Client? client})
-      : _baseUrl = baseUrl,
-        _client = client ?? http.Client();
+    : _baseUrl = baseUrl,
+      _client = client ?? http.Client();
 
   final String _baseUrl;
   final http.Client _client;

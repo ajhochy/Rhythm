@@ -60,19 +60,21 @@ void main() {
     },
   );
 
-  test('DashboardController derives open handoff tasks from shared context',
-      () async {
-    final controller = DashboardController(
-      _FakeDashboardRepository(_FakeDashboardHandoffDataSource()),
-    );
+  test(
+    'DashboardController derives open handoff tasks from shared context',
+    () async {
+      final controller = DashboardController(
+        _FakeDashboardRepository(_FakeDashboardHandoffDataSource()),
+      );
 
-    await controller.load();
+      await controller.load();
 
-    expect(controller.handoffTasks.map((task) => task.id), [
-      'shared-due',
-      'collaborative-unscheduled',
-    ]);
-  });
+      expect(controller.handoffTasks.map((task) => task.id), [
+        'shared-due',
+        'collaborative-unscheduled',
+      ]);
+    },
+  );
 
   test(
     'DashboardController keeps same-day task order stable when updatedAt changes',
@@ -209,30 +211,29 @@ DashboardSummary _buildSummary({
   List<Task> recent = const [],
   List<DashboardRhythmProgress> rhythms = const [],
   List<DashboardProjectProgress> projects = const [],
-}) =>
-    DashboardSummary(
-      tasks: DashboardSummaryTaskSlice(
-        openCount: openCount,
-        pastDueCount: 0,
-        pastDeadlineCount: 0,
-        todayRemainingCount: 0,
-        todayTotalCount: 0,
-        thisWeekRemainingCount: thisWeekRemainingCount,
-        thisWeekTotalCount: thisWeekTotalCount,
-        unscheduledCount: 0,
-        recent: recent,
-        pastDue: const [],
-        today: const [],
-        thisWeek: const [],
-        unscheduled: const [],
-      ),
-      rhythms: rhythms,
-      projects: projects,
-      messages: DashboardSummaryMessageSlice(
-        threadCount: 0,
-        unreadPreviews: const [],
-      ),
-    );
+}) => DashboardSummary(
+  tasks: DashboardSummaryTaskSlice(
+    openCount: openCount,
+    pastDueCount: 0,
+    pastDeadlineCount: 0,
+    todayRemainingCount: 0,
+    todayTotalCount: 0,
+    thisWeekRemainingCount: thisWeekRemainingCount,
+    thisWeekTotalCount: thisWeekTotalCount,
+    unscheduledCount: 0,
+    recent: recent,
+    pastDue: const [],
+    today: const [],
+    thisWeek: const [],
+    unscheduled: const [],
+  ),
+  rhythms: rhythms,
+  projects: projects,
+  messages: DashboardSummaryMessageSlice(
+    threadCount: 0,
+    unreadPreviews: const [],
+  ),
+);
 
 class _FakeDashboardDataSource extends DashboardDataSource {
   _FakeDashboardDataSource() : super(baseUrl: 'http://example.invalid');
@@ -408,7 +409,7 @@ class _FakeDashboardRepository extends DashboardRepository {
 
 class _FakeMessagesRepository extends MessagesRepository {
   _FakeMessagesRepository()
-      : super(MessagesDataSource(baseUrl: 'http://example.invalid'));
+    : super(MessagesDataSource(baseUrl: 'http://example.invalid'));
 
   int getThreadsCallCount = 0;
   int getMessagesCallCount = 0;
@@ -430,8 +431,8 @@ class _FakeMessagesRepository extends MessagesRepository {
 
   @override
   Future<List<AuthUser>> getUsers() async => const [
-        AuthUser(id: 2, name: 'Bob', email: 'bob@example.com', role: 'member'),
-      ];
+    AuthUser(id: 2, name: 'Bob', email: 'bob@example.com', role: 'member'),
+  ];
 
   @override
   Future<MessageThread> createThread(
@@ -499,10 +500,9 @@ class _FakeRhythmsRepository extends RhythmsRepository {
 
   @override
   Future<List<AuthUser>> getUsers() async => const [
-        AuthUser(
-            id: 1, name: 'Alice', email: 'alice@example.com', role: 'member'),
-        AuthUser(id: 2, name: 'Bob', email: 'bob@example.com', role: 'member'),
-      ];
+    AuthUser(id: 1, name: 'Alice', email: 'alice@example.com', role: 'member'),
+    AuthUser(id: 2, name: 'Bob', email: 'bob@example.com', role: 'member'),
+  ];
 
   @override
   Future<RecurringTaskRule> create({

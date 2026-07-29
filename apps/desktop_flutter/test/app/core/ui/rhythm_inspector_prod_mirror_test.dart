@@ -14,21 +14,21 @@ import 'package:rhythm_desktop/features/tasks/models/task_collaborator.dart';
 
 void main() {
   Widget wrap(Widget widget) => MaterialApp(
-        theme: ThemeData.light().copyWith(
-          extensions: const [RhythmColorRoles.light],
-        ),
-        home: Scaffold(body: widget),
-      );
+    theme: ThemeData.light().copyWith(
+      extensions: const [RhythmColorRoles.light],
+    ),
+    home: Scaffold(body: widget),
+  );
 
   Task makeTask({String? sourceType}) => Task(
-        id: 'test-1',
-        title: 'Mirrored task',
-        status: TaskStatus.open,
-        collaborators: const <TaskCollaborator>[],
-        createdAt: '2026-01-01',
-        updatedAt: '2026-01-01',
-        sourceType: sourceType,
-      );
+    id: 'test-1',
+    title: 'Mirrored task',
+    status: TaskStatus.open,
+    collaborators: const <TaskCollaborator>[],
+    createdAt: '2026-01-01',
+    updatedAt: '2026-01-01',
+    sourceType: sourceType,
+  );
 
   Future<void> openInspector(WidgetTester tester, Task task) async {
     await tester.binding.setSurfaceSize(const Size(1400, 900));

@@ -165,16 +165,14 @@ OpencodeSkillEntry _skill(
   String? source,
   String? description = 'desc',
   OpencodeSkillMetadata? metadata,
-}) =>
-    OpencodeSkillEntry(
-      name: name,
-      description: description,
-      location:
-          managed ? '/managed/$name/SKILL.md' : '/external/$name/SKILL.md',
-      managed: managed,
-      source: source,
-      metadata: metadata ?? const OpencodeSkillMetadata(),
-    );
+}) => OpencodeSkillEntry(
+  name: name,
+  description: description,
+  location: managed ? '/managed/$name/SKILL.md' : '/external/$name/SKILL.md',
+  managed: managed,
+  source: source,
+  metadata: metadata ?? const OpencodeSkillMetadata(),
+);
 
 Widget _buildApp(AgentSkillsController controller) {
   return MultiProvider(
@@ -300,7 +298,9 @@ void main() {
         // External row: still its own distinct badge (falsifies "org and
         // external share a badge").
         expect(
-            find.byKey(const ValueKey('badge-external-docx')), findsOneWidget);
+          find.byKey(const ValueKey('badge-external-docx')),
+          findsOneWidget,
+        );
       },
     );
 
@@ -548,11 +548,12 @@ void main() {
     /// Returns the on-screen top-to-bottom order of the given skill names by
     /// their vertical position, so we can assert sort order deterministically.
     List<String> orderedNames(WidgetTester tester, List<String> names) {
-      final pairs = names
-          .where((n) => find.text(n).evaluate().isNotEmpty)
-          .map((n) => MapEntry(n, tester.getTopLeft(find.text(n)).dy))
-          .toList()
-        ..sort((a, b) => a.value.compareTo(b.value));
+      final pairs =
+          names
+              .where((n) => find.text(n).evaluate().isNotEmpty)
+              .map((n) => MapEntry(n, tester.getTopLeft(find.text(n)).dy))
+              .toList()
+            ..sort((a, b) => a.value.compareTo(b.value));
       return pairs.map((e) => e.key).toList();
     }
 
@@ -701,8 +702,7 @@ void main() {
       (tester) async {
         final ds = _FakeSkillsDataSource([
           _skill('release-notes', managed: true),
-        ])
-          ..contentByName['release-notes'] = 'The SKILL.md body text.';
+        ])..contentByName['release-notes'] = 'The SKILL.md body text.';
         final controller = AgentSkillsController(ds);
         addTearDown(controller.dispose);
 
@@ -849,11 +849,12 @@ void main() {
     /// Returns the on-screen top-to-bottom order of the given skill names by
     /// their vertical position (mirrors the #813 sort-order helper).
     List<String> orderedNames(WidgetTester tester, List<String> names) {
-      final pairs = names
-          .where((n) => find.text(n).evaluate().isNotEmpty)
-          .map((n) => MapEntry(n, tester.getTopLeft(find.text(n)).dy))
-          .toList()
-        ..sort((a, b) => a.value.compareTo(b.value));
+      final pairs =
+          names
+              .where((n) => find.text(n).evaluate().isNotEmpty)
+              .map((n) => MapEntry(n, tester.getTopLeft(find.text(n)).dy))
+              .toList()
+            ..sort((a, b) => a.value.compareTo(b.value));
       return pairs.map((e) => e.key).toList();
     }
 
@@ -869,14 +870,8 @@ void main() {
         await tester.pumpWidget(_buildApp(controller));
         await tester.pumpAndSettle();
 
-        expect(
-          find.byKey(const ValueKey('skills-sort-score')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const ValueKey('skills-sort-usage')),
-          findsOneWidget,
-        );
+        expect(find.byKey(const ValueKey('skills-sort-score')), findsOneWidget);
+        expect(find.byKey(const ValueKey('skills-sort-usage')), findsOneWidget);
       },
     );
 

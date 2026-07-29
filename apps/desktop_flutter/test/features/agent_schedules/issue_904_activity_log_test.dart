@@ -21,7 +21,7 @@ import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 
 class _FakeSchedulesDataSource extends AgentSchedulesDataSource {
   _FakeSchedulesDataSource(this._tasks, {List<AgentSession> runs = const []})
-      : _runs = runs;
+    : _runs = runs;
 
   final List<AgentScheduledTask> _tasks;
   final List<AgentSession> _runs;
@@ -42,33 +42,32 @@ class _EmptyAgentConfigsDataSource extends AgentConfigsDataSource {
 const _kEpoch = '1970-01-01T00:00:00.000Z';
 
 AgentScheduledTask _task(String id, String name) => AgentScheduledTask(
-      id: id,
-      name: name,
-      scheduleType: 'daily',
-      scheduledTime: '09:00',
-      timezone: 'America/Los_Angeles',
-      prompt: 'do something',
-      agentKind: 'opencode',
-      enabled: true,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  name: name,
+  scheduleType: 'daily',
+  scheduledTime: '09:00',
+  timezone: 'America/Los_Angeles',
+  prompt: 'do something',
+  agentKind: 'opencode',
+  enabled: true,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 AgentSession _run(
   String id, {
   required AgentSessionStatus status,
   String? lastPreview,
-}) =>
-    AgentSession(
-      id: id,
-      agentId: 'opencode',
-      name: 'Run $id',
-      cwd: '/tmp',
-      status: status,
-      lastPreview: lastPreview,
-      createdAt: DateTime.parse(_kEpoch),
-      updatedAt: DateTime.parse(_kEpoch),
-    );
+}) => AgentSession(
+  id: id,
+  agentId: 'opencode',
+  name: 'Run $id',
+  cwd: '/tmp',
+  status: status,
+  lastPreview: lastPreview,
+  createdAt: DateTime.parse(_kEpoch),
+  updatedAt: DateTime.parse(_kEpoch),
+);
 
 Widget _buildApp({
   required AgentSchedulesController schedulesController,
@@ -101,12 +100,16 @@ void main() {
         _FakeSchedulesDataSource(
           [_task('t1', 'Sunday Prep')],
           runs: [
-            _run('r1',
-                status: AgentSessionStatus.idle,
-                lastPreview: 'Staffing complete, no gaps found.'),
-            _run('r2',
-                status: AgentSessionStatus.error,
-                lastPreview: 'Run timed out after 50ms'),
+            _run(
+              'r1',
+              status: AgentSessionStatus.idle,
+              lastPreview: 'Staffing complete, no gaps found.',
+            ),
+            _run(
+              'r2',
+              status: AgentSessionStatus.error,
+              lastPreview: 'Run timed out after 50ms',
+            ),
           ],
         ),
       ),
@@ -116,27 +119,27 @@ void main() {
     );
     await schedulesController.refresh();
 
-    await tester.pumpWidget(_buildApp(
-      schedulesController: schedulesController,
-      configsController: configsController,
-    ));
+    await tester.pumpWidget(
+      _buildApp(
+        schedulesController: schedulesController,
+        configsController: configsController,
+      ),
+    );
     await tester.pump();
 
     await openDetailSheet(tester, 'Sunday Prep');
 
     expect(find.text('ACTIVITY'), findsOneWidget);
-    expect(
-      find.text('Staffing complete, no gaps found.'),
-      findsOneWidget,
-    );
+    expect(find.text('Staffing complete, no gaps found.'), findsOneWidget);
     expect(find.text('Run timed out after 50ms'), findsOneWidget);
 
     schedulesController.dispose();
     configsController.dispose();
   });
 
-  testWidgets('shows "No runs yet" when the task has never run',
-      (tester) async {
+  testWidgets('shows "No runs yet" when the task has never run', (
+    tester,
+  ) async {
     final schedulesController = AgentSchedulesController(
       AgentSchedulesRepository(
         _FakeSchedulesDataSource([_task('t1', 'Sunday Prep')]),
@@ -147,10 +150,12 @@ void main() {
     );
     await schedulesController.refresh();
 
-    await tester.pumpWidget(_buildApp(
-      schedulesController: schedulesController,
-      configsController: configsController,
-    ));
+    await tester.pumpWidget(
+      _buildApp(
+        schedulesController: schedulesController,
+        configsController: configsController,
+      ),
+    );
     await tester.pump();
 
     await openDetailSheet(tester, 'Sunday Prep');

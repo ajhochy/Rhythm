@@ -337,10 +337,7 @@ class _KeybindRow extends StatelessWidget {
         Expanded(
           child: Text(
             label,
-            style: TextStyle(
-              fontSize: 13,
-              color: context.rhythm.textPrimary,
-            ),
+            style: TextStyle(fontSize: 13, color: context.rhythm.textPrimary),
           ),
         ),
         SizedBox(
@@ -463,10 +460,7 @@ class _OpencodeServerSectionState extends State<_OpencodeServerSection> {
           ),
           decoration: InputDecoration(
             hintText: 'http://localhost:4001  (embedded)',
-            hintStyle: TextStyle(
-              color: context.rhythm.textMuted,
-              fontSize: 12,
-            ),
+            hintStyle: TextStyle(color: context.rhythm.textMuted, fontSize: 12),
             isDense: true,
             filled: true,
             fillColor: context.rhythm.surfaceMuted,

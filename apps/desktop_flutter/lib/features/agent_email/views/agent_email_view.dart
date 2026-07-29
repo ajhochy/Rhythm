@@ -242,8 +242,9 @@ class _SignalTile extends StatelessWidget {
                   signal.subject,
                   style: TextStyle(
                     color: rhythm.textPrimary,
-                    fontWeight:
-                        signal.isUnread ? FontWeight.w600 : FontWeight.normal,
+                    fontWeight: signal.isUnread
+                        ? FontWeight.w600
+                        : FontWeight.normal,
                     fontSize: 13,
                   ),
                   overflow: TextOverflow.ellipsis,

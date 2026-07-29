@@ -23,13 +23,7 @@ import 'package:rhythm_desktop/features/agents/views/agents_view.dart';
 Widget _wrap(Widget child) {
   return MaterialApp(
     theme: AppTheme.light(),
-    home: Scaffold(
-      body: SizedBox(
-        width: 800,
-        height: 600,
-        child: child,
-      ),
-    ),
+    home: Scaffold(body: SizedBox(width: 800, height: 600, child: child)),
   );
 }
 
@@ -40,9 +34,7 @@ Widget _wrap(Widget child) {
 void main() {
   group('issue #746 — _EngineConnectingState (non-blocking composer)', () {
     testWidgets('renders the connecting banner text', (tester) async {
-      await tester.pumpWidget(
-        _wrap(const EngineConnectingStateTestHarness()),
-      );
+      await tester.pumpWidget(_wrap(const EngineConnectingStateTestHarness()));
       await tester.pump();
 
       expect(
@@ -53,11 +45,10 @@ void main() {
       );
     });
 
-    testWidgets('renders a CircularProgressIndicator in the banner',
-        (tester) async {
-      await tester.pumpWidget(
-        _wrap(const EngineConnectingStateTestHarness()),
-      );
+    testWidgets('renders a CircularProgressIndicator in the banner', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_wrap(const EngineConnectingStateTestHarness()));
       await tester.pump();
 
       expect(
@@ -67,11 +58,10 @@ void main() {
       );
     });
 
-    testWidgets('renders the text field (disabled, not interactive)',
-        (tester) async {
-      await tester.pumpWidget(
-        _wrap(const EngineConnectingStateTestHarness()),
-      );
+    testWidgets('renders the text field (disabled, not interactive)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_wrap(const EngineConnectingStateTestHarness()));
       await tester.pump();
 
       final textFieldFinder = find.byType(TextField);
@@ -91,9 +81,7 @@ void main() {
     });
 
     testWidgets('renders the Send button in a disabled state', (tester) async {
-      await tester.pumpWidget(
-        _wrap(const EngineConnectingStateTestHarness()),
-      );
+      await tester.pumpWidget(_wrap(const EngineConnectingStateTestHarness()));
       await tester.pump();
 
       final buttonFinder = find.widgetWithText(FilledButton, 'Send');
@@ -112,11 +100,10 @@ void main() {
       );
     });
 
-    testWidgets('shows hint text indicating readiness is pending',
-        (tester) async {
-      await tester.pumpWidget(
-        _wrap(const EngineConnectingStateTestHarness()),
-      );
+    testWidgets('shows hint text indicating readiness is pending', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_wrap(const EngineConnectingStateTestHarness()));
       await tester.pump();
 
       // The hint is on the disabled text field.

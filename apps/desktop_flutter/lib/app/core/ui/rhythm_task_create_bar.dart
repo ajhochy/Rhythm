@@ -7,12 +7,13 @@ import '../workspace/workspace_controller.dart';
 import '../workspace/workspace_models.dart';
 import 'rhythm_ui.dart';
 
-typedef RhythmTaskCreateCallback = void Function(
-  String title, {
-  String? notes,
-  String? scheduledDate,
-  int? collaboratorId,
-});
+typedef RhythmTaskCreateCallback =
+    void Function(
+      String title, {
+      String? notes,
+      String? scheduledDate,
+      int? collaboratorId,
+    });
 
 class RhythmTaskCreateBar extends StatefulWidget {
   const RhythmTaskCreateBar({
@@ -127,8 +128,9 @@ class _RhythmTaskCreateBarState extends State<RhythmTaskCreateBar> {
               hintText: widget.titleHint,
               icon: Icons.edit_note_outlined,
             ),
-            textInputAction:
-                widget.showNotes ? TextInputAction.next : TextInputAction.done,
+            textInputAction: widget.showNotes
+                ? TextInputAction.next
+                : TextInputAction.done,
             onSubmitted: (_) => _submit(),
           );
 
@@ -156,16 +158,14 @@ class _RhythmTaskCreateBarState extends State<RhythmTaskCreateBar> {
             compact: true,
           );
 
-          final collaboratorButton =
-              widget.showCollaborator ? _collaboratorButton(context) : null;
+          final collaboratorButton = widget.showCollaborator
+              ? _collaboratorButton(context)
+              : null;
 
           if (constraints.maxWidth >= 900) {
             return Row(
               children: [
-                Expanded(
-                  flex: widget.showNotes ? 3 : 5,
-                  child: titleField,
-                ),
+                Expanded(flex: widget.showNotes ? 3 : 5, child: titleField),
                 if (widget.showNotes) ...[
                   const SizedBox(width: RhythmSpacing.xs),
                   Expanded(

@@ -44,22 +44,21 @@ class SemanticMemoryStatus {
     return SemanticMemoryStatus(
       enabled: json['enabled'] == true,
       state: json['state'] as String? ?? 'disabled',
-      hasExecutable: json['executablePath'] is String &&
+      hasExecutable:
+          json['executablePath'] is String &&
           (json['executablePath'] as String).isNotEmpty,
       discoverySource: json['discoverySource'] as String?,
       version: json['version'] as String?,
-      lastHealthyAt:
-          rawHealthyAt is String ? DateTime.tryParse(rawHealthyAt) : null,
+      lastHealthyAt: rawHealthyAt is String
+          ? DateTime.tryParse(rawHealthyAt)
+          : null,
       failureCategory: json['lastFailureCategory'] as String?,
     );
   }
 }
 
 class SemanticMemoryCandidate {
-  const SemanticMemoryCandidate({
-    required this.path,
-    required this.source,
-  });
+  const SemanticMemoryCandidate({required this.path, required this.source});
 
   final String path;
   final String source;
@@ -73,11 +72,7 @@ class SemanticMemoryCandidate {
 }
 
 class SemanticMemoryHealth {
-  const SemanticMemoryHealth({
-    required this.ok,
-    this.category,
-    this.latencyMs,
-  });
+  const SemanticMemoryHealth({required this.ok, this.category, this.latencyMs});
 
   final bool ok;
   final String? category;
@@ -93,10 +88,8 @@ class SemanticMemoryHealth {
 }
 
 abstract class SemanticMemoryDataSource {
-  factory SemanticMemoryDataSource({
-    String? baseUrl,
-    http.Client? client,
-  }) = _SemanticMemoryDataSourceImpl;
+  factory SemanticMemoryDataSource({String? baseUrl, http.Client? client}) =
+      _SemanticMemoryDataSourceImpl;
 
   @visibleForTesting
   String get baseUrlForTest;
@@ -119,11 +112,9 @@ abstract class SemanticMemoryDataSource {
 }
 
 class _SemanticMemoryDataSourceImpl implements SemanticMemoryDataSource {
-  _SemanticMemoryDataSourceImpl({
-    String? baseUrl,
-    http.Client? client,
-  })  : _baseUrl = baseUrl ?? AppConstants.agentLocalBaseUrl,
-        _client = client ?? http.Client();
+  _SemanticMemoryDataSourceImpl({String? baseUrl, http.Client? client})
+    : _baseUrl = baseUrl ?? AppConstants.agentLocalBaseUrl,
+      _client = client ?? http.Client();
 
   final String _baseUrl;
   final http.Client _client;

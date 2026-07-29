@@ -51,83 +51,82 @@ class _FakeRunQualityDataSource extends RunQualityDataSource {
 // ---------------------------------------------------------------------------
 
 AgentRunQuality _healthyAgent() => AgentRunQuality(
-      agentKind: 'claude-code',
-      agentLabel: 'Claude Code',
-      totalRuns: 10,
-      completedRuns: 9,
-      escalatedRuns: 1,
-      inProgressRuns: 0,
-      unmeasuredRuns: 0,
-      notEnoughData: false,
-      completionRate: 0.9,
-      escalationRate: 0.1,
-      totalTokens: 100000,
-      wastedTokens: 2000,
-      wastePercentOfSpend: 0.02,
-      totalUserCorrections: 1,
-      avgCorrectionsPerRun: 0.1,
-      repeatedMistakes: const [],
-    );
+  agentKind: 'claude-code',
+  agentLabel: 'Claude Code',
+  totalRuns: 10,
+  completedRuns: 9,
+  escalatedRuns: 1,
+  inProgressRuns: 0,
+  unmeasuredRuns: 0,
+  notEnoughData: false,
+  completionRate: 0.9,
+  escalationRate: 0.1,
+  totalTokens: 100000,
+  wastedTokens: 2000,
+  wastePercentOfSpend: 0.02,
+  totalUserCorrections: 1,
+  avgCorrectionsPerRun: 0.1,
+  repeatedMistakes: const [],
+);
 
 AgentRunQuality _thinHistoryAgent() => AgentRunQuality(
-      agentKind: 'gemini-cli',
-      agentLabel: 'Gemini CLI',
-      totalRuns: 2,
-      completedRuns: 1,
-      escalatedRuns: 1,
-      inProgressRuns: 0,
-      unmeasuredRuns: 0,
-      notEnoughData: true,
-      completionRate: null,
-      escalationRate: null,
-      totalTokens: 500,
-      wastedTokens: 0,
-      wastePercentOfSpend: null,
-      totalUserCorrections: 0,
-      avgCorrectionsPerRun: null,
-      repeatedMistakes: const [],
-    );
+  agentKind: 'gemini-cli',
+  agentLabel: 'Gemini CLI',
+  totalRuns: 2,
+  completedRuns: 1,
+  escalatedRuns: 1,
+  inProgressRuns: 0,
+  unmeasuredRuns: 0,
+  notEnoughData: true,
+  completionRate: null,
+  escalationRate: null,
+  totalTokens: 500,
+  wastedTokens: 0,
+  wastePercentOfSpend: null,
+  totalUserCorrections: 0,
+  avgCorrectionsPerRun: null,
+  repeatedMistakes: const [],
+);
 
 AgentRunQuality _unmeasuredAgent() => AgentRunQuality(
-      agentKind: 'codex',
-      agentLabel: 'Codex',
-      totalRuns: 7,
-      completedRuns: 5,
-      escalatedRuns: 1,
-      inProgressRuns: 0,
-      unmeasuredRuns: 1,
-      notEnoughData: false,
-      completionRate: 5 / 6,
-      escalationRate: 1 / 6,
-      totalTokens: 40000,
-      wastedTokens: 500,
-      wastePercentOfSpend: 0.0125,
-      totalUserCorrections: 0,
-      avgCorrectionsPerRun: 0,
-      repeatedMistakes: const [],
-    );
+  agentKind: 'codex',
+  agentLabel: 'Codex',
+  totalRuns: 7,
+  completedRuns: 5,
+  escalatedRuns: 1,
+  inProgressRuns: 0,
+  unmeasuredRuns: 1,
+  notEnoughData: false,
+  completionRate: 5 / 6,
+  escalationRate: 1 / 6,
+  totalTokens: 40000,
+  wastedTokens: 500,
+  wastePercentOfSpend: 0.0125,
+  totalUserCorrections: 0,
+  avgCorrectionsPerRun: 0,
+  repeatedMistakes: const [],
+);
 
 AgentRunQuality _repeatOffenderAgent() => AgentRunQuality(
-      agentKind: 'claude-code',
-      agentLabel: 'Claude Code',
-      totalRuns: 8,
-      completedRuns: 4,
-      escalatedRuns: 4,
-      inProgressRuns: 0,
-      unmeasuredRuns: 0,
-      notEnoughData: false,
-      completionRate: 0.5,
-      escalationRate: 0.5,
-      totalTokens: 20000,
-      wastedTokens: 10000,
-      wastePercentOfSpend: 0.5,
-      totalUserCorrections: 6,
-      avgCorrectionsPerRun: 0.75,
-      repeatedMistakes: [
-        RepeatedMistake(
-            message: 'tool call failed: permission denied', count: 3),
-      ],
-    );
+  agentKind: 'claude-code',
+  agentLabel: 'Claude Code',
+  totalRuns: 8,
+  completedRuns: 4,
+  escalatedRuns: 4,
+  inProgressRuns: 0,
+  unmeasuredRuns: 0,
+  notEnoughData: false,
+  completionRate: 0.5,
+  escalationRate: 0.5,
+  totalTokens: 20000,
+  wastedTokens: 10000,
+  wastePercentOfSpend: 0.5,
+  totalUserCorrections: 6,
+  avgCorrectionsPerRun: 0.75,
+  repeatedMistakes: [
+    RepeatedMistake(message: 'tool call failed: permission denied', count: 3),
+  ],
+);
 
 Widget _buildApp(RunQualityController controller) {
   return MultiProvider(
@@ -154,72 +153,81 @@ void main() {
 
   group('RunQualityView — plain-language agent scorecard (#865)', () {
     testWidgets(
-        'shows completion, waste, and correction lines for a healthy agent', (
-      tester,
-    ) async {
-      final controller = _controllerFor([_healthyAgent()]);
-      await tester.pumpWidget(_buildApp(controller));
-      await tester.pumpAndSettle();
+      'shows completion, waste, and correction lines for a healthy agent',
+      (tester) async {
+        final controller = _controllerFor([_healthyAgent()]);
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Claude Code'), findsOneWidget);
-      // Completion line — plain language, not a bare "90%".
-      expect(find.textContaining('Finished the job'), findsOneWidget);
-      expect(find.textContaining('90%'), findsOneWidget);
-      // Waste line is present and distinct from completion.
-      expect(find.byKey(const ValueKey('waste-row')), findsOneWidget);
-      expect(find.textContaining('Wasted'), findsOneWidget);
-      // Corrections line.
-      expect(find.byKey(const ValueKey('corrections-row')), findsOneWidget);
-    });
+        expect(find.text('Claude Code'), findsOneWidget);
+        // Completion line — plain language, not a bare "90%".
+        expect(find.textContaining('Finished the job'), findsOneWidget);
+        expect(find.textContaining('90%'), findsOneWidget);
+        // Waste line is present and distinct from completion.
+        expect(find.byKey(const ValueKey('waste-row')), findsOneWidget);
+        expect(find.textContaining('Wasted'), findsOneWidget);
+        // Corrections line.
+        expect(find.byKey(const ValueKey('corrections-row')), findsOneWidget);
+      },
+    );
 
-    testWidgets('thin-history agent shows "not enough data" instead of a rate',
-        (
-      tester,
-    ) async {
-      final controller = _controllerFor([_thinHistoryAgent()]);
-      await tester.pumpWidget(_buildApp(controller));
-      await tester.pumpAndSettle();
+    testWidgets(
+      'thin-history agent shows "not enough data" instead of a rate',
+      (tester) async {
+        final controller = _controllerFor([_thinHistoryAgent()]);
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
 
-      expect(
-          find.byKey(const ValueKey('not-enough-data-banner')), findsOneWidget);
-      expect(find.textContaining('Not enough runs yet'), findsOneWidget);
-      // Must NOT show a misleading completion rate for this agent.
-      expect(find.byKey(const ValueKey('completion-row')), findsNothing);
-    });
+        expect(
+          find.byKey(const ValueKey('not-enough-data-banner')),
+          findsOneWidget,
+        );
+        expect(find.textContaining('Not enough runs yet'), findsOneWidget);
+        // Must NOT show a misleading completion rate for this agent.
+        expect(find.byKey(const ValueKey('completion-row')), findsNothing);
+      },
+    );
 
-    testWidgets('unmeasured runs are surfaced distinctly, not silently dropped',
-        (
-      tester,
-    ) async {
-      final controller = _controllerFor([_unmeasuredAgent()]);
-      await tester.pumpWidget(_buildApp(controller));
-      await tester.pumpAndSettle();
+    testWidgets(
+      'unmeasured runs are surfaced distinctly, not silently dropped',
+      (tester) async {
+        final controller = _controllerFor([_unmeasuredAgent()]);
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('unmeasured-note')), findsOneWidget);
-      expect(find.textContaining("couldn't be scored"), findsOneWidget);
-    });
+        expect(find.byKey(const ValueKey('unmeasured-note')), findsOneWidget);
+        expect(find.textContaining("couldn't be scored"), findsOneWidget);
+      },
+    );
 
     testWidgets('repeated mistakes render as a distinct block', (tester) async {
       final controller = _controllerFor([_repeatOffenderAgent()]);
       await tester.pumpWidget(_buildApp(controller));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('repeated-mistakes-block')),
-          findsOneWidget);
       expect(
-          find.textContaining('Keeps making the same mistake'), findsOneWidget);
+        find.byKey(const ValueKey('repeated-mistakes-block')),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Keeps making the same mistake'),
+        findsOneWidget,
+      );
       expect(find.textContaining('permission denied'), findsOneWidget);
       expect(find.textContaining('3×'), findsOneWidget);
     });
 
-    testWidgets('empty state renders when there are no runs yet',
-        (tester) async {
+    testWidgets('empty state renders when there are no runs yet', (
+      tester,
+    ) async {
       final controller = _controllerFor([]);
       await tester.pumpWidget(_buildApp(controller));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('run-quality-empty-state')),
-          findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('run-quality-empty-state')),
+        findsOneWidget,
+      );
     });
 
     testWidgets('error state renders with a retry button', (tester) async {
@@ -242,7 +250,8 @@ void main() {
       );
       expect(
         find.byKey(
-            ValueKey('run-quality-card-${_thinHistoryAgent().agentKind}')),
+          ValueKey('run-quality-card-${_thinHistoryAgent().agentKind}'),
+        ),
         findsOneWidget,
       );
     });

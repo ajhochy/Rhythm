@@ -124,12 +124,9 @@ void main() {
       });
 
       String? returned;
-      await http.runWithClient(
-        () async {
-          returned = await McpDataSource().startOAuth('canva');
-        },
-        () => client,
-      );
+      await http.runWithClient(() async {
+        returned = await McpDataSource().startOAuth('canva');
+      }, () => client);
 
       expect(returned, 'https://provider/oauth?x');
     },
@@ -143,37 +140,28 @@ void main() {
       });
 
       String? returned = 'sentinel';
-      await http.runWithClient(
-        () async {
-          returned = await McpDataSource().startOAuth('canva');
-        },
-        () => client,
-      );
+      await http.runWithClient(() async {
+        returned = await McpDataSource().startOAuth('canva');
+      }, () => client);
 
       expect(returned, isNull);
     },
   );
 
-  test(
-    'oa3-ds3: oauthStatus parses the status field',
-    () async {
-      final client = MockClient((req) async {
-        expect(req.method, 'GET');
-        expect(req.url.path, '/opencode/mcp/notion/oauth/status');
-        return http.Response(jsonEncode({'status': 'pending'}), 200);
-      });
+  test('oa3-ds3: oauthStatus parses the status field', () async {
+    final client = MockClient((req) async {
+      expect(req.method, 'GET');
+      expect(req.url.path, '/opencode/mcp/notion/oauth/status');
+      return http.Response(jsonEncode({'status': 'pending'}), 200);
+    });
 
-      String? returned;
-      await http.runWithClient(
-        () async {
-          returned = await McpDataSource().oauthStatus('notion');
-        },
-        () => client,
-      );
+    String? returned;
+    await http.runWithClient(() async {
+      returned = await McpDataSource().oauthStatus('notion');
+    }, () => client);
 
-      expect(returned, 'pending');
-    },
-  );
+    expect(returned, 'pending');
+  });
 
   test(
     'oa3-ds4: oauthStatus defaults to "unknown" when status absent',
@@ -183,12 +171,9 @@ void main() {
       });
 
       String? returned;
-      await http.runWithClient(
-        () async {
-          returned = await McpDataSource().oauthStatus('notion');
-        },
-        () => client,
-      );
+      await http.runWithClient(() async {
+        returned = await McpDataSource().oauthStatus('notion');
+      }, () => client);
 
       expect(returned, 'unknown');
     },
@@ -196,57 +181,57 @@ void main() {
 
   // ── Controller: OAuth server happy path ─────────────────────────────────
 
-  test(
-    'oa3-c1: OAuth server — connect starts OAuth, opens URL, polls until '
-    'connected, then refreshes; no error',
-    () async {
-      final ds = _FakeMcpDataSource(
-        listResult: [
-          const McpServerEntry(
-            name: 'canva',
-            status: 'needs_auth',
-            url: 'https://mcp.canva.com',
-          ),
-        ],
-        startOAuthUrl: 'https://provider/oauth?x',
-        // pending twice, then connected
-        statusScript: ['pending', 'pending', 'connected'],
-      );
-      final opened = <Uri>[];
-      final ctrl = McpController(
-        ds,
-        urlLauncher: (uri) async {
-          opened.add(uri);
-          return true;
-        },
-        pollDelay: Duration.zero,
-        maxPollAttempts: 10,
-      );
+  test('oa3-c1: OAuth server — connect starts OAuth, opens URL, polls until '
+      'connected, then refreshes; no error', () async {
+    final ds = _FakeMcpDataSource(
+      listResult: [
+        const McpServerEntry(
+          name: 'canva',
+          status: 'needs_auth',
+          url: 'https://mcp.canva.com',
+        ),
+      ],
+      startOAuthUrl: 'https://provider/oauth?x',
+      // pending twice, then connected
+      statusScript: ['pending', 'pending', 'connected'],
+    );
+    final opened = <Uri>[];
+    final ctrl = McpController(
+      ds,
+      urlLauncher: (uri) async {
+        opened.add(uri);
+        return true;
+      },
+      pollDelay: Duration.zero,
+      maxPollAttempts: 10,
+    );
 
-      // The section loads the list on mount; mirror that precondition.
-      await ctrl.refresh();
-      final listBefore = ds.listCallCount;
+    // The section loads the list on mount; mirror that precondition.
+    await ctrl.refresh();
+    final listBefore = ds.listCallCount;
 
-      await ctrl.connectServer('canva');
+    await ctrl.connectServer('canva');
 
-      // OAuth path used: startOAuth fired, plain connect NOT used.
-      expect(ds.startOAuthCallCount, 1);
-      expect(ds.lastStartOAuthName, 'canva');
-      expect(ds.connectCallCount, 0,
-          reason: 'OAuth server must NOT use the plain connect path');
+    // OAuth path used: startOAuth fired, plain connect NOT used.
+    expect(ds.startOAuthCallCount, 1);
+    expect(ds.lastStartOAuthName, 'canva');
+    expect(
+      ds.connectCallCount,
+      0,
+      reason: 'OAuth server must NOT use the plain connect path',
+    );
 
-      // URL opened via injected launcher.
-      expect(opened, hasLength(1));
-      expect(opened.single.toString(), 'https://provider/oauth?x');
+    // URL opened via injected launcher.
+    expect(opened, hasLength(1));
+    expect(opened.single.toString(), 'https://provider/oauth?x');
 
-      // Polled until connected.
-      expect(ds.statusCallCount, 3);
+    // Polled until connected.
+    expect(ds.statusCallCount, 3);
 
-      // Final refresh occurred (listServers called again) and no error.
-      expect(ds.listCallCount, greaterThan(listBefore));
-      expect(ctrl.errorFor('canva'), isNull);
-    },
-  );
+    // Final refresh occurred (listServers called again) and no error.
+    expect(ds.listCallCount, greaterThan(listBefore));
+    expect(ctrl.errorFor('canva'), isNull);
+  });
 
   // ── Controller: OAuth server failure ─────────────────────────────────────
 
@@ -309,47 +294,59 @@ void main() {
 
       await ctrl.connectServer('canva');
 
-      expect(ds.statusCallCount, 3,
-          reason: 'polling must stop at the attempt budget');
+      expect(
+        ds.statusCallCount,
+        3,
+        reason: 'polling must stop at the attempt budget',
+      );
       final note = ctrl.errorFor('canva');
       expect(note, isNotNull);
       expect(note!.toLowerCase(), contains('pending'));
-      expect(ds.listCallCount, greaterThan(listBefore),
-          reason: 'a final refresh must occur even on timeout');
+      expect(
+        ds.listCallCount,
+        greaterThan(listBefore),
+        reason: 'a final refresh must occur even on timeout',
+      );
     },
   );
 
   // ── Controller: non-OAuth server keeps plain path ────────────────────────
 
-  test(
-    'oa3-c4: non-OAuth (local/key-based) server uses the existing plain '
-    'connect path; startOAuth NOT called',
-    () async {
-      final ds = _FakeMcpDataSource(
-        listResult: [
-          const McpServerEntry(name: 'rhythm-mcp', status: 'connected'),
-        ],
-      );
-      final opened = <Uri>[];
-      final ctrl = McpController(
-        ds,
-        urlLauncher: (uri) async {
-          opened.add(uri);
-          return true;
-        },
-        pollDelay: Duration.zero,
-      );
+  test('oa3-c4: non-OAuth (local/key-based) server uses the existing plain '
+      'connect path; startOAuth NOT called', () async {
+    final ds = _FakeMcpDataSource(
+      listResult: [
+        const McpServerEntry(name: 'rhythm-mcp', status: 'connected'),
+      ],
+    );
+    final opened = <Uri>[];
+    final ctrl = McpController(
+      ds,
+      urlLauncher: (uri) async {
+        opened.add(uri);
+        return true;
+      },
+      pollDelay: Duration.zero,
+    );
 
-      await ctrl.connectServer('rhythm-mcp');
+    await ctrl.connectServer('rhythm-mcp');
 
-      expect(ds.connectCallCount, 1,
-          reason: 'non-OAuth server must use plain connect');
-      expect(ds.startOAuthCallCount, 0,
-          reason: 'non-OAuth server must NOT start OAuth');
-      expect(ds.statusCallCount, 0,
-          reason: 'non-OAuth server must NOT poll OAuth status');
-    },
-  );
+    expect(
+      ds.connectCallCount,
+      1,
+      reason: 'non-OAuth server must use plain connect',
+    );
+    expect(
+      ds.startOAuthCallCount,
+      0,
+      reason: 'non-OAuth server must NOT start OAuth',
+    );
+    expect(
+      ds.statusCallCount,
+      0,
+      reason: 'non-OAuth server must NOT poll OAuth status',
+    );
+  });
 
   // ── Detection: remote URL + no required env ⇒ OAuth even without needs_auth ─
 
@@ -377,8 +374,11 @@ void main() {
       await ctrl.refresh();
       await ctrl.connectServer('notion');
 
-      expect(ds.startOAuthCallCount, 1,
-          reason: 'remote url + no required env ⇒ OAuth flow');
+      expect(
+        ds.startOAuthCallCount,
+        1,
+        reason: 'remote url + no required env ⇒ OAuth flow',
+      );
       expect(ds.connectCallCount, 0);
     },
   );

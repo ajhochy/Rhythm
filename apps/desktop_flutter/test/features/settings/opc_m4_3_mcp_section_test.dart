@@ -153,23 +153,20 @@ void main() {
 
   // ── c2: list + status badges + empty state ──────────────────────────────
 
-  testWidgets(
-    'issue-702-c2a: empty state shows guidance text',
-    (tester) async {
-      final ds = _FakeMcpDataSource(listResult: const []);
-      final ctrl = McpController(ds);
-      await ctrl.refresh();
+  testWidgets('issue-702-c2a: empty state shows guidance text', (tester) async {
+    final ds = _FakeMcpDataSource(listResult: const []);
+    final ctrl = McpController(ds);
+    await ctrl.refresh();
 
-      await tester.pumpWidget(_wrap(const McpSection(), mcpController: ctrl));
-      await tester.pump();
+    await tester.pumpWidget(_wrap(const McpSection(), mcpController: ctrl));
+    await tester.pump();
 
-      expect(
-        find.textContaining('No MCP servers'),
-        findsOneWidget,
-        reason: 'empty state guidance text must be visible',
-      );
-    },
-  );
+    expect(
+      find.textContaining('No MCP servers'),
+      findsOneWidget,
+      reason: 'empty state guidance text must be visible',
+    );
+  });
 
   testWidgets(
     'issue-702-c2b: connected server shows name and connected status badge',
@@ -186,34 +183,36 @@ void main() {
       await tester.pump();
 
       expect(find.text('rhythm-mcp'), findsOneWidget);
-      expect(find.byKey(const Key('mcp-badge-rhythm-mcp')), findsOneWidget,
-          reason: 'status badge key must be present for connected server');
-    },
-  );
-
-  testWidgets(
-    'issue-702-c2c: failed server shows error badge (danger role)',
-    (tester) async {
-      final ds = _FakeMcpDataSource(
-        listResult: [
-          const McpServerEntry(
-            name: 'broken-mcp',
-            status: 'failed',
-            error: 'connection refused',
-          ),
-        ],
+      expect(
+        find.byKey(const Key('mcp-badge-rhythm-mcp')),
+        findsOneWidget,
+        reason: 'status badge key must be present for connected server',
       );
-      final ctrl = McpController(ds);
-      await ctrl.refresh();
-
-      await tester.pumpWidget(_wrap(const McpSection(), mcpController: ctrl));
-      await tester.pump();
-
-      expect(find.text('broken-mcp'), findsOneWidget);
-      // error text must be visible inline
-      expect(find.textContaining('connection refused'), findsOneWidget);
     },
   );
+
+  testWidgets('issue-702-c2c: failed server shows error badge (danger role)', (
+    tester,
+  ) async {
+    final ds = _FakeMcpDataSource(
+      listResult: [
+        const McpServerEntry(
+          name: 'broken-mcp',
+          status: 'failed',
+          error: 'connection refused',
+        ),
+      ],
+    );
+    final ctrl = McpController(ds);
+    await ctrl.refresh();
+
+    await tester.pumpWidget(_wrap(const McpSection(), mcpController: ctrl));
+    await tester.pump();
+
+    expect(find.text('broken-mcp'), findsOneWidget);
+    // error text must be visible inline
+    expect(find.textContaining('connection refused'), findsOneWidget);
+  });
 
   // ── c3: add-server dialog ───────────────────────────────────────────────
 
@@ -235,54 +234,54 @@ void main() {
     },
   );
 
-  test(
-    'issue-702-c3b: addServer refreshes the list after success',
-    () async {
-      final ds = _FakeMcpDataSource(
-        listResult: [
-          const McpServerEntry(name: 'new-mcp', status: 'connected'),
-        ],
-      );
-      // Wrap data source with call-counting proxy
-      final ctrl = McpController(ds);
-      ctrl.addListener(() {});
+  test('issue-702-c3b: addServer refreshes the list after success', () async {
+    final ds = _FakeMcpDataSource(
+      listResult: [const McpServerEntry(name: 'new-mcp', status: 'connected')],
+    );
+    // Wrap data source with call-counting proxy
+    final ctrl = McpController(ds);
+    ctrl.addListener(() {});
 
-      // Pre-state: empty
-      expect(ctrl.servers, isEmpty);
+    // Pre-state: empty
+    expect(ctrl.servers, isEmpty);
 
-      await ctrl.addServer(name: 'new-mcp', command: 'npx -y my-mcp');
+    await ctrl.addServer(name: 'new-mcp', command: 'npx -y my-mcp');
 
-      // Post-add: list should reflect the fake server
-      expect(ctrl.servers, isNotEmpty);
-      expect(ctrl.servers.first.name, 'new-mcp');
-      // listCallCount is not tracked directly; the refresh is verified via servers state
-    },
-  );
+    // Post-add: list should reflect the fake server
+    expect(ctrl.servers, isNotEmpty);
+    expect(ctrl.servers.first.name, 'new-mcp');
+    // listCallCount is not tracked directly; the refresh is verified via servers state
+  });
 
-  testWidgets(
-    'issue-702-c3c: add-server dialog rejects empty name',
-    (tester) async {
-      final ds = _FakeMcpDataSource();
-      final ctrl = McpController(ds);
+  testWidgets('issue-702-c3c: add-server dialog rejects empty name', (
+    tester,
+  ) async {
+    final ds = _FakeMcpDataSource();
+    final ctrl = McpController(ds);
 
-      await tester.pumpWidget(_wrap(const McpSection(), mcpController: ctrl));
-      await tester.pump();
+    await tester.pumpWidget(_wrap(const McpSection(), mcpController: ctrl));
+    await tester.pump();
 
-      // Tap Add button to open dialog
-      await tester.tap(find.byKey(const Key('mcp-add-button')));
-      await tester.pumpAndSettle();
+    // Tap Add button to open dialog
+    await tester.tap(find.byKey(const Key('mcp-add-button')));
+    await tester.pumpAndSettle();
 
-      // Submit with empty fields
-      await tester.tap(find.byKey(const Key('mcp-dialog-add-confirm')));
-      await tester.pumpAndSettle();
+    // Submit with empty fields
+    await tester.tap(find.byKey(const Key('mcp-dialog-add-confirm')));
+    await tester.pumpAndSettle();
 
-      // Dialog must still be visible (not dismissed) and validation error shown
-      expect(find.byKey(const Key('mcp-dialog-add-confirm')), findsOneWidget,
-          reason: 'dialog stays open when validation fails');
-      expect(ds.addCallCount, 0,
-          reason: 'addServer must not be called with empty name');
-    },
-  );
+    // Dialog must still be visible (not dismissed) and validation error shown
+    expect(
+      find.byKey(const Key('mcp-dialog-add-confirm')),
+      findsOneWidget,
+      reason: 'dialog stays open when validation fails',
+    );
+    expect(
+      ds.addCallCount,
+      0,
+      reason: 'addServer must not be called with empty name',
+    );
+  });
 
   testWidgets(
     'issue-702-c3d: add-server dialog rejects missing command and url',
@@ -308,8 +307,11 @@ void main() {
       await tester.pumpAndSettle();
 
       // Dialog must still be visible
-      expect(find.byKey(const Key('mcp-dialog-add-confirm')), findsOneWidget,
-          reason: 'dialog stays open when command and url are both empty');
+      expect(
+        find.byKey(const Key('mcp-dialog-add-confirm')),
+        findsOneWidget,
+        reason: 'dialog stays open when command and url are both empty',
+      );
       expect(ds.addCallCount, 0);
     },
   );
@@ -360,8 +362,11 @@ void main() {
 
       await ctrl.connectServer('rhythm-mcp');
 
-      expect(ctrl.errorFor('rhythm-mcp'), isNotNull,
-          reason: 'error must be surfaced for the server, not silenced');
+      expect(
+        ctrl.errorFor('rhythm-mcp'),
+        isNotNull,
+        reason: 'error must be surfaced for the server, not silenced',
+      );
     },
   );
 
@@ -373,37 +378,37 @@ void main() {
 
       await ctrl.disconnectServer('rhythm-mcp');
 
-      expect(ctrl.errorFor('rhythm-mcp'), isNotNull,
-          reason: 'error must be surfaced for the server, not silenced');
+      expect(
+        ctrl.errorFor('rhythm-mcp'),
+        isNotNull,
+        reason: 'error must be surfaced for the server, not silenced',
+      );
     },
   );
 
   // ── c5: localhost baseUrl assertion ─────────────────────────────────────
 
-  test(
-    'issue-702-c5: McpDataSource constructor hard-codes agentLocalBaseUrl — '
-    'never production serverConfigService.url',
-    () {
-      // Create a default-constructed McpDataSource with no explicit baseUrl.
-      final ds = McpDataSource();
+  test('issue-702-c5: McpDataSource constructor hard-codes agentLocalBaseUrl — '
+      'never production serverConfigService.url', () {
+    // Create a default-constructed McpDataSource with no explicit baseUrl.
+    final ds = McpDataSource();
 
-      // Verify it points at the agent-local port.
-      expect(
-        ds.baseUrlForTest,
-        equals(AppConstants.agentLocalBaseUrl),
-        reason:
-            'MCP data source must use agentLocalBaseUrl (http://localhost:4001), '
-            'never the production serverConfigService.url (#644 contract)',
-      );
+    // Verify it points at the agent-local port.
+    expect(
+      ds.baseUrlForTest,
+      equals(AppConstants.agentLocalBaseUrl),
+      reason:
+          'MCP data source must use agentLocalBaseUrl (http://localhost:4001), '
+          'never the production serverConfigService.url (#644 contract)',
+    );
 
-      // Explicitly verify it is NOT the production API base URL.
-      expect(
-        ds.baseUrlForTest,
-        isNot(equals(AppConstants.apiBaseUrl)),
-        reason: 'must not use the production base URL',
-      );
-    },
-  );
+    // Explicitly verify it is NOT the production API base URL.
+    expect(
+      ds.baseUrlForTest,
+      isNot(equals(AppConstants.apiBaseUrl)),
+      reason: 'must not use the production base URL',
+    );
+  });
 
   // ── real-surface: McpSection is mounted in SettingsView ─────────────────
 
@@ -427,9 +432,7 @@ void main() {
           home: Scaffold(
             body: ChangeNotifierProvider<McpController>.value(
               value: ctrl,
-              child: const SingleChildScrollView(
-                child: McpSection(),
-              ),
+              child: const SingleChildScrollView(child: McpSection()),
             ),
           ),
         ),
@@ -437,8 +440,11 @@ void main() {
       await tester.pump();
 
       // McpSection must be in the rendered tree.
-      expect(find.byType(McpSection), findsOneWidget,
-          reason: 'McpSection must be mounted in the widget tree (#694 guard)');
+      expect(
+        find.byType(McpSection),
+        findsOneWidget,
+        reason: 'McpSection must be mounted in the widget tree (#694 guard)',
+      );
     },
   );
 
@@ -465,8 +471,11 @@ void main() {
       await tester.pumpAndSettle();
 
       // The secrets editor "add row" affordance must be present.
-      expect(find.byKey(const Key('mcp-dialog-env-add')), findsOneWidget,
-          reason: 'secrets editor add-row affordance must render');
+      expect(
+        find.byKey(const Key('mcp-dialog-env-add')),
+        findsOneWidget,
+        reason: 'secrets editor add-row affordance must render',
+      );
 
       // Fill required fields so the form validates.
       await tester.enterText(
@@ -496,8 +505,11 @@ void main() {
 
       expect(ds.addCallCount, 1);
       expect(ds.lastAddName, 'secret-mcp');
-      expect(ds.lastAddEnvironment, isNotNull,
-          reason: 'environment map must be forwarded when a secret row is set');
+      expect(
+        ds.lastAddEnvironment,
+        isNotNull,
+        reason: 'environment map must be forwarded when a secret row is set',
+      );
       expect(ds.lastAddEnvironment, equals({'API_KEY': 'sk-123'}));
     },
   );
@@ -542,17 +554,14 @@ void main() {
         return http.Response('{}', 200);
       });
 
-      await http.runWithClient(
-        () async {
-          final ds = McpDataSource();
-          await ds.addServer(
-            name: 'secret-mcp',
-            command: 'npx -y my-mcp',
-            environment: const {'API_KEY': 'sk-123'},
-          );
-        },
-        () => client,
-      );
+      await http.runWithClient(() async {
+        final ds = McpDataSource();
+        await ds.addServer(
+          name: 'secret-mcp',
+          command: 'npx -y my-mcp',
+          environment: const {'API_KEY': 'sk-123'},
+        );
+      }, () => client);
 
       expect(capturedUri.path, '/opencode/mcp');
       expect(capturedBody['name'], 'secret-mcp');
@@ -573,16 +582,16 @@ void main() {
         return http.Response('{}', 200);
       });
 
-      await http.runWithClient(
-        () async {
-          final ds = McpDataSource();
-          await ds.addServer(name: 'plain-mcp', command: 'npx -y my-mcp');
-        },
-        () => client,
-      );
+      await http.runWithClient(() async {
+        final ds = McpDataSource();
+        await ds.addServer(name: 'plain-mcp', command: 'npx -y my-mcp');
+      }, () => client);
 
-      expect(capturedBody.containsKey('environment'), isFalse,
-          reason: 'environment must be omitted when no secret rows are set');
+      expect(
+        capturedBody.containsKey('environment'),
+        isFalse,
+        reason: 'environment must be omitted when no secret rows are set',
+      );
       expect(capturedBody['name'], 'plain-mcp');
       expect(capturedBody['command'], 'npx -y my-mcp');
     },
@@ -619,8 +628,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(ds.addCallCount, 1);
-      expect(ds.lastAddEnvironment, isNull,
-          reason: 'no secret rows → environment must be null (omitted)');
+      expect(
+        ds.lastAddEnvironment,
+        isNull,
+        reason: 'no secret rows → environment must be null (omitted)',
+      );
     },
   );
 
@@ -642,13 +654,10 @@ void main() {
       });
 
       String? returned;
-      await http.runWithClient(
-        () async {
-          final ds = McpDataSource();
-          returned = await ds.connectServer('canva');
-        },
-        () => client,
-      );
+      await http.runWithClient(() async {
+        final ds = McpDataSource();
+        returned = await ds.connectServer('canva');
+      }, () => client);
 
       expect(returned, 'https://provider/oauth?x');
     },
@@ -666,13 +675,10 @@ void main() {
       });
 
       String? returned = 'sentinel';
-      await http.runWithClient(
-        () async {
-          final ds = McpDataSource();
-          returned = await ds.connectServer('rhythm-mcp');
-        },
-        () => client,
-      );
+      await http.runWithClient(() async {
+        final ds = McpDataSource();
+        returned = await ds.connectServer('rhythm-mcp');
+      }, () => client);
 
       expect(returned, isNull);
     },
@@ -683,9 +689,7 @@ void main() {
     'mcp-oauth-c3: McpController.connectServer opens the authorizationUrl via the injected launcher',
     () async {
       final ds = _FakeMcpDataSource(
-        listResult: [
-          const McpServerEntry(name: 'canva', status: 'needs_auth'),
-        ],
+        listResult: [const McpServerEntry(name: 'canva', status: 'needs_auth')],
         connectAuthorizationUrl: 'https://provider/oauth?x',
       );
       final opened = <Uri>[];

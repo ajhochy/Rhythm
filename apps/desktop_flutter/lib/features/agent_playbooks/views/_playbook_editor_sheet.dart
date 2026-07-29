@@ -89,8 +89,9 @@ class _PlaybookEditorSheetState extends State<PlaybookEditorSheet> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.playbook?.name ?? '');
-    _descriptionController =
-        TextEditingController(text: widget.playbook?.description ?? '');
+    _descriptionController = TextEditingController(
+      text: widget.playbook?.description ?? '',
+    );
     _templateController = TextEditingController();
     _loadCatalog();
     if (_isEdit) {
@@ -156,10 +157,9 @@ class _PlaybookEditorSheetState extends State<PlaybookEditorSheet> {
         setState(() => _error = 'Name is required.');
         return;
       }
-      final collides =
-          widget.existingNames.map((n) => n.toLowerCase()).contains(
-                name.toLowerCase(),
-              );
+      final collides = widget.existingNames
+          .map((n) => n.toLowerCase())
+          .contains(name.toLowerCase());
       if (collides) {
         setState(() => _error = 'A playbook named "$name" already exists.');
         return;
@@ -302,10 +302,7 @@ class _PlaybookEditorSheetState extends State<PlaybookEditorSheet> {
                       ...widget.availableAgents.map(
                         (a) => DropdownMenuItem<String?>(
                           value: a.ocAgent,
-                          child: Text(
-                            a.label,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                          child: Text(a.label, overflow: TextOverflow.ellipsis),
                         ),
                       ),
                     ],

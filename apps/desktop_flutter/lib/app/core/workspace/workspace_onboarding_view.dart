@@ -96,8 +96,9 @@ class _WorkspaceOnboardingViewState extends State<WorkspaceOnboardingView> {
                       child: OutlinedButton(
                         onPressed: () => setState(() => _isJoining = false),
                         style: OutlinedButton.styleFrom(
-                          backgroundColor:
-                              !_isJoining ? const Color(0xFF4F6AF5) : null,
+                          backgroundColor: !_isJoining
+                              ? const Color(0xFF4F6AF5)
+                              : null,
                           foregroundColor: !_isJoining ? Colors.white : null,
                         ),
                         child: const Text('Create'),
@@ -108,8 +109,9 @@ class _WorkspaceOnboardingViewState extends State<WorkspaceOnboardingView> {
                       child: OutlinedButton(
                         onPressed: () => setState(() => _isJoining = true),
                         style: OutlinedButton.styleFrom(
-                          backgroundColor:
-                              _isJoining ? const Color(0xFF4F6AF5) : null,
+                          backgroundColor: _isJoining
+                              ? const Color(0xFF4F6AF5)
+                              : null,
                           foregroundColor: _isJoining ? Colors.white : null,
                         ),
                         child: const Text('Join'),

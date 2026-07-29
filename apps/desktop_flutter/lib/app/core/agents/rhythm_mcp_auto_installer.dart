@@ -26,8 +26,7 @@ bool shouldAutoInstallRhythmMcp({
   required bool engineReady,
   required bool authenticated,
   required bool isCloudServer,
-}) =>
-    engineReady && authenticated && isCloudServer;
+}) => engineReady && authenticated && isCloudServer;
 
 /// Auto-installs (and refreshes) the rhythm MCP server inside the embedded
 /// opencode engine via the local agent server. Failures are non-fatal: a
@@ -35,7 +34,7 @@ bool shouldAutoInstallRhythmMcp({
 /// blocks launch or agent sessions.
 class RhythmMcpAutoInstaller {
   RhythmMcpAutoInstaller({http.Client? httpClient})
-      : _http = httpClient ?? http.Client();
+    : _http = httpClient ?? http.Client();
 
   final http.Client _http;
 

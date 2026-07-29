@@ -73,8 +73,8 @@ class _ReadyAgentServerController extends AgentServerController {
 /// Stub repository that records PTY lifecycle calls and returns a known ptyId.
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-      : _msgController = StreamController.broadcast(),
-        _connectivityController = StreamController.broadcast();
+    : _msgController = StreamController.broadcast(),
+      _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -129,15 +129,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async => (
-            session: _makeSession(id),
-            messages: const <AgentSessionMessage>[],
-          );
+  getSession(String id) async =>
+      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -158,9 +155,10 @@ class _StubAgentsRepository implements AgentsRepository {
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-          String parentSessionId, String childSdkId,
-          {String? cwd}) async =>
-      const [];
+    String parentSessionId,
+    String childSdkId, {
+    String? cwd,
+  }) async => const [];
 
   @override
   Future<AgentSession> forkSession(String sessionId, String messageId) async {
@@ -199,9 +197,9 @@ class _FakeChannel {
   bool sinkClosed = false;
 
   StreamChannel<dynamic> get channel => StreamChannel<dynamic>(
-        _incoming.stream,
-        _CapturingSink(outgoing, () => sinkClosed = true),
-      );
+    _incoming.stream,
+    _CapturingSink(outgoing, () => sinkClosed = true),
+  );
 
   void pushInbound(dynamic data) => _incoming.add(data);
 
@@ -245,14 +243,14 @@ class _CapturingSink implements StreamSink<dynamic> {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: 'Test Session',
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  agentId: 'claude-code',
+  name: 'Test Session',
+  cwd: '/tmp',
+  status: AgentSessionStatus.idle,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 AgentsController _buildController(_StubAgentsRepository repo) =>
     AgentsController(
@@ -288,81 +286,75 @@ void main() {
 
   tearDown(() => controller.dispose());
 
-  testWidgets(
-    'issue-708: mount creates a PTY and renders a TerminalView',
-    (tester) async {
-      final session = _makeSession('s-mount');
-      final fake = _FakeChannel();
-      controller.ptyChannelFactoryForTest = (_) => fake.channel;
+  testWidgets('issue-708: mount creates a PTY and renders a TerminalView', (
+    tester,
+  ) async {
+    final session = _makeSession('s-mount');
+    final fake = _FakeChannel();
+    controller.ptyChannelFactoryForTest = (_) => fake.channel;
 
-      await tester.runAsync(() async {
-        await tester.pumpWidget(_wrap(
-          controller,
-          TerminalTab(sessionId: session.id),
-        ));
-        // Let the async createPty resolve.
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      });
-      await tester.pump();
+    await tester.runAsync(() async {
+      await tester.pumpWidget(
+        _wrap(controller, TerminalTab(sessionId: session.id)),
+      );
+      // Let the async createPty resolve.
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    });
+    await tester.pump();
 
-      expect(repo.createPtyCalls, equals(['s-mount']));
-      expect(find.byType(TerminalView), findsOneWidget);
+    expect(repo.createPtyCalls, equals(['s-mount']));
+    expect(find.byType(TerminalView), findsOneWidget);
 
-      await fake.close();
-    },
-  );
+    await fake.close();
+  });
 
-  testWidgets(
-    'issue-708: inbound bytes are written into the terminal buffer',
-    (tester) async {
-      final session = _makeSession('s-inbound');
-      final fake = _FakeChannel();
-      controller.ptyChannelFactoryForTest = (_) => fake.channel;
+  testWidgets('issue-708: inbound bytes are written into the terminal buffer', (
+    tester,
+  ) async {
+    final session = _makeSession('s-inbound');
+    final fake = _FakeChannel();
+    controller.ptyChannelFactoryForTest = (_) => fake.channel;
 
-      await tester.runAsync(() async {
-        await tester.pumpWidget(_wrap(
-          controller,
-          TerminalTab(sessionId: session.id),
-        ));
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-        fake.pushInbound('hello\r\n');
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      });
-      await tester.pump();
+    await tester.runAsync(() async {
+      await tester.pumpWidget(
+        _wrap(controller, TerminalTab(sessionId: session.id)),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      fake.pushInbound('hello\r\n');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    });
+    await tester.pump();
+
+    final terminal = controller.terminalSessionFor(session.id).terminal;
+    final firstLine = terminal.buffer.lines[0].getText();
+    expect(firstLine, contains('hello'));
+
+    await fake.close();
+  });
+
+  testWidgets('issue-708: keystrokes are forwarded to the channel sink', (
+    tester,
+  ) async {
+    final session = _makeSession('s-outbound');
+    final fake = _FakeChannel();
+    controller.ptyChannelFactoryForTest = (_) => fake.channel;
+
+    await tester.runAsync(() async {
+      await tester.pumpWidget(
+        _wrap(controller, TerminalTab(sessionId: session.id)),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
 
       final terminal = controller.terminalSessionFor(session.id).terminal;
-      final firstLine = terminal.buffer.lines[0].getText();
-      expect(firstLine, contains('hello'));
+      terminal.onOutput!('ls\n');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    });
+    await tester.pump();
 
-      await fake.close();
-    },
-  );
+    expect(fake.outgoing, contains('ls\n'));
 
-  testWidgets(
-    'issue-708: keystrokes are forwarded to the channel sink',
-    (tester) async {
-      final session = _makeSession('s-outbound');
-      final fake = _FakeChannel();
-      controller.ptyChannelFactoryForTest = (_) => fake.channel;
-
-      await tester.runAsync(() async {
-        await tester.pumpWidget(_wrap(
-          controller,
-          TerminalTab(sessionId: session.id),
-        ));
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-
-        final terminal = controller.terminalSessionFor(session.id).terminal;
-        terminal.onOutput!('ls\n');
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      });
-      await tester.pump();
-
-      expect(fake.outgoing, contains('ls\n'));
-
-      await fake.close();
-    },
-  );
+    await fake.close();
+  });
 
   testWidgets(
     'smoke-fix: PTY survives widget remount (panel collapse / tab switch) — '
@@ -374,16 +366,16 @@ void main() {
 
       // Mount the Terminal tab for the session.
       await tester.runAsync(() async {
-        await tester.pumpWidget(_wrap(
-          controller,
-          TerminalTab(sessionId: sid),
-        ));
+        await tester.pumpWidget(_wrap(controller, TerminalTab(sessionId: sid)));
         await Future<void>.delayed(const Duration(milliseconds: 10));
       });
       await tester.pump();
 
-      expect(repo.createPtyCalls, equals([sid]),
-          reason: 'first mount creates exactly one PTY');
+      expect(
+        repo.createPtyCalls,
+        equals([sid]),
+        reason: 'first mount creates exactly one PTY',
+      );
       expect(find.byType(TerminalView), findsOneWidget);
 
       // Capture the Terminal instance and push some bytes BEFORE the remount so
@@ -406,26 +398,35 @@ void main() {
       // Re-add the TerminalTab for the SAME session (panel re-expanded / tab
       // re-selected).
       await tester.runAsync(() async {
-        await tester.pumpWidget(_wrap(
-          controller,
-          TerminalTab(sessionId: sid),
-        ));
+        await tester.pumpWidget(_wrap(controller, TerminalTab(sessionId: sid)));
         await Future<void>.delayed(const Duration(milliseconds: 10));
       });
       await tester.pump();
 
       // BUG-FIX assertions: the PTY was reused, not recreated or killed.
-      expect(repo.createPtyCalls, equals([sid]),
-          reason: 'remount must REUSE the PTY — createPty stays at 1 call');
-      expect(repo.killPtyCalls, isEmpty,
-          reason: 'remount (collapse/tab-switch) must NOT kill the PTY');
+      expect(
+        repo.createPtyCalls,
+        equals([sid]),
+        reason: 'remount must REUSE the PTY — createPty stays at 1 call',
+      );
+      expect(
+        repo.killPtyCalls,
+        isEmpty,
+        reason: 'remount (collapse/tab-switch) must NOT kill the PTY',
+      );
 
       // Same Terminal instance + buffer preserved.
       final terminalAfter = controller.terminalSessionFor(sid).terminal;
-      expect(identical(terminalBefore, terminalAfter), isTrue,
-          reason: 'the same xterm Terminal instance must be reused');
-      expect(terminalAfter.buffer.lines[0].getText(), contains('persisted'),
-          reason: 'scrollback buffer must survive the remount');
+      expect(
+        identical(terminalBefore, terminalAfter),
+        isTrue,
+        reason: 'the same xterm Terminal instance must be reused',
+      );
+      expect(
+        terminalAfter.buffer.lines[0].getText(),
+        contains('persisted'),
+        reason: 'scrollback buffer must survive the remount',
+      );
       expect(find.byType(TerminalView), findsOneWidget);
 
       // Inbound still works after remount.
@@ -437,8 +438,11 @@ void main() {
       final text = [
         for (var i = 0; i < 4; i++) terminalAfter.buffer.lines[i].getText(),
       ].join('\n');
-      expect(text, contains('after-remount'),
-          reason: 'inbound bytes still render after remount');
+      expect(
+        text,
+        contains('after-remount'),
+        reason: 'inbound bytes still render after remount',
+      );
 
       // Outbound (keystroke → sink) still works after remount.
       await tester.runAsync(() async {
@@ -446,8 +450,11 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       });
       await tester.pump();
-      expect(fake.outgoing, contains('echo hi\n'),
-          reason: 'keystrokes still flow to the sink after remount');
+      expect(
+        fake.outgoing,
+        contains('echo hi\n'),
+        reason: 'keystrokes still flow to the sink after remount',
+      );
 
       await fake.close();
     },
@@ -461,10 +468,7 @@ void main() {
       controller.ptyChannelFactoryForTest = (_) => fake.channel;
 
       await tester.runAsync(() async {
-        await tester.pumpWidget(_wrap(
-          controller,
-          TerminalTab(sessionId: sid),
-        ));
+        await tester.pumpWidget(_wrap(controller, TerminalTab(sessionId: sid)));
         await Future<void>.delayed(const Duration(milliseconds: 10));
       });
       await tester.pump();
@@ -479,11 +483,16 @@ void main() {
       });
       await tester.pump();
 
-      expect(repo.killPtyCalls, equals(['pty-123']),
-          reason:
-              'closing/deleting the session must kill the PTY exactly once');
-      expect(fake.sinkClosed, isTrue,
-          reason: 'the channel sink must be closed on session teardown');
+      expect(
+        repo.killPtyCalls,
+        equals(['pty-123']),
+        reason: 'closing/deleting the session must kill the PTY exactly once',
+      );
+      expect(
+        fake.sinkClosed,
+        isTrue,
+        reason: 'the channel sink must be closed on session teardown',
+      );
 
       await fake.close();
     },
@@ -498,10 +507,7 @@ void main() {
 
       // Open the Terminal tab so a PTY is created and registered.
       await tester.runAsync(() async {
-        await tester.pumpWidget(_wrap(
-          controller,
-          TerminalTab(sessionId: sid),
-        ));
+        await tester.pumpWidget(_wrap(controller, TerminalTab(sessionId: sid)));
         await Future<void>.delayed(const Duration(milliseconds: 10));
       });
       await tester.pump();
@@ -518,8 +524,11 @@ void main() {
       });
       await tester.pump();
 
-      expect(repo.killPtyCalls, equals(['pty-123']),
-          reason: 'archiving a session must kill its PTY exactly once');
+      expect(
+        repo.killPtyCalls,
+        equals(['pty-123']),
+        reason: 'archiving a session must kill its PTY exactly once',
+      );
 
       await fake.close();
     },
@@ -534,10 +543,7 @@ void main() {
 
       // Open the Terminal tab so a PTY is created and registered.
       await tester.runAsync(() async {
-        await tester.pumpWidget(_wrap(
-          controller,
-          TerminalTab(sessionId: sid),
-        ));
+        await tester.pumpWidget(_wrap(controller, TerminalTab(sessionId: sid)));
         await Future<void>.delayed(const Duration(milliseconds: 10));
       });
       await tester.pump();
@@ -553,9 +559,13 @@ void main() {
       });
       await tester.pump();
 
-      expect(repo.killPtyCalls, equals(['pty-123']),
-          reason: 'online closeSession must kill the PTY directly; '
-              'a later WS echo calling _disposeTerminal again is a safe no-op');
+      expect(
+        repo.killPtyCalls,
+        equals(['pty-123']),
+        reason:
+            'online closeSession must kill the PTY directly; '
+            'a later WS echo calling _disposeTerminal again is a safe no-op',
+      );
 
       await fake.close();
     },
@@ -584,10 +594,9 @@ void main() {
       patchedController.ptyChannelFactoryForTest = channelFactory;
 
       await tester.runAsync(() async {
-        await tester.pumpWidget(_wrap(
-          patchedController,
-          const TerminalTab(sessionId: 's-retry'),
-        ));
+        await tester.pumpWidget(
+          _wrap(patchedController, const TerminalTab(sessionId: 's-retry')),
+        );
         await Future<void>.delayed(const Duration(milliseconds: 10));
       });
       await tester.pump();
@@ -615,11 +624,17 @@ void main() {
         contains(firstPtyId),
         reason: 'Retry must call killPty on the old live PTY to avoid a leak',
       );
-      expect(patchedRepo.createPtyCalls.length, equals(2),
-          reason: 'createPty should be called again after Retry');
+      expect(
+        patchedRepo.createPtyCalls.length,
+        equals(2),
+        reason: 'createPty should be called again after Retry',
+      );
       expect(patchedRepo.createPtyCalls.last, equals('s-retry'));
-      expect(firstFake.sinkClosed, isTrue,
-          reason: 'Old channel sink must be closed on Retry');
+      expect(
+        firstFake.sinkClosed,
+        isTrue,
+        reason: 'Old channel sink must be closed on Retry',
+      );
 
       await firstFake.close();
       await secondFake.close();

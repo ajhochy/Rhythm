@@ -228,10 +228,10 @@ class _DesignCard extends StatelessWidget {
   }
 
   Future<void> _openArtifact(BuildContext context) => _open(
-        context,
-        design.artifactUrl ??
-            '${AppConstants.agentLocalBaseUrl}/agent-designs/${design.id}/artifact',
-      );
+    context,
+    design.artifactUrl ??
+        '${AppConstants.agentLocalBaseUrl}/agent-designs/${design.id}/artifact',
+  );
 
   Future<void> _openProject(BuildContext context) =>
       _open(context, design.projectUrl!);
@@ -248,8 +248,11 @@ class _DesignCard extends StatelessWidget {
 
   String get _providerLabel => design.provider
       .split('-')
-      .map((part) =>
-          part.isEmpty ? part : '${part[0].toUpperCase()}${part.substring(1)}')
+      .map(
+        (part) => part.isEmpty
+            ? part
+            : '${part[0].toUpperCase()}${part.substring(1)}',
+      )
       .join(' ');
 
   @override
@@ -384,12 +387,12 @@ class _ArtifactPlaceholder extends StatelessWidget {
                       type == 'csv'
                   ? Icons.picture_as_pdf_outlined
                   : type == 'mp4' || type == 'mov' || type == 'webm'
-                      ? Icons.video_file_outlined
-                      : type == 'glb' || type == 'gltf' || type == 'obj'
-                          ? Icons.view_in_ar_outlined
-                          : type == 'svg'
-                              ? Icons.interests_outlined
-                              : Icons.image_outlined,
+                  ? Icons.video_file_outlined
+                  : type == 'glb' || type == 'gltf' || type == 'obj'
+                  ? Icons.view_in_ar_outlined
+                  : type == 'svg'
+                  ? Icons.interests_outlined
+                  : Icons.image_outlined,
               color: rhythm.textMuted,
               size: 32,
             ),

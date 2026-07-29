@@ -151,10 +151,7 @@ class _McpSectionState extends State<McpSection> {
     );
   }
 
-  Future<void> _showAddDialog(
-    BuildContext context,
-    McpController ctrl,
-  ) async {
+  Future<void> _showAddDialog(BuildContext context, McpController ctrl) async {
     await showDialog<void>(
       context: context,
       builder: (dialogCtx) => _AddMcpServerDialog(ctrl: ctrl),
@@ -198,10 +195,7 @@ Future<void> _showCredentialsDialog(
 // ---------------------------------------------------------------------------
 
 class _McpServerRow extends StatelessWidget {
-  const _McpServerRow({
-    required this.server,
-    this.inlineError,
-  });
+  const _McpServerRow({required this.server, this.inlineError});
 
   final McpServerEntry server;
   final String? inlineError;
@@ -420,8 +414,9 @@ class _AddMcpServerDialog extends StatefulWidget {
 }
 
 class _AddMcpServerDialogState extends State<_AddMcpServerDialog> {
-  late final TextEditingController _nameController =
-      TextEditingController(text: widget.initialName ?? '');
+  late final TextEditingController _nameController = TextEditingController(
+    text: widget.initialName ?? '',
+  );
   final _commandController = TextEditingController();
   final _urlController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
@@ -678,9 +673,9 @@ class _AddMcpServerDialogState extends State<_AddMcpServerDialog> {
 /// across rows when one is removed.
 class _EnvRow {
   _EnvRow()
-      : keyController = TextEditingController(),
-        valueController = TextEditingController(),
-        rowKey = UniqueKey();
+    : keyController = TextEditingController(),
+      valueController = TextEditingController(),
+      rowKey = UniqueKey();
 
   final TextEditingController keyController;
   final TextEditingController valueController;

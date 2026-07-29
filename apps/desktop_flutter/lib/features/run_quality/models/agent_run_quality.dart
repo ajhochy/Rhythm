@@ -48,14 +48,15 @@ class AgentRunQuality {
     final mistakesRaw = json['repeatedMistakes'];
     final mistakes = mistakesRaw is List
         ? mistakesRaw
-            .whereType<Map<String, dynamic>>()
-            .map(RepeatedMistake.fromJson)
-            .toList()
+              .whereType<Map<String, dynamic>>()
+              .map(RepeatedMistake.fromJson)
+              .toList()
         : <RepeatedMistake>[];
 
     return AgentRunQuality(
       agentKind: asString(json['agentKind']) ?? '',
-      agentLabel: asString(json['agentLabel']) ??
+      agentLabel:
+          asString(json['agentLabel']) ??
           asString(json['agentKind']) ??
           'Unknown agent',
       totalRuns: asInt(json['totalRuns']) ?? 0,
@@ -116,9 +117,9 @@ class RunQualityRollup {
     final agentsRaw = json['agents'];
     final agents = agentsRaw is List
         ? agentsRaw
-            .whereType<Map<String, dynamic>>()
-            .map(AgentRunQuality.fromJson)
-            .toList()
+              .whereType<Map<String, dynamic>>()
+              .map(AgentRunQuality.fromJson)
+              .toList()
         : <AgentRunQuality>[];
     return RunQualityRollup(
       generatedAt: asString(json['generatedAt']) ?? '',

@@ -63,45 +63,45 @@ void main() {
   group(
     'issue-630-c1: QuestionToolCard dispatched for AskUserQuestion tool name',
     () {
-      testWidgets(
-        'card renders question text when toolName is AskUserQuestion',
-        (tester) async {
-          // This test validates that the agents_view.dart dispatch was broadened
-          // to include 'askuserquestion'. Since we can't import agents_view.dart's
-          // private dispatch here, we verify the card itself works with the
-          // AskUserQuestion args format so that once the dispatch is broadened,
-          // the card renders correctly.
-          final args = {
-            'questions': [
-              {
-                'header': 'Approach',
-                'question': 'Which approach should I use?',
-                'options': ['Option A', 'Option B'],
-              }
-            ],
-          };
+      testWidgets('card renders question text when toolName is AskUserQuestion', (
+        tester,
+      ) async {
+        // This test validates that the agents_view.dart dispatch was broadened
+        // to include 'askuserquestion'. Since we can't import agents_view.dart's
+        // private dispatch here, we verify the card itself works with the
+        // AskUserQuestion args format so that once the dispatch is broadened,
+        // the card renders correctly.
+        final args = {
+          'questions': [
+            {
+              'header': 'Approach',
+              'question': 'Which approach should I use?',
+              'options': ['Option A', 'Option B'],
+            },
+          ],
+        };
 
-          await tester.pumpWidget(_buildCard(toolArgs: args));
-          await tester.pump();
+        await tester.pumpWidget(_buildCard(toolArgs: args));
+        await tester.pump();
 
-          // The card must render the question text, not the placeholder.
-          expect(
-            find.text('Which approach should I use?'),
-            findsOneWidget,
-            reason: 'QuestionToolCard must parse and render the question when '
-                'toolArgs contains a valid questions array. This confirms the '
-                'card is ready to receive AskUserQuestion events once '
-                'agents_view.dart broadens its dispatch condition.',
-          );
+        // The card must render the question text, not the placeholder.
+        expect(
+          find.text('Which approach should I use?'),
+          findsOneWidget,
+          reason:
+              'QuestionToolCard must parse and render the question when '
+              'toolArgs contains a valid questions array. This confirms the '
+              'card is ready to receive AskUserQuestion events once '
+              'agents_view.dart broadens its dispatch condition.',
+        );
 
-          // Option buttons must also be present.
-          expect(
-            find.text('Option A'),
-            findsOneWidget,
-            reason: 'String options must render as buttons.',
-          );
-        },
-      );
+        // Option buttons must also be present.
+        expect(
+          find.text('Option A'),
+          findsOneWidget,
+          reason: 'String options must render as buttons.',
+        );
+      });
     },
   );
 
@@ -134,7 +134,7 @@ void main() {
                     'description': 'Type-safe and more powerful',
                   },
                 ],
-              }
+              },
             ],
           };
 

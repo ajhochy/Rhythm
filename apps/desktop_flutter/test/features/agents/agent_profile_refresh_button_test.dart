@@ -53,49 +53,53 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   testWidgets(
-      'refresh button re-fetches profiles added outside the sheet (e.g. by an MCP tool)',
-      (tester) async {
-    final dataSource = _FakeAgentConfigsDataSource()
-      ..configs.add(_makeConfig(id: 'p1', label: 'Existing Profile'));
-    final configsController =
-        AgentConfigsController(AgentConfigsRepository(dataSource));
-    await configsController.refresh();
-    final defaultService = DefaultAgentProfileService();
-    await defaultService.load();
+    'refresh button re-fetches profiles added outside the sheet (e.g. by an MCP tool)',
+    (tester) async {
+      final dataSource = _FakeAgentConfigsDataSource()
+        ..configs.add(_makeConfig(id: 'p1', label: 'Existing Profile'));
+      final configsController = AgentConfigsController(
+        AgentConfigsRepository(dataSource),
+      );
+      await configsController.refresh();
+      final defaultService = DefaultAgentProfileService();
+      await defaultService.load();
 
-    await tester.pumpWidget(MultiProvider(
-      providers: [
-        ChangeNotifierProvider<AgentConfigsController>.value(
-          value: configsController,
-        ),
-        ChangeNotifierProvider<DefaultAgentProfileService>.value(
-          value: defaultService,
-        ),
-      ],
-      child: const MaterialApp(
-        home: Scaffold(
-          body: SizedBox(
-            height: 900,
-            width: 800,
-            child: AgentProfilesManagerSheet(),
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AgentConfigsController>.value(
+              value: configsController,
+            ),
+            ChangeNotifierProvider<DefaultAgentProfileService>.value(
+              value: defaultService,
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                height: 900,
+                width: 800,
+                child: AgentProfilesManagerSheet(),
+              ),
+            ),
           ),
         ),
-      ),
-    ));
-    await tester.pump();
+      );
+      await tester.pump();
 
-    expect(find.text('Existing Profile'), findsOneWidget);
-    expect(find.text('New From Setup'), findsNothing);
+      expect(find.text('Existing Profile'), findsOneWidget);
+      expect(find.text('New From Setup'), findsNothing);
 
-    // Simulate the backend gaining a new profile out-of-band (e.g. the
-    // Rhythm Setup agent calling rhythm_create_agent_profile).
-    dataSource.configs.add(_makeConfig(id: 'p2', label: 'New From Setup'));
+      // Simulate the backend gaining a new profile out-of-band (e.g. the
+      // Rhythm Setup agent calling rhythm_create_agent_profile).
+      dataSource.configs.add(_makeConfig(id: 'p2', label: 'New From Setup'));
 
-    await tester.tap(find.byKey(const ValueKey('profile-refresh-button')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('profile-refresh-button')));
+      await tester.pumpAndSettle();
 
-    expect(find.text('New From Setup'), findsOneWidget);
+      expect(find.text('New From Setup'), findsOneWidget);
 
-    configsController.dispose();
-  });
+      configsController.dispose();
+    },
+  );
 }

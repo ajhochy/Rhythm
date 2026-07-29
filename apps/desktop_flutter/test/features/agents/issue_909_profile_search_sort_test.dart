@@ -51,18 +51,17 @@ AgentConfig _makeConfig({
   required String id,
   required String label,
   String? modelProvider,
-}) =>
-    AgentConfig(
-      id: id,
-      label: label,
-      icon: 'terminal',
-      enabled: true,
-      isAgent: true,
-      sortOrder: 0,
-      ocAgent: id,
-      sessionSelectable: true,
-      modelProvider: modelProvider,
-    );
+}) => AgentConfig(
+  id: id,
+  label: label,
+  icon: 'terminal',
+  enabled: true,
+  isAgent: true,
+  sortOrder: 0,
+  ocAgent: id,
+  sessionSelectable: true,
+  modelProvider: modelProvider,
+);
 
 Widget _buildManagerSheet({
   required AgentConfigsController configsController,
@@ -99,16 +98,19 @@ void main() {
       _makeConfig(id: 'p1', label: 'Worship Planner'),
       _makeConfig(id: 'p2', label: 'Email Assistant'),
     ]);
-    final configsController =
-        AgentConfigsController(AgentConfigsRepository(dataSource));
+    final configsController = AgentConfigsController(
+      AgentConfigsRepository(dataSource),
+    );
     await configsController.refresh();
     final defaultService = DefaultAgentProfileService();
     await defaultService.load();
 
-    await tester.pumpWidget(_buildManagerSheet(
-      configsController: configsController,
-      defaultService: defaultService,
-    ));
+    await tester.pumpWidget(
+      _buildManagerSheet(
+        configsController: configsController,
+        defaultService: defaultService,
+      ),
+    );
     await tester.pump();
 
     expect(find.text('Worship Planner'), findsOneWidget);
@@ -126,21 +128,25 @@ void main() {
     configsController.dispose();
   });
 
-  testWidgets('no-results state renders for a non-matching search',
-      (tester) async {
+  testWidgets('no-results state renders for a non-matching search', (
+    tester,
+  ) async {
     final dataSource = _FakeAgentConfigsDataSource([
       _makeConfig(id: 'p1', label: 'Worship Planner'),
     ]);
-    final configsController =
-        AgentConfigsController(AgentConfigsRepository(dataSource));
+    final configsController = AgentConfigsController(
+      AgentConfigsRepository(dataSource),
+    );
     await configsController.refresh();
     final defaultService = DefaultAgentProfileService();
     await defaultService.load();
 
-    await tester.pumpWidget(_buildManagerSheet(
-      configsController: configsController,
-      defaultService: defaultService,
-    ));
+    await tester.pumpWidget(
+      _buildManagerSheet(
+        configsController: configsController,
+        defaultService: defaultService,
+      ),
+    );
     await tester.pump();
 
     await tester.enterText(
@@ -156,77 +162,94 @@ void main() {
   });
 
   testWidgets(
-      'defaults to name sort, then switches to model-provider sort on selection',
-      (tester) async {
-    // Alphabetically Alpha < Zebra, but by provider "zprovider" < "aprovider"
-    // is false -- z sorts after a -- so provider sort should reverse the
-    // default (name) order for this fixture.
-    final dataSource = _FakeAgentConfigsDataSource([
-      _makeConfig(id: 'p1', label: 'Zebra Profile', modelProvider: 'aprovider'),
-      _makeConfig(id: 'p2', label: 'Alpha Profile', modelProvider: 'zprovider'),
-    ]);
-    final configsController =
-        AgentConfigsController(AgentConfigsRepository(dataSource));
-    await configsController.refresh();
-    final defaultService = DefaultAgentProfileService();
-    await defaultService.load();
+    'defaults to name sort, then switches to model-provider sort on selection',
+    (tester) async {
+      // Alphabetically Alpha < Zebra, but by provider "zprovider" < "aprovider"
+      // is false -- z sorts after a -- so provider sort should reverse the
+      // default (name) order for this fixture.
+      final dataSource = _FakeAgentConfigsDataSource([
+        _makeConfig(
+          id: 'p1',
+          label: 'Zebra Profile',
+          modelProvider: 'aprovider',
+        ),
+        _makeConfig(
+          id: 'p2',
+          label: 'Alpha Profile',
+          modelProvider: 'zprovider',
+        ),
+      ]);
+      final configsController = AgentConfigsController(
+        AgentConfigsRepository(dataSource),
+      );
+      await configsController.refresh();
+      final defaultService = DefaultAgentProfileService();
+      await defaultService.load();
 
-    await tester.pumpWidget(_buildManagerSheet(
-      configsController: configsController,
-      defaultService: defaultService,
-    ));
-    await tester.pump();
+      await tester.pumpWidget(
+        _buildManagerSheet(
+          configsController: configsController,
+          defaultService: defaultService,
+        ),
+      );
+      await tester.pump();
 
-    double topOf(String text) => tester.getTopLeft(find.text(text)).dy;
+      double topOf(String text) => tester.getTopLeft(find.text(text)).dy;
 
-    // Default sort is Name: Alpha before Zebra.
-    expect(topOf('Alpha Profile') < topOf('Zebra Profile'), isTrue);
+      // Default sort is Name: Alpha before Zebra.
+      expect(topOf('Alpha Profile') < topOf('Zebra Profile'), isTrue);
 
-    await tester.tap(find.byKey(const ValueKey('profile-sort-menu')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Model provider'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('profile-sort-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Model provider'));
+      await tester.pumpAndSettle();
 
-    // Provider sort: aprovider (Zebra) before zprovider (Alpha).
-    expect(topOf('Zebra Profile') < topOf('Alpha Profile'), isTrue);
+      // Provider sort: aprovider (Zebra) before zprovider (Alpha).
+      expect(topOf('Zebra Profile') < topOf('Alpha Profile'), isTrue);
 
-    configsController.dispose();
-  });
+      configsController.dispose();
+    },
+  );
 
-  testWidgets('rename icon updates the label without opening the editor sheet',
-      (tester) async {
-    final dataSource = _FakeAgentConfigsDataSource([
-      _makeConfig(id: 'p1', label: 'Old Label'),
-    ]);
-    final configsController =
-        AgentConfigsController(AgentConfigsRepository(dataSource));
-    await configsController.refresh();
-    final defaultService = DefaultAgentProfileService();
-    await defaultService.load();
+  testWidgets(
+    'rename icon updates the label without opening the editor sheet',
+    (tester) async {
+      final dataSource = _FakeAgentConfigsDataSource([
+        _makeConfig(id: 'p1', label: 'Old Label'),
+      ]);
+      final configsController = AgentConfigsController(
+        AgentConfigsRepository(dataSource),
+      );
+      await configsController.refresh();
+      final defaultService = DefaultAgentProfileService();
+      await defaultService.load();
 
-    await tester.pumpWidget(_buildManagerSheet(
-      configsController: configsController,
-      defaultService: defaultService,
-    ));
-    await tester.pump();
+      await tester.pumpWidget(
+        _buildManagerSheet(
+          configsController: configsController,
+          defaultService: defaultService,
+        ),
+      );
+      await tester.pump();
 
-    expect(find.text('Old Label'), findsOneWidget);
+      expect(find.text('Old Label'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('rename-profile-p1')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('rename-profile-p1')));
+      await tester.pumpAndSettle();
 
-    final field = find.byKey(const ValueKey('rename-profile-field'));
-    expect(field, findsOneWidget);
-    await tester.enterText(field, 'New Label');
-    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
-    await tester.pumpAndSettle();
+      final field = find.byKey(const ValueKey('rename-profile-field'));
+      expect(field, findsOneWidget);
+      await tester.enterText(field, 'New Label');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
 
-    // The full profile editor sheet (title "New Profile" heading absent, no
-    // second sheet route) never opened -- the manager sheet itself updated.
-    expect(configsController.configs.first.label, 'New Label');
-    expect(find.text('New Label'), findsOneWidget);
-    expect(find.text('Old Label'), findsNothing);
+      // The full profile editor sheet (title "New Profile" heading absent, no
+      // second sheet route) never opened -- the manager sheet itself updated.
+      expect(configsController.configs.first.label, 'New Label');
+      expect(find.text('New Label'), findsOneWidget);
+      expect(find.text('Old Label'), findsNothing);
 
-    configsController.dispose();
-  });
+      configsController.dispose();
+    },
+  );
 }

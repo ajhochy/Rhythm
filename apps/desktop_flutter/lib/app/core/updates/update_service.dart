@@ -45,8 +45,8 @@ class UpdateService {
       );
       if (_compareVersions(version, currentVersion) <= 0) continue;
 
-      final assets =
-          (item['assets'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
+      final assets = (item['assets'] as List<dynamic>? ?? [])
+          .cast<Map<String, dynamic>>();
       final preferredAsset = _pickPreferredAsset(assets);
       final htmlUrl = item['html_url'] as String?;
       if (htmlUrl == null) continue;
@@ -59,7 +59,8 @@ class UpdateService {
         htmlUrl: htmlUrl,
         downloadUrl:
             preferredAsset?['browser_download_url'] as String? ?? htmlUrl,
-        publishedAt: DateTime.tryParse(item['published_at'] as String? ?? '') ??
+        publishedAt:
+            DateTime.tryParse(item['published_at'] as String? ?? '') ??
             DateTime.now(),
         prerelease: item['prerelease'] == true,
         notes: item['body'] as String?,
@@ -97,8 +98,9 @@ class UpdateService {
 
   static String _normalizeVersion(String version) {
     final plusIndex = version.indexOf('+');
-    final withoutBuild =
-        plusIndex == -1 ? version.trim() : version.substring(0, plusIndex);
+    final withoutBuild = plusIndex == -1
+        ? version.trim()
+        : version.substring(0, plusIndex);
     return withoutBuild.replaceFirst(RegExp(r'^[^0-9]*'), '');
   }
 
@@ -110,10 +112,12 @@ class UpdateService {
         ? leftParts.numbers.length
         : rightParts.numbers.length;
     for (var index = 0; index < maxLength; index++) {
-      final leftNumber =
-          index < leftParts.numbers.length ? leftParts.numbers[index] : 0;
-      final rightNumber =
-          index < rightParts.numbers.length ? rightParts.numbers[index] : 0;
+      final leftNumber = index < leftParts.numbers.length
+          ? leftParts.numbers[index]
+          : 0;
+      final rightNumber = index < rightParts.numbers.length
+          ? rightParts.numbers[index]
+          : 0;
       if (leftNumber != rightNumber) return leftNumber.compareTo(rightNumber);
     }
 

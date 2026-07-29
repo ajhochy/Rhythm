@@ -42,9 +42,7 @@ class NavigationSidebar extends StatelessWidget {
       width: collapsed ? 76 : 260,
       decoration: BoxDecoration(
         color: context.rhythm.surfaceMuted,
-        border: Border(
-          right: BorderSide(color: context.rhythm.borderSubtle),
-        ),
+        border: Border(right: BorderSide(color: context.rhythm.borderSubtle)),
       ),
       padding: EdgeInsets.fromLTRB(
         collapsed ? 10 : 16,
@@ -124,8 +122,9 @@ class NavigationSidebar extends StatelessWidget {
                       isSelected: i == selectedIndex,
                       collapsed: collapsed,
                       onTap: () => onItemSelected(i),
-                      badgeCount:
-                          i == AppConstants.navMessages ? unreadCount : null,
+                      badgeCount: i == AppConstants.navMessages
+                          ? unreadCount
+                          : null,
                     ),
                     const SizedBox(height: 6),
                   ],
@@ -169,8 +168,9 @@ class _NavItemTile extends StatelessWidget {
       children: [
         Icon(
           item.icon,
-          color:
-              isSelected ? context.rhythm.accent : context.rhythm.textSecondary,
+          color: isSelected
+              ? context.rhythm.accent
+              : context.rhythm.textSecondary,
           size: 18,
         ),
         if ((badgeCount ?? 0) > 0)
@@ -178,10 +178,7 @@ class _NavItemTile extends StatelessWidget {
             right: -7,
             top: -7,
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 5,
-                vertical: 1,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
               decoration: BoxDecoration(
                 color: context.rhythm.danger,
                 borderRadius: BorderRadius.circular(999),
@@ -229,8 +226,9 @@ class _NavItemTile extends StatelessWidget {
                       color: isSelected
                           ? context.rhythm.textPrimary
                           : context.rhythm.textSecondary,
-                      fontWeight:
-                          isSelected ? FontWeight.w700 : FontWeight.w500,
+                      fontWeight: isSelected
+                          ? FontWeight.w700
+                          : FontWeight.w500,
                     ),
                   ),
                 ),

@@ -122,117 +122,119 @@ void main() {
 
   group('OrgProposalsView (REAL SURFACE)', () {
     testWidgets(
-        'issue-827-c1: lists proposed proposals with kind, risk, title, rationale, evidence toggle',
-        (tester) async {
-      // Bug this catches: the view rendering nothing (or a stale/empty
-      // list) because refresh() was never wired to initState, or the
-      // controller/repository/data-source chain drops fields on the way
-      // from JSON to the widget tree.
-      final dataSource = _FakeOrgProposalsDataSource([
-        _makeProposal(
-          id: 'p1',
-          kind: 'create-agent',
-          risk: 'high',
-          title: 'Create a Facilities specialist agent',
-          rationale: 'Repeated denied-tool events for facilities scope.',
-        ),
-      ]);
-      final controller = OrgProposalsController(
-        OrgProposalsRepository(dataSource),
-      );
-      await controller.refresh();
+      'issue-827-c1: lists proposed proposals with kind, risk, title, rationale, evidence toggle',
+      (tester) async {
+        // Bug this catches: the view rendering nothing (or a stale/empty
+        // list) because refresh() was never wired to initState, or the
+        // controller/repository/data-source chain drops fields on the way
+        // from JSON to the widget tree.
+        final dataSource = _FakeOrgProposalsDataSource([
+          _makeProposal(
+            id: 'p1',
+            kind: 'create-agent',
+            risk: 'high',
+            title: 'Create a Facilities specialist agent',
+            rationale: 'Repeated denied-tool events for facilities scope.',
+          ),
+        ]);
+        final controller = OrgProposalsController(
+          OrgProposalsRepository(dataSource),
+        );
+        await controller.refresh();
 
-      await tester.pumpWidget(await _buildApp(controller));
-      await tester.pump();
+        await tester.pumpWidget(await _buildApp(controller));
+        await tester.pump();
 
-      expect(find.text('create-agent'), findsOneWidget);
-      expect(find.text('HIGH'), findsOneWidget);
-      expect(
-        find.text('Create a Facilities specialist agent'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Repeated denied-tool events for facilities scope.'),
-        findsOneWidget,
-      );
+        expect(find.text('create-agent'), findsOneWidget);
+        expect(find.text('HIGH'), findsOneWidget);
+        expect(
+          find.text('Create a Facilities specialist agent'),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Repeated denied-tool events for facilities scope.'),
+          findsOneWidget,
+        );
 
-      // Evidence affordance: expand toggle present, evidence body hidden
-      // until tapped.
-      final toggle = find.byKey(const ValueKey('proposal-evidence-toggle-p1'));
-      expect(toggle, findsOneWidget);
-      expect(
-        find.byKey(const ValueKey('proposal-evidence-body-p1')),
-        findsNothing,
-      );
+        // Evidence affordance: expand toggle present, evidence body hidden
+        // until tapped.
+        final toggle = find.byKey(
+          const ValueKey('proposal-evidence-toggle-p1'),
+        );
+        expect(toggle, findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('proposal-evidence-body-p1')),
+          findsNothing,
+        );
 
-      await tester.tap(toggle);
-      await tester.pump();
+        await tester.tap(toggle);
+        await tester.pump();
 
-      expect(
-        find.byKey(const ValueKey('proposal-evidence-body-p1')),
-        findsOneWidget,
-      );
+        expect(
+          find.byKey(const ValueKey('proposal-evidence-body-p1')),
+          findsOneWidget,
+        );
 
-      controller.dispose();
-    });
-
-    testWidgets(
-        'issue-1013-c1: renders a field-level before/after diff before evidence',
-        (tester) async {
-      // Bug this catches: signalRef replacing changeJson in the only visible
-      // detail block, leaving a reviewer unable to see the proposed mutation.
-      final dataSource = _FakeOrgProposalsDataSource([
-        _makeProposal(
-          id: 'diff1',
-          kind: 'create-agent',
-          signalRef: 'The audit found a recurring scheduling failure.',
-          changeJson:
-              '{"configPatch":{"agentConfigId":"agent-1","field":"system_prompt","value":"Use the new scheduling flow."}}',
-          beforeSnapshotJson:
-              '{"agentConfigId":"agent-1","field":"system_prompt","priorValue":"Use the old scheduling flow."}',
-        ),
-      ]);
-      final controller = OrgProposalsController(
-        OrgProposalsRepository(dataSource),
-      );
-      await controller.refresh();
-
-      await tester.pumpWidget(await _buildApp(controller));
-      await tester.pump();
-
-      expect(find.text('Proposed change'), findsOneWidget);
-      expect(find.text('System prompt'), findsOneWidget);
-      expect(
-        find.textContaining('Use the old scheduling flow.'),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('Use the new scheduling flow.'),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('proposal-evidence-body-diff1')),
-        findsNothing,
-        reason:
-            'The diff must be primary card content, not hidden in evidence.',
-      );
-
-      await tester.tap(
-        find.byKey(const ValueKey('proposal-evidence-toggle-diff1')),
-      );
-      await tester.pump();
-      expect(
-        find.text('The audit found a recurring scheduling failure.'),
-        findsOneWidget,
-      );
-
-      controller.dispose();
-    });
+        controller.dispose();
+      },
+    );
 
     testWidgets(
-        'issue-1013-c2: LLM-diagnosis proposal (real queue shape) renders '
-        'Root cause / Proposed fix, not empty before/after rows',
-        (tester) async {
+      'issue-1013-c1: renders a field-level before/after diff before evidence',
+      (tester) async {
+        // Bug this catches: signalRef replacing changeJson in the only visible
+        // detail block, leaving a reviewer unable to see the proposed mutation.
+        final dataSource = _FakeOrgProposalsDataSource([
+          _makeProposal(
+            id: 'diff1',
+            kind: 'create-agent',
+            signalRef: 'The audit found a recurring scheduling failure.',
+            changeJson:
+                '{"configPatch":{"agentConfigId":"agent-1","field":"system_prompt","value":"Use the new scheduling flow."}}',
+            beforeSnapshotJson:
+                '{"agentConfigId":"agent-1","field":"system_prompt","priorValue":"Use the old scheduling flow."}',
+          ),
+        ]);
+        final controller = OrgProposalsController(
+          OrgProposalsRepository(dataSource),
+        );
+        await controller.refresh();
+
+        await tester.pumpWidget(await _buildApp(controller));
+        await tester.pump();
+
+        expect(find.text('Proposed change'), findsOneWidget);
+        expect(find.text('System prompt'), findsOneWidget);
+        expect(
+          find.textContaining('Use the old scheduling flow.'),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('Use the new scheduling flow.'),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('proposal-evidence-body-diff1')),
+          findsNothing,
+          reason:
+              'The diff must be primary card content, not hidden in evidence.',
+        );
+
+        await tester.tap(
+          find.byKey(const ValueKey('proposal-evidence-toggle-diff1')),
+        );
+        await tester.pump();
+        expect(
+          find.text('The audit found a recurring scheduling failure.'),
+          findsOneWidget,
+        );
+
+        controller.dispose();
+      },
+    );
+
+    testWidgets('issue-1013-c2: LLM-diagnosis proposal (real queue shape) renders '
+        'Root cause / Proposed fix, not empty before/after rows', (tester) async {
       // The proposals that actually reach this queue (refine-config etc. from
       // the #982 LLM diagnosis) carry prose + null beforeSnapshot, no patch.
       // Regression: the generic diff path rendered "Before: (none) / After: …".
@@ -271,8 +273,9 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('renders empty state when there is nothing to review',
-        (tester) async {
+    testWidgets('renders empty state when there is nothing to review', (
+      tester,
+    ) async {
       final dataSource = _FakeOrgProposalsDataSource([]);
       final controller = OrgProposalsController(
         OrgProposalsRepository(dataSource),
@@ -291,238 +294,245 @@ void main() {
     });
 
     testWidgets(
-        'issue-827-c2a: tapping Approve calls the data source and removes the row',
-        (tester) async {
-      final dataSource = _FakeOrgProposalsDataSource([
-        _makeProposal(id: 'p1', kind: 'create-agent', title: 'Approve me'),
-      ]);
-      final controller = OrgProposalsController(
-        OrgProposalsRepository(dataSource),
-      );
-      await controller.refresh();
+      'issue-827-c2a: tapping Approve calls the data source and removes the row',
+      (tester) async {
+        final dataSource = _FakeOrgProposalsDataSource([
+          _makeProposal(id: 'p1', kind: 'create-agent', title: 'Approve me'),
+        ]);
+        final controller = OrgProposalsController(
+          OrgProposalsRepository(dataSource),
+        );
+        await controller.refresh();
 
-      await tester.pumpWidget(await _buildApp(controller));
-      await tester.pump();
+        await tester.pumpWidget(await _buildApp(controller));
+        await tester.pump();
 
-      final approveButton = find.byKey(const ValueKey('approve-proposal-p1'));
-      expect(approveButton, findsOneWidget);
+        final approveButton = find.byKey(const ValueKey('approve-proposal-p1'));
+        expect(approveButton, findsOneWidget);
 
-      await tester.tap(approveButton);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
+        await tester.tap(approveButton);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
 
-      expect(dataSource.lastApprovedId, equals('p1'));
-      expect(find.text('Approve me'), findsNothing);
-      expect(find.text('Proposal approved'), findsOneWidget);
+        expect(dataSource.lastApprovedId, equals('p1'));
+        expect(find.text('Approve me'), findsNothing);
+        expect(find.text('Proposal approved'), findsOneWidget);
 
-      controller.dispose();
-    });
-
-    testWidgets(
-        'issue-827-c2b: confirming Reject dialog calls the data source and removes the row',
-        (tester) async {
-      final dataSource = _FakeOrgProposalsDataSource([
-        _makeProposal(id: 'p1', kind: 'create-agent', title: 'Reject me'),
-      ]);
-      final controller = OrgProposalsController(
-        OrgProposalsRepository(dataSource),
-      );
-      await controller.refresh();
-
-      await tester.pumpWidget(await _buildApp(controller));
-      await tester.pump();
-
-      final rejectButton = find.byKey(const ValueKey('reject-proposal-p1'));
-      expect(rejectButton, findsOneWidget);
-
-      await tester.tap(rejectButton);
-      await tester.pump(); // open confirmation dialog
-
-      final confirmButton = find.widgetWithText(FilledButton, 'Reject');
-      expect(confirmButton, findsOneWidget);
-      await tester.tap(confirmButton);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-
-      expect(dataSource.lastRejectedId, equals('p1'));
-      expect(find.text('Reject me'), findsNothing);
-
-      controller.dispose();
-    });
+        controller.dispose();
+      },
+    );
 
     testWidgets(
-        'issue-827-c3: external-adoption shows the provenance block; Approve disabled until note present',
-        (tester) async {
-      // Bug this catches: the Approve button being tappable for an
-      // external-adoption proposal with no provenance note — the UI
-      // safety note explicitly forbids an approve path that bypasses the
-      // server-side note gate; this test proves the button is disabled
-      // client-side too, not just left to the server to 400.
-      final dataSource = _FakeOrgProposalsDataSource([
-        _makeProposal(
-          id: 'ext1',
-          kind: 'external-adoption',
-          external: 1,
-          title: 'Adopt an MCP server',
-          provenanceJson: null,
-        ),
-      ]);
-      final controller = OrgProposalsController(
-        OrgProposalsRepository(dataSource),
-      );
-      await controller.refresh();
+      'issue-827-c2b: confirming Reject dialog calls the data source and removes the row',
+      (tester) async {
+        final dataSource = _FakeOrgProposalsDataSource([
+          _makeProposal(id: 'p1', kind: 'create-agent', title: 'Reject me'),
+        ]);
+        final controller = OrgProposalsController(
+          OrgProposalsRepository(dataSource),
+        );
+        await controller.refresh();
 
-      await tester.pumpWidget(await _buildApp(controller));
-      await tester.pump();
+        await tester.pumpWidget(await _buildApp(controller));
+        await tester.pump();
 
-      expect(
-        find.byKey(const ValueKey('proposal-security-note-ext1')),
-        findsOneWidget,
-      );
-      expect(find.text('Provenance'), findsOneWidget);
+        final rejectButton = find.byKey(const ValueKey('reject-proposal-p1'));
+        expect(rejectButton, findsOneWidget);
 
-      final approveButton = tester.widget<FilledButton>(
-        find.byKey(const ValueKey('approve-proposal-ext1')),
-      );
-      expect(
-        approveButton.onPressed,
-        isNull,
-        reason: 'Approve must be disabled without a provenance note',
-      );
+        await tester.tap(rejectButton);
+        await tester.pump(); // open confirmation dialog
 
-      controller.dispose();
-    });
+        final confirmButton = find.widgetWithText(FilledButton, 'Reject');
+        expect(confirmButton, findsOneWidget);
+        await tester.tap(confirmButton);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        expect(dataSource.lastRejectedId, equals('p1'));
+        expect(find.text('Reject me'), findsNothing);
+
+        controller.dispose();
+      },
+    );
 
     testWidgets(
-        'issue-827-c3b: external-adoption with provenance present enables Approve',
-        (tester) async {
-      final dataSource = _FakeOrgProposalsDataSource([
-        _makeProposal(
-          id: 'ext2',
-          kind: 'external-adoption',
-          external: 1,
-          title: 'Adopt an MCP server',
-          provenanceJson:
-              '{"source":"github.com/example/mcp","stars":"1200","license":"MIT"}',
-        ),
-      ]);
-      final controller = OrgProposalsController(
-        OrgProposalsRepository(dataSource),
-      );
-      await controller.refresh();
+      'issue-827-c3: external-adoption shows the provenance block; Approve disabled until note present',
+      (tester) async {
+        // Bug this catches: the Approve button being tappable for an
+        // external-adoption proposal with no provenance note — the UI
+        // safety note explicitly forbids an approve path that bypasses the
+        // server-side note gate; this test proves the button is disabled
+        // client-side too, not just left to the server to 400.
+        final dataSource = _FakeOrgProposalsDataSource([
+          _makeProposal(
+            id: 'ext1',
+            kind: 'external-adoption',
+            external: 1,
+            title: 'Adopt an MCP server',
+            provenanceJson: null,
+          ),
+        ]);
+        final controller = OrgProposalsController(
+          OrgProposalsRepository(dataSource),
+        );
+        await controller.refresh();
 
-      await tester.pumpWidget(await _buildApp(controller));
-      await tester.pump();
+        await tester.pumpWidget(await _buildApp(controller));
+        await tester.pump();
 
-      final approveButton = tester.widget<FilledButton>(
-        find.byKey(const ValueKey('approve-proposal-ext2')),
-      );
-      expect(
-        approveButton.onPressed,
-        isNotNull,
-        reason: 'Approve should be enabled once provenance is present',
-      );
-      expect(find.textContaining('github.com/example/mcp'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('proposal-security-note-ext1')),
+          findsOneWidget,
+        );
+        expect(find.text('Provenance'), findsOneWidget);
 
-      controller.dispose();
-    });
+        final approveButton = tester.widget<FilledButton>(
+          find.byKey(const ValueKey('approve-proposal-ext1')),
+        );
+        expect(
+          approveButton.onPressed,
+          isNull,
+          reason: 'Approve must be disabled without a provenance note',
+        );
 
-    testWidgets(
-        'issue-827-c4: webhook-wiring shows the security block; Approve disabled until note present',
-        (tester) async {
-      final dataSource = _FakeOrgProposalsDataSource([
-        _makeProposal(
-          id: 'wh1',
-          kind: 'webhook-wiring',
-          title: 'Wire an inbound webhook',
-          provenanceJson: null,
-        ),
-      ]);
-      final controller = OrgProposalsController(
-        OrgProposalsRepository(dataSource),
-      );
-      await controller.refresh();
-
-      await tester.pumpWidget(await _buildApp(controller));
-      await tester.pump();
-
-      expect(
-        find.byKey(const ValueKey('proposal-security-note-wh1')),
-        findsOneWidget,
-      );
-      expect(find.text('Security note'), findsOneWidget);
-
-      final approveButton = tester.widget<FilledButton>(
-        find.byKey(const ValueKey('approve-proposal-wh1')),
-      );
-      expect(
-        approveButton.onPressed,
-        isNull,
-        reason: 'Approve must be disabled without a security note',
-      );
-
-      controller.dispose();
-    });
+        controller.dispose();
+      },
+    );
 
     testWidgets(
-        'issue-827-c4b: webhook-wiring with security note present enables Approve',
-        (tester) async {
-      final dataSource = _FakeOrgProposalsDataSource([
-        _makeProposal(
-          id: 'wh2',
-          kind: 'webhook-wiring',
-          title: 'Wire an inbound webhook',
-          provenanceJson:
-              '{"triggerSource":"github","targetRecipe":"on-call","hmac":"configured"}',
-        ),
-      ]);
-      final controller = OrgProposalsController(
-        OrgProposalsRepository(dataSource),
-      );
-      await controller.refresh();
+      'issue-827-c3b: external-adoption with provenance present enables Approve',
+      (tester) async {
+        final dataSource = _FakeOrgProposalsDataSource([
+          _makeProposal(
+            id: 'ext2',
+            kind: 'external-adoption',
+            external: 1,
+            title: 'Adopt an MCP server',
+            provenanceJson:
+                '{"source":"github.com/example/mcp","stars":"1200","license":"MIT"}',
+          ),
+        ]);
+        final controller = OrgProposalsController(
+          OrgProposalsRepository(dataSource),
+        );
+        await controller.refresh();
 
-      await tester.pumpWidget(await _buildApp(controller));
-      await tester.pump();
+        await tester.pumpWidget(await _buildApp(controller));
+        await tester.pump();
 
-      final approveButton = tester.widget<FilledButton>(
-        find.byKey(const ValueKey('approve-proposal-wh2')),
-      );
-      expect(
-        approveButton.onPressed,
-        isNotNull,
-        reason: 'Approve should be enabled once the security note is present',
-      );
+        final approveButton = tester.widget<FilledButton>(
+          find.byKey(const ValueKey('approve-proposal-ext2')),
+        );
+        expect(
+          approveButton.onPressed,
+          isNotNull,
+          reason: 'Approve should be enabled once provenance is present',
+        );
+        expect(find.textContaining('github.com/example/mcp'), findsOneWidget);
 
-      controller.dispose();
-    });
+        controller.dispose();
+      },
+    );
 
     testWidgets(
-        'create-agent (no security note requirement) has Approve enabled by default',
-        (tester) async {
-      // Regression guard for the inverse bug: a validator that requires a
-      // note for EVERY kind (over-gating create-agent, which has no
-      // provenance/security-note requirement per the decision doc).
-      final dataSource = _FakeOrgProposalsDataSource([
-        _makeProposal(id: 'ca1', kind: 'create-agent', title: 'New agent'),
-      ]);
-      final controller = OrgProposalsController(
-        OrgProposalsRepository(dataSource),
-      );
-      await controller.refresh();
+      'issue-827-c4: webhook-wiring shows the security block; Approve disabled until note present',
+      (tester) async {
+        final dataSource = _FakeOrgProposalsDataSource([
+          _makeProposal(
+            id: 'wh1',
+            kind: 'webhook-wiring',
+            title: 'Wire an inbound webhook',
+            provenanceJson: null,
+          ),
+        ]);
+        final controller = OrgProposalsController(
+          OrgProposalsRepository(dataSource),
+        );
+        await controller.refresh();
 
-      await tester.pumpWidget(await _buildApp(controller));
-      await tester.pump();
+        await tester.pumpWidget(await _buildApp(controller));
+        await tester.pump();
 
-      final approveButton = tester.widget<FilledButton>(
-        find.byKey(const ValueKey('approve-proposal-ca1')),
-      );
-      expect(approveButton.onPressed, isNotNull);
-      expect(
-        find.byKey(const ValueKey('proposal-security-note-ca1')),
-        findsNothing,
-      );
+        expect(
+          find.byKey(const ValueKey('proposal-security-note-wh1')),
+          findsOneWidget,
+        );
+        expect(find.text('Security note'), findsOneWidget);
 
-      controller.dispose();
-    });
+        final approveButton = tester.widget<FilledButton>(
+          find.byKey(const ValueKey('approve-proposal-wh1')),
+        );
+        expect(
+          approveButton.onPressed,
+          isNull,
+          reason: 'Approve must be disabled without a security note',
+        );
+
+        controller.dispose();
+      },
+    );
+
+    testWidgets(
+      'issue-827-c4b: webhook-wiring with security note present enables Approve',
+      (tester) async {
+        final dataSource = _FakeOrgProposalsDataSource([
+          _makeProposal(
+            id: 'wh2',
+            kind: 'webhook-wiring',
+            title: 'Wire an inbound webhook',
+            provenanceJson:
+                '{"triggerSource":"github","targetRecipe":"on-call","hmac":"configured"}',
+          ),
+        ]);
+        final controller = OrgProposalsController(
+          OrgProposalsRepository(dataSource),
+        );
+        await controller.refresh();
+
+        await tester.pumpWidget(await _buildApp(controller));
+        await tester.pump();
+
+        final approveButton = tester.widget<FilledButton>(
+          find.byKey(const ValueKey('approve-proposal-wh2')),
+        );
+        expect(
+          approveButton.onPressed,
+          isNotNull,
+          reason: 'Approve should be enabled once the security note is present',
+        );
+
+        controller.dispose();
+      },
+    );
+
+    testWidgets(
+      'create-agent (no security note requirement) has Approve enabled by default',
+      (tester) async {
+        // Regression guard for the inverse bug: a validator that requires a
+        // note for EVERY kind (over-gating create-agent, which has no
+        // provenance/security-note requirement per the decision doc).
+        final dataSource = _FakeOrgProposalsDataSource([
+          _makeProposal(id: 'ca1', kind: 'create-agent', title: 'New agent'),
+        ]);
+        final controller = OrgProposalsController(
+          OrgProposalsRepository(dataSource),
+        );
+        await controller.refresh();
+
+        await tester.pumpWidget(await _buildApp(controller));
+        await tester.pump();
+
+        final approveButton = tester.widget<FilledButton>(
+          find.byKey(const ValueKey('approve-proposal-ca1')),
+        );
+        expect(approveButton.onPressed, isNotNull);
+        expect(
+          find.byKey(const ValueKey('proposal-security-note-ca1')),
+          findsNothing,
+        );
+
+        controller.dispose();
+      },
+    );
   });
 }

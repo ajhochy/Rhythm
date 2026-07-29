@@ -38,9 +38,9 @@ class MobilePairingCode {
   final String gatewayUrl;
 
   String get qrPayload => jsonEncode(<String, String>{
-        'gatewayUrl': gatewayUrl,
-        'pairingCode': code,
-      });
+    'gatewayUrl': gatewayUrl,
+    'pairingCode': code,
+  });
 }
 
 class MobileDevice {
@@ -74,14 +74,14 @@ class MobileAccessDataSource {
     String? baseUrl,
     String? Function()? tokenProvider,
     HumanApprovalSigner? humanApprovalSigner,
-  })  : _client = client ?? http.Client(),
-        _ownsClient = client == null,
-        _baseUrl = (baseUrl ?? AppConstants.agentLocalBaseUrl).replaceFirst(
-          RegExp(r'/$'),
-          '',
-        ),
-        _tokenProvider = tokenProvider ?? (() => AuthSessionStore.sessionToken),
-        _humanApprovalSigner = humanApprovalSigner ?? HumanApprovalSigner();
+  }) : _client = client ?? http.Client(),
+       _ownsClient = client == null,
+       _baseUrl = (baseUrl ?? AppConstants.agentLocalBaseUrl).replaceFirst(
+         RegExp(r'/$'),
+         '',
+       ),
+       _tokenProvider = tokenProvider ?? (() => AuthSessionStore.sessionToken),
+       _humanApprovalSigner = humanApprovalSigner ?? HumanApprovalSigner();
 
   final http.Client _client;
   final bool _ownsClient;
@@ -96,8 +96,8 @@ class MobileAccessDataSource {
         'Sign in to Rhythm before enabling mobile access.',
       );
     }
-    final humanCapability =
-        await _humanApprovalSigner.humanApprovalCapability();
+    final humanCapability = await _humanApprovalSigner
+        .humanApprovalCapability();
     return <String, String>{
       'Authorization': 'Bearer $token',
       'X-Rhythm-Human-Approval': humanCapability,
@@ -128,8 +128,8 @@ class MobileAccessDataSource {
       final error = body?['error'];
       final message =
           error is Map<String, dynamic> && error['message'] is String
-              ? error['message'] as String
-              : 'Mobile access request failed (${response.statusCode}).';
+          ? error['message'] as String
+          : 'Mobile access request failed (${response.statusCode}).';
       throw MobileAccessException(message);
     }
     if (body == null) {
@@ -147,14 +147,15 @@ class MobileAccessDataSource {
       'wrongTarget' => TailscaleAccessState.wrongTarget,
       'healthy' => TailscaleAccessState.healthy,
       _ => throw const MobileAccessException(
-          'The local Rhythm agent server returned an unknown Tailscale state.',
-        ),
+        'The local Rhythm agent server returned an unknown Tailscale state.',
+      ),
     };
     final gatewayUrl = json['gatewayUrl'];
     return MobileAccessStatus(
       state: state,
-      gatewayUrl:
-          gatewayUrl is String && gatewayUrl.isNotEmpty ? gatewayUrl : null,
+      gatewayUrl: gatewayUrl is String && gatewayUrl.isNotEmpty
+          ? gatewayUrl
+          : null,
       message: json['message'] is String
           ? json['message'] as String
           : 'Tailscale diagnostics are unavailable.',
@@ -240,27 +241,30 @@ class MobileAccessDataSource {
         'The local Rhythm agent server returned an invalid device list.',
       );
     }
-    return decoded.whereType<Map<String, dynamic>>().map((item) {
-      final id = item['id'];
-      final name = item['name'];
-      final createdAt = DateTime.tryParse(
-        item['createdAt']?.toString() ?? '',
-      );
-      final rawRevokedAt = item['revokedAt'];
-      if (id is! String || name is! String || createdAt == null) {
-        throw const MobileAccessException(
-          'The local Rhythm agent server returned an invalid device.',
-        );
-      }
-      return MobileDevice(
-        id: id,
-        name: name,
-        createdAt: createdAt,
-        revokedAt: rawRevokedAt == null
-            ? null
-            : DateTime.tryParse(rawRevokedAt.toString()),
-      );
-    }).toList(growable: false);
+    return decoded
+        .whereType<Map<String, dynamic>>()
+        .map((item) {
+          final id = item['id'];
+          final name = item['name'];
+          final createdAt = DateTime.tryParse(
+            item['createdAt']?.toString() ?? '',
+          );
+          final rawRevokedAt = item['revokedAt'];
+          if (id is! String || name is! String || createdAt == null) {
+            throw const MobileAccessException(
+              'The local Rhythm agent server returned an invalid device.',
+            );
+          }
+          return MobileDevice(
+            id: id,
+            name: name,
+            createdAt: createdAt,
+            revokedAt: rawRevokedAt == null
+                ? null
+                : DateTime.tryParse(rawRevokedAt.toString()),
+          );
+        })
+        .toList(growable: false);
   }
 
   Future<void> revokeDevice(String deviceId) async {

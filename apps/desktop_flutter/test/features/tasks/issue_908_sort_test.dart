@@ -20,16 +20,15 @@ Task _task(
   String? scheduledDate,
   required String createdAt,
   TaskStatus status = TaskStatus.open,
-}) =>
-    Task(
-      id: id,
-      title: title,
-      status: status,
-      dueDate: dueDate,
-      scheduledDate: scheduledDate,
-      createdAt: createdAt,
-      updatedAt: createdAt,
-    );
+}) => Task(
+  id: id,
+  title: title,
+  status: status,
+  dueDate: dueDate,
+  scheduledDate: scheduledDate,
+  createdAt: createdAt,
+  updatedAt: createdAt,
+);
 
 void main() {
   group('compareTasksBySortField (#908)', () {
@@ -57,14 +56,20 @@ void main() {
       final tasks = [
         _task('t1', 'A', createdAt: '2026-01-01', status: TaskStatus.done),
         _task('t2', 'B', createdAt: '2026-01-01', status: TaskStatus.open),
-        _task('t3', 'C',
-            createdAt: '2026-01-01', status: TaskStatus.waitingForReply),
-        _task('t4', 'D',
-            createdAt: '2026-01-01', status: TaskStatus.inProgress),
+        _task(
+          't3',
+          'C',
+          createdAt: '2026-01-01',
+          status: TaskStatus.waitingForReply,
+        ),
+        _task(
+          't4',
+          'D',
+          createdAt: '2026-01-01',
+          status: TaskStatus.inProgress,
+        ),
       ];
-      tasks.sort(
-        (a, b) => compareTasksBySortField(a, b, TaskSortField.status),
-      );
+      tasks.sort((a, b) => compareTasksBySortField(a, b, TaskSortField.status));
       expect(tasks.map((t) => t.id), ['t2', 't4', 't3', 't1']);
     });
 

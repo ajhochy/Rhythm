@@ -35,8 +35,8 @@ class _FakeApiServerService extends ApiServerService {
 
 class _FakeAgentServerController extends AgentServerController {
   _FakeAgentServerController({required bool ready})
-      : _ready = ready,
-        super(_FakeApiServerService());
+    : _ready = ready,
+      super(_FakeApiServerService());
 
   final bool _ready;
 
@@ -60,8 +60,8 @@ class _FakeAgentServerController extends AgentServerController {
 
 class _FakeAgentsRepository implements AgentsRepository {
   _FakeAgentsRepository()
-      : _msgController = StreamController<AgentWsMessage>.broadcast(),
-        _connectivityController = StreamController<bool>.broadcast();
+    : _msgController = StreamController<AgentWsMessage>.broadcast(),
+      _connectivityController = StreamController<bool>.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -92,12 +92,11 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      [];
+  }) async => [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async {
+  getSession(String id) async {
     final now = DateTime.now();
     return (
       session: AgentSession(
@@ -256,14 +255,18 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async => [];
 
   @override
-  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async =>
-      {'recorded': false, 'memoryIds': [], 'notePaths': []};
+  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async => {
+    'recorded': false,
+    'memoryIds': [],
+    'notePaths': [],
+  };
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-          String parentSessionId, String childSdkId,
-          {String? cwd}) async =>
-      [];
+    String parentSessionId,
+    String childSdkId, {
+    String? cwd,
+  }) async => [];
 
   @override
   Future<AgentSession> forkSession(String sessionId, String messageId) async {
@@ -302,7 +305,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-      : super(NotificationsRepository(NotificationsDataSource()));
+    : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -321,8 +324,8 @@ class _FakeAuthDataSource extends AuthDataSource {
 /// without touching [SharedPreferences] or making network calls.
 class _StubAuthSessionService extends AuthSessionService {
   _StubAuthSessionService({String? token})
-      : _token = token,
-        super(_FakeAuthDataSource());
+    : _token = token,
+      super(_FakeAuthDataSource());
 
   final String? _token;
 
@@ -444,45 +447,47 @@ void main() {
       expect(deleteCount, greaterThan(0));
     });
 
-    test('deduplicates: same trigger polled twice does not create two bubbles',
-        () async {
-      final trigger = {
-        'id': 'tr-dup',
-        'taskId': 'task-dup',
-        'taskTitle': 'Duplicate',
-      };
+    test(
+      'deduplicates: same trigger polled twice does not create two bubbles',
+      () async {
+        final trigger = {
+          'id': 'tr-dup',
+          'taskId': 'task-dup',
+          'taskTitle': 'Duplicate',
+        };
 
-      // Simulate DELETE failing so the trigger keeps reappearing.
-      final client = MockClient((request) async {
-        if (request.method == 'GET') {
-          return http.Response(jsonEncode([trigger]), 200);
-        }
-        // DELETE returns 500 — trigger is not consumed.
-        return http.Response('error', 500);
-      });
+        // Simulate DELETE failing so the trigger keeps reappearing.
+        final client = MockClient((request) async {
+          if (request.method == 'GET') {
+            return http.Response(jsonEncode([trigger]), 200);
+          }
+          // DELETE returns 500 — trigger is not consumed.
+          return http.Response('error', 500);
+        });
 
-      final watcher = AgentTriggerWatcher(
-        serverConfigService: serverConfigService,
-        authSessionService: _StubAuthSessionService(token: 'tok-abc'),
-        agentServerController: agentServerController,
-        agentsController: agentsController,
-        interval: const Duration(milliseconds: 50),
-        httpClient: client,
-      );
-      addTearDown(watcher.dispose);
+        final watcher = AgentTriggerWatcher(
+          serverConfigService: serverConfigService,
+          authSessionService: _StubAuthSessionService(token: 'tok-abc'),
+          agentServerController: agentServerController,
+          agentsController: agentsController,
+          interval: const Duration(milliseconds: 50),
+          httpClient: client,
+        );
+        addTearDown(watcher.dispose);
 
-      watcher.start();
-      // Allow several ticks to fire.
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+        watcher.start();
+        // Allow several ticks to fire.
+        await Future<void>.delayed(const Duration(milliseconds: 250));
 
-      // Despite multiple polls, the trigger should only appear once.
-      expect(
-        agentsController.pendingTriggers
-            .where((t) => t.taskId == 'task-dup')
-            .length,
-        1,
-      );
-    });
+        // Despite multiple polls, the trigger should only appear once.
+        expect(
+          agentsController.pendingTriggers
+              .where((t) => t.taskId == 'task-dup')
+              .length,
+          1,
+        );
+      },
+    );
 
     test('calls DELETE after a successful handoff', () async {
       final trigger = {
@@ -629,25 +634,27 @@ void main() {
   // --------------------------------------------------------------------------
 
   group('auth-change re-fire (F2)', () {
-    test('AuthSessionService notify drives AgentServerController.onAuthChanged',
-        () {
-      final auth = _StubAuthSessionService(token: 'tok');
-      final watcher = AgentTriggerWatcher(
-        serverConfigService: serverConfigService,
-        authSessionService: auth,
-        agentServerController: agentServerController,
-        agentsController: agentsController,
-      );
-      addTearDown(watcher.dispose);
+    test(
+      'AuthSessionService notify drives AgentServerController.onAuthChanged',
+      () {
+        final auth = _StubAuthSessionService(token: 'tok');
+        final watcher = AgentTriggerWatcher(
+          serverConfigService: serverConfigService,
+          authSessionService: auth,
+          agentServerController: agentServerController,
+          agentsController: agentsController,
+        );
+        addTearDown(watcher.dispose);
 
-      expect(agentServerController.onAuthChangedCount, 0);
+        expect(agentServerController.onAuthChangedCount, 0);
 
-      auth.simulateAuthChange();
-      expect(agentServerController.onAuthChangedCount, 1);
+        auth.simulateAuthChange();
+        expect(agentServerController.onAuthChangedCount, 1);
 
-      auth.simulateAuthChange();
-      expect(agentServerController.onAuthChangedCount, 2);
-    });
+        auth.simulateAuthChange();
+        expect(agentServerController.onAuthChangedCount, 2);
+      },
+    );
 
     test('listener is removed on dispose (no leak / no further fires)', () {
       final auth = _StubAuthSessionService(token: 'tok');

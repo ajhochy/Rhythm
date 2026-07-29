@@ -127,7 +127,7 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async {
+  getSession(String id) async {
     final s = _store.firstWhere((s) => s.id == id);
     return (session: s, messages: <AgentSessionMessage>[]);
   }
@@ -276,14 +276,18 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async => [];
 
   @override
-  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async =>
-      {'recorded': false, 'memoryIds': [], 'notePaths': []};
+  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async => {
+    'recorded': false,
+    'memoryIds': [],
+    'notePaths': [],
+  };
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-          String parentSessionId, String childSdkId,
-          {String? cwd}) async =>
-      [];
+    String parentSessionId,
+    String childSdkId, {
+    String? cwd,
+  }) async => [];
 
   @override
   Future<AgentSession> forkSession(String sessionId, String messageId) async {
@@ -316,8 +320,7 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<List<Map<String, dynamic>>> getVcsDiff(
     String sessionId,
     String mode,
-  ) async =>
-      const [];
+  ) async => const [];
 
   @override
   Future<String> getVcsDiffRaw(String sessionId) async => '';
@@ -334,20 +337,19 @@ class _FakeAgentsRepository implements AgentsRepository {
     String query, {
     int? limit,
     String? type,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<List<Map<String, dynamic>>> listSessionFiles(
     String sessionId, {
     String path = '.',
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<Map<String, dynamic>> fileContent(
-          String sessionId, String path) async =>
-      const {};
+    String sessionId,
+    String path,
+  ) async => const {};
 
   @override
   Future<List<Map<String, dynamic>>> filesGitStatus(String sessionId) async =>
@@ -365,7 +367,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-      : super(NotificationsRepository(NotificationsDataSource()));
+    : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -422,16 +424,18 @@ Future<Widget> _buildHarness({
   required AgentsController agentsController,
 }) async {
   final cfgController = AgentConfigsController(
-    AgentConfigsRepository(_FakeAgentConfigsDataSource([
-      AgentConfig(
-        id: 'claude-code',
-        label: 'Claude Code',
-        icon: 'assets/icons/claude_code.png',
-        enabled: true,
-        isAgent: true,
-        sortOrder: 0,
-      ),
-    ])),
+    AgentConfigsRepository(
+      _FakeAgentConfigsDataSource([
+        AgentConfig(
+          id: 'claude-code',
+          label: 'Claude Code',
+          icon: 'assets/icons/claude_code.png',
+          enabled: true,
+          isAgent: true,
+          sortOrder: 0,
+        ),
+      ]),
+    ),
   );
   await cfgController.refresh();
   final tasksController = TasksController(
@@ -447,7 +451,8 @@ Future<Widget> _buildHarness({
         value: _ReadyAgentServerController(),
       ),
       ChangeNotifierProvider<AgentConfigsController>.value(
-          value: cfgController),
+        value: cfgController,
+      ),
       ChangeNotifierProvider<AgentsController>.value(value: agentsController),
       ChangeNotifierProvider<TasksController>.value(value: tasksController),
       ChangeNotifierProvider<AgentProjectsController>.value(
@@ -486,8 +491,9 @@ void main() {
       await controller.initialize();
       controller.selectSession('live-1');
 
-      await tester
-          .pumpWidget(await _buildHarness(agentsController: controller));
+      await tester.pumpWidget(
+        await _buildHarness(agentsController: controller),
+      );
       await tester.pumpAndSettle();
 
       // Composer area widgets all present.
@@ -499,60 +505,57 @@ void main() {
       // "Reasoning effort (thinking budget)" and shows "Off" until a budget
       // is set; the fast-mode toggle uses tooltip "Fast mode".
       expect(
-          find.byTooltip('Reasoning effort (thinking budget)'), findsOneWidget);
-
-      controller.dispose();
-    },
-  );
-
-  testWidgets(
-    '#602 new-session dialog has no agent dropdown',
-    (tester) async {
-      final repo = _FakeAgentsRepository();
-      final controller = _makeController(repo);
-      await controller.initialize();
-
-      await tester
-          .pumpWidget(await _buildHarness(agentsController: controller));
-      await tester.pumpAndSettle();
-
-      // Open the new-session dialog.
-      await tester.tap(find.text('New').first);
-      await tester.pumpAndSettle();
-
-      // The dialog used to have an "Agent" picker; it shouldn't anymore.
-      // Heuristic: there should NOT be a DropdownButton labeled "Agent".
-      final agentLabel = find.text('Agent');
-      // It's OK for the word "Agent" to appear in unrelated context, but
-      // a DropdownButton ancestor for it would be the old picker.
-      expect(
-        agentLabel.evaluate().any((el) {
-          return el.findAncestorWidgetOfExactType<DropdownButton<dynamic>>() !=
-              null;
-        }),
-        isFalse,
-        reason: 'New-session dialog must not have an Agent dropdown (#602).',
+        find.byTooltip('Reasoning effort (thinking budget)'),
+        findsOneWidget,
       );
 
-      // The Working directory + Name fields are still present.
-      expect(find.textContaining('Working directory'), findsWidgets);
-
       controller.dispose();
     },
   );
+
+  testWidgets('#602 new-session dialog has no agent dropdown', (tester) async {
+    final repo = _FakeAgentsRepository();
+    final controller = _makeController(repo);
+    await controller.initialize();
+
+    await tester.pumpWidget(await _buildHarness(agentsController: controller));
+    await tester.pumpAndSettle();
+
+    // Open the new-session dialog.
+    await tester.tap(find.text('New').first);
+    await tester.pumpAndSettle();
+
+    // The dialog used to have an "Agent" picker; it shouldn't anymore.
+    // Heuristic: there should NOT be a DropdownButton labeled "Agent".
+    final agentLabel = find.text('Agent');
+    // It's OK for the word "Agent" to appear in unrelated context, but
+    // a DropdownButton ancestor for it would be the old picker.
+    expect(
+      agentLabel.evaluate().any((el) {
+        return el.findAncestorWidgetOfExactType<DropdownButton<dynamic>>() !=
+            null;
+      }),
+      isFalse,
+      reason: 'New-session dialog must not have an Agent dropdown (#602).',
+    );
+
+    // The Working directory + Name fields are still present.
+    expect(find.textContaining('Working directory'), findsWidgets);
+
+    controller.dispose();
+  });
 
   testWidgets(
     '#601 archive moves session to Archived section; unarchive restores it',
     (tester) async {
       final repo = _FakeAgentsRepository();
-      repo.seed([
-        _session(id: 's1', name: 'will-archive'),
-      ]);
+      repo.seed([_session(id: 's1', name: 'will-archive')]);
       final controller = _makeController(repo);
       await controller.initialize();
 
-      await tester
-          .pumpWidget(await _buildHarness(agentsController: controller));
+      await tester.pumpWidget(
+        await _buildHarness(agentsController: controller),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('will-archive'), findsOneWidget);
@@ -586,32 +589,30 @@ void main() {
     },
   );
 
-  testWidgets(
-    '#611 PermissionModePicker reflects setPermissionMode',
-    (tester) async {
-      final repo = _FakeAgentsRepository();
-      repo.seed([_session(id: 'pm-1')]);
-      final controller = _makeController(repo);
-      await controller.initialize();
-      controller.selectSession('pm-1');
+  testWidgets('#611 PermissionModePicker reflects setPermissionMode', (
+    tester,
+  ) async {
+    final repo = _FakeAgentsRepository();
+    repo.seed([_session(id: 'pm-1')]);
+    final controller = _makeController(repo);
+    await controller.initialize();
+    controller.selectSession('pm-1');
 
-      await tester
-          .pumpWidget(await _buildHarness(agentsController: controller));
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(await _buildHarness(agentsController: controller));
+    await tester.pumpAndSettle();
 
-      // Default label.
-      expect(find.byType(PermissionModePicker), findsOneWidget);
+    // Default label.
+    expect(find.byType(PermissionModePicker), findsOneWidget);
 
-      // Drive a programmatic change — the picker should reflect it on rebuild.
-      await controller.setPermissionMode('pm-1', PermissionMode.acceptEdits);
-      await tester.pumpAndSettle();
+    // Drive a programmatic change — the picker should reflect it on rebuild.
+    await controller.setPermissionMode('pm-1', PermissionMode.acceptEdits);
+    await tester.pumpAndSettle();
 
-      final s = controller.sessions.firstWhere((s) => s.id == 'pm-1');
-      expect(s.permissionMode, PermissionMode.acceptEdits);
+    final s = controller.sessions.firstWhere((s) => s.id == 'pm-1');
+    expect(s.permissionMode, PermissionMode.acceptEdits);
 
-      controller.dispose();
-    },
-  );
+    controller.dispose();
+  });
 
   testWidgets(
     '#604 thinking_budget + fastMode persist through the controller',
@@ -622,8 +623,9 @@ void main() {
       await controller.initialize();
       controller.selectSession('t1');
 
-      await tester
-          .pumpWidget(await _buildHarness(agentsController: controller));
+      await tester.pumpWidget(
+        await _buildHarness(agentsController: controller),
+      );
       await tester.pumpAndSettle();
 
       await controller.setThinkingBudget('t1', 12288);
@@ -655,11 +657,13 @@ void main() {
         vcsDirty: false,
       );
 
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: Center(child: ProjectVcsChip(project: project)),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(child: ProjectVcsChip(project: project)),
+          ),
         ),
-      ));
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('main'), findsOneWidget);
@@ -667,28 +671,28 @@ void main() {
     },
   );
 
-  testWidgets(
-    '#605 controller upserts a row on session.updated WS message',
-    (tester) async {
-      final repo = _FakeAgentsRepository();
-      repo.seed([_session(id: 'live-1', name: 'before')]);
-      final controller = _makeController(repo);
-      await controller.initialize();
+  testWidgets('#605 controller upserts a row on session.updated WS message', (
+    tester,
+  ) async {
+    final repo = _FakeAgentsRepository();
+    repo.seed([_session(id: 'live-1', name: 'before')]);
+    final controller = _makeController(repo);
+    await controller.initialize();
 
-      await tester
-          .pumpWidget(await _buildHarness(agentsController: controller));
-      await tester.pumpAndSettle();
-      expect(find.text('before'), findsOneWidget);
+    await tester.pumpWidget(await _buildHarness(agentsController: controller));
+    await tester.pumpAndSettle();
+    expect(find.text('before'), findsOneWidget);
 
-      // Simulate the server pushing a session.updated.
-      repo._msg.add(SessionUpdatedMessage(
+    // Simulate the server pushing a session.updated.
+    repo._msg.add(
+      SessionUpdatedMessage(
         session: _session(id: 'live-1', name: 'after'),
-      ));
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      expect(find.text('after'), findsOneWidget);
+    expect(find.text('after'), findsOneWidget);
 
-      controller.dispose();
-    },
-  );
+    controller.dispose();
+  });
 }

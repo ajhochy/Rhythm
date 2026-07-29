@@ -57,28 +57,29 @@ void main() {
     });
 
     test(
-        'message.part.updated -> MessagePartUpdatedMessage exposes part fields',
-        () {
-      final msg = parseFrame({
-        'v': 1,
-        'type': 'message.part.updated',
-        'id': 'local-session-1',
-        'part': {
-          'id': 'part-1',
-          'messageID': 'sdk-msg-1',
-          'sessionID': 'sdk-session-1',
-          'type': 'text',
-          'text': 'Hello, world',
-        },
-      });
-      expect(msg, isA<MessagePartUpdatedMessage>());
-      final p = msg as MessagePartUpdatedMessage;
-      expect(p.sessionId, 'local-session-1');
-      expect(p.partId, 'part-1');
-      expect(p.messageId, 'sdk-msg-1');
-      expect(p.partType, 'text');
-      expect(p.text, 'Hello, world');
-    });
+      'message.part.updated -> MessagePartUpdatedMessage exposes part fields',
+      () {
+        final msg = parseFrame({
+          'v': 1,
+          'type': 'message.part.updated',
+          'id': 'local-session-1',
+          'part': {
+            'id': 'part-1',
+            'messageID': 'sdk-msg-1',
+            'sessionID': 'sdk-session-1',
+            'type': 'text',
+            'text': 'Hello, world',
+          },
+        });
+        expect(msg, isA<MessagePartUpdatedMessage>());
+        final p = msg as MessagePartUpdatedMessage;
+        expect(p.sessionId, 'local-session-1');
+        expect(p.partId, 'part-1');
+        expect(p.messageId, 'sdk-msg-1');
+        expect(p.partType, 'text');
+        expect(p.text, 'Hello, world');
+      },
+    );
 
     test('message.updated -> MessageUpdatedMessage exposes cost + tokens', () {
       final msg = parseFrame({
@@ -93,7 +94,7 @@ void main() {
             'input': 100,
             'output': 50,
             'reasoning': 0,
-            'cache': {'read': 0, 'write': 0}
+            'cache': {'read': 0, 'write': 0},
           },
         },
       });
@@ -105,21 +106,23 @@ void main() {
       expect(m.tokens?['input'], 100);
     });
 
-    test('transcript.append -> TranscriptAppendMessage carries finalized text',
-        () {
-      final msg = parseFrame({
-        'v': 1,
-        'type': 'transcript.append',
-        'id': 'local-session-1',
-        'role': 'output',
-        'text': 'final answer',
-      });
-      expect(msg, isA<TranscriptAppendMessage>());
-      final t = msg as TranscriptAppendMessage;
-      expect(t.id, 'local-session-1');
-      expect(t.role, 'output');
-      expect(t.text, 'final answer');
-    });
+    test(
+      'transcript.append -> TranscriptAppendMessage carries finalized text',
+      () {
+        final msg = parseFrame({
+          'v': 1,
+          'type': 'transcript.append',
+          'id': 'local-session-1',
+          'role': 'output',
+          'text': 'final answer',
+        });
+        expect(msg, isA<TranscriptAppendMessage>());
+        final t = msg as TranscriptAppendMessage;
+        expect(t.id, 'local-session-1');
+        expect(t.role, 'output');
+        expect(t.text, 'final answer');
+      },
+    );
   });
 
   group('session status frames', () {
@@ -150,75 +153,84 @@ void main() {
     });
 
     test(
-        'session.status retrying -> isRetrying with attempt + reason (OPC-M2-4)',
-        () {
-      final msg = parseFrame({
-        'v': 1,
-        'type': 'session.status',
-        'id': 'local-session-1',
-        'working': true,
-        'status': 'retrying',
-        'attempt': 2,
-        'reason': 'rate limit',
-      });
-      final s = msg as SessionStatusMessage;
-      expect(s.isRetrying, isTrue);
-      expect(s.attempt, 2);
-      expect(s.reason, 'rate limit');
-    });
+      'session.status retrying -> isRetrying with attempt + reason (OPC-M2-4)',
+      () {
+        final msg = parseFrame({
+          'v': 1,
+          'type': 'session.status',
+          'id': 'local-session-1',
+          'working': true,
+          'status': 'retrying',
+          'attempt': 2,
+          'reason': 'rate limit',
+        });
+        final s = msg as SessionStatusMessage;
+        expect(s.isRetrying, isTrue);
+        expect(s.attempt, 2);
+        expect(s.reason, 'rate limit');
+      },
+    );
 
-    test('session.diff -> SessionDiffMessage (id only; client refetches REST)',
-        () {
-      final msg =
-          parseFrame({'v': 1, 'type': 'session.diff', 'id': 'local-session-1'});
-      expect(msg, isA<SessionDiffMessage>());
-      expect((msg as SessionDiffMessage).id, 'local-session-1');
-    });
+    test(
+      'session.diff -> SessionDiffMessage (id only; client refetches REST)',
+      () {
+        final msg = parseFrame({
+          'v': 1,
+          'type': 'session.diff',
+          'id': 'local-session-1',
+        });
+        expect(msg, isA<SessionDiffMessage>());
+        expect((msg as SessionDiffMessage).id, 'local-session-1');
+      },
+    );
 
-    test('todo.updated -> SessionTodoUpdatedMessage carries the full todo list',
-        () {
-      final msg = parseFrame({
-        'v': 1,
-        'type': 'todo.updated',
-        'id': 'local-session-1',
-        'todos': [
-          {
-            'id': 't1',
-            'content': 'do thing',
-            'status': 'pending',
-            'priority': 'high'
-          },
-        ],
-      });
-      expect(msg, isA<SessionTodoUpdatedMessage>());
-      final t = msg as SessionTodoUpdatedMessage;
-      expect(t.sessionId, 'local-session-1');
-      expect(t.todos, hasLength(1));
-      expect(t.todos.first['content'], 'do thing');
-    });
+    test(
+      'todo.updated -> SessionTodoUpdatedMessage carries the full todo list',
+      () {
+        final msg = parseFrame({
+          'v': 1,
+          'type': 'todo.updated',
+          'id': 'local-session-1',
+          'todos': [
+            {
+              'id': 't1',
+              'content': 'do thing',
+              'status': 'pending',
+              'priority': 'high',
+            },
+          ],
+        });
+        expect(msg, isA<SessionTodoUpdatedMessage>());
+        final t = msg as SessionTodoUpdatedMessage;
+        expect(t.sessionId, 'local-session-1');
+        expect(t.todos, hasLength(1));
+        expect(t.todos.first['content'], 'do thing');
+      },
+    );
   });
 
   group('permission frames', () {
     test(
-        'permission.asked -> PermissionAskedMessage with tool + args + summary',
-        () {
-      final msg = parseFrame({
-        'v': 1,
-        'type': 'permission.asked',
-        'sessionId': 'local-session-1',
-        'permissionId': 'perm-42',
-        'toolName': 'bash',
-        'args': {'command': 'rm -rf build'},
-        'summary': 'Run bash: rm -rf build',
-      });
-      expect(msg, isA<PermissionAskedMessage>());
-      final p = msg as PermissionAskedMessage;
-      expect(p.sessionId, 'local-session-1');
-      expect(p.permissionId, 'perm-42');
-      expect(p.toolName, 'bash');
-      expect(p.args['command'], 'rm -rf build');
-      expect(p.summary, 'Run bash: rm -rf build');
-    });
+      'permission.asked -> PermissionAskedMessage with tool + args + summary',
+      () {
+        final msg = parseFrame({
+          'v': 1,
+          'type': 'permission.asked',
+          'sessionId': 'local-session-1',
+          'permissionId': 'perm-42',
+          'toolName': 'bash',
+          'args': {'command': 'rm -rf build'},
+          'summary': 'Run bash: rm -rf build',
+        });
+        expect(msg, isA<PermissionAskedMessage>());
+        final p = msg as PermissionAskedMessage;
+        expect(p.sessionId, 'local-session-1');
+        expect(p.permissionId, 'perm-42');
+        expect(p.toolName, 'bash');
+        expect(p.args['command'], 'rm -rf build');
+        expect(p.summary, 'Run bash: rm -rf build');
+      },
+    );
 
     test('permission.resolved -> PermissionResolvedMessage with decision', () {
       final msg = parseFrame({
@@ -236,8 +248,7 @@ void main() {
   });
 
   group('error + unknown frames (must never silently vanish)', () {
-    test('error frame (no-authed-model / SDK error) -> VISIBLE WsErrorMessage',
-        () {
+    test('error frame (no-authed-model / SDK error) -> VISIBLE WsErrorMessage', () {
       // The bridge relays SDK session.error as { type: error, id, message }.
       // A model/auth failure must surface as a readable error line, not a drop.
       const errText =
@@ -271,17 +282,22 @@ void main() {
     });
 
     test('a brand-new top-level type degrades to UnknownWsMessage', () {
-      final msg =
-          parseFrame({'v': 1, 'type': 'totally.new.type.v2', 'id': 'x'});
+      final msg = parseFrame({
+        'v': 1,
+        'type': 'totally.new.type.v2',
+        'id': 'x',
+      });
       expect(msg, isA<UnknownWsMessage>());
       expect((msg as UnknownWsMessage).rawType, 'totally.new.type.v2');
     });
 
-    test('a frame with no type degrades to UnknownWsMessage with empty rawType',
-        () {
-      final msg = parseFrame({'v': 1, 'id': 'x'});
-      expect(msg, isA<UnknownWsMessage>());
-      expect((msg as UnknownWsMessage).rawType, '');
-    });
+    test(
+      'a frame with no type degrades to UnknownWsMessage with empty rawType',
+      () {
+        final msg = parseFrame({'v': 1, 'id': 'x'});
+        expect(msg, isA<UnknownWsMessage>());
+        expect((msg as UnknownWsMessage).rawType, '');
+      },
+    );
   });
 }

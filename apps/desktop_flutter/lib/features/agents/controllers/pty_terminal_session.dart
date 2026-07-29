@@ -46,11 +46,11 @@ class PtyTerminalSession extends ChangeNotifier {
     required Future<void> Function(String ptyId) killPty,
     required String Function(String ptyId) ptyWsUrl,
     PtyChannelFactory? channelFactory,
-  })  : _createPty = createPty,
-        _resizePty = resizePty,
-        _killPty = killPty,
-        _ptyWsUrl = ptyWsUrl,
-        _channelFactory = channelFactory {
+  }) : _createPty = createPty,
+       _resizePty = resizePty,
+       _killPty = killPty,
+       _ptyWsUrl = ptyWsUrl,
+       _channelFactory = channelFactory {
     terminal.onOutput = (data) {
       _channel?.sink.add(data);
     };

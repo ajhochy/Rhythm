@@ -55,8 +55,8 @@ class _FakeAgentServerController extends AgentServerController {
 
 class _FakeAgentsRepository implements AgentsRepository {
   _FakeAgentsRepository()
-      : _msgController = StreamController.broadcast(),
-        _connectivityController = StreamController.broadcast();
+    : _msgController = StreamController.broadcast(),
+      _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -90,12 +90,11 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      sessionsToReturn;
+  }) async => sessionsToReturn;
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async {
+  getSession(String id) async {
     final s = sessionsToReturn.firstWhere(
       (s) => s.id == id,
       orElse: () => _makeSession(id, AgentSessionStatus.idle),
@@ -116,8 +115,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? anthropicAccountId,
     bool isolateWorktree = false,
     String? worktreeName,
-  }) async =>
-      _makeSession('new', AgentSessionStatus.starting);
+  }) async => _makeSession('new', AgentSessionStatus.starting);
 
   @override
   Future<void> closeSession(String id) async {}
@@ -140,15 +138,13 @@ class _FakeAgentsRepository implements AgentsRepository {
     bool? fastMode,
     String? anthropicAccountId,
     String? agentId,
-  }) async =>
-      throw UnimplementedError();
+  }) async => throw UnimplementedError();
 
   @override
   Future<AgentSession> updateSessionThinkingBudget(
     String id,
     int? budget,
-  ) async =>
-      throw UnimplementedError();
+  ) async => throw UnimplementedError();
 
   @override
   Future<AgentSession> resumeSession(String id) async =>
@@ -181,9 +177,10 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<void> rejectQuestion(String sessionId, String callId) async {}
 
   @override
-  Future<List<AgentSessionMessage>> getMessages(String id,
-          {int? limit}) async =>
-      [];
+  Future<List<AgentSessionMessage>> getMessages(
+    String id, {
+    int? limit,
+  }) async => [];
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async => [];
@@ -201,14 +198,18 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async => [];
 
   @override
-  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async =>
-      {'recorded': false, 'memoryIds': [], 'notePaths': []};
+  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async => {
+    'recorded': false,
+    'memoryIds': [],
+    'notePaths': [],
+  };
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-          String parentSessionId, String childSdkId,
-          {String? cwd}) async =>
-      [];
+    String parentSessionId,
+    String childSdkId, {
+    String? cwd,
+  }) async => [];
 
   @override
   Future<AgentSession> forkSession(String sessionId, String messageId) async {
@@ -247,7 +248,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-      : super(NotificationsRepository(NotificationsDataSource()));
+    : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -304,96 +305,115 @@ void main() {
   // --------------------------------------------------------------------------
 
   group('issue #626 — SessionUpdatedMessage upserts session status', () {
-    test('idle session is flipped to working by SessionUpdatedMessage',
-        () async {
-      // Seed an idle session via WS.
-      fakeRepo.emit(SessionCreatedMessage(
-        session: _makeSession('sess-a', AgentSessionStatus.idle),
-      ));
-      await Future<void>.delayed(Duration.zero);
+    test(
+      'idle session is flipped to working by SessionUpdatedMessage',
+      () async {
+        // Seed an idle session via WS.
+        fakeRepo.emit(
+          SessionCreatedMessage(
+            session: _makeSession('sess-a', AgentSessionStatus.idle),
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
 
-      expect(controller.sessions.first.status, AgentSessionStatus.idle);
+        expect(controller.sessions.first.status, AgentSessionStatus.idle);
 
-      // Server broadcasts a full updated row with status=working.
-      fakeRepo.emit(SessionUpdatedMessage(
-        session: _makeSession('sess-a', AgentSessionStatus.working),
-      ));
-      await Future<void>.delayed(Duration.zero);
+        // Server broadcasts a full updated row with status=working.
+        fakeRepo.emit(
+          SessionUpdatedMessage(
+            session: _makeSession('sess-a', AgentSessionStatus.working),
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
 
-      final updated = controller.sessions.firstWhere((s) => s.id == 'sess-a');
-      expect(
-        updated.status,
-        AgentSessionStatus.working,
-        reason:
-            'SessionUpdatedMessage should flip the chip from idle to working.',
-      );
-    });
-
-    test('working session is flipped back to idle by SessionUpdatedMessage',
-        () async {
-      fakeRepo.emit(SessionCreatedMessage(
-        session: _makeSession('sess-b', AgentSessionStatus.working),
-      ));
-      await Future<void>.delayed(Duration.zero);
-
-      fakeRepo.emit(SessionUpdatedMessage(
-        session: _makeSession('sess-b', AgentSessionStatus.idle),
-      ));
-      await Future<void>.delayed(Duration.zero);
-
-      final updated = controller.sessions.firstWhere((s) => s.id == 'sess-b');
-      expect(
-        updated.status,
-        AgentSessionStatus.idle,
-        reason:
-            'SessionUpdatedMessage should flip the chip from working back to idle.',
-      );
-    });
+        final updated = controller.sessions.firstWhere((s) => s.id == 'sess-a');
+        expect(
+          updated.status,
+          AgentSessionStatus.working,
+          reason:
+              'SessionUpdatedMessage should flip the chip from idle to working.',
+        );
+      },
+    );
 
     test(
-        'SessionUpdatedMessage with archived session moves row out of active list',
-        () async {
-      fakeRepo.emit(SessionCreatedMessage(
-        session: _makeSession('sess-c', AgentSessionStatus.idle),
-      ));
-      await Future<void>.delayed(Duration.zero);
-      expect(controller.sessions.any((s) => s.id == 'sess-c'), isTrue);
+      'working session is flipped back to idle by SessionUpdatedMessage',
+      () async {
+        fakeRepo.emit(
+          SessionCreatedMessage(
+            session: _makeSession('sess-b', AgentSessionStatus.working),
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
 
-      // Create an archived session variant.
-      final now = DateTime.now();
-      final archived = AgentSession(
-        id: 'sess-c',
-        agentId: 'claude-code',
-        status: AgentSessionStatus.closed,
-        cwd: '/tmp',
-        name: 'Test sess-c',
-        archivedAt: now,
-        createdAt: now,
-        updatedAt: now,
-      );
-      fakeRepo.emit(SessionUpdatedMessage(session: archived));
-      await Future<void>.delayed(Duration.zero);
+        fakeRepo.emit(
+          SessionUpdatedMessage(
+            session: _makeSession('sess-b', AgentSessionStatus.idle),
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
 
-      expect(
-        controller.sessions.any((s) => s.id == 'sess-c'),
-        isFalse,
-        reason:
-            'Archived session should be removed from the active sessions list.',
-      );
-    });
+        final updated = controller.sessions.firstWhere((s) => s.id == 'sess-b');
+        expect(
+          updated.status,
+          AgentSessionStatus.idle,
+          reason:
+              'SessionUpdatedMessage should flip the chip from working back to idle.',
+        );
+      },
+    );
+
+    test(
+      'SessionUpdatedMessage with archived session moves row out of active list',
+      () async {
+        fakeRepo.emit(
+          SessionCreatedMessage(
+            session: _makeSession('sess-c', AgentSessionStatus.idle),
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(controller.sessions.any((s) => s.id == 'sess-c'), isTrue);
+
+        // Create an archived session variant.
+        final now = DateTime.now();
+        final archived = AgentSession(
+          id: 'sess-c',
+          agentId: 'claude-code',
+          status: AgentSessionStatus.closed,
+          cwd: '/tmp',
+          name: 'Test sess-c',
+          archivedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        );
+        fakeRepo.emit(SessionUpdatedMessage(session: archived));
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          controller.sessions.any((s) => s.id == 'sess-c'),
+          isFalse,
+          reason:
+              'Archived session should be removed from the active sessions list.',
+        );
+      },
+    );
 
     test('notifyListeners fires when SessionUpdatedMessage arrives', () async {
-      fakeRepo.emit(SessionCreatedMessage(
-        session: _makeSession('sess-d', AgentSessionStatus.idle),
-      ));
+      fakeRepo.emit(
+        SessionCreatedMessage(
+          session: _makeSession('sess-d', AgentSessionStatus.idle),
+        ),
+      );
       await Future<void>.delayed(Duration.zero);
 
       var notified = false;
       controller.addListener(() => notified = true);
 
-      fakeRepo.emit(SessionUpdatedMessage(
-        session: _makeSession('sess-d', AgentSessionStatus.working),
-      ));
+      fakeRepo.emit(
+        SessionUpdatedMessage(
+          session: _makeSession('sess-d', AgentSessionStatus.working),
+        ),
+      );
       await Future<void>.delayed(Duration.zero);
 
       expect(
@@ -404,22 +424,26 @@ void main() {
       );
     });
 
-    test('SessionUpdatedMessage for unknown id appends session to list',
-        () async {
-      // No prior session with id 'sess-new'.
-      expect(controller.sessions, isEmpty);
+    test(
+      'SessionUpdatedMessage for unknown id appends session to list',
+      () async {
+        // No prior session with id 'sess-new'.
+        expect(controller.sessions, isEmpty);
 
-      fakeRepo.emit(SessionUpdatedMessage(
-        session: _makeSession('sess-new', AgentSessionStatus.idle),
-      ));
-      await Future<void>.delayed(Duration.zero);
+        fakeRepo.emit(
+          SessionUpdatedMessage(
+            session: _makeSession('sess-new', AgentSessionStatus.idle),
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
 
-      expect(
-        controller.sessions.any((s) => s.id == 'sess-new'),
-        isTrue,
-        reason:
-            'An unknown session ID in SessionUpdatedMessage should be appended.',
-      );
-    });
+        expect(
+          controller.sessions.any((s) => s.id == 'sess-new'),
+          isTrue,
+          reason:
+              'An unknown session ID in SessionUpdatedMessage should be appended.',
+        );
+      },
+    );
   });
 }

@@ -28,8 +28,7 @@ bool shouldAutoInstallCuratedMcp({
   required bool engineReady,
   required bool authenticated,
   required bool isCloudServer,
-}) =>
-    engineReady && authenticated && isCloudServer;
+}) => engineReady && authenticated && isCloudServer;
 
 /// Auto-installs (and refreshes) the curated MCP servers inside the embedded
 /// opencode engine via the local agent server. Failures are non-fatal: a
@@ -37,7 +36,7 @@ bool shouldAutoInstallCuratedMcp({
 /// blocks launch or agent sessions.
 class CuratedMcpAutoInstaller {
   CuratedMcpAutoInstaller({http.Client? httpClient})
-      : _http = httpClient ?? http.Client();
+    : _http = httpClient ?? http.Client();
 
   final http.Client _http;
 

@@ -50,12 +50,14 @@ class NotificationsController extends ChangeNotifier {
     required String title,
     required String body,
   }) {
-    _agentNotifications.add(AgentNotification(
-      id: id,
-      title: title,
-      body: body,
-      receivedAt: DateTime.now(),
-    ));
+    _agentNotifications.add(
+      AgentNotification(
+        id: id,
+        title: title,
+        body: body,
+        receivedAt: DateTime.now(),
+      ),
+    );
     notifyListeners();
   }
 

@@ -67,8 +67,8 @@ class _ReadyAgentServerController extends AgentServerController {
 /// in-flight state before it completes.
 class _SlowStubAgentsRepository implements AgentsRepository {
   _SlowStubAgentsRepository({this.delay = const Duration(milliseconds: 100)})
-      : _msgController = StreamController.broadcast(),
-        _connectivityController = StreamController.broadcast();
+    : _msgController = StreamController.broadcast(),
+      _connectivityController = StreamController.broadcast();
 
   final Duration delay;
   final StreamController<AgentWsMessage> _msgController;
@@ -100,13 +100,12 @@ class _SlowStubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async =>
-          (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+  getSession(String id) async =>
+      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<AgentSession> createSession({
@@ -147,15 +146,13 @@ class _SlowStubAgentsRepository implements AgentsRepository {
     bool? fastMode,
     String? anthropicAccountId,
     String? agentId,
-  }) async =>
-      _makeSession(id);
+  }) async => _makeSession(id);
 
   @override
   Future<AgentSession> updateSessionThinkingBudget(
     String id,
     int? budget,
-  ) async =>
-      _makeSession(id);
+  ) async => _makeSession(id);
 
   @override
   Future<AgentSession> resumeSession(String id) async => _makeSession(id);
@@ -185,9 +182,10 @@ class _SlowStubAgentsRepository implements AgentsRepository {
   Future<void> rejectQuestion(String sessionId, String callId) async {}
 
   @override
-  Future<List<AgentSessionMessage>> getMessages(String id,
-          {int? limit}) async =>
-      const [];
+  Future<List<AgentSessionMessage>> getMessages(
+    String id, {
+    int? limit,
+  }) async => const [];
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -207,14 +205,18 @@ class _SlowStubAgentsRepository implements AgentsRepository {
       const [];
 
   @override
-  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async =>
-      const {'recorded': false, 'memoryIds': [], 'notePaths': []};
+  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async => const {
+    'recorded': false,
+    'memoryIds': [],
+    'notePaths': [],
+  };
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-          String parentSessionId, String childSdkId,
-          {String? cwd}) async =>
-      const [];
+    String parentSessionId,
+    String childSdkId, {
+    String? cwd,
+  }) async => const [];
 
   @override
   Future<AgentSession> forkSession(String sessionId, String messageId) async {
@@ -249,23 +251,21 @@ class _SlowStubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: '',
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  agentId: 'claude-code',
+  name: '',
+  cwd: '/tmp',
+  status: AgentSessionStatus.idle,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 AgentsController _buildController(AgentsRepository repo) => AgentsController(
-      repo,
-      _ReadyAgentServerController(),
-      LocalNotificationService(),
-      NotificationsController(
-        NotificationsRepository(NotificationsDataSource()),
-      ),
-    );
+  repo,
+  _ReadyAgentServerController(),
+  LocalNotificationService(),
+  NotificationsController(NotificationsRepository(NotificationsDataSource())),
+);
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -287,8 +287,11 @@ void main() {
       );
       final ctrl = _buildController(repo);
 
-      expect(ctrl.isCreating, isFalse,
-          reason: 'isCreating must be false before any call');
+      expect(
+        ctrl.isCreating,
+        isFalse,
+        reason: 'isCreating must be false before any call',
+      );
 
       // Start the call but do not await yet.
       final future = ctrl.createSession(
@@ -298,14 +301,20 @@ void main() {
       // Pump the event loop briefly to let the async gap run.
       await Future<void>.delayed(const Duration(milliseconds: 5));
 
-      expect(ctrl.isCreating, isTrue,
-          reason: 'isCreating must be true while createSession is in-flight');
+      expect(
+        ctrl.isCreating,
+        isTrue,
+        reason: 'isCreating must be true while createSession is in-flight',
+      );
 
       // Now wait for the call to complete.
       await future;
 
-      expect(ctrl.isCreating, isFalse,
-          reason: 'isCreating must be false after createSession resolves');
+      expect(
+        ctrl.isCreating,
+        isFalse,
+        reason: 'isCreating must be false after createSession resolves',
+      );
 
       ctrl.dispose();
     },
@@ -331,8 +340,11 @@ void main() {
 
       await ctrl.createSession(cwd: '/tmp');
 
-      expect(ctrl.isCreating, isFalse,
-          reason: 'isCreating must be false even when createSession throws');
+      expect(
+        ctrl.isCreating,
+        isFalse,
+        reason: 'isCreating must be false even when createSession throws',
+      );
 
       ctrl.dispose();
     },
@@ -432,16 +444,15 @@ class _ThrowingStubRepo implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) =>
-      inner.listSessions(
-        includeArchived: includeArchived,
-        archivedOnly: archivedOnly,
-        scope: scope,
-      );
+  }) => inner.listSessions(
+    includeArchived: includeArchived,
+    archivedOnly: archivedOnly,
+    scope: scope,
+  );
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) => inner.getSession(id);
+  getSession(String id) => inner.getSession(id);
 
   @override
   Future<void> closeSession(String id) => inner.closeSession(id);
@@ -453,26 +464,29 @@ class _ThrowingStubRepo implements AgentsRepository {
   Future<void> cancelSession(String id) => inner.cancelSession(id);
 
   @override
-  Future<AgentSession> updateSession(String id,
-          {String? name,
-          String? providerId,
-          String? modelId,
-          String? permissionMode,
-          bool clearProvider = false,
-          bool clearModel = false,
-          bool? fastMode,
-          String? anthropicAccountId,
-          String? agentId}) =>
-      inner.updateSession(id,
-          name: name,
-          providerId: providerId,
-          modelId: modelId,
-          permissionMode: permissionMode,
-          clearProvider: clearProvider,
-          clearModel: clearModel,
-          fastMode: fastMode,
-          anthropicAccountId: anthropicAccountId,
-          agentId: agentId);
+  Future<AgentSession> updateSession(
+    String id, {
+    String? name,
+    String? providerId,
+    String? modelId,
+    String? permissionMode,
+    bool clearProvider = false,
+    bool clearModel = false,
+    bool? fastMode,
+    String? anthropicAccountId,
+    String? agentId,
+  }) => inner.updateSession(
+    id,
+    name: name,
+    providerId: providerId,
+    modelId: modelId,
+    permissionMode: permissionMode,
+    clearProvider: clearProvider,
+    clearModel: clearModel,
+    fastMode: fastMode,
+    anthropicAccountId: anthropicAccountId,
+    agentId: agentId,
+  );
 
   @override
   Future<AgentSession> updateSessionThinkingBudget(String id, int? budget) =>
@@ -494,17 +508,19 @@ class _ThrowingStubRepo implements AgentsRepository {
     String permissionId,
     String decision, {
     String? message,
-  }) =>
-      inner.respondPermission(sessionId, permissionId, decision,
-          message: message);
+  }) => inner.respondPermission(
+    sessionId,
+    permissionId,
+    decision,
+    message: message,
+  );
 
   @override
   Future<void> replyQuestion(
     String sessionId,
     String callId,
     List<List<String>> answers,
-  ) =>
-      inner.replyQuestion(sessionId, callId, answers);
+  ) => inner.replyQuestion(sessionId, callId, answers);
 
   @override
   Future<void> rejectQuestion(String sessionId, String callId) =>
@@ -548,9 +564,10 @@ class _ThrowingStubRepo implements AgentsRepository {
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-          String parentSessionId, String childSdkId,
-          {String? cwd}) =>
-      inner.fetchChildMessages(parentSessionId, childSdkId);
+    String parentSessionId,
+    String childSdkId, {
+    String? cwd,
+  }) => inner.fetchChildMessages(parentSessionId, childSdkId);
 
   @override
   Future<AgentSession> forkSession(String sessionId, String messageId) =>
@@ -587,8 +604,7 @@ class _ThrowingStubRepo implements AgentsRepository {
   Future<List<Map<String, dynamic>>> getVcsDiff(
     String sessionId,
     String mode,
-  ) =>
-      inner.getVcsDiff(sessionId, mode);
+  ) => inner.getVcsDiff(sessionId, mode);
 
   @override
   Future<String> getVcsDiffRaw(String sessionId) =>
@@ -607,15 +623,13 @@ class _ThrowingStubRepo implements AgentsRepository {
     String query, {
     int? limit,
     String? type,
-  }) =>
-      inner.findFiles(sessionId, query, limit: limit, type: type);
+  }) => inner.findFiles(sessionId, query, limit: limit, type: type);
 
   @override
   Future<List<Map<String, dynamic>>> listSessionFiles(
     String sessionId, {
     String path = '.',
-  }) =>
-      inner.listSessionFiles(sessionId, path: path);
+  }) => inner.listSessionFiles(sessionId, path: path);
 
   @override
   Future<Map<String, dynamic>> fileContent(String sessionId, String path) =>

@@ -45,38 +45,36 @@ class AgentProject {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'cwd': cwd,
-        if (icon != null) 'icon': icon,
-        if (vcsRoot != null) 'vcsRoot': vcsRoot,
-        if (vcsBranch != null) 'vcsBranch': vcsBranch,
-        'vcsDirty': vcsDirty,
-        if (vcsCheckedAt != null)
-          'vcsCheckedAt': vcsCheckedAt!.toUtc().toIso8601String(),
-        'createdAt': createdAt.toUtc().toIso8601String(),
-        if (archivedAt != null)
-          'archivedAt': archivedAt!.toUtc().toIso8601String(),
-      };
+    'id': id,
+    'name': name,
+    'cwd': cwd,
+    if (icon != null) 'icon': icon,
+    if (vcsRoot != null) 'vcsRoot': vcsRoot,
+    if (vcsBranch != null) 'vcsBranch': vcsBranch,
+    'vcsDirty': vcsDirty,
+    if (vcsCheckedAt != null)
+      'vcsCheckedAt': vcsCheckedAt!.toUtc().toIso8601String(),
+    'createdAt': createdAt.toUtc().toIso8601String(),
+    if (archivedAt != null) 'archivedAt': archivedAt!.toUtc().toIso8601String(),
+  };
 
   AgentProject copyWith({
     String? name,
     String? cwd,
     String? icon,
     DateTime? archivedAt,
-  }) =>
-      AgentProject(
-        id: id,
-        name: name ?? this.name,
-        cwd: cwd ?? this.cwd,
-        icon: icon ?? this.icon,
-        vcsRoot: vcsRoot,
-        vcsBranch: vcsBranch,
-        vcsDirty: vcsDirty,
-        vcsCheckedAt: vcsCheckedAt,
-        createdAt: createdAt,
-        archivedAt: archivedAt ?? this.archivedAt,
-      );
+  }) => AgentProject(
+    id: id,
+    name: name ?? this.name,
+    cwd: cwd ?? this.cwd,
+    icon: icon ?? this.icon,
+    vcsRoot: vcsRoot,
+    vcsBranch: vcsBranch,
+    vcsDirty: vcsDirty,
+    vcsCheckedAt: vcsCheckedAt,
+    createdAt: createdAt,
+    archivedAt: archivedAt ?? this.archivedAt,
+  );
 
   static DateTime? _parse(String? raw) {
     if (raw == null) return null;

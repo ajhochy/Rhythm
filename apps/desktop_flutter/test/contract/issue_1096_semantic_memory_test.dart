@@ -16,12 +16,13 @@ class _FakeSemanticMemoryDataSource implements SemanticMemoryDataSource {
   _FakeSemanticMemoryDataSource({
     SemanticMemoryStatus? status,
     this.candidates = const [],
-  }) : currentStatus = status ??
-            const SemanticMemoryStatus(
-              enabled: false,
-              state: 'disabled',
-              hasExecutable: false,
-            );
+  }) : currentStatus =
+           status ??
+           const SemanticMemoryStatus(
+             enabled: false,
+             state: 'disabled',
+             hasExecutable: false,
+           );
 
   SemanticMemoryStatus currentStatus;
   List<SemanticMemoryStatus> queuedStatuses = [];
@@ -177,7 +178,9 @@ void main() {
       final offDataSource = _FakeSemanticMemoryDataSource(
         candidates: const [
           SemanticMemoryCandidate(
-              path: '/opt/homebrew/bin/engraph', source: 'homebrew'),
+            path: '/opt/homebrew/bin/engraph',
+            source: 'homebrew',
+          ),
         ],
       );
       Uri? launchedUri;
@@ -332,10 +335,14 @@ void main() {
       await tester.tap(find.byKey(const Key('semantic-memory-health')));
       await tester.pump();
 
-      expect(find.textContaining('did not pass its local health check'),
-          findsOneWidget);
-      expect(find.textContaining('Standard memory search remains active'),
-          findsOneWidget);
+      expect(
+        find.textContaining('did not pass its local health check'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Standard memory search remains active'),
+        findsOneWidget,
+      );
       expect(find.byKey(const Key('semantic-memory-retry')), findsOneWidget);
       expect(
         find.bySemanticsLabel(RegExp('Semantic Memory status:')),
@@ -358,10 +365,14 @@ void main() {
       await _pump(tester, dataSource);
 
       expect(find.textContaining('macOS blocked Engraph'), findsOneWidget);
-      expect(find.textContaining('Privacy & Security in System Settings'),
-          findsOneWidget);
-      expect(find.textContaining('Do not bypass macOS protection'),
-          findsOneWidget);
+      expect(
+        find.textContaining('Privacy & Security in System Settings'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Do not bypass macOS protection'),
+        findsOneWidget,
+      );
     },
   );
 
@@ -385,13 +396,15 @@ void main() {
       );
       expect(
         find.textContaining(
-            'Your memory notes and any other Engraph setup are not changed'),
+          'Your memory notes and any other Engraph setup are not changed',
+        ),
         findsOneWidget,
       );
       expect(dataSource.rebuildCalls, 0);
 
-      await tester
-          .tap(find.byKey(const Key('semantic-memory-confirm-rebuild')));
+      await tester.tap(
+        find.byKey(const Key('semantic-memory-confirm-rebuild')),
+      );
       await tester.pumpAndSettle();
       expect(dataSource.rebuildCalls, 1);
     },
@@ -464,10 +477,7 @@ void main() {
       };
 
       for (final entry in states.entries) {
-        await _pump(
-          tester,
-          _FakeSemanticMemoryDataSource(status: entry.value),
-        );
+        await _pump(tester, _FakeSemanticMemoryDataSource(status: entry.value));
         await expectLater(
           find.byKey(const Key('semantic-memory-section')),
           matchesGoldenFile(

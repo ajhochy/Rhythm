@@ -194,8 +194,7 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      [];
+  }) async => [];
 
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -203,7 +202,7 @@ class _StubAgentsRepository implements AgentsRepository {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-      : super(NotificationsRepository(NotificationsDataSource()));
+    : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -227,7 +226,8 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 // ---------------------------------------------------------------------------
 
 Future<AgentConfigsController> _makeConfigsController(
-    List<AgentConfig> configs) async {
+  List<AgentConfig> configs,
+) async {
   final ctrl = AgentConfigsController(
     AgentConfigsRepository(_FakeAgentConfigsDataSource(configs)),
   );
@@ -253,7 +253,8 @@ Widget _wrapWithProviders({
       ChangeNotifierProvider<AgentsController>.value(value: agentsCtrl),
     if (agentServerCtrl != null)
       ChangeNotifierProvider<AgentServerController>.value(
-          value: agentServerCtrl),
+        value: agentServerCtrl,
+      ),
   ];
 
   return MaterialApp(
@@ -290,13 +291,19 @@ class _FixedSessionsAgentsController extends AgentsController {
 }
 
 Future<AgentsController> _makeAgentsController(
-    List<AgentSession> sessions) async {
+  List<AgentSession> sessions,
+) async {
   final repo = _StubAgentsRepository();
   final agentServer = _ReadyAgentServerController();
   final notifService = _FakeLocalNotificationService();
   final notifCtrl = _FakeNotificationsController();
   return _FixedSessionsAgentsController(
-      repo, agentServer, notifService, notifCtrl, sessions);
+    repo,
+    agentServer,
+    notifService,
+    notifCtrl,
+    sessions,
+  );
 }
 
 // ===========================================================================
@@ -311,34 +318,35 @@ void main() {
     // -----------------------------------------------------------------------
     // c1: Badge shows correct label for initial agentId.
     // -----------------------------------------------------------------------
-    testWidgets(
-      'c1: badge shows Claude Code label for agentId=claude-code',
-      (tester) async {
-        final controller = await _makeConfigsController(_allConfigs);
-        addTearDown(controller.dispose);
-        final agentServerCtrl = _ReadyAgentServerController();
-        addTearDown(agentServerCtrl.dispose);
+    testWidgets('c1: badge shows Claude Code label for agentId=claude-code', (
+      tester,
+    ) async {
+      final controller = await _makeConfigsController(_allConfigs);
+      addTearDown(controller.dispose);
+      final agentServerCtrl = _ReadyAgentServerController();
+      addTearDown(agentServerCtrl.dispose);
 
-        await tester.pumpWidget(_wrapWithProviders(
+      await tester.pumpWidget(
+        _wrapWithProviders(
           configsCtrl: controller,
           agentServerCtrl: agentServerCtrl,
           child: AgentKindBadgeTestHarness(
             agentId: 'claude-code',
             providerId: null,
           ),
-        ));
-        await tester.pump();
+        ),
+      );
+      await tester.pump();
 
-        expect(
-          find.text('Claude Code'),
-          findsOneWidget,
-          reason:
-              'Badge must show the Claude Code label for agentId=claude-code.',
-        );
-        expect(find.text('Codex'), findsNothing);
-        expect(find.text('Gemini CLI'), findsNothing);
-      },
-    );
+      expect(
+        find.text('Claude Code'),
+        findsOneWidget,
+        reason:
+            'Badge must show the Claude Code label for agentId=claude-code.',
+      );
+      expect(find.text('Codex'), findsNothing);
+      expect(find.text('Gemini CLI'), findsNothing);
+    });
 
     // -----------------------------------------------------------------------
     // c2: Badge updates to Codex when providerId changes to 'openai'.
@@ -355,32 +363,39 @@ void main() {
         addTearDown(agentServerCtrl.dispose);
 
         // Initial state: agentId=claude-code, no providerId override.
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: controller,
-          agentServerCtrl: agentServerCtrl,
-          child: AgentKindBadgeTestHarness(
-            agentId: 'claude-code',
-            providerId: null,
+        await tester.pumpWidget(
+          _wrapWithProviders(
+            configsCtrl: controller,
+            agentServerCtrl: agentServerCtrl,
+            child: AgentKindBadgeTestHarness(
+              agentId: 'claude-code',
+              providerId: null,
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
-        expect(find.text('Claude Code'), findsOneWidget,
-            reason: 'Initial state: Claude Code must be visible.');
+        expect(
+          find.text('Claude Code'),
+          findsOneWidget,
+          reason: 'Initial state: Claude Code must be visible.',
+        );
 
         // Simulate setSessionModel for a Codex model:
         //   _applyPick passes entry.provider='openai' as providerId.
         //   The session row stores providerId='openai', agentId stays 'claude-code'.
         //   byId('openai') returns null — the pill must use the provider→agent
         //   mapping: 'openai' → 'codex' → byId('codex') → Codex config.
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: controller,
-          agentServerCtrl: agentServerCtrl,
-          child: AgentKindBadgeTestHarness(
-            agentId: 'claude-code',
-            providerId: 'openai', // REAL production value (not 'codex')
+        await tester.pumpWidget(
+          _wrapWithProviders(
+            configsCtrl: controller,
+            agentServerCtrl: agentServerCtrl,
+            child: AgentKindBadgeTestHarness(
+              agentId: 'claude-code',
+              providerId: 'openai', // REAL production value (not 'codex')
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         expect(
@@ -416,30 +431,37 @@ void main() {
         addTearDown(agentServerCtrl.dispose);
 
         // Initial state: agentId=claude-code, no providerId override.
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: controller,
-          agentServerCtrl: agentServerCtrl,
-          child: AgentKindBadgeTestHarness(
-            agentId: 'claude-code',
-            providerId: null,
+        await tester.pumpWidget(
+          _wrapWithProviders(
+            configsCtrl: controller,
+            agentServerCtrl: agentServerCtrl,
+            child: AgentKindBadgeTestHarness(
+              agentId: 'claude-code',
+              providerId: null,
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
-        expect(find.text('Claude Code'), findsOneWidget,
-            reason: 'Initial state: Claude Code must be visible.');
+        expect(
+          find.text('Claude Code'),
+          findsOneWidget,
+          reason: 'Initial state: Claude Code must be visible.',
+        );
 
         // Simulate setSessionModel for a Gemini model:
         //   entry.provider='google' → session.providerId='google'.
         //   Mapping: 'google' → 'gemini-cli' → byId('gemini-cli') → Gemini CLI.
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: controller,
-          agentServerCtrl: agentServerCtrl,
-          child: AgentKindBadgeTestHarness(
-            agentId: 'claude-code',
-            providerId: 'google', // REAL production value (not 'gemini-cli')
+        await tester.pumpWidget(
+          _wrapWithProviders(
+            configsCtrl: controller,
+            agentServerCtrl: agentServerCtrl,
+            child: AgentKindBadgeTestHarness(
+              agentId: 'claude-code',
+              providerId: 'google', // REAL production value (not 'gemini-cli')
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         expect(
@@ -468,26 +490,32 @@ void main() {
       (tester) async {
         // Start with all three configs.
         final dataSource = _FakeAgentConfigsDataSource(_allConfigs);
-        final controller =
-            AgentConfigsController(AgentConfigsRepository(dataSource));
+        final controller = AgentConfigsController(
+          AgentConfigsRepository(dataSource),
+        );
         await controller.refresh();
         addTearDown(controller.dispose);
         final agentServerCtrl = _ReadyAgentServerController();
         addTearDown(agentServerCtrl.dispose);
 
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: controller,
-          agentServerCtrl: agentServerCtrl,
-          child: AgentKindBadgeTestHarness(
-            agentId: 'codex',
-            providerId: null,
+        await tester.pumpWidget(
+          _wrapWithProviders(
+            configsCtrl: controller,
+            agentServerCtrl: agentServerCtrl,
+            child: AgentKindBadgeTestHarness(
+              agentId: 'codex',
+              providerId: null,
+            ),
           ),
-        ));
+        );
         await tester.pump();
 
         // With both configs loaded, codex should be shown.
-        expect(find.text('Codex'), findsOneWidget,
-            reason: 'Codex config must be resolved initially.');
+        expect(
+          find.text('Codex'),
+          findsOneWidget,
+          reason: 'Codex config must be resolved initially.',
+        );
 
         // Now manually notify the controller (simulates a refresh or update).
         controller.notifyListeners();
@@ -527,11 +555,13 @@ void main() {
           providerId: 'anthropic',
         );
 
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: configsCtrl,
-          agentServerCtrl: agentServerCtrl,
-          child: ResumableSessionRowTestHarness(session: session),
-        ));
+        await tester.pumpWidget(
+          _wrapWithProviders(
+            configsCtrl: configsCtrl,
+            agentServerCtrl: agentServerCtrl,
+            child: ResumableSessionRowTestHarness(session: session),
+          ),
+        );
         await tester.pump();
 
         expect(
@@ -565,11 +595,13 @@ void main() {
           providerId: 'google',
         );
 
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: configsCtrl,
-          agentServerCtrl: agentServerCtrl,
-          child: ResumableSessionRowTestHarness(session: session),
-        ));
+        await tester.pumpWidget(
+          _wrapWithProviders(
+            configsCtrl: configsCtrl,
+            agentServerCtrl: agentServerCtrl,
+            child: ResumableSessionRowTestHarness(session: session),
+          ),
+        );
         await tester.pump();
 
         expect(
@@ -602,11 +634,13 @@ void main() {
           providerId: 'openai',
         );
 
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: configsCtrl,
-          agentServerCtrl: agentServerCtrl,
-          child: ResumableSessionRowTestHarness(session: session),
-        ));
+        await tester.pumpWidget(
+          _wrapWithProviders(
+            configsCtrl: configsCtrl,
+            agentServerCtrl: agentServerCtrl,
+            child: ResumableSessionRowTestHarness(session: session),
+          ),
+        );
         await tester.pump();
 
         expect(
@@ -642,12 +676,14 @@ void main() {
           providerId: 'anthropic',
         );
 
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: configsCtrl,
-          agentsCtrl: agentsCtrl,
-          agentServerCtrl: agentServerCtrl,
-          child: TranscriptHeaderTestHarness(session: session),
-        ));
+        await tester.pumpWidget(
+          _wrapWithProviders(
+            configsCtrl: configsCtrl,
+            agentsCtrl: agentsCtrl,
+            agentServerCtrl: agentServerCtrl,
+            child: TranscriptHeaderTestHarness(session: session),
+          ),
+        );
         await tester.pump();
 
         expect(
@@ -683,12 +719,14 @@ void main() {
           providerId: 'google',
         );
 
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: configsCtrl,
-          agentsCtrl: agentsCtrl,
-          agentServerCtrl: agentServerCtrl,
-          child: TranscriptHeaderTestHarness(session: session),
-        ));
+        await tester.pumpWidget(
+          _wrapWithProviders(
+            configsCtrl: configsCtrl,
+            agentsCtrl: agentsCtrl,
+            agentServerCtrl: agentServerCtrl,
+            child: TranscriptHeaderTestHarness(session: session),
+          ),
+        );
         await tester.pump();
 
         expect(
@@ -725,12 +763,14 @@ void main() {
           providerId: 'openai',
         );
 
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: configsCtrl,
-          agentsCtrl: agentsCtrl,
-          agentServerCtrl: agentServerCtrl,
-          child: TranscriptHeaderTestHarness(session: session),
-        ));
+        await tester.pumpWidget(
+          _wrapWithProviders(
+            configsCtrl: configsCtrl,
+            agentsCtrl: agentsCtrl,
+            agentServerCtrl: agentServerCtrl,
+            child: TranscriptHeaderTestHarness(session: session),
+          ),
+        );
         await tester.pump();
 
         expect(

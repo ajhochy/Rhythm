@@ -56,8 +56,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-      : _msg = StreamController.broadcast(),
-        _conn = StreamController.broadcast();
+    : _msg = StreamController.broadcast(),
+      _conn = StreamController.broadcast();
   final StreamController<AgentWsMessage> _msg;
   final StreamController<bool> _conn;
 
@@ -94,12 +94,11 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      [_makeSession('s1')];
+  }) async => [_makeSession('s1')];
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async =>
-          (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+  getSession(String id) async =>
+      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<List<String>> findFiles(
@@ -146,51 +145,47 @@ class _StubFilePickerPlatform extends FilePickerPlatform {
     bool lockParentWindow = false,
     bool readSequential = false,
     bool cancelUploadOnWindowBlur = true,
-  }) async =>
-      result;
+  }) async => result;
 }
 
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: 'Test Session',
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  agentId: 'claude-code',
+  name: 'Test Session',
+  cwd: '/tmp',
+  status: AgentSessionStatus.idle,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 Future<AgentsController> _buildSelected(_StubAgentsRepository repo) async {
   final ctrl = AgentsController(
     repo,
     _ReadyAgentServerController(),
     LocalNotificationService(),
-    NotificationsController(
-      NotificationsRepository(NotificationsDataSource()),
-    ),
+    NotificationsController(NotificationsRepository(NotificationsDataSource())),
   );
   await ctrl.selectSession('s1');
   return ctrl;
 }
 
-AgentConfigsController _buildConfigsController() => AgentConfigsController(
-      AgentConfigsRepository(AgentConfigsDataSource()),
-    );
+AgentConfigsController _buildConfigsController() =>
+    AgentConfigsController(AgentConfigsRepository(AgentConfigsDataSource()));
 
 Widget _wrap(AgentsController controller) => MultiProvider(
-      providers: [
-        ChangeNotifierProvider<AgentsController>.value(value: controller),
-        ChangeNotifierProvider<AgentConfigsController>.value(
-          value: _buildConfigsController(),
-        ),
-      ],
-      child: MaterialApp(
-        theme: AppTheme.light(),
-        home: const Scaffold(body: InputAreaTestHarness()),
-      ),
-    );
+  providers: [
+    ChangeNotifierProvider<AgentsController>.value(value: controller),
+    ChangeNotifierProvider<AgentConfigsController>.value(
+      value: _buildConfigsController(),
+    ),
+  ],
+  child: MaterialApp(
+    theme: AppTheme.light(),
+    home: const Scaffold(body: InputAreaTestHarness()),
+  ),
+);
 
 void main() {
   late _StubAgentsRepository repo;
@@ -370,50 +365,47 @@ void main() {
 
   // ── Issue #1137: Office docs route to a `file:` reference, not a SnackBar ──
 
-  testWidgets(
-    'REAL-SURFACE (#1137): picking a .docx attaches a file: ref, no '
-    'unsupported-type SnackBar',
-    (tester) async {
-      repo.findFilesResult = const ['report.docx'];
-      // The content proxy is never consulted for Office docs (short-circuited
-      // before fetchFileContent) — if this were used, the test would still
-      // pass only by accident, so leave it at a shape that would fail the
-      // old code path's assertions.
-      repo.fileContentResult = const {
-        'type': 'binary',
-        'content': '',
-        'resolvedPath': '/tmp/report.docx',
-      };
+  testWidgets('REAL-SURFACE (#1137): picking a .docx attaches a file: ref, no '
+      'unsupported-type SnackBar', (tester) async {
+    repo.findFilesResult = const ['report.docx'];
+    // The content proxy is never consulted for Office docs (short-circuited
+    // before fetchFileContent) — if this were used, the test would still
+    // pass only by accident, so leave it at a shape that would fail the
+    // old code path's assertions.
+    repo.fileContentResult = const {
+      'type': 'binary',
+      'content': '',
+      'resolvedPath': '/tmp/report.docx',
+    };
 
-      await tester.pumpWidget(_wrap(controller));
-      await tester.pump();
+    await tester.pumpWidget(_wrap(controller));
+    await tester.pump();
 
-      await tester.enterText(
-        find.byKey(const ValueKey('agent-composer-input')),
-        '@report',
-      );
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(find.byKey(const ValueKey('at-mention-item-0')), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('agent-composer-input')),
+      '@report',
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('at-mention-item-0')), findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('at-mention-item-0')));
-      await tester.pump();
-      await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('at-mention-item-0')));
+    await tester.pump();
+    await tester.pump();
 
-      final part = controller.pendingAttachmentsFor('s1').single;
-      expect(part['type'], 'file');
-      expect(
-        part['mime'],
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      );
-      // session cwd is '/tmp' (_makeSession) — the ref must point at the real
-      // path on disk, not a `data:` URI, so the engine's Read tool (and the
-      // docx skill) can read it.
-      expect(part['url'], 'file:///tmp/report.docx');
+    final part = controller.pendingAttachmentsFor('s1').single;
+    expect(part['type'], 'file');
+    expect(
+      part['mime'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    );
+    // session cwd is '/tmp' (_makeSession) — the ref must point at the real
+    // path on disk, not a `data:` URI, so the engine's Read tool (and the
+    // docx skill) can read it.
+    expect(part['url'], 'file:///tmp/report.docx');
 
-      // No "unsupported file type" rejection SnackBar.
-      expect(find.textContaining('unsupported file type'), findsNothing);
-    },
-  );
+    // No "unsupported file type" rejection SnackBar.
+    expect(find.textContaining('unsupported file type'), findsNothing);
+  });
 
   testWidgets(
     'issue-1137-c1: REAL-SURFACE composer attaches an arbitrary binary '
@@ -528,8 +520,10 @@ void main() {
       await tester.pump();
 
       expect(controller.pendingAttachmentsFor('s1'), isEmpty);
-      expect(find.textContaining('Could not attach missing.rhythmfixture'),
-          findsOneWidget);
+      expect(
+        find.textContaining('Could not attach missing.rhythmfixture'),
+        findsOneWidget,
+      );
     },
   );
 }

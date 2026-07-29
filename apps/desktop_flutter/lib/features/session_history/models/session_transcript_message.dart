@@ -49,7 +49,8 @@ class SessionTranscriptMessage {
       final chunks = <String>[];
       for (final part in parts) {
         if (part is! Map<String, dynamic>) continue;
-        final text = asString(part['text']) ??
+        final text =
+            asString(part['text']) ??
             asString(part['content']) ??
             asString(part['message']);
         if (text != null && text.trim().isNotEmpty) {

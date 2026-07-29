@@ -53,46 +53,42 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('RhythmMcpAutoInstaller.ensure', () {
-    test('POSTs apiToken + apiUrl to the local agent ensure endpoint',
-        () async {
-      late Map<String, dynamic> body;
-      late Uri calledUri;
-      final client = MockClient((req) async {
-        calledUri = req.url;
-        body = jsonDecode(req.body) as Map<String, dynamic>;
-        return http.Response('{"changed":true,"registered":true}', 200);
-      });
+    test(
+      'POSTs apiToken + apiUrl to the local agent ensure endpoint',
+      () async {
+        late Map<String, dynamic> body;
+        late Uri calledUri;
+        final client = MockClient((req) async {
+          calledUri = req.url;
+          body = jsonDecode(req.body) as Map<String, dynamic>;
+          return http.Response('{"changed":true,"registered":true}', 200);
+        });
 
-      final installer = RhythmMcpAutoInstaller(httpClient: client);
-      final ok = await installer.ensure(
-        apiToken: 'tok-1',
-        apiUrl: 'https://api.vcrcapps.com',
-      );
+        final installer = RhythmMcpAutoInstaller(httpClient: client);
+        final ok = await installer.ensure(
+          apiToken: 'tok-1',
+          apiUrl: 'https://api.vcrcapps.com',
+        );
 
-      expect(ok, true);
-      expect(calledUri.path, '/opencode/mcp/rhythm/ensure');
-      expect(calledUri.host, 'localhost');
-      expect(calledUri.port, 4001);
-      expect(body['apiToken'], 'tok-1');
-      expect(body['apiUrl'], 'https://api.vcrcapps.com');
-    });
+        expect(ok, true);
+        expect(calledUri.path, '/opencode/mcp/rhythm/ensure');
+        expect(calledUri.host, 'localhost');
+        expect(calledUri.port, 4001);
+        expect(body['apiToken'], 'tok-1');
+        expect(body['apiUrl'], 'https://api.vcrcapps.com');
+      },
+    );
 
     test('returns false (non-fatal) on a server error', () async {
       final client = MockClient((_) async => http.Response('boom', 500));
       final installer = RhythmMcpAutoInstaller(httpClient: client);
-      expect(
-        await installer.ensure(apiToken: 't', apiUrl: 'u'),
-        false,
-      );
+      expect(await installer.ensure(apiToken: 't', apiUrl: 'u'), false);
     });
 
     test('returns false (non-fatal) when the client throws', () async {
       final client = MockClient((_) async => throw Exception('network down'));
       final installer = RhythmMcpAutoInstaller(httpClient: client);
-      expect(
-        await installer.ensure(apiToken: 't', apiUrl: 'u'),
-        false,
-      );
+      expect(await installer.ensure(apiToken: 't', apiUrl: 'u'), false);
     });
   });
 
@@ -197,22 +193,24 @@ void main() {
       expect(installer.tokensSeen, ['tok-1', 'tok-1']);
     });
 
-    test('successful ensure() records token → second call is de-duped',
-        () async {
-      final installer = _FakeAutoInstaller(result: true);
-      final controller = await readyController(installer);
-      addTearDown(controller.dispose);
+    test(
+      'successful ensure() records token → second call is de-duped',
+      () async {
+        final installer = _FakeAutoInstaller(result: true);
+        final controller = await readyController(installer);
+        addTearDown(controller.dispose);
 
-      AuthSessionStore.setSessionToken('tok-1');
+        AuthSessionStore.setSessionToken('tok-1');
 
-      controller.onAuthChanged();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(installer.ensureCount, 1);
+        controller.onAuthChanged();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(installer.ensureCount, 1);
 
-      // ensure returned true → token recorded → second call de-duped.
-      controller.onAuthChanged();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(installer.ensureCount, 1);
-    });
+        // ensure returned true → token recorded → second call de-duped.
+        controller.onAuthChanged();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(installer.ensureCount, 1);
+      },
+    );
   });
 }

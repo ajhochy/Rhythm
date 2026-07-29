@@ -45,9 +45,11 @@ class _OpenRouterModelsSectionState extends State<OpenRouterModelsSection> {
   List<OpenRouterModelEntry> get _filtered {
     if (_query.isEmpty) return _catalog;
     return _catalog
-        .where((m) =>
-            m.id.toLowerCase().contains(_query) ||
-            m.name.toLowerCase().contains(_query))
+        .where(
+          (m) =>
+              m.id.toLowerCase().contains(_query) ||
+              m.name.toLowerCase().contains(_query),
+        )
         .toList();
   }
 
@@ -154,8 +156,10 @@ class _OpenRouterModelsSectionState extends State<OpenRouterModelsSection> {
                 if (_catalog.isNotEmpty) ...[
                   const SizedBox(width: 6),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: context.rhythm.surfaceMuted,
                       borderRadius: BorderRadius.circular(999),
@@ -180,10 +184,7 @@ class _OpenRouterModelsSectionState extends State<OpenRouterModelsSection> {
           TextField(
             controller: _searchController,
             onChanged: (_) => setState(() {}),
-            style: TextStyle(
-              fontSize: 13,
-              color: context.rhythm.textPrimary,
-            ),
+            style: TextStyle(fontSize: 13, color: context.rhythm.textPrimary),
             decoration: InputDecoration(
               hintText: 'Search models…',
               hintStyle: TextStyle(
@@ -198,8 +199,10 @@ class _OpenRouterModelsSectionState extends State<OpenRouterModelsSection> {
               isDense: true,
               filled: true,
               fillColor: context.rhythm.canvas,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(RhythmRadius.md),
                 borderSide: BorderSide(color: context.rhythm.border),

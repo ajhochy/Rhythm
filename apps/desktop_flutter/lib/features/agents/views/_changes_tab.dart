@@ -114,9 +114,7 @@ class _ChangesTabState extends State<ChangesTab> {
       );
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(content: Text('Export failed: $e')),
-      );
+      messenger.showSnackBar(SnackBar(content: Text('Export failed: $e')));
     }
   }
 
@@ -194,10 +192,7 @@ class _ChangesTabState extends State<ChangesTab> {
           child: Text(
             errorMessage,
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13,
-              color: context.rhythm.danger,
-            ),
+            style: TextStyle(fontSize: 13, color: context.rhythm.danger),
           ),
         ),
       );
@@ -208,10 +203,7 @@ class _ChangesTabState extends State<ChangesTab> {
       return Center(
         child: Text(
           'No file changes yet',
-          style: TextStyle(
-            fontSize: 13,
-            color: context.rhythm.textMuted,
-          ),
+          style: TextStyle(fontSize: 13, color: context.rhythm.textMuted),
         ),
       );
     }
@@ -342,8 +334,11 @@ class _WorktreeActionsRow extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       child: Row(
         children: [
-          Icon(Icons.call_split_rounded,
-              size: 13, color: context.rhythm.accent),
+          Icon(
+            Icons.call_split_rounded,
+            size: 13,
+            color: context.rhythm.accent,
+          ),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
@@ -368,10 +363,12 @@ class _WorktreeActionsRow extends StatelessWidget {
                 : 'End the session before removing its worktree',
             child: TextButton(
               key: const ValueKey('changes-worktree-remove-button'),
-              onPressed:
-                  (busy || !canRemove) ? null : () => _confirmRemove(context),
-              style:
-                  TextButton.styleFrom(foregroundColor: context.rhythm.danger),
+              onPressed: (busy || !canRemove)
+                  ? null
+                  : () => _confirmRemove(context),
+              style: TextButton.styleFrom(
+                foregroundColor: context.rhythm.danger,
+              ),
               child: const Text('Remove', style: TextStyle(fontSize: 12)),
             ),
           ),
@@ -495,9 +492,7 @@ class _ScopeSummaryHeader extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: context.rhythm.surfaceRaised,
-        border: Border(
-          bottom: BorderSide(color: context.rhythm.borderSubtle),
-        ),
+        border: Border(bottom: BorderSide(color: context.rhythm.borderSubtle)),
       ),
       child: Text(
         '${diffEntries.length} files · +$adds −$dels',
@@ -563,9 +558,7 @@ class _ChangesSummaryHeader extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: context.rhythm.surfaceRaised,
-        border: Border(
-          bottom: BorderSide(color: context.rhythm.borderSubtle),
-        ),
+        border: Border(bottom: BorderSide(color: context.rhythm.borderSubtle)),
       ),
       child: Row(
         children: [
@@ -597,7 +590,10 @@ class _ChangesSummaryHeader extends StatelessWidget {
                 key: const ValueKey('changes-revert-button'),
                 onPressed: canRevert
                     ? () => _confirmRevert(
-                        context, controller, firstUserMessage!.id)
+                        context,
+                        controller,
+                        firstUserMessage!.id,
+                      )
                     : null,
                 icon: const Icon(Icons.undo, size: 16),
                 label: const Text('Revert'),
@@ -702,8 +698,8 @@ class _FileDiffRowState extends State<_FileDiffRow> {
     final displayName = file.contains('/')
         ? file.split('/').last
         : file.isNotEmpty
-            ? file
-            : 'unknown';
+        ? file
+        : 'unknown';
 
     return Container(
       decoration: BoxDecoration(
@@ -720,10 +716,12 @@ class _FileDiffRowState extends State<_FileDiffRow> {
             borderRadius: BorderRadius.only(
               topLeft: Radius.circular(RhythmRadius.md),
               topRight: Radius.circular(RhythmRadius.md),
-              bottomLeft:
-                  _expanded ? Radius.zero : Radius.circular(RhythmRadius.md),
-              bottomRight:
-                  _expanded ? Radius.zero : Radius.circular(RhythmRadius.md),
+              bottomLeft: _expanded
+                  ? Radius.zero
+                  : Radius.circular(RhythmRadius.md),
+              bottomRight: _expanded
+                  ? Radius.zero
+                  : Radius.circular(RhythmRadius.md),
             ),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -822,11 +820,7 @@ class _FileDiffRowState extends State<_FileDiffRow> {
       'tool': 'edit',
       'state': {
         'status': 'completed',
-        'input': {
-          'filePath': file,
-          'oldContent': before,
-          'newContent': after,
-        },
+        'input': {'filePath': file, 'oldContent': before, 'newContent': after},
       },
     });
     return part;

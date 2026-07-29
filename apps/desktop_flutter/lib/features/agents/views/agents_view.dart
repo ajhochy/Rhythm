@@ -150,14 +150,16 @@ class _AgentsViewState extends State<AgentsView> {
           onToggleResumable: () => setState(
             () => _resumableSectionExpanded = !_resumableSectionExpanded,
           ),
-          onNewSession:
-              canStartSession ? () => _instantCreateSession(context) : null,
+          onNewSession: canStartSession
+              ? () => _instantCreateSession(context)
+              : null,
           onShowNewProjectDialog: () => _showNewProjectDialog(context),
           isCollapsed: _navCollapsed,
           onToggleCollapse: () =>
               setState(() => _navCollapsed = !_navCollapsed),
-          onShowSessionOptions:
-              canStartSession ? () => _showNewSessionDialog(context) : null,
+          onShowSessionOptions: canStartSession
+              ? () => _showNewSessionDialog(context)
+              : null,
         ),
         const SizedBox(width: 12),
         Expanded(child: _TranscriptPanel()),
@@ -218,7 +220,8 @@ class _AgentsViewState extends State<AgentsView> {
   Future<void> _instantCreateSession(BuildContext context) async {
     final projectsController = context.read<AgentProjectsController>();
     final ctrl = context.read<AgentsController>();
-    final cwd = projectsController.selectedProject?.cwd ??
+    final cwd =
+        projectsController.selectedProject?.cwd ??
         Platform.environment['HOME'] ??
         '/tmp';
     final session = await ctrl.createSession(cwd: cwd);
@@ -511,7 +514,8 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     AgentsController controller,
     AgentSession? selected,
   ) {
-    final shouldPoll = selected != null &&
+    final shouldPoll =
+        selected != null &&
         (selected.status == AgentSessionStatus.starting ||
             selected.status == AgentSessionStatus.working) &&
         !controller.isWorking(selected.id);
@@ -594,10 +598,12 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     if (text.startsWith('/')) {
       final withoutSlash = text.substring(1);
       final spaceIdx = withoutSlash.indexOf(' ');
-      final cmdName =
-          spaceIdx >= 0 ? withoutSlash.substring(0, spaceIdx) : withoutSlash;
-      final cmdArgs =
-          spaceIdx >= 0 ? withoutSlash.substring(spaceIdx + 1).trim() : '';
+      final cmdName = spaceIdx >= 0
+          ? withoutSlash.substring(0, spaceIdx)
+          : withoutSlash;
+      final cmdArgs = spaceIdx >= 0
+          ? withoutSlash.substring(spaceIdx + 1).trim()
+          : '';
       final knownCommands = controller.slashCommandsFor(id);
       if (cmdName.isNotEmpty && knownCommands.any((c) => c.name == cmdName)) {
         controller.sendCommand(id, cmdName, cmdArgs);
@@ -673,57 +679,56 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
                 // field is visible but disabled so the user sees it is coming and
                 // does not click "New session" again by mistake.
                 ? (controller.isCreating
-                    ? const _EngineConnectingState()
-                    : const _EmptyTranscriptState())
+                      ? const _EngineConnectingState()
+                      : const _EmptyTranscriptState())
                 // OPC-M3-6: when a child session is active, swap the main
                 // transcript area to the child transcript view. The parent
                 // transcript, composer, and tool bars are hidden; a breadcrumb
                 // in ChildTranscriptView lets the user navigate back.
                 : controller.activeChildSessionId != null
-                    ? ChildTranscriptView(
-                        childSdkId: controller.activeChildSessionId!,
-                        parentSessionName:
-                            controller.activeChildParentName ?? selected.name,
-                        // #861 — this child's own display name, used as the
-                        // breadcrumb target for any NESTED (grandchild+) chip
-                        // tapped inside this child's own transcript.
-                        ownDisplayName:
-                            controller.activeChildDisplayName ?? selected.name,
-                        onBack: controller.closeChildSession,
-                      )
-                    : Column(
-                        children: [
-                          _TranscriptHeader(session: selected),
-                          Divider(
-                              height: 1, color: context.rhythm.borderSubtle),
-                          // #602: agent-less sessions show a centred "choose model" prompt
-                          // until the first message is sent.
-                          if (selected.agentId == '__pending__' &&
-                              controller.chatMessagesFor(selected.id).isEmpty &&
-                              controller.transcript.isEmpty)
-                            Expanded(
-                              child: _AgentLessSessionPrompt(session: selected),
-                            )
-                          else
-                            Expanded(
-                              child: Container(
-                                color: context.rhythm.canvas.withValues(
-                                  alpha: 0.45,
-                                ),
-                                child: _buildTranscriptBody(
-                                  context,
-                                  controller,
-                                  selected,
-                                ),
-                              ),
+                ? ChildTranscriptView(
+                    childSdkId: controller.activeChildSessionId!,
+                    parentSessionName:
+                        controller.activeChildParentName ?? selected.name,
+                    // #861 — this child's own display name, used as the
+                    // breadcrumb target for any NESTED (grandchild+) chip
+                    // tapped inside this child's own transcript.
+                    ownDisplayName:
+                        controller.activeChildDisplayName ?? selected.name,
+                    onBack: controller.closeChildSession,
+                  )
+                : Column(
+                    children: [
+                      _TranscriptHeader(session: selected),
+                      Divider(height: 1, color: context.rhythm.borderSubtle),
+                      // #602: agent-less sessions show a centred "choose model" prompt
+                      // until the first message is sent.
+                      if (selected.agentId == '__pending__' &&
+                          controller.chatMessagesFor(selected.id).isEmpty &&
+                          controller.transcript.isEmpty)
+                        Expanded(
+                          child: _AgentLessSessionPrompt(session: selected),
+                        )
+                      else
+                        Expanded(
+                          child: Container(
+                            color: context.rhythm.canvas.withValues(
+                              alpha: 0.45,
                             ),
-                          _PendingPermissionArea(session: selected),
-                          _InputArea(
-                            inputController: _inputController,
-                            onSend: () => _sendInput(context),
+                            child: _buildTranscriptBody(
+                              context,
+                              controller,
+                              selected,
+                            ),
                           ),
-                        ],
+                        ),
+                      _PendingPermissionArea(session: selected),
+                      _InputArea(
+                        inputController: _inputController,
+                        onSend: () => _sendInput(context),
                       ),
+                    ],
+                  ),
           ),
         ),
       ],
@@ -829,7 +834,7 @@ class _TranscriptHeader extends StatelessWidget {
     final sessionTotal = controller.sessionTotalCost(session.id);
     final showReconnect =
         agentServerController.status != AgentServerStatus.ready ||
-            controller.connectivity.isWsDisconnected;
+        controller.connectivity.isWsDisconnected;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -1003,8 +1008,9 @@ class _TranscriptHeader extends StatelessWidget {
           IconButton(
             onPressed: () =>
                 context.read<AgentsController>().closeSession(session.id),
-            tooltip:
-                agentServerController.isReady ? 'Close session' : 'Force close',
+            tooltip: agentServerController.isReady
+                ? 'Close session'
+                : 'Force close',
             icon: Icon(
               Icons.close,
               size: 18,
@@ -1042,9 +1048,9 @@ class _VcsBranchBadge extends StatelessWidget {
     final tooltip = dirtyCount == 0
         ? 'Clean working tree'
         : status
-            .map((e) => (e['file'] as String?) ?? '')
-            .where((f) => f.isNotEmpty)
-            .join('\n');
+              .map((e) => (e['file'] as String?) ?? '')
+              .where((f) => f.isNotEmpty)
+              .join('\n');
 
     return Tooltip(
       message: tooltip,
@@ -1128,9 +1134,9 @@ class _AnthropicAccountBadge extends StatelessWidget {
       onSelected: (accountId) {
         if (accountId == session.anthropicAccountId) return;
         context.read<AgentsController>().setSessionAnthropicAccount(
-              session.id,
-              accountId,
-            );
+          session.id,
+          accountId,
+        );
       },
       itemBuilder: (context) => [
         for (final account in accounts)
@@ -1201,36 +1207,36 @@ class _StatusChip extends StatelessWidget {
 
     final (label, bgColor, textColor) = switch (status) {
       AgentSessionStatus.starting => (
-          'Starting',
-          context.rhythm.warning.withValues(alpha: 0.15),
-          context.rhythm.warning,
-        ),
+        'Starting',
+        context.rhythm.warning.withValues(alpha: 0.15),
+        context.rhythm.warning,
+      ),
       AgentSessionStatus.working => (
-          'Working',
-          context.rhythm.accentMuted,
-          context.rhythm.accent,
-        ),
+        'Working',
+        context.rhythm.accentMuted,
+        context.rhythm.accent,
+      ),
       AgentSessionStatus.idle => (
-          'Idle',
-          context.rhythm.success.withValues(alpha: 0.15),
-          context.rhythm.success,
-        ),
+        'Idle',
+        context.rhythm.success.withValues(alpha: 0.15),
+        context.rhythm.success,
+      ),
       AgentSessionStatus.resumable => (
-          'Resumable',
-          context.rhythm.borderSubtle,
-          context.rhythm.textMuted,
-        ),
+        'Resumable',
+        context.rhythm.borderSubtle,
+        context.rhythm.textMuted,
+      ),
       AgentSessionStatus.closed => (
-          'Closed',
-          context.rhythm.borderSubtle,
-          context.rhythm.textMuted,
-        ),
+        'Closed',
+        context.rhythm.borderSubtle,
+        context.rhythm.textMuted,
+      ),
       // OPC-M1-4: error state shown as a red badge.
       AgentSessionStatus.error => (
-          'Error',
-          context.rhythm.danger.withValues(alpha: 0.15),
-          context.rhythm.danger,
-        ),
+        'Error',
+        context.rhythm.danger.withValues(alpha: 0.15),
+        context.rhythm.danger,
+      ),
     };
 
     return Container(
@@ -1385,8 +1391,9 @@ class _FastModeToggle extends StatelessWidget {
               Icon(
                 Icons.bolt,
                 size: 14,
-                color:
-                    active ? context.rhythm.accent : context.rhythm.textMuted,
+                color: active
+                    ? context.rhythm.accent
+                    : context.rhythm.textMuted,
               ),
               const SizedBox(width: 3),
               Text(
@@ -1778,8 +1785,11 @@ class _UserBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text =
-        parts.where((p) => p.type == 'text').map((p) => p.text).join('').trim();
+    final text = parts
+        .where((p) => p.type == 'text')
+        .map((p) => p.text)
+        .join('')
+        .trim();
     final fileParts = parts.where((p) => p.type == 'file').toList();
 
     if (text.isEmpty && fileParts.isEmpty) return const SizedBox.shrink();
@@ -2150,7 +2160,8 @@ class _InputAreaState extends State<_InputArea> {
           if (truncated) {
             // Truncate at the byte boundary and re-decode to keep valid UTF-8.
             final truncBytes = bytes.sublist(0, _kTextSizeCap);
-            final partial = tryDecodeUtf8(truncBytes) ??
+            final partial =
+                tryDecodeUtf8(truncBytes) ??
                 const Utf8Decoder(
                   allowMalformed: true,
                 ).convert(truncBytes.toList());
@@ -2218,7 +2229,7 @@ class _InputAreaState extends State<_InputArea> {
         final bytes = utf8.encode(raw);
         final text = bytes.length > _kTextSizeCap
             ? '${utf8.decode(bytes.sublist(0, _kTextSizeCap), allowMalformed: true)}'
-                '\n\n… [truncated — showing first 100 KB of $filename]'
+                  '\n\n… [truncated — showing first 100 KB of $filename]'
             : raw;
         controller.addPendingAttachment(id, {
           'type': 'text',
@@ -2736,8 +2747,8 @@ class _PendingTriggerBanner extends StatelessWidget {
             const SizedBox(width: 6),
             TextButton(
               onPressed: () => context.read<AgentsController>().dismissTrigger(
-                    trigger.taskId,
-                  ),
+                trigger.taskId,
+              ),
               style: TextButton.styleFrom(
                 foregroundColor: context.rhythm.textSecondary,
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -2891,8 +2902,9 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
     if (!mounted) return;
     setState(() => _loadingBranches = true);
     try {
-      final branches =
-          await context.read<AgentProjectsController>().listBranches(projectId);
+      final branches = await context
+          .read<AgentProjectsController>()
+          .listBranches(projectId);
       if (!mounted) return;
       setState(() {
         _currentBranch = branches.current;
@@ -2936,8 +2948,9 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
     if (!_canSubmit) return;
 
     // Resolve the target branch.
-    final targetBranch =
-        _newBranchMode ? _newBranchController.text.trim() : _selectedBranch;
+    final targetBranch = _newBranchMode
+        ? _newBranchController.text.trim()
+        : _selectedBranch;
     final createBranch =
         _newBranchMode && targetBranch != null && targetBranch.isNotEmpty;
 
@@ -3696,109 +3709,108 @@ class ChildTranscriptView extends StatelessWidget {
                   ),
                 )
               : messages.isEmpty
-                  ? Center(
-                      child: Text(
-                        'No messages in this subagent session.',
-                        style: TextStyle(
-                          color: context.rhythm.textMuted,
-                          fontSize: 13,
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-                      itemCount: messages.length,
-                      itemBuilder: (context, index) {
-                        final m = messages[index];
-                        final isUser = m.role == 'input' || m.role == 'user';
-                        // Real subagent messages keep their text in `parts`, with
-                        // strippedText/rawText empty — derive display text from the
-                        // parts so the bubbles aren't blank.
-                        final displayText = _childMessageDisplayText(m);
-                        // #861 — nested delegation: any `task` tool parts on this
-                        // (sub)message become their own navigable TaskChips, using
-                        // THIS child session's own SDK id as the fetch-parent for
-                        // the next hop, so tapping opens the grandchild transcript
-                        // and the breadcrumb returns to THIS child, not the
-                        // top-level parent.
-                        final nestedTaskParts = _childTaskParts(m);
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: isUser
-                              ? Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Container(
-                                    constraints: const BoxConstraints(
-                                      maxWidth: 560,
+              ? Center(
+                  child: Text(
+                    'No messages in this subagent session.',
+                    style: TextStyle(
+                      color: context.rhythm.textMuted,
+                      fontSize: 13,
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                  itemCount: messages.length,
+                  itemBuilder: (context, index) {
+                    final m = messages[index];
+                    final isUser = m.role == 'input' || m.role == 'user';
+                    // Real subagent messages keep their text in `parts`, with
+                    // strippedText/rawText empty — derive display text from the
+                    // parts so the bubbles aren't blank.
+                    final displayText = _childMessageDisplayText(m);
+                    // #861 — nested delegation: any `task` tool parts on this
+                    // (sub)message become their own navigable TaskChips, using
+                    // THIS child session's own SDK id as the fetch-parent for
+                    // the next hop, so tapping opens the grandchild transcript
+                    // and the breadcrumb returns to THIS child, not the
+                    // top-level parent.
+                    final nestedTaskParts = _childTaskParts(m);
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: isUser
+                          ? Align(
+                              alignment: Alignment.centerRight,
+                              child: Container(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 560,
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: context.rhythm.accentMuted,
+                                  borderRadius: BorderRadius.circular(
+                                    RhythmRadius.md,
+                                  ),
+                                  border: Border.all(
+                                    color: context.rhythm.accent.withValues(
+                                      alpha: 0.2,
                                     ),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 8,
-                                    ),
+                                  ),
+                                ),
+                                child: Text(
+                                  displayText,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: context.rhythm.accent,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (displayText.isNotEmpty ||
+                                    nestedTaskParts.isEmpty)
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(12),
                                     decoration: BoxDecoration(
-                                      color: context.rhythm.accentMuted,
+                                      color: context.rhythm.surfaceMuted,
                                       borderRadius: BorderRadius.circular(
                                         RhythmRadius.md,
                                       ),
                                       border: Border.all(
-                                        color: context.rhythm.accent.withValues(
-                                          alpha: 0.2,
-                                        ),
+                                        color: context.rhythm.borderSubtle,
                                       ),
                                     ),
                                     child: Text(
                                       displayText,
                                       style: TextStyle(
                                         fontSize: 13,
-                                        color: context.rhythm.accent,
+                                        color: context.rhythm.textPrimary,
                                         height: 1.4,
                                       ),
                                     ),
                                   ),
-                                )
-                              : Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    if (displayText.isNotEmpty ||
-                                        nestedTaskParts.isEmpty)
-                                      Container(
-                                        width: double.infinity,
-                                        padding: const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: context.rhythm.surfaceMuted,
-                                          borderRadius: BorderRadius.circular(
-                                            RhythmRadius.md,
-                                          ),
-                                          border: Border.all(
-                                            color: context.rhythm.borderSubtle,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          displayText,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: context.rhythm.textPrimary,
-                                            height: 1.4,
-                                          ),
-                                        ),
-                                      ),
-                                    for (final taskPart in nestedTaskParts) ...[
-                                      const SizedBox(height: 6),
-                                      TaskChip(
-                                        part: taskPart,
-                                        parentSessionId: childSdkId,
-                                        // Breadcrumb for the grandchild must
-                                        // return to THIS child, not the
-                                        // top-level parent.
-                                        parentSessionName: ownDisplayName,
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                        );
-                      },
-                    ),
+                                for (final taskPart in nestedTaskParts) ...[
+                                  const SizedBox(height: 6),
+                                  TaskChip(
+                                    part: taskPart,
+                                    parentSessionId: childSdkId,
+                                    // Breadcrumb for the grandchild must
+                                    // return to THIS child, not the
+                                    // top-level parent.
+                                    parentSessionName: ownDisplayName,
+                                  ),
+                                ],
+                              ],
+                            ),
+                    );
+                  },
+                ),
         ),
       ],
     );
@@ -3907,7 +3919,8 @@ class AgentSelectorPill extends StatelessWidget {
     //
     // `selected` here is already the fully-resolved value from
     // selectedAgentFor() — this widget never re-derives the fallback chain.
-    final managerLabel = cfgCtrl.managerAgent?.displayLabel ??
+    final managerLabel =
+        cfgCtrl.managerAgent?.displayLabel ??
         cfgCtrl.managerAgent?.ocAgent ??
         'build';
     String label = managerLabel;

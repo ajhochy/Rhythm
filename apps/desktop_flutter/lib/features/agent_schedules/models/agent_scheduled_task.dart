@@ -96,8 +96,8 @@ class AgentScheduledTask {
         final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
         final day =
             (scheduledDay != null && scheduledDay! >= 0 && scheduledDay! <= 6)
-                ? days[scheduledDay!]
-                : 'Weekly';
+            ? days[scheduledDay!]
+            : 'Weekly';
         return 'Weekly on $day${scheduledTime != null ? ' at $scheduledTime' : ''}';
       case 'monthly':
         return 'Monthly on day ${scheduledDay ?? '?'}${scheduledTime != null ? ' at $scheduledTime' : ''}';
@@ -120,7 +120,7 @@ const _cronWeekdays = [
   'Wednesday',
   'Thursday',
   'Friday',
-  'Saturday'
+  'Saturday',
 ];
 
 /// Formats hour/minute as "9am" / "9:30am" / "12pm" (no leading zero, minutes

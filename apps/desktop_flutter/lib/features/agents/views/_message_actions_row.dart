@@ -118,14 +118,15 @@ class _MessageActionsRowState extends State<MessageActionsRow>
   @override
   void initState() {
     super.initState();
-    _flashController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    )..addStatusListener((s) {
-        if (s == AnimationStatus.completed) {
-          setState(() => _copiedFlash = false);
-        }
-      });
+    _flashController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 600),
+        )..addStatusListener((s) {
+          if (s == AnimationStatus.completed) {
+            setState(() => _copiedFlash = false);
+          }
+        });
   }
 
   @override
@@ -159,9 +160,9 @@ class _MessageActionsRowState extends State<MessageActionsRow>
             onPressed: () {
               Navigator.of(dialogContext).pop();
               context.read<AgentsController>().forkSession(
-                    widget.sessionId,
-                    widget.messageId,
-                  );
+                widget.sessionId,
+                widget.messageId,
+              );
             },
             child: const Text('Fork'),
           ),
@@ -188,9 +189,9 @@ class _MessageActionsRowState extends State<MessageActionsRow>
             onPressed: () {
               Navigator.of(dialogContext).pop();
               context.read<AgentsController>().revertSession(
-                    widget.sessionId,
-                    widget.messageId,
-                  );
+                widget.sessionId,
+                widget.messageId,
+              );
             },
             child: const Text('Revert'),
           ),
@@ -228,8 +229,9 @@ class _MessageActionsRowState extends State<MessageActionsRow>
             tooltip: notifyArmed
                 ? 'Notification armed — tap to cancel'
                 : 'Notify when session finishes',
-            color:
-                notifyArmed ? context.rhythm.accent : context.rhythm.textMuted,
+            color: notifyArmed
+                ? context.rhythm.accent
+                : context.rhythm.textMuted,
             onTap: () => controller.toggleNotify(_messageKey),
           ),
           // OPC-M3-2: "Revert to here" — only for assistant messages.

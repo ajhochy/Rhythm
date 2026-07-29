@@ -26,14 +26,14 @@ import 'package:rhythm_desktop/features/notifications/repositories/notifications
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: 'Test Session',
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
-    );
+  id: id,
+  agentId: 'claude-code',
+  name: 'Test Session',
+  cwd: '/tmp',
+  status: AgentSessionStatus.idle,
+  createdAt: _kEpoch,
+  updatedAt: _kEpoch,
+);
 
 class _FakeApiServerService extends ApiServerService {
   @override
@@ -57,8 +57,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-      : _msg = StreamController.broadcast(),
-        _conn = StreamController.broadcast();
+    : _msg = StreamController.broadcast(),
+      _conn = StreamController.broadcast();
   final StreamController<AgentWsMessage> _msg;
   final StreamController<bool> _conn;
 
@@ -85,12 +85,11 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async =>
-      [_makeSession('s1')];
+  }) async => [_makeSession('s1')];
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async =>
-          (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+  getSession(String id) async =>
+      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -101,9 +100,7 @@ class _StubAgentsRepository implements AgentsRepository {
     repo,
     _ReadyAgentServerController(),
     LocalNotificationService(),
-    NotificationsController(
-      NotificationsRepository(NotificationsDataSource()),
-    ),
+    NotificationsController(NotificationsRepository(NotificationsDataSource())),
   );
   return (ctrl: ctrl, repo: repo);
 }
@@ -122,26 +119,42 @@ void main() {
 
       // Send → optimistic user bubble inserted.
       ctrl.sendInput('s1', 'try now?\n');
-      final afterSend =
-          ctrl.chatMessagesFor('s1').where((m) => m.role == 'user').toList();
-      expect(afterSend, hasLength(1),
-          reason: 'sendInput inserts one optimistic user message');
+      final afterSend = ctrl
+          .chatMessagesFor('s1')
+          .where((m) => m.role == 'user')
+          .toList();
+      expect(
+        afterSend,
+        hasLength(1),
+        reason: 'sendInput inserts one optimistic user message',
+      );
       expect(afterSend.single.id, startsWith('optimistic-'));
 
       // Server echoes the same turn with the real message id.
-      repo.emit(MessageUpdatedMessage(
-        sessionId: 's1',
-        info: const {'id': 'msg_real_1', 'role': 'user'},
-      ));
+      repo.emit(
+        MessageUpdatedMessage(
+          sessionId: 's1',
+          info: const {'id': 'msg_real_1', 'role': 'user'},
+        ),
+      );
       await Future<void>.delayed(Duration.zero);
 
-      final afterEcho =
-          ctrl.chatMessagesFor('s1').where((m) => m.role == 'user').toList();
-      expect(afterEcho, hasLength(1),
-          reason: 'server echo must reconcile the optimistic message in place, '
-              'not add a second user bubble');
-      expect(afterEcho.single.id, 'msg_real_1',
-          reason: 'the reconciled message adopts the server id');
+      final afterEcho = ctrl
+          .chatMessagesFor('s1')
+          .where((m) => m.role == 'user')
+          .toList();
+      expect(
+        afterEcho,
+        hasLength(1),
+        reason:
+            'server echo must reconcile the optimistic message in place, '
+            'not add a second user bubble',
+      );
+      expect(
+        afterEcho.single.id,
+        'msg_real_1',
+        reason: 'the reconciled message adopts the server id',
+      );
     },
   );
 
@@ -158,29 +171,37 @@ void main() {
 
       // Server echo: message.updated (reconcile) then message.part.updated with
       // the server's own text part for the same content.
-      repo.emit(MessageUpdatedMessage(
-        sessionId: 's1',
-        info: const {'id': 'msg_real_1', 'role': 'user'},
-      ));
+      repo.emit(
+        MessageUpdatedMessage(
+          sessionId: 's1',
+          info: const {'id': 'msg_real_1', 'role': 'user'},
+        ),
+      );
       await Future<void>.delayed(Duration.zero);
-      repo.emit(MessagePartUpdatedMessage(
-        sessionId: 's1',
-        part: const {
-          'id': 'server_part_1',
-          'messageID': 'msg_real_1',
-          'type': 'text',
-          'text': 'testing reply ok',
-        },
-      ));
+      repo.emit(
+        MessagePartUpdatedMessage(
+          sessionId: 's1',
+          part: const {
+            'id': 'server_part_1',
+            'messageID': 'msg_real_1',
+            'type': 'text',
+            'text': 'testing reply ok',
+          },
+        ),
+      );
       await Future<void>.delayed(Duration.zero);
 
       final textParts = ctrl
           .chatPartsFor('msg_real_1')
           .where((p) => p.type == 'text')
           .toList();
-      expect(textParts, hasLength(1),
-          reason: 'the client optimistic text part is authoritative; the '
-              'server echo must be skipped, not added as a 2nd text part');
+      expect(
+        textParts,
+        hasLength(1),
+        reason:
+            'the client optimistic text part is authoritative; the '
+            'server echo must be skipped, not added as a 2nd text part',
+      );
     },
   );
 }
