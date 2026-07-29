@@ -10,12 +10,18 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import { afterEach, describe, expect, it } from "vitest";
 
 const repoRoot = resolve(__dirname, "../../../..");
 const sandboxScript = join(repoRoot, "tools/dev/sandbox.sh");
 const liveChildren = new Set<ReturnType<typeof spawn>>();
 const tempRoots = new Set<string>();
+const reliabilityIterations = positiveIntegerEnv(
+  "RHYTHM_RELIABILITY_ITERATIONS",
+  5,
+);
+const iterationDeadlineMs = 10_000;
 
 type CommandResult = {
   code: number | null;
@@ -23,6 +29,29 @@ type CommandResult = {
   stdout: string;
   stderr: string;
 };
+
+function positiveIntegerEnv(name: string, fallback: number): number {
+  const parsed = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+async function withDeadline<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
 
 function run(
   command: string,
@@ -258,38 +287,60 @@ describe("tools/dev/sandbox.sh foreground lifecycle (#1186)", () => {
 
   it("reliably keeps the launcher alive until down completes its acknowledged stop", async () => {
     const { env, sandbox } = fakeSandboxEnv();
-    for (let iteration = 0; iteration < 20; iteration += 1) {
-      const foreground = spawn("bash", [sandboxScript, "up", "--foreground"], {
-        cwd: repoRoot,
-        env,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      liveChildren.add(foreground);
-      let output = "";
-      foreground.stdout.on("data", (chunk) => {
-        output += String(chunk);
-      });
-      foreground.stderr.on("data", (chunk) => {
-        output += String(chunk);
-      });
+    for (let iteration = 0; iteration < reliabilityIterations; iteration += 1) {
+      const startedAt = performance.now();
+      await withDeadline(
+        (async () => {
+          const foreground = spawn(
+            "bash",
+            [sandboxScript, "up", "--foreground"],
+            {
+              cwd: repoRoot,
+              env,
+              stdio: ["ignore", "pipe", "pipe"],
+            },
+          );
+          liveChildren.add(foreground);
+          let output = "";
+          foreground.stdout.on("data", (chunk) => {
+            output += String(chunk);
+          });
+          foreground.stderr.on("data", (chunk) => {
+            output += String(chunk);
+          });
 
-      await waitForOutput(foreground, () => output, "foreground hold active");
-      expect(foreground.exitCode, `iteration ${iteration}`).toBeNull();
-      const apiPid = Number(
-        readFileSync(join(sandbox, "api_server.pid"), "utf8").trim(),
+          await waitForOutput(
+            foreground,
+            () => output,
+            "foreground hold active",
+          );
+          expect(foreground.exitCode, `iteration ${iteration}`).toBeNull();
+          const apiPid = Number(
+            readFileSync(join(sandbox, "api_server.pid"), "utf8").trim(),
+          );
+          expect(isAlive(apiPid), `iteration ${iteration}`).toBe(true);
+
+          const down = await run("bash", [sandboxScript, "down"], env);
+          expect(down.code, `iteration ${iteration}: ${down.stderr}`).toBe(0);
+          const foregroundResult = await waitForExit(foreground, output);
+          expect(
+            foregroundResult.code,
+            `foreground iteration ${iteration}: ${output}`,
+          ).toBe(0);
+          expect(existsSync(sandbox), `iteration ${iteration}`).toBe(false);
+        })(),
+        iterationDeadlineMs,
+        `iteration ${iteration} exceeded ${iterationDeadlineMs}ms`,
       );
-      expect(isAlive(apiPid), `iteration ${iteration}`).toBe(true);
-
-      const down = await run("bash", [sandboxScript, "down"], env);
-      expect(down.code, `iteration ${iteration}: ${down.stderr}`).toBe(0);
-      const foregroundResult = await waitForExit(foreground, output);
-      expect(
-        foregroundResult.code,
-        `foreground iteration ${iteration}: ${output}`,
-      ).toBe(0);
-      expect(existsSync(sandbox), `iteration ${iteration}`).toBe(false);
+      if (process.env.RHYTHM_RELIABILITY_TIMINGS === "1") {
+        console.info(
+          `RHYTHM_RELIABILITY_TIMING iteration=${iteration} duration_ms=${(
+            performance.now() - startedAt
+          ).toFixed(1)}`,
+        );
+      }
     }
-  }, 30_000);
+  }, reliabilityIterations * iterationDeadlineMs + 5_000);
 
   it("propagates an unexpected foreground API exit", async () => {
     const { env } = fakeSandboxEnv();

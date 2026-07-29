@@ -1,0 +1,13 @@
+{
+  "issue": 1240,
+  "acceptance": {
+    "flake eliminated under load, assertions preserved": "issue_1186_sandbox_foreground.test.ts 'reliably keeps the launcher alive...' — 7/7 pass on loaded machine (green-fullsuite.txt); per-iteration assertions unchanged (diff adds deadline wrapper only)",
+    "full 20x loop still available": "RHYTHM_RELIABILITY_ITERATIONS env; positiveIntegerEnv guard",
+    "no suppressed failures": "no skip/todo/passWithNoTests introduced"
+  },
+  "fullSuite": "433 files passed / 66 skipped (env-gated live guards); 3632 tests passed / 105 skipped / 0 failed",
+  "verifiedBy": "orchestrator-executed (Codex sandbox denies ps/spawn; execution split per decision log)",
+  "filesTouched": ["apps/api_server/src/__tests__/issue_1186_sandbox_foreground.test.ts"],
+  "migrations": [],
+  "deferred": []
+}

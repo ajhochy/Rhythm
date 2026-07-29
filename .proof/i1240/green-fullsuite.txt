@@ -1,0 +1,18 @@
+
+[1m[46m RUN [49m[22m [36mv4.1.1 [39m[90m/Users/ajhochhalter/Documents/rhythm-mega/.worktrees/rt-i1240/apps/api_server[39m
+
+Sourcemap for "/Users/ajhochhalter/Documents/rhythm-mega/.worktrees/rt-i1240/apps/api_server/opencode_plugins/rhythm-anthropic-accounts/dist/index.js" points to missing source files
+Sourcemap for "/Users/ajhochhalter/Documents/rhythm-mega/.worktrees/rt-i1240/apps/api_server/opencode_plugins/rhythm-anthropic-accounts/dist/model-config.js" points to missing source files
+Sourcemap for "/Users/ajhochhalter/Documents/rhythm-mega/.worktrees/rt-i1240/apps/api_server/opencode_plugins/rhythm-anthropic-accounts/dist/keychain.js" points to missing source files
+Sourcemap for "/Users/ajhochhalter/Documents/rhythm-mega/.worktrees/rt-i1240/apps/api_server/opencode_plugins/rhythm-anthropic-accounts/dist/logger.js" points to missing source files
+Sourcemap for "/Users/ajhochhalter/Documents/rhythm-mega/.worktrees/rt-i1240/apps/api_server/opencode_plugins/rhythm-anthropic-accounts/dist/betas.js" points to missing source files
+Sourcemap for "/Users/ajhochhalter/Documents/rhythm-mega/.worktrees/rt-i1240/apps/api_server/opencode_plugins/rhythm-anthropic-accounts/dist/plugin-config.js" points to missing source files
+Sourcemap for "/Users/ajhochhalter/Documents/rhythm-mega/.worktrees/rt-i1240/apps/api_server/opencode_plugins/rhythm-anthropic-accounts/dist/transforms.js" points to missing source files
+Sourcemap for "/Users/ajhochhalter/Documents/rhythm-mega/.worktrees/rt-i1240/apps/api_server/opencode_plugins/rhythm-anthropic-accounts/dist/signing.js" points to missing source files
+Sourcemap for "/Users/ajhochhalter/Documents/rhythm-mega/.worktrees/rt-i1240/apps/api_server/opencode_plugins/rhythm-anthropic-accounts/dist/credentials.js" points to missing source files
+
+[2m Test Files [22m [1m[32m433 passed[39m[22m[2m | [22m[33m66 skipped[39m[90m (499)[39m
+[2m      Tests [22m [1m[32m3632 passed[39m[22m[2m | [22m[33m105 skipped[39m[90m (3737)[39m
+[2m   Start at [22m 19:35:31
+[2m   Duration [22m 48.64s[2m (transform 37.67s, setup 0ms, import 166.81s, tests 279.20s, environment 36ms)[22m
+
