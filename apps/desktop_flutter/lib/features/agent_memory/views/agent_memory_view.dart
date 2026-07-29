@@ -263,8 +263,7 @@ class _AgentMemoryViewState extends State<AgentMemoryView> {
   }
 
   Widget _buildBody(BuildContext context, AgentMemoryController controller) {
-    final isLoading =
-        controller.status == AgentMemoryStatus.loading ||
+    final isLoading = controller.status == AgentMemoryStatus.loading ||
         controller.status == AgentMemoryStatus.searching;
 
     if (isLoading) {
@@ -383,9 +382,8 @@ class _MemoryTileState extends State<_MemoryTile> {
               Text(
                 entry.content,
                 maxLines: _expanded ? null : 2,
-                overflow: _expanded
-                    ? TextOverflow.visible
-                    : TextOverflow.ellipsis,
+                overflow:
+                    _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
                 style: TextStyle(
                   color: context.rhythm.textPrimary,
                   fontSize: 14,
@@ -397,9 +395,8 @@ class _MemoryTileState extends State<_MemoryTile> {
                 Wrap(
                   spacing: RhythmSpacing.xs,
                   runSpacing: RhythmSpacing.xxs,
-                  children: entry.tags
-                      .map((tag) => _TagChip(tag: tag))
-                      .toList(),
+                  children:
+                      entry.tags.map((tag) => _TagChip(tag: tag)).toList(),
                 ),
               ],
               if (_expanded) ...[
@@ -491,10 +488,10 @@ class _LifecycleBadge extends StatelessWidget {
     final label = state == 'stale'
         ? 'Stale'
         : state == 'deprecated'
-        ? 'Deprecated'
-        : state == 'unverifiable'
-        ? 'Unverifiable'
-        : 'Active';
+            ? 'Deprecated'
+            : state == 'unverifiable'
+                ? 'Unverifiable'
+                : 'Active';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(

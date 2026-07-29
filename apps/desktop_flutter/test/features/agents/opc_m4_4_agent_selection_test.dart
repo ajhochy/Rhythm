@@ -84,8 +84,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -118,12 +118,13 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async =>
-      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async =>
+          (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -144,10 +145,9 @@ class _StubAgentsRepository implements AgentsRepository {
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-    String parentSessionId,
-    String childSdkId, {
-    String? cwd,
-  }) async => const [];
+          String parentSessionId, String childSdkId,
+          {String? cwd}) async =>
+      const [];
 
   @override
   Future<AgentSession> forkSession(String sessionId, String messageId) async {
@@ -165,31 +165,35 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 AgentsController _buildController(
   _StubAgentsRepository repo, {
   String? Function()? managerAgentNameResolver,
-}) => AgentsController(
-  repo,
-  _ReadyAgentServerController(),
-  LocalNotificationService(),
-  NotificationsController(NotificationsRepository(NotificationsDataSource())),
-  managerAgentNameResolver: managerAgentNameResolver,
-);
+}) =>
+    AgentsController(
+      repo,
+      _ReadyAgentServerController(),
+      LocalNotificationService(),
+      NotificationsController(
+        NotificationsRepository(NotificationsDataSource()),
+      ),
+      managerAgentNameResolver: managerAgentNameResolver,
+    );
 
 /// An empty AgentConfigsController for the widget tree. With no profiles
 /// loaded, [AgentSelectorPill] falls back to the opencode agent list the
 /// stub repository serves — preserving these tests' assertions.
-AgentConfigsController _buildConfigsController() =>
-    AgentConfigsController(AgentConfigsRepository(AgentConfigsDataSource()));
+AgentConfigsController _buildConfigsController() => AgentConfigsController(
+      AgentConfigsRepository(AgentConfigsDataSource()),
+    );
 
 /// Wrap a widget under test with the theme and providers it needs.
 Widget _withProviders({
@@ -264,49 +268,35 @@ void main() {
       ctrl.setActiveSessionForTest(sessionId, _makeSession(sessionId));
 
       // Inject an assistant message with an 'agent' type part (name:'plan').
-      ctrl.setMessageForTest(
-        ChatMessage(
-          id: msgId,
-          sessionId: sessionId,
-          role: 'assistant',
-          createdAt: _kEpoch,
-        ),
-      );
-      ctrl.setChatPartForTest(
-        ChatPart(
-          id: 'c4-part-1',
-          messageId: msgId,
-          type: 'agent',
-          agentName: 'plan',
-        ),
-      );
+      ctrl.setMessageForTest(ChatMessage(
+        id: msgId,
+        sessionId: sessionId,
+        role: 'assistant',
+        createdAt: _kEpoch,
+      ));
+      ctrl.setChatPartForTest(ChatPart(
+        id: 'c4-part-1',
+        messageId: msgId,
+        type: 'agent',
+        agentName: 'plan',
+      ));
 
-      await tester.pumpWidget(
-        _withProviders(
-          controller: ctrl,
-          child: Builder(
-            builder: (context) {
-              final parts = ctrl.chatPartsFor(msgId);
-              return AgentPartMarker(
-                agentName: parts.isNotEmpty
-                    ? (parts.first.agentName ?? '')
-                    : '',
-              );
-            },
-          ),
-        ),
-      );
+      await tester.pumpWidget(_withProviders(
+        controller: ctrl,
+        child: Builder(builder: (context) {
+          final parts = ctrl.chatPartsFor(msgId);
+          return AgentPartMarker(
+              agentName: parts.isNotEmpty ? (parts.first.agentName ?? '') : '');
+        }),
+      ));
       await tester.pump(Duration.zero);
 
       // Must show the labeled marker text containing the agent name.
       expect(find.textContaining('plan'), findsAtLeastNWidgets(1));
 
       // Must NOT render a generic card or unknown-type fallback.
-      expect(
-        find.text('agent'),
-        findsNothing,
-        reason: 'raw type string must not appear; only labeled marker',
-      );
+      expect(find.text('agent'), findsNothing,
+          reason: 'raw type string must not appear; only labeled marker');
 
       ctrl.dispose();
     },
@@ -314,36 +304,35 @@ void main() {
 
   // ── c5: built-ins only — no crash ─────────────────────────────────────────
 
-  testWidgets('issue-703-c5: selector works with built-ins only (no crash)', (
-    tester,
-  ) async {
-    final repo = _StubAgentsRepository();
-    final ctrl = _buildController(repo);
+  testWidgets(
+    'issue-703-c5: selector works with built-ins only (no crash)',
+    (tester) async {
+      final repo = _StubAgentsRepository();
+      final ctrl = _buildController(repo);
 
-    const sessionId = 'c5-session';
-    ctrl.setAvailableAgentsForTest(sessionId, [
-      AgentInfo(name: 'build', builtIn: true),
-      AgentInfo(name: 'plan', builtIn: true),
-    ]);
+      const sessionId = 'c5-session';
+      ctrl.setAvailableAgentsForTest(sessionId, [
+        AgentInfo(name: 'build', builtIn: true),
+        AgentInfo(name: 'plan', builtIn: true),
+      ]);
 
-    ctrl.setActiveSessionForTest(sessionId, _makeSession(sessionId));
+      ctrl.setActiveSessionForTest(sessionId, _makeSession(sessionId));
 
-    // Pump the agent selector with built-ins only.
-    await tester.pumpWidget(
-      _withProviders(
+      // Pump the agent selector with built-ins only.
+      await tester.pumpWidget(_withProviders(
         controller: ctrl,
         child: AgentSelectorPill(sessionId: sessionId),
-      ),
-    );
-    await tester.pump(Duration.zero);
+      ));
+      await tester.pump(Duration.zero);
 
-    // Must not crash and must render without throwing.
-    expect(tester.takeException(), isNull);
-    // Built-in agent names must appear somewhere.
-    expect(find.text('build'), findsAtLeastNWidgets(1));
+      // Must not crash and must render without throwing.
+      expect(tester.takeException(), isNull);
+      // Built-in agent names must appear somewhere.
+      expect(find.text('build'), findsAtLeastNWidgets(1));
 
-    ctrl.dispose();
-  });
+      ctrl.dispose();
+    },
+  );
 
   // ── c6: plan-agent selection does not double-apply permission gating ────────
 
@@ -360,7 +349,10 @@ void main() {
       ]);
 
       // Starting mode: defaultMode (no plan permission mode applied).
-      ctrl.setActiveSessionForTest(sessionId, _makeSession(sessionId));
+      ctrl.setActiveSessionForTest(
+        sessionId,
+        _makeSession(sessionId),
+      );
 
       // Select the plan agent via the agent selector.
       ctrl.setSelectedAgent(sessionId, 'plan');
@@ -403,20 +395,20 @@ void main() {
         AgentInfo(name: 'plan', builtIn: true),
       ]);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light(),
-          home: MultiProvider(
-            providers: [
-              ChangeNotifierProvider<AgentsController>.value(value: ctrl),
-              ChangeNotifierProvider<AgentConfigsController>.value(
-                value: _buildConfigsController(),
-              ),
-            ],
-            child: const Scaffold(body: InputAreaTestHarness()),
+      await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.light(),
+        home: MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AgentsController>.value(value: ctrl),
+            ChangeNotifierProvider<AgentConfigsController>.value(
+              value: _buildConfigsController(),
+            ),
+          ],
+          child: const Scaffold(
+            body: InputAreaTestHarness(),
           ),
         ),
-      );
+      ));
       await tester.pump(Duration.zero);
 
       // The agent selector pill must be present in the real composer.
@@ -438,10 +430,8 @@ void main() {
     () {
       final repo = _StubAgentsRepository();
       // Resolver always returns 'secretary' (the manager profile's ocAgent).
-      final ctrl = _buildController(
-        repo,
-        managerAgentNameResolver: () => 'secretary',
-      );
+      final ctrl =
+          _buildController(repo, managerAgentNameResolver: () => 'secretary');
 
       const sessionId = '745-c1-session';
 
@@ -466,10 +456,8 @@ void main() {
     'issue-745-c2: dispatcher sends manager ocAgent when no explicit selection',
     () {
       final repo = _StubAgentsRepository();
-      final ctrl = _buildController(
-        repo,
-        managerAgentNameResolver: () => 'secretary',
-      );
+      final ctrl =
+          _buildController(repo, managerAgentNameResolver: () => 'secretary');
 
       const sessionId = '745-c2-session';
 

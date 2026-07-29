@@ -58,8 +58,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -90,12 +90,15 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async =>
-      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async => (
+            session: _makeSession(id),
+            messages: const <AgentSessionMessage>[],
+          );
 
   /// Diff returned by fetchSessionDiff (mimics the server payload).
   List<Map<String, dynamic>> stagedDiff = const [];
@@ -117,14 +120,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 const _kDiffFixture = [
   {
@@ -173,9 +176,8 @@ void main() {
       final session = _makeSession('s1');
       repo.stagedDiff = _kDiffFixture;
 
-      await tester.pumpWidget(
-        _wrap(controller, SessionSidePanel(session: session)),
-      );
+      await tester
+          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
       await tester.pump();
 
       // Context tab is default — no diff yet.
@@ -202,9 +204,8 @@ void main() {
       final session = _makeSession('s1');
       controller.setSessionDiffForTest('s1', _kDiffFixture);
 
-      await tester.pumpWidget(
-        _wrap(controller, SessionSidePanel(session: session)),
-      );
+      await tester
+          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
       await tester.pump();
 
       // Badge count "1" appears next to the Changes tab label.

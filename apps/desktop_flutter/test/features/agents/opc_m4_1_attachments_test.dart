@@ -92,8 +92,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -128,12 +128,13 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async =>
-      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async =>
+          (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -154,10 +155,9 @@ class _StubAgentsRepository implements AgentsRepository {
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-    String parentSessionId,
-    String childSdkId, {
-    String? cwd,
-  }) async => const [];
+          String parentSessionId, String childSdkId,
+          {String? cwd}) async =>
+      const [];
 
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -173,14 +173,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 AgentsController _buildController(_StubAgentsRepository repo) =>
     AgentsController(
@@ -195,8 +195,9 @@ AgentsController _buildController(_StubAgentsRepository repo) =>
 /// Empty AgentConfigsController for the composer's provider tree. The real
 /// _InputArea contains AgentSelectorPill, which reads this controller; with no
 /// profiles loaded it falls back to the opencode agent list.
-AgentConfigsController _buildConfigsController() =>
-    AgentConfigsController(AgentConfigsRepository(AgentConfigsDataSource()));
+AgentConfigsController _buildConfigsController() => AgentConfigsController(
+      AgentConfigsRepository(AgentConfigsDataSource()),
+    );
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -233,16 +234,10 @@ void main() {
       expect(frame['type'], equals('session.input'));
 
       // The frame must carry a `parts` array (not the legacy `data` string).
-      expect(
-        frame.containsKey('parts'),
-        isTrue,
-        reason: 'parts key must be present when attachments are provided',
-      );
-      expect(
-        frame.containsKey('data'),
-        isFalse,
-        reason: 'legacy data string must not be present when parts are used',
-      );
+      expect(frame.containsKey('parts'), isTrue,
+          reason: 'parts key must be present when attachments are provided');
+      expect(frame.containsKey('data'), isFalse,
+          reason: 'legacy data string must not be present when parts are used');
 
       // The parts array must include both a text part and the FilePart.
       final parts = frame['parts'] as List<dynamic>;
@@ -254,22 +249,16 @@ void main() {
       final fp = parts[1] as Map<String, dynamic>;
       expect(fp['type'], equals('file'));
       expect(fp['mime'], equals('image/png'));
-      expect(
-        fp['url'],
-        equals(kFixturePngDataUri),
-        reason: 'data URI must match the base64-encoded fixture bytes',
-      );
+      expect(fp['url'], equals(kFixturePngDataUri),
+          reason: 'data URI must match the base64-encoded fixture bytes');
 
       // c2 regression: MUST NOT contain [image] text in any part.
       for (final part in parts) {
         final partMap = part as Map<String, dynamic>;
         final text = (partMap['text'] as String?) ?? '';
-        expect(
-          text.contains('[image]'),
-          isFalse,
-          reason:
-              'Legacy [image] token must not appear in any part text — formatter deleted',
-        );
+        expect(text.contains('[image]'), isFalse,
+            reason:
+                'Legacy [image] token must not appear in any part text — formatter deleted');
       }
     },
   );
@@ -295,7 +284,9 @@ void main() {
                 value: _buildConfigsController(),
               ),
             ],
-            child: const Scaffold(body: InputAreaTestHarness()),
+            child: const Scaffold(
+              body: InputAreaTestHarness(),
+            ),
           ),
           theme: AppTheme.light(),
         ),
@@ -303,23 +294,18 @@ void main() {
       await tester.pump(Duration.zero);
 
       // Prime the session selection so the controller knows which session is active.
-      ctrl.setMessageForTest(
-        ChatMessage(
-          id: 'c3-msg-init',
-          sessionId: sessionId,
-          role: 'assistant',
-          createdAt: _kEpoch,
-        ),
-      );
+      ctrl.setMessageForTest(ChatMessage(
+        id: 'c3-msg-init',
+        sessionId: sessionId,
+        role: 'assistant',
+        createdAt: _kEpoch,
+      ));
       ctrl.setActiveSessionForTest(sessionId, _makeSession(sessionId));
       await tester.pump(Duration.zero);
 
       // Initially no attachment chips are visible.
-      expect(
-        find.byKey(const Key('attachment-chip-0')),
-        findsNothing,
-        reason: 'No chips before any attachment is added',
-      );
+      expect(find.byKey(const Key('attachment-chip-0')), findsNothing,
+          reason: 'No chips before any attachment is added');
 
       // Inject a pending attachment via the test hook.
       ctrl.setPendingAttachmentsForTest(sessionId, [
@@ -333,11 +319,8 @@ void main() {
       await tester.pump(Duration.zero);
 
       // The attachment chip must now be visible.
-      expect(
-        find.byKey(const Key('attachment-chip-0')),
-        findsOneWidget,
-        reason: 'Chip must appear after attachment added',
-      );
+      expect(find.byKey(const Key('attachment-chip-0')), findsOneWidget,
+          reason: 'Chip must appear after attachment added');
 
       // Tap the remove (×) button on the chip.
       final removeBtn = find.byKey(const Key('attachment-chip-0-remove'));
@@ -346,18 +329,12 @@ void main() {
       await tester.pump(Duration.zero);
 
       // After removal the pending list is empty.
-      expect(
-        ctrl.pendingAttachmentsFor(sessionId),
-        isEmpty,
-        reason: 'Pending attachments must be cleared after remove tap',
-      );
+      expect(ctrl.pendingAttachmentsFor(sessionId), isEmpty,
+          reason: 'Pending attachments must be cleared after remove tap');
 
       // Chip must disappear.
-      expect(
-        find.byKey(const Key('attachment-chip-0')),
-        findsNothing,
-        reason: 'Chip must disappear after removal',
-      );
+      expect(find.byKey(const Key('attachment-chip-0')), findsNothing,
+          reason: 'Chip must disappear after removal');
     },
   );
 
@@ -397,14 +374,12 @@ void main() {
         text: 'Here are my files',
       );
 
-      ctrl.setMessageForTest(
-        ChatMessage(
-          id: msgId,
-          sessionId: sessionId,
-          role: 'user',
-          createdAt: _kEpoch,
-        ),
-      );
+      ctrl.setMessageForTest(ChatMessage(
+        id: msgId,
+        sessionId: sessionId,
+        role: 'user',
+        createdAt: _kEpoch,
+      ));
       ctrl.setChatPartForTest(imageFilePart);
       ctrl.setChatPartForTest(docFilePart);
       ctrl.setChatPartForTest(textPart);
@@ -416,7 +391,9 @@ void main() {
               ChangeNotifierProvider<AgentsController>.value(value: ctrl),
             ],
             child: Scaffold(
-              body: UserBubbleTestHarness(parts: ctrl.chatPartsFor(msgId)),
+              body: UserBubbleTestHarness(
+                parts: ctrl.chatPartsFor(msgId),
+              ),
             ),
           ),
           theme: AppTheme.light(),
@@ -425,24 +402,16 @@ void main() {
       await tester.pump(Duration.zero);
 
       // Image FilePart → thumbnail (Image.memory widget key).
-      expect(
-        find.byKey(const Key('file-image-thumbnail-part-img')),
-        findsOneWidget,
-        reason:
-            'image/png file part must render as a bounded Image.memory thumbnail',
-      );
+      expect(find.byKey(const Key('file-image-thumbnail-part-img')),
+          findsOneWidget,
+          reason:
+              'image/png file part must render as a bounded Image.memory thumbnail');
 
       // Non-image FilePart → filename chip.
-      expect(
-        find.byKey(const Key('file-chip-part-doc')),
-        findsOneWidget,
-        reason: 'application/pdf file part must render as a filename chip',
-      );
-      expect(
-        find.text('report.pdf'),
-        findsOneWidget,
-        reason: 'Filename must be shown in the chip',
-      );
+      expect(find.byKey(const Key('file-chip-part-doc')), findsOneWidget,
+          reason: 'application/pdf file part must render as a filename chip');
+      expect(find.text('report.pdf'), findsOneWidget,
+          reason: 'Filename must be shown in the chip');
     },
   );
 
@@ -500,12 +469,9 @@ void main() {
       // how the widget keys are scoped — just assert at least 2 Image widgets).
       final thumbnails = find.byKey(const Key('file-image-thumbnail-part-rh'));
       // At least one thumbnail must render for each instance.
-      expect(
-        thumbnails,
-        findsWidgets,
-        reason:
-            'Both rehydrated and streamed image FileParts must render as thumbnails',
-      );
+      expect(thumbnails, findsWidgets,
+          reason:
+              'Both rehydrated and streamed image FileParts must render as thumbnails');
 
       // c5: the file fields must match.
       expect(rehydratedPart.fileMime, equals(streamedPart.fileMime));

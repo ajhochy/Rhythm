@@ -122,12 +122,13 @@ Map<String, dynamic> buildFileRefAttachment({
   required String mime,
   required String filename,
   required String absolutePath,
-}) => {
-  'type': 'file',
-  'mime': mime,
-  'filename': filename,
-  'url': Uri.file(absolutePath).toString(),
-};
+}) =>
+    {
+      'type': 'file',
+      'mime': mime,
+      'filename': filename,
+      'url': Uri.file(absolutePath).toString(),
+    };
 
 /// MIME from a bare extension (no dot, any case). Returns octet-stream when
 /// unknown.

@@ -82,18 +82,19 @@ AgentConfig _makeConfig({
   String? modelId,
   bool isManager = false,
   List<String>? allowedDelegates,
-}) => AgentConfig(
-  id: _kConfigId,
-  label: 'Test Profile',
-  icon: 'terminal',
-  enabled: true,
-  isAgent: true,
-  sortOrder: 0,
-  isManager: isManager,
-  allowedDelegates: allowedDelegates,
-  modelProvider: modelProvider,
-  modelId: modelId,
-);
+}) =>
+    AgentConfig(
+      id: _kConfigId,
+      label: 'Test Profile',
+      icon: 'terminal',
+      enabled: true,
+      isAgent: true,
+      sortOrder: 0,
+      isManager: isManager,
+      allowedDelegates: allowedDelegates,
+      modelProvider: modelProvider,
+      modelId: modelId,
+    );
 
 CatalogModelEntry _makeEntry(String provider, String modelId) =>
     CatalogModelEntry(
@@ -111,7 +112,9 @@ Widget _buildSheet({
   required _RecordingAgentConfigsDataSource dataSource,
   required AgentModelsDataSource modelsDataSource,
 }) {
-  final controller = AgentConfigsController(AgentConfigsRepository(dataSource));
+  final controller = AgentConfigsController(
+    AgentConfigsRepository(dataSource),
+  );
   return ChangeNotifierProvider<AgentConfigsController>.value(
     value: controller,
     child: MaterialApp(
@@ -163,39 +166,38 @@ void main() {
   group('AgentProfileSheet — model picker', () {
     final catalogEntry = _makeEntry('anthropic', 'claude-sonnet-4-6');
 
-    testWidgets('MODEL section is shown when catalog entries are provided', (
-      tester,
-    ) async {
-      final config = _makeConfig();
-      final dataSource = _RecordingAgentConfigsDataSource(config);
-      final modelsDs = _FakeAgentModelsDataSource([catalogEntry]);
+    testWidgets(
+      'MODEL section is shown when catalog entries are provided',
+      (tester) async {
+        final config = _makeConfig();
+        final dataSource = _RecordingAgentConfigsDataSource(config);
+        final modelsDs = _FakeAgentModelsDataSource([catalogEntry]);
 
-      await tester.pumpWidget(
-        _buildSheet(
-          config: config,
-          dataSource: dataSource,
-          modelsDataSource: modelsDs,
-        ),
-      );
+        await tester.pumpWidget(
+          _buildSheet(
+            config: config,
+            dataSource: dataSource,
+            modelsDataSource: modelsDs,
+          ),
+        );
 
-      // Allow the async _loadCatalog to complete.
-      await tester.pumpAndSettle();
+        // Allow the async _loadCatalog to complete.
+        await tester.pumpAndSettle();
 
-      // The section label "MODEL" should be visible.
-      expect(
-        find.text('MODEL'),
-        findsOneWidget,
-        reason: 'Model section label should be visible',
-      );
-    });
+        // The section label "MODEL" should be visible.
+        expect(
+          find.text('MODEL'),
+          findsOneWidget,
+          reason: 'Model section label should be visible',
+        );
+      },
+    );
 
     testWidgets(
       'pre-selects existing model when config has modelProvider/modelId',
       (tester) async {
         final config = _makeConfig(
-          modelProvider: 'anthropic',
-          modelId: 'claude-sonnet-4-6',
-        );
+            modelProvider: 'anthropic', modelId: 'claude-sonnet-4-6');
         final dataSource = _RecordingAgentConfigsDataSource(config);
         final modelsDs = _FakeAgentModelsDataSource([catalogEntry]);
 
@@ -234,13 +236,14 @@ void main() {
         await tester.pumpAndSettle();
 
         // Open the dropdown and select the catalog entry.
-        await tester.tap(
-          find.byType(DropdownButtonFormField<CatalogModelEntry>),
-        );
+        await tester
+            .tap(find.byType(DropdownButtonFormField<CatalogModelEntry>));
         await tester.pumpAndSettle();
 
         // Tap the model option (not the "No preference" option).
-        await tester.tap(find.text('anthropic / claude-sonnet-4-6').last);
+        await tester.tap(
+          find.text('anthropic / claude-sonnet-4-6').last,
+        );
         await tester.pumpAndSettle();
 
         // Scroll to ensure the save button is visible inside the DraggableScrollableSheet.
@@ -281,9 +284,7 @@ void main() {
       (tester) async {
         // Start with a pre-selected model, then clear it.
         final config = _makeConfig(
-          modelProvider: 'anthropic',
-          modelId: 'claude-sonnet-4-6',
-        );
+            modelProvider: 'anthropic', modelId: 'claude-sonnet-4-6');
         final dataSource = _RecordingAgentConfigsDataSource(config);
         final modelsDs = _FakeAgentModelsDataSource([catalogEntry]);
 
@@ -297,9 +298,8 @@ void main() {
         await tester.pumpAndSettle();
 
         // Open dropdown and select "No preference".
-        await tester.tap(
-          find.byType(DropdownButtonFormField<CatalogModelEntry>),
-        );
+        await tester
+            .tap(find.byType(DropdownButtonFormField<CatalogModelEntry>));
         await tester.pumpAndSettle();
         await tester.tap(find.text('No preference').last);
         await tester.pumpAndSettle();
@@ -319,46 +319,46 @@ void main() {
       },
     );
 
-    testWidgets('saving a manager sends allowedDelegatesJson in the patch', (
-      tester,
-    ) async {
-      final config = _makeConfig(
-        isManager: true,
-        allowedDelegates: ['coding-agent'],
-      );
-      final dataSource = _RecordingAgentConfigsDataSource(config);
-      final modelsDs = _FakeAgentModelsDataSource([catalogEntry]);
+    testWidgets(
+      'saving a manager sends allowedDelegatesJson in the patch',
+      (tester) async {
+        final config = _makeConfig(
+          isManager: true,
+          allowedDelegates: ['coding-agent'],
+        );
+        final dataSource = _RecordingAgentConfigsDataSource(config);
+        final modelsDs = _FakeAgentModelsDataSource([catalogEntry]);
 
-      await tester.pumpWidget(
-        _buildSheet(
-          config: config,
-          dataSource: dataSource,
-          modelsDataSource: modelsDs,
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _buildSheet(
+            config: config,
+            dataSource: dataSource,
+            modelsDataSource: modelsDs,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      await tester.enterText(
-        find.byType(TextField).at(3),
-        'verification-gate\ncoding-agent',
-      );
+        await tester.enterText(
+          find.byType(TextField).at(3),
+          'verification-gate\ncoding-agent',
+        );
 
-      await tester.dragUntilVisible(
-        find.widgetWithText(FilledButton, 'Save changes'),
-        find.byType(ListView).first,
-        const Offset(0, -100),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Save changes'));
-      await tester.pumpAndSettle();
+        await tester.dragUntilVisible(
+          find.widgetWithText(FilledButton, 'Save changes'),
+          find.byType(ListView).first,
+          const Offset(0, -100),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Save changes'));
+        await tester.pumpAndSettle();
 
-      expect(dataSource.lastUpdatePatch?['isManager'], isTrue);
-      expect(
-        jsonDecode(
-          dataSource.lastUpdatePatch?['allowedDelegatesJson'] as String,
-        ),
-        equals(['coding-agent', 'verification-gate']),
-      );
-    });
+        expect(dataSource.lastUpdatePatch?['isManager'], isTrue);
+        expect(
+          jsonDecode(
+              dataSource.lastUpdatePatch?['allowedDelegatesJson'] as String),
+          equals(['coding-agent', 'verification-gate']),
+        );
+      },
+    );
   });
 }

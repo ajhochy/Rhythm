@@ -52,7 +52,11 @@ class ContextUsageHint extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.info_outline, size: 13, color: context.rhythm.warning),
+          Icon(
+            Icons.info_outline,
+            size: 13,
+            color: context.rhythm.warning,
+          ),
           const SizedBox(width: 5),
           Text(
             'Context $pct% full — consider compacting',

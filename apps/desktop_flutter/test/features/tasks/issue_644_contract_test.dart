@@ -41,75 +41,69 @@ void main() {
     });
   }
 
-  group(
-    'issue-644-c1: collaborator requests target the configured server URL',
-    () {
-      test(
-        'addToTask posts to <configured base>/tasks/:id/collaborators',
+  group('issue-644-c1: collaborator requests target the configured server URL',
+      () {
+    test('addToTask posts to <configured base>/tasks/:id/collaborators',
         () async {
-          final ds = CollaboratorsDataSource(
-            baseUrl: 'https://configured.example',
-            client: buildClient(),
-          );
-
-          final result = await ds.addToTask('task-1', 7);
-
-          expect(captured, hasLength(1));
-          expect(captured.single.method, 'POST');
-          expect(
-            captured.single.url.toString(),
-            'https://configured.example/tasks/task-1/collaborators',
-          );
-          expect(result.single.userId, 7);
-        },
+      final ds = CollaboratorsDataSource(
+        baseUrl: 'https://configured.example',
+        client: buildClient(),
       );
 
-      test('removeFromTask deletes against the configured base', () async {
-        final ds = CollaboratorsDataSource(
-          baseUrl: 'https://configured.example',
-          client: buildClient(),
-        );
+      final result = await ds.addToTask('task-1', 7);
 
-        await ds.removeFromTask('task-1', 7);
-
-        expect(captured.single.method, 'DELETE');
-        expect(
-          captured.single.url.toString(),
-          'https://configured.example/tasks/task-1/collaborators/7',
-        );
-      });
-
-      test('fetchForTask gets from the configured base', () async {
-        final ds = CollaboratorsDataSource(
-          baseUrl: 'https://configured.example',
-          client: buildClient(),
-        );
-
-        await ds.fetchForTask('task-1');
-
-        expect(captured.single.method, 'GET');
-        expect(
-          captured.single.url.toString(),
-          'https://configured.example/tasks/task-1/collaborators',
-        );
-      });
-
-      test(
-        'a different configured base routes there (no hardcoded host)',
-        () async {
-          final ds = CollaboratorsDataSource(
-            baseUrl: 'https://other-server.example',
-            client: buildClient(),
-          );
-
-          await ds.addToTask('task-9', 7);
-
-          expect(
-            captured.single.url.toString(),
-            'https://other-server.example/tasks/task-9/collaborators',
-          );
-        },
+      expect(captured, hasLength(1));
+      expect(captured.single.method, 'POST');
+      expect(
+        captured.single.url.toString(),
+        'https://configured.example/tasks/task-1/collaborators',
       );
-    },
-  );
+      expect(result.single.userId, 7);
+    });
+
+    test('removeFromTask deletes against the configured base', () async {
+      final ds = CollaboratorsDataSource(
+        baseUrl: 'https://configured.example',
+        client: buildClient(),
+      );
+
+      await ds.removeFromTask('task-1', 7);
+
+      expect(captured.single.method, 'DELETE');
+      expect(
+        captured.single.url.toString(),
+        'https://configured.example/tasks/task-1/collaborators/7',
+      );
+    });
+
+    test('fetchForTask gets from the configured base', () async {
+      final ds = CollaboratorsDataSource(
+        baseUrl: 'https://configured.example',
+        client: buildClient(),
+      );
+
+      await ds.fetchForTask('task-1');
+
+      expect(captured.single.method, 'GET');
+      expect(
+        captured.single.url.toString(),
+        'https://configured.example/tasks/task-1/collaborators',
+      );
+    });
+
+    test('a different configured base routes there (no hardcoded host)',
+        () async {
+      final ds = CollaboratorsDataSource(
+        baseUrl: 'https://other-server.example',
+        client: buildClient(),
+      );
+
+      await ds.addToTask('task-9', 7);
+
+      expect(
+        captured.single.url.toString(),
+        'https://other-server.example/tasks/task-9/collaborators',
+      );
+    });
+  });
 }

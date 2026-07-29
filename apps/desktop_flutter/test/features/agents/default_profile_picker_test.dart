@@ -50,16 +50,17 @@ AgentConfig _makeConfig({
   required String id,
   required String label,
   required String ocAgent,
-}) => AgentConfig(
-  id: id,
-  label: label,
-  icon: 'terminal',
-  enabled: true,
-  isAgent: true,
-  sortOrder: 0,
-  ocAgent: ocAgent,
-  sessionSelectable: true,
-);
+}) =>
+    AgentConfig(
+      id: id,
+      label: label,
+      icon: 'terminal',
+      enabled: true,
+      isAgent: true,
+      sortOrder: 0,
+      ocAgent: ocAgent,
+      sessionSelectable: true,
+    );
 
 Widget _buildManagerSheet({
   required AgentConfigsController configsController,
@@ -102,31 +103,21 @@ void main() {
       'lists selectable profiles plus the Secretary(default) fallback item',
       (tester) async {
         final configsController = AgentConfigsController(
-          AgentConfigsRepository(
-            _FakeAgentConfigsDataSource([
-              _makeConfig(
-                id: 'secretary',
-                label: 'Secretary',
-                ocAgent: 'secretary',
-              ),
-              _makeConfig(
-                id: 'theologian',
-                label: 'Theologian',
-                ocAgent: 'theologian',
-              ),
-            ]),
-          ),
+          AgentConfigsRepository(_FakeAgentConfigsDataSource([
+            _makeConfig(
+                id: 'secretary', label: 'Secretary', ocAgent: 'secretary'),
+            _makeConfig(
+                id: 'theologian', label: 'Theologian', ocAgent: 'theologian'),
+          ])),
         );
         await configsController.refresh();
         final defaultService = DefaultAgentProfileService();
         await defaultService.load();
 
-        await tester.pumpWidget(
-          _buildManagerSheet(
-            configsController: configsController,
-            defaultService: defaultService,
-          ),
-        );
+        await tester.pumpWidget(_buildManagerSheet(
+          configsController: configsController,
+          defaultService: defaultService,
+        ));
         await tester.pumpAndSettle();
 
         expect(find.text('Default profile'), findsOneWidget);
@@ -150,31 +141,21 @@ void main() {
       '(user-visible outcome: re-reading prefs on a fresh service instance)',
       (tester) async {
         final configsController = AgentConfigsController(
-          AgentConfigsRepository(
-            _FakeAgentConfigsDataSource([
-              _makeConfig(
-                id: 'secretary',
-                label: 'Secretary',
-                ocAgent: 'secretary',
-              ),
-              _makeConfig(
-                id: 'theologian',
-                label: 'Theologian',
-                ocAgent: 'theologian',
-              ),
-            ]),
-          ),
+          AgentConfigsRepository(_FakeAgentConfigsDataSource([
+            _makeConfig(
+                id: 'secretary', label: 'Secretary', ocAgent: 'secretary'),
+            _makeConfig(
+                id: 'theologian', label: 'Theologian', ocAgent: 'theologian'),
+          ])),
         );
         await configsController.refresh();
         final defaultService = DefaultAgentProfileService();
         await defaultService.load();
 
-        await tester.pumpWidget(
-          _buildManagerSheet(
-            configsController: configsController,
-            defaultService: defaultService,
-          ),
-        );
+        await tester.pumpWidget(_buildManagerSheet(
+          configsController: configsController,
+          defaultService: defaultService,
+        ));
         await tester.pumpAndSettle();
 
         // Control: before selection, the service reports unset (Secretary
@@ -213,26 +194,19 @@ void main() {
           'default_agent_ocagent': 'ghost-agent',
         });
         final configsController = AgentConfigsController(
-          AgentConfigsRepository(
-            _FakeAgentConfigsDataSource([
-              _makeConfig(
-                id: 'secretary',
-                label: 'Secretary',
-                ocAgent: 'secretary',
-              ),
-            ]),
-          ),
+          AgentConfigsRepository(_FakeAgentConfigsDataSource([
+            _makeConfig(
+                id: 'secretary', label: 'Secretary', ocAgent: 'secretary'),
+          ])),
         );
         await configsController.refresh();
         final defaultService = DefaultAgentProfileService();
         await defaultService.load();
 
-        await tester.pumpWidget(
-          _buildManagerSheet(
-            configsController: configsController,
-            defaultService: defaultService,
-          ),
-        );
+        await tester.pumpWidget(_buildManagerSheet(
+          configsController: configsController,
+          defaultService: defaultService,
+        ));
         await tester.pumpAndSettle();
 
         // Falls back to showing the unset/default label rather than crashing

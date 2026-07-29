@@ -16,7 +16,7 @@ import '../models/dashboard_overview_models.dart';
 
 class DashboardDataSource {
   DashboardDataSource({String? baseUrl})
-    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 
@@ -40,9 +40,8 @@ class DashboardDataSource {
     );
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
-    final tasks = list
-        .map((j) => Task.fromJson(j as Map<String, dynamic>))
-        .toList();
+    final tasks =
+        list.map((j) => Task.fromJson(j as Map<String, dynamic>)).toList();
     return _withCollaborators(tasks);
   }
 

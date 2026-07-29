@@ -105,9 +105,8 @@ class _StatusMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isError
-        ? context.rhythm.danger
-        : context.rhythm.textSecondary;
+    final color =
+        isError ? context.rhythm.danger : context.rhythm.textSecondary;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -124,7 +123,10 @@ class _StatusMessage extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 12),
-          OutlinedButton(onPressed: onAction, child: Text(actionLabel)),
+          OutlinedButton(
+            onPressed: onAction,
+            child: Text(actionLabel),
+          ),
         ],
       ),
     );

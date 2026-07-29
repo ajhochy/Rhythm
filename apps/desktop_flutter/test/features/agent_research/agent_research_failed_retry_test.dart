@@ -26,55 +26,47 @@ void main() {
   };
 
   testWidgets(
-    'failed research shows its error and retries through the controller',
-    (tester) async {
-      final requests = <http.BaseRequest>[];
-      final controller = AgentResearchController(
-        AgentResearchRepository(AgentResearchDataSource()),
+      'failed research shows its error and retries through the controller',
+      (tester) async {
+    final requests = <http.BaseRequest>[];
+    final controller = AgentResearchController(
+      AgentResearchRepository(AgentResearchDataSource()),
+    );
+    await http.runWithClient(() async {
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: controller,
+          child: MaterialApp(
+            theme: ThemeData(extensions: const [RhythmColorRoles.light]),
+            home: const AgentResearchView(),
+          ),
+        ),
       );
-      await http.runWithClient(
-        () async {
-          await tester.pumpWidget(
-            ChangeNotifierProvider.value(
-              value: controller,
-              child: MaterialApp(
-                theme: ThemeData(extensions: const [RhythmColorRoles.light]),
-                home: const AgentResearchView(),
-              ),
-            ),
-          );
-          await tester.pumpAndSettle();
+      await tester.pumpAndSettle();
 
-          expect(find.text('Failed'), findsOneWidget);
-          expect(
-            find.text('Provider unavailable. Connect it and retry.'),
-            findsOneWidget,
-          );
-          expect(find.widgetWithText(TextButton, 'Retry'), findsOneWidget);
+      expect(find.text('Failed'), findsOneWidget);
+      expect(find.text('Provider unavailable. Connect it and retry.'),
+          findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'Retry'), findsOneWidget);
 
-          await tester.tap(find.widgetWithText(TextButton, 'Retry'));
-          await tester.pump();
-          expect(
-            requests.any(
-              (request) =>
-                  request.method == 'POST' &&
-                  request.url.path.endsWith('/agent-research/research-1/retry'),
-            ),
-            isTrue,
-          );
-        },
-        () => MockClient((request) async {
-          requests.add(request);
-          if (request.method == 'POST') {
-            return http.Response(
-              jsonEncode({...failedJob, 'status': 'pending', 'error': null}),
-              202,
-            );
-          }
-          return http.Response(jsonEncode([failedJob]), 200);
-        }),
-      );
-      controller.dispose();
+      await tester.tap(find.widgetWithText(TextButton, 'Retry'));
+      await tester.pump();
+      expect(
+          requests.any((request) =>
+              request.method == 'POST' &&
+              request.url.path.endsWith('/agent-research/research-1/retry')),
+          isTrue);
     },
-  );
+        () => MockClient((request) async {
+              requests.add(request);
+              if (request.method == 'POST') {
+                return http.Response(
+                    jsonEncode(
+                        {...failedJob, 'status': 'pending', 'error': null}),
+                    202);
+              }
+              return http.Response(jsonEncode([failedJob]), 200);
+            }));
+    controller.dispose();
+  });
 }

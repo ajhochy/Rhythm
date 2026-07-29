@@ -29,7 +29,11 @@ import '../../../app/core/ui/tokens/rhythm_theme.dart';
 /// This widget is intentionally stateless — streaming deltas arrive as
 /// successive rebuilds with a longer [text] value. No internal buffer needed.
 class MarkdownMessageBody extends StatelessWidget {
-  const MarkdownMessageBody({super.key, required this.text, this.onLinkTap});
+  const MarkdownMessageBody({
+    super.key,
+    required this.text,
+    this.onLinkTap,
+  });
 
   final String text;
 
@@ -43,10 +47,16 @@ class MarkdownMessageBody extends StatelessWidget {
 
     return GptMarkdown(
       text,
-      style: TextStyle(fontSize: 13, color: rhythm.textPrimary, height: 1.5),
+      style: TextStyle(
+        fontSize: 13,
+        color: rhythm.textPrimary,
+        height: 1.5,
+      ),
       onLinkTap: (url, _) => effectiveLinkTap(url),
-      codeBuilder: (context, name, codes, closed) =>
-          _RhythmCodeBlock(language: name, code: codes),
+      codeBuilder: (context, name, codes, closed) => _RhythmCodeBlock(
+        language: name,
+        code: codes,
+      ),
     );
   }
 }

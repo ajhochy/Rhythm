@@ -67,7 +67,11 @@ class KeybindsService extends ChangeNotifier {
     ]);
   }
 
-  Future<void> _set(String key, String value, void Function() assign) async {
+  Future<void> _set(
+    String key,
+    String value,
+    void Function() assign,
+  ) async {
     assign();
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();

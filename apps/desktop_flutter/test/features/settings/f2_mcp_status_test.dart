@@ -94,19 +94,12 @@ void main() {
       await tester.pump();
 
       final indicator = find.byKey(const ValueKey('rhythm-mcp-installed'));
-      expect(
-        indicator,
-        findsOneWidget,
-        reason:
-            'installed status indicator must render when "rhythm" '
-            'is in the listed servers',
-      );
+      expect(indicator, findsOneWidget,
+          reason: 'installed status indicator must render when "rhythm" '
+              'is in the listed servers');
       final indicatorText = tester.widget<Text>(indicator);
-      expect(
-        indicatorText.data,
-        contains('installed'),
-        reason: 'indicator text must contain "installed"',
-      );
+      expect(indicatorText.data, contains('installed'),
+          reason: 'indicator text must contain "installed"');
     },
   );
 
@@ -127,8 +120,7 @@ void main() {
       expect(
         find.byKey(const ValueKey('rhythm-mcp-installed')),
         findsNothing,
-        reason:
-            'installed indicator must be absent when "rhythm" is not '
+        reason: 'installed indicator must be absent when "rhythm" is not '
             'in the listed servers',
       );
     },
@@ -138,51 +130,52 @@ void main() {
   // MCP-4 — surface installed-but-uncredentialed servers
   // ─────────────────────────────────────────────────────────────────────────
 
-  testWidgets('mcp-4 c1: key-based server missing required env renders a '
-      '"Needs credentials" badge; credentialed server does not', (
-    tester,
-  ) async {
-    final ds = _FakeMcpDataSource(
-      listResult: const [
-        // Curated key-based server with an empty required env value →
-        // backend sets needsCredentials: true (MCP-1).
-        McpServerEntry(
-          name: 'weather-mcp',
-          status: 'disconnected',
-          needsCredentials: true,
-          environment: {'API_KEY': '***'},
-        ),
-        // Fully credentialed, connected server.
-        McpServerEntry(
-          name: 'github-mcp',
-          status: 'connected',
-          needsCredentials: false,
-          environment: {'TOKEN': '***'},
-        ),
-      ],
-    );
-    final ctrl = McpController(ds);
-    await ctrl.refresh();
+  testWidgets(
+    'mcp-4 c1: key-based server missing required env renders a '
+    '"Needs credentials" badge; credentialed server does not',
+    (tester) async {
+      final ds = _FakeMcpDataSource(
+        listResult: const [
+          // Curated key-based server with an empty required env value →
+          // backend sets needsCredentials: true (MCP-1).
+          McpServerEntry(
+            name: 'weather-mcp',
+            status: 'disconnected',
+            needsCredentials: true,
+            environment: {'API_KEY': '***'},
+          ),
+          // Fully credentialed, connected server.
+          McpServerEntry(
+            name: 'github-mcp',
+            status: 'connected',
+            needsCredentials: false,
+            environment: {'TOKEN': '***'},
+          ),
+        ],
+      );
+      final ctrl = McpController(ds);
+      await ctrl.refresh();
 
-    await tester.pumpWidget(_wrap(const McpSection(), ctrl));
-    await tester.pump();
+      await tester.pumpWidget(_wrap(const McpSection(), ctrl));
+      await tester.pump();
 
-    expect(
-      find.byKey(const Key('mcp-needs-credentials-weather-mcp')),
-      findsOneWidget,
-      reason: 'uncredentialed key-based server must show the badge',
-    );
-    expect(
-      find.text('Needs credentials'),
-      findsOneWidget,
-      reason: 'badge label must read "Needs credentials"',
-    );
-    expect(
-      find.byKey(const Key('mcp-needs-credentials-github-mcp')),
-      findsNothing,
-      reason: 'credentialed server must NOT show the badge',
-    );
-  });
+      expect(
+        find.byKey(const Key('mcp-needs-credentials-weather-mcp')),
+        findsOneWidget,
+        reason: 'uncredentialed key-based server must show the badge',
+      );
+      expect(
+        find.text('Needs credentials'),
+        findsOneWidget,
+        reason: 'badge label must read "Needs credentials"',
+      );
+      expect(
+        find.byKey(const Key('mcp-needs-credentials-github-mcp')),
+        findsNothing,
+        reason: 'credentialed server must NOT show the badge',
+      );
+    },
+  );
 
   testWidgets(
     'mcp-4 c2: remote server with status needs_auth renders a distinct '
@@ -279,7 +272,10 @@ void main() {
 
       // Name pre-filled so the user does not retype it.
       final textField = tester.widget<TextField>(
-        find.descendant(of: nameField, matching: find.byType(TextField)),
+        find.descendant(
+          of: nameField,
+          matching: find.byType(TextField),
+        ),
       );
       expect(
         textField.controller?.text,

@@ -42,9 +42,9 @@ class _LegendItem extends StatelessWidget {
         Text(
           label,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: colors.textMuted,
-            fontSize: 10,
-          ),
+                color: colors.textMuted,
+                fontSize: 10,
+              ),
         ),
       ],
     );

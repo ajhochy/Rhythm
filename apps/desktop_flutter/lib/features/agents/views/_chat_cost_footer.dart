@@ -13,7 +13,11 @@ import 'package:flutter/material.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 
 class ChatCostFooter extends StatefulWidget {
-  const ChatCostFooter({super.key, required this.cost, required this.tokens});
+  const ChatCostFooter({
+    super.key,
+    required this.cost,
+    required this.tokens,
+  });
 
   /// Cost in USD. Revealed (on the bottom) when expanded.
   final double? cost;
@@ -100,7 +104,11 @@ class _CostLabel extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.attach_money, size: 12, color: context.rhythm.textMuted),
+        Icon(
+          Icons.attach_money,
+          size: 12,
+          color: context.rhythm.textMuted,
+        ),
         const SizedBox(width: 2),
         Text(
           costText,
@@ -130,10 +138,10 @@ class _TokenBreakdown extends StatelessWidget {
     final cacheInt = cacheRaw is num
         ? cacheRaw.toInt()
         : (cacheRaw is Map
-              ? ((cacheRaw['read'] as num? ?? 0) +
-                        (cacheRaw['write'] as num? ?? 0))
-                    .toInt()
-              : null);
+            ? ((cacheRaw['read'] as num? ?? 0) +
+                    (cacheRaw['write'] as num? ?? 0))
+                .toInt()
+            : null);
 
     return Wrap(
       spacing: 10,
@@ -163,7 +171,10 @@ class _TokenCell extends StatelessWidget {
       children: [
         Text(
           label,
-          style: TextStyle(fontSize: 10, color: context.rhythm.textMuted),
+          style: TextStyle(
+            fontSize: 10,
+            color: context.rhythm.textMuted,
+          ),
         ),
         const SizedBox(width: 3),
         Text(

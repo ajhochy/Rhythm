@@ -4,7 +4,13 @@ import '../../../features/tasks/models/task.dart';
 import '../formatters/date_formatters.dart';
 
 /// Describes the semantic state of a task for visual rendering purposes.
-enum TaskVisualState { done, overdue, pastDeadline, dueToday, sourceBased }
+enum TaskVisualState {
+  done,
+  overdue,
+  pastDeadline,
+  dueToday,
+  sourceBased,
+}
 
 class TaskVisualStyle {
   const TaskVisualStyle({
@@ -118,32 +124,32 @@ class TaskVisualStyles {
     final variantKey = task.sourceName?.trim().isNotEmpty == true
         ? task.sourceName!.trim()
         : task.sourceId?.trim().isNotEmpty == true
-        ? task.sourceId!.trim()
-        : task.title;
+            ? task.sourceId!.trim()
+            : task.title;
 
     return switch (task.sourceType) {
       'calendar_shadow_event' => const TaskVisualStyle(
-        accent: Color(0xFFE29A3A),
-        background: Color(0xFFFFF2DE),
-        border: Color(0xFFE9BC6E),
-        badgeBackground: Color(0xFFF6DCAB),
-        text: Color(0xFF1E293B),
-        mutedText: Color(0xFF9B6B24),
-        state: TaskVisualState.sourceBased,
-      ),
+          accent: Color(0xFFE29A3A),
+          background: Color(0xFFFFF2DE),
+          border: Color(0xFFE9BC6E),
+          badgeBackground: Color(0xFFF6DCAB),
+          text: Color(0xFF1E293B),
+          mutedText: Color(0xFF9B6B24),
+          state: TaskVisualState.sourceBased,
+        ),
       'recurring_rule' => _variant(_rhythmVariants, variantKey),
       'project_step' => _variant(_projectVariants, variantKey),
       'automation_rule' => _variant(_automationVariants, variantKey),
       'planning_center_signal' => _variant(_planningCenterVariants, variantKey),
       _ => const TaskVisualStyle(
-        accent: Color(0xFF64748B),
-        background: Color(0xFFFFFEFC),
-        border: Color(0xFFE5DED1),
-        badgeBackground: Color(0xFFF3EEE6),
-        text: Color(0xFF1E293B),
-        mutedText: Color(0xFF64748B),
-        state: TaskVisualState.sourceBased,
-      ),
+          accent: Color(0xFF64748B),
+          background: Color(0xFFFFFEFC),
+          border: Color(0xFFE5DED1),
+          badgeBackground: Color(0xFFF3EEE6),
+          text: Color(0xFF1E293B),
+          mutedText: Color(0xFF64748B),
+          state: TaskVisualState.sourceBased,
+        ),
     };
   }
 

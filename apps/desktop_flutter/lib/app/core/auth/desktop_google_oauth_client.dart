@@ -16,9 +16,9 @@ import 'auth_user.dart';
 /// google_sign_in SDK entirely (and its Data Protection Keychain requirement).
 class DesktopGoogleOAuthClient {
   DesktopGoogleOAuthClient({String? baseUrl, String? clientId})
-    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl,
-      _clientId =
-          clientId ?? const String.fromEnvironment('GOOGLE_DESKTOP_CLIENT_ID');
+      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl,
+        _clientId = clientId ??
+            const String.fromEnvironment('GOOGLE_DESKTOP_CLIENT_ID');
 
   static const List<String> _scopes = [
     'openid',
@@ -68,10 +68,8 @@ class DesktopGoogleOAuthClient {
     }
 
     try {
-      final code = await _awaitCallback(
-        server,
-        expectedState: state,
-      ).timeout(const Duration(minutes: 5));
+      final code = await _awaitCallback(server, expectedState: state)
+          .timeout(const Duration(minutes: 5));
 
       final exchangeResponse = await http.post(
         Uri.parse('$_baseUrl/auth/google/desktop-exchange'),
@@ -141,8 +139,8 @@ class DesktopGoogleOAuthClient {
     final body = error != null
         ? '<h2>Sign-in failed</h2><p>$error</p><p>You can close this window.</p>'
         : hasCode
-        ? '<h2>Signed in</h2><p>You can close this window and return to Rhythm.</p>'
-        : '<h2>Missing code</h2><p>You can close this window.</p>';
+            ? '<h2>Signed in</h2><p>You can close this window and return to Rhythm.</p>'
+            : '<h2>Missing code</h2><p>You can close this window.</p>';
     request.response
       ..statusCode = HttpStatus.ok
       ..headers.contentType = ContentType.html

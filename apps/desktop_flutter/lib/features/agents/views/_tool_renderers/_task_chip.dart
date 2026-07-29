@@ -80,9 +80,8 @@ class TaskChip extends StatelessWidget {
 
     final output = part.toolOutput;
     if (output != null && output.isNotEmpty) {
-      final tagged = RegExp(
-        r'task_id:\s*(ses_[A-Za-z0-9]+)',
-      ).firstMatch(output);
+      final tagged =
+          RegExp(r'task_id:\s*(ses_[A-Za-z0-9]+)').firstMatch(output);
       if (tagged != null) return tagged.group(1);
       final any = RegExp(r'\b(ses_[A-Za-z0-9]+)\b').firstMatch(output);
       if (any != null) return any.group(1);
@@ -95,8 +94,7 @@ class TaskChip extends StatelessWidget {
     final toolStatus = part.toolStatus ?? 'pending';
     final description = _description();
     final childSdkId = _childSdkId();
-    final isNavigable =
-        parentSessionId != null &&
+    final isNavigable = parentSessionId != null &&
         parentSessionName != null &&
         childSdkId != null;
 

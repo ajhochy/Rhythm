@@ -11,10 +11,10 @@ class HealthPoller with WidgetsBindingObserver {
     required void Function(bool isHealthy) onHealthChanged,
     Duration interval = const Duration(seconds: 15),
     int failureThreshold = 2,
-  }) : _checkFn = checkFn,
-       _onHealthChanged = onHealthChanged,
-       _interval = interval,
-       _failureThreshold = failureThreshold;
+  })  : _checkFn = checkFn,
+        _onHealthChanged = onHealthChanged,
+        _interval = interval,
+        _failureThreshold = failureThreshold;
 
   final Future<bool> Function() _checkFn;
   final void Function(bool isHealthy) _onHealthChanged;
@@ -63,30 +63,28 @@ class HealthPoller with WidgetsBindingObserver {
 
   void _runCheck() {
     if (_disposed) return;
-    _checkFn()
-        .then((ok) {
-          if (_disposed) return;
-          if (ok) {
-            _consecutiveFailures = 0;
-            if (!_isHealthy) {
-              _isHealthy = true;
-              _onHealthChanged(true);
-            }
-          } else {
-            _consecutiveFailures++;
-            if (_isHealthy && _consecutiveFailures >= _failureThreshold) {
-              _isHealthy = false;
-              _onHealthChanged(false);
-            }
-          }
-        })
-        .catchError((_) {
-          if (_disposed) return;
-          _consecutiveFailures++;
-          if (_isHealthy && _consecutiveFailures >= _failureThreshold) {
-            _isHealthy = false;
-            _onHealthChanged(false);
-          }
-        });
+    _checkFn().then((ok) {
+      if (_disposed) return;
+      if (ok) {
+        _consecutiveFailures = 0;
+        if (!_isHealthy) {
+          _isHealthy = true;
+          _onHealthChanged(true);
+        }
+      } else {
+        _consecutiveFailures++;
+        if (_isHealthy && _consecutiveFailures >= _failureThreshold) {
+          _isHealthy = false;
+          _onHealthChanged(false);
+        }
+      }
+    }).catchError((_) {
+      if (_disposed) return;
+      _consecutiveFailures++;
+      if (_isHealthy && _consecutiveFailures >= _failureThreshold) {
+        _isHealthy = false;
+        _onHealthChanged(false);
+      }
+    });
   }
 }

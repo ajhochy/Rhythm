@@ -84,11 +84,12 @@ class _AgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) => throw UnimplementedError();
+      getSession(String id) => throw UnimplementedError();
 
   @override
   Future<AgentSession> createSession({
@@ -103,7 +104,8 @@ class _AgentsRepository implements AgentsRepository {
     String? anthropicAccountId,
     bool isolateWorktree = false,
     String? worktreeName,
-  }) => throw UnimplementedError();
+  }) =>
+      throw UnimplementedError();
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -124,17 +126,17 @@ class _NotificationService extends LocalNotificationService {
 
 class _NotificationsController extends NotificationsController {
   _NotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 }
 
 AgentDesign _design({String? artifactUrl}) => AgentDesign(
-  id: 'video-1',
-  title: 'Sunday recap',
-  provider: 'built-in',
-  artifactUrl: artifactUrl,
-  artifactType: 'mp4',
-  createdAt: DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
-);
+      id: 'video-1',
+      title: 'Sunday recap',
+      provider: 'built-in',
+      artifactUrl: artifactUrl,
+      artifactType: 'mp4',
+      createdAt: DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
+    );
 
 Future<void> _pumpGallery(WidgetTester tester, AgentDesign design) async {
   final gallery = AgentGalleryController(
@@ -209,7 +211,9 @@ void main() {
 
       expect(
         find.byKey(
-          const ValueKey('gallery-open-/agent-designs/video-1/artifact'),
+          const ValueKey(
+            'gallery-open-/agent-designs/video-1/artifact',
+          ),
         ),
         findsOneWidget,
       );

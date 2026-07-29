@@ -22,14 +22,14 @@ class ThemeModeService extends ChangeNotifier {
   }
 
   static ThemeMode _fromString(String? value) => switch (value) {
-    'light' => ThemeMode.light,
-    'dark' => ThemeMode.dark,
-    _ => ThemeMode.system,
-  };
+        'light' => ThemeMode.light,
+        'dark' => ThemeMode.dark,
+        _ => ThemeMode.system,
+      };
 
   static String _toString(ThemeMode mode) => switch (mode) {
-    ThemeMode.light => 'light',
-    ThemeMode.dark => 'dark',
-    _ => 'system',
-  };
+        ThemeMode.light => 'light',
+        ThemeMode.dark => 'dark',
+        _ => 'system',
+      };
 }

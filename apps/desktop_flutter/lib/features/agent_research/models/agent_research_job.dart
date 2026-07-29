@@ -73,18 +73,18 @@ class AgentResearchJob {
   bool get isActive => !isComplete;
   String get displayTitle => title?.trim().isNotEmpty == true ? title! : query;
   String get typeLabel => switch (researchType) {
-    'ai-trends' => 'AI Trends',
-    'theological' => 'Theological',
-    _ => 'Research',
-  };
+        'ai-trends' => 'AI Trends',
+        'theological' => 'Theological',
+        _ => 'Research',
+      };
 
   String get statusLabel => switch (status) {
-    'pending' => 'Queued',
-    'gathering' => 'Gathering sources…',
-    'reading' => 'Reading sources…',
-    'synthesizing' => 'Synthesizing…',
-    'done' => 'Complete',
-    'error' => 'Failed',
-    _ => status,
-  };
+        'pending' => 'Queued',
+        'gathering' => 'Gathering sources…',
+        'reading' => 'Reading sources…',
+        'synthesizing' => 'Synthesizing…',
+        'done' => 'Complete',
+        'error' => 'Failed',
+        _ => status,
+      };
 }

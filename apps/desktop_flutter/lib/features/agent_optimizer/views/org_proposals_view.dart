@@ -320,10 +320,8 @@ class _ProposalCardState extends State<_ProposalCard> {
             const SizedBox(height: 6),
             Text(
               proposal.rationale!,
-              style: TextStyle(
-                fontSize: 13,
-                color: context.rhythm.textSecondary,
-              ),
+              style:
+                  TextStyle(fontSize: 13, color: context.rhythm.textSecondary),
             ),
           ],
           const SizedBox(height: 12),
@@ -551,8 +549,7 @@ class _ProposalChangeBlock extends StatelessWidget {
   List<MapEntry<String, String>>? _diagnosisRows() {
     final change = proposal.change;
     if (change == null) return null;
-    final isDiagnosis =
-        change['source'] == 'org-optimizer-llm-diagnosis' ||
+    final isDiagnosis = change['source'] == 'org-optimizer-llm-diagnosis' ||
         change.containsKey('rootCause') ||
         change.containsKey('concreteFix') ||
         change.containsKey('diagnosis');
@@ -602,9 +599,8 @@ class _ProposalChangeBlock extends StatelessWidget {
       final priorValue = before?['priorValue'];
       final priorItems = _stringList(priorValue);
       final remove = _stringList(scopePatch['remove']);
-      final afterItems = priorItems
-          .where((item) => !remove.contains(item))
-          .toList();
+      final afterItems =
+          priorItems.where((item) => !remove.contains(item)).toList();
       for (final item in _stringList(scopePatch['add'])) {
         if (!afterItems.contains(item)) afterItems.add(item);
       }
@@ -616,7 +612,11 @@ class _ProposalChangeBlock extends StatelessWidget {
     final directChanges = change.entries
         .where((entry) => entry.key != 'agentConfigId' && entry.value is! Map)
         .map(
-          (entry) => _FieldChange(entry.key, before?[entry.key], entry.value),
+          (entry) => _FieldChange(
+            entry.key,
+            before?[entry.key],
+            entry.value,
+          ),
         )
         .toList();
     return directChanges.isEmpty ? null : directChanges;
@@ -660,14 +660,10 @@ class _ProposalChangeBlock extends StatelessWidget {
     return labels[field] ??
         field
             .replaceAllMapped(
-              RegExp(r'([a-z])([A-Z])'),
-              (match) => '${match[1]} ${match[2]}',
-            )
+                RegExp(r'([a-z])([A-Z])'), (match) => '${match[1]} ${match[2]}')
             .replaceAll('_', ' ')
             .replaceFirstMapped(
-              RegExp(r'^.'),
-              (match) => match[0]!.toUpperCase(),
-            );
+                RegExp(r'^.'), (match) => match[0]!.toUpperCase());
   }
 
   static String _displayValue(Object? value) {

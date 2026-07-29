@@ -85,11 +85,8 @@ class _PermissionCardState extends State<PermissionCard> {
     setState(() => _showDenyReason = true);
   }
 
-  Future<void> _respond(
-    String decision, {
-    bool auto = false,
-    String? reason,
-  }) async {
+  Future<void> _respond(String decision,
+      {bool auto = false, String? reason}) async {
     if (_responded) return;
     _responded = true;
     _tick?.cancel();
@@ -98,14 +95,10 @@ class _PermissionCardState extends State<PermissionCard> {
     try {
       if (decision == 'accept') {
         await controller.acceptPermission(
-          widget.sessionId,
-          widget.permissionId,
-        );
+            widget.sessionId, widget.permissionId);
       } else if (decision == 'always') {
         await controller.alwaysAllowPermission(
-          widget.sessionId,
-          widget.permissionId,
-        );
+            widget.sessionId, widget.permissionId);
       } else {
         await controller.denyPermission(
           widget.sessionId,
@@ -157,7 +150,10 @@ class _PermissionCardState extends State<PermissionCard> {
   @override
   Widget build(BuildContext context) {
     if (_autoDenied) {
-      return _Stub(text: 'Denied (timeout)', color: context.rhythm.textMuted);
+      return _Stub(
+        text: 'Denied (timeout)',
+        color: context.rhythm.textMuted,
+      );
     }
     if (_responded && _error == null) {
       return const SizedBox.shrink();
@@ -193,7 +189,10 @@ class _PermissionCardState extends State<PermissionCard> {
               ),
               Text(
                 '${_remaining.inSeconds}s',
-                style: TextStyle(fontSize: 11, color: context.rhythm.textMuted),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: context.rhythm.textMuted,
+                ),
               ),
             ],
           ),
@@ -329,9 +328,8 @@ class _PermissionModalDialogState extends State<_PermissionModalDialog> {
   void _pop(String decision, {String? reason}) {
     Navigator.of(context).pop({
       'decision': decision,
-      'reason': (reason != null && reason.trim().isNotEmpty)
-          ? reason.trim()
-          : null,
+      'reason':
+          (reason != null && reason.trim().isNotEmpty) ? reason.trim() : null,
     });
   }
 

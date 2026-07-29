@@ -31,11 +31,8 @@ class CommandsDataSource {
 }
 
 class SlashCommand {
-  const SlashCommand({
-    required this.name,
-    this.description,
-    this.hints = const [],
-  });
+  const SlashCommand(
+      {required this.name, this.description, this.hints = const []});
   final String name;
   final String? description;
 
@@ -45,8 +42,8 @@ class SlashCommand {
   final List<String> hints;
 
   factory SlashCommand.fromJson(Map<String, dynamic> json) => SlashCommand(
-    name: json['name'] as String? ?? '',
-    description: json['description'] as String?,
-    hints: (json['hints'] as List<dynamic>?)?.cast<String>() ?? const [],
-  );
+        name: json['name'] as String? ?? '',
+        description: json['description'] as String?,
+        hints: (json['hints'] as List<dynamic>?)?.cast<String>() ?? const [],
+      );
 }

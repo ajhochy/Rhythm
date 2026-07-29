@@ -160,11 +160,15 @@ void main() {
         return http.Response('{}', 200);
       });
 
-      await http.runWithClient(() async {
-        await McpDataSource().setCredentials('stripe', const {
-          'STRIPE_SECRET_KEY': 'sk_test_123',
-        });
-      }, () => client);
+      await http.runWithClient(
+        () async {
+          await McpDataSource().setCredentials(
+            'stripe',
+            const {'STRIPE_SECRET_KEY': 'sk_test_123'},
+          );
+        },
+        () => client,
+      );
 
       expect(capturedMethod, 'POST');
       expect(capturedUri.path, '/opencode/mcp/stripe/credentials');
@@ -184,56 +188,54 @@ void main() {
         );
       });
 
-      await http.runWithClient(() async {
-        expect(
-          () => McpDataSource().setCredentials('stripe', const {
-            'STRIPE_SECRET_KEY': '',
-          }),
-          throwsA(
-            isA<Exception>().having(
-              (e) => e.toString(),
-              'message',
-              contains('key required'),
+      await http.runWithClient(
+        () async {
+          expect(
+            () => McpDataSource()
+                .setCredentials('stripe', const {'STRIPE_SECRET_KEY': ''}),
+            throwsA(
+              isA<Exception>().having(
+                (e) => e.toString(),
+                'message',
+                contains('key required'),
+              ),
             ),
-          ),
-        );
-      }, () => client);
+          );
+        },
+        () => client,
+      );
     });
   });
 
   // ── Controller: setCredentials ───────────────────────────────────────────
 
   group('McpController.setCredentials', () {
-    test(
-      'success → calls data source then refreshes and clears error',
-      () async {
-        final ds = _FakeMcpDataSource(
-          listResult: [
-            const McpServerEntry(name: 'stripe', status: 'connected'),
-          ],
-        );
-        final ctrl = McpController(ds);
-        await ctrl.refresh();
-        final listBefore = ds.listCallCount;
+    test('success → calls data source then refreshes and clears error',
+        () async {
+      final ds = _FakeMcpDataSource(
+        listResult: [
+          const McpServerEntry(name: 'stripe', status: 'connected'),
+        ],
+      );
+      final ctrl = McpController(ds);
+      await ctrl.refresh();
+      final listBefore = ds.listCallCount;
 
-        await ctrl.setCredentials('stripe', const {
-          'STRIPE_SECRET_KEY': 'sk_test_123',
-        });
+      await ctrl.setCredentials(
+        'stripe',
+        const {'STRIPE_SECRET_KEY': 'sk_test_123'},
+      );
 
-        expect(ds.setCredentialsCallCount, 1);
-        expect(ds.lastSetCredentialsName, 'stripe');
-        expect(
-          ds.lastSetCredentialsEnv,
-          equals({'STRIPE_SECRET_KEY': 'sk_test_123'}),
-        );
-        expect(
-          ds.listCallCount,
-          greaterThan(listBefore),
-          reason: 'a refresh must follow a successful credentials submit',
-        );
-        expect(ctrl.errorFor('stripe'), isNull);
-      },
-    );
+      expect(ds.setCredentialsCallCount, 1);
+      expect(ds.lastSetCredentialsName, 'stripe');
+      expect(
+        ds.lastSetCredentialsEnv,
+        equals({'STRIPE_SECRET_KEY': 'sk_test_123'}),
+      );
+      expect(ds.listCallCount, greaterThan(listBefore),
+          reason: 'a refresh must follow a successful credentials submit');
+      expect(ctrl.errorFor('stripe'), isNull);
+    });
 
     test('failure → surfaces inline error, not silence', () async {
       final ds = _FakeMcpDataSource(
@@ -242,7 +244,10 @@ void main() {
       );
       final ctrl = McpController(ds);
 
-      await ctrl.setCredentials('stripe', const {'STRIPE_SECRET_KEY': 'bad'});
+      await ctrl.setCredentials(
+        'stripe',
+        const {'STRIPE_SECRET_KEY': 'bad'},
+      );
 
       final err = ctrl.errorFor('stripe');
       expect(err, isNotNull);
@@ -388,55 +393,57 @@ void main() {
     },
   );
 
-  testWidgets('multiple requiredEnv keys render multiple obscured fields', (
-    tester,
-  ) async {
-    final ds = _FakeMcpDataSource(
-      listResult: [
-        const McpServerEntry(
-          name: 'mailchimp',
-          status: 'disconnected',
-          needsCredentials: true,
-          requiredEnv: ['MAILCHIMP_API_KEY', 'MAILCHIMP_SERVER_PREFIX'],
-        ),
-      ],
-    );
-    final ctrl = McpController(ds);
-    await ctrl.refresh();
+  testWidgets(
+    'multiple requiredEnv keys render multiple obscured fields',
+    (tester) async {
+      final ds = _FakeMcpDataSource(
+        listResult: [
+          const McpServerEntry(
+            name: 'mailchimp',
+            status: 'disconnected',
+            needsCredentials: true,
+            requiredEnv: ['MAILCHIMP_API_KEY', 'MAILCHIMP_SERVER_PREFIX'],
+          ),
+        ],
+      );
+      final ctrl = McpController(ds);
+      await ctrl.refresh();
 
-    await tester.pumpWidget(_wrap(const McpSection(), mcpController: ctrl));
-    await tester.pump();
+      await tester.pumpWidget(_wrap(const McpSection(), mcpController: ctrl));
+      await tester.pump();
 
-    await tester.tap(find.byKey(const Key('mcp-needs-credentials-mailchimp')));
-    await tester.pumpAndSettle();
+      await tester
+          .tap(find.byKey(const Key('mcp-needs-credentials-mailchimp')));
+      await tester.pumpAndSettle();
 
-    expect(
-      find.byKey(const Key('mcp-cred-field-MAILCHIMP_API_KEY')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const Key('mcp-cred-field-MAILCHIMP_SERVER_PREFIX')),
-      findsOneWidget,
-    );
+      expect(
+        find.byKey(const Key('mcp-cred-field-MAILCHIMP_API_KEY')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('mcp-cred-field-MAILCHIMP_SERVER_PREFIX')),
+        findsOneWidget,
+      );
 
-    // Fill both and submit.
-    await tester.enterText(
-      find.byKey(const Key('mcp-cred-field-MAILCHIMP_API_KEY')),
-      'abc-us1',
-    );
-    await tester.enterText(
-      find.byKey(const Key('mcp-cred-field-MAILCHIMP_SERVER_PREFIX')),
-      'us1',
-    );
-    await tester.tap(find.byKey(const Key('mcp-cred-submit')));
-    await tester.pumpAndSettle();
+      // Fill both and submit.
+      await tester.enterText(
+        find.byKey(const Key('mcp-cred-field-MAILCHIMP_API_KEY')),
+        'abc-us1',
+      );
+      await tester.enterText(
+        find.byKey(const Key('mcp-cred-field-MAILCHIMP_SERVER_PREFIX')),
+        'us1',
+      );
+      await tester.tap(find.byKey(const Key('mcp-cred-submit')));
+      await tester.pumpAndSettle();
 
-    expect(
-      ds.lastSetCredentialsEnv,
-      equals({
-        'MAILCHIMP_API_KEY': 'abc-us1',
-        'MAILCHIMP_SERVER_PREFIX': 'us1',
-      }),
-    );
-  });
+      expect(
+        ds.lastSetCredentialsEnv,
+        equals({
+          'MAILCHIMP_API_KEY': 'abc-us1',
+          'MAILCHIMP_SERVER_PREFIX': 'us1',
+        }),
+      );
+    },
+  );
 }

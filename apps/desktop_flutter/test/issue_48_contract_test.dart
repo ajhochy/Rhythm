@@ -27,7 +27,7 @@ import 'package:rhythm_desktop/features/tasks/views/automation_rules_view.dart';
 
 class _FakeRepo extends AutomationRulesRepository {
   _FakeRepo()
-    : super(AutomationRulesDataSource(baseUrl: 'http://example.invalid'));
+      : super(AutomationRulesDataSource(baseUrl: 'http://example.invalid'));
 
   List<AutomationRule> rulesFixture = [];
   List<AutomationTriggerCatalogItem> triggersFixture = [];
@@ -37,10 +37,8 @@ class _FakeRepo extends AutomationRulesRepository {
   PlanningCenterTaskOptions? pcoOptionsFixture;
   List<String> gmailLabelsFixture = [];
   List<String> projectTemplateNamesFixture = [];
-  AutomationRulePreview previewFixture = const AutomationRulePreview(
-    ruleId: 'r',
-    summary: '',
-  );
+  AutomationRulePreview previewFixture =
+      const AutomationRulePreview(ruleId: 'r', summary: '');
 
   @override
   Future<List<AutomationRule>> getAll() async => rulesFixture;
@@ -92,8 +90,7 @@ _FakeRepo _pcoRepo({
         configSchema: {},
       ),
     ]
-    ..actionsFixture =
-        actions ??
+    ..actionsFixture = actions ??
         [
           const AutomationActionCatalogItem(
             key: 'create_task',
@@ -134,7 +131,7 @@ _FakeRepo _pcoRepo({
         syncSupport: 'push_capable',
         triggerKeys: [
           'planning_center.plan_upcoming',
-          'planning_center.plan_published',
+          'planning_center.plan_published'
         ],
       ),
     ]
@@ -184,9 +181,9 @@ Future<void> _openPcoBuildDialog(WidgetTester tester, _FakeRepo repo) async {
 }
 
 void main() {
-  // ---------------------------------------------------------------------------
-  // c4 — PCO action dropdown excludes tag_task / send_notification / auto_schedule
-  // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// c4 — PCO action dropdown excludes tag_task / send_notification / auto_schedule
+// ---------------------------------------------------------------------------
   testWidgets(
     'issue-48-c4: PCO action dropdown excludes tag_task, send_notification, auto_schedule',
     (tester) async {
@@ -217,94 +214,91 @@ void main() {
     },
   );
 
-  // ---------------------------------------------------------------------------
-  // c5 — PCO team + position multi-select FilterChips render
-  // ---------------------------------------------------------------------------
-  testWidgets('issue-48-c5: PCO team and position multi-select chips render', (
-    tester,
-  ) async {
-    final repo = _pcoRepo(
-      pcoOptions: PlanningCenterTaskOptions(
-        teams: [
-          PlanningCenterTeamOption(
-            id: 'team-1',
-            name: 'Band',
-            serviceTypeId: 'svc-1',
-            serviceTypeName: 'Weekend Service',
-          ),
-          PlanningCenterTeamOption(
-            id: 'team-2',
-            name: 'Vocals',
-            serviceTypeId: 'svc-1',
-            serviceTypeName: 'Weekend Service',
-          ),
-        ],
-        positionsByTeamId: const {
-          'team-1': ['Guitar', 'Keys'],
-          'team-2': ['Soprano', 'Alto'],
-        },
-      ),
-    );
-    await _openPcoBuildDialog(tester, repo);
+// ---------------------------------------------------------------------------
+// c5 — PCO team + position multi-select FilterChips render
+// ---------------------------------------------------------------------------
+  testWidgets(
+    'issue-48-c5: PCO team and position multi-select chips render',
+    (tester) async {
+      final repo = _pcoRepo(
+        pcoOptions: PlanningCenterTaskOptions(
+          teams: [
+            PlanningCenterTeamOption(
+              id: 'team-1',
+              name: 'Band',
+              serviceTypeId: 'svc-1',
+              serviceTypeName: 'Weekend Service',
+            ),
+            PlanningCenterTeamOption(
+              id: 'team-2',
+              name: 'Vocals',
+              serviceTypeId: 'svc-1',
+              serviceTypeName: 'Weekend Service',
+            ),
+          ],
+          positionsByTeamId: const {
+            'team-1': ['Guitar', 'Keys'],
+            'team-2': ['Soprano', 'Alto'],
+          },
+        ),
+      );
+      await _openPcoBuildDialog(tester, repo);
 
-    // Team chips rendered
-    expect(find.text('Weekend Service · Band'), findsOneWidget);
-    expect(find.text('Weekend Service · Vocals'), findsOneWidget);
+      // Team chips rendered
+      expect(find.text('Weekend Service · Band'), findsOneWidget);
+      expect(find.text('Weekend Service · Vocals'), findsOneWidget);
 
-    // Before selecting a team, all positions from all teams should be shown
-    expect(find.text('Guitar'), findsOneWidget);
-    expect(find.text('Soprano'), findsOneWidget);
-  });
+      // Before selecting a team, all positions from all teams should be shown
+      expect(find.text('Guitar'), findsOneWidget);
+      expect(find.text('Soprano'), findsOneWidget);
+    },
+  );
 
-  // ---------------------------------------------------------------------------
-  // c6 — Day-of-week picker includes Saturday (6) and Sunday (7)
-  // ---------------------------------------------------------------------------
-  testWidgets('issue-48-c6: service-week day picker includes Saturday and Sunday', (
-    tester,
-  ) async {
-    final repo = _pcoRepo();
-    await _openPcoBuildDialog(tester, repo);
+// ---------------------------------------------------------------------------
+// c6 — Day-of-week picker includes Saturday (6) and Sunday (7)
+// ---------------------------------------------------------------------------
+  testWidgets(
+    'issue-48-c6: service-week day picker includes Saturday and Sunday',
+    (tester) async {
+      final repo = _pcoRepo();
+      await _openPcoBuildDialog(tester, repo);
 
-    // Scroll to the Action section; the target-day dropdown for PCO create_task
-    // is rendered when actionType == create_task and source == planning_center.
-    // Scroll down to find it.
-    await tester.drag(
-      find.byType(SingleChildScrollView),
-      const Offset(0, -800),
-    );
-    await tester.pumpAndSettle();
+      // Scroll to the Action section; the target-day dropdown for PCO create_task
+      // is rendered when actionType == create_task and source == planning_center.
+      // Scroll down to find it.
+      await tester.drag(
+          find.byType(SingleChildScrollView), const Offset(0, -800));
+      await tester.pumpAndSettle();
 
-    // Open the "Schedule in service week" dropdown
-    final dayDropdown = find.byWidgetPredicate(
-      (w) =>
-          w is DropdownButtonFormField<int> &&
-          (w.decoration.labelText?.contains('service week') ?? false),
-    );
-    expect(
-      dayDropdown,
-      findsOneWidget,
-      reason: 'Service week day picker not found',
-    );
+      // Open the "Schedule in service week" dropdown
+      final dayDropdown = find.byWidgetPredicate(
+        (w) =>
+            w is DropdownButtonFormField<int> &&
+            (w.decoration.labelText?.contains('service week') ?? false),
+      );
+      expect(dayDropdown, findsOneWidget,
+          reason: 'Service week day picker not found');
 
-    await tester.ensureVisible(dayDropdown);
-    await tester.pumpAndSettle();
-    await tester.tap(dayDropdown, warnIfMissed: false);
-    await tester.pumpAndSettle();
+      await tester.ensureVisible(dayDropdown);
+      await tester.pumpAndSettle();
+      await tester.tap(dayDropdown, warnIfMissed: false);
+      await tester.pumpAndSettle();
 
-    // All 7 day labels must appear in the dropdown menu
-    expect(find.text('Monday'), findsWidgets);
-    expect(find.text('Tuesday'), findsWidgets);
-    expect(find.text('Wednesday'), findsWidgets);
-    expect(find.text('Thursday'), findsWidgets);
-    expect(find.text('Friday'), findsWidgets);
-    // These two are the new additions — they must be present
-    expect(find.text('Saturday'), findsOneWidget);
-    expect(find.text('Sunday'), findsOneWidget);
-  });
+      // All 7 day labels must appear in the dropdown menu
+      expect(find.text('Monday'), findsWidgets);
+      expect(find.text('Tuesday'), findsWidgets);
+      expect(find.text('Wednesday'), findsWidgets);
+      expect(find.text('Thursday'), findsWidgets);
+      expect(find.text('Friday'), findsWidgets);
+      // These two are the new additions — they must be present
+      expect(find.text('Saturday'), findsOneWidget);
+      expect(find.text('Sunday'), findsOneWidget);
+    },
+  );
 
-  // ---------------------------------------------------------------------------
-  // c7 — Placeholder insert chips insert {{token}} at cursor
-  // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// c7 — Placeholder insert chips insert {{token}} at cursor
+// ---------------------------------------------------------------------------
   testWidgets(
     'issue-48-c7: placeholder insert chips insert {{token}} at cursor in title field',
     (tester) async {
@@ -313,11 +307,8 @@ void main() {
 
       // Find the task title template field
       final titleField = find.widgetWithText(TextField, 'Task title template');
-      expect(
-        titleField,
-        findsOneWidget,
-        reason: 'Task title template field not found',
-      );
+      expect(titleField, findsOneWidget,
+          reason: 'Task title template field not found');
 
       // Tap the field so it has focus
       await tester.tap(titleField, warnIfMissed: false);
@@ -328,11 +319,8 @@ void main() {
       // {{title}} appears once under the title field and once under the notes field —
       // both rows are rendered, so we use findsWidgets.
       final titleChips = find.text('{{title}}');
-      expect(
-        titleChips,
-        findsWidgets,
-        reason: '{{title}} chip not found below template fields',
-      );
+      expect(titleChips, findsWidgets,
+          reason: '{{title}} chip not found below template fields');
 
       // Tap the first {{title}} chip — it belongs to the title template row.
       // Ensure it's visible first.

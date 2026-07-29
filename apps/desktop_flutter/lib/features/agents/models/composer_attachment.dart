@@ -15,5 +15,8 @@ class ComposerAttachment {
   final String path;
   final String? displayName;
 
-  Map<String, dynamic> toJson() => {'type': type, 'filePath': path};
+  Map<String, dynamic> toJson() => {
+        'type': type,
+        'filePath': path,
+      };
 }

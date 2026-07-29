@@ -47,9 +47,8 @@ class AgentSchedulesDataSource {
   }
 
   Future<void> delete(String id) async {
-    final response = await http.delete(
-      Uri.parse('$_baseUrl/agent-schedules/$id'),
-    );
+    final response =
+        await http.delete(Uri.parse('$_baseUrl/agent-schedules/$id'));
     if (response.statusCode != 204) {
       assertOk(response);
     }

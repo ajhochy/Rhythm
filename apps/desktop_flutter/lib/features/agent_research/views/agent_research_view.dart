@@ -105,20 +105,23 @@ class _AgentResearchViewState extends State<AgentResearchView> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.science_outlined,
-              size: 48,
-              color: context.rhythm.textMuted,
-            ),
+            Icon(Icons.science_outlined,
+                size: 48, color: context.rhythm.textMuted),
             const SizedBox(height: RhythmSpacing.md),
             Text(
               'No research jobs yet',
-              style: TextStyle(color: context.rhythm.textMuted, fontSize: 16),
+              style: TextStyle(
+                color: context.rhythm.textMuted,
+                fontSize: 16,
+              ),
             ),
             const SizedBox(height: RhythmSpacing.xs),
             Text(
               'Tap + New Research to get started',
-              style: TextStyle(color: context.rhythm.textMuted, fontSize: 13),
+              style: TextStyle(
+                color: context.rhythm.textMuted,
+                fontSize: 13,
+              ),
             ),
           ],
         ),
@@ -140,7 +143,9 @@ class _AgentResearchViewState extends State<AgentResearchView> {
         if (active.isNotEmpty) ...[
           const _SectionHeader(title: 'Active'),
           const SizedBox(height: RhythmSpacing.xs),
-          ...active.map((job) => _ActiveJobCard(job: job)),
+          ...active.map(
+            (job) => _ActiveJobCard(job: job),
+          ),
           const SizedBox(height: RhythmSpacing.md),
         ],
         if (failed.isNotEmpty) ...[
@@ -250,10 +255,8 @@ class _NewResearchDialogState extends State<_NewResearchDialog> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(RhythmRadius.md),
-                  borderSide: BorderSide(
-                    color: context.rhythm.accent,
-                    width: 2,
-                  ),
+                  borderSide:
+                      BorderSide(color: context.rhythm.accent, width: 2),
                 ),
               ),
             ),
@@ -368,9 +371,8 @@ class _DepthOption extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            color: selected
-                ? context.rhythm.accent
-                : context.rhythm.textSecondary,
+            color:
+                selected ? context.rhythm.accent : context.rhythm.textSecondary,
             fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
             fontSize: 13,
           ),
@@ -474,7 +476,10 @@ class _ActiveJobCard extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _CompletedJobCard extends StatelessWidget {
-  const _CompletedJobCard({required this.job, required this.onTap});
+  const _CompletedJobCard({
+    required this.job,
+    required this.onTap,
+  });
 
   final AgentResearchJob job;
   final VoidCallback onTap;
@@ -669,23 +674,20 @@ class _ResearchTypeBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(
-      horizontal: RhythmSpacing.xs,
-      vertical: 2,
-    ),
-    decoration: BoxDecoration(
-      color: context.rhythm.accentMuted,
-      borderRadius: BorderRadius.circular(RhythmRadius.xs),
-    ),
-    child: Text(
-      job.typeLabel,
-      style: TextStyle(
-        color: context.rhythm.accent,
-        fontSize: 11,
-        fontWeight: FontWeight.w600,
-      ),
-    ),
-  );
+        padding: const EdgeInsets.symmetric(
+            horizontal: RhythmSpacing.xs, vertical: 2),
+        decoration: BoxDecoration(
+          color: context.rhythm.accentMuted,
+          borderRadius: BorderRadius.circular(RhythmRadius.xs),
+        ),
+        child: Text(
+          job.typeLabel,
+          style: TextStyle(
+              color: context.rhythm.accent,
+              fontSize: 11,
+              fontWeight: FontWeight.w600),
+        ),
+      );
 }
 
 // ---------------------------------------------------------------------------
@@ -714,9 +716,8 @@ class _ReportBottomSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDone = job.status == 'done';
-    final reportText = isDone
-        ? (job.report ?? '')
-        : (job.error ?? 'An error occurred.');
+    final reportText =
+        isDone ? (job.report ?? '') : (job.error ?? 'An error occurred.');
 
     return DraggableScrollableSheet(
       initialChildSize: 0.75,
@@ -767,20 +768,14 @@ class _ReportBottomSheet extends StatelessWidget {
                       ),
                     ),
                     IconButton(
-                      icon: Icon(
-                        Icons.copy_outlined,
-                        color: context.rhythm.textMuted,
-                        size: 18,
-                      ),
+                      icon: Icon(Icons.copy_outlined,
+                          color: context.rhythm.textMuted, size: 18),
                       tooltip: 'Copy report',
                       onPressed: () => _copyToClipboard(context),
                     ),
                     IconButton(
-                      icon: Icon(
-                        Icons.close,
-                        color: context.rhythm.textMuted,
-                        size: 18,
-                      ),
+                      icon: Icon(Icons.close,
+                          color: context.rhythm.textMuted, size: 18),
                       onPressed: () => Navigator.of(context).pop(),
                     ),
                   ],
@@ -802,23 +797,18 @@ class _ReportBottomSheet extends StatelessWidget {
                     children: [
                       if (!isDone)
                         Container(
-                          margin: const EdgeInsets.only(
-                            bottom: RhythmSpacing.md,
-                          ),
+                          margin:
+                              const EdgeInsets.only(bottom: RhythmSpacing.md),
                           padding: const EdgeInsets.all(RhythmSpacing.sm),
                           decoration: BoxDecoration(
                             color: context.rhythm.danger.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(
-                              RhythmRadius.sm,
-                            ),
+                            borderRadius:
+                                BorderRadius.circular(RhythmRadius.sm),
                           ),
                           child: Row(
                             children: [
-                              Icon(
-                                Icons.error_outline,
-                                color: context.rhythm.danger,
-                                size: 16,
-                              ),
+                              Icon(Icons.error_outline,
+                                  color: context.rhythm.danger, size: 16),
                               const SizedBox(width: RhythmSpacing.xs),
                               Text(
                                 'Research failed',
@@ -846,14 +836,11 @@ class _ReportBottomSheet extends StatelessWidget {
                         Padding(
                           padding: const EdgeInsets.only(top: RhythmSpacing.xs),
                           child: Text(
-                            [
-                              job.agentProfileId,
-                              job.agentSessionId,
-                            ].whereType<String>().join(' · '),
+                            [job.agentProfileId, job.agentSessionId]
+                                .whereType<String>()
+                                .join(' · '),
                             style: TextStyle(
-                              color: context.rhythm.textMuted,
-                              fontSize: 11,
-                            ),
+                                color: context.rhythm.textMuted, fontSize: 11),
                           ),
                         ),
                       if (job.sources.isNotEmpty) ...[
@@ -870,8 +857,7 @@ class _ReportBottomSheet extends StatelessWidget {
                         ...job.sources.map(
                           (url) => Padding(
                             padding: const EdgeInsets.only(
-                              bottom: RhythmSpacing.xxs,
-                            ),
+                                bottom: RhythmSpacing.xxs),
                             child: Text(
                               url,
                               style: TextStyle(
@@ -886,22 +872,15 @@ class _ReportBottomSheet extends StatelessWidget {
                       ],
                       if (job.vaultPath != null) ...[
                         const SizedBox(height: RhythmSpacing.md),
-                        Text(
-                          'Vault: ${job.vaultPath}',
-                          style: TextStyle(
-                            color: context.rhythm.textMuted,
-                            fontSize: 12,
-                          ),
-                        ),
+                        Text('Vault: ${job.vaultPath}',
+                            style: TextStyle(
+                                color: context.rhythm.textMuted, fontSize: 12)),
                       ],
                       const SizedBox(height: RhythmSpacing.md),
                       Text(
-                        'Created ${job.createdAt} · Updated ${job.updatedAt}',
-                        style: TextStyle(
-                          color: context.rhythm.textMuted,
-                          fontSize: 11,
-                        ),
-                      ),
+                          'Created ${job.createdAt} · Updated ${job.updatedAt}',
+                          style: TextStyle(
+                              color: context.rhythm.textMuted, fontSize: 11)),
                     ],
                   ),
                 ),

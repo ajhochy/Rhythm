@@ -69,7 +69,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
   @override
   void pushAgentNotification({
     required int id,
@@ -108,22 +108,23 @@ class _RecordingRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => [];
+  }) async =>
+      [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async => (
-    session: AgentSession(
-      id: id,
-      agentId: 'claude-code',
-      name: 'Test session',
-      cwd: '/tmp',
-      status: AgentSessionStatus.idle,
-      createdAt: DateTime(2026),
-      updatedAt: DateTime(2026),
-    ),
-    messages: const <AgentSessionMessage>[],
-  );
+      getSession(String id) async => (
+            session: AgentSession(
+              id: id,
+              agentId: 'claude-code',
+              name: 'Test session',
+              cwd: '/tmp',
+              status: AgentSessionStatus.idle,
+              createdAt: DateTime(2026),
+              updatedAt: DateTime(2026),
+            ),
+            messages: const <AgentSessionMessage>[],
+          );
 
   void push(AgentWsMessage msg) => _msgCtrl.add(msg);
 
@@ -187,8 +188,7 @@ void main() {
           expect(
             chatMsgs,
             isNotEmpty,
-            reason:
-                'chatMessagesFor(sid-1) must contain at least one message '
+            reason: 'chatMessagesFor(sid-1) must contain at least one message '
                 'immediately after sendInput — no await needed.',
           );
 
@@ -216,49 +216,52 @@ void main() {
   // -------------------------------------------------------------------------
   // c2 — UNIT: optimistic insert is synchronous (no round-trip needed)
   // -------------------------------------------------------------------------
-  group('issue-635-c2: optimistic user message is added synchronously', () {
-    test(
-      'chatMessagesFor contains user ChatMessage immediately after sendInput, no await',
-      () async {
-        final repo = _RecordingRepository();
-        final controller = AgentsController(
-          repo,
-          _ReadyAgentServerController(),
-          _FakeLocalNotificationService(),
-          _FakeNotificationsController(),
-        );
-        addTearDown(controller.dispose);
+  group(
+    'issue-635-c2: optimistic user message is added synchronously',
+    () {
+      test(
+        'chatMessagesFor contains user ChatMessage immediately after sendInput, no await',
+        () async {
+          final repo = _RecordingRepository();
+          final controller = AgentsController(
+            repo,
+            _ReadyAgentServerController(),
+            _FakeLocalNotificationService(),
+            _FakeNotificationsController(),
+          );
+          addTearDown(controller.dispose);
 
-        await controller.initialize();
+          await controller.initialize();
 
-        repo.push(
-          SessionCreatedMessage(
-            session: AgentSession(
-              id: 'sid-sync',
-              agentId: 'claude-code',
-              name: 'Sync test',
-              cwd: '/tmp',
-              status: AgentSessionStatus.idle,
-              createdAt: DateTime(2026),
-              updatedAt: DateTime(2026),
+          repo.push(
+            SessionCreatedMessage(
+              session: AgentSession(
+                id: 'sid-sync',
+                agentId: 'claude-code',
+                name: 'Sync test',
+                cwd: '/tmp',
+                status: AgentSessionStatus.idle,
+                createdAt: DateTime(2026),
+                updatedAt: DateTime(2026),
+              ),
             ),
-          ),
-        );
-        await Future<void>.delayed(Duration.zero);
+          );
+          await Future<void>.delayed(Duration.zero);
 
-        // Send input and check WITHOUT any await — must be synchronous.
-        controller.sendInput('sid-sync', 'sync test message');
+          // Send input and check WITHOUT any await — must be synchronous.
+          controller.sendInput('sid-sync', 'sync test message');
 
-        // No await here — OPC-M1-3: chatMessagesBySession must be updated
-        // synchronously so the single render path re-renders immediately.
-        expect(
-          controller.chatMessagesFor('sid-sync').any((m) => m.role == 'user'),
-          isTrue,
-          reason:
-              'Optimistic insert must be synchronous so the UI re-renders '
-              'immediately after sendInput without waiting for a server response.',
-        );
-      },
-    );
-  });
+          // No await here — OPC-M1-3: chatMessagesBySession must be updated
+          // synchronously so the single render path re-renders immediately.
+          expect(
+            controller.chatMessagesFor('sid-sync').any((m) => m.role == 'user'),
+            isTrue,
+            reason:
+                'Optimistic insert must be synchronous so the UI re-renders '
+                'immediately after sendInput without waiting for a server response.',
+          );
+        },
+      );
+    },
+  );
 }

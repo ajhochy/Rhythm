@@ -21,10 +21,10 @@ class RhythmEmptyState extends StatelessWidget {
     super.key,
     this.title = 'Loading…',
     this.message,
-  }) : icon = null,
-       actionLabel = null,
-       onAction = null,
-       tone = RhythmEmptyStateTone.loading;
+  })  : icon = null,
+        actionLabel = null,
+        onAction = null,
+        tone = RhythmEmptyStateTone.loading;
 
   /// Error state with an optional retry action.
   const RhythmEmptyState.error({
@@ -76,9 +76,9 @@ class RhythmEmptyState extends StatelessWidget {
                 title,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: colors.textPrimary,
-                  fontWeight: FontWeight.w700,
-                ),
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
               ),
               if (message != null) ...[
                 const SizedBox(height: RhythmSpacing.xs),

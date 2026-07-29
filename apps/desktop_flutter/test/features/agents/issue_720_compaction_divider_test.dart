@@ -64,14 +64,14 @@ class _ReadyAgentServerController extends AgentServerController {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository() : _msgController = StreamController.broadcast();
@@ -106,13 +106,17 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async {
+      getSession(String id) async {
     getSessionCalls[id] = (getSessionCalls[id] ?? 0) + 1;
-    return (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+    return (
+      session: _makeSession(id),
+      messages: const <AgentSessionMessage>[],
+    );
   }
 
   @override
@@ -142,16 +146,15 @@ void main() {
 
   group('issue-720: session.compacted WS frame parsing', () {
     test(
-      'issue-720-parse: type=session.compacted parses to SessionCompactedMessage with id',
-      () {
-        final msg = AgentWsMessage.parse({
-          'type': 'session.compacted',
-          'id': 'ses-abc',
-        });
-        expect(msg, isA<SessionCompactedMessage>());
-        expect((msg as SessionCompactedMessage).id, equals('ses-abc'));
-      },
-    );
+        'issue-720-parse: type=session.compacted parses to SessionCompactedMessage with id',
+        () {
+      final msg = AgentWsMessage.parse({
+        'type': 'session.compacted',
+        'id': 'ses-abc',
+      });
+      expect(msg, isA<SessionCompactedMessage>());
+      expect((msg as SessionCompactedMessage).id, equals('ses-abc'));
+    });
   });
 
   // ── Controller ingestion ──────────────────────────────────────────────────
@@ -170,31 +173,27 @@ void main() {
     });
 
     test(
-      'issue-720a: handleSessionCompactedEvent clears the compacting spinner '
-      'and rehydrates the session',
-      () async {
-        const sessionId = 'ses-compacted-1';
-        controller.setCompactingForTest(sessionId, true);
-        expect(controller.isCompacting(sessionId), isTrue);
+        'issue-720a: handleSessionCompactedEvent clears the compacting spinner '
+        'and rehydrates the session', () async {
+      const sessionId = 'ses-compacted-1';
+      controller.setCompactingForTest(sessionId, true);
+      expect(controller.isCompacting(sessionId), isTrue);
 
-        controller.handleSessionCompactedEvent(sessionId);
+      controller.handleSessionCompactedEvent(sessionId);
 
-        // Spinner cleared synchronously.
-        expect(controller.isCompacting(sessionId), isFalse);
+      // Spinner cleared synchronously.
+      expect(controller.isCompacting(sessionId), isFalse);
 
-        // Rehydrate (getSession) runs asynchronously — let it complete.
-        await Future<void>.delayed(Duration.zero);
-        expect(
-          repo.getSessionCalls[sessionId],
-          equals(1),
+      // Rehydrate (getSession) runs asynchronously — let it complete.
+      await Future<void>.delayed(Duration.zero);
+      expect(repo.getSessionCalls[sessionId], equals(1),
           reason:
               'session.compacted must rehydrate the session so the persisted '
-              'CompactionPart renders as the divider',
-        );
-      },
-    );
+              'CompactionPart renders as the divider');
+    });
 
-    test('issue-720b: a session.compacted WS frame routed through _onWsMessage '
+    test(
+        'issue-720b: a session.compacted WS frame routed through _onWsMessage '
         'triggers the handler', () async {
       const sessionId = 'ses-compacted-2';
       controller.setCompactingForTest(sessionId, true);
@@ -211,7 +210,8 @@ void main() {
       expect(repo.getSessionCalls[sessionId], equals(1));
     });
 
-    test('issue-720c: session.compacted is scoped — an unrelated session keeps '
+    test(
+        'issue-720c: session.compacted is scoped — an unrelated session keeps '
         'its compacting state', () async {
       const compactedId = 'ses-compacted-3';
       const otherId = 'ses-other-3';
@@ -222,11 +222,8 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(controller.isCompacting(compactedId), isFalse);
-      expect(
-        controller.isCompacting(otherId),
-        isTrue,
-        reason: 'only the compacted session is affected',
-      );
+      expect(controller.isCompacting(otherId), isTrue,
+          reason: 'only the compacted session is affected');
       expect(repo.getSessionCalls[otherId], isNull);
     });
 

@@ -86,9 +86,9 @@ class ApiServerService {
     String? memoryVaultPath,
     String? memoryVaultSubdir,
     HumanApprovalSigner? humanApprovalSigner,
-  }) : _memoryVaultPath = memoryVaultPath,
-       _memoryVaultSubdir = memoryVaultSubdir,
-       _humanApprovalSigner = humanApprovalSigner ?? HumanApprovalSigner();
+  })  : _memoryVaultPath = memoryVaultPath,
+        _memoryVaultSubdir = memoryVaultSubdir,
+        _humanApprovalSigner = humanApprovalSigner ?? HumanApprovalSigner();
 
   Process? _process;
 
@@ -133,9 +133,8 @@ class ApiServerService {
   }
 
   void _appendStderr(String line) {
-    final trimmed = line.endsWith('\n')
-        ? line.substring(0, line.length - 1)
-        : line;
+    final trimmed =
+        line.endsWith('\n') ? line.substring(0, line.length - 1) : line;
     final capped = trimmed.length > _stderrBufferMaxLineChars
         ? trimmed.substring(0, _stderrBufferMaxLineChars)
         : trimmed;
@@ -171,8 +170,8 @@ class ApiServerService {
     late final String humanApprovalCapabilitySha256;
     late final String humanApprovalPublicKey;
     try {
-      humanApprovalCapabilitySha256 = await _humanApprovalSigner
-          .capabilitySha256();
+      humanApprovalCapabilitySha256 =
+          await _humanApprovalSigner.capabilitySha256();
       humanApprovalPublicKey = await _humanApprovalSigner.publicKey();
     } catch (error) {
       return (
@@ -393,7 +392,7 @@ class ApiServerService {
   /// Result of [_findNodeWithAbi]: the resolved node path and an optional
   /// rich failure message (e.g. a copy-paste rebuild command).
   Future<({String? nodePath, String? failureMessage})>
-  _findNodeWithAbi() async {
+      _findNodeWithAbi() async {
     // #1023: Prefer the Node runtime bundled inside the app. When present, its
     // ABI matches the bundled better_sqlite3.node by construction — both are
     // built from the SAME pinned Node in the release workflow — so no ABI

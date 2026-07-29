@@ -29,14 +29,14 @@ import 'package:rhythm_desktop/features/notifications/repositories/notifications
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 class _FakeApiServerService extends ApiServerService {
   @override
@@ -60,8 +60,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msg = StreamController.broadcast(),
-      _conn = StreamController.broadcast();
+      : _msg = StreamController.broadcast(),
+        _conn = StreamController.broadcast();
   final StreamController<AgentWsMessage> _msg;
   final StreamController<bool> _conn;
 
@@ -88,11 +88,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => [_makeSession('s1')];
+  }) async =>
+      [_makeSession('s1')];
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async =>
-      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async =>
+          (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -103,7 +104,9 @@ class _StubAgentsRepository implements AgentsRepository {
     repo,
     _ReadyAgentServerController(),
     LocalNotificationService(),
-    NotificationsController(NotificationsRepository(NotificationsDataSource())),
+    NotificationsController(
+      NotificationsRepository(NotificationsDataSource()),
+    ),
   );
   return (ctrl: ctrl, repo: repo);
 }
@@ -124,37 +127,29 @@ void main() {
       // the assistant turn (message.updated / message.part.updated never arrive
       // over /event). Pre-fix, these deltas land in _chatPartsByMessage with no
       // assistant bubble, so nothing renders until a reselect refetch.
-      repo.emit(
-        const MessagePartDeltaMessage(
-          sessionId: 's1',
-          messageId: 'msg_asst_1',
-          partId: 'prt_1',
-          field: 'text',
-          delta: 'PO',
-        ),
-      );
-      repo.emit(
-        const MessagePartDeltaMessage(
-          sessionId: 's1',
-          messageId: 'msg_asst_1',
-          partId: 'prt_1',
-          field: 'text',
-          delta: 'NG',
-        ),
-      );
+      repo.emit(const MessagePartDeltaMessage(
+        sessionId: 's1',
+        messageId: 'msg_asst_1',
+        partId: 'prt_1',
+        field: 'text',
+        delta: 'PO',
+      ));
+      repo.emit(const MessagePartDeltaMessage(
+        sessionId: 's1',
+        messageId: 'msg_asst_1',
+        partId: 'prt_1',
+        field: 'text',
+        delta: 'NG',
+      ));
       await Future<void>.delayed(Duration.zero);
 
       final assistant = ctrl
           .chatMessagesFor('s1')
           .where((m) => m.role == 'assistant')
           .toList();
-      expect(
-        assistant,
-        hasLength(1),
-        reason:
-            'a live assistant bubble must be synthesized from streaming '
-            'parts even when message.updated never arrives (#761)',
-      );
+      expect(assistant, hasLength(1),
+          reason: 'a live assistant bubble must be synthesized from streaming '
+              'parts even when message.updated never arrives (#761)');
       expect(assistant.single.id, 'msg_asst_1');
 
       final text = ctrl
@@ -162,11 +157,8 @@ void main() {
           .where((p) => p.type == 'text')
           .map((p) => p.text)
           .join();
-      expect(
-        text,
-        'PONG',
-        reason: 'streamed deltas render under the synthesized bubble',
-      );
+      expect(text, 'PONG',
+          reason: 'streamed deltas render under the synthesized bubble');
     },
   );
 
@@ -179,17 +171,15 @@ void main() {
       await ctrl.initialize();
       await ctrl.selectSession('s1');
 
-      repo.emit(
-        const MessagePartUpdatedMessage(
-          sessionId: 's1',
-          part: {
-            'id': 'prt_1',
-            'messageID': 'msg_asst_2',
-            'type': 'text',
-            'text': 'hello from the assistant',
-          },
-        ),
-      );
+      repo.emit(const MessagePartUpdatedMessage(
+        sessionId: 's1',
+        part: {
+          'id': 'prt_1',
+          'messageID': 'msg_asst_2',
+          'type': 'text',
+          'text': 'hello from the assistant',
+        },
+      ));
       await Future<void>.delayed(Duration.zero);
 
       final assistant = ctrl

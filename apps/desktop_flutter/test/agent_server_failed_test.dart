@@ -21,14 +21,14 @@ void main() {
   );
 
   group('AgentServerFailed widget', () {
-    testWidgets('renders header and message with no failure reason', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        _wrap(
-          AgentServerFailed(errorMessage: 'Generic failure', onRetry: () {}),
+    testWidgets('renders header and message with no failure reason',
+        (tester) async {
+      await tester.pumpWidget(_wrap(
+        AgentServerFailed(
+          errorMessage: 'Generic failure',
+          onRetry: () {},
         ),
-      );
+      ));
 
       expect(find.text('Agent server failed to start'), findsOneWidget);
       expect(find.text('Generic failure'), findsOneWidget);
@@ -39,19 +39,16 @@ void main() {
 
     for (final reason in AgentServerFailureReason.values) {
       testWidgets('renders for reason ${reason.name}', (tester) async {
-        final hasTail =
-            reason == AgentServerFailureReason.healthCheckTimeout ||
+        final hasTail = reason == AgentServerFailureReason.healthCheckTimeout ||
             reason == AgentServerFailureReason.spawnThrew;
-        await tester.pumpWidget(
-          _wrap(
-            AgentServerFailed(
-              errorMessage: 'msg-${reason.name}',
-              failureReason: reason,
-              stderrTail: hasTail ? 'STDERR_TAIL_FOR_${reason.name}' : null,
-              onRetry: () {},
-            ),
+        await tester.pumpWidget(_wrap(
+          AgentServerFailed(
+            errorMessage: 'msg-${reason.name}',
+            failureReason: reason,
+            stderrTail: hasTail ? 'STDERR_TAIL_FOR_${reason.name}' : null,
+            onRetry: () {},
           ),
-        );
+        ));
 
         expect(find.text('Agent server failed to start'), findsOneWidget);
         expect(find.text('msg-${reason.name}'), findsOneWidget);
@@ -71,28 +68,25 @@ void main() {
       });
     }
 
-    testWidgets('Copy diagnostics writes documented multi-line block', (
-      tester,
-    ) async {
+    testWidgets('Copy diagnostics writes documented multi-line block',
+        (tester) async {
       String? captured;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(SystemChannels.platform, (call) async {
-            if (call.method == 'Clipboard.setData') {
-              captured = (call.arguments as Map)['text'] as String?;
-            }
-            return null;
-          });
+        if (call.method == 'Clipboard.setData') {
+          captured = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      });
 
-      await tester.pumpWidget(
-        _wrap(
-          AgentServerFailed(
-            errorMessage: 'health check timeout',
-            failureReason: AgentServerFailureReason.healthCheckTimeout,
-            stderrTail: 'EADDRINUSE :4001',
-            onRetry: () {},
-          ),
+      await tester.pumpWidget(_wrap(
+        AgentServerFailed(
+          errorMessage: 'health check timeout',
+          failureReason: AgentServerFailureReason.healthCheckTimeout,
+          stderrTail: 'EADDRINUSE :4001',
+          onRetry: () {},
         ),
-      );
+      ));
 
       await tester.tap(find.text('Copy diagnostics'));
       await tester.pumpAndSettle();
@@ -116,28 +110,25 @@ void main() {
           .setMockMethodCallHandler(SystemChannels.platform, null);
     });
 
-    testWidgets('Copy diagnostics writes "(none)" when stderr is null', (
-      tester,
-    ) async {
+    testWidgets('Copy diagnostics writes "(none)" when stderr is null',
+        (tester) async {
       String? captured;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(SystemChannels.platform, (call) async {
-            if (call.method == 'Clipboard.setData') {
-              captured = (call.arguments as Map)['text'] as String?;
-            }
-            return null;
-          });
+        if (call.method == 'Clipboard.setData') {
+          captured = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      });
 
-      await tester.pumpWidget(
-        _wrap(
-          AgentServerFailed(
-            errorMessage: 'bundle missing',
-            failureReason: AgentServerFailureReason.bundleNotFound,
-            stderrTail: null,
-            onRetry: () {},
-          ),
+      await tester.pumpWidget(_wrap(
+        AgentServerFailed(
+          errorMessage: 'bundle missing',
+          failureReason: AgentServerFailureReason.bundleNotFound,
+          stderrTail: null,
+          onRetry: () {},
         ),
-      );
+      ));
 
       await tester.tap(find.text('Copy diagnostics'));
       await tester.pumpAndSettle();

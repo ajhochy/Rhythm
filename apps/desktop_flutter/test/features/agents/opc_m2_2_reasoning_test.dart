@@ -93,7 +93,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -105,8 +105,8 @@ class _FakeNotificationsController extends NotificationsController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -139,12 +139,16 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => [];
+  }) async =>
+      [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async {
-    return (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async {
+    return (
+      session: _makeSession(id),
+      messages: const <AgentSessionMessage>[],
+    );
   }
 
   @override
@@ -158,14 +162,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 ({AgentsController ctrl, _StubAgentsRepository repo}) _buildController() {
   final repo = _StubAgentsRepository();
@@ -177,9 +181,9 @@ AgentSession _makeSession(String id) => AgentSession(
 }
 
 Widget _wrap(Widget child) => MaterialApp(
-  theme: AppTheme.light(),
-  home: Scaffold(body: SizedBox(width: 600, child: child)),
-);
+      theme: AppTheme.light(),
+      home: Scaffold(body: SizedBox(width: 600, child: child)),
+    );
 
 // ---------------------------------------------------------------------------
 // Real v1.14.49 part shapes (from fixtures/opencode_v1_14_49/)
@@ -240,221 +244,195 @@ void main() {
     TestWidgetsFlutterBinding.ensureInitialized();
   });
 
-  group('issue-691-c1: delta routing — reasoning delta appends to reasoning part; '
+  group(
+      'issue-691-c1: delta routing — reasoning delta appends to reasoning part; '
       'text delta to text part; unknown-field delta retained', () {
-    test(
-      'c1a: reasoning delta (field=text) appends to existing reasoning part',
-      () async {
-        final (:ctrl, :repo) = _buildController();
-        addTearDown(ctrl.dispose);
-        await ctrl.initialize();
+    test('c1a: reasoning delta (field=text) appends to existing reasoning part',
+        () async {
+      final (:ctrl, :repo) = _buildController();
+      addTearDown(ctrl.dispose);
+      await ctrl.initialize();
 
-        const sessionId = 'sess-c1a';
-        const messageId = 'msg_abc001';
-        const reasoningPartId = 'part_reasoning_001';
+      const sessionId = 'sess-c1a';
+      const messageId = 'msg_abc001';
+      const reasoningPartId = 'part_reasoning_001';
 
-        // Step 1: upsert the reasoning part via a WS message.part.updated event.
-        // Real shape: type='reasoning', field 'text' carries the reasoning text.
-        // MessagePartUpdatedMessage takes sessionId + part (the full part map).
-        repo.emit(
-          MessagePartUpdatedMessage(
-            sessionId: sessionId,
-            part: Map<String, dynamic>.from(_kReasoningPartShape),
-          ),
-        );
-        await Future<void>.delayed(Duration.zero);
+      // Step 1: upsert the reasoning part via a WS message.part.updated event.
+      // Real shape: type='reasoning', field 'text' carries the reasoning text.
+      // MessagePartUpdatedMessage takes sessionId + part (the full part map).
+      repo.emit(MessagePartUpdatedMessage(
+        sessionId: sessionId,
+        part: Map<String, dynamic>.from(_kReasoningPartShape),
+      ));
+      await Future<void>.delayed(Duration.zero);
 
-        final initialText = ctrl
-            .chatPartsFor(messageId)
-            .firstWhere((p) => p.id == reasoningPartId)
-            .text;
+      final initialText = ctrl
+          .chatPartsFor(messageId)
+          .firstWhere((p) => p.id == reasoningPartId)
+          .text;
 
-        // Step 2: emit a delta targeting the reasoning part.
-        repo.emit(
-          MessagePartDeltaMessage(
-            sessionId: sessionId,
-            messageId: messageId,
-            partId: reasoningPartId,
-            field: _kReasoningDeltaShape['field']!,
-            delta: _kReasoningDeltaShape['delta']!,
-          ),
-        );
-        await Future<void>.delayed(Duration.zero);
+      // Step 2: emit a delta targeting the reasoning part.
+      repo.emit(MessagePartDeltaMessage(
+        sessionId: sessionId,
+        messageId: messageId,
+        partId: reasoningPartId,
+        field: _kReasoningDeltaShape['field']!,
+        delta: _kReasoningDeltaShape['delta']!,
+      ));
+      await Future<void>.delayed(Duration.zero);
 
-        final afterDelta = ctrl
-            .chatPartsFor(messageId)
-            .firstWhere((p) => p.id == reasoningPartId)
-            .text;
+      final afterDelta = ctrl
+          .chatPartsFor(messageId)
+          .firstWhere((p) => p.id == reasoningPartId)
+          .text;
 
-        expect(
-          afterDelta,
-          equals(initialText + (_kReasoningDeltaShape['delta'] ?? '')),
-          reason:
-              'A reasoning delta (field=text) must append to the reasoning '
-              'part\'s text, not create a duplicate text part.',
-        );
-        // The part type must remain 'reasoning' — not degraded to 'text'.
-        final part = ctrl
-            .chatPartsFor(messageId)
-            .firstWhere((p) => p.id == reasoningPartId);
-        expect(
-          part.type,
-          equals('reasoning'),
-          reason: 'Part type must remain reasoning after delta append.',
-        );
-      },
-    );
+      expect(
+        afterDelta,
+        equals(initialText + (_kReasoningDeltaShape['delta'] ?? '')),
+        reason: 'A reasoning delta (field=text) must append to the reasoning '
+            'part\'s text, not create a duplicate text part.',
+      );
+      // The part type must remain 'reasoning' — not degraded to 'text'.
+      final part = ctrl
+          .chatPartsFor(messageId)
+          .firstWhere((p) => p.id == reasoningPartId);
+      expect(part.type, equals('reasoning'),
+          reason: 'Part type must remain reasoning after delta append.');
+    });
 
     test(
-      'c1a-regression: delayed empty reasoning snapshot preserves streamed delta',
-      () async {
-        // Claude Code emits the text delta before its reasoning part snapshot.
-        // The snapshot initially has text='', so it must promote the temporary
-        // part to reasoning without clearing text already streamed to the UI.
-        final (:ctrl, :repo) = _buildController();
-        addTearDown(ctrl.dispose);
-        await ctrl.initialize();
+        'c1a-regression: delayed empty reasoning snapshot preserves streamed delta',
+        () async {
+      // Claude Code emits the text delta before its reasoning part snapshot.
+      // The snapshot initially has text='', so it must promote the temporary
+      // part to reasoning without clearing text already streamed to the UI.
+      final (:ctrl, :repo) = _buildController();
+      addTearDown(ctrl.dispose);
+      await ctrl.initialize();
 
-        const sessionId = 'sess-c1a-delayed';
-        const messageId = 'msg-c1a-delayed';
-        const partId = 'part-c1a-delayed';
-        const delta = 'streamed Claude reasoning';
+      const sessionId = 'sess-c1a-delayed';
+      const messageId = 'msg-c1a-delayed';
+      const partId = 'part-c1a-delayed';
+      const delta = 'streamed Claude reasoning';
 
-        repo.emit(
-          const MessagePartDeltaMessage(
-            sessionId: sessionId,
-            messageId: messageId,
-            partId: partId,
-            field: 'text',
-            delta: delta,
-          ),
-        );
-        await Future<void>.delayed(Duration.zero);
+      repo.emit(const MessagePartDeltaMessage(
+        sessionId: sessionId,
+        messageId: messageId,
+        partId: partId,
+        field: 'text',
+        delta: delta,
+      ));
+      await Future<void>.delayed(Duration.zero);
 
-        repo.emit(
-          const MessagePartUpdatedMessage(
-            sessionId: sessionId,
-            part: {
-              'id': partId,
-              'sessionID': sessionId,
-              'messageID': messageId,
-              'type': 'reasoning',
-              'text': '',
-            },
-          ),
-        );
-        await Future<void>.delayed(Duration.zero);
+      repo.emit(const MessagePartUpdatedMessage(
+        sessionId: sessionId,
+        part: {
+          'id': partId,
+          'sessionID': sessionId,
+          'messageID': messageId,
+          'type': 'reasoning',
+          'text': '',
+        },
+      ));
+      await Future<void>.delayed(Duration.zero);
 
-        final part = ctrl.chatPartsFor(messageId).single;
-        expect(part.type, equals('reasoning'));
-        expect(part.text, equals(delta));
-      },
-    );
+      final part = ctrl.chatPartsFor(messageId).single;
+      expect(part.type, equals('reasoning'));
+      expect(part.text, equals(delta));
+    });
 
-    test(
-      'c1b: text delta appends to the text part (unchanged behavior)',
-      () async {
-        final (:ctrl, :repo) = _buildController();
-        addTearDown(ctrl.dispose);
-        await ctrl.initialize();
+    test('c1b: text delta appends to the text part (unchanged behavior)',
+        () async {
+      final (:ctrl, :repo) = _buildController();
+      addTearDown(ctrl.dispose);
+      await ctrl.initialize();
 
-        const sessionId = 'sess-c1b';
-        const messageId = 'msg_abc001';
-        const textPartId = 'part_text_001';
+      const sessionId = 'sess-c1b';
+      const messageId = 'msg_abc001';
+      const textPartId = 'part_text_001';
 
-        // Upsert text part first.
-        repo.emit(
-          MessagePartUpdatedMessage(
-            sessionId: sessionId,
-            part: Map<String, dynamic>.from(_kTextPartShape),
-          ),
-        );
-        await Future<void>.delayed(Duration.zero);
+      // Upsert text part first.
+      repo.emit(MessagePartUpdatedMessage(
+        sessionId: sessionId,
+        part: Map<String, dynamic>.from(_kTextPartShape),
+      ));
+      await Future<void>.delayed(Duration.zero);
 
-        final initialText = ctrl
-            .chatPartsFor(messageId)
-            .firstWhere((p) => p.id == textPartId)
-            .text;
+      final initialText = ctrl
+          .chatPartsFor(messageId)
+          .firstWhere((p) => p.id == textPartId)
+          .text;
 
-        // Emit a text delta.
-        repo.emit(
-          MessagePartDeltaMessage(
-            sessionId: sessionId,
-            messageId: messageId,
-            partId: textPartId,
-            field: _kTextDeltaShape['field']!,
-            delta: _kTextDeltaShape['delta']!,
-          ),
-        );
-        await Future<void>.delayed(Duration.zero);
+      // Emit a text delta.
+      repo.emit(MessagePartDeltaMessage(
+        sessionId: sessionId,
+        messageId: messageId,
+        partId: textPartId,
+        field: _kTextDeltaShape['field']!,
+        delta: _kTextDeltaShape['delta']!,
+      ));
+      await Future<void>.delayed(Duration.zero);
 
-        final afterDelta = ctrl
-            .chatPartsFor(messageId)
-            .firstWhere((p) => p.id == textPartId)
-            .text;
+      final afterDelta = ctrl
+          .chatPartsFor(messageId)
+          .firstWhere((p) => p.id == textPartId)
+          .text;
 
-        expect(
-          afterDelta,
-          equals(initialText + (_kTextDeltaShape['delta'] ?? '')),
-          reason:
-              'A text delta must append to the text part (unchanged behavior).',
-        );
-      },
-    );
+      expect(
+        afterDelta,
+        equals(initialText + (_kTextDeltaShape['delta'] ?? '')),
+        reason:
+            'A text delta must append to the text part (unchanged behavior).',
+      );
+    });
 
     test(
-      'c1c: unknown-field delta is retained (part created on-the-fly) not silently dropped',
-      () async {
-        final (:ctrl, :repo) = _buildController();
-        addTearDown(ctrl.dispose);
-        await ctrl.initialize();
+        'c1c: unknown-field delta is retained (part created on-the-fly) not silently dropped',
+        () async {
+      final (:ctrl, :repo) = _buildController();
+      addTearDown(ctrl.dispose);
+      await ctrl.initialize();
 
-        const sessionId = 'sess-c1c';
-        const messageId = 'msg_abc001';
-        const textPartId = 'part_text_001';
+      const sessionId = 'sess-c1c';
+      const messageId = 'msg_abc001';
+      const textPartId = 'part_text_001';
 
-        // Upsert a text part first.
-        repo.emit(
-          MessagePartUpdatedMessage(
-            sessionId: sessionId,
-            part: Map<String, dynamic>.from(_kTextPartShape),
-          ),
-        );
-        await Future<void>.delayed(Duration.zero);
+      // Upsert a text part first.
+      repo.emit(MessagePartUpdatedMessage(
+        sessionId: sessionId,
+        part: Map<String, dynamic>.from(_kTextPartShape),
+      ));
+      await Future<void>.delayed(Duration.zero);
 
-        // Count parts before unknown-field delta.
-        final partsBefore = ctrl.chatPartsFor(messageId).length;
+      // Count parts before unknown-field delta.
+      final partsBefore = ctrl.chatPartsFor(messageId).length;
 
-        // Emit an unknown-field delta for the text part.
-        repo.emit(
-          MessagePartDeltaMessage(
-            sessionId: sessionId,
-            messageId: messageId,
-            partId: textPartId,
-            field: _kUnknownFieldDeltaShape['field']!,
-            delta: _kUnknownFieldDeltaShape['delta']!,
-          ),
-        );
-        await Future<void>.delayed(Duration.zero);
+      // Emit an unknown-field delta for the text part.
+      repo.emit(MessagePartDeltaMessage(
+        sessionId: sessionId,
+        messageId: messageId,
+        partId: textPartId,
+        field: _kUnknownFieldDeltaShape['field']!,
+        delta: _kUnknownFieldDeltaShape['delta']!,
+      ));
+      await Future<void>.delayed(Duration.zero);
 
-        // The part must still be present — not dropped.
-        final partsAfter = ctrl.chatPartsFor(messageId);
-        expect(
-          partsAfter.length,
-          equals(partsBefore),
-          reason:
-              'Unknown-field delta must not create a duplicate part or drop '
-              'the existing part. Part count must remain the same.',
-        );
-        // The existing part must still be there.
-        expect(
-          partsAfter.any((p) => p.id == textPartId),
-          isTrue,
-          reason:
-              'The text part must still be present after an unknown-field delta.',
-        );
-      },
-    );
+      // The part must still be present — not dropped.
+      final partsAfter = ctrl.chatPartsFor(messageId);
+      expect(
+        partsAfter.length,
+        equals(partsBefore),
+        reason: 'Unknown-field delta must not create a duplicate part or drop '
+            'the existing part. Part count must remain the same.',
+      );
+      // The existing part must still be there.
+      expect(
+        partsAfter.any((p) => p.id == textPartId),
+        isTrue,
+        reason:
+            'The text part must still be present after an unknown-field delta.',
+      );
+    });
   });
 
   // ===========================================================================
@@ -462,109 +440,115 @@ void main() {
   // ===========================================================================
 
   group(
-    'issue-691-c2: reasoning block collapsed by default; text hidden until expanded',
-    () {
-      testWidgets(
-        'c2: "Thinking…" label visible; reasoning text hidden; expands on tap',
-        (tester) async {
-          const reasoningText = 'I need to analyze the code carefully.';
-          final part = ChatPart.fromJson('msg1', {
-            'id': 'part_reasoning_001',
-            'type': 'reasoning',
-            'text': reasoningText,
-          });
+      'issue-691-c2: reasoning block collapsed by default; text hidden until expanded',
+      () {
+    testWidgets(
+      'c2: "Thinking…" label visible; reasoning text hidden; expands on tap',
+      (tester) async {
+        const reasoningText = 'I need to analyze the code carefully.';
+        final part = ChatPart.fromJson('msg1', {
+          'id': 'part_reasoning_001',
+          'type': 'reasoning',
+          'text': reasoningText,
+        });
 
-          await tester.pumpWidget(_wrap(ReasoningBlock(part: part)));
+        await tester.pumpWidget(_wrap(ReasoningBlock(part: part)));
 
-          // Collapsed state: label visible, reasoning text hidden.
-          expect(
-            find.textContaining('Thinking'),
-            findsWidgets,
-            reason: '"Thinking…" label must be visible when collapsed.',
-          );
-          expect(
-            find.text(reasoningText),
-            findsNothing,
-            reason:
-                'Reasoning text must NOT be visible when the block is collapsed.',
-          );
+        // Collapsed state: label visible, reasoning text hidden.
+        expect(
+          find.textContaining('Thinking'),
+          findsWidgets,
+          reason: '"Thinking…" label must be visible when collapsed.',
+        );
+        expect(
+          find.text(reasoningText),
+          findsNothing,
+          reason:
+              'Reasoning text must NOT be visible when the block is collapsed.',
+        );
 
-          // Tap to expand.
-          await tester.tap(find.textContaining('Thinking').first);
-          await tester.pump();
+        // Tap to expand.
+        await tester.tap(find.textContaining('Thinking').first);
+        await tester.pump();
 
-          // After expansion: reasoning text must be visible.
-          expect(
-            find.text(reasoningText),
-            findsWidgets,
-            reason: 'Reasoning text must be visible after tapping to expand.',
-          );
-        },
-      );
-    },
-  );
+        // After expansion: reasoning text must be visible.
+        expect(
+          find.text(reasoningText),
+          findsWidgets,
+          reason: 'Reasoning text must be visible after tapping to expand.',
+        );
+      },
+    );
+  });
 
   // ===========================================================================
   // c3 — Expand state survives a delta-append rebuild
   // ===========================================================================
 
   group('issue-691-c3: expand state survives delta-append rebuild', () {
-    testWidgets('c3: expanded block stays expanded when part.text is updated', (
-      tester,
-    ) async {
-      const reasoningText = 'Initial reasoning text.';
-      final part = ChatPart.fromJson('msg1', {
-        'id': 'part_reasoning_001',
-        'type': 'reasoning',
-        'text': reasoningText,
-      });
+    testWidgets(
+      'c3: expanded block stays expanded when part.text is updated',
+      (tester) async {
+        const reasoningText = 'Initial reasoning text.';
+        final part = ChatPart.fromJson('msg1', {
+          'id': 'part_reasoning_001',
+          'type': 'reasoning',
+          'text': reasoningText,
+        });
 
-      // Build with same key so the state is preserved across rebuilds.
-      await tester.pumpWidget(
-        _wrap(
-          ReasoningBlock(key: const ValueKey('part_reasoning_001'), part: part),
-        ),
-      );
+        // Build with same key so the state is preserved across rebuilds.
+        await tester.pumpWidget(
+          _wrap(
+            ReasoningBlock(
+              key: const ValueKey('part_reasoning_001'),
+              part: part,
+            ),
+          ),
+        );
 
-      // Expand it.
-      await tester.tap(find.textContaining('Thinking').first);
-      await tester.pump();
+        // Expand it.
+        await tester.tap(find.textContaining('Thinking').first);
+        await tester.pump();
 
-      // Verify expanded.
-      expect(
-        find.text(reasoningText),
-        findsWidgets,
-        reason: 'Block must be expanded after tap.',
-      );
+        // Verify expanded.
+        expect(
+          find.text(reasoningText),
+          findsWidgets,
+          reason: 'Block must be expanded after tap.',
+        );
 
-      // Simulate delta append — part.text mutates (same object, new content).
-      part.appendDelta(' more thinking');
+        // Simulate delta append — part.text mutates (same object, new content).
+        part.appendDelta(' more thinking');
 
-      // Re-render with the same widget key → state must be preserved.
-      await tester.pumpWidget(
-        _wrap(
-          ReasoningBlock(key: const ValueKey('part_reasoning_001'), part: part),
-        ),
-      );
-      await tester.pump();
+        // Re-render with the same widget key → state must be preserved.
+        await tester.pumpWidget(
+          _wrap(
+            ReasoningBlock(
+              key: const ValueKey('part_reasoning_001'),
+              part: part,
+            ),
+          ),
+        );
+        await tester.pump();
 
-      // Must still be expanded (not auto-collapsed).
-      expect(
-        find.textContaining('Initial reasoning text.'),
-        findsWidgets,
-        reason:
-            'Block must remain expanded after delta-append rebuild. '
-            'If collapsed, the StatefulWidget is being recreated without '
-            'a stable key or is auto-collapsing on rebuild.',
-      );
-    });
+        // Must still be expanded (not auto-collapsed).
+        expect(
+          find.textContaining('Initial reasoning text.'),
+          findsWidgets,
+          reason: 'Block must remain expanded after delta-append rebuild. '
+              'If collapsed, the StatefulWidget is being recreated without '
+              'a stable key or is auto-collapsing on rebuild.',
+        );
+      },
+    );
   });
 
   // ===========================================================================
   // c4 — Text part renders outside reasoning block; both findable when expanded
   // ===========================================================================
 
-  group('issue-691-c4: text part renders outside reasoning block; '
+  group(
+      'issue-691-c4: text part renders outside reasoning block; '
       'both findable when reasoning expanded', () {
     testWidgets(
       'c4: assistant message with reasoning + text parts renders both correctly',
@@ -610,8 +594,7 @@ void main() {
         expect(
           find.textContaining(answerText),
           findsWidgets,
-          reason:
-              'Answer text must render outside the reasoning block '
+          reason: 'Answer text must render outside the reasoning block '
               '(visible without expanding).',
         );
 
@@ -645,7 +628,8 @@ void main() {
   // c5 — Rehydrated reasoning parts render identically to streamed ones
   // ===========================================================================
 
-  group('issue-691-c5: rehydrated reasoning part renders as collapsed block '
+  group(
+      'issue-691-c5: rehydrated reasoning part renders as collapsed block '
       'identical to streamed path', () {
     testWidgets(
       'c5: ChatPart.fromJson (REST/rehydrate path) renders identical to '
@@ -686,14 +670,15 @@ void main() {
         );
 
         // Both must render as a ReasoningBlock that is collapsed by default.
-        await tester.pumpWidget(_wrap(ReasoningBlock(part: rehydratedPart)));
+        await tester.pumpWidget(
+          _wrap(ReasoningBlock(part: rehydratedPart)),
+        );
 
         // The finished-state label is "Thought for Ns".
         expect(
           find.textContaining('Thought for'),
           findsWidgets,
-          reason:
-              'Rehydrated (finished) reasoning part must render as a '
+          reason: 'Rehydrated (finished) reasoning part must render as a '
               'collapsed "Thought for Ns" block.',
         );
         expect(

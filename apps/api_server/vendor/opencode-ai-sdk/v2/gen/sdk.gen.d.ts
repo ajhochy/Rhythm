@@ -957,6 +957,7 @@ export declare class Session2 extends HeyApiClient {
             servers: Array<string>;
             tools: Array<string>;
             deferred?: boolean;
+            deferredServers?: Array<string>;
         };
         skillAllowlist?: {
             skills: Array<string>;
@@ -1009,6 +1010,7 @@ export declare class Session2 extends HeyApiClient {
             servers: Array<string>;
             tools: Array<string>;
             deferred?: boolean;
+            deferredServers?: Array<string>;
         } | null;
         skillAllowlist?: {
             skills: Array<string>;

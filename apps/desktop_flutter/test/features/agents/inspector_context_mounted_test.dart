@@ -118,12 +118,15 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async =>
-      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async => (
+            session: _makeSession(id),
+            messages: const <AgentSessionMessage>[],
+          );
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -144,7 +147,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -182,16 +185,16 @@ final _kCreated = DateTime(2026, 6, 1, 9, 30);
 final _kUpdated = DateTime(2026, 6, 2, 14, 15);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  providerId: 'anthropic',
-  modelId: 'claude-sonnet-4-6',
-  createdAt: _kCreated,
-  updatedAt: _kUpdated,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      providerId: 'anthropic',
+      modelId: 'claude-sonnet-4-6',
+      createdAt: _kCreated,
+      updatedAt: _kUpdated,
+    );
 
 final _claudeCodeConfig = AgentConfig(
   id: 'claude-code',
@@ -223,9 +226,8 @@ void _seedMessage(
   );
 }
 
-Future<Widget> _buildTestApp({
-  required AgentsController agentsController,
-}) async {
+Future<Widget> _buildTestApp(
+    {required AgentsController agentsController}) async {
   final agentServerController = _ReadyAgentServerController();
   final agentConfigsController = AgentConfigsController(
     AgentConfigsRepository(_FakeAgentConfigsDataSource([_claudeCodeConfig])),
@@ -247,7 +249,9 @@ Future<Widget> _buildTestApp({
       ChangeNotifierProvider<AgentConfigsController>.value(
         value: agentConfigsController,
       ),
-      ChangeNotifierProvider<AgentsController>.value(value: agentsController),
+      ChangeNotifierProvider<AgentsController>.value(
+        value: agentsController,
+      ),
       ChangeNotifierProvider<TasksController>.value(value: tasksController),
       ChangeNotifierProvider<AgentProjectsController>.value(
         value: agentProjectsController,
@@ -268,89 +272,97 @@ void main() {
   // this binding, timing out the test. Mirrors the other inspector test files.
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('#862: memory provenance is an integrated Context-tab section — '
-      'count row + readable titles, no raw slug, no separate footer panel', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(1600, 900));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets(
+    '#862: memory provenance is an integrated Context-tab section — '
+    'count row + readable titles, no raw slug, no separate footer panel',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    final repo = _StubAgentsRepository();
-    final controller = AgentsController(
-      repo,
-      _ReadyAgentServerController(),
-      _FakeLocalNotificationService(),
-      _FakeNotificationsController(),
-    );
-
-    await tester.runAsync(() async {
-      await controller.initialize();
-      controller.setActiveSessionForTest('s1', _makeSession('s1'));
-      _seedMessage(
-        controller,
-        sessionId: 's1',
-        messageId: 'm1',
-        cost: 0.001,
-        tokens: const {'input': 10, 'output': 5},
+      final repo = _StubAgentsRepository();
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
       );
-    });
-    controller.setMemoryProvenanceForTest('s1', {
-      'recorded': true,
-      'memoryIds': ['mem-1'],
-      'notePaths': [
-        'memory/preference/standing-instruction-archive-research.md',
-      ],
-    });
 
-    await tester.pumpWidget(await _buildTestApp(agentsController: controller));
-    await tester.pump();
-    // #905 — the panel now defaults to collapsed; this file exercises its
-    // contents, so expand it explicitly (after the initial pump, since
-    // AgentsController.initialize() fires an unawaited loadInspectorPrefs()
-    // that would otherwise race and stomp an earlier explicit set).
-    await controller.setPanelCollapsed(false);
-    await tester.pump();
+      await tester.runAsync(() async {
+        await controller.initialize();
+        controller.setActiveSessionForTest('s1', _makeSession('s1'));
+        _seedMessage(
+          controller,
+          sessionId: 's1',
+          messageId: 'm1',
+          cost: 0.001,
+          tokens: const {'input': 10, 'output': 5},
+        );
+      });
+      controller.setMemoryProvenanceForTest('s1', {
+        'recorded': true,
+        'memoryIds': ['mem-1'],
+        'notePaths': [
+          'memory/preference/standing-instruction-archive-research.md',
+        ],
+      });
 
-    // The section renders inside the Context tab's detail list.
-    expect(find.text('Memories used'), findsOneWidget);
-    expect(
-      tester
-          .widget<Text>(find.byKey(const ValueKey('context-memories-count')))
-          .data,
-      '1',
-    );
-    // Readable title (kind + de-slugged basename), NOT the raw path.
-    expect(find.text('preference'), findsOneWidget);
-    expect(find.text('Standing instruction archive research'), findsOneWidget);
-    expect(
-      find.text('memory/preference/standing-instruction-archive-research.md'),
-      findsNothing,
-    );
+      await tester
+          .pumpWidget(await _buildTestApp(agentsController: controller));
+      await tester.pump();
+      // #905 — the panel now defaults to collapsed; this file exercises its
+      // contents, so expand it explicitly (after the initial pump, since
+      // AgentsController.initialize() fires an unawaited loadInspectorPrefs()
+      // that would otherwise race and stomp an earlier explicit set).
+      await controller.setPanelCollapsed(false);
+      await tester.pump();
 
-    // Empty-but-recorded state says so explicitly.
-    controller.setMemoryProvenanceForTest('s1', {
-      'recorded': true,
-      'memoryIds': <String>[],
-      'notePaths': <String>[],
-    });
-    await tester.pump();
-    expect(find.byKey(const ValueKey('context-memories-none')), findsOneWidget);
+      // The section renders inside the Context tab's detail list.
+      expect(find.text('Memories used'), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('context-memories-count')))
+            .data,
+        '1',
+      );
+      // Readable title (kind + de-slugged basename), NOT the raw path.
+      expect(find.text('preference'), findsOneWidget);
+      expect(
+        find.text('Standing instruction archive research'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('memory/preference/standing-instruction-archive-research.md'),
+        findsNothing,
+      );
 
-    // Never recorded → no section at all.
-    controller.setMemoryProvenanceForTest('s1', {'recorded': false});
-    await tester.pump();
-    expect(find.text('Memories used'), findsNothing);
+      // Empty-but-recorded state says so explicitly.
+      controller.setMemoryProvenanceForTest('s1', {
+        'recorded': true,
+        'memoryIds': <String>[],
+        'notePaths': <String>[],
+      });
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey('context-memories-none')),
+        findsOneWidget,
+      );
 
-    // Flush any rebuild-triggered unawaited controller fetches (the stub's
-    // noSuchMethod rejects them) BEFORE teardown, so nothing lands during a
-    // later test and retro-fails this one.
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 300)),
-    );
+      // Never recorded → no section at all.
+      controller.setMemoryProvenanceForTest('s1', {'recorded': false});
+      await tester.pump();
+      expect(find.text('Memories used'), findsNothing);
 
-    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
-    controller.dispose();
-  });
+      // Flush any rebuild-triggered unawaited controller fetches (the stub's
+      // noSuchMethod rejects them) BEFORE teardown, so nothing lands during a
+      // later test and retro-fails this one.
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)),
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    },
+  );
 
   testWidgets(
     'Context tab shows cost, token breakdown, model and message count',
@@ -384,9 +396,8 @@ void main() {
         );
       });
 
-      await tester.pumpWidget(
-        await _buildTestApp(agentsController: controller),
-      );
+      await tester
+          .pumpWidget(await _buildTestApp(agentsController: controller));
       await tester.pump();
       // #905 — the panel now defaults to collapsed; this file exercises its
       // contents, so expand it explicitly (after the initial pump, since
@@ -441,9 +452,8 @@ void main() {
         controller.setActiveSessionForTest('s1', _makeSession('s1'));
       });
 
-      await tester.pumpWidget(
-        await _buildTestApp(agentsController: controller),
-      );
+      await tester
+          .pumpWidget(await _buildTestApp(agentsController: controller));
       await tester.pump();
       // #905 — the panel now defaults to collapsed; this file exercises its
       // contents, so expand it explicitly (after the initial pump, since

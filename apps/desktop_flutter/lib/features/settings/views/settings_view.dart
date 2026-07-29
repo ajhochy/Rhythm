@@ -491,7 +491,10 @@ class _UserPermissionsCard extends StatelessWidget {
               children: [
                 Text(
                   controller.usersErrorMessage ?? 'Could not load users.',
-                  style: TextStyle(fontSize: 13, color: context.rhythm.danger),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: context.rhythm.danger,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton(
@@ -826,9 +829,9 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
                 ),
                 const SizedBox(height: 8),
                 Theme(
-                  data: Theme.of(
-                    context,
-                  ).copyWith(dividerColor: Colors.transparent),
+                  data: Theme.of(context).copyWith(
+                    dividerColor: Colors.transparent,
+                  ),
                   child: ExpansionTile(
                     tilePadding: EdgeInsets.zero,
                     childrenPadding: EdgeInsets.zero,
@@ -935,11 +938,11 @@ class _AgentServerSection extends StatelessWidget {
           child: switch (controller.status) {
             AgentServerStatus.starting => const _AgentServerStarting(),
             AgentServerStatus.failed => AgentServerFailed(
-              errorMessage: controller.errorMessage,
-              failureReason: controller.failureReason,
-              stderrTail: controller.stderrTail,
-              onRetry: controller.retry,
-            ),
+                errorMessage: controller.errorMessage,
+                failureReason: controller.failureReason,
+                stderrTail: controller.stderrTail,
+                onRetry: controller.retry,
+              ),
             AgentServerStatus.ready => const _AgentServerReady(),
           },
         ),
@@ -963,7 +966,10 @@ class _AgentServerStarting extends StatelessWidget {
         const SizedBox(width: 12),
         Text(
           'Starting agent server on :4001...',
-          style: TextStyle(fontSize: 13, color: context.rhythm.textSecondary),
+          style: TextStyle(
+            fontSize: 13,
+            color: context.rhythm.textSecondary,
+          ),
         ),
       ],
     );
@@ -1049,7 +1055,9 @@ class AgentServerFailedState extends State<AgentServerFailed> {
         if (tail != null) ...[
           const SizedBox(height: 8),
           Theme(
-            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            data: Theme.of(context).copyWith(
+              dividerColor: Colors.transparent,
+            ),
             child: ExpansionTile(
               tilePadding: EdgeInsets.zero,
               childrenPadding: const EdgeInsets.only(top: 4, bottom: 4),
@@ -1073,7 +1081,11 @@ class AgentServerFailedState extends State<AgentServerFailed> {
                     tail,
                     style: TextStyle(
                       fontFamily: 'monospace',
-                      fontFamilyFallback: const ['Menlo', 'Monaco', 'Courier'],
+                      fontFamilyFallback: const [
+                        'Menlo',
+                        'Monaco',
+                        'Courier',
+                      ],
                       fontSize: 12,
                       color: context.rhythm.textPrimary,
                     ),
@@ -1205,12 +1217,11 @@ class MobileAccessSettingsSection extends StatelessWidget {
               const SizedBox(width: 16),
               FilledButton.tonalIcon(
                 key: const Key('manage-mobile-access-button'),
-                onPressed:
-                    onOpen ??
+                onPressed: onOpen ??
                     () => showDialog<void>(
-                      context: context,
-                      builder: (_) => const MobileAccessDialog(),
-                    ),
+                          context: context,
+                          builder: (_) => const MobileAccessDialog(),
+                        ),
                 icon: const Icon(Icons.settings_outlined, size: 17),
                 label: const Text('Manage Mobile Access'),
               ),
@@ -1446,9 +1457,8 @@ class _WorkspaceSectionWidgetState extends State<_WorkspaceSectionWidget> {
                         child: candidates.isEmpty
                             ? Center(
                                 child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
                                   child: Text(
                                     'No matching registered users found.',
                                     style: TextStyle(

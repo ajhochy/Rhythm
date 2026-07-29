@@ -14,8 +14,8 @@ import '../models/project_branches.dart';
 /// to the embedded api_server's SQLite store.
 class AgentProjectsRemoteDataSource {
   AgentProjectsRemoteDataSource({http.Client? client})
-    : _client = client ?? http.Client(),
-      _baseUrl = AppConstants.agentLocalBaseUrl;
+      : _client = client ?? http.Client(),
+        _baseUrl = AppConstants.agentLocalBaseUrl;
 
   final http.Client _client;
   final String _baseUrl;

@@ -15,21 +15,18 @@ import '../models/usage_budget.dart';
 /// owned by the embedded api_server that bridges the provider credentials.
 class UsageBudgetDataSource {
   UsageBudgetDataSource({http.Client? client, String? baseUrl})
-    : _client = client ?? http.Client(),
-      _baseUrl = baseUrl ?? AppConstants.agentLocalBaseUrl;
+      : _client = client ?? http.Client(),
+        _baseUrl = baseUrl ?? AppConstants.agentLocalBaseUrl;
 
   final http.Client _client;
   final String _baseUrl;
 
   /// GET /agents/usage-budget. Pass [force] to bypass the server cache.
   Future<UsageBudgetSnapshot> fetch({bool force = false}) async {
-    final uri = Uri.parse(
-      '$_baseUrl/agents/usage-budget',
-    ).replace(queryParameters: force ? {'force': 'true'} : null);
-    final response = await _client.get(
-      uri,
-      headers: AuthSessionStore.headers(),
-    );
+    final uri = Uri.parse('$_baseUrl/agents/usage-budget')
+        .replace(queryParameters: force ? {'force': 'true'} : null);
+    final response =
+        await _client.get(uri, headers: AuthSessionStore.headers());
     assertOk(response);
     return UsageBudgetSnapshot.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,

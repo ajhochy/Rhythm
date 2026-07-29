@@ -10,7 +10,7 @@ import 'workspace_models.dart';
 
 class WorkspaceDataSource {
   WorkspaceDataSource({String? baseUrl})
-    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 

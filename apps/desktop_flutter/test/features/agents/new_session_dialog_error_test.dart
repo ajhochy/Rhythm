@@ -104,11 +104,12 @@ class _ErrorAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => [];
+  }) async =>
+      [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async {
+      getSession(String id) async {
     throw UnimplementedError();
   }
 
@@ -238,18 +239,14 @@ class _ErrorAgentsRepository implements AgentsRepository {
   Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async => [];
 
   @override
-  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async => {
-    'recorded': false,
-    'memoryIds': [],
-    'notePaths': [],
-  };
+  Future<Map<String, dynamic>> fetchMemoryProvenance(String id) async =>
+      {'recorded': false, 'memoryIds': [], 'notePaths': []};
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-    String parentSessionId,
-    String childSdkId, {
-    String? cwd,
-  }) async => [];
+          String parentSessionId, String childSdkId,
+          {String? cwd}) async =>
+      [];
 
   @override
   Future<AgentSession> forkSession(String sessionId, String messageId) async {
@@ -282,7 +279,8 @@ class _ErrorAgentsRepository implements AgentsRepository {
   Future<List<Map<String, dynamic>>> getVcsDiff(
     String sessionId,
     String mode,
-  ) async => const [];
+  ) async =>
+      const [];
 
   @override
   Future<String> getVcsDiffRaw(String sessionId) async => '';
@@ -299,19 +297,20 @@ class _ErrorAgentsRepository implements AgentsRepository {
     String query, {
     int? limit,
     String? type,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<List<Map<String, dynamic>>> listSessionFiles(
     String sessionId, {
     String path = '.',
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<Map<String, dynamic>> fileContent(
-    String sessionId,
-    String path,
-  ) async => const {};
+          String sessionId, String path) async =>
+      const {};
 
   @override
   Future<List<Map<String, dynamic>>> filesGitStatus(String sessionId) async =>
@@ -329,7 +328,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -463,7 +462,9 @@ void main() {
     );
     final controller = await makeController(repo);
 
-    await tester.pumpWidget(await _buildTestApp(agentsController: controller));
+    await tester.pumpWidget(
+      await _buildTestApp(agentsController: controller),
+    );
     await openDialogAndSubmit(tester);
 
     expect(find.textContaining('agent not configured'), findsOneWidget);

@@ -104,11 +104,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => _sessions;
+  }) async =>
+      _sessions;
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async {
+      getSession(String id) async {
     final s = _sessions.firstWhere((x) => x.id == id);
     return (session: s, messages: const <AgentSessionMessage>[]);
   }
@@ -128,7 +129,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -166,163 +167,148 @@ void main() {
     // -----------------------------------------------------------------------
     // c1 — first sendInput on a nameless session sets fallback title
     // -----------------------------------------------------------------------
-    test(
-      'c1: first sendInput sets fallback title when session name is empty',
-      () async {
-        final session = _session('s1', name: '');
-        final repo = _StubAgentsRepository([session]);
-        final controller = AgentsController(
-          repo,
-          _ReadyAgentServerController(),
-          _FakeLocalNotificationService(),
-          _FakeNotificationsController(),
-        );
-        addTearDown(controller.dispose);
+    test('c1: first sendInput sets fallback title when session name is empty',
+        () async {
+      final session = _session('s1', name: '');
+      final repo = _StubAgentsRepository([session]);
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(controller.dispose);
 
-        await controller.initialize();
+      await controller.initialize();
 
-        // Confirm precondition: session is loaded with empty name.
-        expect(controller.sessions.first.name, equals(''));
+      // Confirm precondition: session is loaded with empty name.
+      expect(controller.sessions.first.name, equals(''));
 
-        // Act: send the first user message.
-        controller.sendInput('s1', 'Fix the login bug\n');
+      // Act: send the first user message.
+      controller.sendInput('s1', 'Fix the login bug\n');
 
-        // Assert: session name is now derived from the message text.
-        final updated = controller.sessions.firstWhere((s) => s.id == 's1');
-        expect(updated.name, equals('Fix the login bug'));
-      },
-    );
+      // Assert: session name is now derived from the message text.
+      final updated = controller.sessions.firstWhere((s) => s.id == 's1');
+      expect(updated.name, equals('Fix the login bug'));
+    });
 
     // -----------------------------------------------------------------------
     // c2 — message > 40 chars is truncated with '…'
     // -----------------------------------------------------------------------
-    test(
-      'c2: message longer than 40 chars is truncated with ellipsis',
-      () async {
-        final session = _session('s2', name: '');
-        final repo = _StubAgentsRepository([session]);
-        final controller = AgentsController(
-          repo,
-          _ReadyAgentServerController(),
-          _FakeLocalNotificationService(),
-          _FakeNotificationsController(),
-        );
-        addTearDown(controller.dispose);
+    test('c2: message longer than 40 chars is truncated with ellipsis',
+        () async {
+      final session = _session('s2', name: '');
+      final repo = _StubAgentsRepository([session]);
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(controller.dispose);
 
-        await controller.initialize();
+      await controller.initialize();
 
-        const longMessage =
-            'Refactor the entire authentication system to use OAuth 2.0\n';
-        controller.sendInput('s2', longMessage);
+      const longMessage =
+          'Refactor the entire authentication system to use OAuth 2.0\n';
+      controller.sendInput('s2', longMessage);
 
-        final updated = controller.sessions.firstWhere((s) => s.id == 's2');
-        // Fallback title should be at most 40 chars + '…'.
-        expect(updated.name.length, lessThanOrEqualTo(41));
-        expect(updated.name, endsWith('…'));
-        expect(
-          updated.name,
-          startsWith('Refactor the entire authentication syste'),
-        );
-      },
-    );
+      final updated = controller.sessions.firstWhere((s) => s.id == 's2');
+      // Fallback title should be at most 40 chars + '…'.
+      expect(updated.name.length, lessThanOrEqualTo(41));
+      expect(updated.name, endsWith('…'));
+      expect(
+          updated.name, startsWith('Refactor the entire authentication syste'));
+    });
 
     // -----------------------------------------------------------------------
     // c3 — second sendInput does NOT change an already-named session
     // -----------------------------------------------------------------------
-    test(
-      'c3: second sendInput does not overwrite the fallback title',
-      () async {
-        final session = _session('s3', name: '');
-        final repo = _StubAgentsRepository([session]);
-        final controller = AgentsController(
-          repo,
-          _ReadyAgentServerController(),
-          _FakeLocalNotificationService(),
-          _FakeNotificationsController(),
-        );
-        addTearDown(controller.dispose);
+    test('c3: second sendInput does not overwrite the fallback title',
+        () async {
+      final session = _session('s3', name: '');
+      final repo = _StubAgentsRepository([session]);
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(controller.dispose);
 
-        await controller.initialize();
+      await controller.initialize();
 
-        controller.sendInput('s3', 'First message\n');
-        final afterFirst = controller.sessions
-            .firstWhere((s) => s.id == 's3')
-            .name;
-        expect(afterFirst, equals('First message'));
+      controller.sendInput('s3', 'First message\n');
+      final afterFirst =
+          controller.sessions.firstWhere((s) => s.id == 's3').name;
+      expect(afterFirst, equals('First message'));
 
-        // Simulate a second user turn (chatMessages now has 2 entries).
-        controller.sendInput('s3', 'Second message\n');
+      // Simulate a second user turn (chatMessages now has 2 entries).
+      controller.sendInput('s3', 'Second message\n');
 
-        final afterSecond = controller.sessions
-            .firstWhere((s) => s.id == 's3')
-            .name;
-        // Name must be unchanged from the first-turn fallback.
-        expect(afterSecond, equals('First message'));
-      },
-    );
+      final afterSecond =
+          controller.sessions.firstWhere((s) => s.id == 's3').name;
+      // Name must be unchanged from the first-turn fallback.
+      expect(afterSecond, equals('First message'));
+    });
 
     // -----------------------------------------------------------------------
     // c4 — SessionUpdatedMessage with real title replaces the fallback
     // -----------------------------------------------------------------------
-    test(
-      'c4: SessionUpdatedMessage with server title replaces the fallback',
-      () async {
-        final session = _session('s4', name: '');
-        final repo = _StubAgentsRepository([session]);
-        final controller = AgentsController(
-          repo,
-          _ReadyAgentServerController(),
-          _FakeLocalNotificationService(),
-          _FakeNotificationsController(),
-        );
-        addTearDown(controller.dispose);
+    test('c4: SessionUpdatedMessage with server title replaces the fallback',
+        () async {
+      final session = _session('s4', name: '');
+      final repo = _StubAgentsRepository([session]);
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(controller.dispose);
 
-        await controller.initialize();
+      await controller.initialize();
 
-        // Set fallback title via first sendInput.
-        controller.sendInput('s4', 'Some prompt\n');
-        expect(
-          controller.sessions.firstWhere((s) => s.id == 's4').name,
-          equals('Some prompt'),
-        );
+      // Set fallback title via first sendInput.
+      controller.sendInput('s4', 'Some prompt\n');
+      expect(
+        controller.sessions.firstWhere((s) => s.id == 's4').name,
+        equals('Some prompt'),
+      );
 
-        // Simulate server-side session.updated carrying the auto-generated title.
-        final serverUpdated = _session('s4', name: 'Server Generated Title');
-        repo.emit(SessionUpdatedMessage(session: serverUpdated));
+      // Simulate server-side session.updated carrying the auto-generated title.
+      final serverUpdated = _session('s4', name: 'Server Generated Title');
+      repo.emit(SessionUpdatedMessage(session: serverUpdated));
 
-        // Allow the WS event to propagate.
-        await Future<void>.delayed(Duration.zero);
+      // Allow the WS event to propagate.
+      await Future<void>.delayed(Duration.zero);
 
-        final afterServerUpdate = controller.sessions
-            .firstWhere((s) => s.id == 's4')
-            .name;
-        expect(afterServerUpdate, equals('Server Generated Title'));
-      },
-    );
+      final afterServerUpdate =
+          controller.sessions.firstWhere((s) => s.id == 's4').name;
+      expect(afterServerUpdate, equals('Server Generated Title'));
+    });
 
     // -----------------------------------------------------------------------
     // c5 — session already named 'My Project' is not overwritten
     // -----------------------------------------------------------------------
-    test(
-      'c5: sendInput does not overwrite a session that already has a name',
-      () async {
-        final session = _session('s5', name: 'My Project');
-        final repo = _StubAgentsRepository([session]);
-        final controller = AgentsController(
-          repo,
-          _ReadyAgentServerController(),
-          _FakeLocalNotificationService(),
-          _FakeNotificationsController(),
-        );
-        addTearDown(controller.dispose);
+    test('c5: sendInput does not overwrite a session that already has a name',
+        () async {
+      final session = _session('s5', name: 'My Project');
+      final repo = _StubAgentsRepository([session]);
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(controller.dispose);
 
-        await controller.initialize();
+      await controller.initialize();
 
-        controller.sendInput('s5', 'Do the thing\n');
+      controller.sendInput('s5', 'Do the thing\n');
 
-        final updated = controller.sessions.firstWhere((s) => s.id == 's5');
-        expect(updated.name, equals('My Project'));
-      },
-    );
+      final updated = controller.sessions.firstWhere((s) => s.id == 's5');
+      expect(updated.name, equals('My Project'));
+    });
   });
 }

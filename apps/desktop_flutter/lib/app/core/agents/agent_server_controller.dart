@@ -21,10 +21,10 @@ class AgentServerController extends ChangeNotifier {
     RhythmMcpAutoInstaller? autoInstaller,
     CuratedMcpAutoInstaller? curatedAutoInstaller,
     ServerConfigService? serverConfigService,
-  }) : _autoInstaller = autoInstaller ?? RhythmMcpAutoInstaller(),
-       _curatedAutoInstaller =
-           curatedAutoInstaller ?? CuratedMcpAutoInstaller(),
-       _serverConfigService = serverConfigService;
+  })  : _autoInstaller = autoInstaller ?? RhythmMcpAutoInstaller(),
+        _curatedAutoInstaller =
+            curatedAutoInstaller ?? CuratedMcpAutoInstaller(),
+        _serverConfigService = serverConfigService;
 
   final ApiServerService _service;
 
@@ -194,9 +194,8 @@ class AgentServerController extends ChangeNotifier {
         if (entry.key == 'providerToAgentKind') {
           final raw = entry.value;
           if (raw is Map) {
-            newProviderMap = raw.map(
-              (k, v) => MapEntry(k.toString(), v.toString()),
-            );
+            newProviderMap =
+                raw.map((k, v) => MapEntry(k.toString(), v.toString()));
           }
         } else {
           boolCaps[entry.key] = entry.value == true;
@@ -243,10 +242,8 @@ class AgentServerController extends ChangeNotifier {
       // Only mark this token as installed when the installer actually
       // succeeds. On a false/throw, leave _lastInstalledToken unchanged so a
       // later trigger (ready hook or onAuthChanged) retries the same token.
-      final installed = await _autoInstaller.ensure(
-        apiToken: token!,
-        apiUrl: url,
-      );
+      final installed =
+          await _autoInstaller.ensure(apiToken: token!, apiUrl: url);
       if (installed) {
         _lastInstalledToken = token;
       }
@@ -276,10 +273,8 @@ class AgentServerController extends ChangeNotifier {
       // Only mark this token as installed when the installer actually
       // succeeds. On a false/throw, leave the token unchanged so a later
       // trigger (ready hook or onAuthChanged) retries the same token.
-      final installed = await _curatedAutoInstaller.ensure(
-        apiToken: token!,
-        apiUrl: url,
-      );
+      final installed =
+          await _curatedAutoInstaller.ensure(apiToken: token!, apiUrl: url);
       if (installed) {
         _lastCuratedInstalledToken = token;
       }

@@ -16,7 +16,9 @@ class AgentWebhooksDataSource {
     assertOk(response);
     final List<dynamic> data = jsonDecode(response.body) as List<dynamic>;
     return data
-        .map((e) => AgentWebhookEndpoint.fromJson(e as Map<String, dynamic>))
+        .map(
+          (e) => AgentWebhookEndpoint.fromJson(e as Map<String, dynamic>),
+        )
         .toList();
   }
 

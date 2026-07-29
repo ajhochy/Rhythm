@@ -59,21 +59,20 @@ void main() {
     });
 
     test(
-      'both set: scheduled takes priority — future scheduled + past due → not overdue (bug repro)',
-      () {
-        // A task whose dueDate is past but scheduledDate is in the future should
-        // NOT be considered overdue; the user scheduled it for a later date.
-        expect(
-          DateFormatters.isOverdue(
-            scheduledDate: tomorrow,
-            dueDate: yesterday,
-            isDone: false,
-            today: today,
-          ),
-          isFalse,
-        );
-      },
-    );
+        'both set: scheduled takes priority — future scheduled + past due → not overdue (bug repro)',
+        () {
+      // A task whose dueDate is past but scheduledDate is in the future should
+      // NOT be considered overdue; the user scheduled it for a later date.
+      expect(
+        DateFormatters.isOverdue(
+          scheduledDate: tomorrow,
+          dueDate: yesterday,
+          isDone: false,
+          today: today,
+        ),
+        isFalse,
+      );
+    });
 
     test('both set: past scheduled + future due → overdue', () {
       expect(
@@ -88,7 +87,10 @@ void main() {
     });
 
     test('both null → not overdue', () {
-      expect(DateFormatters.isOverdue(isDone: false, today: today), isFalse);
+      expect(
+        DateFormatters.isOverdue(isDone: false, today: today),
+        isFalse,
+      );
     });
 
     test('done status → never overdue even with past date', () {
@@ -171,19 +173,18 @@ void main() {
     });
 
     test(
-      'scheduledDate is ignored — future scheduled + past due → past deadline',
-      () {
-        // isPastDeadline only cares about dueDate, never scheduledDate.
-        expect(
-          DateFormatters.isPastDeadline(
-            dueDate: yesterday,
-            isDone: false,
-            today: today,
-          ),
-          isTrue,
-        );
-      },
-    );
+        'scheduledDate is ignored — future scheduled + past due → past deadline',
+        () {
+      // isPastDeadline only cares about dueDate, never scheduledDate.
+      expect(
+        DateFormatters.isPastDeadline(
+          dueDate: yesterday,
+          isDone: false,
+          today: today,
+        ),
+        isTrue,
+      );
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -266,7 +267,10 @@ void main() {
       );
       // isPastDeadline ignores scheduledDate — no dueDate means not past deadline
       expect(
-        DateFormatters.isPastDeadline(isDone: false, today: matrixToday),
+        DateFormatters.isPastDeadline(
+          isDone: false,
+          today: matrixToday,
+        ),
         isFalse,
       );
     });
@@ -282,7 +286,10 @@ void main() {
       );
       // isPastDeadline ignores scheduledDate — no dueDate means not past deadline
       expect(
-        DateFormatters.isPastDeadline(isDone: false, today: matrixToday),
+        DateFormatters.isPastDeadline(
+          isDone: false,
+          today: matrixToday,
+        ),
         isFalse,
       );
     });
@@ -326,30 +333,29 @@ void main() {
     });
 
     test(
-      'case 7: scheduled future, deadline past → past-deadline only — the original reported bug',
-      () {
-        // scheduledDate wins for isOverdue (future → not overdue).
-        // isPastDeadline only checks dueDate (past → true).
-        expect(
-          DateFormatters.isOverdue(
-            scheduledDate: '2026-05-15',
-            dueDate: '2026-05-05',
-            isDone: false,
-            today: matrixToday,
-          ),
-          isFalse,
-        );
-        // isPastDeadline ignores scheduledDate — only dueDate matters (past → true)
-        expect(
-          DateFormatters.isPastDeadline(
-            dueDate: '2026-05-05',
-            isDone: false,
-            today: matrixToday,
-          ),
-          isTrue,
-        );
-      },
-    );
+        'case 7: scheduled future, deadline past → past-deadline only — the original reported bug',
+        () {
+      // scheduledDate wins for isOverdue (future → not overdue).
+      // isPastDeadline only checks dueDate (past → true).
+      expect(
+        DateFormatters.isOverdue(
+          scheduledDate: '2026-05-15',
+          dueDate: '2026-05-05',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isFalse,
+      );
+      // isPastDeadline ignores scheduledDate — only dueDate matters (past → true)
+      expect(
+        DateFormatters.isPastDeadline(
+          dueDate: '2026-05-05',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isTrue,
+      );
+    });
 
     test('case 8: open, past scheduled, future due → overdue only', () {
       expect(
@@ -373,28 +379,27 @@ void main() {
     });
 
     test(
-      'case 9: open, both dates == today → neither flag set (today is not past)',
-      () {
-        expect(
-          DateFormatters.isOverdue(
-            scheduledDate: '2026-05-11',
-            dueDate: '2026-05-11',
-            isDone: false,
-            today: matrixToday,
-          ),
-          isFalse,
-        );
-        // isPastDeadline ignores scheduledDate — dueDate == today is not past
-        expect(
-          DateFormatters.isPastDeadline(
-            dueDate: '2026-05-11',
-            isDone: false,
-            today: matrixToday,
-          ),
-          isFalse,
-        );
-      },
-    );
+        'case 9: open, both dates == today → neither flag set (today is not past)',
+        () {
+      expect(
+        DateFormatters.isOverdue(
+          scheduledDate: '2026-05-11',
+          dueDate: '2026-05-11',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isFalse,
+      );
+      // isPastDeadline ignores scheduledDate — dueDate == today is not past
+      expect(
+        DateFormatters.isPastDeadline(
+          dueDate: '2026-05-11',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isFalse,
+      );
+    });
 
     test('case 10: open, both dates == yesterday → both flags set', () {
       expect(

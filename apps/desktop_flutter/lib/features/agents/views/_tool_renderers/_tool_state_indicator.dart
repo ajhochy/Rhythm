@@ -44,17 +44,25 @@ class ToolStateIndicator extends StatelessWidget {
 
     final (icon, color, semantics) = switch (toolStatus) {
       'completed' => (
-        Icons.check_circle_outline,
-        context.rhythm.success,
-        'completed',
-      ),
-      'error' => (Icons.error_outline, context.rhythm.danger, 'error'),
+          Icons.check_circle_outline,
+          context.rhythm.success,
+          'completed',
+        ),
+      'error' => (
+          Icons.error_outline,
+          context.rhythm.danger,
+          'error',
+        ),
       'pending' => (
-        Icons.hourglass_empty_outlined,
-        context.rhythm.textMuted,
-        'pending',
-      ),
-      _ => (Icons.help_outline, context.rhythm.textMuted, 'unknown'),
+          Icons.hourglass_empty_outlined,
+          context.rhythm.textMuted,
+          'pending',
+        ),
+      _ => (
+          Icons.help_outline,
+          context.rhythm.textMuted,
+          'unknown',
+        ),
     };
 
     return Semantics(

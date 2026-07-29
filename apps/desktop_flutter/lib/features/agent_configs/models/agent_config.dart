@@ -178,7 +178,9 @@ class AgentConfig {
       }
     }
     if (decoded is List) {
-      return {for (final name in decoded.map((e) => e.toString())) name: null};
+      return {
+        for (final name in decoded.map((e) => e.toString())) name: null,
+      };
     }
     if (decoded is! Map) return null;
     return decoded.map<String, List<String>?>((key, tools) {
@@ -193,34 +195,32 @@ class AgentConfig {
   }
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'label': label,
-    'icon': icon,
-    'enabled': enabled,
-    'isAgent': isAgent,
-    'presetId': presetId,
-    'sortOrder': sortOrder,
-    'isManager': isManager,
-    'systemPrompt': systemPrompt,
-    'allowedMcpsJson': allowedMcpTools != null
-        ? jsonEncode({
-            for (final entry in allowedMcpTools!.entries)
-              entry.key: entry.value ?? <String>[],
-          })
-        : (allowedMcps != null ? jsonEncode(allowedMcps) : null),
-    'allowedSkillsJson': allowedSkills != null
-        ? jsonEncode(allowedSkills)
-        : null,
-    'allowedDelegatesJson': allowedDelegates != null
-        ? jsonEncode(allowedDelegates)
-        : null,
-    'modelProvider': modelProvider,
-    'modelId': modelId,
-    'ocAgent': ocAgent,
-    'sessionSelectable': sessionSelectable,
-    'defaultAnthropicAccountId': defaultAnthropicAccountId,
-    'corePermissionsJson': corePermissionsJson,
-  };
+        'id': id,
+        'label': label,
+        'icon': icon,
+        'enabled': enabled,
+        'isAgent': isAgent,
+        'presetId': presetId,
+        'sortOrder': sortOrder,
+        'isManager': isManager,
+        'systemPrompt': systemPrompt,
+        'allowedMcpsJson': allowedMcpTools != null
+            ? jsonEncode({
+                for (final entry in allowedMcpTools!.entries)
+                  entry.key: entry.value ?? <String>[],
+              })
+            : (allowedMcps != null ? jsonEncode(allowedMcps) : null),
+        'allowedSkillsJson':
+            allowedSkills != null ? jsonEncode(allowedSkills) : null,
+        'allowedDelegatesJson':
+            allowedDelegates != null ? jsonEncode(allowedDelegates) : null,
+        'modelProvider': modelProvider,
+        'modelId': modelId,
+        'ocAgent': ocAgent,
+        'sessionSelectable': sessionSelectable,
+        'defaultAnthropicAccountId': defaultAnthropicAccountId,
+        'corePermissionsJson': corePermissionsJson,
+      };
 
   AgentConfig copyWith({
     String? label,
@@ -248,9 +248,8 @@ class AgentConfig {
       icon: icon ?? this.icon,
       enabled: enabled ?? this.enabled,
       isAgent: isAgent ?? this.isAgent,
-      presetId: identical(presetId, _sentinel)
-          ? this.presetId
-          : presetId as String?,
+      presetId:
+          identical(presetId, _sentinel) ? this.presetId : presetId as String?,
       sortOrder: sortOrder ?? this.sortOrder,
       isManager: isManager ?? this.isManager,
       systemPrompt: identical(systemPrompt, _sentinel)
@@ -271,12 +270,10 @@ class AgentConfig {
       modelProvider: identical(modelProvider, _sentinel)
           ? this.modelProvider
           : modelProvider as String?,
-      modelId: identical(modelId, _sentinel)
-          ? this.modelId
-          : modelId as String?,
-      ocAgent: identical(ocAgent, _sentinel)
-          ? this.ocAgent
-          : ocAgent as String?,
+      modelId:
+          identical(modelId, _sentinel) ? this.modelId : modelId as String?,
+      ocAgent:
+          identical(ocAgent, _sentinel) ? this.ocAgent : ocAgent as String?,
       sessionSelectable: sessionSelectable ?? this.sessionSelectable,
       defaultAnthropicAccountId: identical(defaultAnthropicAccountId, _sentinel)
           ? this.defaultAnthropicAccountId

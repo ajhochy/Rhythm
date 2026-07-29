@@ -82,52 +82,48 @@ void main() {
     // AC2 — disconnect with no reconnect within 10s emits false.
     // -------------------------------------------------------------------------
 
-    test(
-      'disconnect followed by no reconnect fires false after timer elapses',
-      () async {
-        stub.onConnected();
-        await Future<void>.delayed(Duration.zero);
+    test('disconnect followed by no reconnect fires false after timer elapses',
+        () async {
+      stub.onConnected();
+      await Future<void>.delayed(Duration.zero);
 
-        stub.onDisconnected();
+      stub.onDisconnected();
 
-        // A pending 10s timer must be active.
-        expect(stub.hasActivePendingTimer, isTrue);
+      // A pending 10s timer must be active.
+      expect(stub.hasActivePendingTimer, isTrue);
 
-        // Manually fire the timer to simulate 10s passing.
-        stub._disconnectFailTimer!.cancel();
-        stub._disconnectFailTimer = null;
-        stub._connectivityController.add(false);
+      // Manually fire the timer to simulate 10s passing.
+      stub._disconnectFailTimer!.cancel();
+      stub._disconnectFailTimer = null;
+      stub._connectivityController.add(false);
 
-        await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
 
-        expect(received, containsAllInOrder([true, false]));
-      },
-    );
+      expect(received, containsAllInOrder([true, false]));
+    });
 
     // -------------------------------------------------------------------------
     // AC3 — disconnect followed by reconnect within 10s: no false emitted.
     // -------------------------------------------------------------------------
 
-    test(
-      'disconnect followed by reconnect within 10s suppresses false event',
-      () async {
-        stub.onConnected();
-        await Future<void>.delayed(Duration.zero);
+    test('disconnect followed by reconnect within 10s suppresses false event',
+        () async {
+      stub.onConnected();
+      await Future<void>.delayed(Duration.zero);
 
-        stub.onDisconnected();
-        expect(stub.hasActivePendingTimer, isTrue);
+      stub.onDisconnected();
+      expect(stub.hasActivePendingTimer, isTrue);
 
-        // Reconnect before the 10s timer fires — timer must be cancelled.
-        stub.onConnected();
-        await Future<void>.delayed(Duration.zero);
+      // Reconnect before the 10s timer fires — timer must be cancelled.
+      stub.onConnected();
+      await Future<void>.delayed(Duration.zero);
 
-        expect(stub.hasActivePendingTimer, isFalse);
+      expect(stub.hasActivePendingTimer, isFalse);
 
-        // Only `true` events — never a `false`.
-        expect(received, everyElement(isTrue));
-        expect(received, hasLength(2)); // initial connect + reconnect
-      },
-    );
+      // Only `true` events — never a `false`.
+      expect(received, everyElement(isTrue));
+      expect(received, hasLength(2)); // initial connect + reconnect
+    });
 
     // -------------------------------------------------------------------------
     // AC4 — dispose cancels the timer and closes the controller.

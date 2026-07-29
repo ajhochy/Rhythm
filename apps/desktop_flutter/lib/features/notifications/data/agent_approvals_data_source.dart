@@ -23,8 +23,8 @@ class _AgentApprovalsDataSourceImpl implements AgentApprovalsDataSource {
   _AgentApprovalsDataSourceImpl({
     String? baseUrl,
     HumanApprovalSigner? humanApprovalSigner,
-  }) : _baseUrl = baseUrl ?? AppConstants.agentLocalBaseUrl,
-       _humanApprovalSigner = humanApprovalSigner ?? HumanApprovalSigner();
+  })  : _baseUrl = baseUrl ?? AppConstants.agentLocalBaseUrl,
+        _humanApprovalSigner = humanApprovalSigner ?? HumanApprovalSigner();
 
   final String _baseUrl;
   final HumanApprovalSigner _humanApprovalSigner;
@@ -32,8 +32,8 @@ class _AgentApprovalsDataSourceImpl implements AgentApprovalsDataSource {
   @override
   Future<List<AgentApproval>> listPending() async {
     final headers = AuthSessionStore.headers();
-    final humanApprovalCapability = await _humanApprovalSigner
-        .humanApprovalCapability();
+    final humanApprovalCapability =
+        await _humanApprovalSigner.humanApprovalCapability();
     headers['X-Rhythm-Human-Approval'] = humanApprovalCapability;
     final response = await http.get(
       Uri.parse('$_baseUrl/agent-approvals?status=pending'),
@@ -49,7 +49,10 @@ class _AgentApprovalsDataSourceImpl implements AgentApprovalsDataSource {
   }
 
   @override
-  Future<void> decide(AgentApproval approval, {required bool approve}) async {
+  Future<void> decide(
+    AgentApproval approval, {
+    required bool approve,
+  }) async {
     final decisionStatus = approve ? 'approved' : 'rejected';
     final signature = await _humanApprovalSigner.signDecision(
       approvalId: approval.id,
@@ -58,18 +61,20 @@ class _AgentApprovalsDataSourceImpl implements AgentApprovalsDataSource {
       decisionStatus: decisionStatus,
     );
     final headers = AuthSessionStore.headers(json: true);
-    final humanApprovalCapability = await _humanApprovalSigner
-        .humanApprovalCapability();
+    final humanApprovalCapability =
+        await _humanApprovalSigner.humanApprovalCapability();
     headers['X-Rhythm-Human-Approval'] = humanApprovalCapability;
     final response = await http.patch(
       Uri.parse('$_baseUrl/agent-approvals/${approval.id}'),
       headers: headers,
-      body: jsonEncode({'status': decisionStatus, 'signature': signature}),
+      body: jsonEncode({
+        'status': decisionStatus,
+        'signature': signature,
+      }),
     );
     if (response.statusCode != 200) {
       throw Exception(
-        'Failed to decide agent approval: ${response.statusCode}',
-      );
+          'Failed to decide agent approval: ${response.statusCode}');
     }
   }
 }

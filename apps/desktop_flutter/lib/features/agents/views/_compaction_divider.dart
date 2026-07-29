@@ -39,10 +39,8 @@ class _CompactionDividerState extends State<CompactionDivider> {
               ),
               const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: context.rhythm.accentMuted,
                   borderRadius: BorderRadius.circular(999),

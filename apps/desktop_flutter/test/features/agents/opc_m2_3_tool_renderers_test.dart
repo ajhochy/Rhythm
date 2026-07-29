@@ -209,7 +209,9 @@ const _kTaskToolPartRunningShape = {
   'tool': 'task',
   'state': {
     'status': 'running',
-    'input': {'description': 'Write unit tests for the authentication module'},
+    'input': {
+      'description': 'Write unit tests for the authentication module',
+    },
     'title': 'Task: Write tests',
     'metadata': {},
     'time': {'start': 1718000009000},
@@ -225,7 +227,9 @@ const _kTaskToolPartCompletedShape = {
   'tool': 'task',
   'state': {
     'status': 'completed',
-    'input': {'description': 'Refactor the database layer'},
+    'input': {
+      'description': 'Refactor the database layer',
+    },
     'output': 'Refactoring complete',
     'title': 'Task: DB refactor',
     'metadata': {},
@@ -242,7 +246,9 @@ const _kTaskToolPartErrorShape = {
   'tool': 'task',
   'state': {
     'status': 'error',
-    'input': {'description': 'Deploy to production'},
+    'input': {
+      'description': 'Deploy to production',
+    },
     'output': 'Deployment failed',
     'title': 'Task: Deploy',
     'metadata': {},
@@ -273,9 +279,9 @@ const _kGlobToolPartShape = {
 // ---------------------------------------------------------------------------
 
 Widget _wrap(Widget child) => MaterialApp(
-  theme: AppTheme.light(),
-  home: Scaffold(body: SizedBox(width: 700, height: 800, child: child)),
-);
+      theme: AppTheme.light(),
+      home: Scaffold(body: SizedBox(width: 700, height: 800, child: child)),
+    );
 
 ChatPart _partFromShape(Map<String, dynamic> shape) =>
     ChatPart.fromJson(shape['messageID'] as String, shape);
@@ -293,7 +299,8 @@ void main() {
   // c1 — edit part renders diff view with success/danger styling and file path
   // =========================================================================
 
-  group('issue-692-c1: edit part renders diff view with success/danger line '
+  group(
+      'issue-692-c1: edit part renders diff view with success/danger line '
       'styling and file path', () {
     testWidgets(
       'c1: edit tool part dispatches to UnifiedDiffView; added lines use '
@@ -352,7 +359,8 @@ void main() {
   // c2 — diff >20 lines collapses with "Show all (N lines)" affordance
   // =========================================================================
 
-  group('issue-692-c2: diff >20 lines collapses with "Show all (N lines)" '
+  group(
+      'issue-692-c2: diff >20 lines collapses with "Show all (N lines)" '
       'affordance; expands on tap', () {
     testWidgets(
       'c2: long diff (>20 lines) shows collapse affordance; tapping expands all lines',
@@ -379,8 +387,7 @@ void main() {
         // Since we have 12 old + 12 new lines, total > 20, and all should show.
         // After expansion there's no "Show all" affordance or it says "Collapse".
         final showAllFinder = find.textContaining('Show all');
-        final collapseOrExpanded =
-            showAllFinder.evaluate().isEmpty ||
+        final collapseOrExpanded = showAllFinder.evaluate().isEmpty ||
             find.textContaining('Collapse').evaluate().isNotEmpty ||
             find.textContaining('old line 12').evaluate().isNotEmpty ||
             find.textContaining('new line 12').evaluate().isNotEmpty;
@@ -399,7 +406,8 @@ void main() {
   // c3 — bash part strips ANSI, preserves whitespace, shows exit code on error
   // =========================================================================
 
-  group('issue-692-c3: bash part renders command header, strips ANSI codes, '
+  group(
+      'issue-692-c3: bash part renders command header, strips ANSI codes, '
       'preserves whitespace, shows exit code on error', () {
     testWidgets(
       'c3a: completed bash part shows command header; ANSI codes stripped; whitespace preserved',
@@ -468,41 +476,45 @@ void main() {
       },
     );
 
-    testWidgets('c3b: error bash part shows exit code badge', (tester) async {
-      final part = _partFromShape(_kBashToolPartErrorShape);
-      await tester.pumpWidget(_wrap(TerminalOutputView(part: part)));
+    testWidgets(
+      'c3b: error bash part shows exit code badge',
+      (tester) async {
+        final part = _partFromShape(_kBashToolPartErrorShape);
+        await tester.pumpWidget(_wrap(TerminalOutputView(part: part)));
 
-      // The view must render with some exit-related indicator when status=error.
-      // More specific: find the TerminalOutputView itself (it must render).
-      expect(
-        find.byType(TerminalOutputView),
-        findsOneWidget,
-        reason: 'TerminalOutputView must render for a bash error part.',
-      );
+        // The view must render with some exit-related indicator when status=error.
+        // More specific: find the TerminalOutputView itself (it must render).
+        expect(
+          find.byType(TerminalOutputView),
+          findsOneWidget,
+          reason: 'TerminalOutputView must render for a bash error part.',
+        );
 
-      // Exit code badge: look for any text showing "exit" or "code" context.
-      // Per spec: "exit-code badge on error state".
-      expect(
-        find.byWidgetPredicate((w) {
-          if (w is Text && w.data != null) {
-            final d = w.data!.toLowerCase();
-            return d.contains('exit') || d == '1';
-          }
-          return false;
-        }),
-        findsWidgets,
-        reason:
-            'Error bash part must show exit code indicator (e.g. "exit: 1" '
-            'or "code: 1" badge).',
-      );
-    });
+        // Exit code badge: look for any text showing "exit" or "code" context.
+        // Per spec: "exit-code badge on error state".
+        expect(
+          find.byWidgetPredicate((w) {
+            if (w is Text && w.data != null) {
+              final d = w.data!.toLowerCase();
+              return d.contains('exit') || d == '1';
+            }
+            return false;
+          }),
+          findsWidgets,
+          reason:
+              'Error bash part must show exit code indicator (e.g. "exit: 1" '
+              'or "code: 1" badge).',
+        );
+      },
+    );
   });
 
   // =========================================================================
   // c4 — todowrite renders one checklist row per todo with correct checked state
   // =========================================================================
 
-  group('issue-692-c4: todowrite part renders checklist rows with correct '
+  group(
+      'issue-692-c4: todowrite part renders checklist rows with correct '
       'checked/unchecked state', () {
     testWidgets(
       'c4: three todos render three rows; completed=checked, pending=unchecked',
@@ -539,9 +551,8 @@ void main() {
         );
 
         // Pending todo: unchecked checkbox icon.
-        final uncheckedCount = checkedBoxes
-            .where((c) => c.value == false)
-            .length;
+        final uncheckedCount =
+            checkedBoxes.where((c) => c.value == false).length;
         expect(
           uncheckedCount,
           greaterThanOrEqualTo(1),
@@ -556,7 +567,8 @@ void main() {
   // c5 — task part renders chip with description + ToolState indicator
   // =========================================================================
 
-  group('issue-692-c5: task part renders chip with description and ToolState '
+  group(
+      'issue-692-c5: task part renders chip with description and ToolState '
       'indicator', () {
     testWidgets(
       'c5: task part chip shows description text and a ToolState indicator',
@@ -586,119 +598,112 @@ void main() {
   // =========================================================================
 
   group(
-    'issue-692-c6: unrecognized tool name falls back to generic ToolCallPart '
-    'card',
-    () {
-      testWidgets(
-        'c6: glob tool (not in dispatch list) renders generic ToolCallPart',
-        (tester) async {
-          final part = _partFromShape(_kGlobToolPartShape);
-          await tester.pumpWidget(_wrap(ToolCallPart(part: part)));
+      'issue-692-c6: unrecognized tool name falls back to generic ToolCallPart '
+      'card', () {
+    testWidgets(
+      'c6: glob tool (not in dispatch list) renders generic ToolCallPart',
+      (tester) async {
+        final part = _partFromShape(_kGlobToolPartShape);
+        await tester.pumpWidget(_wrap(ToolCallPart(part: part)));
 
-          // Generic card renders with the tool name.
-          expect(
-            find.textContaining('glob'),
-            findsWidgets,
-            reason: 'Generic card must display the unrecognized tool name.',
-          );
+        // Generic card renders with the tool name.
+        expect(
+          find.textContaining('glob'),
+          findsWidgets,
+          reason: 'Generic card must display the unrecognized tool name.',
+        );
 
-          // ToolCallPart is the existing generic card widget.
-          expect(
-            find.byType(ToolCallPart),
-            findsOneWidget,
-            reason:
-                'Unrecognized tools must fall back to the existing ToolCallPart '
-                'generic card.',
-          );
-        },
-      );
-    },
-  );
+        // ToolCallPart is the existing generic card widget.
+        expect(
+          find.byType(ToolCallPart),
+          findsOneWidget,
+          reason:
+              'Unrecognized tools must fall back to the existing ToolCallPart '
+              'generic card.',
+        );
+      },
+    );
+  });
 
   // =========================================================================
   // c7 — ToolState pending/running/completed/error render distinct indicators
   // =========================================================================
 
   group(
-    'issue-692-c7: ToolState pending/running/completed/error render distinct '
-    'indicators',
-    () {
-      testWidgets(
-        'c7: task parts with different states render distinct status indicators',
-        (tester) async {
-          // Build all four states side by side for comparison.
-          final pendingPart = _partFromShape(_kTaskToolPartPendingShape);
-          final runningPart = _partFromShape(_kTaskToolPartRunningShape);
-          final completedPart = _partFromShape(_kTaskToolPartCompletedShape);
-          final errorPart = _partFromShape(_kTaskToolPartErrorShape);
+      'issue-692-c7: ToolState pending/running/completed/error render distinct '
+      'indicators', () {
+    testWidgets(
+      'c7: task parts with different states render distinct status indicators',
+      (tester) async {
+        // Build all four states side by side for comparison.
+        final pendingPart = _partFromShape(_kTaskToolPartPendingShape);
+        final runningPart = _partFromShape(_kTaskToolPartRunningShape);
+        final completedPart = _partFromShape(_kTaskToolPartCompletedShape);
+        final errorPart = _partFromShape(_kTaskToolPartErrorShape);
 
-          // Collect the widgets emitted for each state.
-          // We use a _StatusIndicatorCapture approach: render each TaskChip
-          // and record which Icon data is used.
+        // Collect the widgets emitted for each state.
+        // We use a _StatusIndicatorCapture approach: render each TaskChip
+        // and record which Icon data is used.
 
-          Future<List<IconData>> collectIcons(ChatPart part) async {
-            await tester.pumpWidget(_wrap(TaskChip(part: part)));
-            final icons = tester
-                .widgetList<Icon>(find.byType(Icon))
-                .map((i) => i.icon)
-                .whereType<IconData>()
-                .toList();
-            return icons;
-          }
-
-          final pendingIcons = await collectIcons(pendingPart);
-          // Running uses CircularProgressIndicator (no icon); collect anyway to
-          // advance tester state but use the re-pump below for assertions.
-          await collectIcons(runningPart);
-          final completedIcons = await collectIcons(completedPart);
-          final errorIcons = await collectIcons(errorPart);
-
-          // Each state must render some icon(s).
-          expect(
-            pendingIcons,
-            isNotEmpty,
-            reason: 'Pending state must render at least one icon indicator.',
-          );
-          expect(
-            completedIcons,
-            isNotEmpty,
-            reason: 'Completed state must render at least one icon indicator.',
-          );
-          expect(
-            errorIcons,
-            isNotEmpty,
-            reason: 'Error state must render at least one icon indicator.',
-          );
-
-          // Re-pump running to check either icons or CircularProgressIndicator.
-          await tester.pumpWidget(_wrap(TaskChip(part: runningPart)));
-          final hasProgress = find
-              .byType(CircularProgressIndicator)
-              .evaluate()
-              .isNotEmpty;
-          final hasRunningIcon = tester
+        Future<List<IconData>> collectIcons(ChatPart part) async {
+          await tester.pumpWidget(_wrap(TaskChip(part: part)));
+          final icons = tester
               .widgetList<Icon>(find.byType(Icon))
-              .isNotEmpty;
-          expect(
-            hasProgress || hasRunningIcon,
-            isTrue,
-            reason:
-                'Running state must render a CircularProgressIndicator or icon '
-                'as a distinct status indicator.',
-          );
+              .map((i) => i.icon)
+              .whereType<IconData>()
+              .toList();
+          return icons;
+        }
 
-          // completed and error must use different icons.
-          final completedSet = completedIcons.toSet();
-          final errorSet = errorIcons.toSet();
-          expect(
-            completedSet == errorSet && completedSet.length == 1,
-            isFalse,
-            reason:
-                'Completed and error states must use different icon indicators '
-                '(they must be visually distinct).',
-          );
-        },
-      );
-    },
-  );
+        final pendingIcons = await collectIcons(pendingPart);
+        // Running uses CircularProgressIndicator (no icon); collect anyway to
+        // advance tester state but use the re-pump below for assertions.
+        await collectIcons(runningPart);
+        final completedIcons = await collectIcons(completedPart);
+        final errorIcons = await collectIcons(errorPart);
+
+        // Each state must render some icon(s).
+        expect(
+          pendingIcons,
+          isNotEmpty,
+          reason: 'Pending state must render at least one icon indicator.',
+        );
+        expect(
+          completedIcons,
+          isNotEmpty,
+          reason: 'Completed state must render at least one icon indicator.',
+        );
+        expect(
+          errorIcons,
+          isNotEmpty,
+          reason: 'Error state must render at least one icon indicator.',
+        );
+
+        // Re-pump running to check either icons or CircularProgressIndicator.
+        await tester.pumpWidget(_wrap(TaskChip(part: runningPart)));
+        final hasProgress =
+            find.byType(CircularProgressIndicator).evaluate().isNotEmpty;
+        final hasRunningIcon =
+            tester.widgetList<Icon>(find.byType(Icon)).isNotEmpty;
+        expect(
+          hasProgress || hasRunningIcon,
+          isTrue,
+          reason:
+              'Running state must render a CircularProgressIndicator or icon '
+              'as a distinct status indicator.',
+        );
+
+        // completed and error must use different icons.
+        final completedSet = completedIcons.toSet();
+        final errorSet = errorIcons.toSet();
+        expect(
+          completedSet == errorSet && completedSet.length == 1,
+          isFalse,
+          reason:
+              'Completed and error states must use different icon indicators '
+              '(they must be visually distinct).',
+        );
+      },
+    );
+  });
 }

@@ -14,7 +14,8 @@ class AgentProjectsRepository {
     required String name,
     required String cwd,
     String? icon,
-  }) => _remote.create(name: name, cwd: cwd, icon: icon);
+  }) =>
+      _remote.create(name: name, cwd: cwd, icon: icon);
 
   Future<AgentProject> update(
     String id, {
@@ -23,14 +24,15 @@ class AgentProjectsRepository {
     String? icon,
     DateTime? archivedAt,
     bool clearArchivedAt = false,
-  }) => _remote.update(
-    id,
-    name: name,
-    cwd: cwd,
-    icon: icon,
-    archivedAt: archivedAt,
-    clearArchivedAt: clearArchivedAt,
-  );
+  }) =>
+      _remote.update(
+        id,
+        name: name,
+        cwd: cwd,
+        icon: icon,
+        archivedAt: archivedAt,
+        clearArchivedAt: clearArchivedAt,
+      );
 
   Future<void> delete(String id) => _remote.delete(id);
 
@@ -43,10 +45,7 @@ class AgentProjectsRepository {
     required String branch,
     String stash = 'none',
     bool createBranch = false,
-  }) => _remote.checkout(
-    id,
-    branch: branch,
-    stash: stash,
-    createBranch: createBranch,
-  );
+  }) =>
+      _remote.checkout(id,
+          branch: branch, stash: stash, createBranch: createBranch);
 }

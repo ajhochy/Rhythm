@@ -10,8 +10,8 @@ import '../models/catalog_model_entry.dart';
 
 class AgentModelsDataSource {
   AgentModelsDataSource({http.Client? client})
-    : _baseUrl = AppConstants.agentLocalBaseUrl,
-      _client = client ?? http.Client();
+      : _baseUrl = AppConstants.agentLocalBaseUrl,
+        _client = client ?? http.Client();
 
   final String _baseUrl;
 
@@ -29,14 +29,14 @@ class AgentModelsDataSource {
       final uri = Uri.parse(
         '$_baseUrl/agents/models',
       ).replace(queryParameters: {'agentId': agentId});
-      final response = await _client.get(
-        uri,
-        headers: AuthSessionStore.headers(),
-      );
+      final response =
+          await _client.get(uri, headers: AuthSessionStore.headers());
       assertOk(response);
       final list = jsonDecode(response.body) as List<dynamic>;
       return list
-          .map((j) => AgentModelRoute.fromJson(j as Map<String, dynamic>))
+          .map(
+            (j) => AgentModelRoute.fromJson(j as Map<String, dynamic>),
+          )
           .toList();
     } catch (_) {
       return [];
@@ -50,10 +50,8 @@ class AgentModelsDataSource {
   Future<List<CatalogModelEntry>> fetchCatalog() async {
     try {
       final uri = Uri.parse('$_baseUrl/agents/models/catalog');
-      final response = await _client.get(
-        uri,
-        headers: AuthSessionStore.headers(),
-      );
+      final response =
+          await _client.get(uri, headers: AuthSessionStore.headers());
       assertOk(response);
       final list = jsonDecode(response.body) as List<dynamic>;
       return list

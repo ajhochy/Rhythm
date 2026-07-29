@@ -28,19 +28,14 @@ class AgentConfigsController extends ChangeNotifier {
   /// Profiles that should appear in the session composer's agent picker:
   /// enabled, session-selectable, and backed by an opencode agent (ocAgent set,
   /// so they can actually drive a turn). Ordered by sortOrder then label.
-  List<AgentConfig> get sessionSelectableAgents =>
-      _configs
-          .where(
-            (c) =>
-                c.enabled &&
-                c.sessionSelectable &&
-                (c.ocAgent ?? '').isNotEmpty,
-          )
-          .toList()
-        ..sort((a, b) {
-          final s = a.sortOrder.compareTo(b.sortOrder);
-          return s != 0 ? s : a.label.compareTo(b.label);
-        });
+  List<AgentConfig> get sessionSelectableAgents => _configs
+      .where((c) =>
+          c.enabled && c.sessionSelectable && (c.ocAgent ?? '').isNotEmpty)
+      .toList()
+    ..sort((a, b) {
+      final s = a.sortOrder.compareTo(b.sortOrder);
+      return s != 0 ? s : a.label.compareTo(b.label);
+    });
 
   /// The manager agent (is_manager = true). Returns null if none set.
   ///

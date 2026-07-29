@@ -92,8 +92,8 @@ MobilePairingCode code(String value, {DateTime? expiresAt}) =>
 String repeated(String value) => List.filled(43, value).join();
 
 Widget wrap(MobileAccessDataSource dataSource) => MaterialApp(
-  home: Scaffold(body: MobileAccessDialog(dataSource: dataSource)),
-);
+      home: Scaffold(body: MobileAccessDialog(dataSource: dataSource)),
+    );
 
 Future<void> settleInitial(WidgetTester tester) async {
   await tester.pump();
@@ -152,8 +152,7 @@ void main() {
         final dataSource = _FakeMobileAccessDataSource(
           status: MobileAccessStatus(
             state: state,
-            gatewayUrl:
-                state == TailscaleAccessState.missing ||
+            gatewayUrl: state == TailscaleAccessState.missing ||
                     state == TailscaleAccessState.loggedOut
                 ? null
                 : 'https://rhythm-mac.tail1234.ts.net',

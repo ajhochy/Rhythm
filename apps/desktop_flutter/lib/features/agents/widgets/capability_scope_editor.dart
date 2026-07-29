@@ -45,8 +45,10 @@ class _CapabilityScopeEditorState extends State<CapabilityScopeEditor>
     _mcps = widget.selectedMcps == null
         ? null
         : widget.selectedMcps!.map(
-            (name, tools) =>
-                MapEntry(name, tools == null ? null : List<String>.from(tools)),
+            (name, tools) => MapEntry(
+              name,
+              tools == null ? null : List<String>.from(tools),
+            ),
           );
   }
 
@@ -100,10 +102,7 @@ class _CapabilityScopeEditorState extends State<CapabilityScopeEditor>
             const SizedBox(height: 12),
             TabBar(
               controller: _tabs,
-              tabs: const [
-                Tab(text: 'Skills'),
-                Tab(text: 'MCP'),
-              ],
+              tabs: const [Tab(text: 'Skills'), Tab(text: 'MCP')],
             ),
             const SizedBox(height: 8),
             SizedBox(
@@ -141,12 +140,10 @@ class _CapabilityScopeEditorState extends State<CapabilityScopeEditor>
 
   Widget _skillsTab(String query) {
     final visible = widget.skills
-        .where(
-          (skill) =>
-              query.isEmpty ||
-              skill.name.toLowerCase().contains(query) ||
-              (skill.description ?? '').toLowerCase().contains(query),
-        )
+        .where((skill) =>
+            query.isEmpty ||
+            skill.name.toLowerCase().contains(query) ||
+            (skill.description ?? '').toLowerCase().contains(query))
         .toList();
     final selected =
         _skills ?? widget.skills.map((skill) => skill.name).toList();
@@ -161,15 +158,14 @@ class _CapabilityScopeEditorState extends State<CapabilityScopeEditor>
             _skills == null,
           ),
           title: const Text('All skills'),
-          subtitle: Text(
-            '${selected.length} of ${widget.skills.length} selected',
-          ),
+          subtitle:
+              Text('${selected.length} of ${widget.skills.length} selected'),
           onChanged: (value) => setState(() {
             _skills = value == true
                 ? null
                 : value == false
-                ? <String>[]
-                : widget.skills.map((skill) => skill.name).toList();
+                    ? <String>[]
+                    : widget.skills.map((skill) => skill.name).toList();
           }),
         ),
         ...visible.map(
@@ -177,9 +173,8 @@ class _CapabilityScopeEditorState extends State<CapabilityScopeEditor>
             key: ValueKey('skill-${skill.name}'),
             value: _skills == null || _skills!.contains(skill.name),
             title: Text(skill.name),
-            subtitle: skill.description == null
-                ? null
-                : Text(skill.description!),
+            subtitle:
+                skill.description == null ? null : Text(skill.description!),
             onChanged: (_) => setState(() {
               _skills ??= widget.skills.map((entry) => entry.name).toList();
               _skills!.contains(skill.name)
@@ -193,8 +188,7 @@ class _CapabilityScopeEditorState extends State<CapabilityScopeEditor>
   }
 
   Widget _mcpTab(String query) {
-    final selectedNames =
-        _mcps?.keys.toList() ??
+    final selectedNames = _mcps?.keys.toList() ??
         widget.mcps.map((server) => server.name).toList();
     final visible = widget.mcps.where((server) {
       return query.isEmpty ||
@@ -212,15 +206,14 @@ class _CapabilityScopeEditorState extends State<CapabilityScopeEditor>
             _mcps == null,
           ),
           title: const Text('All MCP servers and tools'),
-          subtitle: Text(
-            '${selectedNames.length} of ${widget.mcps.length} selected',
-          ),
+          subtitle:
+              Text('${selectedNames.length} of ${widget.mcps.length} selected'),
           onChanged: (value) => setState(() {
             _mcps = value == true
                 ? null
                 : value == false
-                ? <String, List<String>?>{}
-                : {for (final server in widget.mcps) server.name: null};
+                    ? <String, List<String>?>{}
+                    : {for (final server in widget.mcps) server.name: null};
           }),
         ),
         ...visible.map(_serverTile),
@@ -238,10 +231,10 @@ class _CapabilityScopeEditorState extends State<CapabilityScopeEditor>
         value: !enabled
             ? false
             : selectedTools == null
-            ? true
-            : selectedTools.length == server.tools.length
-            ? true
-            : null,
+                ? true
+                : selectedTools.length == server.tools.length
+                    ? true
+                    : null,
         onChanged: (value) => setState(() {
           _mcps ??= {for (final entry in widget.mcps) entry.name: null};
           if (value == false) {
@@ -256,16 +249,15 @@ class _CapabilityScopeEditorState extends State<CapabilityScopeEditor>
         !enabled
             ? 'No tools'
             : selectedTools == null
-            ? 'All ${server.tools.length} tools'
-            : '${selectedTools.length} of ${server.tools.length} tools',
+                ? 'All ${server.tools.length} tools'
+                : '${selectedTools.length} of ${server.tools.length} tools',
       ),
       children: server.tools
           .map(
             (tool) => CheckboxListTile(
               dense: true,
               title: Text(tool),
-              value:
-                  enabled &&
+              value: enabled &&
                   (selectedTools == null || selectedTools.contains(tool)),
               onChanged: (_) => setState(() {
                 _mcps ??= {for (final entry in widget.mcps) entry.name: null};
@@ -288,11 +280,9 @@ class _CapabilityScopeEditorState extends State<CapabilityScopeEditor>
   String _summary() {
     final skillCount = _skills?.length ?? widget.skills.length;
     final serverCount = _mcps?.length ?? widget.mcps.length;
-    final restrictedTools =
-        _mcps?.values.whereType<List<String>>().fold<int>(
-          0,
-          (sum, tools) => sum + tools.length,
-        ) ??
+    final restrictedTools = _mcps?.values
+            .whereType<List<String>>()
+            .fold<int>(0, (sum, tools) => sum + tools.length) ??
         0;
     final toolDetail = restrictedTools == 0
         ? 'all tools on selected servers'

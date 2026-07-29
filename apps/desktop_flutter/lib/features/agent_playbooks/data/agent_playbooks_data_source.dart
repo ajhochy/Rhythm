@@ -30,11 +30,11 @@ class PlaybookEntry {
   final bool managed;
 
   factory PlaybookEntry.fromJson(Map<String, dynamic> json) => PlaybookEntry(
-    name: json['name'] as String? ?? '',
-    description: json['description'] as String?,
-    source: json['source'] as String? ?? 'command',
-    managed: json['managed'] as bool? ?? false,
-  );
+        name: json['name'] as String? ?? '',
+        description: json['description'] as String?,
+        source: json['source'] as String? ?? 'command',
+        managed: json['managed'] as bool? ?? false,
+      );
 }
 
 /// Frontmatter + body for one Rhythm-managed playbook, as returned by
@@ -69,8 +69,8 @@ class PlaybookContent {
 /// (OCU-09 #1050 backend): list/create/update/delete + content fetch.
 class AgentPlaybooksDataSource {
   AgentPlaybooksDataSource({http.Client? client})
-    : _baseUrl = AppConstants.agentLocalBaseUrl,
-      _client = client ?? http.Client();
+      : _baseUrl = AppConstants.agentLocalBaseUrl,
+        _client = client ?? http.Client();
 
   final String _baseUrl;
   final http.Client _client;
@@ -90,9 +90,8 @@ class AgentPlaybooksDataSource {
   /// manager can render its empty state instead of crashing.
   Future<List<PlaybookEntry>> list() async {
     try {
-      final response = await _client.get(
-        Uri.parse('$_baseUrl/opencode/commands'),
-      );
+      final response =
+          await _client.get(Uri.parse('$_baseUrl/opencode/commands'));
       if (response.statusCode != 200) return [];
       final list = jsonDecode(response.body) as List<dynamic>;
       return list

@@ -99,19 +99,14 @@ void main() {
       };
 
       final snap = UsageBudgetSnapshot.fromJson(json);
-      final anthropicEntries = snap.providers
-          .where((p) => p.provider == 'anthropic')
-          .toList();
+      final anthropicEntries =
+          snap.providers.where((p) => p.provider == 'anthropic').toList();
 
       expect(anthropicEntries, hasLength(2));
-      expect(anthropicEntries.map((p) => p.accountId).toSet(), {
-        'acct-personal',
-        'acct-team',
-      });
-      expect(anthropicEntries.map((p) => p.label).toSet(), {
-        'Anthropic — Personal',
-        'Anthropic — Team',
-      });
+      expect(anthropicEntries.map((p) => p.accountId).toSet(),
+          {'acct-personal', 'acct-team'});
+      expect(anthropicEntries.map((p) => p.label).toSet(),
+          {'Anthropic — Personal', 'Anthropic — Team'});
       expect(
         anthropicEntries
             .firstWhere((p) => p.accountId == 'acct-team')

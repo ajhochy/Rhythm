@@ -45,7 +45,9 @@ Map<String, List<AgentSession>> _childrenOf(List<AgentSession> sessions) {
 List<AgentSession> _rootSessions(List<AgentSession> sessions) {
   final sessionIds = {for (final s in sessions) s.id};
   return sessions
-      .where((s) => s.parentId == null || !sessionIds.contains(s.parentId))
+      .where(
+        (s) => s.parentId == null || !sessionIds.contains(s.parentId),
+      )
       .toList();
 }
 
@@ -127,11 +129,8 @@ void main() {
   group('parent→children grouping', () {
     test('root session with one child is grouped correctly', () {
       final parent = _makeSession(id: 'parent-1', name: 'Parent');
-      final child = _makeSession(
-        id: 'child-1',
-        name: 'Child',
-        parentId: 'parent-1',
-      );
+      final child =
+          _makeSession(id: 'child-1', name: 'Child', parentId: 'parent-1');
       final sessions = [parent, child];
 
       final children = _childrenOf(sessions);
@@ -155,10 +154,7 @@ void main() {
     test('orphaned child (parent not in list) appears as root', () {
       // Parent is not in the filtered session list (e.g., archived).
       final orphan = _makeSession(
-        id: 'orphan-1',
-        name: 'Orphan',
-        parentId: 'absent-parent',
-      );
+          id: 'orphan-1', name: 'Orphan', parentId: 'absent-parent');
       final sessions = [orphan];
 
       final roots = _rootSessions(sessions);

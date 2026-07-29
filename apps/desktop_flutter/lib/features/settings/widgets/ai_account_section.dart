@@ -220,10 +220,8 @@ class _AiAccountSectionState extends State<AiAccountSection> {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } else {
       if (!mounted) return;
-      setState(
-        () => _statusMessage =
-            'Could not open browser. Visit $authorizeUrl manually.',
-      );
+      setState(() => _statusMessage =
+          'Could not open browser. Visit $authorizeUrl manually.');
       return;
     }
 
@@ -347,7 +345,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
     final isOk = account.status == 'ok';
     final statusText = isOk
         ? '✓ Connected'
-              '${account.subscriptionType != null ? ' (${account.subscriptionType})' : ''}'
+            '${account.subscriptionType != null ? ' (${account.subscriptionType})' : ''}'
         : 'Needs re-login';
     return Container(
       padding: const EdgeInsets.all(12),
@@ -380,9 +378,8 @@ class _AiAccountSectionState extends State<AiAccountSection> {
                   statusText,
                   style: TextStyle(
                     fontSize: 11,
-                    color: isOk
-                        ? context.rhythm.success
-                        : context.rhythm.danger,
+                    color:
+                        isOk ? context.rhythm.success : context.rhythm.danger,
                   ),
                 ),
               ],
@@ -416,64 +413,56 @@ class _AiAccountSectionState extends State<AiAccountSection> {
   List<Widget> _claudeAccountWidgets() {
     final rows = <Widget>[];
     if (_accounts.isNotEmpty) {
-      rows.add(
-        RadioGroup<String>(
-          groupValue: _defaultAccountId,
-          onChanged: (v) {
-            if (v != null) _setDefaultAccount(v);
-          },
-          child: Column(
-            children: [
-              for (final (i, account) in _accounts.indexed) ...[
-                if (i > 0) const SizedBox(height: 8),
-                _buildAccountRow(account),
-              ],
+      rows.add(RadioGroup<String>(
+        groupValue: _defaultAccountId,
+        onChanged: (v) {
+          if (v != null) _setDefaultAccount(v);
+        },
+        child: Column(
+          children: [
+            for (final (i, account) in _accounts.indexed) ...[
+              if (i > 0) const SizedBox(height: 8),
+              _buildAccountRow(account),
             ],
-          ),
+          ],
         ),
-      );
+      ));
     } else if (_hasClaudeCode) {
-      rows.add(
-        SubscriptionTile(
-          label: 'Claude',
-          description: 'Use your existing Claude Code subscription',
-          connected: _authorizedProviders.contains('anthropic'),
-          isSaving: _isSaving,
-          onConnect: _bridgeAnthropic,
-        ),
-      );
+      rows.add(SubscriptionTile(
+        label: 'Claude',
+        description: 'Use your existing Claude Code subscription',
+        connected: _authorizedProviders.contains('anthropic'),
+        isSaving: _isSaving,
+        onConnect: _bridgeAnthropic,
+      ));
     } else {
-      rows.add(
-        _ApiKeyProviderTile(
-          provider: 'anthropic',
-          label: 'Anthropic API',
-          description:
-              'Pro/Max subscriptions require Claude Code installed. Paste an API key to use Anthropic without it.',
-          hintText: 'Paste your Anthropic API key…',
-          controller: _apiKeyControllers.putIfAbsent(
-            'anthropic',
-            () => TextEditingController(),
-          ),
-          isSaving: _isSaving,
-          onSave: () => _saveApiKey('anthropic'),
-          connected: _authorizedProviders.contains('anthropic'),
+      rows.add(_ApiKeyProviderTile(
+        provider: 'anthropic',
+        label: 'Anthropic API',
+        description:
+            'Pro/Max subscriptions require Claude Code installed. Paste an API key to use Anthropic without it.',
+        hintText: 'Paste your Anthropic API key…',
+        controller: _apiKeyControllers.putIfAbsent(
+          'anthropic',
+          () => TextEditingController(),
         ),
-      );
+        isSaving: _isSaving,
+        onSave: () => _saveApiKey('anthropic'),
+        connected: _authorizedProviders.contains('anthropic'),
+      ));
     }
     if (_accounts.length < 2) {
-      rows.add(
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: _addClaudeAccount,
-            icon: const Icon(Icons.add, size: 16),
-            label: const Text(
-              'Add Claude account',
-              style: TextStyle(fontSize: 12),
-            ),
+      rows.add(Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: _addClaudeAccount,
+          icon: const Icon(Icons.add, size: 16),
+          label: const Text(
+            'Add Claude account',
+            style: TextStyle(fontSize: 12),
           ),
         ),
-      );
+      ));
     }
     return rows;
   }
@@ -490,8 +479,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
     try {
       final response = await http.get(
         Uri.parse(
-          '${AppConstants.agentLocalBaseUrl}/opencode/auth/$provider/authorize?method=1',
-        ),
+            '${AppConstants.agentLocalBaseUrl}/opencode/auth/$provider/authorize?method=1'),
       );
       if (!mounted) return;
       if (response.statusCode != 200) {
@@ -499,13 +487,9 @@ class _AiAccountSectionState extends State<AiAccountSection> {
         try {
           final errBody = jsonDecode(response.body) as Map<String, dynamic>;
           errorDetail = errBody['error'] as String? ?? errorDetail;
-        } catch (_) {
-          /* non-JSON */
-        }
-        setState(
-          () => _statusMessage =
-              'Failed to start sign-in for $provider: $errorDetail',
-        );
+        } catch (_) {/* non-JSON */}
+        setState(() => _statusMessage =
+            'Failed to start sign-in for $provider: $errorDetail');
         return;
       }
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -520,10 +504,8 @@ class _AiAccountSectionState extends State<AiAccountSection> {
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
-        setState(
-          () => _statusMessage =
-              'Could not open browser. Visit $authUrl manually.',
-        );
+        setState(() => _statusMessage =
+            'Could not open browser. Visit $authUrl manually.');
         return;
       }
 
@@ -540,9 +522,8 @@ class _AiAccountSectionState extends State<AiAccountSection> {
       // Complete via methodIndex=1 (matches the URL we started with).
       final callback = await http.get(
         Uri.parse(
-          '${AppConstants.agentLocalBaseUrl}/opencode/auth/$provider/callback'
-          '?code=${Uri.encodeQueryComponent(code)}&method=1',
-        ),
+            '${AppConstants.agentLocalBaseUrl}/opencode/auth/$provider/callback'
+            '?code=${Uri.encodeQueryComponent(code)}&method=1'),
       );
       if (!mounted) return;
       if (callback.statusCode == 200) {
@@ -557,12 +538,9 @@ class _AiAccountSectionState extends State<AiAccountSection> {
         try {
           final errBody = jsonDecode(callback.body) as Map<String, dynamic>;
           errorDetail = errBody['error'] as String? ?? errorDetail;
-        } catch (_) {
-          /* non-JSON */
-        }
-        setState(
-          () => _statusMessage = 'Sign-in failed for $provider: $errorDetail',
-        );
+        } catch (_) {/* non-JSON */}
+        setState(() =>
+            _statusMessage = 'Sign-in failed for $provider: $errorDetail');
       }
     } catch (e) {
       if (!mounted) return;
@@ -651,8 +629,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
     try {
       final response = await http.get(
         Uri.parse(
-          '${AppConstants.agentLocalBaseUrl}/opencode/auth/google/authorize?method=0',
-        ),
+            '${AppConstants.agentLocalBaseUrl}/opencode/auth/google/authorize?method=0'),
       );
       if (!mounted) return;
       if (response.statusCode != 200) {
@@ -660,31 +637,24 @@ class _AiAccountSectionState extends State<AiAccountSection> {
         try {
           final errBody = jsonDecode(response.body) as Map<String, dynamic>;
           errorDetail = errBody['error'] as String? ?? errorDetail;
-        } catch (_) {
-          /* non-JSON */
-        }
-        setState(
-          () => _statusMessage = 'Failed to start Google sign-in: $errorDetail',
-        );
+        } catch (_) {/* non-JSON */}
+        setState(() =>
+            _statusMessage = 'Failed to start Google sign-in: $errorDetail');
         return;
       }
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final authUrl = data['authUrl'] as String?;
       if (authUrl == null || authUrl.isEmpty) {
-        setState(
-          () => _statusMessage =
-              'Google OAuth not available — check that opencode-gemini-auth plugin is installed.',
-        );
+        setState(() => _statusMessage =
+            'Google OAuth not available — check that opencode-gemini-auth plugin is installed.');
         return;
       }
       final uri = Uri.parse(authUrl);
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
-        setState(
-          () => _statusMessage =
-              'Could not open browser. Visit $authUrl manually.',
-        );
+        setState(() => _statusMessage =
+            'Could not open browser. Visit $authUrl manually.');
         return;
       }
 
@@ -704,8 +674,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
         _refreshAgentCapabilities();
       } else {
         setState(
-          () => _statusMessage = 'Google sign-in was cancelled or timed out',
-        );
+            () => _statusMessage = 'Google sign-in was cancelled or timed out');
       }
     } catch (e) {
       if (!mounted) return;
@@ -742,9 +711,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
           await stop(result: true);
           if (mounted) Navigator.of(context, rootNavigator: true).pop();
         }
-      } catch (_) {
-        /* keep polling */
-      }
+      } catch (_) {/* keep polling */}
     });
 
     timeout = Timer(const Duration(minutes: 5), () async {
@@ -799,8 +766,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
     try {
       final startRes = await http.post(
         Uri.parse(
-          '${AppConstants.agentLocalBaseUrl}/opencode/auth/github-copilot/device-start',
-        ),
+            '${AppConstants.agentLocalBaseUrl}/opencode/auth/github-copilot/device-start'),
       );
       if (!mounted) return;
       if (startRes.statusCode != 200) {
@@ -808,13 +774,9 @@ class _AiAccountSectionState extends State<AiAccountSection> {
         try {
           final errBody = jsonDecode(startRes.body) as Map<String, dynamic>;
           errorDetail = errBody['error'] as String? ?? errorDetail;
-        } catch (_) {
-          /* non-JSON */
-        }
-        setState(
-          () => _statusMessage =
-              'Failed to start GitHub Copilot sign-in: $errorDetail',
-        );
+        } catch (_) {/* non-JSON */}
+        setState(() => _statusMessage =
+            'Failed to start GitHub Copilot sign-in: $errorDetail');
         return;
       }
       final body = jsonDecode(startRes.body) as Map<String, dynamic>;
@@ -841,10 +803,8 @@ class _AiAccountSectionState extends State<AiAccountSection> {
         await _refreshConnectedProviders();
         _refreshAgentCapabilities();
       } else {
-        setState(
-          () => _statusMessage =
-              'GitHub Copilot sign-in was cancelled or timed out',
-        );
+        setState(() => _statusMessage =
+            'GitHub Copilot sign-in was cancelled or timed out');
       }
     } catch (e) {
       if (!mounted) return;
@@ -870,8 +830,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
       try {
         final res = await http.get(
           Uri.parse(
-            '${AppConstants.agentLocalBaseUrl}/opencode/auth/github-copilot/device-status',
-          ),
+              '${AppConstants.agentLocalBaseUrl}/opencode/auth/github-copilot/device-status'),
         );
         if (res.statusCode != 200) return;
         final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -883,9 +842,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
           await stop(result: false);
           if (mounted) Navigator.of(context, rootNavigator: true).pop();
         }
-      } catch (_) {
-        /* keep polling */
-      }
+      } catch (_) {/* keep polling */}
     });
 
     timeout = Timer(const Duration(minutes: 10), () async {
@@ -916,7 +873,10 @@ class _AiAccountSectionState extends State<AiAccountSection> {
                 const SizedBox(height: 4),
                 SelectableText(
                   verificationUri,
-                  style: const TextStyle(fontSize: 13, fontFamily: 'Menlo'),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontFamily: 'Menlo',
+                  ),
                 ),
                 const SizedBox(height: 12),
                 const Text(
@@ -950,11 +910,8 @@ class _AiAccountSectionState extends State<AiAccountSection> {
               onPressed: () async {
                 await stop(result: false);
                 if (mounted) {
-                  await http.post(
-                    Uri.parse(
-                      '${AppConstants.agentLocalBaseUrl}/opencode/auth/github-copilot/device-cancel',
-                    ),
-                  );
+                  await http.post(Uri.parse(
+                      '${AppConstants.agentLocalBaseUrl}/opencode/auth/github-copilot/device-cancel'));
                   if (mounted) Navigator.of(ctx).pop();
                 }
               },
@@ -982,8 +939,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
       // token, so "Reconnect" actually re-syncs Claude credentials (#658).
       final res = await http.post(
         Uri.parse(
-          '${AppConstants.agentLocalBaseUrl}/opencode/auth/anthropic/bridge?force=true',
-        ),
+            '${AppConstants.agentLocalBaseUrl}/opencode/auth/anthropic/bridge?force=true'),
       );
       if (!mounted) return;
       if (res.statusCode == 200) {
@@ -1088,9 +1044,8 @@ class _AiAccountSectionState extends State<AiAccountSection> {
       children: [
         // ── Section 1: Your subscriptions ──
         _SectionHeader(
-          title: 'Your subscriptions',
-          subtitle: 'Sign in with your existing account',
-        ),
+            title: 'Your subscriptions',
+            subtitle: 'Sign in with your existing account'),
         const SizedBox(height: 10),
         ..._claudeAccountWidgets(),
         const SizedBox(height: 8),
@@ -1106,9 +1061,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
 
         // ── Section 2: Free API options ──
         _SectionHeader(
-          title: 'Free API options',
-          subtitle: 'No credit card required',
-        ),
+            title: 'Free API options', subtitle: 'No credit card required'),
         const SizedBox(height: 10),
         _OAuthProviderTile(
           provider: 'google',
@@ -1143,9 +1096,8 @@ class _AiAccountSectionState extends State<AiAccountSection> {
 
         // ── Section 3: Custom provider ──
         _SectionHeader(
-          title: 'Custom provider',
-          subtitle: 'OpenRouter, DeepSeek, or any API key',
-        ),
+            title: 'Custom provider',
+            subtitle: 'OpenRouter, DeepSeek, or any API key'),
         const SizedBox(height: 10),
         _ApiKeyProviderTile(
           provider: 'openrouter',
@@ -1244,26 +1196,21 @@ class _OAuthProviderTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: context.rhythm.textPrimary,
-                      ),
+                Row(children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: context.rhythm.textPrimary,
                     ),
-                    if (connected) ...[
-                      const SizedBox(width: 8),
-                      Icon(
-                        Icons.check_circle,
-                        size: 14,
-                        color: context.rhythm.success,
-                      ),
-                    ],
+                  ),
+                  if (connected) ...[
+                    const SizedBox(width: 8),
+                    Icon(Icons.check_circle,
+                        size: 14, color: context.rhythm.success),
                   ],
-                ),
+                ]),
                 const SizedBox(height: 2),
                 Text(
                   description,
@@ -1284,10 +1231,8 @@ class _OAuthProviderTile extends StatelessWidget {
               minimumSize: Size.zero,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
-            child: Text(
-              connected ? 'Reconnect' : 'Authorize',
-              style: const TextStyle(fontSize: 12),
-            ),
+            child: Text(connected ? 'Reconnect' : 'Authorize',
+                style: const TextStyle(fontSize: 12)),
           ),
         ],
       ),
@@ -1330,30 +1275,27 @@ class _ApiKeyProviderTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: context.rhythm.textPrimary,
-                ),
+          Row(children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: context.rhythm.textPrimary,
               ),
-              if (connected) ...[
-                const SizedBox(width: 8),
-                Icon(
-                  Icons.check_circle,
-                  size: 14,
-                  color: context.rhythm.success,
-                ),
-              ],
+            ),
+            if (connected) ...[
+              const SizedBox(width: 8),
+              Icon(Icons.check_circle, size: 14, color: context.rhythm.success),
             ],
-          ),
+          ]),
           const SizedBox(height: 2),
           Text(
             description,
-            style: TextStyle(fontSize: 11, color: context.rhythm.textSecondary),
+            style: TextStyle(
+              fontSize: 11,
+              color: context.rhythm.textSecondary,
+            ),
           ),
           const SizedBox(height: 8),
           Row(
@@ -1439,26 +1381,21 @@ class SubscriptionTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: context.rhythm.textPrimary,
-                      ),
+                Row(children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: context.rhythm.textPrimary,
                     ),
-                    if (connected) ...[
-                      const SizedBox(width: 8),
-                      Icon(
-                        Icons.check_circle,
-                        size: 14,
-                        color: context.rhythm.success,
-                      ),
-                    ],
+                  ),
+                  if (connected) ...[
+                    const SizedBox(width: 8),
+                    Icon(Icons.check_circle,
+                        size: 14, color: context.rhythm.success),
                   ],
-                ),
+                ]),
                 const SizedBox(height: 2),
                 Text(
                   description,

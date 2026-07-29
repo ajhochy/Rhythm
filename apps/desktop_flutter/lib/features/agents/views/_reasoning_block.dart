@@ -25,7 +25,10 @@ import 'package:rhythm_desktop/features/agents/models/chat_models.dart';
 /// The block is keyed by the caller with [ValueKey(part.id)] so Flutter's
 /// element tree preserves state across rebuilds triggered by delta appends.
 class ReasoningBlock extends StatefulWidget {
-  const ReasoningBlock({super.key, required this.part});
+  const ReasoningBlock({
+    super.key,
+    required this.part,
+  });
 
   final ChatPart part;
 
@@ -99,7 +102,11 @@ class _ReasoningBlockState extends State<ReasoningBlock> {
             ),
             child: SelectableText(
               widget.part.text,
-              style: TextStyle(fontSize: 12, color: textSecondary, height: 1.5),
+              style: TextStyle(
+                fontSize: 12,
+                color: textSecondary,
+                height: 1.5,
+              ),
             ),
           ),
         ],

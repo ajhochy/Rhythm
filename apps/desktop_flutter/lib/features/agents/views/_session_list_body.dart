@@ -232,14 +232,15 @@ class _SubagentCollapseAllToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
-    final anyExpanded = parentIds.any(
-      (id) => !controller.isParentSessionCollapsed(id),
-    );
+    final anyExpanded =
+        parentIds.any((id) => !controller.isParentSessionCollapsed(id));
     return Align(
       alignment: Alignment.centerRight,
       child: TextButton(
-        onPressed: () =>
-            controller.setAllParentSessionsCollapsed(parentIds, anyExpanded),
+        onPressed: () => controller.setAllParentSessionsCollapsed(
+          parentIds,
+          anyExpanded,
+        ),
         style: TextButton.styleFrom(
           foregroundColor: context.rhythm.accent,
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -287,16 +288,14 @@ List<Widget> _buildSessionTree(
     if (session.parentId != null && sessionIds.contains(session.parentId)) {
       continue;
     }
-    widgets.add(
-      SessionRow(
-        session: session,
-        isSelected: controller.selectedSessionId == session.id,
-        isMultiSelected: multiSelected.contains(session.id),
-        isWorking: controller.isWorking(session.id),
-        isStuck: controller.connectivity.isStuck(session.id),
-        onTap: () => onRowTap(session.id),
-      ),
-    );
+    widgets.add(SessionRow(
+      session: session,
+      isSelected: controller.selectedSessionId == session.id,
+      isMultiSelected: multiSelected.contains(session.id),
+      isWorking: controller.isWorking(session.id),
+      isStuck: controller.connectivity.isStuck(session.id),
+      onTap: () => onRowTap(session.id),
+    ));
     widgets.add(const SizedBox(height: 4));
 
     // #910 — a parent with subagents renders a collapse/expand toggle. When
@@ -306,33 +305,28 @@ List<Widget> _buildSessionTree(
     final children = childrenOf[session.id] ?? [];
     if (children.isNotEmpty) {
       final collapsed = controller.isParentSessionCollapsed(session.id);
-      widgets.add(
-        Padding(
-          padding: const EdgeInsets.only(left: 16),
-          child: _SubagentGroupSummary(
-            count: children.length,
-            workingCount: children
-                .where((c) => controller.isWorking(c.id))
-                .length,
-            collapsed: collapsed,
-            onTap: () => controller.toggleParentSessionCollapsed(session.id),
-          ),
+      widgets.add(Padding(
+        padding: const EdgeInsets.only(left: 16),
+        child: _SubagentGroupSummary(
+          count: children.length,
+          workingCount:
+              children.where((c) => controller.isWorking(c.id)).length,
+          collapsed: collapsed,
+          onTap: () => controller.toggleParentSessionCollapsed(session.id),
         ),
-      );
+      ));
       widgets.add(const SizedBox(height: 3));
       if (!collapsed) {
         for (final child in children) {
-          widgets.add(
-            Padding(
-              padding: const EdgeInsets.only(left: 16),
-              child: ChildSessionRow(
-                session: child,
-                isSelected: controller.selectedSessionId == child.id,
-                isWorking: controller.isWorking(child.id),
-                onTap: () => onRowTap(child.id),
-              ),
+          widgets.add(Padding(
+            padding: const EdgeInsets.only(left: 16),
+            child: ChildSessionRow(
+              session: child,
+              isSelected: controller.selectedSessionId == child.id,
+              isWorking: controller.isWorking(child.id),
+              onTap: () => onRowTap(child.id),
             ),
-          );
+          ));
           widgets.add(const SizedBox(height: 3));
         }
       }
@@ -433,8 +427,8 @@ class SessionRow extends StatelessWidget {
             color: isMultiSelected
                 ? context.rhythm.accent
                 : isSelected
-                ? context.rhythm.accent.withValues(alpha: 0.28)
-                : context.rhythm.border,
+                    ? context.rhythm.accent.withValues(alpha: 0.28)
+                    : context.rhythm.border,
             width: isMultiSelected ? 2 : 1,
           ),
           boxShadow: highlighted
@@ -789,9 +783,8 @@ class AgentKindIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final configsCtrl = context.watch<AgentConfigsController>();
-    final providerToAgentKind = context
-        .watch<AgentServerController>()
-        .providerToAgentKind;
+    final providerToAgentKind =
+        context.watch<AgentServerController>().providerToAgentKind;
 
     final identity = resolveAgentBadgeIdentity(
       agentId: agentId,
@@ -806,11 +799,8 @@ class AgentKindIcon extends StatelessWidget {
         : context.rhythm.textMuted;
 
     if (config != null) {
-      return AgentIcon(
-        config.icon,
-        size: size,
-        fallbackLabel: config.displayLabel,
-      );
+      return AgentIcon(config.icon,
+          size: size, fallbackLabel: config.displayLabel);
     }
     if (identity.materialIcon != null) {
       return Icon(identity.materialIcon, size: size, color: color);
@@ -834,9 +824,8 @@ class AgentKindBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final configsCtrl = context.watch<AgentConfigsController>();
-    final providerToAgentKind = context
-        .watch<AgentServerController>()
-        .providerToAgentKind;
+    final providerToAgentKind =
+        context.watch<AgentServerController>().providerToAgentKind;
 
     final identity = resolveAgentBadgeIdentity(
       agentId: agentId,
@@ -881,11 +870,8 @@ class AgentConfigBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (config != null) ...[
-            AgentIcon(
-              config.icon,
-              size: 12,
-              fallbackLabel: config.displayLabel,
-            ),
+            AgentIcon(config.icon,
+                size: 12, fallbackLabel: config.displayLabel),
             const SizedBox(width: 4),
           ] else if (identity.materialIcon != null) ...[
             Icon(identity.materialIcon, size: 12, color: badgeColor),
@@ -994,17 +980,20 @@ class SessionRowMenu extends StatelessWidget {
     );
     if (newName == null || newName.isEmpty || newName == session.name) return;
     if (!context.mounted) return;
-    await context.read<AgentsController>().updateSession(
-      session.id,
-      name: newName,
-    );
+    await context
+        .read<AgentsController>()
+        .updateSession(session.id, name: newName);
   }
 
   @override
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
       tooltip: 'Session actions',
-      icon: Icon(Icons.more_horiz, size: 16, color: context.rhythm.textMuted),
+      icon: Icon(
+        Icons.more_horiz,
+        size: 16,
+        color: context.rhythm.textMuted,
+      ),
       padding: EdgeInsets.zero,
       iconSize: 16,
       splashRadius: 16,
@@ -1049,7 +1038,9 @@ class SessionRowMenu extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 'Delete session',
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                ),
               ),
             ],
           ),
@@ -1087,9 +1078,8 @@ class _RenameSessionDialog extends StatefulWidget {
 }
 
 class _RenameSessionDialogState extends State<_RenameSessionDialog> {
-  late final TextEditingController _controller = TextEditingController(
-    text: widget.currentName,
-  );
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.currentName);
 
   @override
   void dispose() {
@@ -1198,7 +1188,10 @@ class _EmptyChatsState extends StatelessWidget {
             Text(
               hasQuery ? 'Try a different query.' : 'Tap + New to start one.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 11, color: context.rhythm.textMuted),
+              style: TextStyle(
+                fontSize: 11,
+                color: context.rhythm.textMuted,
+              ),
             ),
           ],
         ),

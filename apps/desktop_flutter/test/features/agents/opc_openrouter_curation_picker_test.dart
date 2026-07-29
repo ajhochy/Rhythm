@@ -109,74 +109,65 @@ class _FakeBackend {
   int patchCount = 0;
 
   http.Client build() => MockClient((req) async {
-    final path = req.url.path;
-    final method = req.method;
+        final path = req.url.path;
+        final method = req.method;
 
-    // Catalog the picker reads. Curated model appears only after the PATCH.
-    if (method == 'GET' && path == '/agents/models/catalog') {
-      final entries = [_kAnthropicEntry, if (curated) _kCuratedOpenRouterEntry];
-      return http.Response(
-        jsonEncode(entries),
-        200,
-        headers: {'content-type': 'application/json'},
-      );
-    }
+        // Catalog the picker reads. Curated model appears only after the PATCH.
+        if (method == 'GET' && path == '/agents/models/catalog') {
+          final entries = [
+            _kAnthropicEntry,
+            if (curated) _kCuratedOpenRouterEntry,
+          ];
+          return http.Response(jsonEncode(entries), 200,
+              headers: {'content-type': 'application/json'});
+        }
 
-    // Per-session routes (refreshModelRoutes); not exercised here, but safe.
-    if (method == 'GET' && path == '/agents/models') {
-      return http.Response(
-        '[]',
-        200,
-        headers: {'content-type': 'application/json'},
-      );
-    }
+        // Per-session routes (refreshModelRoutes); not exercised here, but safe.
+        if (method == 'GET' && path == '/agents/models') {
+          return http.Response('[]', 200,
+              headers: {'content-type': 'application/json'});
+        }
 
-    // Existing visibility rows — none yet, so the model starts unchecked.
-    if (method == 'GET' && path == '/agent-models/visibility') {
-      return http.Response(
-        '[]',
-        200,
-        headers: {'content-type': 'application/json'},
-      );
-    }
+        // Existing visibility rows — none yet, so the model starts unchecked.
+        if (method == 'GET' && path == '/agent-models/visibility') {
+          return http.Response('[]', 200,
+              headers: {'content-type': 'application/json'});
+        }
 
-    // The curation write: flip the catalog the picker will re-fetch.
-    if (method == 'PATCH' && path == '/agent-models/visibility') {
-      patchCount++;
-      curated = true;
-      return http.Response(
-        '{}',
-        200,
-        headers: {'content-type': 'application/json'},
-      );
-    }
+        // The curation write: flip the catalog the picker will re-fetch.
+        if (method == 'PATCH' && path == '/agent-models/visibility') {
+          patchCount++;
+          curated = true;
+          return http.Response('{}', 200,
+              headers: {'content-type': 'application/json'});
+        }
 
-    // OpenRouter public catalog the section lists for curation.
-    if (method == 'GET' && path == '/opencode/models') {
-      return http.Response(
-        jsonEncode([
-          {'id': 'zephyr-7b', 'name': 'Zephyr 7B', 'context_length': 8192},
-        ]),
-        200,
-        headers: {'content-type': 'application/json'},
-      );
-    }
+        // OpenRouter public catalog the section lists for curation.
+        if (method == 'GET' && path == '/opencode/models') {
+          return http.Response(
+            jsonEncode([
+              {'id': 'zephyr-7b', 'name': 'Zephyr 7B', 'context_length': 8192},
+            ]),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
 
-    return http.Response('not found', 404);
-  });
+        return http.Response('not found', 404);
+      });
 }
 
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _session() => AgentSession(
-  id: 'sess-picker-1',
-  agentId: 'claude-code',
-  name: 'Picker Test',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: 'sess-picker-1',
+      agentId: 'claude-code',
+      name: 'Picker Test',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 bool _catalogHasOpenRouter(AgentsController c) =>
     c.catalog.any((e) => e.provider == 'openrouter');
@@ -205,27 +196,27 @@ void main() {
   tearDown(() => controller.dispose());
 
   Widget wrap() => ChangeNotifierProvider<AgentsController>.value(
-    value: controller,
-    child: MaterialApp(
-      theme: AppTheme.light(),
-      home: Scaffold(
-        body: SizedBox(
-          width: 1200,
-          height: 1600,
-          child: Column(
-            children: [
-              OpenRouterModelsSection(dataSource: visibilityDs),
-              const SizedBox(height: 24),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: UnifiedAgentModelPicker(session: _session()),
+        value: controller,
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: Scaffold(
+            body: SizedBox(
+              width: 1200,
+              height: 1600,
+              child: Column(
+                children: [
+                  OpenRouterModelsSection(dataSource: visibilityDs),
+                  const SizedBox(height: 24),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: UnifiedAgentModelPicker(session: _session()),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
-      ),
-    ),
-  );
+      );
 
   testWidgets(
     'negative control: with no curation the picker popup has no OpenRouter '
@@ -277,8 +268,7 @@ void main() {
       expect(
         _catalogHasOpenRouter(controller),
         isTrue,
-        reason:
-            'refreshCatalog() must repopulate controller.catalog — the '
+        reason: 'refreshCatalog() must repopulate controller.catalog — the '
             'exact gap the #639 bug lived in',
       );
 

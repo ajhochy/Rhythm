@@ -92,7 +92,10 @@ const List<AgentPreset> kBuiltInPresets = [
 /// fields; selecting Custom creates a blank disabled card for the user to
 /// configure.
 class PresetPicker extends StatelessWidget {
-  const PresetPicker({super.key, required this.builder});
+  const PresetPicker({
+    super.key,
+    required this.builder,
+  });
 
   /// Passed directly to [MenuAnchor.builder].
   final MenuAnchorChildBuilder builder;
@@ -101,10 +104,8 @@ class PresetPicker extends StatelessWidget {
   Widget build(BuildContext context) {
     // Read once — we need the present presetIds to filter the menu.
     final controller = context.read<AgentConfigsController>();
-    final existingPresetIds = controller.configs
-        .map((c) => c.presetId)
-        .whereType<String>()
-        .toSet();
+    final existingPresetIds =
+        controller.configs.map((c) => c.presetId).whereType<String>().toSet();
 
     final missingPresets = kBuiltInPresets
         .where((p) => !existingPresetIds.contains(p.id))
@@ -116,11 +117,8 @@ class PresetPicker extends StatelessWidget {
         MenuItemButton(
           leadingIcon: Padding(
             padding: const EdgeInsets.only(right: 4),
-            child: AgentIcon(
-              preset.icon,
-              size: 18,
-              fallbackLabel: preset.label,
-            ),
+            child:
+                AgentIcon(preset.icon, size: 18, fallbackLabel: preset.label),
           ),
           onPressed: () => _addPreset(context, preset),
           child: Text(preset.label),
@@ -138,7 +136,10 @@ class PresetPicker extends StatelessWidget {
       ),
     ];
 
-    return MenuAnchor(menuChildren: menuItems, builder: builder);
+    return MenuAnchor(
+      menuChildren: menuItems,
+      builder: builder,
+    );
   }
 
   // --------------------------------------------------------------------------

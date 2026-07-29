@@ -32,9 +32,9 @@ import 'package:rhythm_desktop/features/agents/views/_slash_command_popover.dart
 
 /// Build 30 unique slash-commands — more than fit in the 240 px box.
 List<SlashCommand> _manyCommands(int count) => List.generate(
-  count,
-  (i) => SlashCommand(name: 'cmd$i', description: 'Command number $i'),
-);
+      count,
+      (i) => SlashCommand(name: 'cmd$i', description: 'Command number $i'),
+    );
 
 /// Wraps SlashCommandPopover in a tall host so the upward-growing popover has
 /// room to be hit-tested when the layout fix is applied.
@@ -54,7 +54,11 @@ Widget _wrapPopover({
             inputController: inputController,
             commands: commands,
             onCommandSelected: (_) {},
-            child: Container(width: 600, height: 48, color: Colors.white),
+            child: Container(
+              width: 600,
+              height: 48,
+              color: Colors.white,
+            ),
           ),
         ),
       ),
@@ -97,11 +101,8 @@ void main() {
         await tester.pump();
 
         // First command (cmd0) must be visible immediately.
-        expect(
-          find.text('/cmd0'),
-          findsOneWidget,
-          reason: 'First command must be visible when popover opens.',
-        );
+        expect(find.text('/cmd0'), findsOneWidget,
+            reason: 'First command must be visible when popover opens.');
 
         // The last command must NOT be visible yet (list too tall).
         // (It may or may not be — depends on layout — but what matters is
@@ -110,14 +111,11 @@ void main() {
         // Use ensureVisible to scroll the last item into view.
         final lastItemFinder = find.text('/cmd${commandCount - 1}');
 
-        await tester.scrollUntilVisible(
-          lastItemFinder,
-          50,
-          scrollable: find.descendant(
-            of: find.byType(SlashCommandPopover),
-            matching: find.byType(Scrollable),
-          ),
-        );
+        await tester.scrollUntilVisible(lastItemFinder, 50,
+            scrollable: find.descendant(
+              of: find.byType(SlashCommandPopover),
+              matching: find.byType(Scrollable),
+            ));
 
         await tester.pump();
 
@@ -132,58 +130,49 @@ void main() {
       },
     );
 
-    testWidgets('scrolling reveals commands that were below the visible area', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(800, 700));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+    testWidgets(
+      'scrolling reveals commands that were below the visible area',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(800, 700));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      const commandCount = 30;
-      final commands = _manyCommands(commandCount);
+        const commandCount = 30;
+        final commands = _manyCommands(commandCount);
 
-      await tester.pumpWidget(
-        _wrapPopover(inputController: inputController, commands: commands),
-      );
+        await tester.pumpWidget(
+          _wrapPopover(inputController: inputController, commands: commands),
+        );
 
-      inputController.text = '/';
-      await tester.pump();
+        inputController.text = '/';
+        await tester.pump();
 
-      // First command must be visible immediately.
-      expect(
-        find.text('/cmd0'),
-        findsOneWidget,
-        reason: 'First command must be visible when popover opens.',
-      );
+        // First command must be visible immediately.
+        expect(find.text('/cmd0'), findsOneWidget,
+            reason: 'First command must be visible when popover opens.');
 
-      // Late-index commands must NOT be visible without scrolling (sanity check).
-      expect(
-        find.text('/cmd27'),
-        findsNothing,
-        reason:
-            'cmd27 must not be visible before scrolling (list is capped at 240px).',
-      );
+        // Late-index commands must NOT be visible without scrolling (sanity check).
+        expect(find.text('/cmd27'), findsNothing,
+            reason:
+                'cmd27 must not be visible before scrolling (list is capped at 240px).');
 
-      // Drag the list upward to reveal items below the visible area.
-      final scrollableFinder = find.byType(Scrollable);
-      expect(
-        scrollableFinder,
-        findsOneWidget,
-        reason: 'The ListView must produce a Scrollable widget.',
-      );
+        // Drag the list upward to reveal items below the visible area.
+        final scrollableFinder = find.byType(Scrollable);
+        expect(scrollableFinder, findsOneWidget,
+            reason: 'The ListView must produce a Scrollable widget.');
 
-      await tester.drag(scrollableFinder.first, const Offset(0, -800));
-      await tester.pumpAndSettle();
+        await tester.drag(scrollableFinder.first, const Offset(0, -800));
+        await tester.pumpAndSettle();
 
-      // After dragging, later items (not the very last which may be partially
-      // clipped) must now be visible — confirming scroll events reached the ListView.
-      expect(
-        find.text('/cmd27'),
-        findsOneWidget,
-        reason:
-            'cmd27 must be reachable after drag-scrolling. '
-            'If this fails, scroll events are not delivered to the ListView '
-            '(issue #643 — Positioned layout clips hit-tests).',
-      );
-    });
+        // After dragging, later items (not the very last which may be partially
+        // clipped) must now be visible — confirming scroll events reached the ListView.
+        expect(
+          find.text('/cmd27'),
+          findsOneWidget,
+          reason: 'cmd27 must be reachable after drag-scrolling. '
+              'If this fails, scroll events are not delivered to the ListView '
+              '(issue #643 — Positioned layout clips hit-tests).',
+        );
+      },
+    );
   });
 }

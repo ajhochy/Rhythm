@@ -33,7 +33,9 @@ Widget wrap(AgentServerStatus status, {VoidCallback? onOpen}) =>
     ChangeNotifierProvider<AgentServerController>(
       create: (_) => _StatusController(status),
       child: MaterialApp(
-        home: Scaffold(body: MobileAccessSettingsSection(onOpen: onOpen)),
+        home: Scaffold(
+          body: MobileAccessSettingsSection(onOpen: onOpen),
+        ),
       ),
     );
 
@@ -42,11 +44,14 @@ void main() {
     'lib/features/settings/views/settings_view.dart',
   ).readAsStringSync();
 
-  test('issue-1239-c1: Mobile Access is a persistent Settings destination', () {
-    // Regression caught: the only entry point lives inside
-    // _AgentServerReady and disappears while the server starts or fails.
-    expect(settingsSource, contains("Key('mobile-access-settings-item')"));
-  });
+  test(
+    'issue-1239-c1: Mobile Access is a persistent Settings destination',
+    () {
+      // Regression caught: the only entry point lives inside
+      // _AgentServerReady and disappears while the server starts or fails.
+      expect(settingsSource, contains("Key('mobile-access-settings-item')"));
+    },
+  );
 
   testWidgets(
     'issue-1239-c1-widget: destination renders outside Agent Server ready row',

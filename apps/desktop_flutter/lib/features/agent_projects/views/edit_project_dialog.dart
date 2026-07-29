@@ -210,9 +210,8 @@ class _EditProjectDialogState extends State<_EditProjectDialog> {
         if (widget.isEdit)
           TextButton(
             onPressed: _saving ? null : _archive,
-            style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFFEF4444),
-            ),
+            style:
+                TextButton.styleFrom(foregroundColor: const Color(0xFFEF4444)),
             child: const Text('Archive'),
           ),
         TextButton(
@@ -237,11 +236,8 @@ class _VcsConfirmationLine extends StatelessWidget {
     if (project.vcsRoot != null) {
       return Row(
         children: [
-          const Icon(
-            Icons.check_circle_outline,
-            color: Color(0xFF10B981),
-            size: 16,
-          ),
+          const Icon(Icons.check_circle_outline,
+              color: Color(0xFF10B981), size: 16),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
@@ -290,7 +286,9 @@ String _basenameOf(String path) {
 Future<String?> _pickFolder(String initial) async {
   if (!Platform.isMacOS) return null;
   // Build the AppleScript. Each `-e` arg is a logical line.
-  final lines = <String>['tell application "System Events" to activate'];
+  final lines = <String>[
+    'tell application "System Events" to activate',
+  ];
   if (initial.isNotEmpty) {
     final escaped = initial.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
     lines.add(

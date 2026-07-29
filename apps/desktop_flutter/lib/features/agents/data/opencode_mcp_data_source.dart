@@ -36,8 +36,8 @@ class OpencodeMcpCapability {
 /// Mirrors [OpencodeSkillsDataSource].
 class OpencodeMcpDataSource {
   OpencodeMcpDataSource({http.Client? client})
-    : _baseUrl = AppConstants.agentLocalBaseUrl,
-      _client = client ?? http.Client();
+      : _baseUrl = AppConstants.agentLocalBaseUrl,
+        _client = client ?? http.Client();
 
   final String _baseUrl;
 
@@ -59,7 +59,9 @@ class OpencodeMcpDataSource {
       if (response.statusCode != 200) return [];
       final list = jsonDecode(response.body) as List<dynamic>;
       return list
-          .map((e) => OpencodeMcpCapability.fromJson(e as Map<String, dynamic>))
+          .map((e) => OpencodeMcpCapability.fromJson(
+                e as Map<String, dynamic>,
+              ))
           .where((entry) => entry.name.isNotEmpty)
           .toList();
     } catch (_) {

@@ -12,7 +12,9 @@ class AgentResearchDataSource {
   final String _baseUrl;
 
   Future<List<AgentResearchJob>> list() async {
-    final response = await http.get(Uri.parse('$_baseUrl/agent-research'));
+    final response = await http.get(
+      Uri.parse('$_baseUrl/agent-research'),
+    );
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
@@ -21,7 +23,9 @@ class AgentResearchDataSource {
   }
 
   Future<AgentResearchJob> get(String id) async {
-    final response = await http.get(Uri.parse('$_baseUrl/agent-research/$id'));
+    final response = await http.get(
+      Uri.parse('$_baseUrl/agent-research/$id'),
+    );
     assertOk(response);
     return AgentResearchJob.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,

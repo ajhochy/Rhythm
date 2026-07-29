@@ -58,9 +58,8 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(
-        NotificationsRepository(NotificationsDataSource(baseUrl: 'http://x')),
-      );
+      : super(NotificationsRepository(
+            NotificationsDataSource(baseUrl: 'http://x')));
   @override
   void startPolling() {}
   @override
@@ -100,7 +99,8 @@ void main() {
 
   tearDown(() => controller.dispose());
 
-  test('issue-656-c1: consumeComposerDraft returns the draft WITHOUT firing '
+  test(
+      'issue-656-c1: consumeComposerDraft returns the draft WITHOUT firing '
       'listeners (safe to call during build)', () {
     controller.setComposerDraft('s1', 'Add Annette Rip and Nate Rip');
 
@@ -125,15 +125,14 @@ void main() {
   });
 
   test(
-    'issue-656-c1b: hasComposerDraft reflects staged state, consume clears it',
-    () {
-      expect(controller.hasComposerDraft('s2'), isFalse);
-      controller.setComposerDraft('s2', 'hello');
-      expect(controller.hasComposerDraft('s2'), isTrue);
-      controller.consumeComposerDraft('s2');
-      expect(controller.hasComposerDraft('s2'), isFalse);
-    },
-  );
+      'issue-656-c1b: hasComposerDraft reflects staged state, consume clears it',
+      () {
+    expect(controller.hasComposerDraft('s2'), isFalse);
+    controller.setComposerDraft('s2', 'hello');
+    expect(controller.hasComposerDraft('s2'), isTrue);
+    controller.consumeComposerDraft('s2');
+    expect(controller.hasComposerDraft('s2'), isFalse);
+  });
 
   // c2 — Widget-level reproduction of the reported regression: when a widget
   // consumes a composer draft DURING its build (as _TranscriptPanel does),
@@ -145,10 +144,10 @@ void main() {
   // time the drafted widget builds — this testWidgets run captures that throw
   // via tester.takeException(). On the fixed code there is no throw and the
   // later notify drives a rebuild that shows the updated value.
-  testWidgets('issue-656-c2: consuming a draft during build keeps the Provider '
-      'subtree reactive (clicking/selecting still updates the view)', (
-    tester,
-  ) async {
+  testWidgets(
+      'issue-656-c2: consuming a draft during build keeps the Provider '
+      'subtree reactive (clicking/selecting still updates the view)',
+      (tester) async {
     controller.setComposerDraft('drafted-session', 'task title\n\nnotes');
 
     await tester.pumpWidget(
@@ -177,8 +176,7 @@ void main() {
     expect(
       tester.takeException(),
       isNull,
-      reason:
-          'consuming a draft during build must not throw / mark dirty '
+      reason: 'consuming a draft during build must not throw / mark dirty '
           'mid-build (#656).',
     );
     expect(find.text('probe:false'), findsOneWidget);
@@ -193,8 +191,7 @@ void main() {
     expect(
       find.text('probe:true'),
       findsOneWidget,
-      reason:
-          'after a during-build consume, a later notifyListeners() must '
+      reason: 'after a during-build consume, a later notifyListeners() must '
           'still rebuild the view — this is the "clicking a chat does not '
           'change it / deletes do not reflect" regression (#656).',
     );

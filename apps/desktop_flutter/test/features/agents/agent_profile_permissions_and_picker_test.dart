@@ -76,14 +76,14 @@ class _RecordingAgentConfigsDataSource extends AgentConfigsDataSource {
 const _kConfigId = 'cfg-test-perms-001';
 
 AgentConfig _makeConfig({String? corePermissionsJson}) => AgentConfig(
-  id: _kConfigId,
-  label: 'Test Profile',
-  icon: 'terminal',
-  enabled: true,
-  isAgent: true,
-  sortOrder: 0,
-  corePermissionsJson: corePermissionsJson,
-);
+      id: _kConfigId,
+      label: 'Test Profile',
+      icon: 'terminal',
+      enabled: true,
+      isAgent: true,
+      sortOrder: 0,
+      corePermissionsJson: corePermissionsJson,
+    );
 
 Widget _buildSheet({
   required AgentConfig config,
@@ -157,9 +157,8 @@ void main() {
       final config = _makeConfig();
       final configsDs = _RecordingAgentConfigsDataSource(config);
 
-      await tester.pumpWidget(
-        _buildSheet(config: config, configsDs: configsDs),
-      );
+      await tester
+          .pumpWidget(_buildSheet(config: config, configsDs: configsDs));
       await tester.pumpAndSettle();
 
       await _expandToolPermissions(tester);
@@ -180,9 +179,8 @@ void main() {
       );
       final configsDs = _RecordingAgentConfigsDataSource(config);
 
-      await tester.pumpWidget(
-        _buildSheet(config: config, configsDs: configsDs),
-      );
+      await tester
+          .pumpWidget(_buildSheet(config: config, configsDs: configsDs));
       await tester.pumpAndSettle();
 
       await _expandToolPermissions(tester);
@@ -191,7 +189,10 @@ void main() {
 
       final json = configsDs.lastUpdatePatch?['corePermissionsJson'] as String?;
       expect(json, isNotNull);
-      expect(jsonDecode(json!), equals({'read': 'allow', 'websearch': 'ask'}));
+      expect(
+        jsonDecode(json!),
+        equals({'read': 'allow', 'websearch': 'ask'}),
+      );
     });
 
     testWidgets('re-tapping the selected segment clears the row (unset)', (
@@ -202,9 +203,8 @@ void main() {
       );
       final configsDs = _RecordingAgentConfigsDataSource(config);
 
-      await tester.pumpWidget(
-        _buildSheet(config: config, configsDs: configsDs),
-      );
+      await tester
+          .pumpWidget(_buildSheet(config: config, configsDs: configsDs));
       await tester.pumpAndSettle();
 
       await _expandToolPermissions(tester);
@@ -222,9 +222,8 @@ void main() {
       final config = _makeConfig();
       final configsDs = _RecordingAgentConfigsDataSource(config);
 
-      await tester.pumpWidget(
-        _buildSheet(config: config, configsDs: configsDs),
-      );
+      await tester
+          .pumpWidget(_buildSheet(config: config, configsDs: configsDs));
       await tester.pumpAndSettle();
 
       await _expandToolPermissions(tester);
@@ -257,9 +256,8 @@ void main() {
       );
       final configsDs = _RecordingAgentConfigsDataSource(config);
 
-      await tester.pumpWidget(
-        _buildSheet(config: config, configsDs: configsDs),
-      );
+      await tester
+          .pumpWidget(_buildSheet(config: config, configsDs: configsDs));
       await tester.pumpAndSettle();
 
       await _expandToolPermissions(tester);
@@ -287,16 +285,14 @@ void main() {
       );
       final configsDs = _RecordingAgentConfigsDataSource(config);
 
-      await tester.pumpWidget(
-        _buildSheet(config: config, configsDs: configsDs),
-      );
+      await tester
+          .pumpWidget(_buildSheet(config: config, configsDs: configsDs));
       await tester.pumpAndSettle();
 
       await _expandToolPermissions(tester);
 
-      final removeButton = find.byKey(
-        const ValueKey('bash-pattern-remove-rm *'),
-      );
+      final removeButton =
+          find.byKey(const ValueKey('bash-pattern-remove-rm *'));
       await _scrollIntoView(tester, removeButton);
       await tester.tap(removeButton);
       await tester.pumpAndSettle();
@@ -313,14 +309,12 @@ void main() {
       final config = _makeConfig();
       final configsDs = _RecordingAgentConfigsDataSource(config);
 
-      await tester.pumpWidget(
-        _buildSheet(config: config, configsDs: configsDs),
-      );
+      await tester
+          .pumpWidget(_buildSheet(config: config, configsDs: configsDs));
       await tester.pumpAndSettle();
 
-      final toggleFinder = find.byKey(
-        const ValueKey('session-selectable-toggle'),
-      );
+      final toggleFinder =
+          find.byKey(const ValueKey('session-selectable-toggle'));
       await _scrollIntoView(tester, toggleFinder);
       final toggle = tester.widget<CheckboxListTile>(toggleFinder);
       expect(toggle.value, isTrue);
@@ -332,9 +326,8 @@ void main() {
       final config = _makeConfig();
       final configsDs = _RecordingAgentConfigsDataSource(config);
 
-      await tester.pumpWidget(
-        _buildSheet(config: config, configsDs: configsDs),
-      );
+      await tester
+          .pumpWidget(_buildSheet(config: config, configsDs: configsDs));
       await tester.pumpAndSettle();
 
       await _scrollIntoView(

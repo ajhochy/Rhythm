@@ -11,7 +11,7 @@ import '../models/message_thread.dart';
 
 class MessagesDataSource {
   MessagesDataSource({String? baseUrl})
-    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 

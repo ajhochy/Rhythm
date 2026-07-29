@@ -56,18 +56,20 @@ class _FakeRunCookbookDataSource extends AgentCookbookDataSource {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0).toIso8601String();
 
 CookbookRecipe _makeRecipe(String id, String title) => CookbookRecipe(
-  id: id,
-  title: title,
-  description: 'Test description',
-  stepsJson: '[]',
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      title: title,
+      description: 'Test description',
+      stepsJson: '[]',
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 Future<Widget> _buildApp(AgentCookbookController controller) async {
   return MultiProvider(
     providers: [
-      ChangeNotifierProvider<AgentCookbookController>.value(value: controller),
+      ChangeNotifierProvider<AgentCookbookController>.value(
+        value: controller,
+      ),
     ],
     child: const MaterialApp(home: AgentCookbookView()),
   );
@@ -111,9 +113,8 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('renders empty state when recipe list is empty', (
-      tester,
-    ) async {
+    testWidgets('renders empty state when recipe list is empty',
+        (tester) async {
       final dataSource = _FakeCookbookDataSource([]);
       final controller = AgentCookbookController(
         AgentCookbookRepository(dataSource),
@@ -133,47 +134,42 @@ void main() {
     });
 
     testWidgets(
-      'tapping Run calls runRecipe on data source and shows success SnackBar',
-      (tester) async {
-        final recipe = _makeRecipe('r1', 'My Recipe');
-        final dataSource = _FakeRunCookbookDataSource([recipe]);
-        final controller = AgentCookbookController(
-          AgentCookbookRepository(dataSource),
-        );
-        await controller.loadRecipes();
+        'tapping Run calls runRecipe on data source and shows success SnackBar',
+        (tester) async {
+      final recipe = _makeRecipe('r1', 'My Recipe');
+      final dataSource = _FakeRunCookbookDataSource([recipe]);
+      final controller = AgentCookbookController(
+        AgentCookbookRepository(dataSource),
+      );
+      await controller.loadRecipes();
 
-        await tester.pumpWidget(await _buildApp(controller));
-        await tester.pump();
+      await tester.pumpWidget(await _buildApp(controller));
+      await tester.pump();
 
-        // The Run button has key ValueKey('run-recipe-<id>').
-        final runButton = find.byKey(const ValueKey('run-recipe-r1'));
-        expect(
-          runButton,
-          findsOneWidget,
-          reason: 'Run button should be present',
-        );
+      // The Run button has key ValueKey('run-recipe-<id>').
+      final runButton = find.byKey(const ValueKey('run-recipe-r1'));
+      expect(runButton, findsOneWidget, reason: 'Run button should be present');
 
-        await tester.tap(runButton);
-        // Pump to let async controller complete and SnackBar appear.
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(runButton);
+      // Pump to let async controller complete and SnackBar appear.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
-        // Data source should have received the correct recipe id.
-        expect(
-          dataSource.lastRunId,
-          equals('r1'),
-          reason: 'runRecipe should have been called with the recipe id',
-        );
+      // Data source should have received the correct recipe id.
+      expect(
+        dataSource.lastRunId,
+        equals('r1'),
+        reason: 'runRecipe should have been called with the recipe id',
+      );
 
-        // SnackBar should show "Recipe started".
-        expect(
-          find.text('Recipe started'),
-          findsOneWidget,
-          reason: '"Recipe started" SnackBar should appear on success',
-        );
+      // SnackBar should show "Recipe started".
+      expect(
+        find.text('Recipe started'),
+        findsOneWidget,
+        reason: '"Recipe started" SnackBar should appear on success',
+      );
 
-        controller.dispose();
-      },
-    );
+      controller.dispose();
+    });
   });
 }

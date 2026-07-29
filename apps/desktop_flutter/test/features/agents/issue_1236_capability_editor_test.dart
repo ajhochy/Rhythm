@@ -19,30 +19,33 @@ class _Models extends AgentModelsDataSource {
 class _Skills extends OpencodeSkillsDataSource {
   @override
   Future<List<OpencodeSkillEntry>> list() async => const [
-    OpencodeSkillEntry(
-      name: 'sermon-research',
-      description: 'Research a sermon topic',
-      location: '/skills/sermon-research/SKILL.md',
-      managed: true,
-    ),
-    OpencodeSkillEntry(
-      name: 'volunteer-care',
-      description: 'Coordinate volunteer care',
-      location: '/skills/volunteer-care/SKILL.md',
-      managed: false,
-    ),
-  ];
+        OpencodeSkillEntry(
+          name: 'sermon-research',
+          description: 'Research a sermon topic',
+          location: '/skills/sermon-research/SKILL.md',
+          managed: true,
+        ),
+        OpencodeSkillEntry(
+          name: 'volunteer-care',
+          description: 'Coordinate volunteer care',
+          location: '/skills/volunteer-care/SKILL.md',
+          managed: false,
+        ),
+      ];
 }
 
 class _Mcps extends OpencodeMcpDataSource {
   @override
   Future<List<OpencodeMcpCapability>> listCapabilities() async => const [
-    OpencodeMcpCapability(name: 'rhythm', tools: ['list_tasks', 'create_task']),
-    OpencodeMcpCapability(
-      name: 'pco-services',
-      tools: ['list_services', 'get_plan'],
-    ),
-  ];
+        OpencodeMcpCapability(
+          name: 'rhythm',
+          tools: ['list_tasks', 'create_task'],
+        ),
+        OpencodeMcpCapability(
+          name: 'pco-services',
+          tools: ['list_services', 'get_plan'],
+        ),
+      ];
 
   @override
   Future<List<String>> listNames() async => const ['rhythm', 'pco-services'];
@@ -100,19 +103,18 @@ Future<void> _showEditor(WidgetTester tester) async {
 
 void main() {
   AgentConfig config() => AgentConfig(
-    id: 'profile-1236',
-    label: 'Sunday Planner',
-    icon: 'terminal',
-    enabled: true,
-    isAgent: true,
-    sortOrder: 0,
-    allowedSkills: const ['sermon-research'],
-    allowedMcps: const ['rhythm'],
-  );
+        id: 'profile-1236',
+        label: 'Sunday Planner',
+        icon: 'terminal',
+        enabled: true,
+        isAgent: true,
+        sortOrder: 0,
+        allowedSkills: const ['sermon-research'],
+        allowedMcps: const ['rhythm'],
+      );
 
-  testWidgets('issue-1236-c1: renders a structured Skills and MCP tab editor', (
-    tester,
-  ) async {
+  testWidgets('issue-1236-c1: renders a structured Skills and MCP tab editor',
+      (tester) async {
     await tester.pumpWidget(_app(_Configs(config())));
     await _showEditor(tester);
     expect(find.text('Skills'), findsWidgets);
@@ -120,21 +122,17 @@ void main() {
     expect(find.byKey(const ValueKey('capability-search')), findsOneWidget);
   });
 
-  testWidgets('issue-1236-c2: category selection reports all, some, and none', (
-    tester,
-  ) async {
+  testWidgets('issue-1236-c2: category selection reports all, some, and none',
+      (tester) async {
     await tester.pumpWidget(_app(_Configs(config())));
     await _showEditor(tester);
     expect(
-      find.byKey(const ValueKey('skills-category-checkbox')),
-      findsOneWidget,
-    );
+        find.byKey(const ValueKey('skills-category-checkbox')), findsOneWidget);
     expect(find.text('1 of 2 selected'), findsOneWidget);
   });
 
-  testWidgets('issue-1236-c3: MCP server expands to granular tools', (
-    tester,
-  ) async {
+  testWidgets('issue-1236-c3: MCP server expands to granular tools',
+      (tester) async {
     await tester.pumpWidget(_app(_Configs(config())));
     await _showEditor(tester);
     await tester.tap(find.text('MCP'));
@@ -143,9 +141,8 @@ void main() {
     expect(find.textContaining('tools'), findsWidgets);
   });
 
-  testWidgets('issue-1236-c4: search filters skills and nested MCP tools', (
-    tester,
-  ) async {
+  testWidgets('issue-1236-c4: search filters skills and nested MCP tools',
+      (tester) async {
     await tester.pumpWidget(_app(_Configs(config())));
     await _showEditor(tester);
     await tester.enterText(
@@ -158,31 +155,28 @@ void main() {
   });
 
   testWidgets(
-    'issue-1236-c5: effective scope summary reflects staged selections',
-    (tester) async {
-      await tester.pumpWidget(_app(_Configs(config())));
-      await _showEditor(tester);
-      expect(find.text('Effective scope'), findsOneWidget);
-      expect(find.textContaining('1 of 2 skills'), findsOneWidget);
-      expect(find.textContaining('1 of 2 MCP servers'), findsOneWidget);
-    },
-  );
+      'issue-1236-c5: effective scope summary reflects staged selections',
+      (tester) async {
+    await tester.pumpWidget(_app(_Configs(config())));
+    await _showEditor(tester);
+    expect(find.text('Effective scope'), findsOneWidget);
+    expect(find.textContaining('1 of 2 skills'), findsOneWidget);
+    expect(find.textContaining('1 of 2 MCP servers'), findsOneWidget);
+  });
 
-  testWidgets(
-    'issue-1236-c6: cancel discards staged scope and save applies it',
-    (tester) async {
-      final data = _Configs(config());
-      await tester.pumpWidget(_app(data));
-      await _showEditor(tester);
-      await tester.tap(find.text('volunteer-care'));
-      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
-      await tester.pumpAndSettle();
-      await _showEditor(tester);
-      expect(find.text('1 of 2 selected'), findsOneWidget);
-      await tester.tap(find.text('volunteer-care'));
-      await tester.tap(find.widgetWithText(FilledButton, 'Save capabilities'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('2 skills'), findsOneWidget);
-    },
-  );
+  testWidgets('issue-1236-c6: cancel discards staged scope and save applies it',
+      (tester) async {
+    final data = _Configs(config());
+    await tester.pumpWidget(_app(data));
+    await _showEditor(tester);
+    await tester.tap(find.text('volunteer-care'));
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    await _showEditor(tester);
+    expect(find.text('1 of 2 selected'), findsOneWidget);
+    await tester.tap(find.text('volunteer-care'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Save capabilities'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('2 skills'), findsOneWidget);
+  });
 }

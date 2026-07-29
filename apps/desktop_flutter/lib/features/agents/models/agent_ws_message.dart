@@ -74,7 +74,10 @@ abstract class AgentWsMessage {
 // ---------------------------------------------------------------------------
 
 class SessionsListMessage extends AgentWsMessage {
-  const SessionsListMessage({required this.sessions, required this.resumable});
+  const SessionsListMessage({
+    required this.sessions,
+    required this.resumable,
+  });
 
   final List<AgentSession> sessions;
   final List<AgentSession> resumable;
@@ -257,7 +260,10 @@ class WsErrorMessage extends AgentWsMessage {
 /// Opencode SDK `message.updated` event forwarded by the api_server bridge.
 /// `info` is the SDK Message object: { id, sessionID, role, time, cost, tokens, ... }.
 class MessageUpdatedMessage extends AgentWsMessage {
-  const MessageUpdatedMessage({required this.sessionId, required this.info});
+  const MessageUpdatedMessage({
+    required this.sessionId,
+    required this.info,
+  });
 
   final String sessionId;
   final Map<String, dynamic> info;
@@ -498,7 +504,9 @@ class SessionDiffMessage extends AgentWsMessage {
   final String id;
 
   factory SessionDiffMessage.fromJson(Map<String, dynamic> json) {
-    return SessionDiffMessage(id: asString(json['id']) ?? '');
+    return SessionDiffMessage(
+      id: asString(json['id']) ?? '',
+    );
   }
 }
 
@@ -515,7 +523,9 @@ class SessionCompactedMessage extends AgentWsMessage {
   final String id;
 
   factory SessionCompactedMessage.fromJson(Map<String, dynamic> json) {
-    return SessionCompactedMessage(id: asString(json['id']) ?? '');
+    return SessionCompactedMessage(
+      id: asString(json['id']) ?? '',
+    );
   }
 }
 

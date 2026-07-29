@@ -48,80 +48,72 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
-    'tapping an activity log row sets pending navigation to that session and closes the sheet',
-    (tester) async {
-      final task = AgentScheduledTask(
-        id: 't1',
-        name: 'Sunday Prep',
-        scheduleType: 'daily',
-        scheduledTime: '09:00',
-        timezone: 'America/Los_Angeles',
-        prompt: 'do something',
-        agentKind: 'opencode',
-        enabled: true,
-        createdAt: _kEpoch,
-        updatedAt: _kEpoch,
-      );
-      final run = AgentSession(
-        id: 'ses_abc123',
-        agentId: 'opencode',
-        name: 'Run ses_abc123',
-        cwd: '/tmp',
-        status: AgentSessionStatus.idle,
-        lastPreview: 'Staffing complete, no gaps found.',
-        createdAt: DateTime.parse(_kEpoch),
-        updatedAt: DateTime.parse(_kEpoch),
-      );
+      'tapping an activity log row sets pending navigation to that session and closes the sheet',
+      (tester) async {
+    final task = AgentScheduledTask(
+      id: 't1',
+      name: 'Sunday Prep',
+      scheduleType: 'daily',
+      scheduledTime: '09:00',
+      timezone: 'America/Los_Angeles',
+      prompt: 'do something',
+      agentKind: 'opencode',
+      enabled: true,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
+    final run = AgentSession(
+      id: 'ses_abc123',
+      agentId: 'opencode',
+      name: 'Run ses_abc123',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      lastPreview: 'Staffing complete, no gaps found.',
+      createdAt: DateTime.parse(_kEpoch),
+      updatedAt: DateTime.parse(_kEpoch),
+    );
 
-      final schedulesController = AgentSchedulesController(
-        AgentSchedulesRepository(_FakeSchedulesDataSource([task], [run])),
-      );
-      await schedulesController.refresh();
-      final configsController = AgentConfigsController(
-        AgentConfigsRepository(_EmptyAgentConfigsDataSource()),
-      );
-      final notificationsController = NotificationsController(
-        NotificationsRepository(NotificationsDataSource()),
-      );
+    final schedulesController = AgentSchedulesController(
+      AgentSchedulesRepository(_FakeSchedulesDataSource([task], [run])),
+    );
+    await schedulesController.refresh();
+    final configsController = AgentConfigsController(
+      AgentConfigsRepository(_EmptyAgentConfigsDataSource()),
+    );
+    final notificationsController = NotificationsController(
+        NotificationsRepository(NotificationsDataSource()));
 
-      await tester.pumpWidget(
-        MultiProvider(
-          providers: [
-            ChangeNotifierProvider<AgentSchedulesController>.value(
-              value: schedulesController,
-            ),
-            ChangeNotifierProvider<AgentConfigsController>.value(
-              value: configsController,
-            ),
-            ChangeNotifierProvider<NotificationsController>.value(
-              value: notificationsController,
-            ),
-          ],
-          child: const MaterialApp(home: AgentSchedulesView()),
+    await tester.pumpWidget(MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AgentSchedulesController>.value(
+          value: schedulesController,
         ),
-      );
-      await tester.pump();
+        ChangeNotifierProvider<AgentConfigsController>.value(
+          value: configsController,
+        ),
+        ChangeNotifierProvider<NotificationsController>.value(
+          value: notificationsController,
+        ),
+      ],
+      child: const MaterialApp(home: AgentSchedulesView()),
+    ));
+    await tester.pump();
 
-      await tester.tap(find.text('Sunday Prep'));
-      await tester.pumpAndSettle();
-      expect(find.text('ACTIVITY'), findsOneWidget);
+    await tester.tap(find.text('Sunday Prep'));
+    await tester.pumpAndSettle();
+    expect(find.text('ACTIVITY'), findsOneWidget);
 
-      await tester.tap(
-        find.byKey(const ValueKey('activity-log-row-ses_abc123')),
-      );
-      await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('activity-log-row-ses_abc123')));
+    await tester.pumpAndSettle();
 
-      expect(
-        notificationsController.pendingNavigation?.entityType,
-        'agentSession',
-      );
-      expect(notificationsController.pendingNavigation?.entityId, 'ses_abc123');
-      // The detail sheet closed on navigation.
-      expect(find.text('ACTIVITY'), findsNothing);
+    expect(
+        notificationsController.pendingNavigation?.entityType, 'agentSession');
+    expect(notificationsController.pendingNavigation?.entityId, 'ses_abc123');
+    // The detail sheet closed on navigation.
+    expect(find.text('ACTIVITY'), findsNothing);
 
-      schedulesController.dispose();
-      configsController.dispose();
-      notificationsController.dispose();
-    },
-  );
+    schedulesController.dispose();
+    configsController.dispose();
+    notificationsController.dispose();
+  });
 }

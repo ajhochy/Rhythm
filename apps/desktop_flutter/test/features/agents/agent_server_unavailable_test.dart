@@ -25,7 +25,7 @@ class _FakeApiServerService implements ApiServerService {
 /// network/process work.
 class _FakeAgentServerController extends AgentServerController {
   _FakeAgentServerController(super.service, AgentServerStatus initialStatus)
-    : _fakeStatus = initialStatus;
+      : _fakeStatus = initialStatus;
 
   AgentServerStatus _fakeStatus;
   int retryCalls = 0;
@@ -71,7 +71,10 @@ void main() {
       await tester.pumpWidget(_wrap(controller));
 
       expect(find.text('Agent server unavailable'), findsOneWidget);
-      expect(find.textContaining('Settings'), findsOneWidget);
+      expect(
+        find.textContaining('Settings'),
+        findsOneWidget,
+      );
       expect(find.text('Retry'), findsOneWidget);
       // Copy diagnostics belongs to Settings; must NOT appear here.
       expect(find.text('Copy diagnostics'), findsNothing);
@@ -91,9 +94,8 @@ void main() {
       expect(controller.retryCalls, 1);
     });
 
-    testWidgets('disables button and shows spinner during starting', (
-      tester,
-    ) async {
+    testWidgets('disables button and shows spinner during starting',
+        (tester) async {
       final controller = _FakeAgentServerController(
         _FakeApiServerService(),
         AgentServerStatus.starting,
@@ -108,9 +110,8 @@ void main() {
       expect(button.onPressed, isNull);
     });
 
-    testWidgets('reactively transitions when controller status changes', (
-      tester,
-    ) async {
+    testWidgets('reactively transitions when controller status changes',
+        (tester) async {
       final controller = _FakeAgentServerController(
         _FakeApiServerService(),
         AgentServerStatus.failed,

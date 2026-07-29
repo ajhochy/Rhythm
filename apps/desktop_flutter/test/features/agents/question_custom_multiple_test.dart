@@ -60,7 +60,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
   @override
   void pushAgentNotification({
     required int id,
@@ -116,37 +116,40 @@ Widget _host(AgentsController ctrl, ChatPart part) {
   );
 }
 
-ChatPart _part({required bool multiple, required bool custom}) => ChatPart(
-  id: 'part-1',
-  messageId: 'msg-1',
-  type: 'tool',
-  toolName: 'question',
-  toolCallId: 'toolu_abc',
-  toolArgs: {
-    'questions': [
-      {
-        'header': 'Pick',
-        'question': 'Which?',
-        'multiple': multiple,
-        'custom': custom,
-        'options': const [
-          {'label': 'Option A'},
-          {'label': 'Option B'},
+ChatPart _part({
+  required bool multiple,
+  required bool custom,
+}) =>
+    ChatPart(
+      id: 'part-1',
+      messageId: 'msg-1',
+      type: 'tool',
+      toolName: 'question',
+      toolCallId: 'toolu_abc',
+      toolArgs: {
+        'questions': [
+          {
+            'header': 'Pick',
+            'question': 'Which?',
+            'multiple': multiple,
+            'custom': custom,
+            'options': const [
+              {'label': 'Option A'},
+              {'label': 'Option B'},
+            ],
+          }
         ],
       },
-    ],
-  },
-  toolStatus: 'running',
-);
+      toolStatus: 'running',
+    );
 
 void main() {
   testWidgets(
     'single-select custom=false: one-tap fast path, no Submit button',
     (tester) async {
       final h = _buildController();
-      await tester.pumpWidget(
-        _host(h.ctrl, _part(multiple: false, custom: false)),
-      );
+      await tester
+          .pumpWidget(_host(h.ctrl, _part(multiple: false, custom: false)));
       await tester.pump();
 
       // custom=false hides free-text.
@@ -159,7 +162,7 @@ void main() {
 
       expect(h.repo.replyCallId, 'toolu_abc');
       expect(h.repo.replyAnswers, const [
-        ['Option A'],
+        ['Option A']
       ]);
     },
   );
@@ -168,9 +171,8 @@ void main() {
     'single-select custom=true: Other… expands text field, typed answer reaches agent',
     (tester) async {
       final h = _buildController();
-      await tester.pumpWidget(
-        _host(h.ctrl, _part(multiple: false, custom: true)),
-      );
+      await tester
+          .pumpWidget(_host(h.ctrl, _part(multiple: false, custom: true)));
       await tester.pump();
 
       // "Other…" affordance present for custom=true.
@@ -191,7 +193,7 @@ void main() {
       await tester.pump();
 
       expect(h.repo.replyAnswers, const [
-        ['my typed answer'],
+        ['my typed answer']
       ]);
     },
   );
@@ -200,9 +202,8 @@ void main() {
     'multiple=true custom=false: 0..n options staged then submitted',
     (tester) async {
       final h = _buildController();
-      await tester.pumpWidget(
-        _host(h.ctrl, _part(multiple: true, custom: false)),
-      );
+      await tester
+          .pumpWidget(_host(h.ctrl, _part(multiple: true, custom: false)));
       await tester.pump();
 
       expect(find.byKey(const ValueKey('question-other-chip')), findsNothing);
@@ -212,17 +213,14 @@ void main() {
       await tester.pump();
       await tester.tap(find.text('Option B'));
       await tester.pump();
-      expect(
-        h.repo.replyAnswers,
-        isNull,
-        reason: 'multi-select stages until explicit Submit',
-      );
+      expect(h.repo.replyAnswers, isNull,
+          reason: 'multi-select stages until explicit Submit');
 
       await tester.tap(find.textContaining('Submit'));
       await tester.pump();
 
       expect(h.repo.replyAnswers, const [
-        ['Option A', 'Option B'],
+        ['Option A', 'Option B']
       ]);
     },
   );
@@ -231,9 +229,8 @@ void main() {
     'multiple=true custom=true: options + custom string in one submission',
     (tester) async {
       final h = _buildController();
-      await tester.pumpWidget(
-        _host(h.ctrl, _part(multiple: true, custom: true)),
-      );
+      await tester
+          .pumpWidget(_host(h.ctrl, _part(multiple: true, custom: true)));
       await tester.pump();
 
       await tester.tap(find.text('Option A'));
@@ -251,7 +248,7 @@ void main() {
       await tester.pump();
 
       expect(h.repo.replyAnswers, const [
-        ['Option A', 'extra note'],
+        ['Option A', 'extra note']
       ]);
     },
   );

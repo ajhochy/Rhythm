@@ -45,7 +45,10 @@ class RhythmPanel extends StatelessWidget {
       Padding(padding: padding, child: child),
       if (footer != null) ...[
         Divider(height: 1, color: colors.borderSubtle),
-        Padding(padding: const EdgeInsets.all(RhythmSpacing.md), child: footer),
+        Padding(
+          padding: const EdgeInsets.all(RhythmSpacing.md),
+          child: footer,
+        ),
       ],
     ];
 

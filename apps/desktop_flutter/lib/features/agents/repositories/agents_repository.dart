@@ -21,14 +21,15 @@ class AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) => _dataSource.listSessions(
-    includeArchived: includeArchived,
-    archivedOnly: archivedOnly,
-    scope: scope,
-  );
+  }) =>
+      _dataSource.listSessions(
+        includeArchived: includeArchived,
+        archivedOnly: archivedOnly,
+        scope: scope,
+      );
 
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) => _dataSource.getSession(id);
+      getSession(String id) => _dataSource.getSession(id);
 
   Future<AgentSession> createSession({
     String? agentId, // #602: null → agent-less session
@@ -43,19 +44,20 @@ class AgentsRepository {
     String? anthropicAccountId,
     bool isolateWorktree = false,
     String? worktreeName,
-  }) => _dataSource.createSession(
-    agentId: agentId,
-    taskId: taskId,
-    cwd: cwd,
-    name: name,
-    branch: branch,
-    stash: stash,
-    createBranch: createBranch,
-    mcpRole: mcpRole,
-    anthropicAccountId: anthropicAccountId,
-    isolateWorktree: isolateWorktree,
-    worktreeName: worktreeName,
-  );
+  }) =>
+      _dataSource.createSession(
+        agentId: agentId,
+        taskId: taskId,
+        cwd: cwd,
+        name: name,
+        branch: branch,
+        stash: stash,
+        createBranch: createBranch,
+        mcpRole: mcpRole,
+        anthropicAccountId: anthropicAccountId,
+        isolateWorktree: isolateWorktree,
+        worktreeName: worktreeName,
+      );
 
   /// OCU-18 (#1059) — Changes-tab worktree actions.
   Future<void> resetWorktree(String sessionId) =>
@@ -79,21 +81,25 @@ class AgentsRepository {
     bool? fastMode,
     String? anthropicAccountId,
     String? agentId,
-  }) => _dataSource.updateSession(
-    id,
-    name: name,
-    providerId: providerId,
-    modelId: modelId,
-    clearProvider: clearProvider,
-    clearModel: clearModel,
-    permissionMode: permissionMode,
-    fastMode: fastMode,
-    anthropicAccountId: anthropicAccountId,
-    agentId: agentId,
-  );
+  }) =>
+      _dataSource.updateSession(
+        id,
+        name: name,
+        providerId: providerId,
+        modelId: modelId,
+        clearProvider: clearProvider,
+        clearModel: clearModel,
+        permissionMode: permissionMode,
+        fastMode: fastMode,
+        anthropicAccountId: anthropicAccountId,
+        agentId: agentId,
+      );
 
   /// Issue #604 — dedicated helper to update thinking budget (null = clear).
-  Future<AgentSession> updateSessionThinkingBudget(String id, int? budget) =>
+  Future<AgentSession> updateSessionThinkingBudget(
+    String id,
+    int? budget,
+  ) =>
       _dataSource.updateSession(id, thinkingBudget: budget);
 
   /// #608 — respond to a pending permission (accept, deny, or always-allow).
@@ -102,18 +108,16 @@ class AgentsRepository {
     String permissionId,
     String decision, {
     String? message,
-  }) => _dataSource.respondPermission(
-    sessionId,
-    permissionId,
-    decision,
-    message: message,
-  );
+  }) =>
+      _dataSource.respondPermission(sessionId, permissionId, decision,
+          message: message);
 
   Future<void> replyQuestion(
     String sessionId,
     String callId,
     List<List<String>> answers,
-  ) => _dataSource.replyQuestion(sessionId, callId, answers);
+  ) =>
+      _dataSource.replyQuestion(sessionId, callId, answers);
 
   Future<void> rejectQuestion(String sessionId, String callId) =>
       _dataSource.rejectQuestion(sessionId, callId);
@@ -160,10 +164,9 @@ class AgentsRepository {
   /// OPC-M3-6 — GET /agent-sessions/:id/children/:childSdkId/messages
   /// Returns the child session's messages in M1-2 structured shape.
   Future<List<AgentSessionMessage>> fetchChildMessages(
-    String parentSessionId,
-    String childSdkId, {
-    String? cwd,
-  }) => _dataSource.fetchChildMessages(parentSessionId, childSdkId, cwd: cwd);
+          String parentSessionId, String childSdkId,
+          {String? cwd}) =>
+      _dataSource.fetchChildMessages(parentSessionId, childSdkId, cwd: cwd);
 
   /// OPC-M4-2 — POST /agent-sessions/:id/fork — fork the session at the given
   /// message. Returns the new [AgentSession].
@@ -188,7 +191,8 @@ class AgentsRepository {
   Future<List<Map<String, dynamic>>> getVcsDiff(
     String sessionId,
     String mode,
-  ) => _dataSource.getVcsDiff(sessionId, mode);
+  ) =>
+      _dataSource.getVcsDiff(sessionId, mode);
 
   Future<String> getVcsDiffRaw(String sessionId) =>
       _dataSource.getVcsDiffRaw(sessionId);
@@ -212,12 +216,14 @@ class AgentsRepository {
     String query, {
     int? limit,
     String? type,
-  }) => _dataSource.findFiles(sessionId, query, limit: limit, type: type);
+  }) =>
+      _dataSource.findFiles(sessionId, query, limit: limit, type: type);
 
   Future<List<Map<String, dynamic>>> listSessionFiles(
     String sessionId, {
     String path = '.',
-  }) => _dataSource.listSessionFiles(sessionId, path: path);
+  }) =>
+      _dataSource.listSessionFiles(sessionId, path: path);
 
   Future<Map<String, dynamic>> fileContent(String sessionId, String path) =>
       _dataSource.fileContent(sessionId, path);

@@ -1013,9 +1013,9 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
   }
 
   Widget _detailDivider(RhythmColorRoles rhythm) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: RhythmSpacing.sm),
-    child: Divider(color: rhythm.borderSubtle, height: 1),
-  );
+        padding: const EdgeInsets.symmetric(vertical: RhythmSpacing.sm),
+        child: Divider(color: rhythm.borderSubtle, height: 1),
+      );
 
   Widget _detailRow(RhythmColorRoles rhythm, String label, String value) =>
       Padding(
@@ -1122,9 +1122,9 @@ class _ActivityLogRow extends StatelessWidget {
       borderRadius: BorderRadius.circular(RhythmRadius.sm),
       onTap: () {
         context.read<NotificationsController>().navigateTo(
-          'agentSession',
-          run.id,
-        );
+              'agentSession',
+              run.id,
+            );
         Navigator.of(context, rootNavigator: true).maybePop();
       },
       child: Container(
@@ -1558,9 +1558,8 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
         ];
 
       case 'cron':
-        final preview = _cronCtrl.text.isNotEmpty
-            ? _describeCron(_cronCtrl.text)
-            : null;
+        final preview =
+            _cronCtrl.text.isNotEmpty ? _describeCron(_cronCtrl.text) : null;
         return [
           TextFormField(
             controller: _cronCtrl,
@@ -1728,9 +1727,8 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
           ),
           IconButton(
             icon: Icon(Icons.add_rounded, color: rhythm.textSecondary),
-            onPressed: _monthDay < 31
-                ? () => setState(() => _monthDay++)
-                : null,
+            onPressed:
+                _monthDay < 31 ? () => setState(() => _monthDay++) : null,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),

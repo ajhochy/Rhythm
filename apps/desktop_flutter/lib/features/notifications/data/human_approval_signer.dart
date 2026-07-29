@@ -13,13 +13,12 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// and public point, never either raw capability/private key.
 class HumanApprovalSigner {
   HumanApprovalSigner({FlutterSecureStorage? secureStorage})
-    : _secureStorage =
-          secureStorage ??
-          const FlutterSecureStorage(
-            mOptions: MacOsOptions(
-              accessibility: KeychainAccessibility.first_unlock_this_device,
-            ),
-          );
+      : _secureStorage = secureStorage ??
+            const FlutterSecureStorage(
+              mOptions: MacOsOptions(
+                accessibility: KeychainAccessibility.first_unlock_this_device,
+              ),
+            );
 
   static const _channel = MethodChannel('com.vcrc.rhythm/human-approval');
   static const _capabilityStorageKey = 'human_approval_capability_v1';
@@ -33,7 +32,10 @@ class HumanApprovalSigner {
     final random = Random.secure();
     final bytes = List<int>.generate(32, (_) => random.nextInt(256));
     final created = base64UrlEncode(bytes);
-    await _secureStorage.write(key: _capabilityStorageKey, value: created);
+    await _secureStorage.write(
+      key: _capabilityStorageKey,
+      value: created,
+    );
     return created;
   }
 

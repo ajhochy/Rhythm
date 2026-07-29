@@ -33,14 +33,14 @@ import 'package:rhythm_desktop/features/notifications/repositories/notifications
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 class _FakeApiServerService extends ApiServerService {
   @override
@@ -64,8 +64,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msg = StreamController.broadcast(),
-      _conn = StreamController.broadcast();
+      : _msg = StreamController.broadcast(),
+        _conn = StreamController.broadcast();
   final StreamController<AgentWsMessage> _msg;
   final StreamController<bool> _conn;
 
@@ -92,11 +92,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => [_makeSession('s1')];
+  }) async =>
+      [_makeSession('s1')];
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async =>
-      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async =>
+          (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -107,7 +108,9 @@ class _StubAgentsRepository implements AgentsRepository {
     repo,
     _ReadyAgentServerController(),
     LocalNotificationService(),
-    NotificationsController(NotificationsRepository(NotificationsDataSource())),
+    NotificationsController(
+      NotificationsRepository(NotificationsDataSource()),
+    ),
   );
   return (ctrl: ctrl, repo: repo);
 }
@@ -118,21 +121,21 @@ String _userMsgId(AgentsController ctrl) =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('send while idle: message is NOT queued', () async {
-    final (:ctrl, :repo) = _build();
-    addTearDown(ctrl.dispose);
-    await ctrl.initialize();
-    await ctrl.selectSession('s1');
+  test(
+    'send while idle: message is NOT queued',
+    () async {
+      final (:ctrl, :repo) = _build();
+      addTearDown(ctrl.dispose);
+      await ctrl.initialize();
+      await ctrl.selectSession('s1');
 
-    ctrl.sendInput('s1', 'first prompt\n');
+      ctrl.sendInput('s1', 'first prompt\n');
 
-    final id = _userMsgId(ctrl);
-    expect(
-      ctrl.isMessageQueued(id),
-      isFalse,
-      reason: 'an idle session accepts input immediately — no queued chip',
-    );
-  });
+      final id = _userMsgId(ctrl);
+      expect(ctrl.isMessageQueued(id), isFalse,
+          reason: 'an idle session accepts input immediately — no queued chip');
+    },
+  );
 
   test(
     'send while working: message is queued, then clears on server echo',
@@ -143,14 +146,12 @@ void main() {
       await ctrl.selectSession('s1');
 
       // Drive the session into the working state via a real status frame.
-      repo.emit(
-        const SessionStatusMessage(
-          id: 's1',
-          working: true,
-          source: 'test',
-          status: 'busy',
-        ),
-      );
+      repo.emit(const SessionStatusMessage(
+        id: 's1',
+        working: true,
+        source: 'test',
+        status: 'busy',
+      ));
       await Future<void>.delayed(Duration.zero);
       expect(ctrl.isWorking('s1'), isTrue);
 
@@ -158,31 +159,20 @@ void main() {
       ctrl.sendInput('s1', 'queued prompt\n');
       final id = _userMsgId(ctrl);
       expect(id, startsWith('optimistic-'));
-      expect(
-        ctrl.isMessageQueued(id),
-        isTrue,
-        reason: 'a send during a working turn shows the queued chip',
-      );
+      expect(ctrl.isMessageQueued(id), isTrue,
+          reason: 'a send during a working turn shows the queued chip');
 
       // Engine acknowledges the queued input via message.updated → chip clears.
-      repo.emit(
-        const MessageUpdatedMessage(
-          sessionId: 's1',
-          info: {'id': 'msg_real_1', 'role': 'user'},
-        ),
-      );
+      repo.emit(const MessageUpdatedMessage(
+        sessionId: 's1',
+        info: {'id': 'msg_real_1', 'role': 'user'},
+      ));
       await Future<void>.delayed(Duration.zero);
 
-      expect(
-        ctrl.isMessageQueued('msg_real_1'),
-        isFalse,
-        reason: 'the reconciled message id is no longer queued',
-      );
-      expect(
-        ctrl.isMessageQueued(id),
-        isFalse,
-        reason: 'the optimistic id is cleared once reconciled',
-      );
+      expect(ctrl.isMessageQueued('msg_real_1'), isFalse,
+          reason: 'the reconciled message id is no longer queued');
+      expect(ctrl.isMessageQueued(id), isFalse,
+          reason: 'the optimistic id is cleared once reconciled');
     },
   );
 
@@ -197,11 +187,14 @@ void main() {
       );
 
       Widget host({required bool isQueued}) => MaterialApp(
-        theme: AppTheme.light(),
-        home: Scaffold(
-          body: UserBubbleTestHarness(parts: [part], isQueued: isQueued),
-        ),
-      );
+            theme: AppTheme.light(),
+            home: Scaffold(
+              body: UserBubbleTestHarness(
+                parts: [part],
+                isQueued: isQueued,
+              ),
+            ),
+          );
 
       await tester.pumpWidget(host(isQueued: true));
       await tester.pump(Duration.zero);

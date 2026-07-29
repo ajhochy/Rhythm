@@ -54,17 +54,18 @@ class RhythmDisclosure extends StatelessWidget {
           title: Text(
             title,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              color: colors.textPrimary,
-              fontWeight: FontWeight.w700,
-            ),
+                  color: colors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
           ),
           subtitle: subtitle == null
               ? null
               : Text(
                   subtitle!,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: colors.textSecondary),
                 ),
           children: [child],
         ),

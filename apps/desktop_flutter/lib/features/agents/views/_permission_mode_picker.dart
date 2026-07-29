@@ -13,7 +13,10 @@ import '../models/agent_session.dart';
 /// colour. Selecting [PermissionMode.bypassPermissions] for the first time on a
 /// session shows a confirmation dialog before committing.
 class PermissionModePicker extends StatelessWidget {
-  const PermissionModePicker({super.key, required this.session});
+  const PermissionModePicker({
+    super.key,
+    required this.session,
+  });
 
   final AgentSession session;
 
@@ -30,7 +33,10 @@ class PermissionModePicker extends StatelessWidget {
       constraints: const BoxConstraints(minWidth: 260, maxWidth: 340),
       onSelected: (mode) => _onModeSelected(context, controller, mode),
       itemBuilder: (context) => _buildItems(context, currentMode),
-      child: _PillChip(label: pillLabel, mode: currentMode),
+      child: _PillChip(
+        label: pillLabel,
+        mode: currentMode,
+      ),
     );
   }
 

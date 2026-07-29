@@ -39,8 +39,10 @@ class AgentIcon extends StatelessWidget {
       iconPath,
       width: size,
       height: size,
-      errorBuilder: (context, error, stackTrace) =>
-          _FallbackAvatar(size: size, label: fallbackLabel),
+      errorBuilder: (context, error, stackTrace) => _FallbackAvatar(
+        size: size,
+        label: fallbackLabel,
+      ),
     );
   }
 }
@@ -54,9 +56,8 @@ class _FallbackAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final initial = (label != null && label!.isNotEmpty)
-        ? label![0].toUpperCase()
-        : '?';
+    final initial =
+        (label != null && label!.isNotEmpty) ? label![0].toUpperCase() : '?';
 
     return Container(
       width: size,

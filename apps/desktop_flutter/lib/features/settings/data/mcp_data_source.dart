@@ -151,7 +151,7 @@ extension McpDataSourceTestExtension on McpDataSource {
 
 class _McpDataSourceImpl implements McpDataSource {
   _McpDataSourceImpl({String? baseUrl})
-    : _baseUrl = baseUrl ?? AppConstants.agentLocalBaseUrl;
+      : _baseUrl = baseUrl ?? AppConstants.agentLocalBaseUrl;
 
   final String _baseUrl;
 

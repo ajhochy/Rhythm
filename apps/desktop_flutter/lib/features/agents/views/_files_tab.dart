@@ -74,9 +74,8 @@ class _FilesTabState extends State<FilesTab> {
           final aDir = a['type'] == 'directory';
           final bDir = b['type'] == 'directory';
           if (aDir != bDir) return aDir ? -1 : 1;
-          return ((a['name'] as String?) ?? '').compareTo(
-            (b['name'] as String?) ?? '',
-          );
+          return ((a['name'] as String?) ?? '')
+              .compareTo((b['name'] as String?) ?? '');
         });
       final status = <String, String>{
         for (final e in results[1])
@@ -117,10 +116,8 @@ class _FilesTabState extends State<FilesTab> {
     });
     final controller = context.read<AgentsController>();
     try {
-      final content = await controller.fetchFileContent(
-        widget.session.id,
-        relPath,
-      );
+      final content =
+          await controller.fetchFileContent(widget.session.id, relPath);
       if (!mounted) return;
       setState(() {
         _previewContent = content;

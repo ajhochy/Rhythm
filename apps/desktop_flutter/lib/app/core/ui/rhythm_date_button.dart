@@ -29,7 +29,10 @@ class RhythmDateButton extends StatelessWidget {
         ),
         if (onClear != null && date != null) ...[
           const SizedBox(width: 8),
-          TextButton(onPressed: onClear, child: const Text('Clear')),
+          TextButton(
+            onPressed: onClear,
+            child: const Text('Clear'),
+          ),
         ],
       ],
     );

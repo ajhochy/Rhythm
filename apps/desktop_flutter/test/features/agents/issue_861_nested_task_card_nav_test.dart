@@ -140,12 +140,15 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async =>
-      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async => (
+            session: _makeSession(id),
+            messages: const <AgentSessionMessage>[],
+          );
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -176,7 +179,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -234,16 +237,16 @@ AgentSession _makeSession(String id, {String name = 'Test Session'}) =>
 /// exactly `[Icon(chevron_left), SizedBox, Text(text)]` — the breadcrumb's
 /// exact shape.
 Finder _breadcrumb(String text) => find.byWidgetPredicate((widget) {
-  if (widget is! Row) return false;
-  final children = widget.children;
-  if (children.length < 3) return false;
-  final icon = children[0];
-  final label = children.last;
-  return icon is Icon &&
-      icon.icon == Icons.chevron_left &&
-      label is Text &&
-      label.data == text;
-});
+      if (widget is! Row) return false;
+      final children = widget.children;
+      if (children.length < 3) return false;
+      final icon = children[0];
+      final label = children.last;
+      return icon is Icon &&
+          icon.icon == Icons.chevron_left &&
+          label is Text &&
+          label.data == text;
+    });
 
 final _claudeCodeConfig = AgentConfig(
   id: 'claude-code',
@@ -262,26 +265,25 @@ Map<String, dynamic> _taskPartJson({
   required String description,
   String? outputChildId,
   String status = 'completed',
-}) => {
-  'id': id,
-  'type': 'tool',
-  'tool': 'task',
-  'callID': 'call-$id',
-  'state': {
-    'status': status,
-    'input': {'description': description},
-    if (outputChildId != null)
-      'output':
-          'task_id: $outputChildId (for resuming to continue '
-          'this task if needed)\n\n<task_result>done</task_result>',
-    'title': 'Task: $description',
-    'metadata': <String, dynamic>{},
-  },
-};
+}) =>
+    {
+      'id': id,
+      'type': 'tool',
+      'tool': 'task',
+      'callID': 'call-$id',
+      'state': {
+        'status': status,
+        'input': {'description': description},
+        if (outputChildId != null)
+          'output': 'task_id: $outputChildId (for resuming to continue '
+              'this task if needed)\n\n<task_result>done</task_result>',
+        'title': 'Task: $description',
+        'metadata': <String, dynamic>{},
+      },
+    };
 
-Future<Widget> _buildTestApp({
-  required AgentsController agentsController,
-}) async {
+Future<Widget> _buildTestApp(
+    {required AgentsController agentsController}) async {
   final agentServerController = _ReadyAgentServerController();
   final agentConfigsController = AgentConfigsController(
     AgentConfigsRepository(_FakeAgentConfigsDataSource([_claudeCodeConfig])),
@@ -303,7 +305,9 @@ Future<Widget> _buildTestApp({
       ChangeNotifierProvider<AgentConfigsController>.value(
         value: agentConfigsController,
       ),
-      ChangeNotifierProvider<AgentsController>.value(value: agentsController),
+      ChangeNotifierProvider<AgentsController>.value(
+        value: agentsController,
+      ),
       ChangeNotifierProvider<TasksController>.value(value: tasksController),
       ChangeNotifierProvider<AgentProjectsController>.value(
         value: agentProjectsController,
@@ -404,14 +408,12 @@ void main() {
 
       // Seed the PARENT transcript with an assistant message containing a
       // top-level Task card (delegation to the direct child).
-      controller.setMessageForTest(
-        ChatMessage(
-          id: 'msg-parent-861',
-          sessionId: parentSessionId,
-          role: 'assistant',
-          createdAt: _kEpoch,
-        ),
-      );
+      controller.setMessageForTest(ChatMessage(
+        id: 'msg-parent-861',
+        sessionId: parentSessionId,
+        role: 'assistant',
+        createdAt: _kEpoch,
+      ));
       controller.setChatPartForTest(
         ChatPart.fromJson(
           'msg-parent-861',
@@ -423,9 +425,8 @@ void main() {
         ),
       );
 
-      await tester.pumpWidget(
-        await _buildTestApp(agentsController: controller),
-      );
+      await tester
+          .pumpWidget(await _buildTestApp(agentsController: controller));
       await tester.pump();
 
       // ── n1: top-level Task card visible on the real mounted surface ──
@@ -443,13 +444,9 @@ void main() {
       // (nested Task card) is rendered.
       expect(_breadcrumb(parentSessionName), findsOneWidget);
       expect(find.text('Delegating the specialist sub-task…'), findsOneWidget);
-      expect(
-        find.byType(TaskChip),
-        findsOneWidget,
-        reason:
-            'Direct child transcript must render its own nested '
-            'Task card for the grandchild delegation',
-      );
+      expect(find.byType(TaskChip), findsOneWidget,
+          reason: 'Direct child transcript must render its own nested '
+              'Task card for the grandchild delegation');
       expect(find.text('Research trends'), findsOneWidget);
 
       // ── n2: nested Task card opens the grandchild; breadcrumb reads the
@@ -462,29 +459,22 @@ void main() {
       expect(
         _breadcrumb('Orchestrate research'),
         findsOneWidget,
-        reason:
-            'Breadcrumb after opening the grandchild must show the '
+        reason: 'Breadcrumb after opening the grandchild must show the '
             "immediate parent's own name (the direct child's task "
             'description), not the top-level session name',
       );
-      expect(
-        _breadcrumb(parentSessionName),
-        findsNothing,
-        reason:
-            'Top-level parent name must NOT be the breadcrumb target for '
-            'a grandchild — that would incorrectly skip the intermediate '
-            'hop',
-      );
+      expect(_breadcrumb(parentSessionName), findsNothing,
+          reason: 'Top-level parent name must NOT be the breadcrumb target for '
+              'a grandchild — that would incorrectly skip the intermediate '
+              'hop');
 
       // Correct fetch-parent chaining: grandchild fetch used the DIRECT
       // CHILD's own sdk id, not the top-level parent's local id.
       expect(
-        repo.fetchChildMessagesCalls.any(
-          (c) => c.$1 == childSdkId && c.$2 == grandchildSdkId,
-        ),
+        repo.fetchChildMessagesCalls
+            .any((c) => c.$1 == childSdkId && c.$2 == grandchildSdkId),
         isTrue,
-        reason:
-            'Grandchild messages must be fetched using the direct '
+        reason: 'Grandchild messages must be fetched using the direct '
             "child's own SDK id as the fetch-parent",
       );
 
@@ -493,21 +483,13 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
-      expect(
-        find.text('Delegating the specialist sub-task…'),
-        findsOneWidget,
-        reason:
-            'One back-tap from the grandchild must land on the '
-            'intermediate child transcript, not skip to the top parent',
-      );
+      expect(find.text('Delegating the specialist sub-task…'), findsOneWidget,
+          reason: 'One back-tap from the grandchild must land on the '
+              'intermediate child transcript, not skip to the top parent');
       expect(find.byType(TaskChip), findsOneWidget);
-      expect(
-        _breadcrumb(parentSessionName),
-        findsOneWidget,
-        reason:
-            'The intermediate child breadcrumb must point back to '
-            'the top-level parent',
-      );
+      expect(_breadcrumb(parentSessionName), findsOneWidget,
+          reason: 'The intermediate child breadcrumb must point back to '
+              'the top-level parent');
 
       // Second back-tap returns all the way to the top-level parent — the
       // original Task card is visible again.
@@ -529,81 +511,78 @@ void main() {
     },
   );
 
-  testWidgets('n4: REAL-SURFACE — a Task card with no resolvable child id is '
-      'disabled (dimmed chevron, tap is a no-op), not a dead click', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(1600, 900));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets(
+    'n4: REAL-SURFACE — a Task card with no resolvable child id is '
+    'disabled (dimmed chevron, tap is a no-op), not a dead click',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    const parentSessionId = 'parent-861-unresolvable';
-    const parentSessionName = 'Parent Session 861 Unresolvable';
+      const parentSessionId = 'parent-861-unresolvable';
+      const parentSessionName = 'Parent Session 861 Unresolvable';
 
-    final repo = _StubAgentsRepository();
-    final controller = AgentsController(
-      repo,
-      _ReadyAgentServerController(),
-      _FakeLocalNotificationService(),
-      _FakeNotificationsController(),
-    );
-
-    await tester.runAsync(() async {
-      await controller.initialize();
-      controller.setActiveSessionForTest(
-        parentSessionId,
-        _makeSession(parentSessionId, name: parentSessionName),
+      final repo = _StubAgentsRepository();
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
       );
-    });
 
-    controller.setMessageForTest(
-      ChatMessage(
+      await tester.runAsync(() async {
+        await controller.initialize();
+        controller.setActiveSessionForTest(
+          parentSessionId,
+          _makeSession(parentSessionId, name: parentSessionName),
+        );
+      });
+
+      controller.setMessageForTest(ChatMessage(
         id: 'msg-parent-861-unresolvable',
         sessionId: parentSessionId,
         role: 'assistant',
         createdAt: _kEpoch,
-      ),
-    );
-    // A still-running task with NO output yet and no sessionId in input —
-    // the child id cannot be resolved.
-    controller.setChatPartForTest(
-      ChatPart.fromJson(
-        'msg-parent-861-unresolvable',
-        _taskPartJson(
-          id: 'part-parent-task-unresolvable',
-          description: 'Still starting up…',
-          status: 'running',
+      ));
+      // A still-running task with NO output yet and no sessionId in input —
+      // the child id cannot be resolved.
+      controller.setChatPartForTest(
+        ChatPart.fromJson(
+          'msg-parent-861-unresolvable',
+          _taskPartJson(
+            id: 'part-parent-task-unresolvable',
+            description: 'Still starting up…',
+            status: 'running',
+          ),
         ),
-      ),
-    );
+      );
 
-    await tester.pumpWidget(await _buildTestApp(agentsController: controller));
-    await tester.pump();
+      await tester
+          .pumpWidget(await _buildTestApp(agentsController: controller));
+      await tester.pump();
 
-    expect(find.byType(TaskChip), findsOneWidget);
-    expect(find.text('Still starting up…'), findsOneWidget);
+      expect(find.byType(TaskChip), findsOneWidget);
+      expect(find.text('Still starting up…'), findsOneWidget);
 
-    // Tapping must be a no-op — no navigation occurs.
-    await tester.tap(find.byType(TaskChip));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+      // Tapping must be a no-op — no navigation occurs.
+      await tester.tap(find.byType(TaskChip));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
-    expect(
-      controller.activeChildSessionId,
-      isNull,
-      reason: 'Unresolvable child id must never navigate',
-    );
-    // Still on the parent view — the same Task card, not a child transcript.
-    expect(find.byType(TaskChip), findsOneWidget);
-    expect(find.text('Still starting up…'), findsOneWidget);
+      expect(controller.activeChildSessionId, isNull,
+          reason: 'Unresolvable child id must never navigate');
+      // Still on the parent view — the same Task card, not a child transcript.
+      expect(find.byType(TaskChip), findsOneWidget);
+      expect(find.text('Still starting up…'), findsOneWidget);
 
-    // Teardown. Flush background fetch rejections first so nothing lands
-    // during a LATER test and retro-fails this one.
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 300)),
-    );
-    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
-    controller.dispose();
-  });
+      // Teardown. Flush background fetch rejections first so nothing lands
+      // during a LATER test and retro-fails this one.
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 300)),
+      );
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    },
+  );
 
   testWidgets(
     '#861 link-first: a Task card whose child exists as a LOCAL session '
@@ -633,10 +612,11 @@ void main() {
         // Task card carries.
         controller.setActiveSessionForTest(
           childLocalId,
-          _makeSession(
-            childLocalId,
-            name: 'Research trends (@AI-Trend)',
-          ).copyWith(parentId: parentSessionId, sdkSessionId: childSdkId),
+          _makeSession(childLocalId, name: 'Research trends (@AI-Trend)')
+              .copyWith(
+            parentId: parentSessionId,
+            sdkSessionId: childSdkId,
+          ),
         );
         controller.setActiveSessionForTest(
           parentSessionId,
@@ -644,14 +624,12 @@ void main() {
         );
       });
 
-      controller.setMessageForTest(
-        ChatMessage(
-          id: 'msg-parent-861-link',
-          sessionId: parentSessionId,
-          role: 'assistant',
-          createdAt: _kEpoch,
-        ),
-      );
+      controller.setMessageForTest(ChatMessage(
+        id: 'msg-parent-861-link',
+        sessionId: parentSessionId,
+        role: 'assistant',
+        createdAt: _kEpoch,
+      ));
       controller.setChatPartForTest(
         ChatPart.fromJson(
           'msg-parent-861-link',
@@ -663,9 +641,8 @@ void main() {
         ),
       );
 
-      await tester.pumpWidget(
-        await _buildTestApp(agentsController: controller),
-      );
+      await tester
+          .pumpWidget(await _buildTestApp(agentsController: controller));
       await tester.pump();
 
       expect(find.byType(TaskChip), findsOneWidget);

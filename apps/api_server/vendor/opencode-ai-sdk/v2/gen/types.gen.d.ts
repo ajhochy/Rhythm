@@ -1116,6 +1116,7 @@ export type GlobalSession = {
         servers: Array<string>;
         tools: Array<string>;
         deferred?: boolean;
+        deferredServers?: Array<string>;
     };
     skillAllowlist?: {
         skills: Array<string>;
@@ -1914,6 +1915,7 @@ export type Session = {
         servers: Array<string>;
         tools: Array<string>;
         deferred?: boolean;
+        deferredServers?: Array<string>;
     };
     skillAllowlist?: {
         skills: Array<string>;
@@ -2749,6 +2751,7 @@ export type SyncEventSessionUpdated = {
                 servers: Array<string>;
                 tools: Array<string>;
                 deferred?: boolean;
+                deferredServers?: Array<string>;
             } | null;
             skillAllowlist?: {
                 skills: Array<string>;
@@ -4622,6 +4625,7 @@ export type SessionCreateData = {
             servers: Array<string>;
             tools: Array<string>;
             deferred?: boolean;
+            deferredServers?: Array<string>;
         };
         skillAllowlist?: {
             skills: Array<string>;
@@ -4742,6 +4746,7 @@ export type SessionUpdateData = {
             servers: Array<string>;
             tools: Array<string>;
             deferred?: boolean;
+            deferredServers?: Array<string>;
         } | null;
         skillAllowlist?: {
             skills: Array<string>;

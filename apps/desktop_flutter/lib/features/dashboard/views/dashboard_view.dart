@@ -60,24 +60,24 @@ class _DashboardViewState extends State<DashboardView> {
         builder: (context, controller, _) {
           return switch (controller.status) {
             DashboardStatus.loading => const RhythmSurface.section(
-              clipBehavior: Clip.antiAlias,
-              child: RhythmEmptyState(
-                title: 'Loading dashboard...',
-                message: 'Planning, handoffs, and previews will appear here.',
-                tone: RhythmEmptyStateTone.loading,
+                clipBehavior: Clip.antiAlias,
+                child: RhythmEmptyState(
+                  title: 'Loading dashboard...',
+                  message: 'Planning, handoffs, and previews will appear here.',
+                  tone: RhythmEmptyStateTone.loading,
+                ),
               ),
-            ),
             DashboardStatus.error => _ErrorView(
-              message: controller.errorMessage ?? 'Unknown error',
-              onRetry: controller.refresh,
-            ),
+                message: controller.errorMessage ?? 'Unknown error',
+                onRetry: controller.refresh,
+              ),
             DashboardStatus.ready => _DashboardBody(
-              controller: controller,
-              openWeeklyPlanner: widget.openWeeklyPlanner,
-              openRhythms: widget.openRhythms,
-              openProjects: widget.openProjects,
-              openMessages: widget.openMessages,
-            ),
+                controller: controller,
+                openWeeklyPlanner: widget.openWeeklyPlanner,
+                openRhythms: widget.openRhythms,
+                openProjects: widget.openProjects,
+                openMessages: widget.openMessages,
+              ),
           };
         },
       ),
@@ -175,10 +175,9 @@ class _DashboardBodyState extends State<_DashboardBody> {
                             // Switch to the Agents view with this session open
                             // (same path as the #815 notification tap) so the
                             // user sees the agent working, not a silent no-op.
-                            context.read<NotificationsController>().navigateTo(
-                              'agentSession',
-                              sessionId,
-                            );
+                            context
+                                .read<NotificationsController>()
+                                .navigateTo('agentSession', sessionId);
                           },
                         ),
                       ],
@@ -217,11 +216,11 @@ class _DashboardBodyState extends State<_DashboardBody> {
             addLabel: 'Add task',
             onSubmit: (title, {notes, scheduledDate, collaboratorId}) {
               context.read<DashboardController>().createTask(
-                title,
-                notes: notes,
-                scheduledDate: scheduledDate,
-                collaboratorId: collaboratorId,
-              );
+                    title,
+                    notes: notes,
+                    scheduledDate: scheduledDate,
+                    collaboratorId: collaboratorId,
+                  );
             },
           ),
         ],
@@ -355,18 +354,18 @@ class _DashboardBodyState extends State<_DashboardBody> {
               Text(
                 'Move the week forward.',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: colors.textPrimary,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0,
-                ),
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0,
+                    ),
               ),
               const SizedBox(height: RhythmSpacing.xs),
               Text(
                 'Today, this week, your next project, and unread messages in one compact view.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colors.textSecondary,
-                  height: 1.4,
-                ),
+                      color: colors.textSecondary,
+                      height: 1.4,
+                    ),
               ),
               const SizedBox(height: RhythmSpacing.md),
               for (var index = 0; index < glanceCards.length; index++) ...[
@@ -392,7 +391,10 @@ class _DashboardBodyState extends State<_DashboardBody> {
         final cardWidth = constraints.maxWidth < 1180
             ? constraints.maxWidth
             : (constraints.maxWidth - gap) / 2;
-        final pastDueItems = [...c.pastDueTasks, ...c.projectStepPastDueTasks];
+        final pastDueItems = [
+          ...c.pastDueTasks,
+          ...c.projectStepPastDueTasks,
+        ];
         final todayItems = [...c.todayTasks, ...c.projectStepTodayTasks];
         final thisWeekItems = [
           ...c.thisWeekTasks,
@@ -559,17 +561,14 @@ class _DashboardBodyState extends State<_DashboardBody> {
       ),
       onToggleStatus: () => widget.controller.toggleTaskDone(task.id),
       onAddCollaborator: (userId) async {
-        final collaborators = await collaboratorsDataSource.addToTask(
-          task.id,
-          userId,
-        );
+        final collaborators =
+            await collaboratorsDataSource.addToTask(task.id, userId);
         return collaborators;
       },
       onRemoveCollaborator: (userId) async {
         await collaboratorsDataSource.removeFromTask(task.id, userId);
-        final collaborators = await collaboratorsDataSource.fetchForTask(
-          task.id,
-        );
+        final collaborators =
+            await collaboratorsDataSource.fetchForTask(task.id);
         return collaborators;
       },
     );
@@ -678,9 +677,8 @@ class _DashboardBodyState extends State<_DashboardBody> {
     required int? currentUserId,
     required List<WorkspaceMember> workspaceMembers,
   }) {
-    final excludedTaskId = tomorrowTasks.isEmpty
-        ? null
-        : tomorrowTasks.first.id;
+    final excludedTaskId =
+        tomorrowTasks.isEmpty ? null : tomorrowTasks.first.id;
     return weekTasks
         .where((task) => task.id != excludedTaskId)
         .take(3)
@@ -746,7 +744,10 @@ class _DashboardBodyState extends State<_DashboardBody> {
           value: '$completed/$totalCount',
           tone: tone,
         ),
-        FocusBusinessMetric(label: 'OPEN', value: '$remainingCount'),
+        FocusBusinessMetric(
+          label: 'OPEN',
+          value: '$remainingCount',
+        ),
         FocusBusinessMetric(
           label: nextMetricLabel,
           value: nextTaskTitle,
@@ -765,7 +766,9 @@ class _DashboardBodyState extends State<_DashboardBody> {
               : '${(progress.clamp(0, 1) * 100).round()}% complete',
           tone: tone,
         ),
-        FocusBusinessPill(label: '$remainingCount open'),
+        FocusBusinessPill(
+          label: '$remainingCount open',
+        ),
       ],
       descriptionTitle: onDeckTitle,
       descriptionItems: onDeckTasks,
@@ -779,17 +782,18 @@ class _DashboardBodyState extends State<_DashboardBody> {
     RhythmBadgeTone tone, {
     VoidCallback? onNextTap,
   }) {
-    final remaining = (item.totalCount - item.completedCount).clamp(
-      0,
-      item.totalCount,
-    );
+    final remaining =
+        (item.totalCount - item.completedCount).clamp(0, item.totalCount);
     return [
       FocusBusinessMetric(
         label: 'COMPLETE',
         value: '${item.completedCount}/${item.totalCount}',
         tone: tone,
       ),
-      FocusBusinessMetric(label: 'OPEN', value: '$remaining'),
+      FocusBusinessMetric(
+        label: 'OPEN',
+        value: '$remaining',
+      ),
       FocusBusinessMetric(
         label: 'NEXT',
         value: _nextProgressTitle(item),
@@ -858,8 +862,10 @@ class _DashboardBodyState extends State<_DashboardBody> {
               FocusOnDeckItem(
                 title: step.title,
                 checked: step.isDone,
-                onChanged: (_) =>
-                    controller.toggleProjectStepDone(step.id, step.isDone),
+                onChanged: (_) => controller.toggleProjectStepDone(
+                  step.id,
+                  step.isDone,
+                ),
                 onTap: () => _showProjectStepEditDialog(
                   step,
                   projectTitle: visibleProjects[index].title,
@@ -881,11 +887,12 @@ class _DashboardBodyState extends State<_DashboardBody> {
             onNextTap: visibleProjects[index].nextStep == null
                 ? null
                 : () => _showProjectStepEditDialog(
-                    visibleProjects[index].nextStep!,
-                    projectTitle: visibleProjects[index].title,
-                    ownerId: visibleProjects[index].ownerId,
-                    collaboratorNames: visibleProjects[index].collaboratorNames,
-                  ),
+                      visibleProjects[index].nextStep!,
+                      projectTitle: visibleProjects[index].title,
+                      ownerId: visibleProjects[index].ownerId,
+                      collaboratorNames:
+                          visibleProjects[index].collaboratorNames,
+                    ),
           ),
           pills: [
             FocusBusinessPill(
@@ -898,7 +905,10 @@ class _DashboardBodyState extends State<_DashboardBody> {
             FocusBusinessPill(
               label: visibleProjects[index].nextDueDate == null
                   ? 'No due date'
-                  : 'Next ${DateFormatters.fullDate(visibleProjects[index].nextDueDate!, fallback: visibleProjects[index].nextDueDate!)}',
+                  : 'Next ${DateFormatters.fullDate(
+                      visibleProjects[index].nextDueDate!,
+                      fallback: visibleProjects[index].nextDueDate!,
+                    )}',
               tone: RhythmBadgeTone.warning,
             ),
           ],
@@ -919,7 +929,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
         ),
     ];
   }
-
   // -------------------------------------------------------------------------
   // Add task bar
 }
@@ -982,9 +991,8 @@ class _ProgressDialCard extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final primary = totalCount == 0 ? 'No tasks' : '$remainingCount left';
-          final percent = totalCount == 0
-              ? '0%'
-              : '${((progress * 100).round())}%';
+          final percent =
+              totalCount == 0 ? '0%' : '${((progress * 100).round())}%';
           final details = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1005,9 +1013,8 @@ class _ProgressDialCard extends StatelessWidget {
                 runSpacing: RhythmSpacing.xs,
                 children: [
                   RhythmBadge(
-                    label: totalCount == 0
-                        ? '0% complete'
-                        : '$percent complete',
+                    label:
+                        totalCount == 0 ? '0% complete' : '$percent complete',
                     tone: tone,
                     compact: true,
                   ),
@@ -1044,10 +1051,7 @@ class _ProgressDialCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _ProgressRing(
-                  percent: percent,
-                  progress: progress,
-                  accent: accent,
-                ),
+                    percent: percent, progress: progress, accent: accent),
                 const SizedBox(height: RhythmSpacing.md),
                 details,
               ],
@@ -1058,10 +1062,7 @@ class _ProgressDialCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               _ProgressRing(
-                percent: percent,
-                progress: progress,
-                accent: accent,
-              ),
+                  percent: percent, progress: progress, accent: accent),
               const SizedBox(width: RhythmSpacing.lg),
               Expanded(child: details),
             ],
@@ -1097,10 +1098,10 @@ class _NextTaskQuickActionsCard extends StatelessWidget {
           Text(
             'Quick Actions',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: colors.textMuted,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.4,
-            ),
+                  color: colors.textMuted,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.4,
+                ),
           ),
           const SizedBox(height: 4),
           Text(
@@ -1108,9 +1109,9 @@ class _NextTaskQuickActionsCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              color: colors.textPrimary,
-              fontWeight: FontWeight.w700,
-            ),
+                  color: colors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
           ),
           const SizedBox(height: RhythmSpacing.sm),
           QuickActionsBar(
@@ -1356,7 +1357,10 @@ class _HandoffListCard extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 8),
                   child: Text(
                     '+${items.length - visible.length} more shared tasks',
-                    style: TextStyle(color: colors.textSecondary, fontSize: 12),
+                    style: TextStyle(
+                      color: colors.textSecondary,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               if (currentUserId == null)
@@ -1389,7 +1393,11 @@ class _HandoffSummaryPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RhythmBadge(label: '$count $label', tone: tone, compact: true);
+    return RhythmBadge(
+      label: '$count $label',
+      tone: tone,
+      compact: true,
+    );
   }
 }
 
@@ -1425,7 +1433,11 @@ class _ProgressPreviewCard<T extends DashboardProgressItem>
         tone: tone,
         icon: icon,
         onTap: onTapHeader,
-        trailing: RhythmBadge(label: countLabel, tone: tone, compact: true),
+        trailing: RhythmBadge(
+          label: countLabel,
+          tone: tone,
+          compact: true,
+        ),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 18),
           child: Text(
@@ -1452,7 +1464,10 @@ class _ProgressPreviewCard<T extends DashboardProgressItem>
             progress: visibleItems[index].progress,
             icon: icon,
             pills: [
-              FocusBusinessPill(label: countLabel, tone: tone),
+              FocusBusinessPill(
+                label: countLabel,
+                tone: tone,
+              ),
               FocusBusinessPill(
                 label: _progressStatusLabel(visibleItems[index]),
                 tone: _progressStatusTone(visibleItems[index], tone),
@@ -1469,9 +1484,7 @@ class _ProgressPreviewCard<T extends DashboardProgressItem>
             ],
             team: [
               const FocusBusinessAvatar(
-                label: 'Workspace',
-                tone: RhythmBadgeTone.accent,
-              ),
+                  label: 'Workspace', tone: RhythmBadgeTone.accent),
               FocusBusinessAvatar(label: countLabel, tone: tone),
             ],
             onTap: () => onTapItem(visibleItems[index]),
@@ -1484,7 +1497,10 @@ class _ProgressPreviewCard<T extends DashboardProgressItem>
             padding: const EdgeInsets.only(top: RhythmSpacing.sm),
             child: Text(
               '+${items.length - visibleItems.length} more',
-              style: TextStyle(color: colors.textSecondary, fontSize: 12),
+              style: TextStyle(
+                color: colors.textSecondary,
+                fontSize: 12,
+              ),
             ),
           ),
       ],
@@ -1495,10 +1511,8 @@ class _ProgressPreviewCard<T extends DashboardProgressItem>
     DashboardProgressItem item,
     RhythmBadgeTone tone,
   ) {
-    final remaining = (item.totalCount - item.completedCount).clamp(
-      0,
-      item.totalCount,
-    );
+    final remaining =
+        (item.totalCount - item.completedCount).clamp(0, item.totalCount);
     final nextDueDate = item.nextDueDate;
     return [
       FocusBusinessMetric(
@@ -1506,7 +1520,10 @@ class _ProgressPreviewCard<T extends DashboardProgressItem>
         value: '${item.completedCount}/${item.totalCount}',
         tone: tone,
       ),
-      FocusBusinessMetric(label: 'OPEN', value: '$remaining'),
+      FocusBusinessMetric(
+        label: 'OPEN',
+        value: '$remaining',
+      ),
       FocusBusinessMetric(
         label: 'NEXT',
         value: nextDueDate == null
@@ -1542,7 +1559,10 @@ class _ProgressFeaturePanel extends StatelessWidget {
     final nextDueDate = item.nextDueDate;
     final dueLabel = nextDueDate == null
         ? null
-        : DateFormatters.fullDate(nextDueDate, fallback: nextDueDate);
+        : DateFormatters.fullDate(
+            nextDueDate,
+            fallback: nextDueDate,
+          );
 
     return InkWell(
       onTap: onTap,
@@ -1725,8 +1745,7 @@ String _taskSourceLabel(Task task) {
 }
 
 RhythmBadgeTone _taskTone(Task task, {bool showPastDue = false}) {
-  final overdue =
-      showPastDue &&
+  final overdue = showPastDue &&
       DateFormatters.isOverdue(
         dueDate: task.dueDate,
         scheduledDate: task.scheduledDate,
@@ -1883,7 +1902,10 @@ class _DashboardPreviewShell extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(height: 3, color: accent.withValues(alpha: 0.8)),
+              Container(
+                height: 3,
+                color: accent.withValues(alpha: 0.8),
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
                 child: Row(
@@ -1945,8 +1967,7 @@ class _TaskPreviewRow extends StatelessWidget {
     final isDone = task.status == TaskStatus.done;
     final tone = _taskTone(task, showPastDue: showPastDue);
     final accent = _toneColor(colors, tone);
-    final isOverdue =
-        showPastDue &&
+    final isOverdue = showPastDue &&
         DateFormatters.isOverdue(
           dueDate: task.dueDate,
           scheduledDate: task.scheduledDate,
@@ -1957,8 +1978,7 @@ class _TaskPreviewRow extends StatelessWidget {
     final hasDue = task.dueDate != null && task.dueDate!.trim().isNotEmpty;
     final primaryDateStr = hasSched ? task.scheduledDate : task.dueDate;
     final primaryLabel = _compactDate(primaryDateStr);
-    final showDueHint =
-        hasSched &&
+    final showDueHint = hasSched &&
         hasDue &&
         task.scheduledDate!.trim() != task.dueDate!.trim();
     final dueHintLabel = showDueHint ? _compactDate(task.dueDate) : null;
@@ -1988,10 +2008,8 @@ class _TaskPreviewRow extends StatelessWidget {
                     value: isDone,
                     onChanged: (_) => onTap(),
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: const VisualDensity(
-                      horizontal: -4,
-                      vertical: -4,
-                    ),
+                    visualDensity:
+                        const VisualDensity(horizontal: -4, vertical: -4),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -2005,21 +2023,25 @@ class _TaskPreviewRow extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                          decoration: isDone
-                              ? TextDecoration.lineThrough
-                              : null,
-                          color: isDone ? colors.textMuted : colors.textPrimary,
-                        ),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              decoration:
+                                  isDone ? TextDecoration.lineThrough : null,
+                              color: isDone
+                                  ? colors.textMuted
+                                  : colors.textPrimary,
+                            ),
                       ),
                       if (hasSourceName)
                         Text(
                           sourceName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(color: colors.textMuted, fontSize: 11),
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: colors.textMuted,
+                                    fontSize: 11,
+                                  ),
                         ),
                     ],
                   ),
@@ -2040,13 +2062,13 @@ class _TaskPreviewRow extends StatelessWidget {
                       if (dueHintLabel != null)
                         Text(
                           'Due $dueHintLabel',
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                                fontSize: 10,
-                              ),
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                    fontSize: 10,
+                                  ),
                         ),
                     ],
                   ),
@@ -2108,10 +2130,8 @@ class _HandoffPreviewRow extends StatelessWidget {
                     value: isDone,
                     onChanged: (_) => onTap(),
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: const VisualDensity(
-                      horizontal: -4,
-                      vertical: -4,
-                    ),
+                    visualDensity:
+                        const VisualDensity(horizontal: -4, vertical: -4),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -2125,21 +2145,25 @@ class _HandoffPreviewRow extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                          decoration: isDone
-                              ? TextDecoration.lineThrough
-                              : null,
-                          color: isDone ? colors.textMuted : colors.textPrimary,
-                        ),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              decoration:
+                                  isDone ? TextDecoration.lineThrough : null,
+                              color: isDone
+                                  ? colors.textMuted
+                                  : colors.textPrimary,
+                            ),
                       ),
                       if (hasSourceName)
                         Text(
                           sourceName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(color: colors.textMuted, fontSize: 11),
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: colors.textMuted,
+                                    fontSize: 11,
+                                  ),
                         ),
                     ],
                   ),

@@ -39,8 +39,7 @@ class RhythmMetaChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.rhythm;
-    final foreground =
-        color ??
+    final foreground = color ??
         switch (tone) {
           RhythmMetaChipTone.neutral => colors.textSecondary,
           RhythmMetaChipTone.accent => colors.accent,

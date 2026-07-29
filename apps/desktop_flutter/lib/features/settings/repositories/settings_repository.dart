@@ -7,7 +7,7 @@ class SettingsRepository {
     this._dataSource, {
     UserPreferencesDataSource? userPreferencesDataSource,
   }) : _userPreferencesDataSource =
-           userPreferencesDataSource ?? UserPreferencesDataSource();
+            userPreferencesDataSource ?? UserPreferencesDataSource();
 
   final SettingsDataSource _dataSource;
   final UserPreferencesDataSource _userPreferencesDataSource;

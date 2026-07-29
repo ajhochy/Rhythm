@@ -127,7 +127,10 @@ void main() {
     });
 
     test('openai/gpt model → codex config', () {
-      final id = _resolve(providerId: 'openrouter', modelId: 'openai/gpt-4o');
+      final id = _resolve(
+        providerId: 'openrouter',
+        modelId: 'openai/gpt-4o',
+      );
       expect(id.config, same(_codex));
       expect(id.label, 'Codex');
     });
@@ -172,7 +175,7 @@ void main() {
       for (final m in [
         'mistralai/mistral-large',
         'qwen/qwen-2.5',
-        'x-ai/grok-2',
+        'x-ai/grok-2'
       ]) {
         final id = _resolve(providerId: 'groq', modelId: m);
         expect(id.label, 'OpenRouter', reason: 'modelId=$m');
@@ -195,15 +198,13 @@ void main() {
   });
 
   group('unknown / deleted config', () {
-    test(
-      'agentId with no config → label is the id, muted (not recognised)',
-      () {
-        final id = _resolve(agentId: 'ghost-agent', providerId: null);
-        expect(id.config, isNull);
-        expect(id.materialIcon, isNull);
-        expect(id.label, 'ghost-agent');
-        expect(id.isRecognised, isFalse);
-      },
-    );
+    test('agentId with no config → label is the id, muted (not recognised)',
+        () {
+      final id = _resolve(agentId: 'ghost-agent', providerId: null);
+      expect(id.config, isNull);
+      expect(id.materialIcon, isNull);
+      expect(id.label, 'ghost-agent');
+      expect(id.isRecognised, isFalse);
+    });
   });
 }

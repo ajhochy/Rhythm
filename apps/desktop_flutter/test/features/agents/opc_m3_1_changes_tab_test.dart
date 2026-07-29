@@ -68,8 +68,8 @@ class _ReadyAgentServerController extends AgentServerController {
 /// A stub repository that records fetchSessionDiff calls.
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -108,12 +108,15 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async =>
-      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async => (
+            session: _makeSession(id),
+            messages: const <AgentSessionMessage>[],
+          );
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async {
@@ -141,14 +144,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 // ---------------------------------------------------------------------------
 // Real-shape diff fixture (v1.14.49 FileDiff)
@@ -176,9 +179,9 @@ const _kDiffFixture = [
 // ---------------------------------------------------------------------------
 
 Widget _wrap(Widget child) => MaterialApp(
-  theme: AppTheme.light(),
-  home: Scaffold(body: child),
-);
+      theme: AppTheme.light(),
+      home: Scaffold(body: child),
+    );
 
 AgentsController _buildController(_StubAgentsRepository repo) {
   final agentServer = _ReadyAgentServerController();
@@ -186,7 +189,9 @@ AgentsController _buildController(_StubAgentsRepository repo) {
     repo,
     agentServer,
     LocalNotificationService(),
-    NotificationsController(NotificationsRepository(NotificationsDataSource())),
+    NotificationsController(
+      NotificationsRepository(NotificationsDataSource()),
+    ),
   );
 }
 
@@ -215,7 +220,10 @@ void main() {
           ChangeNotifierProvider<AgentsController>.value(
             value: controller,
             child: _wrap(
-              ChangesTab(sessionId: 'session-001', diffEntries: _kDiffFixture),
+              ChangesTab(
+                sessionId: 'session-001',
+                diffEntries: _kDiffFixture,
+              ),
             ),
           ),
         );
@@ -236,137 +244,143 @@ void main() {
   });
 
   group('issue-694-c3: Empty diff shows "No file changes yet"', () {
-    testWidgets('issue-694-c3: shows explicit empty state when diff is empty', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        ChangeNotifierProvider<AgentsController>.value(
-          value: controller,
-          child: _wrap(
-            const ChangesTab(sessionId: 'session-002', diffEntries: []),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('No file changes yet'), findsOneWidget);
-
-      // Must NOT show error state text.
-      expect(find.textContaining('Could not'), findsNothing);
-    });
-
-    testWidgets('issue-694-c3b: error state is distinct from empty state', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        ChangeNotifierProvider<AgentsController>.value(
-          value: controller,
-          child: _wrap(
-            const ChangesTab(
-              sessionId: 'session-003',
-              diffEntries: [],
-              errorMessage: 'Could not load diff',
+    testWidgets(
+      'issue-694-c3: shows explicit empty state when diff is empty',
+      (tester) async {
+        await tester.pumpWidget(
+          ChangeNotifierProvider<AgentsController>.value(
+            value: controller,
+            child: _wrap(
+              const ChangesTab(
+                sessionId: 'session-002',
+                diffEntries: [],
+              ),
             ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      // Error state shows the error message.
-      expect(find.textContaining('Could not load diff'), findsOneWidget);
-      // Must NOT show the empty state text.
-      expect(find.textContaining('No file changes yet'), findsNothing);
-    });
+        expect(find.textContaining('No file changes yet'), findsOneWidget);
+
+        // Must NOT show error state text.
+        expect(find.textContaining('Could not'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'issue-694-c3b: error state is distinct from empty state',
+      (tester) async {
+        await tester.pumpWidget(
+          ChangeNotifierProvider<AgentsController>.value(
+            value: controller,
+            child: _wrap(
+              const ChangesTab(
+                sessionId: 'session-003',
+                diffEntries: [],
+                errorMessage: 'Could not load diff',
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Error state shows the error message.
+        expect(find.textContaining('Could not load diff'), findsOneWidget);
+        // Must NOT show the empty state text.
+        expect(find.textContaining('No file changes yet'), findsNothing);
+      },
+    );
   });
 
   group(
-    'issue-694-c4: session.diff WS event triggers fetchSessionDiff for affected session only',
-    () {
-      test(
-        'issue-694-c4: handleSessionDiffEvent fires fetchSessionDiff for that session only',
-        () async {
-          const targetSessionId = 'ses-target';
-          const otherSessionId = 'ses-other';
+      'issue-694-c4: session.diff WS event triggers fetchSessionDiff for affected session only',
+      () {
+    test(
+      'issue-694-c4: handleSessionDiffEvent fires fetchSessionDiff for that session only',
+      () async {
+        const targetSessionId = 'ses-target';
+        const otherSessionId = 'ses-other';
 
-          // Pre-stage the diff entries so the fetch doesn't return empty.
-          stubRepo.stagedDiff[targetSessionId] = _kDiffFixture;
-          stubRepo.stagedDiff[otherSessionId] = _kDiffFixture;
+        // Pre-stage the diff entries so the fetch doesn't return empty.
+        stubRepo.stagedDiff[targetSessionId] = _kDiffFixture;
+        stubRepo.stagedDiff[otherSessionId] = _kDiffFixture;
 
-          // Simulate a session.diff WS event arriving for targetSessionId.
-          controller.handleSessionDiffEvent(targetSessionId);
+        // Simulate a session.diff WS event arriving for targetSessionId.
+        controller.handleSessionDiffEvent(targetSessionId);
 
-          // Give the async fetch time to complete.
-          await Future<void>.delayed(const Duration(milliseconds: 100));
+        // Give the async fetch time to complete.
+        await Future<void>.delayed(const Duration(milliseconds: 100));
 
-          // Only the target session must have been fetched.
-          expect(
-            stubRepo.fetchDiffCallCount[targetSessionId] ?? 0,
-            greaterThan(0),
-          );
-          expect(stubRepo.fetchDiffCallCount[otherSessionId] ?? 0, equals(0));
-        },
-      );
+        // Only the target session must have been fetched.
+        expect(
+          stubRepo.fetchDiffCallCount[targetSessionId] ?? 0,
+          greaterThan(0),
+        );
+        expect(stubRepo.fetchDiffCallCount[otherSessionId] ?? 0, equals(0));
+      },
+    );
 
-      test(
-        'issue-694-c4b: sessionDiffFor returns fetched entries after fetchSessionDiff completes',
-        () async {
-          const sessionId = 'ses-fetch';
-          stubRepo.stagedDiff[sessionId] = _kDiffFixture;
+    test(
+      'issue-694-c4b: sessionDiffFor returns fetched entries after fetchSessionDiff completes',
+      () async {
+        const sessionId = 'ses-fetch';
+        stubRepo.stagedDiff[sessionId] = _kDiffFixture;
 
-          await controller.fetchSessionDiff(sessionId);
+        await controller.fetchSessionDiff(sessionId);
 
-          expect(controller.sessionDiffFor(sessionId), hasLength(2));
-          expect(
-            (controller.sessionDiffFor(sessionId).first)['file'],
-            contains('task.dart'),
-          );
-        },
-      );
-    },
-  );
+        expect(controller.sessionDiffFor(sessionId), hasLength(2));
+        expect(
+          (controller.sessionDiffFor(sessionId).first)['file'],
+          contains('task.dart'),
+        );
+      },
+    );
+  });
 
   group('issue-694-c5: Tab badge shows file count when nonzero', () {
-    testWidgets('issue-694-c5: badge shows count when diff has entries', (
-      tester,
-    ) async {
-      const sessionId = 'ses-badge';
-      // Pre-seed diff state in the controller.
-      controller.setSessionDiffForTest(sessionId, _kDiffFixture);
+    testWidgets(
+      'issue-694-c5: badge shows count when diff has entries',
+      (tester) async {
+        const sessionId = 'ses-badge';
+        // Pre-seed diff state in the controller.
+        controller.setSessionDiffForTest(sessionId, _kDiffFixture);
 
-      await tester.pumpWidget(
-        ChangeNotifierProvider<AgentsController>.value(
-          value: controller,
-          child: _wrap(ChangesTabBadge(sessionId: sessionId)),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          ChangeNotifierProvider<AgentsController>.value(
+            value: controller,
+            child: _wrap(ChangesTabBadge(sessionId: sessionId)),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // Badge must show the count (2 entries).
-      expect(find.text('2'), findsAtLeastNWidgets(1));
-    });
+        // Badge must show the count (2 entries).
+        expect(find.text('2'), findsAtLeastNWidgets(1));
+      },
+    );
 
-    testWidgets('issue-694-c5b: no visible count badge when diff is empty', (
-      tester,
-    ) async {
-      const sessionId = 'ses-no-badge';
-      // Diff is empty by default — no seed.
+    testWidgets(
+      'issue-694-c5b: no visible count badge when diff is empty',
+      (tester) async {
+        const sessionId = 'ses-no-badge';
+        // Diff is empty by default — no seed.
 
-      await tester.pumpWidget(
-        ChangeNotifierProvider<AgentsController>.value(
-          value: controller,
-          child: _wrap(ChangesTabBadge(sessionId: sessionId)),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          ChangeNotifierProvider<AgentsController>.value(
+            value: controller,
+            child: _wrap(ChangesTabBadge(sessionId: sessionId)),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // SizedBox.shrink renders — no text with a positive integer.
-      final textWidgets = tester.widgetList<Text>(find.byType(Text)).toList();
-      final countTexts = textWidgets.where((t) {
-        final s = t.data ?? '';
-        final n = int.tryParse(s);
-        return n != null && n > 0;
-      }).toList();
-      expect(countTexts, isEmpty);
-    });
+        // SizedBox.shrink renders — no text with a positive integer.
+        final textWidgets = tester.widgetList<Text>(find.byType(Text)).toList();
+        final countTexts = textWidgets.where((t) {
+          final s = t.data ?? '';
+          final n = int.tryParse(s);
+          return n != null && n > 0;
+        }).toList();
+        expect(countTexts, isEmpty);
+      },
+    );
   });
 }

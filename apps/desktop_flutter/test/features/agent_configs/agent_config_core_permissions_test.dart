@@ -54,26 +54,22 @@ void main() {
       );
     });
 
-    test(
-      'copyWith updates corePermissionsJson without touching other fields',
-      () {
-        final config = AgentConfig(
-          id: 'x',
-          label: 'Test',
-          icon: 'terminal',
-          enabled: true,
-          isAgent: true,
-          sortOrder: 0,
-        );
+    test('copyWith updates corePermissionsJson without touching other fields',
+        () {
+      final config = AgentConfig(
+        id: 'x',
+        label: 'Test',
+        icon: 'terminal',
+        enabled: true,
+        isAgent: true,
+        sortOrder: 0,
+      );
 
-        final updated = config.copyWith(
-          corePermissionsJson: '{"read":"allow"}',
-        );
+      final updated = config.copyWith(corePermissionsJson: '{"read":"allow"}');
 
-        expect(updated.corePermissionsJson, equals('{"read":"allow"}'));
-        expect(updated.label, equals(config.label));
-      },
-    );
+      expect(updated.corePermissionsJson, equals('{"read":"allow"}'));
+      expect(updated.label, equals(config.label));
+    });
 
     test('copyWith can clear corePermissionsJson back to null', () {
       final config = AgentConfig(

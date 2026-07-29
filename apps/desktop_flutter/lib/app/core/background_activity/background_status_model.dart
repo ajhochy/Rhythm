@@ -51,13 +51,18 @@ class BackgroundLoopStatus {
 
 /// Aggregated response from GET /agent-sessions/background-status.
 class BackgroundStatus {
-  const BackgroundStatus({required this.loops, required this.activeCount});
+  const BackgroundStatus({
+    required this.loops,
+    required this.activeCount,
+  });
 
   factory BackgroundStatus.fromJson(Map<String, dynamic> json) {
     final rawLoops = json['loops'] as List<dynamic>? ?? [];
     return BackgroundStatus(
       loops: rawLoops
-          .map((e) => BackgroundLoopStatus.fromJson(e as Map<String, dynamic>))
+          .map(
+            (e) => BackgroundLoopStatus.fromJson(e as Map<String, dynamic>),
+          )
           .toList(),
       activeCount: (json['activeCount'] as num?)?.toInt() ?? 0,
     );

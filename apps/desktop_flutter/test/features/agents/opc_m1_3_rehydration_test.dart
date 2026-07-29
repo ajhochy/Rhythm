@@ -69,7 +69,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -83,15 +83,17 @@ class _FakeNotificationsController extends NotificationsController {
 /// noSuchMethod for unused methods, following the issue_645 test pattern.
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
 
   /// When set, getSession returns this.
-  ({AgentSession session, List<AgentSessionMessage> messages})?
-  getSessionResult;
+  ({
+    AgentSession session,
+    List<AgentSessionMessage> messages
+  })? getSessionResult;
   List<AgentSession> sessionsToReturn = [];
 
   void emit(AgentWsMessage msg) => _msgController.add(msg);
@@ -122,11 +124,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => sessionsToReturn;
+  }) async =>
+      sessionsToReturn;
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async {
+      getSession(String id) async {
     if (getSessionResult != null) return getSessionResult!;
     return (session: _makeSession(id), messages: <AgentSessionMessage>[]);
   }
@@ -142,28 +145,29 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 AgentSessionMessage _makeMsg({
   required String sessionId,
   required String role,
   required String rawText,
   int id = 1,
-}) => AgentSessionMessage(
-  id: id,
-  sessionId: sessionId,
-  role: role,
-  rawText: rawText,
-  strippedText: rawText,
-  createdAt: DateTime.now(),
-);
+}) =>
+    AgentSessionMessage(
+      id: id,
+      sessionId: sessionId,
+      role: role,
+      rawText: rawText,
+      strippedText: rawText,
+      createdAt: DateTime.now(),
+    );
 
 // ---------------------------------------------------------------------------
 // Builds a controller under test
@@ -205,7 +209,7 @@ void main() {
         repo.getSessionResult = (
           session: _makeSession(sessionId),
           messages: [
-            _makeMsg(sessionId: sessionId, role: 'output', rawText: 'hello'),
+            _makeMsg(sessionId: sessionId, role: 'output', rawText: 'hello')
           ],
         );
 
@@ -218,8 +222,7 @@ void main() {
         expect(
           msgs,
           isNotEmpty,
-          reason:
-              'selectSession must populate chatMessagesBySession '
+          reason: 'selectSession must populate chatMessagesBySession '
               'from the structured REST payload. '
               'If empty, the rehydration path is not wired.',
         );
@@ -227,42 +230,41 @@ void main() {
       },
     );
 
-    test('c1b: rehydrated messages have parts in chatPartsFor', () async {
-      final (:ctrl, :repo) = _buildController();
-      addTearDown(ctrl.dispose);
+    test(
+      'c1b: rehydrated messages have parts in chatPartsFor',
+      () async {
+        final (:ctrl, :repo) = _buildController();
+        addTearDown(ctrl.dispose);
 
-      const sessionId = 'sess-c1b';
+        const sessionId = 'sess-c1b';
 
-      repo.getSessionResult = (
-        session: _makeSession(sessionId),
-        messages: [
-          _makeMsg(sessionId: sessionId, role: 'output', rawText: 'response'),
-        ],
-      );
+        repo.getSessionResult = (
+          session: _makeSession(sessionId),
+          messages: [
+            _makeMsg(sessionId: sessionId, role: 'output', rawText: 'response')
+          ],
+        );
 
-      repo.sessionsToReturn = [_makeSession(sessionId)];
-      await ctrl.load();
-      await ctrl.selectSession(sessionId);
-      await Future<void>.delayed(Duration.zero);
+        repo.sessionsToReturn = [_makeSession(sessionId)];
+        await ctrl.load();
+        await ctrl.selectSession(sessionId);
+        await Future<void>.delayed(Duration.zero);
 
-      final msgs = ctrl.chatMessagesFor(sessionId);
-      expect(
-        msgs,
-        isNotEmpty,
-        reason: 'Rehydration must create ChatMessage entries.',
-      );
+        final msgs = ctrl.chatMessagesFor(sessionId);
+        expect(msgs, isNotEmpty,
+            reason: 'Rehydration must create ChatMessage entries.');
 
-      final firstMsgId = msgs.first.id;
-      final parts = ctrl.chatPartsFor(firstMsgId);
-      // At minimum a legacy text shim must be present for messages with rawText.
-      expect(
-        parts,
-        isNotEmpty,
-        reason:
-            'chatPartsFor must return at least a text shim part '
-            'for a rehydrated message.',
-      );
-    });
+        final firstMsgId = msgs.first.id;
+        final parts = ctrl.chatPartsFor(firstMsgId);
+        // At minimum a legacy text shim must be present for messages with rawText.
+        expect(
+          parts,
+          isNotEmpty,
+          reason: 'chatPartsFor must return at least a text shim part '
+              'for a rehydrated message.',
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -280,7 +282,7 @@ void main() {
         repo.getSessionResult = (
           session: _makeSession(sessionId),
           messages: [
-            _makeMsg(sessionId: sessionId, role: 'output', rawText: 'result'),
+            _makeMsg(sessionId: sessionId, role: 'output', rawText: 'result')
           ],
         );
         repo.sessionsToReturn = [_makeSession(sessionId)];
@@ -289,11 +291,8 @@ void main() {
         await ctrl.selectSession(sessionId);
         await Future<void>.delayed(Duration.zero);
 
-        expect(
-          ctrl.chatMessagesFor(sessionId),
-          isNotEmpty,
-          reason: 'selectSession must populate chatMessagesFor.',
-        );
+        expect(ctrl.chatMessagesFor(sessionId), isNotEmpty,
+            reason: 'selectSession must populate chatMessagesFor.');
 
         await ctrl.reconnectSession(sessionId);
         await Future<void>.delayed(Duration.zero);
@@ -316,20 +315,18 @@ void main() {
         'lib/features/agents/controllers/agents_controller.dart';
     const viewPath = 'lib/features/agents/views/agents_view.dart';
 
-    test(
-      'c3a: _liveOutputBuffer has zero references in agents_controller.dart',
-      () {
-        final projectDir = _projectDir();
-        final src = File('$projectDir/$controllerPath').readAsStringSync();
+    test('c3a: _liveOutputBuffer has zero references in agents_controller.dart',
+        () {
+      final projectDir = _projectDir();
+      final src = File('$projectDir/$controllerPath').readAsStringSync();
 
-        expect(
-          src.contains('_liveOutputBuffer'),
-          isFalse,
-          reason:
-              '_liveOutputBuffer must be deleted from agents_controller.dart.',
-        );
-      },
-    );
+      expect(
+        src.contains('_liveOutputBuffer'),
+        isFalse,
+        reason:
+            '_liveOutputBuffer must be deleted from agents_controller.dart.',
+      );
+    });
 
     test('c3b: liveOutputFor removed from agents_controller.dart', () {
       final projectDir = _projectDir();
@@ -378,8 +375,7 @@ void main() {
       expect(
         src.contains('transcriptFor('),
         isFalse,
-        reason:
-            'transcriptFor() must not be called in agents_view.dart. '
+        reason: 'transcriptFor() must not be called in agents_view.dart. '
             'The view uses chatMessagesFor() exclusively.',
       );
     });
@@ -391,9 +387,8 @@ void main() {
   group('OPC-M1-3 c4: mini-bubble removed', () {
     test('c4a: agent_bubble_overlay.dart does not exist', () {
       final projectDir = _projectDir();
-      final f = File(
-        '$projectDir/lib/app/core/agents/agent_bubble_overlay.dart',
-      );
+      final f =
+          File('$projectDir/lib/app/core/agents/agent_bubble_overlay.dart');
       expect(
         f.existsSync(),
         isFalse,
@@ -423,26 +418,25 @@ void main() {
     });
 
     test(
-      'c4d: handleIncomingTrigger still adds to pendingTriggers (no bubble needed)',
-      () async {
-        final (:ctrl, :repo) = _buildController();
-        addTearDown(ctrl.dispose);
+        'c4d: handleIncomingTrigger still adds to pendingTriggers (no bubble needed)',
+        () async {
+      final (:ctrl, :repo) = _buildController();
+      addTearDown(ctrl.dispose);
 
-        await ctrl.handleIncomingTrigger({
-          'taskId': 'task-1',
-          'taskTitle': 'Deploy app',
-        });
+      await ctrl.handleIncomingTrigger({
+        'taskId': 'task-1',
+        'taskTitle': 'Deploy app',
+      });
 
-        expect(
-          ctrl.pendingTriggers,
-          isNotEmpty,
-          reason:
-              'handleIncomingTrigger must add a PendingTrigger so it surfaces '
-              'in the Agents tab trigger banner (no bubble required).',
-        );
-        expect(ctrl.pendingTriggers.first.taskId, equals('task-1'));
-      },
-    );
+      expect(
+        ctrl.pendingTriggers,
+        isNotEmpty,
+        reason:
+            'handleIncomingTrigger must add a PendingTrigger so it surfaces '
+            'in the Agents tab trigger banner (no bubble required).',
+      );
+      expect(ctrl.pendingTriggers.first.taskId, equals('task-1'));
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -476,97 +470,86 @@ void main() {
       );
     });
 
-    test(
-      'c5b: session IS flagged stuck after threshold with no part activity',
-      () async {
-        final (:ctrl, :repo) = _buildController();
-        addTearDown(ctrl.dispose);
+    test('c5b: session IS flagged stuck after threshold with no part activity',
+        () async {
+      final (:ctrl, :repo) = _buildController();
+      addTearDown(ctrl.dispose);
 
-        const sessionId = 'sess-stuck-2';
-        final session = AgentSession(
-          id: sessionId,
-          agentId: 'claude-code',
-          name: 'stuck session',
-          cwd: '/tmp',
-          status: AgentSessionStatus.starting,
-          createdAt: _kEpoch,
-          updatedAt: _kEpoch,
-        );
-        repo.sessionsToReturn = [session];
-        await ctrl.load();
+      const sessionId = 'sess-stuck-2';
+      final session = AgentSession(
+        id: sessionId,
+        agentId: 'claude-code',
+        name: 'stuck session',
+        cwd: '/tmp',
+        status: AgentSessionStatus.starting,
+        createdAt: _kEpoch,
+        updatedAt: _kEpoch,
+      );
+      repo.sessionsToReturn = [session];
+      await ctrl.load();
 
-        ctrl.sessionFirstSeenAt[sessionId] = DateTime.now().subtract(
-          const Duration(seconds: 31),
-        );
-        ctrl.recomputeStuckForTest();
+      ctrl.sessionFirstSeenAt[sessionId] =
+          DateTime.now().subtract(const Duration(seconds: 31));
+      ctrl.recomputeStuckForTest();
 
-        expect(
-          ctrl.connectivity.stuckSessionIds.contains(sessionId),
-          isTrue,
-          reason:
-              'A session in "starting" state with no activity for >30s must be '
-              'flagged stuck. After OPC-M1-3 the predicate must NOT rely on '
-              '_liveOutputBuffer (which no longer exists).',
-        );
-      },
-    );
+      expect(
+        ctrl.connectivity.stuckSessionIds.contains(sessionId),
+        isTrue,
+        reason:
+            'A session in "starting" state with no activity for >30s must be '
+            'flagged stuck. After OPC-M1-3 the predicate must NOT rely on '
+            '_liveOutputBuffer (which no longer exists).',
+      );
+    });
 
-    test(
-      'c5c: stuck flag clears when a MessagePartUpdatedMessage arrives',
-      () async {
-        final (:ctrl, :repo) = _buildController();
-        addTearDown(ctrl.dispose);
+    test('c5c: stuck flag clears when a MessagePartUpdatedMessage arrives',
+        () async {
+      final (:ctrl, :repo) = _buildController();
+      addTearDown(ctrl.dispose);
 
-        const sessionId = 'sess-stuck-3';
-        final session = AgentSession(
-          id: sessionId,
-          agentId: 'claude-code',
-          name: 'stuck->active',
-          cwd: '/tmp',
-          status: AgentSessionStatus.starting,
-          createdAt: _kEpoch,
-          updatedAt: _kEpoch,
-        );
-        repo.sessionsToReturn = [session];
-        await ctrl.initialize();
+      const sessionId = 'sess-stuck-3';
+      final session = AgentSession(
+        id: sessionId,
+        agentId: 'claude-code',
+        name: 'stuck->active',
+        cwd: '/tmp',
+        status: AgentSessionStatus.starting,
+        createdAt: _kEpoch,
+        updatedAt: _kEpoch,
+      );
+      repo.sessionsToReturn = [session];
+      await ctrl.initialize();
 
-        ctrl.sessionFirstSeenAt[sessionId] = DateTime.now().subtract(
-          const Duration(seconds: 40),
-        );
-        ctrl.recomputeStuckForTest();
+      ctrl.sessionFirstSeenAt[sessionId] =
+          DateTime.now().subtract(const Duration(seconds: 40));
+      ctrl.recomputeStuckForTest();
 
-        expect(
-          ctrl.connectivity.stuckSessionIds.contains(sessionId),
-          isTrue,
-          reason: 'Must be stuck before part arrival.',
-        );
+      expect(ctrl.connectivity.stuckSessionIds.contains(sessionId), isTrue,
+          reason: 'Must be stuck before part arrival.');
 
-        // Emit a MessagePartUpdatedMessage — after OPC-M1-3, a part arriving
-        // must clear stuck tracking by updating lastPartActivityAt (or equivalent).
-        repo.emit(
-          MessagePartUpdatedMessage(
-            sessionId: sessionId,
-            part: {
-              'id': 'part-1',
-              'messageID': 'msg-1',
-              'type': 'text',
-              'text': 'hello',
-            },
-          ),
-        );
-        await Future<void>.delayed(Duration.zero);
+      // Emit a MessagePartUpdatedMessage — after OPC-M1-3, a part arriving
+      // must clear stuck tracking by updating lastPartActivityAt (or equivalent).
+      repo.emit(MessagePartUpdatedMessage(
+        sessionId: sessionId,
+        part: {
+          'id': 'part-1',
+          'messageID': 'msg-1',
+          'type': 'text',
+          'text': 'hello',
+        },
+      ));
+      await Future<void>.delayed(Duration.zero);
 
-        ctrl.recomputeStuckForTest();
+      ctrl.recomputeStuckForTest();
 
-        expect(
-          ctrl.connectivity.stuckSessionIds.contains(sessionId),
-          isFalse,
-          reason:
-              'A part arriving must clear stuck tracking. After OPC-M1-3 this '
-              'replaces the liveOutputBuffer check.',
-        );
-      },
-    );
+      expect(
+        ctrl.connectivity.stuckSessionIds.contains(sessionId),
+        isFalse,
+        reason:
+            'A part arriving must clear stuck tracking. After OPC-M1-3 this '
+            'replaces the liveOutputBuffer check.',
+      );
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -595,8 +578,7 @@ void main() {
       expect(
         systemMsgs,
         isNotEmpty,
-        reason:
-            'WsErrorMessage must create a system-role ChatMessage in '
+        reason: 'WsErrorMessage must create a system-role ChatMessage in '
             'chatMessagesBySession. The legacy _transcriptsBySession render '
             'path is deleted after OPC-M1-3.',
       );
@@ -609,24 +591,22 @@ void main() {
   group('OPC-M1-3 c7: providerToAgentKind from capabilities', () {
     test('c7a: _kProviderToAgentKind removed from agents_view.dart', () {
       final projectDir = _projectDir();
-      final src = File(
-        '$projectDir/lib/features/agents/views/agents_view.dart',
-      ).readAsStringSync();
+      final src = File('$projectDir/lib/features/agents/views/agents_view.dart')
+          .readAsStringSync();
 
       expect(
         src.contains('_kProviderToAgentKind'),
         isFalse,
-        reason:
-            '_kProviderToAgentKind must be removed from agents_view.dart. '
+        reason: '_kProviderToAgentKind must be removed from agents_view.dart. '
             'The map is consumed from the capabilities endpoint.',
       );
     });
 
     test('c7b: AgentServerController exposes providerToAgentKind getter', () {
       final projectDir = _projectDir();
-      final src = File(
-        '$projectDir/lib/app/core/agents/agent_server_controller.dart',
-      ).readAsStringSync();
+      final src =
+          File('$projectDir/lib/app/core/agents/agent_server_controller.dart')
+              .readAsStringSync();
 
       expect(
         src.contains('providerToAgentKind'),
@@ -636,21 +616,18 @@ void main() {
       );
     });
 
-    test(
-      'c7c: agents_view.dart does not define its own provider-to-kind map',
-      () {
-        final projectDir = _projectDir();
-        final src = File(
-          '$projectDir/lib/features/agents/views/agents_view.dart',
-        ).readAsStringSync();
+    test('c7c: agents_view.dart does not define its own provider-to-kind map',
+        () {
+      final projectDir = _projectDir();
+      final src = File('$projectDir/lib/features/agents/views/agents_view.dart')
+          .readAsStringSync();
 
-        expect(
-          src.contains('_kProviderToAgentKind'),
-          isFalse,
-          reason: '_kProviderToAgentKind must not exist in agents_view.dart.',
-        );
-      },
-    );
+      expect(
+        src.contains('_kProviderToAgentKind'),
+        isFalse,
+        reason: '_kProviderToAgentKind must not exist in agents_view.dart.',
+      );
+    });
   });
 }
 

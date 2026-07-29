@@ -22,9 +22,8 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets('shows the current Memory Vault path from the service', (
-    tester,
-  ) async {
+  testWidgets('shows the current Memory Vault path from the service',
+      (tester) async {
     final service = MemoryVaultConfigService(
       directoryExists: (path) => path.endsWith('AGENT-MEMORY'),
     );
@@ -35,26 +34,27 @@ void main() {
 
     expect(find.text('Memory Vault path'), findsOneWidget);
     final field = tester.widget<TextFormField>(find.byType(TextFormField));
-    expect(field.controller?.text, MemoryVaultConfigService.obsidianVaultPath);
+    expect(
+      field.controller?.text,
+      MemoryVaultConfigService.obsidianVaultPath,
+    );
     expect(find.textContaining('Resolved: '), findsOneWidget);
   });
 
-  testWidgets(
-    'falls back to the legacy vault path when Obsidian vault absent',
-    (tester) async {
-      final service = MemoryVaultConfigService(directoryExists: (_) => false);
-      await service.load();
+  testWidgets('falls back to the legacy vault path when Obsidian vault absent',
+      (tester) async {
+    final service = MemoryVaultConfigService(directoryExists: (_) => false);
+    await service.load();
 
-      await tester.pumpWidget(_wrap(service));
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(_wrap(service));
+    await tester.pumpAndSettle();
 
-      final field = tester.widget<TextFormField>(find.byType(TextFormField));
-      expect(
-        field.controller?.text,
-        MemoryVaultConfigService.legacyDefaultPath,
-      );
-    },
-  );
+    final field = tester.widget<TextFormField>(find.byType(TextFormField));
+    expect(
+      field.controller?.text,
+      MemoryVaultConfigService.legacyDefaultPath,
+    );
+  });
 
   testWidgets('editing and saving persists the new path', (tester) async {
     final service = MemoryVaultConfigService(directoryExists: (_) => false);

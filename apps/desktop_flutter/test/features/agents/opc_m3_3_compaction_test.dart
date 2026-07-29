@@ -81,8 +81,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -117,12 +117,15 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async =>
-      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async => (
+            session: _makeSession(id),
+            messages: const <AgentSessionMessage>[],
+          );
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -152,14 +155,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 AgentsController _buildController(_StubAgentsRepository repo) =>
     AgentsController(
@@ -191,12 +194,10 @@ Widget _wrapWithProviders({
       body: MultiProvider(
         providers: [
           ChangeNotifierProvider<AgentConfigsController>.value(
-            value: configsCtrl,
-          ),
+              value: configsCtrl),
           ChangeNotifierProvider<AgentsController>.value(value: agentsCtrl),
           ChangeNotifierProvider<AgentServerController>.value(
-            value: agentServerCtrl,
-          ),
+              value: agentServerCtrl),
         ],
         child: Center(child: child),
       ),
@@ -237,14 +238,12 @@ void main() {
 
           final session = _makeSession('ses-compact');
 
-          await tester.pumpWidget(
-            _wrapWithProviders(
-              configsCtrl: configsCtrl,
-              agentsCtrl: controller,
-              agentServerCtrl: agentServerCtrl,
-              child: TranscriptHeaderTestHarness(session: session),
-            ),
-          );
+          await tester.pumpWidget(_wrapWithProviders(
+            configsCtrl: configsCtrl,
+            agentsCtrl: controller,
+            agentServerCtrl: agentServerCtrl,
+            child: TranscriptHeaderTestHarness(session: session),
+          ));
           await tester.pump();
 
           // Open the overflow menu (the more_vert or similar icon in the header).
@@ -268,14 +267,12 @@ void main() {
           const sessionId = 'ses-compact-dispatch';
           final session = _makeSession(sessionId);
 
-          await tester.pumpWidget(
-            _wrapWithProviders(
-              configsCtrl: configsCtrl,
-              agentsCtrl: controller,
-              agentServerCtrl: agentServerCtrl,
-              child: TranscriptHeaderTestHarness(session: session),
-            ),
-          );
+          await tester.pumpWidget(_wrapWithProviders(
+            configsCtrl: configsCtrl,
+            agentsCtrl: controller,
+            agentServerCtrl: agentServerCtrl,
+            child: TranscriptHeaderTestHarness(session: session),
+          ));
           await tester.pump();
 
           // Open overflow menu and tap "Compact session".
@@ -309,14 +306,12 @@ void main() {
           // Seed the compacting state so we can test the indicator directly.
           controller.setCompactingForTest(sessionId, true);
 
-          await tester.pumpWidget(
-            _wrapWithProviders(
-              configsCtrl: configsCtrl,
-              agentsCtrl: controller,
-              agentServerCtrl: agentServerCtrl,
-              child: TranscriptHeaderTestHarness(session: session),
-            ),
-          );
+          await tester.pumpWidget(_wrapWithProviders(
+            configsCtrl: configsCtrl,
+            agentsCtrl: controller,
+            agentServerCtrl: agentServerCtrl,
+            child: TranscriptHeaderTestHarness(session: session),
+          ));
           await tester.pump();
 
           // CircularProgressIndicator (spinner) must appear in header when compacting.
@@ -328,71 +323,74 @@ void main() {
 
   // ── OPC-#719: spinner clears on POST success ────────────────────────────────
 
-  group('issue-719: compact spinner clears on POST success (never hangs)', () {
-    test(
-      'issue-719a: isCompacting is false immediately after summarizeSession resolves',
-      () async {
-        const sessionId = 'ses-719-clears';
+  group(
+    'issue-719: compact spinner clears on POST success (never hangs)',
+    () {
+      test(
+        'issue-719a: isCompacting is false immediately after summarizeSession resolves',
+        () async {
+          const sessionId = 'ses-719-clears';
 
-        // Start the summarize call (stub returns immediately with success).
-        await controller.summarizeSession(sessionId);
-
-        // Spinner must be cleared once the future resolves.
-        expect(
-          controller.isCompacting(sessionId),
-          isFalse,
-          reason:
-              'isCompacting must be false after summarizeSession resolves — '
-              'spinner cannot depend solely on a WS compaction part that may never arrive',
-        );
-      },
-    );
-
-    test(
-      'issue-719b: isCompacting is true while summarize is in-flight',
-      () async {
-        const sessionId = 'ses-719-inflight';
-        final completer = Completer<void>();
-
-        // Swap the stub to block until we release it.
-        repo.summarizeCallCount = 0;
-        // We drive this test via setCompactingForTest to avoid having to
-        // override the stub; verifying the in-flight indicator is already
-        // covered by c2c above. This test focuses on the clearance path.
-        controller.setCompactingForTest(sessionId, true);
-        expect(controller.isCompacting(sessionId), isTrue);
-
-        controller.setCompactingForTest(sessionId, false);
-        expect(controller.isCompacting(sessionId), isFalse);
-
-        // Suppress unused variable warning.
-        completer.complete();
-      },
-    );
-
-    test(
-      'issue-719c: isCompacting cleared on summarizeSession error',
-      () async {
-        const sessionId = 'ses-719-error';
-        repo.summarizeShouldThrow = true;
-
-        try {
+          // Start the summarize call (stub returns immediately with success).
           await controller.summarizeSession(sessionId);
-          fail('expected an exception');
-        } catch (_) {
-          // expected
-        } finally {
-          repo.summarizeShouldThrow = false;
-        }
 
-        expect(
-          controller.isCompacting(sessionId),
-          isFalse,
-          reason: 'isCompacting must be false after summarizeSession errors',
-        );
-      },
-    );
-  });
+          // Spinner must be cleared once the future resolves.
+          expect(
+            controller.isCompacting(sessionId),
+            isFalse,
+            reason:
+                'isCompacting must be false after summarizeSession resolves — '
+                'spinner cannot depend solely on a WS compaction part that may never arrive',
+          );
+        },
+      );
+
+      test(
+        'issue-719b: isCompacting is true while summarize is in-flight',
+        () async {
+          const sessionId = 'ses-719-inflight';
+          final completer = Completer<void>();
+
+          // Swap the stub to block until we release it.
+          repo.summarizeCallCount = 0;
+          // We drive this test via setCompactingForTest to avoid having to
+          // override the stub; verifying the in-flight indicator is already
+          // covered by c2c above. This test focuses on the clearance path.
+          controller.setCompactingForTest(sessionId, true);
+          expect(controller.isCompacting(sessionId), isTrue);
+
+          controller.setCompactingForTest(sessionId, false);
+          expect(controller.isCompacting(sessionId), isFalse);
+
+          // Suppress unused variable warning.
+          completer.complete();
+        },
+      );
+
+      test(
+        'issue-719c: isCompacting cleared on summarizeSession error',
+        () async {
+          const sessionId = 'ses-719-error';
+          repo.summarizeShouldThrow = true;
+
+          try {
+            await controller.summarizeSession(sessionId);
+            fail('expected an exception');
+          } catch (_) {
+            // expected
+          } finally {
+            repo.summarizeShouldThrow = false;
+          }
+
+          expect(
+            controller.isCompacting(sessionId),
+            isFalse,
+            reason: 'isCompacting must be false after summarizeSession errors',
+          );
+        },
+      );
+    },
+  );
 
   // ── c3 ──────────────────────────────────────────────────────────────────────
 
@@ -408,12 +406,12 @@ void main() {
             type: 'compaction',
           );
 
-          await tester.pumpWidget(
-            MaterialApp(
-              theme: AppTheme.light(),
-              home: Scaffold(body: CompactionDivider(part: part)),
+          await tester.pumpWidget(MaterialApp(
+            theme: AppTheme.light(),
+            home: Scaffold(
+              body: CompactionDivider(part: part),
             ),
-          );
+          ));
           await tester.pump();
 
           expect(find.textContaining('Conversation compacted'), findsOneWidget);
@@ -431,12 +429,12 @@ void main() {
             text: summaryText,
           );
 
-          await tester.pumpWidget(
-            MaterialApp(
-              theme: AppTheme.light(),
-              home: Scaffold(body: CompactionDivider(part: part)),
+          await tester.pumpWidget(MaterialApp(
+            theme: AppTheme.light(),
+            home: Scaffold(
+              body: CompactionDivider(part: part),
             ),
-          );
+          ));
           await tester.pump();
 
           // Summary hidden by default.
@@ -496,17 +494,13 @@ void main() {
 
           // Both should render the CompactionDivider with the same label.
           for (final part in [streamPart, rehydratedPart]) {
-            await tester.pumpWidget(
-              MaterialApp(
-                theme: AppTheme.light(),
-                home: Scaffold(body: CompactionDivider(part: part)),
-              ),
-            );
+            await tester.pumpWidget(MaterialApp(
+              theme: AppTheme.light(),
+              home: Scaffold(body: CompactionDivider(part: part)),
+            ));
             await tester.pump();
             expect(
-              find.textContaining('Conversation compacted'),
-              findsOneWidget,
-            );
+                find.textContaining('Conversation compacted'), findsOneWidget);
           }
         },
       );
@@ -522,12 +516,12 @@ void main() {
         'issue-696-c5a: ContextUsageHint visible when inputTokens > 0.8 * 150000 (= 120000)',
         (tester) async {
           // 125000 > 120000 threshold — chip must appear.
-          await tester.pumpWidget(
-            MaterialApp(
-              theme: AppTheme.light(),
-              home: const Scaffold(body: ContextUsageHint(inputTokens: 125000)),
+          await tester.pumpWidget(MaterialApp(
+            theme: AppTheme.light(),
+            home: const Scaffold(
+              body: ContextUsageHint(inputTokens: 125000),
             ),
-          );
+          ));
           await tester.pump();
 
           expect(find.byType(ContextUsageHint), findsOneWidget);
@@ -541,12 +535,12 @@ void main() {
         'issue-696-c5b: ContextUsageHint absent (SizedBox) when inputTokens < 120000',
         (tester) async {
           // 90000 < 120000 threshold — chip must NOT appear.
-          await tester.pumpWidget(
-            MaterialApp(
-              theme: AppTheme.light(),
-              home: const Scaffold(body: ContextUsageHint(inputTokens: 90000)),
+          await tester.pumpWidget(MaterialApp(
+            theme: AppTheme.light(),
+            home: const Scaffold(
+              body: ContextUsageHint(inputTokens: 90000),
             ),
-          );
+          ));
           await tester.pump();
 
           // Below threshold: the hint renders as SizedBox.shrink (zero size).
@@ -554,23 +548,21 @@ void main() {
           final finder = find.byType(ContextUsageHint);
           expect(finder, findsOneWidget);
           final size = tester.getSize(finder);
-          expect(
-            size.height,
-            equals(0.0),
-            reason: 'below threshold: ContextUsageHint must have zero height',
-          );
+          expect(size.height, equals(0.0),
+              reason:
+                  'below threshold: ContextUsageHint must have zero height');
         },
       );
 
       testWidgets(
         'issue-696-c5c: ContextUsageHint with null inputTokens → no chip',
         (tester) async {
-          await tester.pumpWidget(
-            MaterialApp(
-              theme: AppTheme.light(),
-              home: const Scaffold(body: ContextUsageHint(inputTokens: null)),
+          await tester.pumpWidget(MaterialApp(
+            theme: AppTheme.light(),
+            home: const Scaffold(
+              body: ContextUsageHint(inputTokens: null),
             ),
-          );
+          ));
           await tester.pump();
 
           final size = tester.getSize(find.byType(ContextUsageHint));

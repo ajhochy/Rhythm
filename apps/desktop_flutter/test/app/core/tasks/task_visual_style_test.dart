@@ -55,7 +55,10 @@ void main() {
   // ---------------------------------------------------------------------------
   group('resolve — overdue state', () {
     test('past scheduledDate → overdue (red)', () {
-      final task = _makeTask(dueDate: nextWeek, scheduledDate: yesterday);
+      final task = _makeTask(
+        dueDate: nextWeek,
+        scheduledDate: yesterday,
+      );
       final style = TaskVisualStyles.resolve(task, today: today);
       expect(style.state, TaskVisualState.overdue);
       expect(style.accent, const Color(0xFFDC5B58));
@@ -74,9 +77,13 @@ void main() {
   // Branch 3: pastDeadline (amber) — dueDate in past, scheduledDate in future
   // ---------------------------------------------------------------------------
   group('resolve — pastDeadline state', () {
-    test('dueDate past + scheduledDate future → pastDeadline (amber), '
+    test(
+        'dueDate past + scheduledDate future → pastDeadline (amber), '
         'NOT overdue', () {
-      final task = _makeTask(dueDate: yesterday, scheduledDate: tomorrow);
+      final task = _makeTask(
+        dueDate: yesterday,
+        scheduledDate: tomorrow,
+      );
       final style = TaskVisualStyles.resolve(task, today: today);
       expect(style.state, TaskVisualState.pastDeadline);
       expect(style.accent, const Color(0xFFF59E0B));
@@ -85,24 +92,28 @@ void main() {
     });
 
     test('dueDate today, scheduledDate future → NOT pastDeadline', () {
-      final task = _makeTask(dueDate: todayStr, scheduledDate: tomorrow);
+      final task = _makeTask(
+        dueDate: todayStr,
+        scheduledDate: tomorrow,
+      );
       final style = TaskVisualStyles.resolve(task, today: today);
       // dueDate is not before today, so no pastDeadline
       expect(style.state, isNot(TaskVisualState.pastDeadline));
     });
 
-    test(
-      'dueDate past, scheduledDate today → overdue wins over pastDeadline',
-      () {
-        // scheduledDate today means isOverdue is false (not strictly before),
-        // but dueDate is past → only isPastDeadline is true, and isOverdue=false
-        // So this is pastDeadline, not overdue.
-        final task = _makeTask(dueDate: yesterday, scheduledDate: todayStr);
-        final style = TaskVisualStyles.resolve(task, today: today);
-        // scheduledDate is today (not overdue), dueDate is past (pastDeadline)
-        expect(style.state, TaskVisualState.pastDeadline);
-      },
-    );
+    test('dueDate past, scheduledDate today → overdue wins over pastDeadline',
+        () {
+      // scheduledDate today means isOverdue is false (not strictly before),
+      // but dueDate is past → only isPastDeadline is true, and isOverdue=false
+      // So this is pastDeadline, not overdue.
+      final task = _makeTask(
+        dueDate: yesterday,
+        scheduledDate: todayStr,
+      );
+      final style = TaskVisualStyles.resolve(task, today: today);
+      // scheduledDate is today (not overdue), dueDate is past (pastDeadline)
+      expect(style.state, TaskVisualState.pastDeadline);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -110,21 +121,20 @@ void main() {
   // ---------------------------------------------------------------------------
   group('resolve — precedence: overdue beats pastDeadline', () {
     test(
-      'scheduledDate in past AND dueDate in past → overdue wins (red, not amber)',
-      () {
-        // Both isOverdue and isPastDeadline are true.
-        // Overdue must win (red).
-        final task = _makeTask(dueDate: yesterday, scheduledDate: yesterday);
-        final style = TaskVisualStyles.resolve(task, today: today);
-        expect(style.state, TaskVisualState.overdue);
-        expect(
-          style.accent,
-          const Color(0xFFDC5B58),
-          reason: 'Red overdue color must win over amber pastDeadline',
-        );
-        expect(style.label, isNull);
-      },
-    );
+        'scheduledDate in past AND dueDate in past → overdue wins (red, not amber)',
+        () {
+      // Both isOverdue and isPastDeadline are true.
+      // Overdue must win (red).
+      final task = _makeTask(
+        dueDate: yesterday,
+        scheduledDate: yesterday,
+      );
+      final style = TaskVisualStyles.resolve(task, today: today);
+      expect(style.state, TaskVisualState.overdue);
+      expect(style.accent, const Color(0xFFDC5B58),
+          reason: 'Red overdue color must win over amber pastDeadline');
+      expect(style.label, isNull);
+    });
   });
 
   // ---------------------------------------------------------------------------

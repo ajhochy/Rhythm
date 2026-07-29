@@ -33,17 +33,18 @@ class AutomationRulesRepository {
     String? sourceAccountId,
     bool enabled = true,
     List<AutomationCondition>? conditions,
-  }) => _dataSource.create(
-    name: name,
-    source: source,
-    triggerKey: triggerKey,
-    actionType: actionType,
-    triggerConfig: triggerConfig,
-    actionConfig: actionConfig,
-    sourceAccountId: sourceAccountId,
-    enabled: enabled,
-    conditions: conditions,
-  );
+  }) =>
+      _dataSource.create(
+        name: name,
+        source: source,
+        triggerKey: triggerKey,
+        actionType: actionType,
+        triggerConfig: triggerConfig,
+        actionConfig: actionConfig,
+        sourceAccountId: sourceAccountId,
+        enabled: enabled,
+        conditions: conditions,
+      );
 
   Future<AutomationRule> update(
     String id, {
@@ -56,18 +57,19 @@ class AutomationRulesRepository {
     String? sourceAccountId,
     bool? enabled,
     List<AutomationCondition>? conditions,
-  }) => _dataSource.update(
-    id,
-    name: name,
-    source: source,
-    triggerKey: triggerKey,
-    actionType: actionType,
-    triggerConfig: triggerConfig,
-    actionConfig: actionConfig,
-    sourceAccountId: sourceAccountId,
-    enabled: enabled,
-    conditions: conditions,
-  );
+  }) =>
+      _dataSource.update(
+        id,
+        name: name,
+        source: source,
+        triggerKey: triggerKey,
+        actionType: actionType,
+        triggerConfig: triggerConfig,
+        actionConfig: actionConfig,
+        sourceAccountId: sourceAccountId,
+        enabled: enabled,
+        conditions: conditions,
+      );
 
   Future<void> delete(String id) => _dataSource.delete(id);
   Future<void> resync(String id) => _dataSource.resync(id);

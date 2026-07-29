@@ -88,7 +88,9 @@ class _ProjectsViewState extends State<ProjectsView> {
                         children: [
                           Text(
                             'Projects',
-                            style: Theme.of(context).textTheme.headlineSmall
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineSmall
                                 ?.copyWith(
                                   fontWeight: FontWeight.w600,
                                   letterSpacing: -0.5,
@@ -97,7 +99,9 @@ class _ProjectsViewState extends State<ProjectsView> {
                           const SizedBox(height: 4),
                           Text(
                             'Templates on the left, live work on the right.',
-                            style: Theme.of(context).textTheme.bodyMedium
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
                                 ?.copyWith(
                                   color: Theme.of(
                                     context,
@@ -225,11 +229,10 @@ class _ProjectsViewState extends State<ProjectsView> {
         });
         return;
       }
-      final list =
-          (jsonDecode(response.body) as List<dynamic>)
-              .map((e) => ProjectInstance.fromJson(e as Map<String, dynamic>))
-              .toList()
-            ..sort((a, b) => a.anchorDate.compareTo(b.anchorDate));
+      final list = (jsonDecode(response.body) as List<dynamic>)
+          .map((e) => ProjectInstance.fromJson(e as Map<String, dynamic>))
+          .toList()
+        ..sort((a, b) => a.anchorDate.compareTo(b.anchorDate));
       setState(() {
         _activeInstances = list;
         _activeInstancesLoaded = true;
@@ -365,15 +368,17 @@ class _TemplateList extends StatelessWidget {
                     children: [
                       Text(
                         'Project Templates',
-                        style: Theme.of(context).textTheme.titleMedium
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
                             ?.copyWith(fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         'Select one to inspect or edit its steps.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
+                              color: colorScheme.onSurfaceVariant,
+                            ),
                       ),
                     ],
                   ),
@@ -693,11 +698,11 @@ class _TemplateDetailState extends State<_TemplateDetail>
                     children: [
                       Text(
                         widget.template.name,
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: -0.4,
-                            ),
+                        style:
+                            Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: -0.4,
+                                ),
                       ),
                       if (widget.template.description != null &&
                           widget.template.description!.isNotEmpty)
@@ -705,7 +710,9 @@ class _TemplateDetailState extends State<_TemplateDetail>
                           padding: const EdgeInsets.only(top: 6),
                           child: Text(
                             widget.template.description!,
-                            style: Theme.of(context).textTheme.bodyMedium
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
                                 ?.copyWith(
                                   color: colorScheme.onSurfaceVariant,
                                   height: 1.4,
@@ -716,8 +723,8 @@ class _TemplateDetailState extends State<_TemplateDetail>
                       Text(
                         'Anchor type: ${widget.template.anchorType}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
+                              color: colorScheme.onSurfaceVariant,
+                            ),
                       ),
                     ],
                   ),
@@ -775,7 +782,9 @@ class _TemplateDetailState extends State<_TemplateDetail>
                         children: [
                           Text(
                             'Steps',
-                            style: Theme.of(context).textTheme.titleMedium
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
                                 ?.copyWith(fontWeight: FontWeight.w600),
                           ),
                           const Spacer(),
@@ -908,9 +917,9 @@ class _EmptyPanelState extends StatelessWidget {
                 message,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  height: 1.4,
-                ),
+                      color: colorScheme.onSurfaceVariant,
+                      height: 1.4,
+                    ),
               ),
               if (actionLabel != null && onAction != null) ...[
                 const SizedBox(height: 16),
@@ -980,13 +989,11 @@ class _InstancesPanel extends StatelessWidget {
     String? status,
     String? notes,
     int? assigneeId,
-  })
-  onUpdateStep;
+  }) onUpdateStep;
   final Future<void> Function(
     ProjectInstance instance,
     ProjectInstanceStep step,
-  )
-  onInspectStep;
+  ) onInspectStep;
   final Future<void> Function(String instanceId) onDeleteInstance;
   final Map<String, String> templateNames;
 
@@ -1055,13 +1062,11 @@ class _InstancesList extends StatefulWidget {
     String? status,
     String? notes,
     int? assigneeId,
-  })
-  onUpdateStep;
+  }) onUpdateStep;
   final Future<void> Function(
     ProjectInstance instance,
     ProjectInstanceStep step,
-  )
-  onInspectStep;
+  ) onInspectStep;
   final Future<void> Function(String instanceId) onDeleteInstance;
   final Map<String, String> templateNames;
 
@@ -1077,12 +1082,12 @@ class _InstancesListState extends State<_InstancesList> {
     final visibleInstances = _showCompleted
         ? widget.instances
         : widget.instances
-              .where(
-                (instance) =>
-                    instance.status != 'done' &&
-                    instance.steps.any((step) => step.status != 'done'),
-              )
-              .toList();
+            .where(
+              (instance) =>
+                  instance.status != 'done' &&
+                  instance.steps.any((step) => step.status != 'done'),
+            )
+            .toList();
 
     return Column(
       children: [
@@ -1161,13 +1166,11 @@ class _InstanceCard extends StatelessWidget {
     String? status,
     String? notes,
     int? assigneeId,
-  })
-  onUpdateStep;
+  }) onUpdateStep;
   final Future<void> Function(
     ProjectInstance instance,
     ProjectInstanceStep step,
-  )
-  onInspectStep;
+  ) onInspectStep;
   final Future<void> Function(String instanceId) onDeleteInstance;
   final bool showCompleted;
   final String? templateName;
@@ -1264,13 +1267,11 @@ class _InstanceStepTile extends StatelessWidget {
     String? status,
     String? notes,
     int? assigneeId,
-  })
-  onUpdateStep;
+  }) onUpdateStep;
   final Future<void> Function(
     ProjectInstance instance,
     ProjectInstanceStep step,
-  )
-  onInspectStep;
+  ) onInspectStep;
 
   @override
   Widget build(BuildContext context) {
@@ -1308,21 +1309,21 @@ class _InstanceStepTile extends StatelessWidget {
             Text(
               'Due: ${DateFormatters.fullDate(step.dueDate, fallback: step.dueDate ?? 'No due date')}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
+                    color: colorScheme.onSurfaceVariant,
+                  ),
             ),
             Text(
               'Assignee: ${step.assigneeName ?? 'Unassigned'}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
+                    color: colorScheme.onSurfaceVariant,
+                  ),
             ),
             if (step.notes != null && step.notes!.isNotEmpty)
               Text(
                 step.notes!,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
+                      color: colorScheme.onSurfaceVariant,
+                    ),
               ),
           ],
         ),
@@ -1348,13 +1349,12 @@ class _StepTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final offsetLabel =
-        step.offsetDescription ??
+    final offsetLabel = step.offsetDescription ??
         (step.offsetDays == 0
             ? 'On anchor date'
             : step.offsetDays > 0
-            ? '+${step.offsetDays} days'
-            : '${step.offsetDays} days');
+                ? '+${step.offsetDays} days'
+                : '${step.offsetDays} days');
 
     return Card(
       elevation: 0,
@@ -1399,8 +1399,8 @@ class _StepTile extends StatelessWidget {
             Text(
               'Offset: ${step.offsetDays}d',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
+                    color: colorScheme.onSurfaceVariant,
+                  ),
             ),
             const SizedBox(width: 4),
             IconButton(
@@ -1611,9 +1611,9 @@ class _EditStepDialogState extends State<_EditStepDialog> {
               child: Text(
                 'Assignee',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
-                ),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
             ),
             const SizedBox(height: 6),
@@ -1821,9 +1821,9 @@ class _AddStepDialogState extends State<_AddStepDialog> {
               child: Text(
                 'Assignee',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
-                ),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
             ),
             const SizedBox(height: 6),
@@ -1947,9 +1947,8 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
                 child: const Text('Cancel'),
               ),
               FilledButton(
-                onPressed: _anchorDate == null || _generating
-                    ? null
-                    : _generate,
+                onPressed:
+                    _anchorDate == null || _generating ? null : _generate,
                 child: _generating
                     ? const SizedBox(
                         width: 16,
@@ -1998,7 +1997,7 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
         final body = jsonDecode(response.body) as Map<String, dynamic>?;
         final msg =
             (body?['error'] as Map<String, dynamic>?)?['message'] as String? ??
-            'Generation failed';
+                'Generation failed';
         setState(() {
           _error = msg;
           _generating = false;
@@ -2048,9 +2047,9 @@ class _FormView extends StatelessWidget {
         Text(
           'Give this project run a unique name if you want to use the same template more than once.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-            height: 1.4,
-          ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.4,
+              ),
         ),
         const SizedBox(height: 12),
         TextField(
@@ -2147,10 +2146,8 @@ class _SuccessView extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  DateFormatters.fullDate(
-                    s.dueDate,
-                    fallback: s.dueDate ?? 'No due date',
-                  ),
+                  DateFormatters.fullDate(s.dueDate,
+                      fallback: s.dueDate ?? 'No due date'),
                   style: const TextStyle(color: Colors.grey, fontSize: 11),
                 ),
               ],

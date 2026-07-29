@@ -41,7 +41,7 @@ class DashboardController extends ChangeNotifier {
   List<Task> _projectStepTodayTasks = [];
   List<Task> _projectStepThisWeekTasks = [];
   final Map<String, ({ProjectInstanceStep step, String projectName})>
-  _projectStepRegistry = {};
+      _projectStepRegistry = {};
 
   DashboardStatus get status => _status;
   String? get errorMessage => _errorMessage;
@@ -109,7 +109,8 @@ class DashboardController extends ChangeNotifier {
         ..._todayTasks,
         ..._thisWeekTasks,
         ..._unscheduledTasks,
-      }.where(_hasOpenHandoffContext).toList()..sort(_compareTasks);
+      }.where(_hasOpenHandoffContext).toList()
+        ..sort(_compareTasks);
 
       _activeProjects = summary.projects;
       _activeProjectsCount = summary.projects.length;
@@ -136,9 +137,8 @@ class DashboardController extends ChangeNotifier {
 
       final now = DateTime.now();
       final todayDate = DateTime(now.year, now.month, now.day);
-      final weekStart = todayDate.subtract(
-        Duration(days: todayDate.weekday - 1),
-      );
+      final weekStart =
+          todayDate.subtract(Duration(days: todayDate.weekday - 1));
       final weekEnd = weekStart.add(const Duration(days: 6));
 
       for (final instance in instances) {
@@ -167,10 +167,8 @@ class DashboardController extends ChangeNotifier {
             updatedAt: '',
           );
 
-          _projectStepRegistry[step.id] = (
-            step: step,
-            projectName: projectName,
-          );
+          _projectStepRegistry[step.id] =
+              (step: step, projectName: projectName);
 
           if (taskDate.isBefore(todayDate)) {
             _projectStepPastDueTasks.add(syntheticTask);

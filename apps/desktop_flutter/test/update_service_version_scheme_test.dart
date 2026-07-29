@@ -41,21 +41,21 @@ final _realReleasesResponse = jsonEncode([
 ]);
 
 Map<String, dynamic> _release(String tag, {required bool prerelease}) => {
-  'draft': false,
-  'prerelease': prerelease,
-  'tag_name': tag,
-  'name': 'Rhythm $tag',
-  'html_url': 'https://github.com/ajhochy/Rhythm/releases/tag/$tag',
-  'published_at': '2026-07-20T00:00:00Z',
-  'body': 'notes',
-  'assets': [
-    {
-      'name': 'Rhythm-macOS.dmg',
-      'browser_download_url':
-          'https://github.com/ajhochy/Rhythm/releases/download/$tag/Rhythm-macOS.dmg',
-    },
-  ],
-};
+      'draft': false,
+      'prerelease': prerelease,
+      'tag_name': tag,
+      'name': 'Rhythm $tag',
+      'html_url': 'https://github.com/ajhochy/Rhythm/releases/tag/$tag',
+      'published_at': '2026-07-20T00:00:00Z',
+      'body': 'notes',
+      'assets': [
+        {
+          'name': 'Rhythm-macOS.dmg',
+          'browser_download_url':
+              'https://github.com/ajhochy/Rhythm/releases/download/$tag/Rhythm-macOS.dmg',
+        },
+      ],
+    };
 
 class _StubClient extends http.BaseClient {
   _StubClient(this.body);
@@ -91,7 +91,8 @@ void main() {
     return update?.version;
   }
 
-  group('UpdateService version-scheme comparison (old 2-part vs new 3-part)', () {
+  group('UpdateService version-scheme comparison (old 2-part vs new 3-part)',
+      () {
     test(
       'an old-scheme install (beta.18.42) is offered the true latest, not a stale beta',
       () async {

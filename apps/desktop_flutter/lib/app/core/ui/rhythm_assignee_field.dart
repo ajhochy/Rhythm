@@ -23,8 +23,7 @@ class RhythmAssigneeField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.rhythm;
-    final safeId =
-        selectedUserId != null &&
+    final safeId = selectedUserId != null &&
             workspaceMembers.any((m) => m.userId == selectedUserId)
         ? selectedUserId
         : null;
@@ -36,9 +35,9 @@ class RhythmAssigneeField extends StatelessWidget {
           child: Text(
             label,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: colors.textSecondary,
-              fontWeight: FontWeight.w600,
-            ),
+                  color: colors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
           ),
         ),
         Expanded(

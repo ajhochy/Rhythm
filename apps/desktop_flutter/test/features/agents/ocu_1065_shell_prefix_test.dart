@@ -52,8 +52,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msg = StreamController.broadcast(),
-      _conn = StreamController.broadcast();
+      : _msg = StreamController.broadcast(),
+        _conn = StreamController.broadcast();
   final StreamController<AgentWsMessage> _msg;
   final StreamController<bool> _conn;
 
@@ -85,11 +85,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => [_makeSession('s1')];
+  }) async =>
+      [_makeSession('s1')];
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async =>
-      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async =>
+          (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<void> shellCommand(String sessionId, String command) async {
@@ -105,21 +106,23 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 Future<AgentsController> _buildSelected(_StubAgentsRepository repo) async {
   final ctrl = AgentsController(
     repo,
     _ReadyAgentServerController(),
     LocalNotificationService(),
-    NotificationsController(NotificationsRepository(NotificationsDataSource())),
+    NotificationsController(
+      NotificationsRepository(NotificationsDataSource()),
+    ),
   );
   await ctrl.selectSession('s1');
   return ctrl;
@@ -129,21 +132,22 @@ Future<AgentsController> _buildSelected(_StubAgentsRepository repo) async {
 /// _InputArea contains AgentSelectorPill, which reads this controller; with no
 /// profiles loaded it falls back to the opencode agent list (mirrors
 /// opc_m4_1_attachments_test.dart's _buildConfigsController).
-AgentConfigsController _buildConfigsController() =>
-    AgentConfigsController(AgentConfigsRepository(AgentConfigsDataSource()));
+AgentConfigsController _buildConfigsController() => AgentConfigsController(
+      AgentConfigsRepository(AgentConfigsDataSource()),
+    );
 
 Widget _wrap(AgentsController controller) => MultiProvider(
-  providers: [
-    ChangeNotifierProvider<AgentsController>.value(value: controller),
-    ChangeNotifierProvider<AgentConfigsController>.value(
-      value: _buildConfigsController(),
-    ),
-  ],
-  child: MaterialApp(
-    theme: AppTheme.light(),
-    home: const Scaffold(body: InputAreaTestHarness()),
-  ),
-);
+      providers: [
+        ChangeNotifierProvider<AgentsController>.value(value: controller),
+        ChangeNotifierProvider<AgentConfigsController>.value(
+          value: _buildConfigsController(),
+        ),
+      ],
+      child: MaterialApp(
+        theme: AppTheme.light(),
+        home: const Scaffold(body: InputAreaTestHarness()),
+      ),
+    );
 
 void main() {
   // ── Pure-function unit tests ────────────────────────────────────────────
@@ -191,9 +195,8 @@ void main() {
 
     tearDown(() => controller.dispose());
 
-    testWidgets('"!ls -la" dispatches runShellCommand and clears the input', (
-      tester,
-    ) async {
+    testWidgets('"!ls -la" dispatches runShellCommand and clears the input',
+        (tester) async {
       await tester.pumpWidget(_wrap(controller));
       await tester.pump();
 
@@ -247,9 +250,8 @@ void main() {
       },
     );
 
-    testWidgets('plain text with no prefix does not dispatch a shell command', (
-      tester,
-    ) async {
+    testWidgets('plain text with no prefix does not dispatch a shell command',
+        (tester) async {
       await tester.pumpWidget(_wrap(controller));
       await tester.pump();
 

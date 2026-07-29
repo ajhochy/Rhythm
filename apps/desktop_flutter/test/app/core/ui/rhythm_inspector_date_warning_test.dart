@@ -62,15 +62,15 @@ void main() {
     }
 
     Task makeTask({String? scheduledDate, String? dueDate}) => Task(
-      id: 'test-1',
-      title: 'Test task',
-      status: TaskStatus.open,
-      collaborators: const <TaskCollaborator>[],
-      createdAt: '2026-01-01',
-      updatedAt: '2026-01-01',
-      scheduledDate: scheduledDate,
-      dueDate: dueDate,
-    );
+          id: 'test-1',
+          title: 'Test task',
+          status: TaskStatus.open,
+          collaborators: const <TaskCollaborator>[],
+          createdAt: '2026-01-01',
+          updatedAt: '2026-01-01',
+          scheduledDate: scheduledDate,
+          dueDate: dueDate,
+        );
 
     const warningText = 'Heads up: this is scheduled after its deadline.';
 
@@ -123,20 +123,14 @@ void main() {
           onSave: (_) async => saved = true,
         );
 
-        expect(
-          find.text(warningText),
-          findsOneWidget,
-          reason: 'Warning must appear when due < scheduled',
-        );
+        expect(find.text(warningText), findsOneWidget,
+            reason: 'Warning must appear when due < scheduled');
 
         // Save must still proceed without blocking.
         await tester.tap(find.text('Save changes'));
         await tester.pumpAndSettle();
-        expect(
-          saved,
-          isTrue,
-          reason: 'Save must proceed without confirmation dialog',
-        );
+        expect(saved, isTrue,
+            reason: 'Save must proceed without confirmation dialog');
       },
     );
 
@@ -148,28 +142,23 @@ void main() {
           makeTask(scheduledDate: '2026-06-01', dueDate: '2026-06-10'),
         );
 
-        expect(
-          find.text(warningText),
-          findsNothing,
-          reason: 'Warning must be hidden when due >= scheduled',
-        );
+        expect(find.text(warningText), findsNothing,
+            reason: 'Warning must be hidden when due >= scheduled');
       },
     );
 
-    testWidgets('warning is hidden in edit mode when either date is null', (
-      tester,
-    ) async {
-      await openInspectorInEditMode(
-        tester,
-        makeTask(scheduledDate: '2026-06-10', dueDate: null),
-      );
+    testWidgets(
+      'warning is hidden in edit mode when either date is null',
+      (tester) async {
+        await openInspectorInEditMode(
+          tester,
+          makeTask(scheduledDate: '2026-06-10', dueDate: null),
+        );
 
-      expect(
-        find.text(warningText),
-        findsNothing,
-        reason: 'Warning must be hidden when dueDate is null',
-      );
-    });
+        expect(find.text(warningText), findsNothing,
+            reason: 'Warning must be hidden when dueDate is null');
+      },
+    );
 
     testWidgets(
       'warning is not shown in view mode even with conflicting dates',
@@ -210,11 +199,8 @@ void main() {
         await tester.pumpAndSettle();
         // Inspector opened with initialEditMode: false — stays in view mode.
 
-        expect(
-          find.text(warningText),
-          findsNothing,
-          reason: 'Warning must not appear in view mode',
-        );
+        expect(find.text(warningText), findsNothing,
+            reason: 'Warning must not appear in view mode');
       },
     );
   });

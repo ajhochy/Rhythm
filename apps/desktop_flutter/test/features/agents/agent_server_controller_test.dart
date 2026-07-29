@@ -5,7 +5,7 @@ import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
 /// Fake [ApiServerService] with a scripted health-check sequence.
 class _FakeApiServerService implements ApiServerService {
   _FakeApiServerService(this._result, {List<bool>? healthSequence})
-    : _healthSequence = healthSequence ?? const [];
+      : _healthSequence = healthSequence ?? const [];
 
   final AgentServerStartResult _result;
   final List<bool> _healthSequence;
@@ -35,40 +35,37 @@ void main() {
   setUpAll(TestWidgetsFlutterBinding.ensureInitialized);
 
   group('AgentServerController failure surfacing', () {
-    test(
-      'success path leaves failureReason, stderrTail, errorMessage null',
-      () async {
-        final controller = AgentServerController(
-          _FakeApiServerService((
-            ok: true,
-            reason: null,
-            stderrTail: null,
-            failureMessage: null,
-          )),
-        );
+    test('success path leaves failureReason, stderrTail, errorMessage null',
+        () async {
+      final controller = AgentServerController(
+        _FakeApiServerService(
+          (ok: true, reason: null, stderrTail: null, failureMessage: null),
+        ),
+      );
 
-        await controller.initialize();
-        // Capability fetch happens fire-and-forget against localhost:4001;
-        // since this test is unit-only, the network call may fail silently.
-        // We only assert the failure-related fields here.
+      await controller.initialize();
+      // Capability fetch happens fire-and-forget against localhost:4001;
+      // since this test is unit-only, the network call may fail silently.
+      // We only assert the failure-related fields here.
 
-        expect(controller.failureReason, isNull);
-        expect(controller.stderrTail, isNull);
-        expect(controller.errorMessage, isNull);
-        expect(controller.status, AgentServerStatus.ready);
+      expect(controller.failureReason, isNull);
+      expect(controller.stderrTail, isNull);
+      expect(controller.errorMessage, isNull);
+      expect(controller.status, AgentServerStatus.ready);
 
-        controller.dispose();
-      },
-    );
+      controller.dispose();
+    });
 
     test('nodeNotFound maps to install-Node guidance', () async {
       final controller = AgentServerController(
-        _FakeApiServerService((
-          ok: false,
-          reason: AgentServerFailureReason.nodeNotFound,
-          stderrTail: null,
-          failureMessage: null,
-        )),
+        _FakeApiServerService(
+          (
+            ok: false,
+            reason: AgentServerFailureReason.nodeNotFound,
+            stderrTail: null,
+            failureMessage: null,
+          ),
+        ),
       );
       await controller.initialize();
 
@@ -84,12 +81,14 @@ void main() {
 
     test('bundleNotFound maps to reinstall guidance', () async {
       final controller = AgentServerController(
-        _FakeApiServerService((
-          ok: false,
-          reason: AgentServerFailureReason.bundleNotFound,
-          stderrTail: null,
-          failureMessage: null,
-        )),
+        _FakeApiServerService(
+          (
+            ok: false,
+            reason: AgentServerFailureReason.bundleNotFound,
+            stderrTail: null,
+            failureMessage: null,
+          ),
+        ),
       );
       await controller.initialize();
 
@@ -101,36 +100,38 @@ void main() {
       );
     });
 
-    test(
-      'spawnThrew exposes stderrTail and technical-details message',
-      () async {
-        final controller = AgentServerController(
-          _FakeApiServerService((
+    test('spawnThrew exposes stderrTail and technical-details message',
+        () async {
+      final controller = AgentServerController(
+        _FakeApiServerService(
+          (
             ok: false,
             reason: AgentServerFailureReason.spawnThrew,
             stderrTail: 'spawn EACCES',
             failureMessage: null,
-          )),
-        );
-        await controller.initialize();
+          ),
+        ),
+      );
+      await controller.initialize();
 
-        expect(controller.failureReason, AgentServerFailureReason.spawnThrew);
-        expect(controller.stderrTail, 'spawn EACCES');
-        expect(
-          controller.errorMessage,
-          "Couldn't start the CLI server process. See technical details below.",
-        );
-      },
-    );
+      expect(controller.failureReason, AgentServerFailureReason.spawnThrew);
+      expect(controller.stderrTail, 'spawn EACCES');
+      expect(
+        controller.errorMessage,
+        "Couldn't start the CLI server process. See technical details below.",
+      );
+    });
 
     test('healthCheckTimeout exposes stderrTail and timeout message', () async {
       final controller = AgentServerController(
-        _FakeApiServerService((
-          ok: false,
-          reason: AgentServerFailureReason.healthCheckTimeout,
-          stderrTail: 'listening on :4001',
-          failureMessage: null,
-        )),
+        _FakeApiServerService(
+          (
+            ok: false,
+            reason: AgentServerFailureReason.healthCheckTimeout,
+            stderrTail: 'listening on :4001',
+            failureMessage: null,
+          ),
+        ),
       );
       await controller.initialize();
 
@@ -148,16 +149,21 @@ void main() {
 
     test('lostConnection returns restart guidance message', () async {
       final controller = AgentServerController(
-        _FakeApiServerService((
-          ok: false,
-          reason: AgentServerFailureReason.lostConnection,
-          stderrTail: null,
-          failureMessage: null,
-        )),
+        _FakeApiServerService(
+          (
+            ok: false,
+            reason: AgentServerFailureReason.lostConnection,
+            stderrTail: null,
+            failureMessage: null,
+          ),
+        ),
       );
       await controller.initialize();
 
-      expect(controller.failureReason, AgentServerFailureReason.lostConnection);
+      expect(
+        controller.failureReason,
+        AgentServerFailureReason.lostConnection,
+      );
       expect(
         controller.errorMessage,
         'The agent server stopped responding. Click Restart to bring it back.',
@@ -167,28 +173,24 @@ void main() {
   });
 
   group('AgentServerController HealthPoller integration', () {
+    test('poller is non-null and started after successful initialize()',
+        () async {
+      final controller = AgentServerController(
+        _FakeApiServerService(
+          (ok: true, reason: null, stderrTail: null, failureMessage: null),
+        ),
+      );
+
+      await controller.initialize();
+
+      expect(controller.status, AgentServerStatus.ready);
+      // The poller is an implementation detail; we verify via behavior below.
+      // Dispose cleanly.
+      controller.dispose();
+    });
+
     test(
-      'poller is non-null and started after successful initialize()',
-      () async {
-        final controller = AgentServerController(
-          _FakeApiServerService((
-            ok: true,
-            reason: null,
-            stderrTail: null,
-            failureMessage: null,
-          )),
-        );
-
-        await controller.initialize();
-
-        expect(controller.status, AgentServerStatus.ready);
-        // The poller is an implementation detail; we verify via behavior below.
-        // Dispose cleanly.
-        controller.dispose();
-      },
-    );
-
-    test('two consecutive health failures transition status to failed '
+        'two consecutive health failures transition status to failed '
         'with lostConnection reason', () async {
       // The poller has a failureThreshold of 2 (default). We drive
       // _onHealthChanged by calling checkHealth twice via the poller's
@@ -201,12 +203,9 @@ void main() {
       // The HealthPoller itself is tested separately; here we verify that
       // the controller reacts correctly when _onHealthChanged(false) fires.
       final controller = AgentServerController(
-        _FakeApiServerService((
-          ok: true,
-          reason: null,
-          stderrTail: null,
-          failureMessage: null,
-        )),
+        _FakeApiServerService(
+          (ok: true, reason: null, stderrTail: null, failureMessage: null),
+        ),
       );
 
       await controller.initialize();
@@ -218,19 +217,19 @@ void main() {
       controller.simulateHealthChange(false);
 
       expect(controller.status, AgentServerStatus.failed);
-      expect(controller.failureReason, AgentServerFailureReason.lostConnection);
+      expect(
+        controller.failureReason,
+        AgentServerFailureReason.lostConnection,
+      );
 
       controller.dispose();
     });
 
     test('health recovery transitions status back to ready', () async {
       final controller = AgentServerController(
-        _FakeApiServerService((
-          ok: true,
-          reason: null,
-          stderrTail: null,
-          failureMessage: null,
-        )),
+        _FakeApiServerService(
+          (ok: true, reason: null, stderrTail: null, failureMessage: null),
+        ),
       );
 
       await controller.initialize();
@@ -238,7 +237,10 @@ void main() {
       // Drive to failed state.
       controller.simulateHealthChange(false);
       expect(controller.status, AgentServerStatus.failed);
-      expect(controller.failureReason, AgentServerFailureReason.lostConnection);
+      expect(
+        controller.failureReason,
+        AgentServerFailureReason.lostConnection,
+      );
 
       // Recover.
       controller.simulateHealthChange(true);
@@ -250,12 +252,9 @@ void main() {
 
     test('retry() disposes old poller and restarts lifecycle', () async {
       final controller = AgentServerController(
-        _FakeApiServerService((
-          ok: true,
-          reason: null,
-          stderrTail: null,
-          failureMessage: null,
-        )),
+        _FakeApiServerService(
+          (ok: true, reason: null, stderrTail: null, failureMessage: null),
+        ),
       );
 
       await controller.initialize();

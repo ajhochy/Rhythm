@@ -120,7 +120,7 @@ class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository(this._sessions);
 
   final List<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSessionResults = [];
+      getSessionResults = [];
 
   final StreamController<AgentWsMessage> _msgCtrl =
       StreamController<AgentWsMessage>.broadcast();
@@ -163,7 +163,7 @@ class _StubAgentsRepository implements AgentsRepository {
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async {
+      getSession(String id) async {
     if (getSessionResults.isNotEmpty) return getSessionResults.removeAt(0);
     return (
       session: _sessions.firstWhere((s) => s.id == id),
@@ -212,7 +212,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -276,7 +276,7 @@ class _EmptyModelsDataSource extends AgentModelsDataSource {
 /// [SessionTranscriptView] renders a message without a live backend.
 class _FakeSessionHistoryController extends SessionHistoryController {
   _FakeSessionHistoryController()
-    : super(SessionHistoryRepository(SessionHistoryDataSource()));
+      : super(SessionHistoryRepository(SessionHistoryDataSource()));
 
   final _msgs = <SessionTranscriptMessage>[
     SessionTranscriptMessage(
@@ -302,14 +302,14 @@ class _FakeSessionHistoryController extends SessionHistoryController {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id, String name) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: name,
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: name,
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 /// A session carrying (or lacking) an `sdkSessionId` — drives the composer
 /// resumability gate. A run with an sdkSessionId can be continued (WS input
@@ -319,16 +319,17 @@ AgentSession _makeRunSession(
   String name, {
   required bool hasSdk,
   AgentSessionStatus status = AgentSessionStatus.idle,
-}) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: name,
-  cwd: '/tmp',
-  status: status,
-  sdkSessionId: hasSdk ? 'sdk-$id' : null,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+}) =>
+    AgentSession(
+      id: id,
+      agentId: 'claude-code',
+      name: name,
+      cwd: '/tmp',
+      status: status,
+      sdkSessionId: hasSdk ? 'sdk-$id' : null,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 final _claudeCodeConfig = AgentConfig(
   id: 'claude-code',
@@ -361,7 +362,9 @@ Future<Widget> _buildTestApp(AgentsController agentsController) async {
       ChangeNotifierProvider<AgentConfigsController>.value(
         value: agentConfigsController,
       ),
-      ChangeNotifierProvider<AgentsController>.value(value: agentsController),
+      ChangeNotifierProvider<AgentsController>.value(
+        value: agentsController,
+      ),
       ChangeNotifierProvider<TasksController>.value(value: tasksController),
       ChangeNotifierProvider<AgentProjectsController>.value(
         value: agentProjectsController,
@@ -375,8 +378,9 @@ Future<Widget> _buildTestApp(AgentsController agentsController) async {
         ),
       ),
       ChangeNotifierProvider<AgentEmailController>(
-        create: (_) =>
-            AgentEmailController(AgentEmailRepository(_EmptyEmailDataSource())),
+        create: (_) => AgentEmailController(
+          AgentEmailRepository(_EmptyEmailDataSource()),
+        ),
       ),
       ChangeNotifierProvider<AgentGalleryController>(
         create: (_) => AgentGalleryController(
@@ -427,9 +431,8 @@ void main() {
   }
 
   group('AgentsNavColumn — mounted surface', () {
-    testWidgets('nav column renders with CHATS section and session list', (
-      tester,
-    ) async {
+    testWidgets('nav column renders with CHATS section and session list',
+        (tester) async {
       await tester.binding.setSurfaceSize(const Size(1600, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -620,9 +623,8 @@ void main() {
 
     // ── (8) Rich rows: model badge present ──────────────────────────────────
 
-    testWidgets('session rows show agent icon (compact SessionRow rendering)', (
-      tester,
-    ) async {
+    testWidgets('session rows show agent icon (compact SessionRow rendering)',
+        (tester) async {
       await tester.binding.setSurfaceSize(const Size(1600, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -660,9 +662,8 @@ void main() {
 
     // ── (9) Rich rows: Archived section header from SessionListBody ──────────
 
-    testWidgets('Archived section header renders in CHATS body', (
-      tester,
-    ) async {
+    testWidgets('Archived section header renders in CHATS body',
+        (tester) async {
       await tester.binding.setSurfaceSize(const Size(1600, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -692,9 +693,8 @@ void main() {
 
     // ── (10) B2/C3/D2: Cookbook, Email, Gallery TOOLS rows present ───────────
 
-    testWidgets('Cookbook, Email, Gallery TOOLS rows are present', (
-      tester,
-    ) async {
+    testWidgets('Cookbook, Email, Gallery TOOLS rows are present',
+        (tester) async {
       // Use extra height to accommodate the full TOOLS section (8 rows).
       await tester.binding.setSurfaceSize(const Size(1600, 1100));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -727,62 +727,61 @@ void main() {
     // ── (11) Short-surface: no overflow, footer and TOOLS reachable ──────────
 
     testWidgets(
-      'no overflow at short surface (680px); footer and TOOLS rows reachable',
-      (tester) async {
-        // This is the regression test for the layout fix: at 680px height the
-        // non-flexible chrome (header + 8 TOOLS rows + footer) previously
-        // exceeded available space and caused a ~52px RenderFlex overflow.
-        await tester.binding.setSurfaceSize(const Size(1200, 680));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
+        'no overflow at short surface (680px); footer and TOOLS rows reachable',
+        (tester) async {
+      // This is the regression test for the layout fix: at 680px height the
+      // non-flexible chrome (header + 8 TOOLS rows + footer) previously
+      // exceeded available space and caused a ~52px RenderFlex overflow.
+      await tester.binding.setSurfaceSize(const Size(1200, 680));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final controller = _makeControllerWithSessions([]);
+      final controller = _makeControllerWithSessions([]);
 
-        // The test itself acts as the overflow assertion — flutter_test fails
-        // on uncaught RenderFlex overflow exceptions when they cross the
-        // FlutterError handler threshold.
-        await tester.pumpWidget(await _buildTestApp(controller));
-        await tester.pump();
+      // The test itself acts as the overflow assertion — flutter_test fails
+      // on uncaught RenderFlex overflow exceptions when they cross the
+      // FlutterError handler threshold.
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
 
-        // Nav column still renders.
-        expect(
-          find.byKey(const ValueKey('agents-nav-column')),
-          findsOneWidget,
-          reason: 'Nav column must render at 680px height',
-        );
+      // Nav column still renders.
+      expect(
+        find.byKey(const ValueKey('agents-nav-column')),
+        findsOneWidget,
+        reason: 'Nav column must render at 680px height',
+      );
 
-        // Footer Settings affordance is directly visible (pinned).
-        expect(
-          find.byKey(const ValueKey('nav-col-settings')),
-          findsOneWidget,
-          reason:
-              'Footer Settings must be visible without scrolling (pinned footer)',
-        );
+      // Footer Settings affordance is directly visible (pinned).
+      expect(
+        find.byKey(const ValueKey('nav-col-settings')),
+        findsOneWidget,
+        reason:
+            'Footer Settings must be visible without scrolling (pinned footer)',
+      );
 
-        // Scroll the middle region to reach a TOOLS row.
-        // The outer CustomScrollView is the primary scrollable inside the nav
-        // column. Use the first Scrollable descendant which corresponds to it.
-        final navScrollable = find
-            .descendant(
-              of: find.byKey(const ValueKey('agents-nav-column')),
-              matching: find.byType(Scrollable),
-            )
-            .first;
+      // Scroll the middle region to reach a TOOLS row.
+      // The outer CustomScrollView is the primary scrollable inside the nav
+      // column. Use the first Scrollable descendant which corresponds to it.
+      final navScrollable = find
+          .descendant(
+            of: find.byKey(const ValueKey('agents-nav-column')),
+            matching: find.byType(Scrollable),
+          )
+          .first;
 
-        await tester.scrollUntilVisible(
-          find.byKey(const ValueKey('tools-row-brain')),
-          50,
-          scrollable: navScrollable,
-        );
-        expect(
-          find.byKey(const ValueKey('tools-row-brain')),
-          findsOneWidget,
-          reason: 'Brain TOOLS row must be reachable by scrolling at 680px',
-        );
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('tools-row-brain')),
+        50,
+        scrollable: navScrollable,
+      );
+      expect(
+        find.byKey(const ValueKey('tools-row-brain')),
+        findsOneWidget,
+        reason: 'Brain TOOLS row must be reachable by scrolling at 680px',
+      );
 
-        await tester.pumpWidget(const MaterialApp(home: SizedBox()));
-        controller.dispose();
-      },
-    );
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -822,8 +821,10 @@ void main() {
       final navCol = find.byKey(const ValueKey('agents-nav-column'));
 
       // Default sort is dateNewest: s2 (Alpha, createdAt=2000) comes first.
-      Finder rowsInOrder() =>
-          find.descendant(of: navCol, matching: find.byType(SessionRow));
+      Finder rowsInOrder() => find.descendant(
+            of: navCol,
+            matching: find.byType(SessionRow),
+          );
       expect(
         tester.widgetList<SessionRow>(rowsInOrder()).first.session.id,
         's2',
@@ -897,9 +898,8 @@ void main() {
   group('USO Phase A — nav column', () {
     // (A2) category dropdown renders + switching scope reloads with the correct
     // `?scope=` param and the list still renders rows.
-    testWidgets('#1025 scope dropdown switches scope and reloads', (
-      tester,
-    ) async {
+    testWidgets('#1025 scope dropdown switches scope and reloads',
+        (tester) async {
       await tester.binding.setSurfaceSize(const Size(1600, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -949,9 +949,8 @@ void main() {
     });
 
     // (A2) empty scope shows the empty-state (no error, no infinite spinner).
-    testWidgets('#1025 empty scope renders without error/spinner', (
-      tester,
-    ) async {
+    testWidgets('#1025 empty scope renders without error/spinner',
+        (tester) async {
       await tester.binding.setSurfaceSize(const Size(1600, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -1087,196 +1086,181 @@ void main() {
     // interactive chat detail a normal chat row opens — not the read-only
     // transcript view — with a usable composer input.
     testWidgets(
-      'scheduled row with sdkSessionId opens interactive chat detail (usable input)',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(1600, 900));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
+        'scheduled row with sdkSessionId opens interactive chat detail (usable input)',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final repo = _StubAgentsRepository([
-          _makeRunSession('sch1', 'Nightly Digest', hasSdk: true),
-        ]);
-        final controller = AgentsController(
-          repo,
-          _ReadyAgentServerController(),
-          _FakeLocalNotificationService(),
-          _FakeNotificationsController(),
-          modelsDataSource: _EmptyModelsDataSource(),
-        );
-        await controller.loadSessions(AgentSessionScope.scheduled);
+      final repo = _StubAgentsRepository([
+        _makeRunSession('sch1', 'Nightly Digest', hasSdk: true),
+      ]);
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        modelsDataSource: _EmptyModelsDataSource(),
+      );
+      await controller.loadSessions(AgentSessionScope.scheduled);
 
-        await tester.pumpWidget(await _buildTestApp(controller));
-        await tester.pump();
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
 
-        final navCol = find.byKey(const ValueKey('agents-nav-column'));
-        await tester.tap(
-          find.descendant(of: navCol, matching: find.byType(SessionRow)).first,
-        );
-        await tester.pumpAndSettle();
+      final navCol = find.byKey(const ValueKey('agents-nav-column'));
+      await tester.tap(
+        find.descendant(of: navCol, matching: find.byType(SessionRow)).first,
+      );
+      await tester.pumpAndSettle();
 
-        // The read-only transcript route is NOT used any more.
-        expect(
-          find.byType(SessionTranscriptView),
-          findsNothing,
-          reason:
-              'Rows now open the interactive chat detail, not the '
-              'read-only transcript view',
-        );
-        // Same interactive surface a chat row opens: the session is selected and
-        // the composer input is present + enabled.
-        expect(controller.selectedSessionId, 'sch1');
-        final input = find.byKey(const ValueKey('agent-composer-input'));
-        expect(
-          input,
-          findsOneWidget,
-          reason: 'Interactive composer must render',
-        );
-        expect(
-          tester.widget<TextField>(input).enabled,
-          isTrue,
-          reason: 'A resumable scheduled run must have a usable input',
-        );
-        expect(
-          find.byKey(const ValueKey('composer-disabled-reason')),
-          findsNothing,
-        );
+      // The read-only transcript route is NOT used any more.
+      expect(
+        find.byType(SessionTranscriptView),
+        findsNothing,
+        reason: 'Rows now open the interactive chat detail, not the '
+            'read-only transcript view',
+      );
+      // Same interactive surface a chat row opens: the session is selected and
+      // the composer input is present + enabled.
+      expect(controller.selectedSessionId, 'sch1');
+      final input = find.byKey(const ValueKey('agent-composer-input'));
+      expect(input, findsOneWidget, reason: 'Interactive composer must render');
+      expect(
+        tester.widget<TextField>(input).enabled,
+        isTrue,
+        reason: 'A resumable scheduled run must have a usable input',
+      );
+      expect(
+        find.byKey(const ValueKey('composer-disabled-reason')),
+        findsNothing,
+      );
 
-        await tester.pumpWidget(const MaterialApp(home: SizedBox()));
-        controller.dispose();
-      },
-    );
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
 
     testWidgets(
-      'open headless detail refreshes transcript and idle badge after polling',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(1600, 900));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
+        'open headless detail refreshes transcript and idle badge after polling',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final starting = _makeRunSession(
-          'headless1',
-          'Scheduled Briefing',
-          hasSdk: true,
-          status: AgentSessionStatus.starting,
-        );
-        final idle = starting.copyWith(status: AgentSessionStatus.idle);
-        final repo = _StubAgentsRepository([starting]);
-        repo.getSessionResults.addAll([
-          (session: starting, messages: const <AgentSessionMessage>[]),
-          (
-            session: idle,
-            messages: [
-              AgentSessionMessage(
-                id: 1,
-                sessionId: starting.id,
-                role: 'input',
-                rawText: 'Prepare the scheduled briefing',
-                strippedText: 'Prepare the scheduled briefing',
-                createdAt: _kEpoch,
-              ),
-              AgentSessionMessage(
-                id: 2,
-                sessionId: starting.id,
-                role: 'output',
-                rawText: 'The scheduled briefing is ready.',
-                strippedText: 'The scheduled briefing is ready.',
-                createdAt: _kEpoch,
-              ),
-            ],
-          ),
-        ]);
-        final controller = AgentsController(
-          repo,
-          _ReadyAgentServerController(),
-          _FakeLocalNotificationService(),
-          _FakeNotificationsController(),
-          modelsDataSource: _EmptyModelsDataSource(),
-        );
-        await controller.loadSessions(AgentSessionScope.scheduled);
+      final starting = _makeRunSession(
+        'headless1',
+        'Scheduled Briefing',
+        hasSdk: true,
+        status: AgentSessionStatus.starting,
+      );
+      final idle = starting.copyWith(status: AgentSessionStatus.idle);
+      final repo = _StubAgentsRepository([starting]);
+      repo.getSessionResults.addAll([
+        (session: starting, messages: const <AgentSessionMessage>[]),
+        (
+          session: idle,
+          messages: [
+            AgentSessionMessage(
+              id: 1,
+              sessionId: starting.id,
+              role: 'input',
+              rawText: 'Prepare the scheduled briefing',
+              strippedText: 'Prepare the scheduled briefing',
+              createdAt: _kEpoch,
+            ),
+            AgentSessionMessage(
+              id: 2,
+              sessionId: starting.id,
+              role: 'output',
+              rawText: 'The scheduled briefing is ready.',
+              strippedText: 'The scheduled briefing is ready.',
+              createdAt: _kEpoch,
+            ),
+          ],
+        ),
+      ]);
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        modelsDataSource: _EmptyModelsDataSource(),
+      );
+      await controller.loadSessions(AgentSessionScope.scheduled);
 
-        await tester.pumpWidget(await _buildTestApp(controller));
-        await tester.pump();
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
 
-        final navCol = find.byKey(const ValueKey('agents-nav-column'));
-        await tester.tap(
-          find.descendant(of: navCol, matching: find.byType(SessionRow)).first,
-        );
-        await tester.pumpAndSettle();
+      final navCol = find.byKey(const ValueKey('agents-nav-column'));
+      await tester.tap(
+        find.descendant(of: navCol, matching: find.byType(SessionRow)).first,
+      );
+      await tester.pumpAndSettle();
 
-        expect(find.text('Starting'), findsOneWidget);
-        expect(
-          find.text('Session started. Waiting for output…'),
-          findsOneWidget,
-        );
+      expect(find.text('Starting'), findsOneWidget);
+      expect(find.text('Session started. Waiting for output…'), findsOneWidget);
 
-        await tester.pump(const Duration(seconds: 4));
-        await tester.pump();
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pump();
 
-        expect(find.text('The scheduled briefing is ready.'), findsOneWidget);
-        expect(find.text('Idle'), findsOneWidget);
-        expect(controller.selectedSessionId, starting.id);
+      expect(find.text('The scheduled briefing is ready.'), findsOneWidget);
+      expect(find.text('Idle'), findsOneWidget);
+      expect(controller.selectedSessionId, starting.id);
 
-        await tester.pumpWidget(const MaterialApp(home: SizedBox()));
-        controller.dispose();
-      },
-    );
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
 
     // Smoke follow-up (2c): an unresumable row (no sdkSessionId) still opens the
     // interactive detail (full history) but disables the composer with a reason
     // — it never crashes and never drops the user into a dead input.
     testWidgets(
-      'unresumable row opens interactive detail with input disabled + reason',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(1600, 900));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
+        'unresumable row opens interactive detail with input disabled + reason',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        // A genuinely TERMINATED run with no engine session — the only case the
-        // composer is disabled. A starting/working/idle no-sdk session stays
-        // enabled (it's live/initializing, not ended).
-        final repo = _StubAgentsRepository([
-          _makeRunSession(
-            'old1',
-            'Legacy Run',
-            hasSdk: false,
-            status: AgentSessionStatus.error,
-          ),
-        ]);
-        final controller = AgentsController(
-          repo,
-          _ReadyAgentServerController(),
-          _FakeLocalNotificationService(),
-          _FakeNotificationsController(),
-          modelsDataSource: _EmptyModelsDataSource(),
-        );
-        await controller.loadSessions(AgentSessionScope.selfImprovement);
+      // A genuinely TERMINATED run with no engine session — the only case the
+      // composer is disabled. A starting/working/idle no-sdk session stays
+      // enabled (it's live/initializing, not ended).
+      final repo = _StubAgentsRepository([
+        _makeRunSession('old1', 'Legacy Run',
+            hasSdk: false, status: AgentSessionStatus.error),
+      ]);
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+        modelsDataSource: _EmptyModelsDataSource(),
+      );
+      await controller.loadSessions(AgentSessionScope.selfImprovement);
 
-        await tester.pumpWidget(await _buildTestApp(controller));
-        await tester.pump();
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
 
-        final navCol = find.byKey(const ValueKey('agents-nav-column'));
-        await tester.tap(
-          find.descendant(of: navCol, matching: find.byType(SessionRow)).first,
-        );
-        await tester.pumpAndSettle();
+      final navCol = find.byKey(const ValueKey('agents-nav-column'));
+      await tester.tap(
+        find.descendant(of: navCol, matching: find.byType(SessionRow)).first,
+      );
+      await tester.pumpAndSettle();
 
-        // Interactive detail opened (session selected), input disabled + reason.
-        expect(controller.selectedSessionId, 'old1');
-        expect(
-          find.byKey(const ValueKey('composer-disabled-reason')),
-          findsOneWidget,
-          reason: 'Unresumable run must show an inline reason',
-        );
-        final input = find.byKey(const ValueKey('agent-composer-input'));
-        expect(input, findsOneWidget);
-        expect(
-          tester.widget<TextField>(input).enabled,
-          isFalse,
-          reason: 'Unresumable run must disable the composer input',
-        );
-        // Reaching here without a thrown exception is the "no crash" assertion.
+      // Interactive detail opened (session selected), input disabled + reason.
+      expect(controller.selectedSessionId, 'old1');
+      expect(
+        find.byKey(const ValueKey('composer-disabled-reason')),
+        findsOneWidget,
+        reason: 'Unresumable run must show an inline reason',
+      );
+      final input = find.byKey(const ValueKey('agent-composer-input'));
+      expect(input, findsOneWidget);
+      expect(
+        tester.widget<TextField>(input).enabled,
+        isFalse,
+        reason: 'Unresumable run must disable the composer input',
+      );
+      // Reaching here without a thrown exception is the "no crash" assertion.
 
-        await tester.pumpWidget(const MaterialApp(home: SizedBox()));
-        controller.dispose();
-      },
-    );
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
 
     // (A4) the Session History nav item is gone from the sidebar.
     testWidgets('#1027 Session History nav item is removed', (tester) async {

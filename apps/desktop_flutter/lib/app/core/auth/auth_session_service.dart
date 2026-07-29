@@ -15,14 +15,13 @@ class AuthSessionService extends ChangeNotifier {
     this._dataSource, {
     DesktopGoogleOAuthClient? googleClient,
     FlutterSecureStorage? secureStorage,
-  }) : _googleClient = googleClient ?? DesktopGoogleOAuthClient(),
-       _secureStorage =
-           secureStorage ??
-           const FlutterSecureStorage(
-             mOptions: MacOsOptions(
-               accessibility: KeychainAccessibility.first_unlock_this_device,
-             ),
-           ) {
+  })  : _googleClient = googleClient ?? DesktopGoogleOAuthClient(),
+        _secureStorage = secureStorage ??
+            const FlutterSecureStorage(
+              mOptions: MacOsOptions(
+                accessibility: KeychainAccessibility.first_unlock_this_device,
+              ),
+            ) {
     instance = this;
   }
 
@@ -175,7 +174,10 @@ class AuthSessionService extends ChangeNotifier {
     // One-time plaintext migration. Delete only after Keychain persistence
     // succeeds; a failed Keychain write keeps the legacy value for a safe
     // retry and leaves the app unauthenticated.
-    await _secureStorage.write(key: _sessionTokenKey, value: legacyToken);
+    await _secureStorage.write(
+      key: _sessionTokenKey,
+      value: legacyToken,
+    );
     await prefs.remove(_sessionTokenKey);
     return legacyToken;
   }

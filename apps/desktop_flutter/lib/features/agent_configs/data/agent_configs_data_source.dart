@@ -12,7 +12,9 @@ class AgentConfigsDataSource {
   final String _baseUrl;
 
   Future<List<AgentConfig>> list() async {
-    final response = await http.get(Uri.parse('$_baseUrl/agent-configs'));
+    final response = await http.get(
+      Uri.parse('$_baseUrl/agent-configs'),
+    );
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list

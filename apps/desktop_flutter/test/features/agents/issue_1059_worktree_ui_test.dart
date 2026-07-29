@@ -85,7 +85,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 /// assertable without a real OS notification.
 class _RecordingNotificationsController extends NotificationsController {
   _RecordingNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 
   final List<(String, String)> pushed = [];
 
@@ -107,18 +107,19 @@ AgentSession _makeSession(
   String? worktreeName,
   String? worktreePath,
   String? worktreeBranch,
-}) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test $id',
-  cwd: '/tmp',
-  status: status,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-  worktreeName: worktreeName,
-  worktreePath: worktreePath,
-  worktreeBranch: worktreeBranch,
-);
+}) =>
+    AgentSession(
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test $id',
+      cwd: '/tmp',
+      status: status,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+      worktreeName: worktreeName,
+      worktreePath: worktreePath,
+      worktreeBranch: worktreeBranch,
+    );
 
 // ---------------------------------------------------------------------------
 // A) New Session dialog — isolated worktree toggle
@@ -127,8 +128,8 @@ AgentSession _makeSession(
 /// Records createSession calls; returns a stub session on success.
 class _RecordingAgentsRepository implements AgentsRepository {
   _RecordingAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -164,7 +165,8 @@ class _RecordingAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<AgentSession> createSession({
@@ -229,12 +231,10 @@ class _EmptyTasksLocalDataSource extends TasksLocalDataSource {
 
 Future<Widget> _buildAgentsViewApp(AgentsController agentsController) async {
   final agentConfigsController = AgentConfigsController(
-    AgentConfigsRepository(_FakeAgentConfigsDataSource()),
-  );
+      AgentConfigsRepository(_FakeAgentConfigsDataSource()));
   await agentConfigsController.refresh();
-  final tasksController = TasksController(
-    TasksRepository(_EmptyTasksLocalDataSource()),
-  );
+  final tasksController =
+      TasksController(TasksRepository(_EmptyTasksLocalDataSource()));
   final agentProjectsController = AgentProjectsController(
     AgentProjectsRepository(_EmptyAgentProjectsRemote()),
   );
@@ -269,55 +269,50 @@ void main() {
 
   group('#1059 — New Session dialog isolated-worktree toggle', () {
     testWidgets(
-      'toggle ON + name produces isolateWorktree:true payload with the name',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(1400, 900));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
+        'toggle ON + name produces isolateWorktree:true payload with the name',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1400, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final repo = _RecordingAgentsRepository();
-        final controller = AgentsController(
-          repo,
-          _ReadyAgentServerController(),
-          _FakeLocalNotificationService(),
-          _RecordingNotificationsController(),
-        );
+      final repo = _RecordingAgentsRepository();
+      final controller = AgentsController(
+        repo,
+        _ReadyAgentServerController(),
+        _FakeLocalNotificationService(),
+        _RecordingNotificationsController(),
+      );
 
-        await tester.pumpWidget(await _buildAgentsViewApp(controller));
-        await tester.pumpAndSettle();
+      await tester.pumpWidget(await _buildAgentsViewApp(controller));
+      await tester.pumpAndSettle();
 
-        await tester.tap(find.byKey(const Key('new-session-options-button')));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('new-session-options-button')));
+      await tester.pumpAndSettle();
 
-        await tester.enterText(
-          find.widgetWithText(TextField, 'e.g. Fix auth bug'),
-          'Test session',
-        );
-        await tester.pump();
+      await tester.enterText(
+        find.widgetWithText(TextField, 'e.g. Fix auth bug'),
+        'Test session',
+      );
+      await tester.pump();
 
-        // Toggle isolation on — the name field should appear.
-        await tester.tap(find.byKey(const ValueKey('isolate-worktree-toggle')));
-        await tester.pumpAndSettle();
-        expect(
-          find.byKey(const ValueKey('worktree-name-field')),
-          findsOneWidget,
-        );
+      // Toggle isolation on — the name field should appear.
+      await tester.tap(find.byKey(const ValueKey('isolate-worktree-toggle')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('worktree-name-field')), findsOneWidget);
 
-        await tester.enterText(
-          find.byKey(const ValueKey('worktree-name-field')),
-          'feature-x',
-        );
-        await tester.pump();
+      await tester.enterText(
+        find.byKey(const ValueKey('worktree-name-field')),
+        'feature-x',
+      );
+      await tester.pump();
 
-        await tester.tap(find.text('Start'));
-        await tester.pumpAndSettle();
+      await tester.tap(find.text('Start'));
+      await tester.pumpAndSettle();
 
-        expect(repo.lastCreateWorktreeArgs, (true, 'feature-x'));
-      },
-    );
+      expect(repo.lastCreateWorktreeArgs, (true, 'feature-x'));
+    });
 
-    testWidgets('toggle OFF (default) creates a non-isolated session', (
-      tester,
-    ) async {
+    testWidgets('toggle OFF (default) creates a non-isolated session',
+        (tester) async {
       await tester.binding.setSurfaceSize(const Size(1400, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -385,34 +380,25 @@ void main() {
       );
     }
 
-    testWidgets('non-isolated session shows no worktree actions row', (
-      tester,
-    ) async {
+    testWidgets('non-isolated session shows no worktree actions row',
+        (tester) async {
       await tester.pumpWidget(
-        harness(_makeSession('s1', status: AgentSessionStatus.idle)),
-      );
+          harness(_makeSession('s1', status: AgentSessionStatus.idle)));
       await tester.pump();
 
-      expect(
-        find.byKey(const ValueKey('changes-worktree-reset-button')),
-        findsNothing,
-      );
+      expect(find.byKey(const ValueKey('changes-worktree-reset-button')),
+          findsNothing);
     });
 
-    testWidgets('isolated but active session: Reset enabled, Remove disabled', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        harness(
-          _makeSession(
-            's2',
-            status: AgentSessionStatus.working,
-            worktreeName: 'wt',
-            worktreePath: '/tmp/.wt/wt',
-            worktreeBranch: 'agent/wt',
-          ),
-        ),
-      );
+    testWidgets('isolated but active session: Reset enabled, Remove disabled',
+        (tester) async {
+      await tester.pumpWidget(harness(_makeSession(
+        's2',
+        status: AgentSessionStatus.working,
+        worktreeName: 'wt',
+        worktreePath: '/tmp/.wt/wt',
+        worktreeBranch: 'agent/wt',
+      )));
       await tester.pump();
 
       final resetButton = tester.widget<TextButton>(
@@ -422,27 +408,19 @@ void main() {
         find.byKey(const ValueKey('changes-worktree-remove-button')),
       );
       expect(resetButton.onPressed, isNotNull);
-      expect(
-        removeButton.onPressed,
-        isNull,
-        reason: 'Remove is only available for an ENDED session',
-      );
+      expect(removeButton.onPressed, isNull,
+          reason: 'Remove is only available for an ENDED session');
     });
 
-    testWidgets('isolated + ended session: Remove enabled and calls through', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        harness(
-          _makeSession(
-            's3',
-            status: AgentSessionStatus.closed,
-            worktreeName: 'wt',
-            worktreePath: '/tmp/.wt/wt',
-            worktreeBranch: 'agent/wt',
-          ),
-        ),
-      );
+    testWidgets('isolated + ended session: Remove enabled and calls through',
+        (tester) async {
+      await tester.pumpWidget(harness(_makeSession(
+        's3',
+        status: AgentSessionStatus.closed,
+        worktreeName: 'wt',
+        worktreePath: '/tmp/.wt/wt',
+        worktreeBranch: 'agent/wt',
+      )));
       await tester.pump();
 
       final removeButton = tester.widget<TextButton>(
@@ -450,9 +428,8 @@ void main() {
       );
       expect(removeButton.onPressed, isNotNull);
 
-      await tester.tap(
-        find.byKey(const ValueKey('changes-worktree-remove-button')),
-      );
+      await tester
+          .tap(find.byKey(const ValueKey('changes-worktree-remove-button')));
       await tester.pumpAndSettle();
       // Confirm in the dialog — its action is a FilledButton, distinct from
       // the row's TextButton with the same label.
@@ -464,9 +441,8 @@ void main() {
   });
 
   group('#1059 — AgentsController worktree events + actions', () {
-    testWidgets('worktree.ready WS frame pushes a notification', (
-      tester,
-    ) async {
+    testWidgets('worktree.ready WS frame pushes a notification',
+        (tester) async {
       final repo = _RecordingAgentsRepository();
       final notifications = _RecordingNotificationsController();
       final controller = AgentsController(
@@ -488,9 +464,8 @@ void main() {
       expect(notifications.pushed.first.$2, contains('agent/wt-a'));
     });
 
-    testWidgets('worktree.failed WS frame pushes a notification', (
-      tester,
-    ) async {
+    testWidgets('worktree.failed WS frame pushes a notification',
+        (tester) async {
       final repo = _RecordingAgentsRepository();
       final notifications = _RecordingNotificationsController();
       final controller = AgentsController(

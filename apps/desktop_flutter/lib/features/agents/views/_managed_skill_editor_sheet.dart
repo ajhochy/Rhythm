@@ -77,9 +77,8 @@ class _ManagedSkillEditorSheetState extends State<ManagedSkillEditorSheet> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.skill?.name ?? '');
-    _descriptionController = TextEditingController(
-      text: widget.skill?.description ?? '',
-    );
+    _descriptionController =
+        TextEditingController(text: widget.skill?.description ?? '');
     _contentController = TextEditingController();
     // Edit mode: the entry carries no body, so fetch the live SKILL.md so the
     // user can view/edit it (create mode stays empty).

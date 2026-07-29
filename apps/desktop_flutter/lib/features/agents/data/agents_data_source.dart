@@ -26,9 +26,9 @@ const Object _dssentinelValue = _dssentinel;
 
 class AgentsDataSource {
   AgentsDataSource({http.Client? client})
-    : _baseUrl = AppConstants.agentLocalBaseUrl,
-      _wsUrl = AppConstants.agentLocalWsUrl,
-      _client = client ?? http.Client();
+      : _baseUrl = AppConstants.agentLocalBaseUrl,
+        _wsUrl = AppConstants.agentLocalWsUrl,
+        _client = client ?? http.Client();
 
   final String _baseUrl;
   final String _wsUrl;
@@ -160,7 +160,7 @@ class AgentsDataSource {
   }
 
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async {
+      getSession(String id) async {
     final response = await _client.get(
       Uri.parse('$_baseUrl/agent-sessions/$id'),
       headers: AuthSessionStore.headers(),
@@ -174,10 +174,8 @@ class AgentsDataSource {
     // parsed from the listBySessionStructured() REST payload.
     final rawMessages = body['messages'] as List<dynamic>? ?? const [];
     final msgs = rawMessages
-        .map(
-          (j) =>
-              AgentSessionMessage.fromStructuredJson(j as Map<String, dynamic>),
-        )
+        .map((j) =>
+            AgentSessionMessage.fromStructuredJson(j as Map<String, dynamic>))
         .toList();
     return (session: session, messages: msgs);
   }
@@ -314,8 +312,7 @@ class AgentsDataSource {
   }) async {
     final response = await _client.post(
       Uri.parse(
-        '$_baseUrl/agent-sessions/$sessionId/permission/$permissionId/$decision',
-      ),
+          '$_baseUrl/agent-sessions/$sessionId/permission/$permissionId/$decision'),
       headers: AuthSessionStore.headers(json: message != null),
       body: message != null ? jsonEncode({'message': message}) : null,
     );
@@ -425,10 +422,13 @@ class AgentsDataSource {
     );
   }
 
-  Future<List<AgentSessionMessage>> getMessages(String id, {int? limit}) async {
-    final uri = Uri.parse(
-      '$_baseUrl/agent-sessions/$id/messages',
-    ).replace(queryParameters: limit != null ? {'limit': '$limit'} : null);
+  Future<List<AgentSessionMessage>> getMessages(
+    String id, {
+    int? limit,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/agent-sessions/$id/messages').replace(
+      queryParameters: limit != null ? {'limit': '$limit'} : null,
+    );
     final response = await _client.get(
       uri,
       headers: AuthSessionStore.headers(),
@@ -530,10 +530,8 @@ class AgentsDataSource {
   /// AgentSessionMessage objects (same structured M1-2 shape). Throws on
   /// HTTP error.
   Future<List<AgentSessionMessage>> fetchChildMessages(
-    String parentSessionId,
-    String childSdkId, {
-    String? cwd,
-  }) async {
+      String parentSessionId, String childSdkId,
+      {String? cwd}) async {
     final encodedChildId = Uri.encodeComponent(childSdkId);
     // #861 smoke fix: engine session reads are directory-scoped. For nested
     // hops the parent id is a raw SDK id with no local row, so the server
@@ -543,18 +541,15 @@ class AgentsDataSource {
         : '';
     final response = await _client.get(
       Uri.parse(
-        '$_baseUrl/agent-sessions/$parentSessionId/children/$encodedChildId/messages$query',
-      ),
+          '$_baseUrl/agent-sessions/$parentSessionId/children/$encodedChildId/messages$query'),
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final rawMessages = body['messages'] as List<dynamic>? ?? const [];
     return rawMessages
-        .map(
-          (j) =>
-              AgentSessionMessage.fromStructuredJson(j as Map<String, dynamic>),
-        )
+        .map((j) =>
+            AgentSessionMessage.fromStructuredJson(j as Map<String, dynamic>))
         .toList();
   }
 
@@ -583,9 +578,9 @@ class AgentsDataSource {
   /// the SDK default directory. Returns an empty list on any error so callers
   /// can safely ignore failures (agent selector gracefully degrades).
   Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) async {
-    final uri = Uri.parse(
-      '$_baseUrl/agent-sessions/agents',
-    ).replace(queryParameters: cwd != null ? {'cwd': cwd} : null);
+    final uri = Uri.parse('$_baseUrl/agent-sessions/agents').replace(
+      queryParameters: cwd != null ? {'cwd': cwd} : null,
+    );
     final response = await _client.get(
       uri,
       headers: AuthSessionStore.headers(),
@@ -694,19 +689,16 @@ class AgentsDataSource {
     String? type,
   }) async {
     final uri =
-        Uri.parse(
-          '$_baseUrl/agent-sessions/$sessionId/files/find-files',
-        ).replace(
-          queryParameters: {
-            'query': query,
-            if (limit != null) 'limit': '$limit',
-            if (type != null) 'type': type,
-          },
-        );
-    final response = await _client.get(
-      uri,
-      headers: AuthSessionStore.headers(),
+        Uri.parse('$_baseUrl/agent-sessions/$sessionId/files/find-files')
+            .replace(
+      queryParameters: {
+        'query': query,
+        if (limit != null) 'limit': '$limit',
+        if (type != null) 'type': type,
+      },
     );
+    final response =
+        await _client.get(uri, headers: AuthSessionStore.headers());
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list.cast<String>();
@@ -718,13 +710,10 @@ class AgentsDataSource {
     String sessionId, {
     String path = '.',
   }) async {
-    final uri = Uri.parse(
-      '$_baseUrl/agent-sessions/$sessionId/files/list',
-    ).replace(queryParameters: {'path': path});
-    final response = await _client.get(
-      uri,
-      headers: AuthSessionStore.headers(),
-    );
+    final uri = Uri.parse('$_baseUrl/agent-sessions/$sessionId/files/list')
+        .replace(queryParameters: {'path': path});
+    final response =
+        await _client.get(uri, headers: AuthSessionStore.headers());
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list.cast<Map<String, dynamic>>();
@@ -738,13 +727,10 @@ class AgentsDataSource {
     String sessionId,
     String path,
   ) async {
-    final uri = Uri.parse(
-      '$_baseUrl/agent-sessions/$sessionId/files/content',
-    ).replace(queryParameters: {'path': path});
-    final response = await _client.get(
-      uri,
-      headers: AuthSessionStore.headers(),
-    );
+    final uri = Uri.parse('$_baseUrl/agent-sessions/$sessionId/files/content')
+        .replace(queryParameters: {'path': path});
+    final response =
+        await _client.get(uri, headers: AuthSessionStore.headers());
     assertOk(response);
     return jsonDecode(response.body) as Map<String, dynamic>;
   }

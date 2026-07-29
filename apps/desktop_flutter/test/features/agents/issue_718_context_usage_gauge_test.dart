@@ -81,8 +81,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -113,12 +113,15 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async =>
-      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async => (
+            session: _makeSession(id),
+            messages: const <AgentSessionMessage>[],
+          );
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -144,14 +147,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 AgentsController _buildController(_StubAgentsRepository repo) =>
     AgentsController(
@@ -183,12 +186,10 @@ Widget _wrapWithProviders({
       body: MultiProvider(
         providers: [
           ChangeNotifierProvider<AgentConfigsController>.value(
-            value: configsCtrl,
-          ),
+              value: configsCtrl),
           ChangeNotifierProvider<AgentsController>.value(value: agentsCtrl),
           ChangeNotifierProvider<AgentServerController>.value(
-            value: agentServerCtrl,
-          ),
+              value: agentServerCtrl),
         ],
         child: Center(child: child),
       ),
@@ -216,114 +217,112 @@ void main() {
   // ── c1: sessionTotalInputTokens ──────────────────────────────────────────
 
   group('issue-718-c1: sessionTotalInputTokens()', () {
-    test('issue-718-c1a: returns 0 when session has no messages', () {
-      expect(controller.sessionTotalInputTokens('no-session'), equals(0));
-    });
+    test(
+      'issue-718-c1a: returns 0 when session has no messages',
+      () {
+        expect(controller.sessionTotalInputTokens('no-session'), equals(0));
+      },
+    );
 
-    test('issue-718-c1b: sums input tokens across all messages', () {
-      const sessionId = 'ses-tokens';
-      // Inject two assistant messages with token data.
-      controller.setMessageForTest(
-        ChatMessage(
+    test(
+      'issue-718-c1b: sums input tokens across all messages',
+      () {
+        const sessionId = 'ses-tokens';
+        // Inject two assistant messages with token data.
+        controller.setMessageForTest(ChatMessage(
           id: 'msg-1',
           sessionId: sessionId,
           role: 'assistant',
           createdAt: _kEpoch,
           tokens: {'input': 50000, 'output': 1000},
-        ),
-      );
-      controller.setMessageForTest(
-        ChatMessage(
+        ));
+        controller.setMessageForTest(ChatMessage(
           id: 'msg-2',
           sessionId: sessionId,
           role: 'assistant',
           createdAt: _kEpoch,
           tokens: {'input': 75000, 'output': 2000},
-        ),
-      );
-      // Total input = 50000 + 75000 = 125000.
-      expect(controller.sessionTotalInputTokens(sessionId), equals(125000));
-    });
+        ));
+        // Total input = 50000 + 75000 = 125000.
+        expect(
+          controller.sessionTotalInputTokens(sessionId),
+          equals(125000),
+        );
+      },
+    );
 
-    test('issue-718-c1c: ignores messages with null tokens', () {
-      const sessionId = 'ses-null-tokens';
-      controller.setMessageForTest(
-        ChatMessage(
+    test(
+      'issue-718-c1c: ignores messages with null tokens',
+      () {
+        const sessionId = 'ses-null-tokens';
+        controller.setMessageForTest(ChatMessage(
           id: 'msg-user',
           sessionId: sessionId,
           role: 'user',
           createdAt: _kEpoch,
           // No tokens field — typical for user messages.
-        ),
-      );
-      controller.setMessageForTest(
-        ChatMessage(
+        ));
+        controller.setMessageForTest(ChatMessage(
           id: 'msg-asst',
           sessionId: sessionId,
           role: 'assistant',
           createdAt: _kEpoch,
           tokens: {'input': 30000, 'output': 500},
-        ),
-      );
-      expect(controller.sessionTotalInputTokens(sessionId), equals(30000));
-    });
+        ));
+        expect(
+          controller.sessionTotalInputTokens(sessionId),
+          equals(30000),
+        );
+      },
+    );
   });
 
   // ── c1': sessionContextTokens — the metric the gauge actually uses ───────
   group(
-    'issue-718-c1prime: sessionContextTokens() is current occupancy, not a sum',
-    () {
-      test(
-        'returns the LATEST turn prompt size (input + cache), NOT the sum',
+      'issue-718-c1prime: sessionContextTokens() is current occupancy, not a sum',
+      () {
+    test('returns the LATEST turn prompt size (input + cache), NOT the sum',
         () {
-          const sessionId = 'ses-ctx';
-          controller.setMessageForTest(
-            ChatMessage(
-              id: 'm1',
-              sessionId: sessionId,
-              role: 'assistant',
-              createdAt: _kEpoch,
-              tokens: {'input': 50000, 'output': 1000},
-            ),
-          );
-          controller.setMessageForTest(
-            ChatMessage(
-              id: 'm2',
-              sessionId: sessionId,
-              role: 'assistant',
-              createdAt: _kEpoch,
-              tokens: {'input': 75000, 'output': 2000},
-            ),
-          );
-          // NOT 125000 (the buggy sum) — the latest turn's prompt is 75000.
-          expect(controller.sessionContextTokens(sessionId), equals(75000));
+      const sessionId = 'ses-ctx';
+      controller.setMessageForTest(ChatMessage(
+        id: 'm1',
+        sessionId: sessionId,
+        role: 'assistant',
+        createdAt: _kEpoch,
+        tokens: {'input': 50000, 'output': 1000},
+      ));
+      controller.setMessageForTest(ChatMessage(
+        id: 'm2',
+        sessionId: sessionId,
+        role: 'assistant',
+        createdAt: _kEpoch,
+        tokens: {'input': 75000, 'output': 2000},
+      ));
+      // NOT 125000 (the buggy sum) — the latest turn's prompt is 75000.
+      expect(controller.sessionContextTokens(sessionId), equals(75000));
+    });
+
+    test('counts cached input (cache read+write) toward the prompt size', () {
+      const sessionId = 'ses-cache';
+      // Mirrors the real bug report: input 5, cache 45795 → 45800, not 100%.
+      controller.setMessageForTest(ChatMessage(
+        id: 'm1',
+        sessionId: sessionId,
+        role: 'assistant',
+        createdAt: _kEpoch,
+        tokens: {
+          'input': 5,
+          'output': 19,
+          'cache': {'read': 45795, 'write': 0},
         },
-      );
+      ));
+      expect(controller.sessionContextTokens(sessionId), equals(45800));
+    });
 
-      test('counts cached input (cache read+write) toward the prompt size', () {
-        const sessionId = 'ses-cache';
-        // Mirrors the real bug report: input 5, cache 45795 → 45800, not 100%.
-        controller.setMessageForTest(
-          ChatMessage(
-            id: 'm1',
-            sessionId: sessionId,
-            role: 'assistant',
-            createdAt: _kEpoch,
-            tokens: {
-              'input': 5,
-              'output': 19,
-              'cache': {'read': 45795, 'write': 0},
-            },
-          ),
-        );
-        expect(controller.sessionContextTokens(sessionId), equals(45800));
-      });
-
-      test('returns 0 for a session with no token-bearing messages', () {
-        expect(controller.sessionContextTokens('nope'), equals(0));
-      });
-    },
-  );
+    test('returns 0 for a session with no token-bearing messages', () {
+      expect(controller.sessionContextTokens('nope'), equals(0));
+    });
+  });
 
   // ── c2: gauge shows placeholder when tokensUsed == 0 ────────────────────
 
@@ -339,14 +338,12 @@ void main() {
 
         final session = _makeSession('ses-zero');
 
-        await tester.pumpWidget(
-          _wrapWithProviders(
-            configsCtrl: configsCtrl,
-            agentsCtrl: controller,
-            agentServerCtrl: agentServerCtrl,
-            child: SessionSidePanel(session: session),
-          ),
-        );
+        await tester.pumpWidget(_wrapWithProviders(
+          configsCtrl: configsCtrl,
+          agentsCtrl: controller,
+          agentServerCtrl: agentServerCtrl,
+          child: SessionSidePanel(session: session),
+        ));
         await tester.pump();
 
         // The Context tab is selected by default.
@@ -373,24 +370,20 @@ void main() {
         final session = _makeSession(sessionId);
 
         // Seed 128k input tokens.
-        controller.setMessageForTest(
-          ChatMessage(
-            id: 'msg-a',
-            sessionId: sessionId,
-            role: 'assistant',
-            createdAt: _kEpoch,
-            tokens: {'input': 128000, 'output': 1000},
-          ),
-        );
+        controller.setMessageForTest(ChatMessage(
+          id: 'msg-a',
+          sessionId: sessionId,
+          role: 'assistant',
+          createdAt: _kEpoch,
+          tokens: {'input': 128000, 'output': 1000},
+        ));
 
-        await tester.pumpWidget(
-          _wrapWithProviders(
-            configsCtrl: configsCtrl,
-            agentsCtrl: controller,
-            agentServerCtrl: agentServerCtrl,
-            child: SessionSidePanel(session: session),
-          ),
-        );
+        await tester.pumpWidget(_wrapWithProviders(
+          configsCtrl: configsCtrl,
+          agentsCtrl: controller,
+          agentServerCtrl: agentServerCtrl,
+          child: SessionSidePanel(session: session),
+        ));
         await tester.pump();
 
         // Progress bar must be present.
@@ -420,24 +413,20 @@ void main() {
         final session = _makeSession(sessionId);
 
         // 250k > 200k context window — fraction must be capped at 1.0.
-        controller.setMessageForTest(
-          ChatMessage(
-            id: 'msg-b',
-            sessionId: sessionId,
-            role: 'assistant',
-            createdAt: _kEpoch,
-            tokens: {'input': 250000, 'output': 5000},
-          ),
-        );
+        controller.setMessageForTest(ChatMessage(
+          id: 'msg-b',
+          sessionId: sessionId,
+          role: 'assistant',
+          createdAt: _kEpoch,
+          tokens: {'input': 250000, 'output': 5000},
+        ));
 
-        await tester.pumpWidget(
-          _wrapWithProviders(
-            configsCtrl: configsCtrl,
-            agentsCtrl: controller,
-            agentServerCtrl: agentServerCtrl,
-            child: SessionSidePanel(session: session),
-          ),
-        );
+        await tester.pumpWidget(_wrapWithProviders(
+          configsCtrl: configsCtrl,
+          agentsCtrl: controller,
+          agentServerCtrl: agentServerCtrl,
+          child: SessionSidePanel(session: session),
+        ));
         await tester.pump();
 
         final indicator = tester.widget<LinearProgressIndicator>(
@@ -485,52 +474,58 @@ void main() {
       },
     );
 
-    test('issue-718-c5b: returns null when session has no providerId', () {
-      controller.setCatalogForTest([
-        const CatalogModelEntry(
-          agent: 'claude-code',
-          provider: 'anthropic',
-          modelId: 'claude-sonnet-4-6',
-          displayName: 'claude-sonnet-4-6',
-          route: 'direct',
-          authorized: true,
-          authProvider: 'anthropic',
-          contextLimit: 200000,
-        ),
-      ]);
+    test(
+      'issue-718-c5b: returns null when session has no providerId',
+      () {
+        controller.setCatalogForTest([
+          const CatalogModelEntry(
+            agent: 'claude-code',
+            provider: 'anthropic',
+            modelId: 'claude-sonnet-4-6',
+            displayName: 'claude-sonnet-4-6',
+            route: 'direct',
+            authorized: true,
+            authProvider: 'anthropic',
+            contextLimit: 200000,
+          ),
+        ]);
 
-      final session = _makeSession('ses-no-model'); // no providerId/modelId
-      expect(controller.contextWindowForSession(session), isNull);
-    });
+        final session = _makeSession('ses-no-model'); // no providerId/modelId
+        expect(controller.contextWindowForSession(session), isNull);
+      },
+    );
 
-    test('issue-718-c5c: returns null when catalog has no matching entry', () {
-      controller.setCatalogForTest([
-        const CatalogModelEntry(
-          agent: 'claude-code',
-          provider: 'anthropic',
-          modelId: 'claude-sonnet-4-6',
-          displayName: 'claude-sonnet-4-6',
-          route: 'direct',
-          authorized: true,
-          authProvider: 'anthropic',
-          contextLimit: 200000,
-        ),
-      ]);
+    test(
+      'issue-718-c5c: returns null when catalog has no matching entry',
+      () {
+        controller.setCatalogForTest([
+          const CatalogModelEntry(
+            agent: 'claude-code',
+            provider: 'anthropic',
+            modelId: 'claude-sonnet-4-6',
+            displayName: 'claude-sonnet-4-6',
+            route: 'direct',
+            authorized: true,
+            authProvider: 'anthropic',
+            contextLimit: 200000,
+          ),
+        ]);
 
-      final session = AgentSession(
-        id: 'ses-no-match',
-        agentId: 'claude-code',
-        name: 'No-match',
-        cwd: '/tmp',
-        status: AgentSessionStatus.idle,
-        createdAt: _kEpoch,
-        updatedAt: _kEpoch,
-        providerId: 'openai',
-        modelId: 'gpt-5',
-      );
+        final session = AgentSession(
+          id: 'ses-no-match',
+          agentId: 'claude-code',
+          name: 'No-match',
+          cwd: '/tmp',
+          status: AgentSessionStatus.idle,
+          createdAt: _kEpoch,
+          updatedAt: _kEpoch,
+          providerId: 'openai',
+          modelId: 'gpt-5',
+        );
 
-      expect(controller.contextWindowForSession(session), isNull);
-    });
+        expect(controller.contextWindowForSession(session), isNull);
+      },
+    );
   });
 
   // ── c6: gauge uses real context window from catalog ───────────────────────
@@ -573,24 +568,20 @@ void main() {
         );
 
         // Seed 500k tokens (well within 1M window).
-        controller.setMessageForTest(
-          ChatMessage(
-            id: 'msg-1m',
-            sessionId: sessionId,
-            role: 'assistant',
-            createdAt: _kEpoch,
-            tokens: {'input': 500000, 'output': 1000},
-          ),
-        );
+        controller.setMessageForTest(ChatMessage(
+          id: 'msg-1m',
+          sessionId: sessionId,
+          role: 'assistant',
+          createdAt: _kEpoch,
+          tokens: {'input': 500000, 'output': 1000},
+        ));
 
-        await tester.pumpWidget(
-          _wrapWithProviders(
-            configsCtrl: configsCtrl,
-            agentsCtrl: controller,
-            agentServerCtrl: agentServerCtrl,
-            child: SessionSidePanel(session: session),
-          ),
-        );
+        await tester.pumpWidget(_wrapWithProviders(
+          configsCtrl: configsCtrl,
+          agentsCtrl: controller,
+          agentServerCtrl: agentServerCtrl,
+          child: SessionSidePanel(session: session),
+        ));
         await tester.pump();
 
         // Progress bar must be present.

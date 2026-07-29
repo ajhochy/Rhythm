@@ -17,8 +17,9 @@ import 'rhythm_button.dart';
 import 'rhythm_date_button.dart';
 import 'tokens/rhythm_theme.dart';
 
-typedef RhythmTaskCollaboratorUpdate =
-    Future<List<TaskCollaborator>> Function(int userId);
+typedef RhythmTaskCollaboratorUpdate = Future<List<TaskCollaborator>> Function(
+  int userId,
+);
 
 /// Format an exception from a collaborator add/remove call for surfacing in a
 /// SnackBar. Keeps the server-supplied AppError.message visible — issue #651.
@@ -61,10 +62,10 @@ class RhythmProjectStepInspectorSaveRequest {
   final int? assigneeId;
 }
 
-typedef RhythmTaskInspectorSave =
-    Future<void> Function(RhythmTaskInspectorSaveRequest request);
-typedef RhythmProjectStepInspectorSave =
-    Future<void> Function(RhythmProjectStepInspectorSaveRequest request);
+typedef RhythmTaskInspectorSave = Future<void> Function(
+    RhythmTaskInspectorSaveRequest request);
+typedef RhythmProjectStepInspectorSave = Future<void> Function(
+    RhythmProjectStepInspectorSaveRequest request);
 
 Future<void> showRhythmTaskInspector(
   BuildContext context, {
@@ -204,10 +205,10 @@ class _RhythmInspectorShell extends StatelessWidget {
                     Text(
                       kicker,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: accent,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.6,
-                      ),
+                            color: accent,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.6,
+                          ),
                     ),
                     const SizedBox(height: 12),
                     Row(
@@ -239,7 +240,9 @@ class _RhythmInspectorShell extends StatelessWidget {
                             children: [
                               Text(
                                 title,
-                                style: Theme.of(context).textTheme.headlineSmall
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineSmall
                                     ?.copyWith(
                                       color: colors.textPrimary,
                                       fontWeight: FontWeight.w800,
@@ -249,7 +252,9 @@ class _RhythmInspectorShell extends StatelessWidget {
                               const SizedBox(height: 8),
                               Text(
                                 subtitle,
-                                style: Theme.of(context).textTheme.bodyMedium
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
                                     ?.copyWith(
                                       color: colors.textSecondary,
                                       height: 1.4,
@@ -259,7 +264,11 @@ class _RhythmInspectorShell extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 16),
-                        Wrap(spacing: 8, runSpacing: 8, children: actions),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: actions,
+                        ),
                       ],
                     ),
                     if (headerPills.isNotEmpty) ...[
@@ -328,18 +337,18 @@ class _InspectorSection extends StatelessWidget {
           Text(
             title,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              color: colors.textPrimary,
-              fontWeight: FontWeight.w700,
-            ),
+                  color: colors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
           ),
           if (subtitle != null) ...[
             const SizedBox(height: 4),
             Text(
               subtitle!,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: colors.textSecondary,
-                height: 1.4,
-              ),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: colors.textSecondary, height: 1.4),
             ),
           ],
           const SizedBox(height: 14),
@@ -367,17 +376,17 @@ class _MetaRow extends StatelessWidget {
           Text(
             label,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: colors.textMuted,
-              fontWeight: FontWeight.w700,
-            ),
+                  color: colors.textMuted,
+                  fontWeight: FontWeight.w700,
+                ),
           ),
           const SizedBox(height: 4),
           Text(
             value,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: colors.textPrimary,
-              height: 1.35,
-            ),
+                  color: colors.textPrimary,
+                  height: 1.35,
+                ),
           ),
         ],
       ),
@@ -386,7 +395,10 @@ class _MetaRow extends StatelessWidget {
 }
 
 class _PeopleChip extends StatelessWidget {
-  const _PeopleChip({required this.label, this.onDeleted});
+  const _PeopleChip({
+    required this.label,
+    this.onDeleted,
+  });
 
   final String label;
   final VoidCallback? onDeleted;
@@ -470,10 +482,8 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
   Widget build(BuildContext context) {
     final colors = context.rhythm;
     final visualStyle = TaskVisualStyles.resolve(widget.task);
-    final ownerLabel = _memberName(
-      widget.task.ownerId,
-      widget.workspaceMembers,
-    );
+    final ownerLabel =
+        _memberName(widget.task.ownerId, widget.workspaceMembers);
     final sourceLabel = _taskSourceLabel(widget.task);
     final firstDate = _scheduledDate ?? _dueDate;
     final headerDateLabel = firstDate == null
@@ -486,15 +496,15 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
       subtitle: _isProdMirror
           ? 'This task mirrors the production system, which is the source of truth. Local edits here are overwritten on the next sync.'
           : _readOnly
-          ? 'This item is synced from your calendar and shown here for context.'
-          : 'Review context, coordinate with collaborators, and edit the work when needed.',
+              ? 'This item is synced from your calendar and shown here for context.'
+              : 'Review context, coordinate with collaborators, and edit the work when needed.',
       icon: _isProdMirror
           ? Icons.cloud_sync_outlined
           : _readOnly
-          ? Icons.event_note_outlined
-          : widget.task.status == TaskStatus.done
-          ? Icons.task_alt
-          : Icons.radio_button_unchecked,
+              ? Icons.event_note_outlined
+              : widget.task.status == TaskStatus.done
+                  ? Icons.task_alt
+                  : Icons.radio_button_unchecked,
       onIconTap: _readOnly || widget.onToggleStatus == null
           ? null
           : () async {
@@ -520,9 +530,9 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
                 labelText: 'Task title',
                 border: OutlineInputBorder(),
               ),
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
               onChanged: (_) => setState(() {}),
             )
           : null,
@@ -562,8 +572,8 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
             label: _saving
                 ? 'Saving...'
                 : widget.isCreate
-                ? 'Create task'
-                : 'Save changes',
+                    ? 'Create task'
+                    : 'Save changes',
             compact: true,
           ),
         ],
@@ -608,9 +618,9 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
                   Text(
                     'Scheduled',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colors.textMuted,
-                      fontWeight: FontWeight.w700,
-                    ),
+                          color: colors.textMuted,
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
                   const SizedBox(height: 6),
                   RhythmDateButton(
@@ -631,9 +641,9 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
                   Text(
                     'Due',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colors.textMuted,
-                      fontWeight: FontWeight.w700,
-                    ),
+                          color: colors.textMuted,
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
                   const SizedBox(height: 6),
                   RhythmDateButton(
@@ -695,8 +705,8 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
                   Text(
                     'No collaborators yet.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.textSecondary,
-                    ),
+                          color: colors.textSecondary,
+                        ),
                   )
                 else
                   Wrap(
@@ -706,8 +716,7 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
                       for (final collaborator in _collaborators)
                         _PeopleChip(
                           label: collaborator.name,
-                          onDeleted:
-                              _editing &&
+                          onDeleted: _editing &&
                                   !_readOnly &&
                                   !_updatingCollaborators &&
                                   widget.onRemoveCollaborator != null
@@ -722,9 +731,8 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
                     widget.workspaceMembers.isNotEmpty) ...[
                   const SizedBox(height: 10),
                   RhythmButton.quiet(
-                    onPressed: _updatingCollaborators
-                        ? null
-                        : _showPeoplePicker,
+                    onPressed:
+                        _updatingCollaborators ? null : _showPeoplePicker,
                     icon: Icons.person_add_outlined,
                     label: _updatingCollaborators
                         ? 'Updating...'
@@ -746,10 +754,8 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
                       labelText: 'Default agent for this task',
                       border: OutlineInputBorder(),
                       isDense: true,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
                     items: const [
                       DropdownMenuItem<String?>(
@@ -787,9 +793,7 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
                   _MetaRow(label: 'Source', value: sourceLabel),
                 if (widget.task.sourceName?.trim().isNotEmpty == true)
                   _MetaRow(
-                    label: 'Feed',
-                    value: widget.task.sourceName!.trim(),
-                  ),
+                      label: 'Feed', value: widget.task.sourceName!.trim()),
               ],
             ),
           ),
@@ -841,9 +845,9 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
       child: Text(
         notes.isEmpty ? 'No task details yet.' : notes,
         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: notes.isEmpty ? colors.textSecondary : colors.textPrimary,
-          height: 1.5,
-        ),
+              color: notes.isEmpty ? colors.textSecondary : colors.textPrimary,
+              height: 1.5,
+            ),
       ),
     );
   }
@@ -1008,9 +1012,9 @@ class _RhythmProjectStepInspectorState
                 labelText: 'Step title',
                 border: OutlineInputBorder(),
               ),
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
               onChanged: (_) => setState(() {}),
             )
           : null,
@@ -1083,9 +1087,9 @@ class _RhythmProjectStepInspectorState
                   Text(
                     'Scheduled',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: context.rhythm.textMuted,
-                      fontWeight: FontWeight.w700,
-                    ),
+                          color: context.rhythm.textMuted,
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
                   const SizedBox(height: 6),
                   RhythmDateButton(
@@ -1106,9 +1110,9 @@ class _RhythmProjectStepInspectorState
                   Text(
                     'Due',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: context.rhythm.textMuted,
-                      fontWeight: FontWeight.w700,
-                    ),
+                          color: context.rhythm.textMuted,
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
                   const SizedBox(height: 6),
                   RhythmDateButton(
@@ -1156,8 +1160,7 @@ class _RhythmProjectStepInspectorState
                     ),
                   _MetaRow(
                     label: 'Assigned to',
-                    value:
-                        _memberName(_assigneeId, widget.workspaceMembers) ??
+                    value: _memberName(_assigneeId, widget.workspaceMembers) ??
                         widget.step.assigneeName ??
                         'Unassigned',
                   ),
@@ -1192,8 +1195,8 @@ class _RhythmProjectStepInspectorState
                   Text(
                     'No additional collaborators on this project.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colors.textSecondary,
-                    ),
+                          color: colors.textSecondary,
+                        ),
                   ),
               ],
             ),
@@ -1209,7 +1212,10 @@ class _RhythmProjectStepInspectorState
                   label: 'Status',
                   value: widget.step.status == 'done' ? 'Done' : 'Open',
                 ),
-                _MetaRow(label: 'Step ID', value: widget.step.id),
+                _MetaRow(
+                  label: 'Step ID',
+                  value: widget.step.id,
+                ),
               ],
             ),
           ),
@@ -1230,9 +1236,9 @@ class _RhythmProjectStepInspectorState
       child: Text(
         notes.isEmpty ? 'No step details yet.' : notes,
         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: notes.isEmpty ? colors.textSecondary : colors.textPrimary,
-          height: 1.5,
-        ),
+              color: notes.isEmpty ? colors.textSecondary : colors.textPrimary,
+              height: 1.5,
+            ),
       ),
     );
   }
@@ -1305,9 +1311,9 @@ class _ScheduledAfterDeadlineWarning extends StatelessWidget {
               child: Text(
                 'Heads up: this is scheduled after its deadline.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: amberColor,
-                  fontWeight: FontWeight.w600,
-                ),
+                      color: amberColor,
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
             ),
           ],
@@ -1328,9 +1334,9 @@ Widget _headerPill(BuildContext context, String label, Color color) {
     child: Text(
       label,
       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-        color: color,
-        fontWeight: FontWeight.w700,
-      ),
+            color: color,
+            fontWeight: FontWeight.w700,
+          ),
     ),
   );
 }

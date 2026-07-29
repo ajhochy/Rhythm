@@ -71,7 +71,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
   @override
   void pushAgentNotification({
     required int id,
@@ -132,25 +132,25 @@ Widget _host(AgentsController ctrl, ChatPart part) {
 }
 
 ChatPart _questionPart() => ChatPart(
-  id: 'part-1',
-  messageId: 'msg-1',
-  type: 'tool',
-  toolName: 'question',
-  toolCallId: 'toolu_abc',
-  toolArgs: const {
-    'questions': [
-      {
-        'header': 'Test question',
-        'question': 'Which option do you prefer?',
-        'options': [
-          {'label': 'Option A', 'description': 'first'},
-          {'label': 'Option B', 'description': 'second'},
+      id: 'part-1',
+      messageId: 'msg-1',
+      type: 'tool',
+      toolName: 'question',
+      toolCallId: 'toolu_abc',
+      toolArgs: const {
+        'questions': [
+          {
+            'header': 'Test question',
+            'question': 'Which option do you prefer?',
+            'options': [
+              {'label': 'Option A', 'description': 'first'},
+              {'label': 'Option B', 'description': 'second'},
+            ],
+          }
         ],
       },
-    ],
-  },
-  toolStatus: 'running',
-);
+      toolStatus: 'running',
+    );
 
 void main() {
   testWidgets(
@@ -171,17 +171,15 @@ void main() {
       expect(
         h.repo.replyAnswers,
         const [
-          ['Option A'],
+          ['Option A']
         ],
-        reason:
-            'answers must be List<List<String>> — one selected-label list '
+        reason: 'answers must be List<List<String>> — one selected-label list '
             'per question (opencode QuestionAnswer = string[])',
       );
       expect(
         h.repo.sends.where((m) => m['type'] == 'session.input'),
         isEmpty,
-        reason:
-            'answering a question must NOT send a session.input prompt — '
+        reason: 'answering a question must NOT send a session.input prompt — '
             'that never completes the pending question tool (the hang bug)',
       );
     },
@@ -196,6 +194,9 @@ void main() {
     await tester.pump();
 
     expect(h.repo.rejectCallId, 'toolu_abc');
-    expect(h.repo.sends.where((m) => m['type'] == 'session.input'), isEmpty);
+    expect(
+      h.repo.sends.where((m) => m['type'] == 'session.input'),
+      isEmpty,
+    );
   });
 }

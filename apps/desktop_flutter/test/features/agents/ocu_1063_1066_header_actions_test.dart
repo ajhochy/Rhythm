@@ -56,8 +56,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msg = StreamController.broadcast(),
-      _conn = StreamController.broadcast();
+      : _msg = StreamController.broadcast(),
+        _conn = StreamController.broadcast();
   final StreamController<AgentWsMessage> _msg;
   final StreamController<bool> _conn;
 
@@ -92,11 +92,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => [_makeSession('s1')];
+  }) async =>
+      [_makeSession('s1')];
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async =>
-      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async =>
+          (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<Map<String, dynamic>> getVcs(String sessionId) async {
@@ -126,14 +127,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 ({AgentsController ctrl, _StubAgentsRepository repo}) _build() {
   final repo = _StubAgentsRepository();
@@ -141,7 +142,9 @@ AgentSession _makeSession(String id) => AgentSession(
     repo,
     _ReadyAgentServerController(),
     LocalNotificationService(),
-    NotificationsController(NotificationsRepository(NotificationsDataSource())),
+    NotificationsController(
+      NotificationsRepository(NotificationsDataSource()),
+    ),
   );
   return (ctrl: ctrl, repo: repo);
 }
@@ -166,12 +169,10 @@ Widget _wrapWithProviders({
       body: MultiProvider(
         providers: [
           ChangeNotifierProvider<AgentConfigsController>.value(
-            value: configsCtrl,
-          ),
+              value: configsCtrl),
           ChangeNotifierProvider<AgentsController>.value(value: agentsCtrl),
           ChangeNotifierProvider<AgentServerController>.value(
-            value: agentServerCtrl,
-          ),
+              value: agentServerCtrl),
         ],
         child: Center(child: child),
       ),
@@ -205,14 +206,12 @@ void main() {
         addTearDown(agentServerCtrl.dispose);
         final session = _makeSession('s-nogit');
 
-        await tester.pumpWidget(
-          _wrapWithProviders(
-            configsCtrl: configsCtrl,
-            agentsCtrl: ctrl,
-            agentServerCtrl: agentServerCtrl,
-            child: TranscriptHeaderTestHarness(session: session),
-          ),
-        );
+        await tester.pumpWidget(_wrapWithProviders(
+          configsCtrl: configsCtrl,
+          agentsCtrl: ctrl,
+          agentServerCtrl: agentServerCtrl,
+          child: TranscriptHeaderTestHarness(session: session),
+        ));
         await tester.pump();
 
         expect(find.byKey(const ValueKey('vcs-branch-badge')), findsNothing);
@@ -237,14 +236,12 @@ void main() {
           ],
         );
 
-        await tester.pumpWidget(
-          _wrapWithProviders(
-            configsCtrl: configsCtrl,
-            agentsCtrl: ctrl,
-            agentServerCtrl: agentServerCtrl,
-            child: TranscriptHeaderTestHarness(session: session),
-          ),
-        );
+        await tester.pumpWidget(_wrapWithProviders(
+          configsCtrl: configsCtrl,
+          agentsCtrl: ctrl,
+          agentServerCtrl: agentServerCtrl,
+          child: TranscriptHeaderTestHarness(session: session),
+        ));
         await tester.pump();
 
         expect(find.byKey(const ValueKey('vcs-branch-badge')), findsOneWidget);
@@ -264,14 +261,12 @@ void main() {
 
         ctrl.setVcsInfoForTest(session.id, info: const {'branch': 'main'});
 
-        await tester.pumpWidget(
-          _wrapWithProviders(
-            configsCtrl: configsCtrl,
-            agentsCtrl: ctrl,
-            agentServerCtrl: agentServerCtrl,
-            child: TranscriptHeaderTestHarness(session: session),
-          ),
-        );
+        await tester.pumpWidget(_wrapWithProviders(
+          configsCtrl: configsCtrl,
+          agentsCtrl: ctrl,
+          agentServerCtrl: agentServerCtrl,
+          child: TranscriptHeaderTestHarness(session: session),
+        ));
         await tester.pump();
 
         expect(find.text('main'), findsOneWidget);
@@ -336,14 +331,12 @@ void main() {
         addTearDown(agentServerCtrl.dispose);
         final session = _makeSession('s-init');
 
-        await tester.pumpWidget(
-          _wrapWithProviders(
-            configsCtrl: configsCtrl,
-            agentsCtrl: ctrl,
-            agentServerCtrl: agentServerCtrl,
-            child: TranscriptHeaderTestHarness(session: session),
-          ),
-        );
+        await tester.pumpWidget(_wrapWithProviders(
+          configsCtrl: configsCtrl,
+          agentsCtrl: ctrl,
+          agentServerCtrl: agentServerCtrl,
+          child: TranscriptHeaderTestHarness(session: session),
+        ));
         await tester.pump();
 
         await tester.tap(find.byIcon(Icons.more_vert));
@@ -363,14 +356,12 @@ void main() {
         const sessionId = 's-init-dispatch';
         final session = _makeSession(sessionId);
 
-        await tester.pumpWidget(
-          _wrapWithProviders(
-            configsCtrl: configsCtrl,
-            agentsCtrl: ctrl,
-            agentServerCtrl: agentServerCtrl,
-            child: TranscriptHeaderTestHarness(session: session),
-          ),
-        );
+        await tester.pumpWidget(_wrapWithProviders(
+          configsCtrl: configsCtrl,
+          agentsCtrl: ctrl,
+          agentServerCtrl: agentServerCtrl,
+          child: TranscriptHeaderTestHarness(session: session),
+        ));
         await tester.pump();
 
         await tester.tap(find.byIcon(Icons.more_vert));
@@ -386,40 +377,37 @@ void main() {
       },
     );
 
-    testWidgets('REAL-SURFACE: spinner shown while init is in-flight', (
-      tester,
-    ) async {
-      final configsCtrl = await _makeConfigsController();
-      addTearDown(configsCtrl.dispose);
-      final agentServerCtrl = _ReadyAgentServerController();
-      addTearDown(agentServerCtrl.dispose);
-      const sessionId = 's-init-spinner';
-      final session = _makeSession(sessionId);
+    testWidgets(
+      'REAL-SURFACE: spinner shown while init is in-flight',
+      (tester) async {
+        final configsCtrl = await _makeConfigsController();
+        addTearDown(configsCtrl.dispose);
+        final agentServerCtrl = _ReadyAgentServerController();
+        addTearDown(agentServerCtrl.dispose);
+        const sessionId = 's-init-spinner';
+        final session = _makeSession(sessionId);
 
-      ctrl.setInitializingForTest(sessionId, true);
+        ctrl.setInitializingForTest(sessionId, true);
 
-      await tester.pumpWidget(
-        _wrapWithProviders(
+        await tester.pumpWidget(_wrapWithProviders(
           configsCtrl: configsCtrl,
           agentsCtrl: ctrl,
           agentServerCtrl: agentServerCtrl,
           child: TranscriptHeaderTestHarness(session: session),
-        ),
-      );
-      await tester.pump();
+        ));
+        await tester.pump();
 
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    });
-
-    test(
-      'isInitializingProject clears after initializeProject resolves',
-      () async {
-        const sessionId = 's-init-clears';
-        await ctrl.initializeProject(sessionId);
-        expect(ctrl.isInitializingProject(sessionId), isFalse);
-        expect(repo.initProjectCallCount, equals(1));
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
       },
     );
+
+    test('isInitializingProject clears after initializeProject resolves',
+        () async {
+      const sessionId = 's-init-clears';
+      await ctrl.initializeProject(sessionId);
+      expect(ctrl.isInitializingProject(sessionId), isFalse);
+      expect(repo.initProjectCallCount, equals(1));
+    });
 
     test('isInitializingProject clears on initializeProject error', () async {
       const sessionId = 's-init-error';

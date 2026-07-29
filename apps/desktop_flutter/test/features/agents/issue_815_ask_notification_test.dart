@@ -70,7 +70,7 @@ class _SpyNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -109,7 +109,7 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async {
+      getSession(String id) async {
     final now = DateTime.now();
     return (
       session: AgentSession(
@@ -164,28 +164,24 @@ void main() {
         requestId: requestId,
         callId: 'call_$requestId',
         questions: const [
-          {'question': 'Which environment should I deploy to?'},
+          {'question': 'Which environment should I deploy to?'}
         ],
       );
 
   group('shouldNotifyAsk predicate (#815)', () {
-    test(
-      'notifies when the app is backgrounded, even if session selected',
-      () async {
-        await controller.selectSession('s1');
-        controller.didChangeAppLifecycleState(AppLifecycleState.inactive);
-        expect(controller.shouldNotifyAsk('s1'), isTrue);
-      },
-    );
+    test('notifies when the app is backgrounded, even if session selected',
+        () async {
+      await controller.selectSession('s1');
+      controller.didChangeAppLifecycleState(AppLifecycleState.inactive);
+      expect(controller.shouldNotifyAsk('s1'), isTrue);
+    });
 
-    test(
-      'notifies when frontmost but a different session is selected',
-      () async {
-        await controller.selectSession('other');
-        controller.didChangeAppLifecycleState(AppLifecycleState.resumed);
-        expect(controller.shouldNotifyAsk('s1'), isTrue);
-      },
-    );
+    test('notifies when frontmost but a different session is selected',
+        () async {
+      await controller.selectSession('other');
+      controller.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      expect(controller.shouldNotifyAsk('s1'), isTrue);
+    });
 
     test('suppresses when frontmost AND viewing the asking session', () async {
       await controller.selectSession('s1');

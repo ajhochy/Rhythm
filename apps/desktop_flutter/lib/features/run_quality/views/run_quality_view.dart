@@ -242,20 +242,15 @@ class _NotEnoughDataBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(
-            Icons.hourglass_empty,
-            size: 16,
-            color: context.rhythm.textMuted,
-          ),
+          Icon(Icons.hourglass_empty,
+              size: 16, color: context.rhythm.textMuted),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               'Not enough runs yet to say how this agent is doing '
               '(${agent.totalRuns} so far). Check back after a few more.',
-              style: TextStyle(
-                fontSize: 13,
-                color: context.rhythm.textSecondary,
-              ),
+              style:
+                  TextStyle(fontSize: 13, color: context.rhythm.textSecondary),
             ),
           ),
         ],
@@ -331,14 +326,12 @@ class _WasteRow extends StatelessWidget {
     final label = wastePct == null
         ? 'No usage data yet to check for wasted effort'
         : 'Wasted ${(wastePct * 100).round()}% of its usage on runs that '
-              "didn't pan out";
+            "didn't pan out";
     final color = wastePct == null
         ? context.rhythm.textMuted
         : (wastePct >= 0.3
-              ? context.rhythm.danger
-              : (wastePct > 0
-                    ? context.rhythm.warning
-                    : context.rhythm.success));
+            ? context.rhythm.danger
+            : (wastePct > 0 ? context.rhythm.warning : context.rhythm.success));
 
     return Row(
       key: const ValueKey('waste-row'),
@@ -378,7 +371,7 @@ class _CorrectionsRow extends StatelessWidget {
             avg == 0
                 ? 'You rarely had to step back in and redirect it'
                 : 'You had to step back in and redirect it about '
-                      '${avg.toStringAsFixed(1)} time${avg == 1 ? '' : 's'} per run',
+                    '${avg.toStringAsFixed(1)} time${avg == 1 ? '' : 's'} per run',
             style: TextStyle(fontSize: 13, color: context.rhythm.textPrimary),
           ),
         ),
@@ -426,10 +419,8 @@ class _RepeatedMistakesBlock extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 2),
               child: Text(
                 '${mistake.message} (${mistake.count}×)',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: context.rhythm.textPrimary,
-                ),
+                style:
+                    TextStyle(fontSize: 12, color: context.rhythm.textPrimary),
               ),
             ),
         ],

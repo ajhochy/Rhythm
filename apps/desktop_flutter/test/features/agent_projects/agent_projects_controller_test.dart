@@ -19,18 +19,19 @@ class _FakeRemote extends AgentProjectsRemoteDataSource {
     String? vcsBranch,
     bool vcsDirty = false,
     DateTime? archivedAt,
-  }) => AgentProject(
-    id: id,
-    name: name,
-    cwd: cwd,
-    icon: icon,
-    vcsRoot: vcsRoot,
-    vcsBranch: vcsBranch,
-    vcsDirty: vcsDirty,
-    vcsCheckedAt: DateTime.utc(2026),
-    createdAt: DateTime.utc(2026),
-    archivedAt: archivedAt,
-  );
+  }) =>
+      AgentProject(
+        id: id,
+        name: name,
+        cwd: cwd,
+        icon: icon,
+        vcsRoot: vcsRoot,
+        vcsBranch: vcsBranch,
+        vcsDirty: vcsDirty,
+        vcsCheckedAt: DateTime.utc(2026),
+        createdAt: DateTime.utc(2026),
+        archivedAt: archivedAt,
+      );
 
   @override
   Future<List<AgentProject>> list({bool includeArchived = false}) async {
@@ -48,12 +49,8 @@ class _FakeRemote extends AgentProjectsRemoteDataSource {
     required String cwd,
     String? icon,
   }) async {
-    final p = _build(
-      id: 'id-${store.length}',
-      name: name,
-      cwd: cwd,
-      icon: icon,
-    );
+    final p =
+        _build(id: 'id-${store.length}', name: name, cwd: cwd, icon: icon);
     store.add(p);
     return p;
   }
@@ -115,14 +112,12 @@ void main() {
   });
 
   test('load() populates projects on success', () async {
-    remote.store.add(
-      AgentProject(
-        id: 'a',
-        name: 'A',
-        cwd: '/x',
-        createdAt: DateTime.utc(2026),
-      ),
-    );
+    remote.store.add(AgentProject(
+      id: 'a',
+      name: 'A',
+      cwd: '/x',
+      createdAt: DateTime.utc(2026),
+    ));
     await controller.load();
     expect(controller.status, AgentProjectsLoadStatus.idle);
     expect(controller.projects.single.id, 'a');
@@ -171,19 +166,17 @@ void main() {
     expect(controller.projects.single.vcsBranch, 'main');
   });
 
-  test(
-    'select() updates selectedProjectId and notifies; null switches to All',
-    () {
-      var notified = 0;
-      controller.addListener(() => notified++);
-      controller.select('abc');
-      expect(controller.selectedProjectId, 'abc');
-      expect(notified, 1);
-      controller.select(null);
-      expect(controller.selectedProjectId, isNull);
-      expect(notified, 2);
-    },
-  );
+  test('select() updates selectedProjectId and notifies; null switches to All',
+      () {
+    var notified = 0;
+    controller.addListener(() => notified++);
+    controller.select('abc');
+    expect(controller.selectedProjectId, 'abc');
+    expect(notified, 1);
+    controller.select(null);
+    expect(controller.selectedProjectId, isNull);
+    expect(notified, 2);
+  });
 
   test('AgentProject.fromJson round-trips nullable VCS fields', () {
     final p = AgentProject.fromJson({

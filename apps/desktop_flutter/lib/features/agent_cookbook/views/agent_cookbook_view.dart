@@ -63,7 +63,10 @@ class _AgentCookbookViewState extends State<AgentCookbookView> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Delete', style: TextStyle(color: ctx.rhythm.danger)),
+            child: Text(
+              'Delete',
+              style: TextStyle(color: ctx.rhythm.danger),
+            ),
           ),
         ],
       ),
@@ -115,7 +118,10 @@ class _AgentCookbookViewState extends State<AgentCookbookView> {
     );
   }
 
-  Widget _buildBody(BuildContext context, AgentCookbookController controller) {
+  Widget _buildBody(
+    BuildContext context,
+    AgentCookbookController controller,
+  ) {
     if (controller.status == AgentCookbookStatus.loading &&
         controller.recipes.isEmpty) {
       return Center(
@@ -199,9 +205,8 @@ class _AgentCookbookViewState extends State<AgentCookbookView> {
   }
 
   Future<void> _runRecipe(BuildContext context, CookbookRecipe recipe) async {
-    final sessionId = await context.read<AgentCookbookController>().runRecipe(
-      recipe.id,
-    );
+    final sessionId =
+        await context.read<AgentCookbookController>().runRecipe(recipe.id);
     if (!context.mounted) return;
     if (sessionId != null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -274,7 +279,11 @@ class _RecipeTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.menu_book_outlined, color: rhythm.accent, size: 20),
+          Icon(
+            Icons.menu_book_outlined,
+            color: rhythm.accent,
+            size: 20,
+          ),
           const SizedBox(width: RhythmSpacing.sm),
           Expanded(
             child: Column(
@@ -292,7 +301,10 @@ class _RecipeTile extends StatelessWidget {
                   const SizedBox(height: RhythmSpacing.xxs),
                   Text(
                     recipe.description,
-                    style: TextStyle(color: rhythm.textSecondary, fontSize: 12),
+                    style: TextStyle(
+                      color: rhythm.textSecondary,
+                      fontSize: 12,
+                    ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -301,7 +313,10 @@ class _RecipeTile extends StatelessWidget {
                   const SizedBox(height: RhythmSpacing.xxs),
                   Text(
                     '$_stepCount step${_stepCount == 1 ? '' : 's'}',
-                    style: TextStyle(color: rhythm.textMuted, fontSize: 11),
+                    style: TextStyle(
+                      color: rhythm.textMuted,
+                      fontSize: 11,
+                    ),
                   ),
                 ],
               ],
@@ -309,22 +324,16 @@ class _RecipeTile extends StatelessWidget {
           ),
           IconButton(
             key: ValueKey('run-recipe-${recipe.id}'),
-            icon: Icon(
-              Icons.play_arrow_rounded,
-              color: rhythm.accent,
-              size: 20,
-            ),
+            icon:
+                Icon(Icons.play_arrow_rounded, color: rhythm.accent, size: 20),
             tooltip: 'Run recipe',
             onPressed: onRun,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),
           IconButton(
-            icon: Icon(
-              Icons.delete_outline_rounded,
-              color: rhythm.textMuted,
-              size: 18,
-            ),
+            icon: Icon(Icons.delete_outline_rounded,
+                color: rhythm.textMuted, size: 18),
             tooltip: 'Delete recipe',
             onPressed: onDelete,
             padding: EdgeInsets.zero,

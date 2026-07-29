@@ -71,7 +71,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -84,8 +84,8 @@ class _FakeNotificationsController extends NotificationsController {
 /// Records what was sent via [send].
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -123,11 +123,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => sessionsToReturn;
+  }) async =>
+      sessionsToReturn;
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async {
+      getSession(String id) async {
     return (session: _makeSession(id), messages: <AgentSessionMessage>[]);
   }
 
@@ -145,16 +146,17 @@ AgentSession _makeSession(
   String id, {
   AgentSessionStatus status = AgentSessionStatus.idle,
   String? statusMessage,
-}) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: status,
-  statusMessage: statusMessage,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+}) =>
+    AgentSession(
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: status,
+      statusMessage: statusMessage,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 ({AgentsController ctrl, _StubAgentsRepository repo}) _buildController() {
   final repo = _StubAgentsRepository();

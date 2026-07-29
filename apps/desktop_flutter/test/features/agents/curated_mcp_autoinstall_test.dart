@@ -55,53 +55,60 @@ void main() {
   group('CuratedMcpAutoInstaller.ensure', () {
     // c1: POSTs to the curated ensure endpoint with the right body + returns
     // true on 2xx.
-    test(
-      'POSTs apiToken + apiUrl to the local agent curated ensure endpoint',
-      () async {
-        late Map<String, dynamic> body;
-        late Uri calledUri;
-        late Map<String, String> headers;
-        final client = MockClient((req) async {
-          calledUri = req.url;
-          headers = req.headers;
-          body = jsonDecode(req.body) as Map<String, dynamic>;
-          return http.Response('{"changed":true,"registered":true}', 200);
-        });
+    test('POSTs apiToken + apiUrl to the local agent curated ensure endpoint',
+        () async {
+      late Map<String, dynamic> body;
+      late Uri calledUri;
+      late Map<String, String> headers;
+      final client = MockClient((req) async {
+        calledUri = req.url;
+        headers = req.headers;
+        body = jsonDecode(req.body) as Map<String, dynamic>;
+        return http.Response('{"changed":true,"registered":true}', 200);
+      });
 
-        final installer = CuratedMcpAutoInstaller(httpClient: client);
-        final ok = await installer.ensure(
-          apiToken: 'tok-1',
-          apiUrl: 'https://api.vcrcapps.com',
-        );
+      final installer = CuratedMcpAutoInstaller(httpClient: client);
+      final ok = await installer.ensure(
+        apiToken: 'tok-1',
+        apiUrl: 'https://api.vcrcapps.com',
+      );
 
-        expect(ok, true);
-        expect(calledUri.path, '/opencode/mcp/curated/ensure');
-        expect(calledUri.host, 'localhost');
-        expect(calledUri.port, 4001);
-        expect(headers['Content-Type'], contains('application/json'));
-        expect(body['apiToken'], 'tok-1');
-        expect(body['apiUrl'], 'https://api.vcrcapps.com');
-      },
-    );
+      expect(ok, true);
+      expect(calledUri.path, '/opencode/mcp/curated/ensure');
+      expect(calledUri.host, 'localhost');
+      expect(calledUri.port, 4001);
+      expect(headers['Content-Type'], contains('application/json'));
+      expect(body['apiToken'], 'tok-1');
+      expect(body['apiUrl'], 'https://api.vcrcapps.com');
+    });
 
     // c2: returns false (non-fatal) on a 4xx/5xx server error.
     test('returns false (non-fatal) on a server error', () async {
       final client = MockClient((_) async => http.Response('boom', 500));
       final installer = CuratedMcpAutoInstaller(httpClient: client);
-      expect(await installer.ensure(apiToken: 't', apiUrl: 'u'), false);
+      expect(
+        await installer.ensure(apiToken: 't', apiUrl: 'u'),
+        false,
+      );
     });
 
     test('returns false (non-fatal) on a client error', () async {
       final client = MockClient((_) async => http.Response('nope', 400));
       final installer = CuratedMcpAutoInstaller(httpClient: client);
-      expect(await installer.ensure(apiToken: 't', apiUrl: 'u'), false);
+      expect(
+        await installer.ensure(apiToken: 't', apiUrl: 'u'),
+        false,
+      );
     });
 
     // c2: returns false (never throws) when the client throws.
     test('returns false (non-fatal) when the client throws', () async {
       final client = MockClient((_) async => throw Exception('network down'));
       final installer = CuratedMcpAutoInstaller(httpClient: client);
-      expect(await installer.ensure(apiToken: 't', apiUrl: 'u'), false);
+      expect(
+        await installer.ensure(apiToken: 't', apiUrl: 'u'),
+        false,
+      );
     });
   });
 
@@ -191,26 +198,24 @@ void main() {
 
     // c4: invokes ensure() once per distinct token — same token twice → one
     // POST.
-    test(
-      'successful ensure() records token → second call is de-duped',
-      () async {
-        final installer = _FakeCuratedAutoInstaller(result: true);
-        final controller = await readyController(installer);
-        addTearDown(controller.dispose);
+    test('successful ensure() records token → second call is de-duped',
+        () async {
+      final installer = _FakeCuratedAutoInstaller(result: true);
+      final controller = await readyController(installer);
+      addTearDown(controller.dispose);
 
-        AuthSessionStore.setSessionToken('tok-1');
+      AuthSessionStore.setSessionToken('tok-1');
 
-        controller.onAuthChanged();
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-        expect(installer.ensureCount, 1);
+      controller.onAuthChanged();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(installer.ensureCount, 1);
 
-        // ensure returned true → token recorded → second call de-duped.
-        controller.onAuthChanged();
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-        expect(installer.ensureCount, 1);
-        expect(installer.tokensSeen, ['tok-1']);
-      },
-    );
+      // ensure returned true → token recorded → second call de-duped.
+      controller.onAuthChanged();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(installer.ensureCount, 1);
+      expect(installer.tokensSeen, ['tok-1']);
+    });
 
     test('failed ensure() does NOT record token → next call retries', () async {
       final installer = _FakeCuratedAutoInstaller(result: false);

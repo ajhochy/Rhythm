@@ -87,8 +87,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -121,12 +121,13 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async =>
-      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async =>
+          (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -147,10 +148,9 @@ class _StubAgentsRepository implements AgentsRepository {
 
   @override
   Future<List<AgentSessionMessage>> fetchChildMessages(
-    String parentSessionId,
-    String childSdkId, {
-    String? cwd,
-  }) async => const [];
+          String parentSessionId, String childSdkId,
+          {String? cwd}) async =>
+      const [];
 
   @override
   Future<AgentSession> forkSession(String sessionId, String messageId) async {
@@ -170,14 +170,14 @@ final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 /// A plain top-level session with no agent of its own yet — the shape a
 /// brand-new user-created session has before any turn is sent.
 AgentSession _makeSession(String id, {String agentId = ''}) => AgentSession(
-  id: id,
-  agentId: agentId,
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: agentId,
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 /// A dispatched/subagent session that already carries its OWN resolved
 /// engine agent (e.g. 'secretary') — as #858's create/resume path persists
@@ -188,16 +188,20 @@ AgentSession _makeDispatchedSession(String id, String dispatchedAgentId) =>
 AgentsController _buildController(
   _StubAgentsRepository repo, {
   String? Function()? managerAgentNameResolver,
-}) => AgentsController(
-  repo,
-  _ReadyAgentServerController(),
-  LocalNotificationService(),
-  NotificationsController(NotificationsRepository(NotificationsDataSource())),
-  managerAgentNameResolver: managerAgentNameResolver,
-);
+}) =>
+    AgentsController(
+      repo,
+      _ReadyAgentServerController(),
+      LocalNotificationService(),
+      NotificationsController(
+        NotificationsRepository(NotificationsDataSource()),
+      ),
+      managerAgentNameResolver: managerAgentNameResolver,
+    );
 
-AgentConfigsController _buildConfigsController() =>
-    AgentConfigsController(AgentConfigsRepository(AgentConfigsDataSource()));
+AgentConfigsController _buildConfigsController() => AgentConfigsController(
+      AgentConfigsRepository(AgentConfigsDataSource()),
+    );
 
 Widget _withProviders({
   required AgentsController controller,
@@ -221,40 +225,40 @@ void main() {
   // ── AC1: opening a dispatched/subagent session shows ITS agent, not the
   //         app-wide default ─────────────────────────────────────────────
 
-  test('issue-867-ac1: selectedAgentFor returns the session\'s OWN agent, not '
-      'the app-wide manager default, when no explicit selection was made', () {
-    final repo = _StubAgentsRepository();
-    // App-wide default resolver simulates a manager profile ("Coding
-    // Workflow") configured globally — this is what the OLD code would
-    // have returned for every session with no explicit override.
-    final ctrl = _buildController(
-      repo,
-      managerAgentNameResolver: () => 'coding-workflow-manager',
-    );
+  test(
+    'issue-867-ac1: selectedAgentFor returns the session\'s OWN agent, not '
+    'the app-wide manager default, when no explicit selection was made',
+    () {
+      final repo = _StubAgentsRepository();
+      // App-wide default resolver simulates a manager profile ("Coding
+      // Workflow") configured globally — this is what the OLD code would
+      // have returned for every session with no explicit override.
+      final ctrl = _buildController(
+        repo,
+        managerAgentNameResolver: () => 'coding-workflow-manager',
+      );
 
-    const dispatchedSessionId = '867-dispatched-session';
-    final dispatchedSession = _makeDispatchedSession(
-      dispatchedSessionId,
-      'secretary',
-    );
-    ctrl.setActiveSessionForTest(dispatchedSessionId, dispatchedSession);
+      const dispatchedSessionId = '867-dispatched-session';
+      final dispatchedSession =
+          _makeDispatchedSession(dispatchedSessionId, 'secretary');
+      ctrl.setActiveSessionForTest(dispatchedSessionId, dispatchedSession);
 
-    // Must resolve to the session's OWN agent ('secretary'), never the
-    // app-wide manager default ('coding-workflow-manager').
-    expect(
-      ctrl.selectedAgentFor(dispatchedSessionId),
-      equals('secretary'),
-      reason:
-          'a dispatched session with its own agentId must not silently '
-          'inherit the app-wide default agent',
-    );
+      // Must resolve to the session's OWN agent ('secretary'), never the
+      // app-wide manager default ('coding-workflow-manager').
+      expect(
+        ctrl.selectedAgentFor(dispatchedSessionId),
+        equals('secretary'),
+        reason: 'a dispatched session with its own agentId must not silently '
+            'inherit the app-wide default agent',
+      );
 
-    // This is NOT an "explicit override" — it's the session's natural
-    // identity. The pill must not render as "overridden".
-    expect(ctrl.hasExplicitAgentSelection(dispatchedSessionId), isFalse);
+      // This is NOT an "explicit override" — it's the session's natural
+      // identity. The pill must not render as "overridden".
+      expect(ctrl.hasExplicitAgentSelection(dispatchedSessionId), isFalse);
 
-    ctrl.dispose();
-  });
+      ctrl.dispose();
+    },
+  );
 
   testWidgets(
     'issue-867-ac1-real-surface: AgentSelectorPill in the mounted composer '
@@ -268,15 +272,14 @@ void main() {
       );
 
       const dispatchedSessionId = '867-dispatched-real-surface';
-      final dispatchedSession = _makeDispatchedSession(
-        dispatchedSessionId,
-        'secretary',
-      );
+      final dispatchedSession =
+          _makeDispatchedSession(dispatchedSessionId, 'secretary');
       ctrl.setActiveSessionForTest(dispatchedSessionId, dispatchedSession);
 
-      await tester.pumpWidget(
-        _withProviders(controller: ctrl, child: const InputAreaTestHarness()),
-      );
+      await tester.pumpWidget(_withProviders(
+        controller: ctrl,
+        child: const InputAreaTestHarness(),
+      ));
       await tester.pump(Duration.zero);
 
       // The pill must show the session's own agent, not the manager default
@@ -291,144 +294,153 @@ void main() {
   // ── AC2: sending a reply uses the session's resolved agent, not the
   //         picker's app-wide default ────────────────────────────────────
 
-  test('issue-867-ac2: sendInput ships the DISPATCHED session\'s own agent on '
-      'the wire, not the app-wide manager default', () {
-    final repo = _StubAgentsRepository();
-    final ctrl = _buildController(
-      repo,
-      managerAgentNameResolver: () => 'coding-workflow-manager',
-    );
+  test(
+    'issue-867-ac2: sendInput ships the DISPATCHED session\'s own agent on '
+    'the wire, not the app-wide manager default',
+    () {
+      final repo = _StubAgentsRepository();
+      final ctrl = _buildController(
+        repo,
+        managerAgentNameResolver: () => 'coding-workflow-manager',
+      );
 
-    const dispatchedSessionId = '867-ac2-session';
-    final dispatchedSession = _makeDispatchedSession(
-      dispatchedSessionId,
-      'secretary',
-    );
-    ctrl.setActiveSessionForTest(dispatchedSessionId, dispatchedSession);
+      const dispatchedSessionId = '867-ac2-session';
+      final dispatchedSession =
+          _makeDispatchedSession(dispatchedSessionId, 'secretary');
+      ctrl.setActiveSessionForTest(dispatchedSessionId, dispatchedSession);
 
-    ctrl.sendInput(dispatchedSessionId, 'continue the task');
+      ctrl.sendInput(dispatchedSessionId, 'continue the task');
 
-    expect(repo.sentFrames.length, equals(1));
-    expect(
-      repo.sentFrames.first['agent'],
-      equals('secretary'),
-      reason:
-          'a reply in a dispatched session must continue as that session\'s '
-          'own resolved agent, not the app-wide default picker selection',
-    );
+      expect(repo.sentFrames.length, equals(1));
+      expect(
+        repo.sentFrames.first['agent'],
+        equals('secretary'),
+        reason:
+            'a reply in a dispatched session must continue as that session\'s '
+            'own resolved agent, not the app-wide default picker selection',
+      );
 
-    ctrl.dispose();
-  });
+      ctrl.dispose();
+    },
+  );
 
-  test('issue-867-ac2-regression: a normal top-level session with no agent of '
-      'its own still uses the app-wide picker as its INITIAL agent', () {
-    final repo = _StubAgentsRepository();
-    final ctrl = _buildController(
-      repo,
-      managerAgentNameResolver: () => 'coding-workflow-manager',
-    );
+  test(
+    'issue-867-ac2-regression: a normal top-level session with no agent of '
+    'its own still uses the app-wide picker as its INITIAL agent',
+    () {
+      final repo = _StubAgentsRepository();
+      final ctrl = _buildController(
+        repo,
+        managerAgentNameResolver: () => 'coding-workflow-manager',
+      );
 
-    const freshSessionId = '867-fresh-session';
-    // A brand-new session has no agentId of its own yet (empty string is
-    // the wire value for agent-less instant-create sessions).
-    final freshSession = _makeSession(freshSessionId, agentId: '');
-    ctrl.setActiveSessionForTest(freshSessionId, freshSession);
+      const freshSessionId = '867-fresh-session';
+      // A brand-new session has no agentId of its own yet (empty string is
+      // the wire value for agent-less instant-create sessions).
+      final freshSession = _makeSession(freshSessionId, agentId: '');
+      ctrl.setActiveSessionForTest(freshSessionId, freshSession);
 
-    expect(
-      ctrl.selectedAgentFor(freshSessionId),
-      equals('coding-workflow-manager'),
-      reason:
-          'a fresh session with no agent of its own must still default to '
-          'the app-wide picker selection',
-    );
+      expect(
+        ctrl.selectedAgentFor(freshSessionId),
+        equals('coding-workflow-manager'),
+        reason:
+            'a fresh session with no agent of its own must still default to '
+            'the app-wide picker selection',
+      );
 
-    ctrl.sendInput(freshSessionId, 'hello');
-    expect(repo.sentFrames.first['agent'], equals('coding-workflow-manager'));
+      ctrl.sendInput(freshSessionId, 'hello');
+      expect(
+        repo.sentFrames.first['agent'],
+        equals('coding-workflow-manager'),
+      );
 
-    ctrl.dispose();
-  });
+      ctrl.dispose();
+    },
+  );
 
   // ── AC3: changing the global picker must NOT retroactively re-bind an
   //         already-running session ──────────────────────────────────────
 
-  test('issue-867-ac3: changing the app-wide default agent does not re-bind an '
-      'already-dispatched session', () {
-    final repo = _StubAgentsRepository();
-    String currentManagerAgent = 'coding-workflow-manager';
-    final ctrl = _buildController(
-      repo,
-      managerAgentNameResolver: () => currentManagerAgent,
-    );
+  test(
+    'issue-867-ac3: changing the app-wide default agent does not re-bind an '
+    'already-dispatched session',
+    () {
+      final repo = _StubAgentsRepository();
+      String currentManagerAgent = 'coding-workflow-manager';
+      final ctrl = _buildController(
+        repo,
+        managerAgentNameResolver: () => currentManagerAgent,
+      );
 
-    const dispatchedSessionId = '867-ac3-session';
-    final dispatchedSession = _makeDispatchedSession(
-      dispatchedSessionId,
-      'secretary',
-    );
-    ctrl.setActiveSessionForTest(dispatchedSessionId, dispatchedSession);
+      const dispatchedSessionId = '867-ac3-session';
+      final dispatchedSession =
+          _makeDispatchedSession(dispatchedSessionId, 'secretary');
+      ctrl.setActiveSessionForTest(dispatchedSessionId, dispatchedSession);
 
-    expect(ctrl.selectedAgentFor(dispatchedSessionId), equals('secretary'));
+      expect(ctrl.selectedAgentFor(dispatchedSessionId), equals('secretary'));
 
-    // Simulate the user changing the app-wide default picker/manager
-    // profile while the dispatched session is open.
-    currentManagerAgent = 'a-different-manager-profile';
+      // Simulate the user changing the app-wide default picker/manager
+      // profile while the dispatched session is open.
+      currentManagerAgent = 'a-different-manager-profile';
 
-    // The dispatched session must still resolve to ITS OWN agent —
-    // unaffected by the app-wide default change.
-    expect(
-      ctrl.selectedAgentFor(dispatchedSessionId),
-      equals('secretary'),
-      reason:
-          'an already-running dispatched session must not be retroactively '
-          're-bound when the app-wide default picker changes',
-    );
+      // The dispatched session must still resolve to ITS OWN agent —
+      // unaffected by the app-wide default change.
+      expect(
+        ctrl.selectedAgentFor(dispatchedSessionId),
+        equals('secretary'),
+        reason:
+            'an already-running dispatched session must not be retroactively '
+            're-bound when the app-wide default picker changes',
+      );
 
-    ctrl.sendInput(dispatchedSessionId, 'still secretary?');
-    expect(repo.sentFrames.first['agent'], equals('secretary'));
+      ctrl.sendInput(dispatchedSessionId, 'still secretary?');
+      expect(repo.sentFrames.first['agent'], equals('secretary'));
 
-    ctrl.dispose();
-  });
+      ctrl.dispose();
+    },
+  );
 
   // ── AC4: switching a session's agent is only possible via an EXPLICIT
   //         user action ──────────────────────────────────────────────────
 
-  test('issue-867-ac4: switching a dispatched session\'s agent requires an '
-      'explicit setSelectedAgent call — never a side effect of sendInput', () {
-    final repo = _StubAgentsRepository();
-    final ctrl = _buildController(
-      repo,
-      managerAgentNameResolver: () => 'coding-workflow-manager',
-    );
+  test(
+    'issue-867-ac4: switching a dispatched session\'s agent requires an '
+    'explicit setSelectedAgent call — never a side effect of sendInput',
+    () {
+      final repo = _StubAgentsRepository();
+      final ctrl = _buildController(
+        repo,
+        managerAgentNameResolver: () => 'coding-workflow-manager',
+      );
 
-    const dispatchedSessionId = '867-ac4-session';
-    final dispatchedSession = _makeDispatchedSession(
-      dispatchedSessionId,
-      'secretary',
-    );
-    ctrl.setActiveSessionForTest(dispatchedSessionId, dispatchedSession);
+      const dispatchedSessionId = '867-ac4-session';
+      final dispatchedSession =
+          _makeDispatchedSession(dispatchedSessionId, 'secretary');
+      ctrl.setActiveSessionForTest(dispatchedSessionId, dispatchedSession);
 
-    // Sending several turns must never mutate the resolved agent as a
-    // side effect.
-    ctrl.sendInput(dispatchedSessionId, 'turn 1');
-    ctrl.sendInput(dispatchedSessionId, 'turn 2');
-    expect(ctrl.selectedAgentFor(dispatchedSessionId), equals('secretary'));
-    expect(ctrl.hasExplicitAgentSelection(dispatchedSessionId), isFalse);
+      // Sending several turns must never mutate the resolved agent as a
+      // side effect.
+      ctrl.sendInput(dispatchedSessionId, 'turn 1');
+      ctrl.sendInput(dispatchedSessionId, 'turn 2');
+      expect(ctrl.selectedAgentFor(dispatchedSessionId), equals('secretary'));
+      expect(ctrl.hasExplicitAgentSelection(dispatchedSessionId), isFalse);
 
-    // An EXPLICIT user action (e.g. picking a different agent from the
-    // AgentSelectorPill popup menu) is the only way to change it.
-    ctrl.setSelectedAgent(dispatchedSessionId, 'build');
-    expect(ctrl.selectedAgentFor(dispatchedSessionId), equals('build'));
-    expect(ctrl.hasExplicitAgentSelection(dispatchedSessionId), isTrue);
+      // An EXPLICIT user action (e.g. picking a different agent from the
+      // AgentSelectorPill popup menu) is the only way to change it.
+      ctrl.setSelectedAgent(dispatchedSessionId, 'build');
+      expect(ctrl.selectedAgentFor(dispatchedSessionId), equals('build'));
+      expect(ctrl.hasExplicitAgentSelection(dispatchedSessionId), isTrue);
 
-    // Resetting back to "default" (null) falls through to the session's
-    // OWN agent again — NOT the app-wide manager default — because the
-    // session still has its own resolved identity.
-    ctrl.setSelectedAgent(dispatchedSessionId, null);
-    expect(ctrl.selectedAgentFor(dispatchedSessionId), equals('secretary'));
-    expect(ctrl.hasExplicitAgentSelection(dispatchedSessionId), isFalse);
+      // Resetting back to "default" (null) falls through to the session's
+      // OWN agent again — NOT the app-wide manager default — because the
+      // session still has its own resolved identity.
+      ctrl.setSelectedAgent(dispatchedSessionId, null);
+      expect(ctrl.selectedAgentFor(dispatchedSessionId), equals('secretary'));
+      expect(ctrl.hasExplicitAgentSelection(dispatchedSessionId), isFalse);
 
-    ctrl.dispose();
-  });
+      ctrl.dispose();
+    },
+  );
 
   testWidgets(
     'issue-867-ac4-real-surface: picking a different agent from the real '
@@ -442,19 +454,18 @@ void main() {
       );
 
       const dispatchedSessionId = '867-ac4-real-surface';
-      final dispatchedSession = _makeDispatchedSession(
-        dispatchedSessionId,
-        'secretary',
-      );
+      final dispatchedSession =
+          _makeDispatchedSession(dispatchedSessionId, 'secretary');
       ctrl.setActiveSessionForTest(dispatchedSessionId, dispatchedSession);
       ctrl.setAvailableAgentsForTest(dispatchedSessionId, [
         AgentInfo(name: 'build', builtIn: true),
         AgentInfo(name: 'plan', builtIn: true),
       ]);
 
-      await tester.pumpWidget(
-        _withProviders(controller: ctrl, child: const InputAreaTestHarness()),
-      );
+      await tester.pumpWidget(_withProviders(
+        controller: ctrl,
+        child: const InputAreaTestHarness(),
+      ));
       await tester.pump(Duration.zero);
 
       // Initial state: shows the session's own agent, not overridden.

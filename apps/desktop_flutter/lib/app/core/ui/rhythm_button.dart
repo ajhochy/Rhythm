@@ -41,8 +41,8 @@ class RhythmButton extends StatelessWidget {
     this.icon,
     this.tooltip,
     this.compact = false,
-  }) : variant = RhythmButtonVariant.outlined,
-       danger = false;
+  })  : variant = RhythmButtonVariant.outlined,
+        danger = false;
 
   const RhythmButton.quiet({
     super.key,
@@ -51,8 +51,8 @@ class RhythmButton extends StatelessWidget {
     this.icon,
     this.tooltip,
     this.compact = false,
-  }) : variant = RhythmButtonVariant.quiet,
-       danger = false;
+  })  : variant = RhythmButtonVariant.quiet,
+        danger = false;
 
   const RhythmButton.icon({
     super.key,
@@ -60,9 +60,9 @@ class RhythmButton extends StatelessWidget {
     required this.icon,
     required this.tooltip,
     this.compact = false,
-  }) : label = null,
-       variant = RhythmButtonVariant.icon,
-       danger = false;
+  })  : label = null,
+        variant = RhythmButtonVariant.icon,
+        danger = false;
 
   @override
   Widget build(BuildContext context) {
@@ -104,51 +104,39 @@ class RhythmButton extends StatelessWidget {
 
     final style = switch (variant) {
       RhythmButtonVariant.filled => FilledButton.styleFrom(
-        minimumSize: minimumSize,
-        backgroundColor: danger ? colors.danger : colors.accent,
-        foregroundColor: Colors.white,
-        disabledBackgroundColor: colors.surfaceMuted,
-        disabledForegroundColor: colors.textMuted,
-        shape: RoundedRectangleBorder(borderRadius: radius),
-      ),
+          minimumSize: minimumSize,
+          backgroundColor: danger ? colors.danger : colors.accent,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: colors.surfaceMuted,
+          disabledForegroundColor: colors.textMuted,
+          shape: RoundedRectangleBorder(borderRadius: radius),
+        ),
       RhythmButtonVariant.outlined => OutlinedButton.styleFrom(
-        minimumSize: minimumSize,
-        foregroundColor: colors.textPrimary,
-        disabledForegroundColor: colors.textMuted,
-        side: BorderSide(color: colors.border),
-        shape: RoundedRectangleBorder(borderRadius: radius),
-      ),
+          minimumSize: minimumSize,
+          foregroundColor: colors.textPrimary,
+          disabledForegroundColor: colors.textMuted,
+          side: BorderSide(color: colors.border),
+          shape: RoundedRectangleBorder(borderRadius: radius),
+        ),
       RhythmButtonVariant.quiet => TextButton.styleFrom(
-        minimumSize: minimumSize,
-        foregroundColor: colors.textSecondary,
-        disabledForegroundColor: colors.textMuted,
-        backgroundColor: colors.surfaceMuted,
-        shape: RoundedRectangleBorder(borderRadius: radius),
-      ),
+          minimumSize: minimumSize,
+          foregroundColor: colors.textSecondary,
+          disabledForegroundColor: colors.textMuted,
+          backgroundColor: colors.surfaceMuted,
+          shape: RoundedRectangleBorder(borderRadius: radius),
+        ),
       RhythmButtonVariant.icon => const ButtonStyle(),
     };
 
     final button = switch (variant) {
-      RhythmButtonVariant.filled => FilledButton(
-        onPressed: onPressed,
-        style: style,
-        child: child,
-      ),
-      RhythmButtonVariant.outlined => OutlinedButton(
-        onPressed: onPressed,
-        style: style,
-        child: child,
-      ),
-      RhythmButtonVariant.quiet => TextButton(
-        onPressed: onPressed,
-        style: style,
-        child: child,
-      ),
-      RhythmButtonVariant.icon => TextButton(
-        onPressed: onPressed,
-        style: style,
-        child: child,
-      ),
+      RhythmButtonVariant.filled =>
+        FilledButton(onPressed: onPressed, style: style, child: child),
+      RhythmButtonVariant.outlined =>
+        OutlinedButton(onPressed: onPressed, style: style, child: child),
+      RhythmButtonVariant.quiet =>
+        TextButton(onPressed: onPressed, style: style, child: child),
+      RhythmButtonVariant.icon =>
+        TextButton(onPressed: onPressed, style: style, child: child),
     };
 
     if (tooltip == null) return button;

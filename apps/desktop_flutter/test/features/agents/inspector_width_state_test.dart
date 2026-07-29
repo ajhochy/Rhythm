@@ -56,8 +56,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -88,12 +88,15 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async =>
-      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async => (
+            session: _makeSession(id),
+            messages: const <AgentSessionMessage>[],
+          );
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -112,14 +115,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 AgentsController _buildController() {
   final repo = _StubAgentsRepository();
@@ -127,7 +130,9 @@ AgentsController _buildController() {
     repo,
     _ReadyAgentServerController(),
     LocalNotificationService(),
-    NotificationsController(NotificationsRepository(NotificationsDataSource())),
+    NotificationsController(
+      NotificationsRepository(NotificationsDataSource()),
+    ),
   );
 }
 
@@ -160,29 +165,25 @@ void main() {
     c.dispose();
   });
 
-  test(
-    'setPanelWidth accepts an in-range value verbatim and persists it',
-    () async {
-      final c = _buildController();
-      await c.setPanelWidth(420);
-      expect(c.panelWidth, 420);
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getDouble('agents.inspector.width'), 420);
-      c.dispose();
-    },
-  );
+  test('setPanelWidth accepts an in-range value verbatim and persists it',
+      () async {
+    final c = _buildController();
+    await c.setPanelWidth(420);
+    expect(c.panelWidth, 420);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getDouble('agents.inspector.width'), 420);
+    c.dispose();
+  });
 
-  test(
-    'a fresh controller reads the persisted width via loadInspectorPrefs',
-    () async {
-      final c = _buildController();
-      await c.setPanelWidth(500);
-      c.dispose();
+  test('a fresh controller reads the persisted width via loadInspectorPrefs',
+      () async {
+    final c = _buildController();
+    await c.setPanelWidth(500);
+    c.dispose();
 
-      final c2 = _buildController();
-      await c2.loadInspectorPrefs();
-      expect(c2.panelWidth, 500);
-      c2.dispose();
-    },
-  );
+    final c2 = _buildController();
+    await c2.loadInspectorPrefs();
+    expect(c2.panelWidth, 500);
+    c2.dispose();
+  });
 }

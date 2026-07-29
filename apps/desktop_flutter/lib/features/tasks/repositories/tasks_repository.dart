@@ -45,21 +45,22 @@ class TasksRepository {
     bool includeOwnerId = false,
     bool includePreferredAgent = false,
     String? preferredAgent,
-  }) => _dataSource.update(
-    id,
-    title: title,
-    notes: notes,
-    dueDate: dueDate,
-    scheduledDate: scheduledDate,
-    status: status,
-    ownerId: ownerId,
-    includeNotes: includeNotes,
-    includeDueDate: includeDueDate,
-    includeScheduledDate: includeScheduledDate,
-    includeOwnerId: includeOwnerId,
-    includePreferredAgent: includePreferredAgent,
-    preferredAgent: preferredAgent,
-  );
+  }) =>
+      _dataSource.update(
+        id,
+        title: title,
+        notes: notes,
+        dueDate: dueDate,
+        scheduledDate: scheduledDate,
+        status: status,
+        ownerId: ownerId,
+        includeNotes: includeNotes,
+        includeDueDate: includeDueDate,
+        includeScheduledDate: includeScheduledDate,
+        includeOwnerId: includeOwnerId,
+        includePreferredAgent: includePreferredAgent,
+        preferredAgent: preferredAgent,
+      );
 
   Future<void> delete(String id) => _dataSource.delete(id);
 }

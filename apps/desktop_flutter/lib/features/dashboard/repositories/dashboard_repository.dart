@@ -60,23 +60,25 @@ class DashboardRepository {
     bool includeScheduledDate = false,
     bool includePreferredAgent = false,
     String? preferredAgent,
-  }) => _dataSource.updateTask(
-    id,
-    title: title,
-    notes: notes,
-    dueDate: dueDate,
-    scheduledDate: scheduledDate,
-    includeNotes: includeNotes,
-    includeDueDate: includeDueDate,
-    includeScheduledDate: includeScheduledDate,
-    includePreferredAgent: includePreferredAgent,
-    preferredAgent: preferredAgent,
-  );
+  }) =>
+      _dataSource.updateTask(
+        id,
+        title: title,
+        notes: notes,
+        dueDate: dueDate,
+        scheduledDate: scheduledDate,
+        includeNotes: includeNotes,
+        includeDueDate: includeDueDate,
+        includeScheduledDate: includeScheduledDate,
+        includePreferredAgent: includePreferredAgent,
+        preferredAgent: preferredAgent,
+      );
 
   Future<ProjectInstanceStep> updateProjectInstanceStepStatus(
     String stepId,
     String status,
-  ) => _dataSource.updateProjectInstanceStepStatus(stepId, status);
+  ) =>
+      _dataSource.updateProjectInstanceStepStatus(stepId, status);
 
   Future<ProjectInstanceStep> updateProjectInstanceStep(
     String stepId, {
@@ -89,18 +91,19 @@ class DashboardRepository {
     bool includeNotes = false,
     bool includeDueDate = false,
     bool includeScheduledDate = false,
-  }) => _dataSource.updateProjectInstanceStep(
-    stepId,
-    title: title,
-    dueDate: dueDate,
-    scheduledDate: scheduledDate,
-    status: status,
-    notes: notes,
-    assigneeId: assigneeId,
-    includeNotes: includeNotes,
-    includeDueDate: includeDueDate,
-    includeScheduledDate: includeScheduledDate,
-  );
+  }) =>
+      _dataSource.updateProjectInstanceStep(
+        stepId,
+        title: title,
+        dueDate: dueDate,
+        scheduledDate: scheduledDate,
+        status: status,
+        notes: notes,
+        assigneeId: assigneeId,
+        includeNotes: includeNotes,
+        includeDueDate: includeDueDate,
+        includeScheduledDate: includeScheduledDate,
+      );
 
   /// Builds unread message previews using an already-fetched [threads] list
   /// to avoid a redundant HTTP call to /message-threads.
@@ -108,9 +111,10 @@ class DashboardRepository {
     required List<MessageThread> threads,
     int limit = 3,
   }) async {
-    final unreadThreads =
-        threads.where((thread) => thread.unreadCount > 0).toList()
-          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    final unreadThreads = threads
+        .where((thread) => thread.unreadCount > 0)
+        .toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
     final previews = <DashboardUnreadMessagePreview>[];
     for (final thread in unreadThreads.take(limit)) {

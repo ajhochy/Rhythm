@@ -9,7 +9,7 @@ import '../models/weekly_plan.dart';
 
 class WeeklyPlanDataSource {
   WeeklyPlanDataSource({String? baseUrl})
-    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 

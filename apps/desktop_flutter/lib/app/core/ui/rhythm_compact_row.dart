@@ -51,11 +51,10 @@ class _RhythmCompactRowState extends State<RhythmCompactRow> {
     final background = widget.selected
         ? colors.accentMuted
         : _hovered
-        ? colors.surfaceMuted
-        : Colors.transparent;
-    final borderColor = widget.selected
-        ? accent.withValues(alpha: 0.4)
-        : colors.borderSubtle;
+            ? colors.surfaceMuted
+            : Colors.transparent;
+    final borderColor =
+        widget.selected ? accent.withValues(alpha: 0.4) : colors.borderSubtle;
 
     final titleStyle = theme.textTheme.bodyMedium?.copyWith(
       color: colors.textPrimary,

@@ -8,7 +8,7 @@ enum WeeklyPlannerStatus { idle, loading, error }
 
 class WeeklyPlannerController extends ChangeNotifier {
   WeeklyPlannerController(this._repository, this._tasksRepository)
-    : _currentWeekLabel = _todayWeekLabel();
+      : _currentWeekLabel = _todayWeekLabel();
 
   final WeeklyPlanRepository _repository;
   final TasksRepository _tasksRepository;

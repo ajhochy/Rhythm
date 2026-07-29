@@ -131,9 +131,9 @@ class _HangingGetSessionRepository implements AgentsRepository {
   // Completers for in-flight getSession calls. Complete them in tearDown to
   // let the widget tree clean up without hanging.
   final List<
-    Completer<({AgentSession session, List<AgentSessionMessage> messages})>
-  >
-  pendingGetSession = [];
+          Completer<
+              ({AgentSession session, List<AgentSessionMessage> messages})>>
+      pendingGetSession = [];
 
   @override
   Stream<AgentWsMessage> get messages => _msgCtrl.stream;
@@ -165,15 +165,14 @@ class _HangingGetSessionRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => [];
+  }) async =>
+      [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) {
-    final c =
-        Completer<
-          ({AgentSession session, List<AgentSessionMessage> messages})
-        >();
+      getSession(String id) {
+    final c = Completer<
+        ({AgentSession session, List<AgentSessionMessage> messages})>();
     pendingGetSession.add(c);
     return c.future;
   }
@@ -195,7 +194,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -240,9 +239,8 @@ final _claudeCodeConfig = AgentConfig(
   sortOrder: 0,
 );
 
-Future<Widget> _buildTestApp({
-  required AgentsController agentsController,
-}) async {
+Future<Widget> _buildTestApp(
+    {required AgentsController agentsController}) async {
   final agentServerController = _ReadyAgentServerController();
   final agentConfigsController = AgentConfigsController(
     AgentConfigsRepository(_FakeAgentConfigsDataSource([_claudeCodeConfig])),
@@ -264,7 +262,9 @@ Future<Widget> _buildTestApp({
       ChangeNotifierProvider<AgentConfigsController>.value(
         value: agentConfigsController,
       ),
-      ChangeNotifierProvider<AgentsController>.value(value: agentsController),
+      ChangeNotifierProvider<AgentsController>.value(
+        value: agentsController,
+      ),
       ChangeNotifierProvider<TasksController>.value(value: tasksController),
       ChangeNotifierProvider<AgentProjectsController>.value(
         value: agentProjectsController,
@@ -294,116 +294,121 @@ void main() {
   // -------------------------------------------------------------------------
   // c1 — UI widget test (STRICT: FAILS today, PASSES after the line-1197 fix)
   // -------------------------------------------------------------------------
-  group('issue-638-c1: WS error frame visible in full Agents view transcript', () {
-    testWidgets(
-      'error injected before session selection appears in transcript panel',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(1400, 900));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
+  group(
+    'issue-638-c1: WS error frame visible in full Agents view transcript',
+    () {
+      testWidgets(
+        'error injected before session selection appears in transcript panel',
+        (tester) async {
+          await tester.binding.setSurfaceSize(const Size(1400, 900));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final repo = _HangingGetSessionRepository();
-        final controller = AgentsController(
-          repo,
-          _ReadyAgentServerController(),
-          _FakeLocalNotificationService(),
-          _FakeNotificationsController(),
-        );
+          final repo = _HangingGetSessionRepository();
+          final controller = AgentsController(
+            repo,
+            _ReadyAgentServerController(),
+            _FakeLocalNotificationService(),
+            _FakeNotificationsController(),
+          );
 
-        // All async setup runs via runAsync() — real time, not FakeAsync —
-        // so the Timer.periodic created by initialize() is a real timer and
-        // does not interfere with the widget-pump FakeAsync environment.
-        await tester.runAsync(() async {
-          await controller.initialize();
+          // All async setup runs via runAsync() — real time, not FakeAsync —
+          // so the Timer.periodic created by initialize() is a real timer and
+          // does not interfere with the widget-pump FakeAsync environment.
+          await tester.runAsync(() async {
+            await controller.initialize();
 
-          // Register 'sid-1' in the sessions list via WS.
-          repo.push(
-            SessionCreatedMessage(
-              session: AgentSession(
-                id: 'sid-1',
-                agentId: 'claude-code',
-                name: 'Test session',
-                cwd: '/tmp',
-                status: AgentSessionStatus.idle,
-                createdAt: DateTime(2026),
-                updatedAt: DateTime(2026),
+            // Register 'sid-1' in the sessions list via WS.
+            repo.push(
+              SessionCreatedMessage(
+                session: AgentSession(
+                  id: 'sid-1',
+                  agentId: 'claude-code',
+                  name: 'Test session',
+                  cwd: '/tmp',
+                  status: AgentSessionStatus.idle,
+                  createdAt: DateTime(2026),
+                  updatedAt: DateTime(2026),
+                ),
               ),
-            ),
+            );
+            // Give the WS stream listener a microtask to process the message.
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+
+            // Precondition: no session selected yet.
+            assert(controller.selectedSessionId == null);
+
+            // Inject WsErrorMessage for 'sid-1' while no session is selected.
+            // The handler writes to _transcriptsBySession['sid-1'] but NOT to
+            // _transcript (because _selectedSessionId != 'sid-1').
+            repo.push(
+              const WsErrorMessage(
+                id: 'sid-1',
+                message: 'Model not found: openrouter/google/gemini-3-flash',
+              ),
+            );
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+
+            // OPC-M1-3: WsErrorMessage now creates a system-role ChatMessage in
+            // chatMessagesBySession instead of transcriptFor.
+            assert(
+              controller
+                  .chatMessagesFor('sid-1')
+                  .any((m) => m.role == 'system'),
+              'chatMessagesFor(sid-1) must have a system-role entry before selection',
+            );
+            assert(
+              controller.transcript.isEmpty,
+              'controller.transcript must be empty (no session selected)',
+            );
+
+            // Call selectSession — immediately sets _selectedSessionId='sid-1',
+            // _transcript=[], and fires notifyListeners(). Then hangs on
+            // getSession (Completer never completes), keeping the intermediate
+            // state that exposes the bug.
+            unawaited(controller.selectSession('sid-1'));
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+
+            // Verify intermediate state: session selected, error still in chatMessages.
+            assert(controller.selectedSessionId == 'sid-1');
+            assert(controller.transcript.isEmpty);
+            assert(
+              controller
+                  .chatMessagesFor('sid-1')
+                  .any((m) => m.role == 'system'),
+            );
+          });
+
+          // Pump the widget. The transcript panel for 'sid-1' is shown.
+          //
+          // TODAY (line 1197: controller.transcript):
+          //   legacyTranscript = [] → hasLegacy = false → "Waiting for output…"
+          //   → NO "Model not found" → assertion FAILS ✗
+          //
+          // AFTER FIX (line 1197: controller.transcriptFor(session.id)):
+          //   legacyTranscript = [errorMsg] → hasLegacy = true → renders
+          //   SelectableText("Error: Model not found: ...") → PASSES ✓
+          await tester
+              .pumpWidget(await _buildTestApp(agentsController: controller));
+          await tester.pump();
+
+          // THE FAILING ASSERTION (today): error text not rendered in view.
+          expect(
+            find.textContaining('Model not found'),
+            findsAtLeastNWidgets(1),
+            reason: 'The full Agents view transcript panel must display the WS '
+                'error. Today it reads controller.transcript (empty), missing '
+                'the error. After the fix it reads '
+                'controller.transcriptFor(session.id) and renders it.',
           );
-          // Give the WS stream listener a microtask to process the message.
-          await Future<void>.delayed(const Duration(milliseconds: 10));
 
-          // Precondition: no session selected yet.
-          assert(controller.selectedSessionId == null);
-
-          // Inject WsErrorMessage for 'sid-1' while no session is selected.
-          // The handler writes to _transcriptsBySession['sid-1'] but NOT to
-          // _transcript (because _selectedSessionId != 'sid-1').
-          repo.push(
-            const WsErrorMessage(
-              id: 'sid-1',
-              message: 'Model not found: openrouter/google/gemini-3-flash',
-            ),
-          );
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-
-          // OPC-M1-3: WsErrorMessage now creates a system-role ChatMessage in
-          // chatMessagesBySession instead of transcriptFor.
-          assert(
-            controller.chatMessagesFor('sid-1').any((m) => m.role == 'system'),
-            'chatMessagesFor(sid-1) must have a system-role entry before selection',
-          );
-          assert(
-            controller.transcript.isEmpty,
-            'controller.transcript must be empty (no session selected)',
-          );
-
-          // Call selectSession — immediately sets _selectedSessionId='sid-1',
-          // _transcript=[], and fires notifyListeners(). Then hangs on
-          // getSession (Completer never completes), keeping the intermediate
-          // state that exposes the bug.
-          unawaited(controller.selectSession('sid-1'));
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-
-          // Verify intermediate state: session selected, error still in chatMessages.
-          assert(controller.selectedSessionId == 'sid-1');
-          assert(controller.transcript.isEmpty);
-          assert(
-            controller.chatMessagesFor('sid-1').any((m) => m.role == 'system'),
-          );
-        });
-
-        // Pump the widget. The transcript panel for 'sid-1' is shown.
-        //
-        // TODAY (line 1197: controller.transcript):
-        //   legacyTranscript = [] → hasLegacy = false → "Waiting for output…"
-        //   → NO "Model not found" → assertion FAILS ✗
-        //
-        // AFTER FIX (line 1197: controller.transcriptFor(session.id)):
-        //   legacyTranscript = [errorMsg] → hasLegacy = true → renders
-        //   SelectableText("Error: Model not found: ...") → PASSES ✓
-        await tester.pumpWidget(
-          await _buildTestApp(agentsController: controller),
-        );
-        await tester.pump();
-
-        // THE FAILING ASSERTION (today): error text not rendered in view.
-        expect(
-          find.textContaining('Model not found'),
-          findsAtLeastNWidgets(1),
-          reason:
-              'The full Agents view transcript panel must display the WS '
-              'error. Today it reads controller.transcript (empty), missing '
-              'the error. After the fix it reads '
-              'controller.transcriptFor(session.id) and renders it.',
-        );
-
-        // Explicitly dispose the controller to cancel the Timer.periodic
-        // before the test framework's FakeAsync cleanup runs. Without this,
-        // the fake environment would see a pending timer and hang.
-        controller.dispose();
-      },
-    );
-  });
+          // Explicitly dispose the controller to cancel the Timer.periodic
+          // before the test framework's FakeAsync cleanup runs. Without this,
+          // the fake environment would see a pending timer and hang.
+          controller.dispose();
+        },
+      );
+    },
+  );
 
   // -------------------------------------------------------------------------
   // c2 — UNIT (regression guard for data layer)
@@ -412,56 +417,62 @@ void main() {
   group(
     'issue-638-c2: WsErrorMessage creates system-role ChatMessage for non-selected session',
     () {
-      test('error frame for non-selected session lands in chatMessagesFor — '
-          'regression guard for OPC-M1-3 single render path', () async {
-        final repo = _HangingGetSessionRepository();
-        final controller = AgentsController(
-          repo,
-          _ReadyAgentServerController(),
-          _FakeLocalNotificationService(),
-          _FakeNotificationsController(),
-        );
-        addTearDown(controller.dispose);
+      test(
+        'error frame for non-selected session lands in chatMessagesFor — '
+        'regression guard for OPC-M1-3 single render path',
+        () async {
+          final repo = _HangingGetSessionRepository();
+          final controller = AgentsController(
+            repo,
+            _ReadyAgentServerController(),
+            _FakeLocalNotificationService(),
+            _FakeNotificationsController(),
+          );
+          addTearDown(controller.dispose);
 
-        await controller.initialize();
+          await controller.initialize();
 
-        // OPC-M1-3: WsErrorMessage writes to chatMessagesBySession (system role),
-        // not transcriptFor. Both must be empty initially.
-        expect(controller.chatMessagesFor('sid-1'), isEmpty);
-        expect(controller.transcript, isEmpty);
+          // OPC-M1-3: WsErrorMessage writes to chatMessagesBySession (system role),
+          // not transcriptFor. Both must be empty initially.
+          expect(controller.chatMessagesFor('sid-1'), isEmpty);
+          expect(controller.transcript, isEmpty);
 
-        var notifyCount = 0;
-        controller.addListener(() => notifyCount++);
+          var notifyCount = 0;
+          controller.addListener(() => notifyCount++);
 
-        repo.push(
-          const WsErrorMessage(id: 'sid-1', message: 'Model not found: foo'),
-        );
-        await Future<void>.delayed(Duration.zero);
+          repo.push(
+            const WsErrorMessage(
+              id: 'sid-1',
+              message: 'Model not found: foo',
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
 
-        final chatMsgs = controller.chatMessagesFor('sid-1');
-        expect(
-          chatMsgs,
-          isNotEmpty,
-          reason:
-              'chatMessagesFor(sid-1) must contain the system-role error entry '
-              'even when sid-1 is not the selected session.',
-        );
-        expect(
-          chatMsgs.any((m) => m.role == 'system'),
-          isTrue,
-          reason: 'WsErrorMessage must create a system-role ChatMessage.',
-        );
+          final chatMsgs = controller.chatMessagesFor('sid-1');
+          expect(
+            chatMsgs,
+            isNotEmpty,
+            reason:
+                'chatMessagesFor(sid-1) must contain the system-role error entry '
+                'even when sid-1 is not the selected session.',
+          );
+          expect(
+            chatMsgs.any((m) => m.role == 'system'),
+            isTrue,
+            reason: 'WsErrorMessage must create a system-role ChatMessage.',
+          );
 
-        expect(
-          controller.transcript,
-          isEmpty,
-          reason:
-              'controller.transcript (flat selected-session list) must be '
-              'empty when no session is selected.',
-        );
+          expect(
+            controller.transcript,
+            isEmpty,
+            reason:
+                'controller.transcript (flat selected-session list) must be '
+                'empty when no session is selected.',
+          );
 
-        expect(notifyCount, greaterThan(0));
-      });
+          expect(notifyCount, greaterThan(0));
+        },
+      );
     },
   );
 
@@ -476,109 +487,110 @@ void main() {
   // Fix: when hasChat=true, also render legacyTranscript entries with
   // role == 'system' so error frames are always visible.
   // -------------------------------------------------------------------------
-  group('issue-638-c5: WS error frame visible even when hasChat = true', () {
-    testWidgets(
-      'error injected after a chat message appears in transcript panel',
-      (tester) async {
-        await tester.binding.setSurfaceSize(const Size(1400, 900));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
+  group(
+    'issue-638-c5: WS error frame visible even when hasChat = true',
+    () {
+      testWidgets(
+        'error injected after a chat message appears in transcript panel',
+        (tester) async {
+          await tester.binding.setSurfaceSize(const Size(1400, 900));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
 
-        final repo = _HangingGetSessionRepository();
-        final controller = AgentsController(
-          repo,
-          _ReadyAgentServerController(),
-          _FakeLocalNotificationService(),
-          _FakeNotificationsController(),
-        );
+          final repo = _HangingGetSessionRepository();
+          final controller = AgentsController(
+            repo,
+            _ReadyAgentServerController(),
+            _FakeLocalNotificationService(),
+            _FakeNotificationsController(),
+          );
 
-        await tester.runAsync(() async {
-          await controller.initialize();
+          await tester.runAsync(() async {
+            await controller.initialize();
 
-          // Register 'sid-chat' in the sessions list via WS.
-          repo.push(
-            SessionCreatedMessage(
-              session: AgentSession(
-                id: 'sid-chat',
-                agentId: 'claude-code',
-                name: 'Chat session',
-                cwd: '/tmp',
-                status: AgentSessionStatus.working,
-                createdAt: DateTime(2026),
-                updatedAt: DateTime(2026),
+            // Register 'sid-chat' in the sessions list via WS.
+            repo.push(
+              SessionCreatedMessage(
+                session: AgentSession(
+                  id: 'sid-chat',
+                  agentId: 'claude-code',
+                  name: 'Chat session',
+                  cwd: '/tmp',
+                  status: AgentSessionStatus.working,
+                  createdAt: DateTime(2026),
+                  updatedAt: DateTime(2026),
+                ),
               ),
-            ),
+            );
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+
+            // Populate chatMessages so hasChat = true.
+            repo.push(
+              MessageUpdatedMessage(
+                sessionId: 'sid-chat',
+                info: const {'id': 'msg-001', 'role': 'assistant'},
+              ),
+            );
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+
+            // Precondition: chatMessages must be non-empty now.
+            assert(
+              controller.chatMessagesFor('sid-chat').isNotEmpty,
+              'chatMessagesFor must be non-empty to exercise the hasChat=true branch',
+            );
+
+            // Inject a WsErrorMessage AFTER chatMessages exist.
+            // This appends to legacyTranscript (role: system) but the hasChat
+            // branch ignores legacyTranscript — so error is hidden today.
+            repo.push(
+              const WsErrorMessage(
+                id: 'sid-chat',
+                message: 'Provider error in chat session',
+              ),
+            );
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+
+            // OPC-M1-3: WsErrorMessage creates a system-role ChatMessage in
+            // chatMessagesBySession, not transcriptFor.
+            assert(
+              controller
+                  .chatMessagesFor('sid-chat')
+                  .any((m) => m.role == 'system'),
+              'chatMessagesFor(sid-chat) must have a system-role error entry',
+            );
+
+            // Select the session.
+            unawaited(controller.selectSession('sid-chat'));
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+          });
+
+          await tester
+              .pumpWidget(await _buildTestApp(agentsController: controller));
+          await tester.pump();
+
+          // THE FAILING ASSERTION (today): hasChat=true returns ONLY chatMessages,
+          // legacyTranscript (with the error) is ignored.
+          //
+          // AFTER FIX: the hasChat branch also renders role=system messages
+          // from legacyTranscript, so 'Provider error' is visible.
+          expect(
+            find.textContaining('Provider error'),
+            findsAtLeastNWidgets(1),
+            reason: 'The error must be visible even when hasChat=true. '
+                'Today the hasChat branch returns early without rendering '
+                'legacyTranscript (issue #638 hasChat sub-bug).',
           );
-          await Future<void>.delayed(const Duration(milliseconds: 10));
 
-          // Populate chatMessages so hasChat = true.
-          repo.push(
-            MessageUpdatedMessage(
-              sessionId: 'sid-chat',
-              info: const {'id': 'msg-001', 'role': 'assistant'},
-            ),
-          );
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-
-          // Precondition: chatMessages must be non-empty now.
-          assert(
-            controller.chatMessagesFor('sid-chat').isNotEmpty,
-            'chatMessagesFor must be non-empty to exercise the hasChat=true branch',
-          );
-
-          // Inject a WsErrorMessage AFTER chatMessages exist.
-          // This appends to legacyTranscript (role: system) but the hasChat
-          // branch ignores legacyTranscript — so error is hidden today.
-          repo.push(
-            const WsErrorMessage(
-              id: 'sid-chat',
-              message: 'Provider error in chat session',
-            ),
-          );
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-
-          // OPC-M1-3: WsErrorMessage creates a system-role ChatMessage in
-          // chatMessagesBySession, not transcriptFor.
-          assert(
-            controller
-                .chatMessagesFor('sid-chat')
-                .any((m) => m.role == 'system'),
-            'chatMessagesFor(sid-chat) must have a system-role error entry',
-          );
-
-          // Select the session.
-          unawaited(controller.selectSession('sid-chat'));
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        });
-
-        await tester.pumpWidget(
-          await _buildTestApp(agentsController: controller),
-        );
-        await tester.pump();
-
-        // THE FAILING ASSERTION (today): hasChat=true returns ONLY chatMessages,
-        // legacyTranscript (with the error) is ignored.
-        //
-        // AFTER FIX: the hasChat branch also renders role=system messages
-        // from legacyTranscript, so 'Provider error' is visible.
-        expect(
-          find.textContaining('Provider error'),
-          findsAtLeastNWidgets(1),
-          reason:
-              'The error must be visible even when hasChat=true. '
-              'Today the hasChat branch returns early without rendering '
-              'legacyTranscript (issue #638 hasChat sub-bug).',
-        );
-
-        // Replace the widget tree with an empty container first so that
-        // any timer-owning widgets (MessageActionsRow, MessageTimeTicker)
-        // are properly disposed before controller.dispose() cancels the
-        // stuckCheckTimer. Without this, those widget timers are still
-        // pending when the test framework's FakeAsync cleanup runs.
-        await tester.pumpWidget(const MaterialApp(home: SizedBox()));
-        controller.dispose();
-      },
-    );
-  });
+          // Replace the widget tree with an empty container first so that
+          // any timer-owning widgets (MessageActionsRow, MessageTimeTicker)
+          // are properly disposed before controller.dispose() cancels the
+          // stuckCheckTimer. Without this, those widget timers are still
+          // pending when the test framework's FakeAsync cleanup runs.
+          await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+          controller.dispose();
+        },
+      );
+    },
+  );
 
   // -------------------------------------------------------------------------
   // c3 — UNIT (STRICT: FAILS today, PASSES after the line-855 merge fix)
@@ -599,26 +611,79 @@ void main() {
   //         .toList();
   //     _transcriptsBySession[id] = [...backfill, ...existing];
   // -------------------------------------------------------------------------
-  group('issue-638-c3: WS error frame injected during selectSession REST race '
-      'must survive REST resolution', () {
-    test('WS error frame injected during selectSession REST race must survive '
-        'REST resolution', () async {
-      final repo = _HangingGetSessionRepository();
-      final controller = AgentsController(
-        repo,
-        _ReadyAgentServerController(),
-        _FakeLocalNotificationService(),
-        _FakeNotificationsController(),
-      );
-      addTearDown(controller.dispose);
+  group(
+    'issue-638-c3: WS error frame injected during selectSession REST race '
+    'must survive REST resolution',
+    () {
+      test(
+        'WS error frame injected during selectSession REST race must survive '
+        'REST resolution',
+        () async {
+          final repo = _HangingGetSessionRepository();
+          final controller = AgentsController(
+            repo,
+            _ReadyAgentServerController(),
+            _FakeLocalNotificationService(),
+            _FakeNotificationsController(),
+          );
+          addTearDown(controller.dispose);
 
-      await controller.initialize();
+          await controller.initialize();
 
-      // Register sid-1 via a fake SessionCreatedMessage so the controller
-      // knows about the session before we try to select it.
-      repo.push(
-        SessionCreatedMessage(
-          session: AgentSession(
+          // Register sid-1 via a fake SessionCreatedMessage so the controller
+          // knows about the session before we try to select it.
+          repo.push(
+            SessionCreatedMessage(
+              session: AgentSession(
+                id: 'sid-1',
+                agentId: 'claude-code',
+                name: 'Race test session',
+                cwd: '/tmp',
+                status: AgentSessionStatus.idle,
+                createdAt: DateTime(2026),
+                updatedAt: DateTime(2026),
+              ),
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+
+          // Step 1: dispatch selectSession — hangs on REST (Completer not yet
+          // completed). The call immediately sets _selectedSessionId='sid-1'
+          // and _transcript=[] then notifies, but the REST future is pending.
+          final selectFuture = controller.selectSession('sid-1');
+
+          // Give the microtask queue a tick so selectSession's async body
+          // executes up to the `await _repository.getSession(id)` suspension
+          // point and registers the Completer.
+          await Future<void>.delayed(Duration.zero);
+
+          // Step 2: inject WS error frame DURING the REST race window.
+          // The WsErrorMessage handler is unconditional — it writes to
+          // _transcriptsBySession['sid-1'] regardless of selected session.
+          repo.push(
+            const WsErrorMessage(
+              id: 'sid-1',
+              message: 'SDK error during race window',
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+
+          // Step 2 assertion: OPC-M1-3 — WsErrorMessage creates a system-role
+          // ChatMessage in chatMessagesBySession (not transcriptFor).
+          expect(
+            controller.chatMessagesFor('sid-1'),
+            isNotEmpty,
+            reason: 'chatMessagesFor(sid-1) must contain the system-role WS '
+                'error after it arrives during the REST race window.',
+          );
+          expect(
+            controller.chatMessagesFor('sid-1').any((m) => m.role == 'system'),
+            isTrue,
+          );
+
+          // Step 3: complete the REST with an EMPTY messages list — simulating
+          // a server that has not yet persisted the WS-delivered error frame.
+          final session = AgentSession(
             id: 'sid-1',
             agentId: 'claude-code',
             name: 'Race test session',
@@ -626,88 +691,37 @@ void main() {
             status: AgentSessionStatus.idle,
             createdAt: DateTime(2026),
             updatedAt: DateTime(2026),
-          ),
-        ),
-      );
-      await Future<void>.delayed(Duration.zero);
+          );
+          expect(
+            repo.pendingGetSession,
+            isNotEmpty,
+            reason: 'There must be a pending getSession Completer to resolve.',
+          );
+          repo.pendingGetSession.first.complete(
+            (session: session, messages: const <AgentSessionMessage>[]),
+          );
 
-      // Step 1: dispatch selectSession — hangs on REST (Completer not yet
-      // completed). The call immediately sets _selectedSessionId='sid-1'
-      // and _transcript=[] then notifies, but the REST future is pending.
-      final selectFuture = controller.selectSession('sid-1');
+          // Await selectSession to fully resolve.
+          await selectFuture;
 
-      // Give the microtask queue a tick so selectSession's async body
-      // executes up to the `await _repository.getSession(id)` suspension
-      // point and registers the Completer.
-      await Future<void>.delayed(Duration.zero);
-
-      // Step 2: inject WS error frame DURING the REST race window.
-      // The WsErrorMessage handler is unconditional — it writes to
-      // _transcriptsBySession['sid-1'] regardless of selected session.
-      repo.push(
-        const WsErrorMessage(
-          id: 'sid-1',
-          message: 'SDK error during race window',
-        ),
+          // Step 4: OPC-M1-3 — chatMessagesBySession holds WS error in place.
+          // rehydrateChatMessages skips messages already in WS-streamed state,
+          // so the system-role error entry survives REST resolution.
+          expect(
+            controller.chatMessagesFor('sid-1'),
+            isNotEmpty,
+            reason: 'chatMessagesFor(sid-1) must still contain the system-role '
+                'error after selectSession resolves with an empty REST result. '
+                'OPC-M1-3: the parts-based store is not overwritten by REST.',
+          );
+          expect(
+            controller.chatMessagesFor('sid-1').any((m) => m.role == 'system'),
+            isTrue,
+            reason: 'The system-role WS error ChatMessage must survive REST '
+                'rehydration.',
+          );
+        },
       );
-      await Future<void>.delayed(Duration.zero);
-
-      // Step 2 assertion: OPC-M1-3 — WsErrorMessage creates a system-role
-      // ChatMessage in chatMessagesBySession (not transcriptFor).
-      expect(
-        controller.chatMessagesFor('sid-1'),
-        isNotEmpty,
-        reason:
-            'chatMessagesFor(sid-1) must contain the system-role WS '
-            'error after it arrives during the REST race window.',
-      );
-      expect(
-        controller.chatMessagesFor('sid-1').any((m) => m.role == 'system'),
-        isTrue,
-      );
-
-      // Step 3: complete the REST with an EMPTY messages list — simulating
-      // a server that has not yet persisted the WS-delivered error frame.
-      final session = AgentSession(
-        id: 'sid-1',
-        agentId: 'claude-code',
-        name: 'Race test session',
-        cwd: '/tmp',
-        status: AgentSessionStatus.idle,
-        createdAt: DateTime(2026),
-        updatedAt: DateTime(2026),
-      );
-      expect(
-        repo.pendingGetSession,
-        isNotEmpty,
-        reason: 'There must be a pending getSession Completer to resolve.',
-      );
-      repo.pendingGetSession.first.complete((
-        session: session,
-        messages: const <AgentSessionMessage>[],
-      ));
-
-      // Await selectSession to fully resolve.
-      await selectFuture;
-
-      // Step 4: OPC-M1-3 — chatMessagesBySession holds WS error in place.
-      // rehydrateChatMessages skips messages already in WS-streamed state,
-      // so the system-role error entry survives REST resolution.
-      expect(
-        controller.chatMessagesFor('sid-1'),
-        isNotEmpty,
-        reason:
-            'chatMessagesFor(sid-1) must still contain the system-role '
-            'error after selectSession resolves with an empty REST result. '
-            'OPC-M1-3: the parts-based store is not overwritten by REST.',
-      );
-      expect(
-        controller.chatMessagesFor('sid-1').any((m) => m.role == 'system'),
-        isTrue,
-        reason:
-            'The system-role WS error ChatMessage must survive REST '
-            'rehydration.',
-      );
-    });
-  });
+    },
+  );
 }

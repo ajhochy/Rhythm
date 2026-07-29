@@ -69,9 +69,8 @@ class AgentResearchController extends ChangeNotifier {
   Future<void> retry(String id) async {
     try {
       final job = await _repository.retry(id);
-      _jobs = _jobs
-          .map((existing) => existing.id == id ? job : existing)
-          .toList();
+      _jobs =
+          _jobs.map((existing) => existing.id == id ? job : existing).toList();
       _error = null;
     } catch (e) {
       _error = e.toString();

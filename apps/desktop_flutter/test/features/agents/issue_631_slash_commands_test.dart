@@ -36,10 +36,10 @@ import 'package:rhythm_desktop/features/agents/views/_slash_command_popover.dart
 // ---------------------------------------------------------------------------
 
 http.Client _mockClient(int status, Object body) {
-  return MockClient(
-    (_) async =>
-        http.Response(body is String ? body : jsonEncode(body), status),
-  );
+  return MockClient((_) async => http.Response(
+        body is String ? body : jsonEncode(body),
+        status,
+      ));
 }
 
 Widget _wrapPopover({
@@ -129,9 +129,9 @@ void main() {
       // Expect either [] or a thrown error handled gracefully — the data source
       // must not crash the caller.
       final result = await ds.list().then(
-        (r) => r,
-        onError: (_) => <SlashCommand>[],
-      );
+            (r) => r,
+            onError: (_) => <SlashCommand>[],
+          );
 
       // The catch block in CommandsDataSource.list wraps cast errors — result
       // will be [].
@@ -162,16 +162,13 @@ void main() {
       SlashCommand(name: 'compact'),
     ];
 
-    testWidgets('typing "/" opens the popover and shows command names', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        _wrapPopover(
-          inputController: inputController,
-          commands: testCommands,
-          onCommandSelected: (cmd) => lastSelected = cmd,
-        ),
-      );
+    testWidgets('typing "/" opens the popover and shows command names',
+        (tester) async {
+      await tester.pumpWidget(_wrapPopover(
+        inputController: inputController,
+        commands: testCommands,
+        onCommandSelected: (cmd) => lastSelected = cmd,
+      ));
 
       // Type '/' — should open the popover.
       inputController.text = '/';
@@ -183,16 +180,13 @@ void main() {
       expect(find.text('/compact'), findsOneWidget);
     });
 
-    testWidgets('command descriptions are shown alongside names', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        _wrapPopover(
-          inputController: inputController,
-          commands: testCommands,
-          onCommandSelected: (cmd) => lastSelected = cmd,
-        ),
-      );
+    testWidgets('command descriptions are shown alongside names',
+        (tester) async {
+      await tester.pumpWidget(_wrapPopover(
+        inputController: inputController,
+        commands: testCommands,
+        onCommandSelected: (cmd) => lastSelected = cmd,
+      ));
 
       inputController.text = '/';
       await tester.pump();
@@ -202,28 +196,23 @@ void main() {
     });
 
     testWidgets('popover is NOT visible when input is empty', (tester) async {
-      await tester.pumpWidget(
-        _wrapPopover(
-          inputController: inputController,
-          commands: testCommands,
-          onCommandSelected: (cmd) => lastSelected = cmd,
-        ),
-      );
+      await tester.pumpWidget(_wrapPopover(
+        inputController: inputController,
+        commands: testCommands,
+        onCommandSelected: (cmd) => lastSelected = cmd,
+      ));
 
       // Empty input — popover must be hidden.
       expect(find.text('/help'), findsNothing);
     });
 
-    testWidgets('popover is NOT visible when input does not start with "/"', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        _wrapPopover(
-          inputController: inputController,
-          commands: testCommands,
-          onCommandSelected: (cmd) => lastSelected = cmd,
-        ),
-      );
+    testWidgets('popover is NOT visible when input does not start with "/"',
+        (tester) async {
+      await tester.pumpWidget(_wrapPopover(
+        inputController: inputController,
+        commands: testCommands,
+        onCommandSelected: (cmd) => lastSelected = cmd,
+      ));
 
       inputController.text = 'hello';
       await tester.pump();
@@ -231,28 +220,25 @@ void main() {
       expect(find.text('/help'), findsNothing);
     });
 
-    testWidgets('tapping a command row fires onCommandSelected', (
-      tester,
-    ) async {
+    testWidgets('tapping a command row fires onCommandSelected',
+        (tester) async {
       // Use a taller host so the Positioned popover renders within the
       // hit-test area.
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light(),
-          home: Scaffold(
-            body: SizedBox(
-              width: 400,
-              height: 600,
-              child: SlashCommandPopover(
-                inputController: inputController,
-                commands: testCommands,
-                onCommandSelected: (cmd) => lastSelected = cmd,
-                child: const SizedBox(width: 400, height: 40),
-              ),
+      await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: SizedBox(
+            width: 400,
+            height: 600,
+            child: SlashCommandPopover(
+              inputController: inputController,
+              commands: testCommands,
+              onCommandSelected: (cmd) => lastSelected = cmd,
+              child: const SizedBox(width: 400, height: 40),
             ),
           ),
         ),
-      );
+      ));
 
       inputController.text = '/';
       await tester.pump();
@@ -275,13 +261,11 @@ void main() {
     });
 
     testWidgets('"/hel" filters to only /help', (tester) async {
-      await tester.pumpWidget(
-        _wrapPopover(
-          inputController: inputController,
-          commands: testCommands,
-          onCommandSelected: (cmd) => lastSelected = cmd,
-        ),
-      );
+      await tester.pumpWidget(_wrapPopover(
+        inputController: inputController,
+        commands: testCommands,
+        onCommandSelected: (cmd) => lastSelected = cmd,
+      ));
 
       inputController.text = '/hel';
       await tester.pump();
@@ -292,13 +276,11 @@ void main() {
     });
 
     testWidgets('empty command list shows "No commands" text', (tester) async {
-      await tester.pumpWidget(
-        _wrapPopover(
-          inputController: inputController,
-          commands: const [],
-          onCommandSelected: (cmd) => lastSelected = cmd,
-        ),
-      );
+      await tester.pumpWidget(_wrapPopover(
+        inputController: inputController,
+        commands: const [],
+        onCommandSelected: (cmd) => lastSelected = cmd,
+      ));
 
       inputController.text = '/';
       await tester.pump();

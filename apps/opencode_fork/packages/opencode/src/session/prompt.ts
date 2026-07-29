@@ -757,7 +757,11 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       )
       const eagerKeys = new Set([...allowedKeys].filter((key) => !deferredKeys.has(key)))
 
-      if (deferredKeys.size > 0) {
+      // Full-deferred sessions keep their dispatcher even with an empty
+      // catalog (contract: dispatch of any name is rejected with the
+      // "No MCP tools" message); per-server deferral only materializes the
+      // dispatcher when it actually has entries.
+      if (deferredMcp || deferredKeys.size > 0) {
         const catalog = buildDeferredToolCatalog(deferredKeys, keyToServer, deferredDescriptions(mcpToolsAll))
         tools[MCP_DISPATCH_TOOL_ID] = tool({
           description: MCP_DISPATCH_DESCRIPTION + "\n\n" + formatDeferredToolCatalog(catalog),
@@ -832,7 +836,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       log.debug("resolveTools complete", {
         resolveToolsCount: Object.keys(tools).length,
         allowlistActive: !!input.session.mcpAllowlist,
-        deferredMcpActive: deferredKeys.size > 0,
+        deferredMcpActive: deferredMcp || deferredKeys.size > 0,
         deferredMcpCatalogSize: deferredKeys.size > 0 ? deferredKeys.size : undefined,
       })
 

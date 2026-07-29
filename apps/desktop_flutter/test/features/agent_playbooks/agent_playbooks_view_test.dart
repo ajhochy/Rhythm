@@ -25,10 +25,10 @@ class _FakeAgentPlaybooksDataSource implements AgentPlaybooksDataSource {
 
   @override
   Future<PlaybookContent> getContent(String name) async => PlaybookContent(
-    name: name,
-    frontmatter: const {'description': 'existing desc'},
-    template: 'existing template',
-  );
+        name: name,
+        frontmatter: const {'description': 'existing desc'},
+        template: 'existing template',
+      );
 
   @override
   Future<PlaybookContent> create({
@@ -43,11 +43,10 @@ class _FakeAgentPlaybooksDataSource implements AgentPlaybooksDataSource {
     entries = [
       ...entries,
       PlaybookEntry(
-        name: name,
-        description: description,
-        source: 'command',
-        managed: true,
-      ),
+          name: name,
+          description: description,
+          source: 'command',
+          managed: true),
     ];
     return PlaybookContent(
       name: name,
@@ -67,16 +66,13 @@ class _FakeAgentPlaybooksDataSource implements AgentPlaybooksDataSource {
   }) async {
     writes.add(('update', name, template));
     entries = entries
-        .map(
-          (e) => e.name == name
-              ? PlaybookEntry(
-                  name: name,
-                  description: description,
-                  source: e.source,
-                  managed: e.managed,
-                )
-              : e,
-        )
+        .map((e) => e.name == name
+            ? PlaybookEntry(
+                name: name,
+                description: description,
+                source: e.source,
+                managed: e.managed)
+            : e)
         .toList();
     return PlaybookContent(
       name: name,
@@ -103,8 +99,7 @@ Widget _harness({
     providers: [
       ChangeNotifierProvider<AgentPlaybooksController>.value(value: controller),
       ChangeNotifierProvider<AgentConfigsController>.value(
-        value: configsController,
-      ),
+          value: configsController),
     ],
     child: const MaterialApp(home: AgentPlaybooksView()),
   );
@@ -125,147 +120,120 @@ void main() {
     );
   });
 
-  testWidgets('empty state renders when there are no playbooks', (
-    tester,
-  ) async {
+  testWidgets('empty state renders when there are no playbooks',
+      (tester) async {
     await tester.pumpWidget(
-      _harness(controller: controller, configsController: configsController),
-    );
+        _harness(controller: controller, configsController: configsController));
     await tester.pumpAndSettle();
 
     expect(find.text('No playbooks yet'), findsOneWidget);
   });
 
   testWidgets(
-    'managed playbook shows edit/delete; built-in shows lock and no actions',
-    (tester) async {
-      ds.entries = const [
-        PlaybookEntry(
+      'managed playbook shows edit/delete; built-in shows lock and no actions',
+      (tester) async {
+    ds.entries = const [
+      PlaybookEntry(
           name: 'weekly-bulletin',
           description: 'Draft the weekly bulletin',
           source: 'command',
-          managed: true,
-        ),
-        PlaybookEntry(
+          managed: true),
+      PlaybookEntry(
           name: 'init',
           description: 'Built-in init',
           source: 'command',
-          managed: false,
-        ),
-      ];
+          managed: false),
+    ];
 
-      await tester.pumpWidget(
-        _harness(controller: controller, configsController: configsController),
-      );
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(
+        _harness(controller: controller, configsController: configsController));
+    await tester.pumpAndSettle();
 
-      expect(find.text('/weekly-bulletin'), findsOneWidget);
-      expect(find.text('/init'), findsOneWidget);
+    expect(find.text('/weekly-bulletin'), findsOneWidget);
+    expect(find.text('/init'), findsOneWidget);
 
-      expect(
-        find.byKey(const ValueKey('edit-playbook-weekly-bulletin')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('delete-playbook-weekly-bulletin')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const ValueKey('edit-playbook-init')), findsNothing);
-      expect(find.byKey(const ValueKey('delete-playbook-init')), findsNothing);
-      expect(
-        find.byKey(const ValueKey('readonly-playbook-init')),
-        findsOneWidget,
-      );
-    },
-  );
+    expect(find.byKey(const ValueKey('edit-playbook-weekly-bulletin')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('delete-playbook-weekly-bulletin')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('edit-playbook-init')), findsNothing);
+    expect(find.byKey(const ValueKey('delete-playbook-init')), findsNothing);
+    expect(
+        find.byKey(const ValueKey('readonly-playbook-init')), findsOneWidget);
+  });
 
   testWidgets('create a playbook via the New playbook sheet', (tester) async {
     await tester.pumpWidget(
-      _harness(controller: controller, configsController: configsController),
-    );
+        _harness(controller: controller, configsController: configsController));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('new-playbook-button')));
     await tester.pumpAndSettle();
 
     await tester.enterText(
-      find.byKey(const ValueKey('playbook-name-field')),
-      'weekly-bulletin',
-    );
+        find.byKey(const ValueKey('playbook-name-field')), 'weekly-bulletin');
     await tester.enterText(
-      find.byKey(const ValueKey('playbook-template-field')),
-      'Draft the bulletin for \$ARGUMENTS',
-    );
+        find.byKey(const ValueKey('playbook-template-field')),
+        'Draft the bulletin for \$ARGUMENTS');
     await tester.tap(find.text('Create playbook'));
     await tester.pumpAndSettle();
 
     expect(
-      ds.writes,
-      contains((
-        'create',
-        'weekly-bulletin',
-        'Draft the bulletin for \$ARGUMENTS',
-      )),
-    );
+        ds.writes,
+        contains((
+          'create',
+          'weekly-bulletin',
+          'Draft the bulletin for \$ARGUMENTS'
+        )));
     expect(find.text('/weekly-bulletin'), findsOneWidget);
   });
 
   testWidgets('edit round-trips a managed playbook body', (tester) async {
     ds.entries = const [
       PlaybookEntry(
-        name: 'weekly-bulletin',
-        description: 'old desc',
-        source: 'command',
-        managed: true,
-      ),
+          name: 'weekly-bulletin',
+          description: 'old desc',
+          source: 'command',
+          managed: true),
     ];
 
     await tester.pumpWidget(
-      _harness(controller: controller, configsController: configsController),
-    );
+        _harness(controller: controller, configsController: configsController));
     await tester.pumpAndSettle();
 
-    await tester.tap(
-      find.byKey(const ValueKey('edit-playbook-weekly-bulletin')),
-    );
+    await tester
+        .tap(find.byKey(const ValueKey('edit-playbook-weekly-bulletin')));
     await tester.pumpAndSettle();
 
     // Content is fetched async on open — settle again for the fetched body.
     await tester.pumpAndSettle();
 
     await tester.enterText(
-      find.byKey(const ValueKey('playbook-template-field')),
-      'updated template body',
-    );
+        find.byKey(const ValueKey('playbook-template-field')),
+        'updated template body');
     await tester.tap(find.text('Save playbook'));
     await tester.pumpAndSettle();
 
-    expect(
-      ds.writes,
-      contains(('update', 'weekly-bulletin', 'updated template body')),
-    );
+    expect(ds.writes,
+        contains(('update', 'weekly-bulletin', 'updated template body')));
   });
 
-  testWidgets('delete removes a managed playbook after confirmation', (
-    tester,
-  ) async {
+  testWidgets('delete removes a managed playbook after confirmation',
+      (tester) async {
     ds.entries = const [
       PlaybookEntry(
-        name: 'weekly-bulletin',
-        description: 'desc',
-        source: 'command',
-        managed: true,
-      ),
+          name: 'weekly-bulletin',
+          description: 'desc',
+          source: 'command',
+          managed: true),
     ];
 
     await tester.pumpWidget(
-      _harness(controller: controller, configsController: configsController),
-    );
+        _harness(controller: controller, configsController: configsController));
     await tester.pumpAndSettle();
 
-    await tester.tap(
-      find.byKey(const ValueKey('delete-playbook-weekly-bulletin')),
-    );
+    await tester
+        .tap(find.byKey(const ValueKey('delete-playbook-weekly-bulletin')));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Delete'));

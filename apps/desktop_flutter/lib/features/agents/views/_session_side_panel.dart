@@ -249,9 +249,8 @@ class _ContextTab extends StatelessWidget {
     // app-wide). When the panel is pumped in isolation without them (some
     // widget tests), degrade gracefully to the raw agentId rather than throw.
     try {
-      final providerToAgentKind = context
-          .watch<AgentServerController>()
-          .providerToAgentKind;
+      final providerToAgentKind =
+          context.watch<AgentServerController>().providerToAgentKind;
       final configsCtrl = context.watch<AgentConfigsController>();
       final identity = resolveAgentBadgeIdentity(
         agentId: session.agentId,
@@ -361,10 +360,10 @@ class _ContextTab extends StatelessWidget {
     }
     final memoryIds =
         (provenance['memoryIds'] as List<dynamic>?)?.cast<String>() ??
-        const <String>[];
+            const <String>[];
     final notePaths =
         (provenance['notePaths'] as List<dynamic>?)?.cast<String?>() ??
-        const <String?>[];
+            const <String?>[];
     return [
       const SizedBox(height: 8),
       _rowChild(

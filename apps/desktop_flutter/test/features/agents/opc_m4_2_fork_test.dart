@@ -72,8 +72,8 @@ class _ReadyAgentServerController extends AgentServerController {
 /// configurable return values for testing.
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -113,14 +113,15 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async => (
-    session: _makeSession(id),
-    messages: sessionMessages[id] ?? const <AgentSessionMessage>[],
-  );
+      getSession(String id) async => (
+            session: _makeSession(id),
+            messages: sessionMessages[id] ?? const <AgentSessionMessage>[],
+          );
 
   @override
   Future<AgentSession> forkSession(String sessionId, String messageId) async {
@@ -142,14 +143,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id, {String? name}) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: name ?? 'Test Session $id',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: name ?? 'Test Session $id',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 AgentsController _buildController(_StubAgentsRepository repo) =>
     AgentsController(
@@ -228,10 +229,8 @@ void main() {
       const messageId = 'msg-fork-002';
 
       // Prepare fork return value.
-      final forkSession = _makeSession(
-        'forked-session-id',
-        name: 'Test Session (fork)',
-      );
+      final forkSession =
+          _makeSession('forked-session-id', name: 'Test Session (fork)');
       repo.forkReturnValue = forkSession;
 
       await tester.pumpWidget(
@@ -280,55 +279,60 @@ void main() {
         _makeSession(sessionId, name: 'List Parent'),
       );
 
-      final forkSession = _makeSession(
-        'fork-list-new',
-        name: 'List Parent (fork)',
-      );
+      final forkSession =
+          _makeSession('fork-list-new', name: 'List Parent (fork)');
       repo.forkReturnValue = forkSession;
 
       await controller.forkSession(sessionId, messageId);
 
       // Fork must appear in the sessions list.
-      expect(controller.sessions.any((s) => s.id == 'fork-list-new'), isTrue);
+      expect(
+        controller.sessions.any((s) => s.id == 'fork-list-new'),
+        isTrue,
+      );
     },
   );
 
   // ── c4d: selecting forked session shows its transcript ──────────────────────
 
-  test('issue-701-c4d: selecting forked session loads its messages', () async {
-    const sessionId = 'ses-fork-transcript';
-    const messageId = 'msg-fork-004';
+  test(
+    'issue-701-c4d: selecting forked session loads its messages',
+    () async {
+      const sessionId = 'ses-fork-transcript';
+      const messageId = 'msg-fork-004';
 
-    controller.setActiveSessionForTest(
-      sessionId,
-      _makeSession(sessionId, name: 'Transcript Parent'),
-    );
+      controller.setActiveSessionForTest(
+        sessionId,
+        _makeSession(sessionId, name: 'Transcript Parent'),
+      );
 
-    final forkId = 'fork-transcript-new';
-    final forkSession = _makeSession(forkId, name: 'Transcript Parent (fork)');
-    repo.forkReturnValue = forkSession;
+      final forkId = 'fork-transcript-new';
+      final forkSession =
+          _makeSession(forkId, name: 'Transcript Parent (fork)');
+      repo.forkReturnValue = forkSession;
 
-    // Provide messages for the fork session's getSession call.
-    repo.sessionMessages[forkId] = [
-      AgentSessionMessage(
-        id: 1,
-        sessionId: forkId,
-        role: 'input',
-        rawText: 'user message',
-        strippedText: 'user message',
-        createdAt: _kEpoch,
-      ),
-    ];
+      // Provide messages for the fork session's getSession call.
+      repo.sessionMessages[forkId] = [
+        AgentSessionMessage(
+          id: 1,
+          sessionId: forkId,
+          role: 'input',
+          rawText: 'user message',
+          strippedText: 'user message',
+          createdAt: _kEpoch,
+        ),
+      ];
 
-    await controller.forkSession(sessionId, messageId);
+      await controller.forkSession(sessionId, messageId);
 
-    // Select the forked session.
-    await controller.selectSession(forkId);
+      // Select the forked session.
+      await controller.selectSession(forkId);
 
-    // Messages must be populated for the fork.
-    final messages = controller.chatMessagesFor(forkId);
-    expect(messages.isNotEmpty, isTrue);
-  });
+      // Messages must be populated for the fork.
+      final messages = controller.chatMessagesFor(forkId);
+      expect(messages.isNotEmpty, isTrue);
+    },
+  );
 
   // ── c4e: user messages do NOT show fork icon ─────────────────────────────────
 

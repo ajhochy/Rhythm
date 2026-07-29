@@ -125,16 +125,16 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
     final filtered = query.isEmpty
         ? profiles
         : profiles
-              .where((c) => c.displayLabel.toLowerCase().contains(query))
-              .toList();
+            .where((c) => c.displayLabel.toLowerCase().contains(query))
+            .toList();
 
     final sorted = [...filtered];
     sorted.sort((a, b) {
       switch (_sortField) {
         case _ProfileSortField.name:
           return a.displayLabel.toLowerCase().compareTo(
-            b.displayLabel.toLowerCase(),
-          );
+                b.displayLabel.toLowerCase(),
+              );
         case _ProfileSortField.modelProvider:
           return (a.modelProvider ?? '').compareTo(b.modelProvider ?? '');
       }
@@ -445,8 +445,7 @@ class _DefaultProfilePicker extends StatelessWidget {
     // If the persisted override no longer matches a selectable profile
     // (removed/disabled profile), show it as unset rather than a dangling
     // selection the dropdown can't render.
-    final currentValue =
-        (currentOcAgent != null &&
+    final currentValue = (currentOcAgent != null &&
             selectable.any((c) => c.ocAgent == currentOcAgent))
         ? currentOcAgent
         : null;
@@ -609,9 +608,9 @@ class AgentProfileSheet extends StatefulWidget {
     AgentModelsDataSource? modelsDataSource,
     OpencodeSkillsDataSource? skillsDataSource,
     OpencodeMcpDataSource? mcpDataSource,
-  }) : _modelsDataSource = modelsDataSource,
-       _skillsDataSource = skillsDataSource,
-       _mcpDataSource = mcpDataSource;
+  })  : _modelsDataSource = modelsDataSource,
+        _skillsDataSource = skillsDataSource,
+        _mcpDataSource = mcpDataSource;
 
   /// Non-null = edit mode; null = create mode.
   final AgentConfig? config;
@@ -701,13 +700,13 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
       text: (cfg?.allowedDelegates ?? []).join('\n'),
     );
     _isManager = cfg?.isManager ?? false;
-    _selectedMcps = cfg?.allowedMcps != null
-        ? List<String>.from(cfg!.allowedMcps!)
-        : null;
-    _selectedMcpTools =
-        cfg?.allowedMcpTools?.map(
-          (name, tools) =>
-              MapEntry(name, tools == null ? null : List<String>.from(tools)),
+    _selectedMcps =
+        cfg?.allowedMcps != null ? List<String>.from(cfg!.allowedMcps!) : null;
+    _selectedMcpTools = cfg?.allowedMcpTools?.map(
+          (name, tools) => MapEntry(
+            name,
+            tools == null ? null : List<String>.from(tools),
+          ),
         ) ??
         (cfg?.allowedMcps == null
             ? null
@@ -909,9 +908,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
             ? null
             : _systemPromptController.text.trim(),
         'allowedMcpsJson': _encodeMcpScope(),
-        'allowedSkillsJson': _selectedSkills != null
-            ? jsonEncode(_selectedSkills)
-            : null,
+        'allowedSkillsJson':
+            _selectedSkills != null ? jsonEncode(_selectedSkills) : null,
         'allowedDelegatesJson': _isManager
             ? jsonEncode(_parseDelimitedList(_allowedDelegatesController.text))
             : null,
@@ -919,9 +917,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         'modelId': _selectedModel?.modelId,
         'defaultAnthropicAccountId': _selectedAnthropicAccountId,
         'sessionSelectable': _sessionSelectable,
-        'corePermissionsJson': _corePermissions.isEmpty
-            ? null
-            : jsonEncode(_corePermissions),
+        'corePermissionsJson':
+            _corePermissions.isEmpty ? null : jsonEncode(_corePermissions),
       };
       final ok = await controller.update(widget.config!.id, patch);
       if (ok) {
@@ -940,9 +937,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
             ? null
             : _systemPromptController.text.trim(),
         'allowedMcpsJson': _encodeMcpScope(),
-        'allowedSkillsJson': _selectedSkills != null
-            ? jsonEncode(_selectedSkills)
-            : null,
+        'allowedSkillsJson':
+            _selectedSkills != null ? jsonEncode(_selectedSkills) : null,
         'allowedDelegatesJson': _isManager
             ? jsonEncode(_parseDelimitedList(_allowedDelegatesController.text))
             : null,
@@ -950,9 +946,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         'modelId': _selectedModel?.modelId,
         'defaultAnthropicAccountId': _selectedAnthropicAccountId,
         'sessionSelectable': _sessionSelectable,
-        'corePermissionsJson': _corePermissions.isEmpty
-            ? null
-            : jsonEncode(_corePermissions),
+        'corePermissionsJson':
+            _corePermissions.isEmpty ? null : jsonEncode(_corePermissions),
       };
       result = await controller.create(input);
     }
@@ -1334,8 +1329,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     // dropdown asserts when `value` has no matching item.
     final value =
         _anthropicAccounts.any((a) => a.id == _selectedAnthropicAccountId)
-        ? _selectedAnthropicAccountId
-        : null;
+            ? _selectedAnthropicAccountId
+            : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1472,7 +1467,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
           const SizedBox(height: 4),
           Text(
             '$skillCount skills • $mcpCount MCP servers',
-            style: TextStyle(color: context.rhythm.textSecondary, fontSize: 12),
+            style: TextStyle(
+              color: context.rhythm.textSecondary,
+              fontSize: 12,
+            ),
           ),
           if (_buildGeminiCapWarning() case final warning?) ...[
             const SizedBox(height: 10),
@@ -1888,14 +1886,13 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
   // --------------------------------------------------------------------------
 
   Widget _buildToolPermissionsSection() {
-    final exoticKeys =
-        _corePermissions.keys
-            .where((k) => k != 'bash' && !_kKnownPermissionKeys.contains(k))
-            .toList()
-          ..sort();
+    final exoticKeys = _corePermissions.keys
+        .where((k) => k != 'bash' && !_kKnownPermissionKeys.contains(k))
+        .toList()
+      ..sort();
     final overrideCount =
         _corePermissions.keys.where((k) => k != 'bash').length +
-        (_corePermissions.containsKey('bash') ? 1 : 0);
+            (_corePermissions.containsKey('bash') ? 1 : 0);
 
     return RhythmDisclosure(
       title: 'Tool Permissions',
@@ -1917,8 +1914,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
             const SizedBox(height: 12),
             RhythmDisclosure(
               title: 'Advanced',
-              subtitle:
-                  '${exoticKeys.length} additional key'
+              subtitle: '${exoticKeys.length} additional key'
                   '${exoticKeys.length == 1 ? '' : 's'}',
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2259,9 +2255,9 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
           return Tooltip(
             message: isStale
                 ? 'Not a live MCP server — this saved selection won\'t be '
-                      'enforced. Unselect it, or pick the live server.'
+                    'enforced. Unselect it, or pick the live server.'
                 : '$item needs re-authentication — connect it in Integrations '
-                      'or runs that depend on it will fail fast.',
+                    'or runs that depend on it will fail fast.',
             child: FilterChip(
               key: ValueKey(
                 isStale ? 'stale-chip-$item' : 'needs-auth-chip-$item',

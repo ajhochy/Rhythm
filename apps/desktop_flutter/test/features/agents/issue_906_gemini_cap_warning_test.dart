@@ -66,15 +66,15 @@ class _FakeAgentConfigsDataSource extends AgentConfigsDataSource {
 const _kConfigId = 'cfg-test-001';
 
 AgentConfig _makeConfig({String? modelProvider}) => AgentConfig(
-  id: _kConfigId,
-  label: 'Test Profile',
-  icon: 'terminal',
-  enabled: true,
-  isAgent: true,
-  sortOrder: 0,
-  modelProvider: modelProvider,
-  modelId: modelProvider != null ? 'gemini-2.5-pro' : null,
-);
+      id: _kConfigId,
+      label: 'Test Profile',
+      icon: 'terminal',
+      enabled: true,
+      isAgent: true,
+      sortOrder: 0,
+      modelProvider: modelProvider,
+      modelId: modelProvider != null ? 'gemini-2.5-pro' : null,
+    );
 
 CatalogModelEntry _makeEntry(String provider, String modelId) =>
     CatalogModelEntry(
@@ -129,51 +129,42 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
-    'warns when provider is google and the live MCP set exceeds the estimated budget',
-    (tester) async {
-      final config = _makeConfig(modelProvider: 'google');
-      await tester.pumpWidget(
-        _buildSheet(
-          config: config,
-          catalog: [_makeEntry('google', 'gemini-2.5-pro')],
-          mcpNames: _manyMcpServers(),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await _scrollToCapabilitiesSection(tester);
+      'warns when provider is google and the live MCP set exceeds the estimated budget',
+      (tester) async {
+    final config = _makeConfig(modelProvider: 'google');
+    await tester.pumpWidget(_buildSheet(
+      config: config,
+      catalog: [_makeEntry('google', 'gemini-2.5-pro')],
+      mcpNames: _manyMcpServers(),
+    ));
+    await tester.pumpAndSettle();
+    await _scrollToCapabilitiesSection(tester);
 
-      expect(find.textContaining('may exceed Gemini'), findsOneWidget);
-    },
-  );
+    expect(find.textContaining('may exceed Gemini'), findsOneWidget);
+  });
 
-  testWidgets('does not warn for a non-google provider with the same MCP set', (
-    tester,
-  ) async {
+  testWidgets('does not warn for a non-google provider with the same MCP set',
+      (tester) async {
     final config = _makeConfig(modelProvider: 'anthropic');
-    await tester.pumpWidget(
-      _buildSheet(
-        config: config,
-        catalog: [_makeEntry('anthropic', 'claude-sonnet-4-5')],
-        mcpNames: _manyMcpServers(),
-      ),
-    );
+    await tester.pumpWidget(_buildSheet(
+      config: config,
+      catalog: [_makeEntry('anthropic', 'claude-sonnet-4-5')],
+      mcpNames: _manyMcpServers(),
+    ));
     await tester.pumpAndSettle();
     await _scrollToCapabilitiesSection(tester);
 
     expect(find.textContaining('may exceed Gemini'), findsNothing);
   });
 
-  testWidgets('does not warn for google when few MCP servers are available', (
-    tester,
-  ) async {
+  testWidgets('does not warn for google when few MCP servers are available',
+      (tester) async {
     final config = _makeConfig(modelProvider: 'google');
-    await tester.pumpWidget(
-      _buildSheet(
-        config: config,
-        catalog: [_makeEntry('google', 'gemini-2.5-pro')],
-        mcpNames: ['rhythm', 'gmail-work'],
-      ),
-    );
+    await tester.pumpWidget(_buildSheet(
+      config: config,
+      catalog: [_makeEntry('google', 'gemini-2.5-pro')],
+      mcpNames: ['rhythm', 'gmail-work'],
+    ));
     await tester.pumpAndSettle();
     await _scrollToCapabilitiesSection(tester);
 

@@ -101,11 +101,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => [];
+  }) async =>
+      [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async {
+      getSession(String id) async {
     final msgs = _messagesById[id] ?? const <AgentSessionMessage>[];
     final session = AgentSession(
       id: id,
@@ -134,7 +135,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -147,7 +148,8 @@ class _FakeNotificationsController extends NotificationsController {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('issue-628-c1: reconnectSession notifies listeners for any session', () {
+  group('issue-628-c1: reconnectSession notifies listeners for any session',
+      () {
     test(
       'cold-session reconnect back-fills chatMessagesFor AND fires notifyListeners',
       () async {
@@ -162,7 +164,7 @@ void main() {
           createdAt: DateTime.now(),
         );
         final repo = _StubAgentsRepository({
-          'cold-1': [message],
+          'cold-1': [message]
         });
         final controller = AgentsController(
           repo,
@@ -195,8 +197,7 @@ void main() {
         expect(
           listenerCalls,
           greaterThan(0),
-          reason:
-              'notifyListeners must fire after reconnectSession back-fills '
+          reason: 'notifyListeners must fire after reconnectSession back-fills '
               'a non-selected session so the transcript view rebuilds.',
         );
       },

@@ -11,16 +11,16 @@ class AgentApproval {
   });
 
   factory AgentApproval.fromJson(Map<String, dynamic> json) => AgentApproval(
-    id: json['id'] as String,
-    action: json['action'] as String,
-    preview: json['preview'] as String?,
-    consequence: json['consequence'] as String?,
-    status: json['status'] as String,
-    decisionNonce: json['decisionNonce'] as String,
-    payloadDigest: json['payloadDigest'] as String?,
-    createdAt:
-        DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
-  );
+        id: json['id'] as String,
+        action: json['action'] as String,
+        preview: json['preview'] as String?,
+        consequence: json['consequence'] as String?,
+        status: json['status'] as String,
+        decisionNonce: json['decisionNonce'] as String,
+        payloadDigest: json['payloadDigest'] as String?,
+        createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+            DateTime.now(),
+      );
 
   final String id;
   final String action;

@@ -47,8 +47,8 @@ class _ReadyAgentServerController extends AgentServerController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -74,11 +74,12 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => const [];
+  }) async =>
+      const [];
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async =>
-      (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async =>
+          (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async =>
@@ -90,7 +91,8 @@ class _StubAgentsRepository implements AgentsRepository {
   Future<List<Map<String, dynamic>>> listSessionFiles(
     String sessionId, {
     String path = '.',
-  }) async => filesByPath[path] ?? const [];
+  }) async =>
+      filesByPath[path] ?? const [];
 
   List<Map<String, dynamic>> gitStatus = const [];
   @override
@@ -100,9 +102,7 @@ class _StubAgentsRepository implements AgentsRepository {
   Map<String, Map<String, dynamic>> contentByPath = {};
   @override
   Future<Map<String, dynamic>> fileContent(
-    String sessionId,
-    String path,
-  ) async {
+      String sessionId, String path) async {
     final content = contentByPath[path];
     if (content == null) throw Exception('not found: $path');
     return content;
@@ -115,14 +115,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 AgentsController _buildController(_StubAgentsRepository repo) =>
     AgentsController(
@@ -189,9 +189,8 @@ void main() {
         },
       ];
 
-      await tester.pumpWidget(
-        _wrap(controller, SessionSidePanel(session: session)),
-      );
+      await tester
+          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
       await tester.pump();
 
       await tester.tap(find.text('Files'));
@@ -216,135 +215,128 @@ void main() {
     },
   );
 
-  testWidgets('REAL-SURFACE: modified files show a git-status dot', (
-    tester,
-  ) async {
-    final session = _makeSession('s1');
-    repo.filesByPath['.'] = [
-      {
-        'name': 'a.dart',
-        'path': 'a.dart',
-        'absolute': '/tmp/a.dart',
-        'type': 'file',
-        'ignored': false,
-      },
-      {
-        'name': 'b.dart',
-        'path': 'b.dart',
-        'absolute': '/tmp/b.dart',
-        'type': 'file',
-        'ignored': false,
-      },
-    ];
-    repo.gitStatus = const [
-      {'path': 'a.dart', 'added': 1, 'removed': 0, 'status': 'modified'},
-    ];
+  testWidgets(
+    'REAL-SURFACE: modified files show a git-status dot',
+    (tester) async {
+      final session = _makeSession('s1');
+      repo.filesByPath['.'] = [
+        {
+          'name': 'a.dart',
+          'path': 'a.dart',
+          'absolute': '/tmp/a.dart',
+          'type': 'file',
+          'ignored': false,
+        },
+        {
+          'name': 'b.dart',
+          'path': 'b.dart',
+          'absolute': '/tmp/b.dart',
+          'type': 'file',
+          'ignored': false,
+        },
+      ];
+      repo.gitStatus = const [
+        {'path': 'a.dart', 'added': 1, 'removed': 0, 'status': 'modified'},
+      ];
 
-    await tester.pumpWidget(
-      _wrap(controller, SessionSidePanel(session: session)),
-    );
-    await tester.pump();
-    await tester.tap(find.text('Files'));
-    await tester.pump();
-    await tester.pump();
+      await tester
+          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
+      await tester.pump();
+      await tester.tap(find.text('Files'));
+      await tester.pump();
+      await tester.pump();
 
-    // Exactly one status dot (for a.dart, not b.dart).
-    final entryA = find.byKey(const ValueKey('files-tab-entry-a.dart'));
-    final entryB = find.byKey(const ValueKey('files-tab-entry-b.dart'));
-    expect(
-      find.descendant(of: entryA, matching: find.byType(Tooltip)),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(of: entryB, matching: find.byType(Tooltip)),
-      findsNothing,
-    );
-  });
+      // Exactly one status dot (for a.dart, not b.dart).
+      final entryA = find.byKey(const ValueKey('files-tab-entry-a.dart'));
+      final entryB = find.byKey(const ValueKey('files-tab-entry-b.dart'));
+      expect(
+        find.descendant(of: entryA, matching: find.byType(Tooltip)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: entryB, matching: find.byType(Tooltip)),
+        findsNothing,
+      );
+    },
+  );
 
-  testWidgets('REAL-SURFACE: tapping a text file previews its content', (
-    tester,
-  ) async {
-    final session = _makeSession('s1');
-    repo.filesByPath['.'] = [
-      {
-        'name': 'a.dart',
-        'path': 'a.dart',
-        'absolute': '/tmp/a.dart',
-        'type': 'file',
-        'ignored': false,
-      },
-    ];
-    repo.contentByPath['a.dart'] = {
-      'type': 'text',
-      'content': 'void main() {}\n',
-    };
+  testWidgets(
+    'REAL-SURFACE: tapping a text file previews its content',
+    (tester) async {
+      final session = _makeSession('s1');
+      repo.filesByPath['.'] = [
+        {
+          'name': 'a.dart',
+          'path': 'a.dart',
+          'absolute': '/tmp/a.dart',
+          'type': 'file',
+          'ignored': false,
+        },
+      ];
+      repo.contentByPath['a.dart'] = {
+        'type': 'text',
+        'content': 'void main() {}\n',
+      };
 
-    await tester.pumpWidget(
-      _wrap(controller, SessionSidePanel(session: session)),
-    );
-    await tester.pump();
-    await tester.tap(find.text('Files'));
-    await tester.pump();
-    await tester.pump();
+      await tester
+          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
+      await tester.pump();
+      await tester.tap(find.text('Files'));
+      await tester.pump();
+      await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('files-tab-entry-a.dart')));
-    await tester.pump();
-    await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('files-tab-entry-a.dart')));
+      await tester.pump();
+      await tester.pump();
 
-    expect(
-      find.byKey(const ValueKey('files-tab-preview-text')),
-      findsOneWidget,
-    );
-    expect(find.text('void main() {}\n'), findsOneWidget);
+      expect(
+          find.byKey(const ValueKey('files-tab-preview-text')), findsOneWidget);
+      expect(find.text('void main() {}\n'), findsOneWidget);
 
-    // Back button returns to the listing.
-    await tester.tap(
-      find.byKey(const ValueKey('files-tab-preview-back-button')),
-    );
-    await tester.pump();
-    expect(
-      find.byKey(const ValueKey('files-tab-entry-a.dart')),
-      findsOneWidget,
-    );
-  });
+      // Back button returns to the listing.
+      await tester
+          .tap(find.byKey(const ValueKey('files-tab-preview-back-button')));
+      await tester.pump();
+      expect(
+          find.byKey(const ValueKey('files-tab-entry-a.dart')), findsOneWidget);
+    },
+  );
 
-  testWidgets('REAL-SURFACE: tapping an image file previews it inline', (
-    tester,
-  ) async {
-    final session = _makeSession('s1');
-    repo.filesByPath['.'] = [
-      {
-        'name': 'logo.png',
-        'path': 'logo.png',
-        'absolute': '/tmp/logo.png',
-        'type': 'file',
-        'ignored': false,
-      },
-    ];
-    repo.contentByPath['logo.png'] = {
-      'type': 'binary',
-      'content': _kFixturePngBase64,
-      'encoding': 'base64',
-      'mimeType': 'image/png',
-    };
+  testWidgets(
+    'REAL-SURFACE: tapping an image file previews it inline',
+    (tester) async {
+      final session = _makeSession('s1');
+      repo.filesByPath['.'] = [
+        {
+          'name': 'logo.png',
+          'path': 'logo.png',
+          'absolute': '/tmp/logo.png',
+          'type': 'file',
+          'ignored': false,
+        },
+      ];
+      repo.contentByPath['logo.png'] = {
+        'type': 'binary',
+        'content': _kFixturePngBase64,
+        'encoding': 'base64',
+        'mimeType': 'image/png',
+      };
 
-    await tester.pumpWidget(
-      _wrap(controller, SessionSidePanel(session: session)),
-    );
-    await tester.pump();
-    await tester.tap(find.text('Files'));
-    await tester.pump();
-    await tester.pump();
+      await tester
+          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
+      await tester.pump();
+      await tester.tap(find.text('Files'));
+      await tester.pump();
+      await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('files-tab-entry-logo.png')));
-    await tester.pump();
-    await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('files-tab-entry-logo.png')));
+      await tester.pump();
+      await tester.pump();
 
-    expect(
-      find.byKey(const ValueKey('files-tab-preview-image')),
-      findsOneWidget,
-    );
-  });
+      expect(find.byKey(const ValueKey('files-tab-preview-image')),
+          findsOneWidget);
+    },
+  );
 
   testWidgets(
     'REAL-SURFACE: a non-image binary file shows the "Binary file" stub',
@@ -366,62 +358,56 @@ void main() {
         'mimeType': 'application/zip',
       };
 
-      await tester.pumpWidget(
-        _wrap(controller, SessionSidePanel(session: session)),
-      );
+      await tester
+          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
       await tester.pump();
       await tester.tap(find.text('Files'));
       await tester.pump();
       await tester.pump();
 
-      await tester.tap(
-        find.byKey(const ValueKey('files-tab-entry-archive.zip')),
-      );
+      await tester
+          .tap(find.byKey(const ValueKey('files-tab-entry-archive.zip')));
       await tester.pump();
       await tester.pump();
 
-      expect(
-        find.byKey(const ValueKey('files-tab-preview-binary')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const ValueKey('files-tab-preview-binary')),
+          findsOneWidget);
       expect(find.text('Binary file'), findsOneWidget);
     },
   );
 
-  testWidgets('REAL-SURFACE: a >2MB file refuses gracefully with a message', (
-    tester,
-  ) async {
-    final session = _makeSession('s1');
-    repo.filesByPath['.'] = [
-      {
-        'name': 'huge.log',
-        'path': 'huge.log',
-        'absolute': '/tmp/huge.log',
-        'type': 'file',
-        'ignored': false,
-      },
-    ];
-    // fileContent throws when the path isn't registered — mirrors the
-    // server's 413 (>2MB cap) surfacing as an AppError.
-    // (contentByPath intentionally left unset for 'huge.log'.)
+  testWidgets(
+    'REAL-SURFACE: a >2MB file refuses gracefully with a message',
+    (tester) async {
+      final session = _makeSession('s1');
+      repo.filesByPath['.'] = [
+        {
+          'name': 'huge.log',
+          'path': 'huge.log',
+          'absolute': '/tmp/huge.log',
+          'type': 'file',
+          'ignored': false,
+        },
+      ];
+      // fileContent throws when the path isn't registered — mirrors the
+      // server's 413 (>2MB cap) surfacing as an AppError.
+      // (contentByPath intentionally left unset for 'huge.log'.)
 
-    await tester.pumpWidget(
-      _wrap(controller, SessionSidePanel(session: session)),
-    );
-    await tester.pump();
-    await tester.tap(find.text('Files'));
-    await tester.pump();
-    await tester.pump();
+      await tester
+          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
+      await tester.pump();
+      await tester.tap(find.text('Files'));
+      await tester.pump();
+      await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('files-tab-entry-huge.log')));
-    await tester.pump();
-    await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('files-tab-entry-huge.log')));
+      await tester.pump();
+      await tester.pump();
 
-    expect(
-      find.byKey(const ValueKey('files-tab-preview-error')),
-      findsOneWidget,
-    );
-  });
+      expect(find.byKey(const ValueKey('files-tab-preview-error')),
+          findsOneWidget);
+    },
+  );
 
   testWidgets(
     'REAL-SURFACE: refresh re-fetches the current directory listing',
@@ -429,9 +415,8 @@ void main() {
       final session = _makeSession('s1');
       repo.filesByPath['.'] = const [];
 
-      await tester.pumpWidget(
-        _wrap(controller, SessionSidePanel(session: session)),
-      );
+      await tester
+          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
       await tester.pump();
       await tester.tap(find.text('Files'));
       await tester.pump();

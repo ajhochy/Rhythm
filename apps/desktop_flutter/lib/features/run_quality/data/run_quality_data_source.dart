@@ -18,9 +18,8 @@ class RunQualityDataSource {
 
   Future<RunQualityRollup> getRollup({int? windowDays}) async {
     final uri = Uri.parse('$_baseUrl/agents/run-quality').replace(
-      queryParameters: windowDays != null
-          ? {'windowDays': windowDays.toString()}
-          : null,
+      queryParameters:
+          windowDays != null ? {'windowDays': windowDays.toString()} : null,
     );
     final response = await http.get(uri);
     assertOk(response);

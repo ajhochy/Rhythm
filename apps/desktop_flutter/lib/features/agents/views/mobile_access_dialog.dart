@@ -90,9 +90,8 @@ class _MobileAccessDialogState extends State<MobileAccessDialog> {
       final priorActive = _devices
           .where((device) => device.isActive)
           .map((device) => device.id);
-      final nextActive = devices
-          .where((device) => device.isActive)
-          .map((device) => device.id);
+      final nextActive =
+          devices.where((device) => device.isActive).map((device) => device.id);
       final added = nextActive.any((id) => !priorActive.contains(id));
       setState(() {
         _devices = devices;
@@ -175,9 +174,8 @@ class _MobileAccessDialogState extends State<MobileAccessDialog> {
   @override
   Widget build(BuildContext context) {
     final status = _status;
-    final activeDevices = _devices
-        .where((device) => device.isActive)
-        .toList(growable: false);
+    final activeDevices =
+        _devices.where((device) => device.isActive).toList(growable: false);
     return AlertDialog(
       key: const Key('mobile-access-dialog'),
       title: const Row(
@@ -319,25 +317,25 @@ class _DiagnosticCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final (icon, label, color) = switch (status.state) {
       TailscaleAccessState.missing => (
-        Icons.download_outlined,
-        'Tailscale not installed',
-        context.rhythm.warning,
-      ),
+          Icons.download_outlined,
+          'Tailscale not installed',
+          context.rhythm.warning,
+        ),
       TailscaleAccessState.loggedOut => (
-        Icons.account_circle_outlined,
-        'Tailscale sign-in required',
-        context.rhythm.warning,
-      ),
+          Icons.account_circle_outlined,
+          'Tailscale sign-in required',
+          context.rhythm.warning,
+        ),
       TailscaleAccessState.wrongTarget => (
-        Icons.tune_outlined,
-        'Rhythm access not configured',
-        context.rhythm.warning,
-      ),
+          Icons.tune_outlined,
+          'Rhythm access not configured',
+          context.rhythm.warning,
+        ),
       TailscaleAccessState.healthy => (
-        Icons.lock_outline,
-        'Private connection ready',
-        context.rhythm.success,
-      ),
+          Icons.lock_outline,
+          'Private connection ready',
+          context.rhythm.success,
+        ),
     };
     return Container(
       key: Key('tailscale-status-${status.state.name}'),
@@ -356,10 +354,8 @@ class _DiagnosticCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  label,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
+                Text(label,
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 4),
                 Text(status.message),
                 if (status.gatewayUrl != null) ...[
@@ -401,12 +397,10 @@ class _PairingCodeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final remaining = pairingCode.expiresAt.toUtc().difference(
-      DateTime.now().toUtc(),
-    );
+    final remaining =
+        pairingCode.expiresAt.toUtc().difference(DateTime.now().toUtc());
     final seconds = remaining.inSeconds.clamp(0, 300);
-    final minutesLabel =
-        '${(seconds ~/ 60).toString().padLeft(2, '0')}:'
+    final minutesLabel = '${(seconds ~/ 60).toString().padLeft(2, '0')}:'
         '${(seconds % 60).toString().padLeft(2, '0')}';
     return Container(
       key: const Key('mobile-pairing-code-card'),

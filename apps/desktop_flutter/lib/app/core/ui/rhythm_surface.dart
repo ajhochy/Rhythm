@@ -30,9 +30,9 @@ class RhythmSurface extends StatelessWidget {
     this.padding,
     this.margin,
     this.clipBehavior = Clip.none,
-  }) : tone = RhythmSurfaceTone.canvas,
-       borderRadius = null,
-       border = false;
+  })  : tone = RhythmSurfaceTone.canvas,
+        borderRadius = null,
+        border = false;
 
   const RhythmSurface.section({
     super.key,
@@ -41,8 +41,8 @@ class RhythmSurface extends StatelessWidget {
     this.margin,
     this.borderRadius,
     this.clipBehavior = Clip.none,
-  }) : tone = RhythmSurfaceTone.surface,
-       border = true;
+  })  : tone = RhythmSurfaceTone.surface,
+        border = true;
 
   @override
   Widget build(BuildContext context) {
@@ -63,7 +63,10 @@ class RhythmSurface extends StatelessWidget {
       margin: margin,
       decoration: decoration,
       clipBehavior: clipBehavior,
-      child: Padding(padding: padding ?? EdgeInsets.zero, child: child),
+      child: Padding(
+        padding: padding ?? EdgeInsets.zero,
+        child: child,
+      ),
     );
   }
 }

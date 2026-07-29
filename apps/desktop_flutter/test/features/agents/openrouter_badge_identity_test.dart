@@ -107,11 +107,9 @@ Widget _wrap({
       body: MultiProvider(
         providers: [
           ChangeNotifierProvider<AgentConfigsController>.value(
-            value: configsCtrl,
-          ),
+              value: configsCtrl),
           ChangeNotifierProvider<AgentServerController>.value(
-            value: serverCtrl,
-          ),
+              value: serverCtrl),
         ],
         child: Center(child: child),
       ),
@@ -128,47 +126,35 @@ void main() {
       final serverCtrl = _ReadyAgentServerController();
       addTearDown(serverCtrl.dispose);
 
-      await tester.pumpWidget(
-        _wrap(
-          configsCtrl: configsCtrl,
-          serverCtrl: serverCtrl,
-          child: const AgentKindBadgeTestHarness(
-            agentId: 'claude-code', // server default — the bug source
-            providerId: 'openrouter', // aggregator, unmapped
-            modelId: 'meta-llama/llama-3.1-70b',
-          ),
+      await tester.pumpWidget(_wrap(
+        configsCtrl: configsCtrl,
+        serverCtrl: serverCtrl,
+        child: const AgentKindBadgeTestHarness(
+          agentId: 'claude-code', // server default — the bug source
+          providerId: 'openrouter', // aggregator, unmapped
+          modelId: 'meta-llama/llama-3.1-70b',
         ),
-      );
+      ));
       await tester.pump();
 
-      expect(
-        find.text('OpenRouter'),
-        findsOneWidget,
-        reason: 'A non-Claude model via OpenRouter must read "OpenRouter".',
-      );
-      expect(
-        find.text('Claude Code'),
-        findsNothing,
-        reason: 'Must NOT mislabel a Llama model as Claude Code.',
-      );
-      expect(
-        find.byIcon(Icons.alt_route),
-        findsOneWidget,
-        reason: 'OpenRouter identity uses a neutral Material icon.',
-      );
+      expect(find.text('OpenRouter'), findsOneWidget,
+          reason: 'A non-Claude model via OpenRouter must read "OpenRouter".');
+      expect(find.text('Claude Code'), findsNothing,
+          reason: 'Must NOT mislabel a Llama model as Claude Code.');
+      expect(find.byIcon(Icons.alt_route), findsOneWidget,
+          reason: 'OpenRouter identity uses a neutral Material icon.');
     },
   );
 
-  testWidgets('OpenRouter + Claude model still renders "Claude Code"', (
-    tester,
-  ) async {
-    final configsCtrl = await _makeConfigsController();
-    addTearDown(configsCtrl.dispose);
-    final serverCtrl = _ReadyAgentServerController();
-    addTearDown(serverCtrl.dispose);
+  testWidgets(
+    'OpenRouter + Claude model still renders "Claude Code"',
+    (tester) async {
+      final configsCtrl = await _makeConfigsController();
+      addTearDown(configsCtrl.dispose);
+      final serverCtrl = _ReadyAgentServerController();
+      addTearDown(serverCtrl.dispose);
 
-    await tester.pumpWidget(
-      _wrap(
+      await tester.pumpWidget(_wrap(
         configsCtrl: configsCtrl,
         serverCtrl: serverCtrl,
         child: const AgentKindBadgeTestHarness(
@@ -176,27 +162,25 @@ void main() {
           providerId: 'openrouter',
           modelId: 'anthropic/claude-opus-4.7',
         ),
-      ),
-    );
-    await tester.pump();
+      ));
+      await tester.pump();
 
-    expect(
-      find.text('Claude Code'),
-      findsOneWidget,
-      reason: 'A Claude model via OpenRouter is correctly Claude Code.',
-    );
-    expect(find.text('OpenRouter'), findsNothing);
-    expect(find.byIcon(Icons.alt_route), findsNothing);
-  });
+      expect(find.text('Claude Code'), findsOneWidget,
+          reason: 'A Claude model via OpenRouter is correctly Claude Code.');
+      expect(find.text('OpenRouter'), findsNothing);
+      expect(find.byIcon(Icons.alt_route), findsNothing);
+    },
+  );
 
-  testWidgets('OpenRouter + GPT model renders "Codex"', (tester) async {
-    final configsCtrl = await _makeConfigsController();
-    addTearDown(configsCtrl.dispose);
-    final serverCtrl = _ReadyAgentServerController();
-    addTearDown(serverCtrl.dispose);
+  testWidgets(
+    'OpenRouter + GPT model renders "Codex"',
+    (tester) async {
+      final configsCtrl = await _makeConfigsController();
+      addTearDown(configsCtrl.dispose);
+      final serverCtrl = _ReadyAgentServerController();
+      addTearDown(serverCtrl.dispose);
 
-    await tester.pumpWidget(
-      _wrap(
+      await tester.pumpWidget(_wrap(
         configsCtrl: configsCtrl,
         serverCtrl: serverCtrl,
         child: const AgentKindBadgeTestHarness(
@@ -204,11 +188,11 @@ void main() {
           providerId: 'openrouter',
           modelId: 'openai/gpt-4o',
         ),
-      ),
-    );
-    await tester.pump();
+      ));
+      await tester.pump();
 
-    expect(find.text('Codex'), findsOneWidget);
-    expect(find.text('Claude Code'), findsNothing);
-  });
+      expect(find.text('Codex'), findsOneWidget);
+      expect(find.text('Claude Code'), findsNothing);
+    },
+  );
 }

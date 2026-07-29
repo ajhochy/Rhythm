@@ -21,14 +21,15 @@ AgentMemoryEntry _makeEntry(
   String id,
   String content, {
   String kind = 'fact',
-}) => AgentMemoryEntry(
-  id: id,
-  kind: kind,
-  content: content,
-  tags: const [],
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+}) =>
+    AgentMemoryEntry(
+      id: id,
+      kind: kind,
+      content: content,
+      tags: const [],
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 /// Fake data source: list() returns a fixed seed; update()/delete() operate
 /// on an in-memory map so tests can control success/failure per call.

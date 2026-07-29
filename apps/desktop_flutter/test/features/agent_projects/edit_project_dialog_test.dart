@@ -23,18 +23,19 @@ class _Remote extends AgentProjectsRemoteDataSource {
     String? icon,
     bool git = true,
     DateTime? archivedAt,
-  }) => AgentProject(
-    id: id,
-    name: name,
-    cwd: cwd,
-    icon: icon,
-    vcsRoot: git ? '/tmp/p' : null,
-    vcsBranch: git ? 'main' : null,
-    vcsDirty: false,
-    vcsCheckedAt: DateTime.utc(2026),
-    createdAt: DateTime.utc(2026),
-    archivedAt: archivedAt,
-  );
+  }) =>
+      AgentProject(
+        id: id,
+        name: name,
+        cwd: cwd,
+        icon: icon,
+        vcsRoot: git ? '/tmp/p' : null,
+        vcsBranch: git ? 'main' : null,
+        vcsDirty: false,
+        vcsCheckedAt: DateTime.utc(2026),
+        createdAt: DateTime.utc(2026),
+        archivedAt: archivedAt,
+      );
 
   @override
   Future<List<AgentProject>> list({bool includeArchived = false}) async =>
@@ -79,12 +80,12 @@ class _Remote extends AgentProjectsRemoteDataSource {
 }
 
 AgentProject _existing() => AgentProject(
-  id: 'existing-1',
-  name: 'Existing',
-  cwd: '/tmp/existing',
-  icon: '🛠',
-  createdAt: DateTime.utc(2026),
-);
+      id: 'existing-1',
+      name: 'Existing',
+      cwd: '/tmp/existing',
+      icon: '🛠',
+      createdAt: DateTime.utc(2026),
+    );
 
 Widget _harness(AgentProjectsController controller) {
   return ChangeNotifierProvider<AgentProjectsController>.value(
@@ -123,9 +124,8 @@ Widget _harnessEdit(AgentProjectsController controller, AgentProject existing) {
 }
 
 void main() {
-  testWidgets('create mode renders with empty fields + Save disabled', (
-    tester,
-  ) async {
+  testWidgets('create mode renders with empty fields + Save disabled',
+      (tester) async {
     final remote = _Remote();
     final controller = AgentProjectsController(AgentProjectsRepository(remote));
 
@@ -134,9 +134,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('New project'), findsOneWidget);
-    final saveBtn = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Save'),
-    );
+    final saveBtn =
+        tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Save'));
     expect(saveBtn.onPressed, isNull);
   });
 
@@ -154,39 +153,35 @@ void main() {
     expect(find.text('Archive'), findsOneWidget);
   });
 
-  testWidgets(
-    'Save in create mode calls controller.create and shows git line',
-    (tester) async {
-      final remote = _Remote()..returnGit = true;
-      final controller = AgentProjectsController(
-        AgentProjectsRepository(remote),
-      );
+  testWidgets('Save in create mode calls controller.create and shows git line',
+      (tester) async {
+    final remote = _Remote()..returnGit = true;
+    final controller = AgentProjectsController(AgentProjectsRepository(remote));
 
-      await tester.pumpWidget(_harness(controller));
-      await tester.tap(find.text('open-create'));
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(_harness(controller));
+    await tester.tap(find.text('open-create'));
+    await tester.pumpAndSettle();
 
-      await tester.enterText(find.widgetWithText(TextField, 'Name'), 'Hello');
-      await tester.enterText(
-        find.widgetWithText(TextField, 'Folder (absolute path)'),
-        '/tmp/hello',
-      );
+    await tester.enterText(find.widgetWithText(TextField, 'Name'), 'Hello');
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Folder (absolute path)'),
+      '/tmp/hello',
+    );
+    await tester.pump();
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    for (var i = 0; i < 5; i++) {
       await tester.pump();
+    }
 
-      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
-      for (var i = 0; i < 5; i++) {
-        await tester.pump();
-      }
+    expect(remote.createdWith, startsWith('Hello|/tmp/hello|'));
+    expect(find.textContaining('Detected git branch'), findsOneWidget);
 
-      expect(remote.createdWith, startsWith('Hello|/tmp/hello|'));
-      expect(find.textContaining('Detected git branch'), findsOneWidget);
-
-      await tester.pump(const Duration(milliseconds: 900));
-      await tester.pumpAndSettle();
-      // Dialog auto-dismisses after the 800ms hold.
-      expect(find.text('New project'), findsNothing);
-    },
-  );
+    await tester.pump(const Duration(milliseconds: 900));
+    await tester.pumpAndSettle();
+    // Dialog auto-dismisses after the 800ms hold.
+    expect(find.text('New project'), findsNothing);
+  });
 
   testWidgets('non-git folder shows fallback line', (tester) async {
     final remote = _Remote()..returnGit = false;
@@ -212,9 +207,8 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('server error keeps dialog open and shows the message', (
-    tester,
-  ) async {
+  testWidgets('server error keeps dialog open and shows the message',
+      (tester) async {
     final remote = _Remote()..failNextWrite = true;
     final controller = AgentProjectsController(AgentProjectsRepository(remote));
 
@@ -236,9 +230,8 @@ void main() {
     expect(find.textContaining('server boom'), findsOneWidget);
   });
 
-  testWidgets('Archive button in edit mode calls controller.archive', (
-    tester,
-  ) async {
+  testWidgets('Archive button in edit mode calls controller.archive',
+      (tester) async {
     final remote = _Remote();
     final controller = AgentProjectsController(AgentProjectsRepository(remote));
 

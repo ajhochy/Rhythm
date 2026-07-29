@@ -65,11 +65,9 @@ class DashboardSummaryMessageSlice {
     return DashboardSummaryMessageSlice(
       threadCount: (json['threadCount'] as num?)?.toInt() ?? 0,
       unreadPreviews: rawPreviews
-          .map(
-            (j) => DashboardUnreadMessagePreview.fromJson(
-              j as Map<String, dynamic>,
-            ),
-          )
+          .map((j) => DashboardUnreadMessagePreview.fromJson(
+                j as Map<String, dynamic>,
+              ))
           .toList(),
     );
   }
@@ -91,9 +89,8 @@ class DashboardSummary {
       final raw = (json['rhythms'] as Map<String, dynamic>?)?['items'];
       if (raw == null) return [];
       return (raw as List<dynamic>)
-          .map(
-            (j) => DashboardRhythmProgress.fromJson(j as Map<String, dynamic>),
-          )
+          .map((j) =>
+              DashboardRhythmProgress.fromJson(j as Map<String, dynamic>))
           .toList();
     }
 
@@ -101,9 +98,8 @@ class DashboardSummary {
       final raw = (json['projects'] as Map<String, dynamic>?)?['items'];
       if (raw == null) return [];
       return (raw as List<dynamic>)
-          .map(
-            (j) => DashboardProjectProgress.fromJson(j as Map<String, dynamic>),
-          )
+          .map((j) =>
+              DashboardProjectProgress.fromJson(j as Map<String, dynamic>))
           .toList();
     }
 
@@ -190,10 +186,8 @@ class DashboardProjectProgress implements DashboardProgressItem {
   factory DashboardProjectProgress.fromJson(Map<String, dynamic> json) {
     final rawOnDeck = (json['onDeckSteps'] as List<dynamic>?) ?? [];
     final onDeck = rawOnDeck
-        .map(
-          (j) =>
-              DashboardProjectStepPreview.fromJson(j as Map<String, dynamic>),
-        )
+        .map((j) =>
+            DashboardProjectStepPreview.fromJson(j as Map<String, dynamic>))
         .toList();
     final rawCollaborators =
         (json['collaboratorNames'] as List<dynamic>?) ?? [];
@@ -286,8 +280,7 @@ class DashboardUnreadMessagePreview {
         threadTitle: json['threadTitle'] as String? ?? '',
         senderName: json['senderName'] as String? ?? '',
         preview: json['preview'] as String? ?? '',
-        updatedAt:
-            DateTime.tryParse(json['updatedAt'] as String? ?? '') ??
+        updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? '') ??
             DateTime.now(),
         unreadCount: (json['unreadCount'] as num?)?.toInt() ?? 0,
       );

@@ -13,11 +13,11 @@ class AgentInfo {
   final String? mode;
 
   factory AgentInfo.fromJson(Map<String, dynamic> json) => AgentInfo(
-    name: (json['name'] as String?) ?? '',
-    builtIn: (json['builtIn'] as bool?) ?? false,
-    description: json['description'] as String?,
-    mode: json['mode'] as String?,
-  );
+        name: (json['name'] as String?) ?? '',
+        builtIn: (json['builtIn'] as bool?) ?? false,
+        description: json['description'] as String?,
+        mode: json['mode'] as String?,
+      );
 }
 
 /// Parts-based chat model mirroring Opencode Desktop's `Message` + `Part`
@@ -104,10 +104,10 @@ class ChatPart {
     this.fileFilename,
     this.fileUrl,
     this.agentName,
-  }) : _text = text,
-       _toolArgs = toolArgs,
-       _toolOutput = toolOutput,
-       _toolStatus = toolStatus;
+  })  : _text = text,
+        _toolArgs = toolArgs,
+        _toolOutput = toolOutput,
+        _toolStatus = toolStatus;
 
   final String id;
   final String messageId;
@@ -169,8 +169,7 @@ class ChatPart {
   factory ChatPart.fromJson(String messageId, Map<String, dynamic> raw) {
     final type = (raw['type'] as String?) ?? 'text';
     // Generate a stable part id: prefer 'id' field; fall back to hash.
-    final partId =
-        (raw['id'] as String?) ??
+    final partId = (raw['id'] as String?) ??
         '${messageId}_${type}_${raw.hashCode.toRadixString(16)}';
     final part = ChatPart(
       id: partId,

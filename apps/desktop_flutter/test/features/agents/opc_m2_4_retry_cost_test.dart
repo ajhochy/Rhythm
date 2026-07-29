@@ -87,7 +87,7 @@ class _FakeLocalNotificationService extends LocalNotificationService {
 
 class _FakeNotificationsController extends NotificationsController {
   _FakeNotificationsController()
-    : super(NotificationsRepository(NotificationsDataSource()));
+      : super(NotificationsRepository(NotificationsDataSource()));
 
   @override
   void pushAgentNotification({
@@ -99,8 +99,8 @@ class _FakeNotificationsController extends NotificationsController {
 
 class _StubAgentsRepository implements AgentsRepository {
   _StubAgentsRepository()
-    : _msgController = StreamController.broadcast(),
-      _connectivityController = StreamController.broadcast();
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
   final StreamController<bool> _connectivityController;
@@ -133,12 +133,16 @@ class _StubAgentsRepository implements AgentsRepository {
     bool includeArchived = false,
     bool archivedOnly = false,
     String? scope,
-  }) async => [];
+  }) async =>
+      [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-  getSession(String id) async {
-    return (session: _makeSession(id), messages: const <AgentSessionMessage>[]);
+      getSession(String id) async {
+    return (
+      session: _makeSession(id),
+      messages: const <AgentSessionMessage>[],
+    );
   }
 
   @override
@@ -152,14 +156,14 @@ class _StubAgentsRepository implements AgentsRepository {
 final _kEpoch = DateTime.fromMillisecondsSinceEpoch(0);
 
 AgentSession _makeSession(String id) => AgentSession(
-  id: id,
-  agentId: 'claude-code',
-  name: 'Test Session',
-  cwd: '/tmp',
-  status: AgentSessionStatus.idle,
-  createdAt: _kEpoch,
-  updatedAt: _kEpoch,
-);
+      id: id,
+      agentId: 'claude-code',
+      name: 'Test Session',
+      cwd: '/tmp',
+      status: AgentSessionStatus.idle,
+      createdAt: _kEpoch,
+      updatedAt: _kEpoch,
+    );
 
 ({AgentsController ctrl, _StubAgentsRepository repo}) _buildController() {
   final repo = _StubAgentsRepository();
@@ -171,304 +175,263 @@ AgentSession _makeSession(String id) => AgentSession(
 }
 
 Widget _wrap(Widget child) => MaterialApp(
-  theme: AppTheme.light(),
-  home: Scaffold(body: SizedBox(width: 600, child: child)),
-);
+      theme: AppTheme.light(),
+      home: Scaffold(body: SizedBox(width: 600, child: child)),
+    );
 
 void main() {
-  // ---------------------------------------------------------------------------
-  // c2 — Retry part renders inline with attempt count and reason
-  // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// c2 — Retry part renders inline with attempt count and reason
+// ---------------------------------------------------------------------------
 
   group(
-    'issue-693-c2: retry part renders inline Retrying (attempt N) with reason',
-    () {
-      testWidgets('RetryingIndicator shows attempt 2 with reason text', (
-        tester,
-      ) async {
-        await tester.pumpWidget(
-          _wrap(
-            RetryingIndicator(
-              attempt: 2,
-              reason: 'Rate limit exceeded. Retrying in 5s.',
-            ),
-          ),
-        );
-
-        // Must contain "Retrying" with attempt number.
-        expect(find.textContaining('Retrying'), findsAtLeastNWidgets(1));
-        expect(find.textContaining('2'), findsAtLeastNWidgets(1));
-        // Must show the reason text.
-        expect(find.textContaining('Rate limit'), findsAtLeastNWidgets(1));
-      });
-    },
-  );
-
-  // ---------------------------------------------------------------------------
-  // c3 — Retrying status clears when next part/message event arrives
-  // ---------------------------------------------------------------------------
-
-  group(
-    'issue-693-c3: retrying status clears when next message.part.updated arrives',
-    () {
-      test('session retrying status clears on next message.part.updated', () async {
-        final (:ctrl, :repo) = _buildController();
-        await ctrl.initialize();
-        await Future<void>.delayed(Duration.zero);
-
-        const sessionId = 'ses_test_retry';
-
-        // Emit a session.status WS frame with status='retrying'.
-        // The bridge emits { type: 'session.status', id, working: false, status: 'retrying',
-        //   attempt: 2, reason: '...' }
-        // AgentWsMessage.parse maps 'session.status' to SessionStatusMessage.
-        // The controller sets _retryingBySession[id] on retrying status.
-        repo.emit(
-          SessionStatusMessage.fromJson({
-            'type': 'session.status',
-            'id': sessionId,
-            'working': false,
-            'status': 'retrying',
-            'attempt': 2,
-            'reason': 'Rate limit exceeded.',
-          }),
-        );
-        await Future<void>.delayed(Duration.zero);
-
-        // Retrying state should be set.
-        expect(ctrl.retryingFor(sessionId), isNotNull);
-        expect(ctrl.retryingFor(sessionId)?.attempt, equals(2));
-
-        // Now emit a message.part.updated event — this should clear the retrying state.
-        repo.emit(
-          MessagePartUpdatedMessage.fromJson({
-            'type': 'message.part.updated',
-            'id': sessionId,
-            'part': {
-              'id': 'part_001',
-              'messageID': 'msg_001',
-              'sessionID': sessionId,
-              'type': 'text',
-              'text': 'Hello',
-            },
-          }),
-        );
-        await Future<void>.delayed(Duration.zero);
-
-        // Retrying state must be cleared.
-        expect(ctrl.retryingFor(sessionId), isNull);
-
-        ctrl.dispose();
-      });
-    },
-  );
-
-  // ---------------------------------------------------------------------------
-  // c4 — Assistant message with cost renders footer and token breakdown
-  // ---------------------------------------------------------------------------
-
-  group(
-    'issue-693-c4: assistant message with cost renders footer \$0.0142 and token breakdown',
-    () {
-      testWidgets(
-        'ChatCostFooter shows token context collapsed, price on expand',
+      'issue-693-c2: retry part renders inline Retrying (attempt N) with reason',
+      () {
+    testWidgets('RetryingIndicator shows attempt 2 with reason text',
         (tester) async {
-          const tokens = <String, dynamic>{
-            'input': 1200,
-            'output': 350,
-            'reasoning': 0,
-            'cache': 800,
-          };
+      await tester.pumpWidget(_wrap(
+        RetryingIndicator(
+            attempt: 2, reason: 'Rate limit exceeded. Retrying in 5s.'),
+      ));
 
-          // Collapsed: token context visible, price hidden.
-          await tester.pumpWidget(
-            _wrap(ChatCostFooter(cost: 0.0142, tokens: tokens)),
-          );
-          expect(find.textContaining('1200'), findsAtLeastNWidgets(1)); // input
-          expect(find.textContaining('350'), findsAtLeastNWidgets(1)); // output
-          expect(find.textContaining('800'), findsAtLeastNWidgets(1)); // cache
-          expect(find.textContaining('reasoning'), findsAtLeastNWidgets(1));
-          expect(
-            find.textContaining(r'$0.014'),
-            findsNothing,
-            reason: 'price is hidden until the chevron is expanded',
-          );
+      // Must contain "Retrying" with attempt number.
+      expect(find.textContaining('Retrying'), findsAtLeastNWidgets(1));
+      expect(find.textContaining('2'), findsAtLeastNWidgets(1));
+      // Must show the reason text.
+      expect(find.textContaining('Rate limit'), findsAtLeastNWidgets(1));
+    });
+  });
 
-          // Tap to expand → price revealed on the bottom; tokens stay visible.
-          await tester.tap(find.byType(ChatCostFooter));
-          await tester.pump();
-          expect(find.textContaining(r'$0.014'), findsAtLeastNWidgets(1));
-          expect(find.textContaining('1200'), findsAtLeastNWidgets(1));
+// ---------------------------------------------------------------------------
+// c3 — Retrying status clears when next part/message event arrives
+// ---------------------------------------------------------------------------
+
+  group(
+      'issue-693-c3: retrying status clears when next message.part.updated arrives',
+      () {
+    test('session retrying status clears on next message.part.updated',
+        () async {
+      final (:ctrl, :repo) = _buildController();
+      await ctrl.initialize();
+      await Future<void>.delayed(Duration.zero);
+
+      const sessionId = 'ses_test_retry';
+
+      // Emit a session.status WS frame with status='retrying'.
+      // The bridge emits { type: 'session.status', id, working: false, status: 'retrying',
+      //   attempt: 2, reason: '...' }
+      // AgentWsMessage.parse maps 'session.status' to SessionStatusMessage.
+      // The controller sets _retryingBySession[id] on retrying status.
+      repo.emit(SessionStatusMessage.fromJson({
+        'type': 'session.status',
+        'id': sessionId,
+        'working': false,
+        'status': 'retrying',
+        'attempt': 2,
+        'reason': 'Rate limit exceeded.',
+      }));
+      await Future<void>.delayed(Duration.zero);
+
+      // Retrying state should be set.
+      expect(ctrl.retryingFor(sessionId), isNotNull);
+      expect(ctrl.retryingFor(sessionId)?.attempt, equals(2));
+
+      // Now emit a message.part.updated event — this should clear the retrying state.
+      repo.emit(MessagePartUpdatedMessage.fromJson({
+        'type': 'message.part.updated',
+        'id': sessionId,
+        'part': {
+          'id': 'part_001',
+          'messageID': 'msg_001',
+          'sessionID': sessionId,
+          'type': 'text',
+          'text': 'Hello',
         },
-      );
-    },
-  );
+      }));
+      await Future<void>.delayed(Duration.zero);
 
-  // ---------------------------------------------------------------------------
-  // c5 — No cost footer for user / legacy messages
-  // ---------------------------------------------------------------------------
+      // Retrying state must be cleared.
+      expect(ctrl.retryingFor(sessionId), isNull);
+
+      ctrl.dispose();
+    });
+  });
+
+// ---------------------------------------------------------------------------
+// c4 — Assistant message with cost renders footer and token breakdown
+// ---------------------------------------------------------------------------
+
+  group(
+      'issue-693-c4: assistant message with cost renders footer \$0.0142 and token breakdown',
+      () {
+    testWidgets('ChatCostFooter shows token context collapsed, price on expand',
+        (tester) async {
+      const tokens = <String, dynamic>{
+        'input': 1200,
+        'output': 350,
+        'reasoning': 0,
+        'cache': 800,
+      };
+
+      // Collapsed: token context visible, price hidden.
+      await tester.pumpWidget(_wrap(
+        ChatCostFooter(cost: 0.0142, tokens: tokens),
+      ));
+      expect(find.textContaining('1200'), findsAtLeastNWidgets(1)); // input
+      expect(find.textContaining('350'), findsAtLeastNWidgets(1)); // output
+      expect(find.textContaining('800'), findsAtLeastNWidgets(1)); // cache
+      expect(find.textContaining('reasoning'), findsAtLeastNWidgets(1));
+      expect(find.textContaining(r'$0.014'), findsNothing,
+          reason: 'price is hidden until the chevron is expanded');
+
+      // Tap to expand → price revealed on the bottom; tokens stay visible.
+      await tester.tap(find.byType(ChatCostFooter));
+      await tester.pump();
+      expect(find.textContaining(r'$0.014'), findsAtLeastNWidgets(1));
+      expect(find.textContaining('1200'), findsAtLeastNWidgets(1));
+    });
+  });
+
+// ---------------------------------------------------------------------------
+// c5 — No cost footer for user / legacy messages
+// ---------------------------------------------------------------------------
 
   group('issue-693-c5: user and legacy messages render no cost footer', () {
     testWidgets('user message: no ChatCostFooter', (tester) async {
-      await tester.pumpWidget(
-        _wrap(
-          // A user bubble has no cost footer.
-          Builder(
-            builder: (context) {
-              // Directly check there's no cost footer when cost is null.
-              return ChatCostFooter(cost: null, tokens: null);
-            },
-          ),
+      await tester.pumpWidget(_wrap(
+        // A user bubble has no cost footer.
+        Builder(
+          builder: (context) {
+            // Directly check there's no cost footer when cost is null.
+            return ChatCostFooter(cost: null, tokens: null);
+          },
         ),
-      );
+      ));
       // When cost is null, ChatCostFooter renders nothing (SizedBox.shrink).
       expect(find.textContaining(r'$'), findsNothing);
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // c6 — Session total cost updates as messages land (controller unit test)
-  // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// c6 — Session total cost updates as messages land (controller unit test)
+// ---------------------------------------------------------------------------
 
   group(
-    'issue-693-c6: session total cost = sum of message costs updates as messages land',
-    () {
-      test(
-        'session total accumulates cost from message.updated events',
+      'issue-693-c6: session total cost = sum of message costs updates as messages land',
+      () {
+    test('session total accumulates cost from message.updated events',
         () async {
-          final (:ctrl, :repo) = _buildController();
-          await ctrl.initialize();
-          await Future<void>.delayed(Duration.zero);
+      final (:ctrl, :repo) = _buildController();
+      await ctrl.initialize();
+      await Future<void>.delayed(Duration.zero);
 
-          const sessionId = 'ses_cost_test';
+      const sessionId = 'ses_cost_test';
 
-          // Initially no cost.
-          expect(ctrl.sessionTotalCost(sessionId), isNull);
+      // Initially no cost.
+      expect(ctrl.sessionTotalCost(sessionId), isNull);
 
-          // First message arrives with cost 0.0042.
-          repo.emit(
-            MessageUpdatedMessage.fromJson({
-              'type': 'message.updated',
-              'id': sessionId,
-              'info': {
-                'id': 'msg_001',
-                'sessionID': sessionId,
-                'role': 'assistant',
-                'cost': 0.0042,
-                'tokens': {
-                  'input': 500,
-                  'output': 200,
-                  'reasoning': 0,
-                  'cache': 100,
-                },
-              },
-            }),
-          );
-          await Future<void>.delayed(Duration.zero);
-          expect(ctrl.sessionTotalCost(sessionId), closeTo(0.0042, 1e-9));
-
-          // Second message arrives with cost 0.0100.
-          repo.emit(
-            MessageUpdatedMessage.fromJson({
-              'type': 'message.updated',
-              'id': sessionId,
-              'info': {
-                'id': 'msg_002',
-                'sessionID': sessionId,
-                'role': 'assistant',
-                'cost': 0.01,
-                'tokens': {
-                  'input': 700,
-                  'output': 150,
-                  'reasoning': 0,
-                  'cache': 200,
-                },
-              },
-            }),
-          );
-          await Future<void>.delayed(Duration.zero);
-          expect(ctrl.sessionTotalCost(sessionId), closeTo(0.0142, 1e-9));
-
-          ctrl.dispose();
+      // First message arrives with cost 0.0042.
+      repo.emit(MessageUpdatedMessage.fromJson({
+        'type': 'message.updated',
+        'id': sessionId,
+        'info': {
+          'id': 'msg_001',
+          'sessionID': sessionId,
+          'role': 'assistant',
+          'cost': 0.0042,
+          'tokens': {'input': 500, 'output': 200, 'reasoning': 0, 'cache': 100},
         },
-      );
-    },
-  );
+      }));
+      await Future<void>.delayed(Duration.zero);
+      expect(ctrl.sessionTotalCost(sessionId), closeTo(0.0042, 1e-9));
 
-  // ---------------------------------------------------------------------------
-  // c7 — Rehydrated messages show identical cost/token UI to streamed
-  // ---------------------------------------------------------------------------
+      // Second message arrives with cost 0.0100.
+      repo.emit(MessageUpdatedMessage.fromJson({
+        'type': 'message.updated',
+        'id': sessionId,
+        'info': {
+          'id': 'msg_002',
+          'sessionID': sessionId,
+          'role': 'assistant',
+          'cost': 0.01,
+          'tokens': {'input': 700, 'output': 150, 'reasoning': 0, 'cache': 200},
+        },
+      }));
+      await Future<void>.delayed(Duration.zero);
+      expect(ctrl.sessionTotalCost(sessionId), closeTo(0.0142, 1e-9));
+
+      ctrl.dispose();
+    });
+  });
+
+// ---------------------------------------------------------------------------
+// c7 — Rehydrated messages show identical cost/token UI to streamed
+// ---------------------------------------------------------------------------
 
   group(
-    'issue-693-c7: rehydrated messages show identical cost/token UI to streamed',
-    () {
-      testWidgets(
+      'issue-693-c7: rehydrated messages show identical cost/token UI to streamed',
+      () {
+    testWidgets(
         'ChatCostFooter from REST-rehydrated cost renders same as streamed',
         (tester) async {
-          // Price lives behind the chevron now, so expand before reading it.
-          // Distinct keys ensure each pump builds a fresh State (otherwise the
-          // second footer reuses the first's already-expanded state and the tap
-          // would collapse it).
-          // Streamed: cost arrived via WS message.updated event.
-          await tester.pumpWidget(
-            _wrap(
-              ChatCostFooter(
-                key: const ValueKey('streamed'),
-                cost: 0.0142,
-                tokens: const {
-                  'input': 1200,
-                  'output': 350,
-                  'reasoning': 0,
-                  'cache': 800,
-                },
+      // Price lives behind the chevron now, so expand before reading it.
+      // Distinct keys ensure each pump builds a fresh State (otherwise the
+      // second footer reuses the first's already-expanded state and the tap
+      // would collapse it).
+      // Streamed: cost arrived via WS message.updated event.
+      await tester.pumpWidget(_wrap(
+        ChatCostFooter(
+          key: const ValueKey('streamed'),
+          cost: 0.0142,
+          tokens: const {
+            'input': 1200,
+            'output': 350,
+            'reasoning': 0,
+            'cache': 800,
+          },
+        ),
+      ));
+      await tester.tap(find.byType(ChatCostFooter));
+      await tester.pump();
+      final streamedCostText = tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byType(ChatCostFooter),
+              matching: find.byWidgetPredicate(
+                (w) => w is Text && (w.data ?? '').contains(r'$'),
               ),
             ),
-          );
-          await tester.tap(find.byType(ChatCostFooter));
-          await tester.pump();
-          final streamedCostText = tester
-              .widget<Text>(
-                find.descendant(
-                  of: find.byType(ChatCostFooter),
-                  matching: find.byWidgetPredicate(
-                    (w) => w is Text && (w.data ?? '').contains(r'$'),
-                  ),
-                ),
-              )
-              .data;
+          )
+          .data;
 
-          // Rehydrated: same cost values but constructed from REST payload.
-          await tester.pumpWidget(
-            _wrap(
-              ChatCostFooter(
-                key: const ValueKey('rehydrated'),
-                cost: 0.0142,
-                tokens: const {
-                  'input': 1200,
-                  'output': 350,
-                  'reasoning': 0,
-                  'cache': 800,
-                },
+      // Rehydrated: same cost values but constructed from REST payload.
+      await tester.pumpWidget(_wrap(
+        ChatCostFooter(
+          key: const ValueKey('rehydrated'),
+          cost: 0.0142,
+          tokens: const {
+            'input': 1200,
+            'output': 350,
+            'reasoning': 0,
+            'cache': 800,
+          },
+        ),
+      ));
+      await tester.tap(find.byType(ChatCostFooter));
+      await tester.pump();
+      final rehydratedCostText = tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byType(ChatCostFooter),
+              matching: find.byWidgetPredicate(
+                (w) => w is Text && (w.data ?? '').contains(r'$'),
               ),
             ),
-          );
-          await tester.tap(find.byType(ChatCostFooter));
-          await tester.pump();
-          final rehydratedCostText = tester
-              .widget<Text>(
-                find.descendant(
-                  of: find.byType(ChatCostFooter),
-                  matching: find.byWidgetPredicate(
-                    (w) => w is Text && (w.data ?? '').contains(r'$'),
-                  ),
-                ),
-              )
-              .data;
+          )
+          .data;
 
-          // Identical display.
-          expect(rehydratedCostText, equals(streamedCostText));
-        },
-      );
-    },
-  );
+      // Identical display.
+      expect(rehydratedCostText, equals(streamedCostText));
+    });
+  });
 } // end main()

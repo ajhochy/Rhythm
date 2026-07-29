@@ -11,22 +11,25 @@ class _FakeAgentApprovalsDataSource implements AgentApprovalsDataSource {
   Future<List<AgentApproval>> listPending() async => pending;
 
   @override
-  Future<void> decide(AgentApproval approval, {required bool approve}) async {
+  Future<void> decide(
+    AgentApproval approval, {
+    required bool approve,
+  }) async {
     decided.add('${approval.id}:${approve ? 'approved' : 'rejected'}');
     pending = pending.where((a) => a.id != approval.id).toList();
   }
 }
 
 AgentApproval _approval(String id) => AgentApproval(
-  id: id,
-  action: 'Schedule Jane Doe',
-  preview: 'Add to Worship Leader slot',
-  consequence: 'Jane gets an email immediately',
-  status: 'pending',
-  createdAt: DateTime.now(),
-  decisionNonce: 'nonce-$id',
-  payloadDigest: null,
-);
+      id: id,
+      action: 'Schedule Jane Doe',
+      preview: 'Add to Worship Leader slot',
+      consequence: 'Jane gets an email immediately',
+      status: 'pending',
+      createdAt: DateTime.now(),
+      decisionNonce: 'nonce-$id',
+      payloadDigest: null,
+    );
 
 void main() {
   group('AgentApprovalsController', () {
@@ -43,37 +46,33 @@ void main() {
     });
 
     test(
-      'approve removes the card from pending and calls decide(approve: true)',
-      () async {
-        final fake = _FakeAgentApprovalsDataSource()
-          ..pending = [_approval('a1')];
-        final controller = AgentApprovalsController(fake);
-        controller.startPolling();
-        await Future<void>.delayed(Duration.zero);
+        'approve removes the card from pending and calls decide(approve: true)',
+        () async {
+      final fake = _FakeAgentApprovalsDataSource()..pending = [_approval('a1')];
+      final controller = AgentApprovalsController(fake);
+      controller.startPolling();
+      await Future<void>.delayed(Duration.zero);
 
-        await controller.approve('a1');
+      await controller.approve('a1');
 
-        expect(controller.pending, isEmpty);
-        expect(fake.decided, contains('a1:approved'));
-        controller.stopPolling();
-      },
-    );
+      expect(controller.pending, isEmpty);
+      expect(fake.decided, contains('a1:approved'));
+      controller.stopPolling();
+    });
 
     test(
-      'reject removes the card from pending and calls decide(approve: false)',
-      () async {
-        final fake = _FakeAgentApprovalsDataSource()
-          ..pending = [_approval('a1')];
-        final controller = AgentApprovalsController(fake);
-        controller.startPolling();
-        await Future<void>.delayed(Duration.zero);
+        'reject removes the card from pending and calls decide(approve: false)',
+        () async {
+      final fake = _FakeAgentApprovalsDataSource()..pending = [_approval('a1')];
+      final controller = AgentApprovalsController(fake);
+      controller.startPolling();
+      await Future<void>.delayed(Duration.zero);
 
-        await controller.reject('a1');
+      await controller.reject('a1');
 
-        expect(controller.pending, isEmpty);
-        expect(fake.decided, contains('a1:rejected'));
-        controller.stopPolling();
-      },
-    );
+      expect(controller.pending, isEmpty);
+      expect(fake.decided, contains('a1:rejected'));
+      controller.stopPolling();
+    });
   });
 }
