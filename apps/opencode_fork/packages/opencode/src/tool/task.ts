@@ -28,7 +28,10 @@ function isMcpAllowlist(value: unknown): value is NonNullable<Session.Info["mcpA
     candidate.servers.every((item): item is string => typeof item === "string") &&
     Array.isArray(candidate.tools) &&
     candidate.tools.every((item): item is string => typeof item === "string") &&
-    (candidate.deferred === undefined || typeof candidate.deferred === "boolean")
+    (candidate.deferred === undefined || typeof candidate.deferred === "boolean") &&
+    (candidate.deferredServers === undefined ||
+      (Array.isArray(candidate.deferredServers) &&
+        candidate.deferredServers.every((item): item is string => typeof item === "string")))
   )
 }
 
@@ -64,6 +67,7 @@ function childMcpAllowlist(agent: Agent.Info, model: { providerID: string }): Se
   return {
     servers: [...value.servers],
     tools: [...value.tools],
+    ...(value.deferredServers ? { deferredServers: [...value.deferredServers] } : {}),
     // A scoped Gemini child must advertise its catalog through the single
     // dispatcher declaration, rather than risk exceeding Gemini's 512-tool cap.
     ...(model.providerID === "google" || value.deferred === true ? { deferred: true } : {}),

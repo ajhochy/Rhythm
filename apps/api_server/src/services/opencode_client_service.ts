@@ -15,6 +15,10 @@ import { ensureGeminiProjectConfig, ensureGeminiProjectEnv } from './gemini_proj
 import { expandMcpAllowlist } from './mcp_allowlist_expander';
 import { capMcpAllowlistForProvider, geminiUnscopedDeferredAllowlist } from './gemini_tool_cap';
 import {
+  applySelectiveDeferral,
+  toolCountsForRoleConfig,
+} from './tool_surface_estimator';
+import {
   ensureOmlxProviderConfig,
   detectAndUnloadCompetingOllamaModel,
 } from './local_omlx_provider';
@@ -1090,10 +1094,19 @@ export class OpencodeClientService {
     // bridge, whose generated create signature does not expose the fork-only
     // fields; keep the cast narrow at this boundary. The generated v2 client
     // owns subsequent allowlist updates without casts.
-    let mcpAllowlist: { servers: string[]; tools: string[]; deferred?: true } | undefined;
+    let mcpAllowlist: {
+      servers: string[];
+      tools: string[];
+      deferred?: true;
+      deferredServers?: string[];
+    } | undefined;
     if (mcpRoleConfig) {
       try {
-        mcpAllowlist = expandMcpAllowlist(mcpRoleConfig);
+        mcpAllowlist = applySelectiveDeferral(
+          expandMcpAllowlist(mcpRoleConfig),
+          toolCountsForRoleConfig(mcpRoleConfig.mcpServers),
+          providerId,
+        );
         // #884 — trim to Gemini's function-declaration cap when this session's
         // turn is routed to `google`. No-op for every other provider.
         const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId);
@@ -1216,7 +1229,12 @@ export class OpencodeClientService {
     providerId?: string | null,
   ): Promise<boolean> {
     try {
-      let mcpAllowlist: { servers: string[]; tools: string[]; deferred?: true } | null;
+      let mcpAllowlist: {
+        servers: string[];
+        tools: string[];
+        deferred?: true;
+        deferredServers?: string[];
+      } | null;
       if (mcpRoleConfig === null) {
         // #952 — UNSCOPED per-turn push. For Gemini, null would clear the
         // restriction and let the fork inject the full surface (512-cap crash);
@@ -1229,7 +1247,11 @@ export class OpencodeClientService {
               null)
             : null;
       } else {
-        mcpAllowlist = expandMcpAllowlist(mcpRoleConfig);
+        mcpAllowlist = applySelectiveDeferral(
+          expandMcpAllowlist(mcpRoleConfig),
+          toolCountsForRoleConfig(mcpRoleConfig.mcpServers),
+          providerId,
+        );
         const capResult = capMcpAllowlistForProvider(mcpAllowlist, providerId);
         mcpAllowlist = capResult.allowlist;
         if (capResult.trimmed) {

@@ -1,0 +1,59 @@
+{
+  "issue": 1209,
+  "generated": "2026-07-28",
+  "command": "cd apps/api_server && node --import tsx src/benchmarks/skill_retrieval_replay.ts",
+  "corpus": {
+    "prompts": 12,
+    "skills": 10,
+    "description": "anonymized realistic church-staff session prompts with adjudicated relevant skill ids"
+  },
+  "jaccard": {
+    "threshold": 0.3,
+    "recall_at_5": 0.08333333333333333,
+    "precision_at_5": 0.016666666666666666,
+    "paraphrase_misses": 11,
+    "returned": 1,
+    "miss_examples": [
+      "Can you get the staff update email ready for Friday?",
+      "Find me a room for the newcomer lunch that seats 40",
+      "Look up Jordan’s household in Planning Center"
+    ]
+  },
+  "bm25": {
+    "k1": 1.2,
+    "b": 0.75,
+    "relative_to_best_threshold": 0.45,
+    "recall_at_5": 1,
+    "precision_at_5": 0.2,
+    "paraphrase_misses": 0,
+    "returned_at_least": 23
+  },
+  "decision": {
+    "swap": true,
+    "recall_delta": 0.9166666666666666,
+    "precision_at_5_delta": 0.18333333333333335,
+    "top_n": 5,
+    "justification": "BM25 measurably improved recall and precision@5 on the same fixed replay; the Jaccard-scale absolute threshold was replaced by a corpus-relative cutoff. Verification showed 0.5 dropped a genuinely relevant secondary skill, so hand-derived multi-skill scores re-derived the cutoff to 0.45."
+  },
+  "threshold_derivation": {
+    "fixture": "P3-2 multiple matching skills",
+    "query": "help me build the weekly staff report",
+    "primary_boosted_score": 4.6217,
+    "secondary_boosted_score": 2.2312,
+    "secondary_to_primary_ratio": 0.4828,
+    "rejected_threshold": 0.5,
+    "selected_threshold": 0.45,
+    "reason": "Both skills are adjudicated relevant; 0.45 retains the secondary while ordering and topN=5 remain unchanged.",
+    "replay_effect": "Lowering the eligibility cutoff cannot change score ordering. All 12 relevant skills were already in the top five at 0.5, so recall@5 remains 1.0 and precision@5 remains 0.2."
+  },
+  "tool_surface": {
+    "profile": "worship-production",
+    "before_tool_count": 99,
+    "before_estimated_tokens": 12375,
+    "deferred_servers": ["ableton-mcp"],
+    "deferred_server_tool_count": 44,
+    "after_estimated_tokens": 7000,
+    "saved_estimated_tokens": 5375,
+    "saved_percent": 43.43434343434343
+  }
+}

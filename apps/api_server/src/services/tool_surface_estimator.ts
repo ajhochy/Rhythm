@@ -184,6 +184,7 @@ function readRoleFile(role: string, mcpRolesDir: string): McpRoleFileShape | nul
  * a conservative typical-server estimate, not a worst case.
  */
 const INHERIT_ALL_TOOL_COUNT_ESTIMATE = 25;
+export const FAT_SERVER_TOOL_COUNT = 30;
 
 function toolCountForServerEntry(entry: { allowedTools?: string[] } | string[] | undefined): number {
   const allowedTools = Array.isArray(entry) ? entry : entry?.allowedTools;
@@ -194,6 +195,57 @@ function toolCountForServerEntry(entry: { allowedTools?: string[] } | string[] |
     return INHERIT_ALL_TOOL_COUNT_ESTIMATE;
   }
   return allowedTools.length;
+}
+
+/** Derive per-server counts from the same role config used by the allowlist expander. */
+export function toolCountsForRoleConfig(
+  mcpServers: Record<string, unknown>,
+): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(mcpServers).map(([name, value]) => [
+      name,
+      toolCountForServerEntry(
+        value && typeof value === 'object'
+          ? (value as { allowedTools?: string[] })
+          : undefined,
+      ),
+    ]),
+  );
+}
+
+export function applySelectiveDeferral<T extends { servers: string[]; tools: string[] }>(
+  allowlist: T,
+  toolCounts: Record<string, number>,
+  _providerId?: string | null,
+): T & { deferredServers?: string[] } {
+  const deferredServers = Object.entries(toolCounts)
+    .filter(([name, count]) => {
+      const sanitizedName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const authorized =
+        allowlist.servers.includes(name) ||
+        allowlist.tools.some((tool) => tool.startsWith(`${sanitizedName}_`));
+      return authorized && count >= FAT_SERVER_TOOL_COUNT;
+    })
+    .map(([name]) => name)
+    .sort();
+  return deferredServers.length === 0 ? allowlist : { ...allowlist, deferredServers };
+}
+
+export function estimateSelectiveDeferral(
+  report: ToolSurfaceReport,
+  deferredServers: string[],
+): { beforeEstimatedTokens: number; afterEstimatedTokens: number; savedEstimatedTokens: number } {
+  const deferred = new Set(deferredServers);
+  const eagerServerTokens = report.servers
+    .filter((server) => !deferred.has(server.name))
+    .reduce((sum, server) => sum + server.estimatedTokens, 0);
+  const dispatcherTokens = deferred.size > 0 ? tokensForToolCount(1) : 0;
+  const afterEstimatedTokens = report.builtins.estimatedTokens + eagerServerTokens + dispatcherTokens;
+  return {
+    beforeEstimatedTokens: report.totalEstimatedTokens,
+    afterEstimatedTokens,
+    savedEstimatedTokens: report.totalEstimatedTokens - afterEstimatedTokens,
+  };
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────

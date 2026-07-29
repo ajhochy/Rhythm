@@ -44,7 +44,12 @@ export const SessionTable = sqliteTable(
     // Rhythm carried patch (mcp-scope): per-session MCP tool allowlist (nullable JSON).
     // `deferred` (tokens-03, #843) is optional and additive — no migration
     // needed; existing rows simply decode with deferred=undefined (eager mode).
-    mcp_allowlist: text({ mode: "json" }).$type<{ servers: string[]; tools: string[]; deferred?: boolean }>(),
+    mcp_allowlist: text({ mode: "json" }).$type<{
+      servers: string[]
+      tools: string[]
+      deferred?: boolean
+      deferredServers?: string[]
+    }>(),
     // Rhythm carried patch (skill-scope, #775): per-session skill allowlist (nullable JSON).
     skill_allowlist: text({ mode: "json" }).$type<{ skills: string[] }>(),
     agent: text(),

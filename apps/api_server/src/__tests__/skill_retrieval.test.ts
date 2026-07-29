@@ -2,11 +2,11 @@
  * Unit tests for the skill retrieval scorer (P3-1).
  *
  * Mirrors Odysseus `get_relevant_skills` semantics:
- *   - Jaccard over title/description/whenToUse/tags/steps
+ *   - corpus-aware BM25 over title/description/whenToUse/tags/steps
  *   - whole-token tag boost
  *   - description-substring boost
  *   - confidence + usage multipliers
- *   - threshold 0.3, top-N cap
+ *   - replay-derived relative threshold, top-N cap
  *   - published always eligible; draft eligible only at confidence >= 0.6 (fail-closed)
  *
  * Uses an in-memory migrated SQLite DB + the real AgentSkillsRepository so the
@@ -161,6 +161,31 @@ describe('skill_retrieval.getRelevantSkills', () => {
 
     const three = getRelevantSkills('send the weekly staff email', 3, repo);
     expect(three.length).toBe(3);
+  });
+
+  it('retains a genuinely matching secondary skill below half the best BM25 score', () => {
+    repo.create({
+      title: 'Weekly report builder',
+      whenToUse: 'When assembling the weekly staff report',
+      description: 'Builds the weekly report',
+      tags: ['weekly', 'report'],
+      status: 'published',
+      confidence: 0.9,
+    });
+    repo.create({
+      title: 'Report formatter',
+      whenToUse: 'Format the weekly report nicely',
+      description: 'Formats the weekly report output',
+      tags: ['report', 'format'],
+      status: 'published',
+      confidence: 0.9,
+    });
+
+    const results = getRelevantSkills('help me build the weekly staff report', 5, repo);
+    expect(results.map((skill) => skill.title)).toEqual([
+      'Weekly report builder',
+      'Report formatter',
+    ]);
   });
 
   it('returns [] on an empty store', () => {

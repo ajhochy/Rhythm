@@ -1,0 +1,88 @@
+{
+  "issue": 1209,
+  "generated": "2026-07-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-1209-c1",
+      "text": "Measurement recorded in `docs/ai/runs/` — real prompts, current scorer, count/examples of paraphrase misses. If there are none, **close this item as not-needed** and say so in the run log.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1209_contract.test.ts",
+      "test_id": "issue-1209-c1: checked-in replay exposes measured Jaccard misses",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1209-c2",
+      "text": "If proceeding: BM25 scorer replaces `jaccard()`, thresholding re-derived for the new score scale, existing unit tests updated.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1209_contract.test.ts",
+      "test_id": "issue-1209-c2: production retrieval uses corpus-aware BM25",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1209-c3",
+      "text": "Before/after on the same prompt set shows recall improved with no top-5 precision regression.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1209_contract.test.ts",
+      "test_id": "issue-1209-c3: replay improves recall without top-5 precision regression",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1209-c4",
+      "text": "The scorer stays a pure function; no new dependency; no change to the enforcement path.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1209_contract.test.ts",
+      "test_id": "issue-1209-c4: BM25 scorer is deterministic and leaves authz filtering fail-closed",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1209-c5",
+      "text": "A scoped profile can mark a server deferred; verified on a non-google provider.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_1209_contract.test.ts",
+      "test_id": "issue-1209-c5: non-google scoped allowlist marks only fat servers deferred",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1209-c6",
+      "text": "`tool_surface_estimator.ts` before/after numbers recorded in `docs/ai/runs/` for at least one fat-server profile.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1209_contract.test.ts",
+      "test_id": "issue-1209-c6: selective deferral estimate reports eager and deferred totals",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1209-c7",
+      "text": "Deferred selection survives the per-turn allowlist PATCH.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/opencode_client_service.test.ts",
+      "test_id": "issue-1209-c7: scoped non-google PATCH preserves deferredServers",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1209-c8",
+      "text": "Deferred cannot expand the authorized server/tool set — a test asserts a deferred dispatcher still refuses a tool outside the allowlist.",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/mcp_deferred_tools.test.ts",
+      "test_id": "issue-1209-c8: selective dispatcher refuses a tool outside the allowlist",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1209-c9",
+      "text": "Unscoped-Gemini behavior (#952) unchanged; existing `gemini_tool_cap` tests still pass.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/services/__tests__/gemini_tool_cap.test.ts",
+      "test_id": "#952 geminiUnscopedDeferredAllowlist",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1209-c10",
+      "text": "Behavioral verification per `AGENTS.md` — live test through the real engine inside `tools/dev/sandbox.sh`, result recorded in the run log.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_1209_deferred_dispatch.test.ts",
+      "test_id": "issue-1209-c10: real engine preserves selective deferred scope across PATCH",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
