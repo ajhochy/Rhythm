@@ -1,6 +1,6 @@
-import { Keyboard, View } from 'react-native';
+import { Keyboard, Platform, View } from 'react-native';
 import { Chip, IconButton, Surface, Text, TextInput } from 'react-native-paper';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Colors } from '@/constants/theme';
 import { ControlButton, SelectControl } from '@/components/chat/chat-controls';
@@ -14,6 +14,10 @@ import type { Command } from '@/lib/opencode/types';
 type Palette = typeof Colors.light;
 
 type Attachment = { uri: string; mime?: string; filename?: string };
+
+const MIN_INPUT_HEIGHT = 24;
+// Six 22-point lines; taller drafts scroll inside the native text view.
+const MAX_INPUT_HEIGHT = 132;
 
 type ChatComposerProps = {
   attachments: Attachment[];
@@ -74,8 +78,6 @@ export function ChatComposer({
   updateChatPreferences,
   visibleModels,
 }: ChatComposerProps) {
-  const minInputHeight = 24;
-  const maxInputHeight = 132;
   const hasComposerContent = Boolean(draft.trim()) || attachments.length > 0;
   const showOuterAction = showSendAction ? (hasComposerContent ? 'send' : 'attach') : 'stop';
   const outerActionIcon = showOuterAction === 'attach' ? 'plus' : showOuterAction;
@@ -92,7 +94,15 @@ export function ChatComposer({
   const handleOuterActionPress = showOuterAction === 'attach' ? onAttach : onSend;
   const handleInnerActionPress = hasComposerContent ? onAttach : onToggleRecording;
 
-  const [inputHeight, setInputHeight] = useState(minInputHeight);
+  const [inputHeight, setInputHeight] = useState(MIN_INPUT_HEIGHT);
+
+  // Keep iOS UIScrollView caret tracking active before a paste crosses the cap;
+  // enabling scrolling only after the resize can leave the pasted caret hidden.
+  useEffect(() => {
+    if (draft.length === 0) {
+      setInputHeight(MIN_INPUT_HEIGHT);
+    }
+  }, [draft]);
 
   return (
     <Surface
@@ -211,12 +221,12 @@ export function ChatComposer({
                value={draft}
                onChangeText={onDraftChange}
                onContentSizeChange={({ nativeEvent }) => {
-                 const nextHeight = Math.min(maxInputHeight, Math.max(minInputHeight, Math.ceil(nativeEvent.contentSize.height)));
+                 const nextHeight = Math.min(MAX_INPUT_HEIGHT, Math.max(MIN_INPUT_HEIGHT, Math.ceil(nativeEvent.contentSize.height)));
                  setInputHeight((current) => (current === nextHeight ? current : nextHeight));
                }}
                editable={!isSpeechInputListening}
                multiline
-               scrollEnabled={inputHeight >= maxInputHeight}
+               scrollEnabled={Platform.OS === 'ios' || inputHeight >= MAX_INPUT_HEIGHT}
                placeholder="Ask anything..."
                placeholderTextColor={palette.muted}
                style={[styles.input, { height: inputHeight, backgroundColor: 'transparent', color: palette.text }]}
