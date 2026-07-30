@@ -14,6 +14,26 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 
 ## Running tests
 
+### MSP-003 shared pending-interaction continuation
+
+`src/contract/msp_003_live_e2e.test.ts` proves the real fork question contract:
+`question.asked` is answered through `POST /question/{id}/reply` with a
+`string[][]` payload—not `session.input`. It also verifies late desktop attach,
+one-winner/two-client resolution, and continuation. Build the fork and API,
+start the isolated sandbox, then run:
+
+```bash
+cd apps/api_server
+RHYTHM_LIVE_E2E=1 \
+RHYTHM_LIVE_E2E_ISOLATED=1 \
+RHYTHM_LIVE_URL=http://127.0.0.1:4098 \
+npx vitest run src/contract/msp_003_live_e2e.test.ts \
+  --no-file-parallelism
+```
+
+Never point this test at the shipping API/engine. Its isolation guard rejects
+the default/shipping ports.
+
 ### Isolated dev sandbox
 
 Use `tools/dev/sandbox.sh` to run a second local api_server without touching

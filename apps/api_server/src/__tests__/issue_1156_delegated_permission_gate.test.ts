@@ -143,7 +143,7 @@ describe('#1156 — delegated subagent permission gate', () => {
   }
 
   // c1 — delegated child auto-accepts a non-allowlisted, non-blocklisted tool.
-  it('c1: a delegated child session (parentSessionId set) auto-accepts', () => {
+  it('c1: a delegated child session (parentSessionId set) auto-accepts', async () => {
     const parent = repo.insert({
       agentKind: 'claude-code',
       taskId: null,
@@ -176,7 +176,9 @@ describe('#1156 — delegated subagent permission gate', () => {
       CHILD_SDK_SESSION_ID,
     );
     expect(rejectCalls().length).toBe(0);
-    expect(resolvedFrames('accept').length).toBe(1);
+    await vi.waitFor(() => {
+      expect(resolvedFrames('accept').length).toBe(1);
+    });
     expect(pendingAskFrames().length).toBe(0);
   });
 
@@ -201,7 +203,7 @@ describe('#1156 — delegated subagent permission gate', () => {
   });
 
   // c3 — hardline blocklist deny still wins on a delegated child.
-  it('c3: a hardline-blocklisted bash command on a child is still denied', () => {
+  it('c3: a hardline-blocklisted bash command on a child is still denied', async () => {
     const parent = repo.insert({
       agentKind: 'claude-code',
       taskId: null,
@@ -230,11 +232,13 @@ describe('#1156 — delegated subagent permission gate', () => {
 
     expect(acceptCalls().length).toBe(0);
     expect(rejectCalls().length).toBe(1);
-    expect(resolvedFrames('deny').length).toBe(1);
+    await vi.waitFor(() => {
+      expect(resolvedFrames('deny').length).toBe(1);
+    });
   });
 
   // c4 — plan-mode auto-deny still wins on a delegated child.
-  it('c4: a child session explicitly in plan mode still auto-denies', () => {
+  it('c4: a child session explicitly in plan mode still auto-denies', async () => {
     const parent = repo.insert({
       agentKind: 'claude-code',
       taskId: null,
@@ -267,7 +271,9 @@ describe('#1156 — delegated subagent permission gate', () => {
       expect.anything(),
       CHILD_SDK_SESSION_ID,
     );
-    expect(resolvedFrames('deny').length).toBe(1);
+    await vi.waitFor(() => {
+      expect(resolvedFrames('deny').length).toBe(1);
+    });
   });
 
   // c5 — SECURITY REGRESSION GUARD: an interactive session (no parent, default

@@ -21,6 +21,10 @@ import {
   onSessionError,
 } from './turn_redispatch';
 import type { AgentSession, PermissionMode } from '../models/agent_session';
+import type {
+  PendingInteraction,
+  PendingInteractionResolutionRequest,
+} from '../models/pending_interaction';
 import { asyncDelegationCompletionService } from './async_delegation_completion_service';
 
 /**
@@ -171,6 +175,9 @@ export interface PendingPermission {
   summary: string;
   /** SDK session ID (needed to call respondPermission). */
   sdkSessionId: string;
+  callId?: string;
+  patterns?: string[];
+  always?: string[];
 }
 
 /**
@@ -249,6 +256,149 @@ export class OpencodeStreamBridge {
   // In-memory map of pending permissions. Key = `${localSessionId}:${permissionId}`.
   // Cleared when the user (or auto-logic) resolves the permission.
   private pendingPermissions = new Map<string, PendingPermission>();
+  /** Retryable failures remain attached to the still-pending interaction. */
+  private pendingInteractionErrors = new Map<
+    string,
+    { message: string; retryable: boolean }
+  >();
+  /**
+   * Bounded terminal tombstones prevent reordered asks from resurrecting a
+   * resolved card and let the losing side of a resolution race receive the
+   * exact same authoritative outcome.
+   */
+  private terminalInteractions = new Map<string, PendingInteraction>();
+  /** One in-flight engine reply per stable request id. */
+  private resolvingInteractions = new Map<
+    string,
+    Promise<PendingInteraction>
+  >();
+
+  private interactionKey(kind: 'permission' | 'question', id: string): string {
+    return `${kind}:${id}`;
+  }
+
+  private resolveLocalSessionId(sdkSessionId: string): string | undefined {
+    for (const [localId, sdkId] of opencodeSessionMap.entries()) {
+      if (sdkId === sdkSessionId) return localId;
+    }
+    try {
+      const row = this.sessionsRepo.findBySdkSessionId(sdkSessionId);
+      if (row) {
+        opencodeSessionMap.set(row.id, sdkSessionId);
+        return row.id;
+      }
+    } catch (err) {
+      logger.error(
+        '[OpencodeStreamBridge] durable SDK-session lookup failed:',
+        err,
+      );
+    }
+    return undefined;
+  }
+
+  private permissionInteraction(
+    localSessionId: string,
+    entry: PendingPermission,
+  ): PendingInteraction {
+    const key = this.interactionKey('permission', entry.permissionId);
+    return {
+      id: entry.permissionId,
+      kind: 'permission',
+      status: this.pendingInteractionErrors.has(key) ? 'failed' : 'pending',
+      sessionId: localSessionId,
+      sdkSessionId: entry.sdkSessionId,
+      callId: entry.callId ?? null,
+      payload: {
+        permission: entry.toolName,
+        patterns: entry.patterns ?? [],
+        metadata: entry.args,
+        always: entry.always ?? [],
+      },
+      resolution: null,
+      error: this.pendingInteractionErrors.get(key) ?? null,
+    };
+  }
+
+  private questionInteraction(
+    localSessionId: string,
+    entry: PendingQuestion,
+  ): PendingInteraction {
+    const key = this.interactionKey('question', entry.requestId);
+    return {
+      id: entry.requestId,
+      kind: 'question',
+      status: this.pendingInteractionErrors.has(key) ? 'failed' : 'pending',
+      sessionId: localSessionId,
+      sdkSessionId: entry.sdkSessionId,
+      callId: entry.callId || null,
+      payload: { questions: entry.questions },
+      resolution: null,
+      error: this.pendingInteractionErrors.get(key) ?? null,
+    };
+  }
+
+  /** Current unresolved interactions for connect/attach snapshots. */
+  listPendingInteractions(): PendingInteraction[] {
+    const interactions: PendingInteraction[] = [];
+    for (const [key, entry] of this.pendingPermissions) {
+      const split = key.indexOf(':');
+      interactions.push(
+        this.permissionInteraction(key.slice(0, split), entry),
+      );
+    }
+    for (const [key, entry] of this.pendingQuestions) {
+      const split = key.indexOf(':');
+      interactions.push(this.questionInteraction(key.slice(0, split), entry));
+    }
+    return interactions.sort((a, b) =>
+      `${a.sessionId}:${a.kind}:${a.id}`.localeCompare(
+        `${b.sessionId}:${b.kind}:${b.id}`,
+      ),
+    );
+  }
+
+  /** Pending or terminal state by stable engine request id. */
+  getInteraction(id: string): PendingInteraction | undefined {
+    for (const interaction of this.listPendingInteractions()) {
+      if (interaction.id === id || interaction.callId === id) {
+        return interaction;
+      }
+    }
+    const direct =
+      this.terminalInteractions.get(this.interactionKey('permission', id)) ??
+      this.terminalInteractions.get(this.interactionKey('question', id));
+    if (direct) return direct;
+    for (const interaction of this.terminalInteractions.values()) {
+      if (interaction.callId === id) return interaction;
+    }
+    return undefined;
+  }
+
+  private rememberTerminal(interaction: PendingInteraction): void {
+    const key = this.interactionKey(interaction.kind, interaction.id);
+    if (this.terminalInteractions.has(key)) return;
+    this.terminalInteractions.set(key, interaction);
+    while (this.terminalInteractions.size > 1_000) {
+      const oldest = this.terminalInteractions.keys().next().value as
+        | string
+        | undefined;
+      if (!oldest) break;
+      this.terminalInteractions.delete(oldest);
+    }
+    broadcast({
+      v: 1,
+      type: 'interaction.updated',
+      interaction,
+    });
+  }
+
+  private broadcastPending(interaction: PendingInteraction): void {
+    broadcast({
+      v: 1,
+      type: 'interaction.updated',
+      interaction,
+    });
+  }
 
   /** Return the pending permission for a session+permissionId, or undefined. */
   getPendingPermission(localSessionId: string, permissionId: string): PendingPermission | undefined {
@@ -273,9 +423,22 @@ export class OpencodeStreamBridge {
     entry: PendingPermission,
   ): boolean {
     if (this.stoppedSessions.has(localSessionId)) return false;
+    if (
+      this.terminalInteractions.has(
+        this.interactionKey('permission', entry.permissionId),
+      )
+    ) {
+      return false;
+    }
     const key = `${localSessionId}:${entry.permissionId}`;
     if (this.pendingPermissions.has(key)) return false;
     this.pendingPermissions.set(key, entry);
+    this.pendingInteractionErrors.delete(
+      this.interactionKey('permission', entry.permissionId),
+    );
+    this.broadcastPending(
+      this.permissionInteraction(localSessionId, entry),
+    );
     broadcast({
       v: 1,
       type: 'permission.asked',
@@ -305,7 +468,9 @@ export class OpencodeStreamBridge {
       id: string;
       sessionID: string;
       permission?: string;
+      patterns?: string[];
       metadata?: Record<string, unknown>;
+      always?: string[];
       tool?: { callID?: string };
     }>;
     try {
@@ -317,13 +482,7 @@ export class OpencodeStreamBridge {
 
     for (const p of pending) {
       if (!p?.id || !p.sessionID) continue;
-      let localSessionId: string | undefined;
-      for (const [localId, sdkId] of opencodeSessionMap.entries()) {
-        if (sdkId === p.sessionID) {
-          localSessionId = localId;
-          break;
-        }
-      }
+      const localSessionId = this.resolveLocalSessionId(p.sessionID);
       if (!localSessionId) continue;
       const toolName = p.permission ?? '';
       this.registerPermission(localSessionId, {
@@ -332,6 +491,9 @@ export class OpencodeStreamBridge {
         args: (p.metadata as Record<string, unknown>) ?? {},
         summary: toolName,
         sdkSessionId: p.sessionID,
+        callId: p.tool?.callID,
+        patterns: Array.isArray(p.patterns) ? p.patterns : [],
+        always: Array.isArray(p.always) ? p.always : [],
       });
     }
   }
@@ -380,9 +542,20 @@ export class OpencodeStreamBridge {
     entry: PendingQuestion,
   ): boolean {
     if (this.stoppedSessions.has(localSessionId)) return false;
+    if (
+      this.terminalInteractions.has(
+        this.interactionKey('question', entry.requestId),
+      )
+    ) {
+      return false;
+    }
     const key = `${localSessionId}:${entry.requestId}`;
     if (this.pendingQuestions.has(key)) return false;
     this.pendingQuestions.set(key, entry);
+    this.pendingInteractionErrors.delete(
+      this.interactionKey('question', entry.requestId),
+    );
+    this.broadcastPending(this.questionInteraction(localSessionId, entry));
     broadcast({
       v: 1,
       type: 'question.asked',
@@ -421,14 +594,7 @@ export class OpencodeStreamBridge {
 
     for (const q of pending) {
       if (!q?.id || !q.sessionID) continue;
-      // Reverse-map the SDK session id to a local session id.
-      let localSessionId: string | undefined;
-      for (const [localId, sdkId] of opencodeSessionMap.entries()) {
-        if (sdkId === q.sessionID) {
-          localSessionId = localId;
-          break;
-        }
-      }
+      const localSessionId = this.resolveLocalSessionId(q.sessionID);
       if (!localSessionId) continue;
       this.registerQuestion(localSessionId, {
         requestId: q.id,
@@ -437,6 +603,250 @@ export class OpencodeStreamBridge {
         questions: Array.isArray(q.questions) ? q.questions : [],
       });
     }
+  }
+
+  private pendingByStableId(
+    id: string,
+  ):
+    | {
+        kind: 'permission';
+        localSessionId: string;
+        entry: PendingPermission;
+      }
+    | {
+        kind: 'question';
+        localSessionId: string;
+        entry: PendingQuestion;
+      }
+    | undefined {
+    for (const [key, entry] of this.pendingPermissions) {
+      if (entry.permissionId !== id) continue;
+      return {
+        kind: 'permission',
+        localSessionId: key.slice(0, key.indexOf(':')),
+        entry,
+      };
+    }
+    for (const [key, entry] of this.pendingQuestions) {
+      if (entry.requestId !== id && entry.callId !== id) continue;
+      return {
+        kind: 'question',
+        localSessionId: key.slice(0, key.indexOf(':')),
+        entry,
+      };
+    }
+    return undefined;
+  }
+
+  /**
+   * Resolve exactly one authoritative engine interaction.
+   *
+   * Concurrent callers share the same promise, so only the winner reaches the
+   * engine. Later duplicates receive the bounded terminal tombstone rather
+   * than a 404/error card. A failed engine acknowledgement remains in the
+   * pending snapshot with a retryable error and may be retried.
+   */
+  async resolvePendingInteraction(
+    interactionId: string,
+    request: PendingInteractionResolutionRequest,
+  ): Promise<PendingInteraction> {
+    const directTerminal = this.getInteraction(interactionId);
+    if (
+      directTerminal &&
+      directTerminal.status !== 'resolved'
+    ) {
+      // Pending/failed interactions still need to reach the engine below.
+    } else if (directTerminal) {
+      return directTerminal;
+    }
+
+    const located = this.pendingByStableId(interactionId);
+    const stableId =
+      located?.kind === 'question'
+        ? located.entry.requestId
+        : located?.kind === 'permission'
+          ? located.entry.permissionId
+          : interactionId;
+    const terminal =
+      this.terminalInteractions.get(
+        this.interactionKey('permission', stableId),
+      ) ??
+      this.terminalInteractions.get(
+        this.interactionKey('question', stableId),
+      );
+    if (terminal) return terminal;
+    if (!located) {
+      throw new Error(`No pending interaction for request ${interactionId}`);
+    }
+
+    const inFlight = this.resolvingInteractions.get(stableId);
+    if (inFlight) return inFlight;
+
+    const resolution = this.resolveLocatedInteraction(
+      located,
+      request,
+    ).finally(() => {
+      this.resolvingInteractions.delete(stableId);
+    });
+    this.resolvingInteractions.set(stableId, resolution);
+    return resolution;
+  }
+
+  private async resolveLocatedInteraction(
+    located:
+      | {
+          kind: 'permission';
+          localSessionId: string;
+          entry: PendingPermission;
+        }
+      | {
+          kind: 'question';
+          localSessionId: string;
+          entry: PendingQuestion;
+        },
+    request: PendingInteractionResolutionRequest,
+  ): Promise<PendingInteraction> {
+    const { localSessionId } = located;
+    const id =
+      located.kind === 'permission'
+        ? located.entry.permissionId
+        : located.entry.requestId;
+    const key = this.interactionKey(located.kind, id);
+    const directory = (() => {
+      try {
+        return this.sessionsRepo.findById(localSessionId)?.cwd;
+      } catch {
+        return undefined;
+      }
+    })();
+
+    let ok = false;
+    if (located.kind === 'permission') {
+      if (
+        request.action !== 'once' &&
+        request.action !== 'always' &&
+        request.action !== 'reject'
+      ) {
+        throw new Error('Permission action must be once, always, or reject');
+      }
+      ok = await opencodeClient.replyToPermission(
+        id,
+        request.action,
+        request.message,
+        directory,
+        located.entry.sdkSessionId,
+      );
+    } else if (request.action === 'reply') {
+      if (
+        !Array.isArray(request.answers) ||
+        !request.answers.every(
+          (answer) =>
+            Array.isArray(answer) &&
+            answer.every((value) => typeof value === 'string'),
+        )
+      ) {
+        throw new Error('Question answers must be a string[][]');
+      }
+      ok = await opencodeClient.replyToQuestion(
+        id,
+        request.answers,
+        directory,
+      );
+    } else if (request.action === 'reject') {
+      ok = await opencodeClient.rejectQuestion(id, directory);
+    } else {
+      throw new Error('Question action must be reply or reject');
+    }
+
+    if (!ok) {
+      const error = {
+        message: 'OpenCode did not acknowledge the interaction response.',
+        retryable: true,
+      };
+      this.pendingInteractionErrors.set(key, error);
+      const failed =
+        located.kind === 'permission'
+          ? this.permissionInteraction(localSessionId, located.entry)
+          : this.questionInteraction(localSessionId, located.entry);
+      this.broadcastPending(failed);
+      return failed;
+    }
+
+    this.pendingInteractionErrors.delete(key);
+    if (located.kind === 'permission') {
+      this.pendingPermissions.delete(`${localSessionId}:${id}`);
+    } else {
+      this.pendingQuestions.delete(`${localSessionId}:${id}`);
+    }
+    const resolved: PendingInteraction = {
+      ...(located.kind === 'permission'
+        ? this.permissionInteraction(localSessionId, located.entry)
+        : this.questionInteraction(localSessionId, located.entry)),
+      status: 'resolved',
+      resolution: {
+        action: request.action,
+        source: request.source,
+        ...(request.answers ? { answers: request.answers } : {}),
+      },
+      error: null,
+    };
+    this.rememberTerminal(resolved);
+
+    // Legacy frames remain for shipped desktop builds. New clients consume the
+    // canonical interaction.updated frame emitted above.
+    if (located.kind === 'permission') {
+      broadcast({
+        v: 1,
+        type: 'permission.resolved',
+        sessionId: localSessionId,
+        permissionId: id,
+        decision: request.action === 'reject' ? 'deny' : 'accept',
+      });
+    } else {
+      broadcast({
+        v: 1,
+        type: 'question.resolved',
+        sessionId: localSessionId,
+        requestId: id,
+        rejected: request.action === 'reject',
+      });
+    }
+    return resolved;
+  }
+
+  private resolveAutomaticPermission(
+    localSessionId: string,
+    entry: PendingPermission,
+    action: 'once' | 'reject',
+    message?: string,
+  ): void {
+    const interactionKey = this.interactionKey(
+      'permission',
+      entry.permissionId,
+    );
+    const pendingKey = `${localSessionId}:${entry.permissionId}`;
+    if (
+      this.terminalInteractions.has(interactionKey) ||
+      this.resolvingInteractions.has(entry.permissionId) ||
+      this.pendingPermissions.has(pendingKey)
+    ) {
+      return;
+    }
+    // Do not flash an approval card for policy-driven decisions. A failed
+    // engine acknowledgement is broadcast as a retryable card by the shared
+    // resolver, while a success emits the same canonical terminal state as a
+    // human desktop/mobile response.
+    this.pendingPermissions.set(pendingKey, entry);
+    void this.resolvePendingInteraction(entry.permissionId, {
+      action,
+      source: 'engine',
+      message,
+    }).catch((err) => {
+      logger.error(
+        `[OpencodeStreamBridge] automatic permission resolution failed for ${entry.permissionId}:`,
+        err,
+      );
+    });
   }
 
   /**
@@ -518,6 +928,13 @@ export class OpencodeStreamBridge {
     // back to the legacy per-directory subscription below).
     if (useGlobalStream() && typeof opencodeClient.subscribeToGlobalEvents === 'function') {
       await this.ensureGlobalStream();
+      // The consolidated stream does not carry historical asks. Snapshot the
+      // engine surfaces for this session directory on every bridge attach,
+      // including the first global subscription (not only watchdog reconnect).
+      await Promise.all([
+        this.recoverPendingQuestions(directory),
+        this.recoverPendingPermissions(directory),
+      ]);
       return;
     }
 
@@ -556,8 +973,10 @@ export class OpencodeStreamBridge {
       // permission/question that was already pending before this subscribe
       // (api_server restart mid-ask) without waiting a full poll cycle. Both
       // are idempotent, so a card the live stream also redelivers is deduped.
-      void this.recoverPendingQuestions(directory);
-      void this.recoverPendingPermissions(directory);
+      await Promise.all([
+        this.recoverPendingQuestions(directory),
+        this.recoverPendingPermissions(directory),
+      ]);
       // OCU-04 (#1045) — reconcile any row left stuck 'working'/'starting' by a
       // missed event before this (re)subscribe, using the engine's status map.
       void this.reconcileSessionStatuses(directory);
@@ -1659,6 +2078,9 @@ export class OpencodeStreamBridge {
           summary?: string;
           metadata?: Record<string, unknown>;
           args?: Record<string, unknown>;
+          patterns?: string[];
+          always?: string[];
+          tool?: { callID?: string; messageID?: string };
         };
         const permissionId = perm.permissionID ?? perm.id;
         if (!permissionId || !localSessionId) break;
@@ -1675,27 +2097,21 @@ export class OpencodeStreamBridge {
         // auto-DENY it (reject) and surface a denied result instead of forwarding
         // the permission card or auto-accepting. Non-role sessions pass through.
         if (toolName && !this.isToolAllowedForSession(localSessionId, toolName)) {
-          const dir = (() => {
-            try {
-              return this.sessionsRepo.findById(localSessionId)?.cwd;
-            } catch {
-              return undefined;
-            }
-          })();
-          void opencodeClient.replyToPermission(
-            permissionId,
+          this.resolveAutomaticPermission(
+            localSessionId,
+            {
+              permissionId,
+              toolName,
+              args,
+              summary,
+              sdkSessionId,
+              callId: perm.tool?.callID,
+              patterns: perm.patterns ?? [],
+              always: perm.always ?? [],
+            },
             'reject',
             `Tool '${toolName}' is not in this session's allowlist.`,
-            dir,
-            sdkSessionId,
           );
-          broadcast({
-            v: 1,
-            type: 'permission.resolved',
-            sessionId: localSessionId,
-            permissionId,
-            decision: 'deny',
-          });
           this.broadcastToolDenied(localSessionId, localSessionId, toolName);
           break;
         }
@@ -1712,27 +2128,21 @@ export class OpencodeStreamBridge {
           if (command) {
             const classification = classifyCommand(command, resolveApprovalsMode());
             if (classification.decision === 'deny') {
-              const dir = (() => {
-                try {
-                  return this.sessionsRepo.findById(localSessionId)?.cwd;
-                } catch {
-                  return undefined;
-                }
-              })();
-              void opencodeClient.replyToPermission(
-                permissionId,
+              this.resolveAutomaticPermission(
+                localSessionId,
+                {
+                  permissionId,
+                  toolName,
+                  args,
+                  summary,
+                  sdkSessionId,
+                  callId: perm.tool?.callID,
+                  patterns: perm.patterns ?? [],
+                  always: perm.always ?? [],
+                },
                 'reject',
                 `Command blocked: ${classification.detail} (reason: ${classification.reason})`,
-                dir,
-                sdkSessionId,
               );
-              broadcast({
-                v: 1,
-                type: 'permission.resolved',
-                sessionId: localSessionId,
-                permissionId,
-                decision: 'deny',
-              });
               broadcast({
                 v: 1,
                 type: 'tool.denied',
@@ -1756,6 +2166,9 @@ export class OpencodeStreamBridge {
                 args,
                 summary: `${summary} — ${classification.detail}`,
                 sdkSessionId,
+                callId: perm.tool?.callID,
+                patterns: perm.patterns ?? [],
+                always: perm.always ?? [],
               });
               break;
             }
@@ -1802,29 +2215,23 @@ export class OpencodeStreamBridge {
           isHeadless;
 
         if (shouldAutoAccept || shouldAutoDeny) {
-          const decision = shouldAutoAccept ? 'accept' : 'deny';
-          // Pass the session cwd as directory — opencode scopes permissions per
-          // directory; without it the auto-response doesn't unblock the tool.
-          const dir = this.sessionsRepo.findById(localSessionId)?.cwd;
-          // Auto-resolve via the modern reply endpoint. Plan-mode auto-deny
-          // sends a reject classification message the agent sees next turn.
-          void opencodeClient.replyToPermission(
-            permissionId,
+          this.resolveAutomaticPermission(
+            localSessionId,
+            {
+              permissionId,
+              toolName,
+              args,
+              summary,
+              sdkSessionId,
+              callId: perm.tool?.callID,
+              patterns: perm.patterns ?? [],
+              always: perm.always ?? [],
+            },
             shouldAutoAccept ? 'once' : 'reject',
             shouldAutoDeny
               ? "Auto-denied: session is in plan mode (read-only)."
               : undefined,
-            dir,
-            sdkSessionId,
           );
-          // Broadcast a permission.resolved so Flutter can update its UI.
-          broadcast({
-            v: 1,
-            type: 'permission.resolved',
-            sessionId: localSessionId,
-            permissionId,
-            decision,
-          });
           break;
         }
 
@@ -1837,6 +2244,47 @@ export class OpencodeStreamBridge {
           args,
           summary,
           sdkSessionId,
+          callId: perm.tool?.callID,
+          patterns: perm.patterns ?? [],
+          always: perm.always ?? [],
+        });
+        break;
+      }
+
+      case 'permission.replied': {
+        const permission = event.properties as {
+          requestID?: string;
+          id?: string;
+          reply?: 'once' | 'always' | 'reject';
+        };
+        const permissionId = permission.requestID ?? permission.id;
+        if (!permissionId || !localSessionId) break;
+        // A local/mobile coordinator resolution owns the terminal result while
+        // its engine call is in flight; ignore the echo to avoid duplicate
+        // terminal broadcasts. External engine clients take this branch.
+        if (this.resolvingInteractions.has(permissionId)) break;
+        const located = this.pendingByStableId(permissionId);
+        if (!located || located.kind !== 'permission') break;
+        this.pendingPermissions.delete(`${localSessionId}:${permissionId}`);
+        this.pendingInteractionErrors.delete(
+          this.interactionKey('permission', permissionId),
+        );
+        const resolved: PendingInteraction = {
+          ...this.permissionInteraction(localSessionId, located.entry),
+          status: 'resolved',
+          resolution: {
+            action: permission.reply ?? 'once',
+            source: 'engine',
+          },
+          error: null,
+        };
+        this.rememberTerminal(resolved);
+        broadcast({
+          v: 1,
+          type: 'permission.resolved',
+          sessionId: localSessionId,
+          permissionId,
+          decision: permission.reply === 'reject' ? 'deny' : 'accept',
         });
         break;
       }
@@ -1880,6 +2328,34 @@ export class OpencodeStreamBridge {
         };
         const requestId = q.requestID ?? q.id;
         if (!requestId || !localSessionId) break;
+        if (this.resolvingInteractions.has(requestId)) break;
+        const located = this.pendingByStableId(requestId);
+        if (located?.kind === 'question') {
+          this.pendingQuestions.delete(`${localSessionId}:${requestId}`);
+          this.pendingInteractionErrors.delete(
+            this.interactionKey('question', requestId),
+          );
+          const answers = Array.isArray(q.answers)
+            ? (q.answers as string[][])
+            : undefined;
+          this.rememberTerminal({
+            ...this.questionInteraction(localSessionId, located.entry),
+            status: 'resolved',
+            resolution: {
+              action:
+                event.type === 'question.rejected' ? 'reject' : 'reply',
+              source: 'engine',
+              ...(answers ? { answers } : {}),
+            },
+            error: null,
+          });
+        } else if (
+          this.terminalInteractions.has(
+            this.interactionKey('question', requestId),
+          )
+        ) {
+          break;
+        }
         this.clearPendingQuestion(localSessionId, requestId);
         broadcast({
           v: 1,
@@ -1967,6 +2443,9 @@ export class OpencodeStreamBridge {
     this.pendingText.clear();
     this.pendingPermissions.clear();
     this.pendingQuestions.clear();
+    this.pendingInteractionErrors.clear();
+    this.terminalInteractions.clear();
+    this.resolvingInteractions.clear();
   }
 }
 

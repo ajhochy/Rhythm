@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -42,6 +44,8 @@ class QuestionToolCard extends StatefulWidget {
 class _QuestionToolCardState extends State<QuestionToolCard> {
   // null = unanswered; non-null = the submitted answer label(s).
   List<String>? _answers;
+  bool _submitting = false;
+  String? _error;
 
   // Parsed question list — filled once in [_parseQuestions].
   List<_Question> _questions = const [];
@@ -150,11 +154,13 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
   void _selectOption(int qIdx, String option) {
     if (_isFastSingleSelect) {
       // Single single-select question — submit immediately on tap (unchanged).
-      _submit(
-        [
-          [option],
-        ],
-        displayLabels: [option],
+      unawaited(
+        _submit(
+          [
+            [option],
+          ],
+          displayLabels: [option],
+        ),
       );
       return;
     }
@@ -213,7 +219,7 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
         '${_questions[i].header.isNotEmpty ? "${_questions[i].header}: " : ""}'
             '${_answersFor(i).join(", ")}',
     ];
-    _submit(answers, displayLabels: display);
+    unawaited(_submit(answers, displayLabels: display));
   }
 
   /// Resolve the [AgentsController] from the tree, or null when none is
@@ -233,31 +239,65 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
   /// A plain prompt never completes the pending `question` tool, so the agent
   /// would hang forever (#622 root cause). [answers] is one `List<String>` per
   /// question — opencode's QuestionAnswer is an array of selected labels.
-  void _submit(
+  Future<void> _submit(
     List<List<String>> answers, {
     required List<String> displayLabels,
-  }) {
+  }) async {
+    if (_submitting) return;
     final callId = widget.part.toolCallId;
-    if (callId != null && callId.isNotEmpty) {
-      _controller(
-        context,
-        listen: false,
-      )?.replyQuestion(widget.sessionId, callId, answers);
+    final controller = _controller(context, listen: false);
+    if (controller == null || callId == null || callId.isEmpty) {
+      setState(() => _answers = displayLabels);
+      return;
     }
-    setState(() => _answers = displayLabels);
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    try {
+      await controller.replyQuestion(widget.sessionId, callId, answers);
+      if (!mounted) return;
+      setState(() {
+        _submitting = false;
+        _answers = displayLabels;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _submitting = false;
+        _error = error.toString();
+      });
+    }
   }
 
   /// Dismiss the question without answering — also unblocks the agent so the
   /// session can never get stuck on an unanswered question.
-  void _dismiss() {
+  Future<void> _dismiss() async {
+    if (_submitting) return;
     final callId = widget.part.toolCallId;
-    if (callId != null && callId.isNotEmpty) {
-      _controller(
-        context,
-        listen: false,
-      )?.rejectQuestion(widget.sessionId, callId);
+    final controller = _controller(context, listen: false);
+    if (controller == null || callId == null || callId.isEmpty) {
+      setState(() => _answers = ['Dismissed']);
+      return;
     }
-    setState(() => _answers = ['Dismissed']);
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    try {
+      await controller.rejectQuestion(widget.sessionId, callId);
+      if (!mounted) return;
+      setState(() {
+        _submitting = false;
+        _answers = ['Dismissed'];
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _submitting = false;
+        _error = error.toString();
+      });
+    }
   }
 
   @override
@@ -270,6 +310,10 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
 
     final controller = _controller(context, listen: true);
     final callId = widget.part.toolCallId;
+    final authoritativeError =
+        controller != null && callId != null && callId.isNotEmpty
+            ? controller.questionErrorForCallId(widget.sessionId, callId)
+            : null;
 
     // Resolved by another client or by the agent — stop offering an answer.
     if (controller != null &&
@@ -313,7 +357,7 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
               ),
             ),
             TextButton(
-              onPressed: _dismiss,
+              onPressed: _submitting ? null : _dismiss,
               style: TextButton.styleFrom(
                 foregroundColor: r.textMuted,
                 padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -385,13 +429,20 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
                     onCustomChanged: (_) => setState(() {}),
                   ),
                 ],
+                if ((_error ?? authoritativeError) != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    (_error ?? authoritativeError)!,
+                    style: const TextStyle(color: Color(0xFFEF4444)),
+                  ),
+                ],
                 // Action row: Dismiss (always) + multi-question Submit.
                 const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     TextButton(
-                      onPressed: _dismiss,
+                      onPressed: _submitting ? null : _dismiss,
                       style: TextButton.styleFrom(
                         foregroundColor: context.rhythm.textMuted,
                         padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -408,7 +459,9 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
                     if (!_isFastSingleSelect || _customOpen.isNotEmpty) ...[
                       const SizedBox(width: 8),
                       FilledButton(
-                        onPressed: _allStaged ? _submitFromPending : null,
+                        onPressed: _allStaged && !_submitting
+                            ? _submitFromPending
+                            : null,
                         style: FilledButton.styleFrom(
                           backgroundColor: r.accent,
                           foregroundColor: r.surface,

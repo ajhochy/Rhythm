@@ -2024,6 +2024,7 @@ class _PendingPermissionArea extends StatelessWidget {
               title: 'Allow ${p.toolName}?',
               toolName: p.toolName,
               description: p.summary.isNotEmpty ? p.summary : null,
+              initialError: p.error,
             ),
         ],
       ),

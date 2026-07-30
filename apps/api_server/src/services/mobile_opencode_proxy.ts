@@ -67,6 +67,9 @@ export interface MobileOpenCodeProxyOptions {
   responseBodyLimitBytes?: number;
   timeoutMs?: number;
   ownershipRepository?: MobileOpenCodeOwnershipStore;
+  pendingInteractionResolver?: (
+    input: MobileOpenCodeForwardInput & { operationId: string },
+  ) => Promise<MobileOpenCodeProxyResponse | null>;
 }
 
 export interface MobileOpenCodeForwardInput {
@@ -527,6 +530,8 @@ export class MobileOpenCodeProxy {
   private readonly timeoutMs: number;
   private readonly configuredOwnershipRepository?:
     MobileOpenCodeOwnershipStore;
+  private readonly pendingInteractionResolver?:
+    MobileOpenCodeProxyOptions['pendingInteractionResolver'];
 
   constructor(options: MobileOpenCodeProxyOptions = {}) {
     this.baseUrl = (
@@ -541,6 +546,7 @@ export class MobileOpenCodeProxy {
       MOBILE_OPENCODE_RESPONSE_BODY_LIMIT_BYTES;
     this.timeoutMs = options.timeoutMs ?? MOBILE_OPENCODE_TIMEOUT_MS;
     this.configuredOwnershipRepository = options.ownershipRepository;
+    this.pendingInteractionResolver = options.pendingInteractionResolver;
   }
 
   async forward(
@@ -584,6 +590,17 @@ export class MobileOpenCodeProxy {
         input.project,
       );
     }
+    // Shared pending-interaction replies are coordinated before the engine
+    // ownership preflight because an already-resolved loser is intentionally
+    // absent from GET /permission or GET /question. The resolver must validate
+    // the persisted local session owner/project before returning a response;
+    // returning null falls through to the normal engine authorization path.
+    const resolvedInteraction =
+      await this.pendingInteractionResolver?.({
+        ...input,
+        operationId: operation.operationId,
+      });
+    if (resolvedInteraction) return resolvedInteraction;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {

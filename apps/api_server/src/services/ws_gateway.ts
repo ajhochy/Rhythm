@@ -14,11 +14,26 @@ import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
 import { resolveProfileScope } from './agent_profile_scope';
 import { retainTurn } from './turn_redispatch';
+import type { PendingInteraction } from '../models/pending_interaction';
 
 export interface WsMessage {
   v: 1;
   type: string;
   [key: string]: unknown;
+}
+
+export function buildDesktopAttachSnapshot(
+  sessions: unknown[],
+  resumable: unknown[],
+  pendingInteractions: PendingInteraction[],
+): WsMessage {
+  return {
+    v: 1,
+    type: 'sessions.list',
+    sessions,
+    resumable,
+    pendingInteractions,
+  };
 }
 
 const clients = new Set<WebSocket>();
@@ -79,20 +94,26 @@ export function attachWsGateway(
   wss.on('connection', (ws) => {
     clients.add(ws);
 
-    // Send initial sessions.list on connect
-    try {
-      const repo = new AgentSessionsRepository();
-      ws.send(
-        JSON.stringify({
-          v: 1,
-          type: 'sessions.list',
-          sessions: repo.listActive(),
-          resumable: repo.listResumable(),
-        }),
-      );
-    } catch {
-      // DB may not be ready yet — ignore
-    }
+    // Send a single attach snapshot containing sessions and every interaction
+    // already registered by the bridge. The dynamic import avoids the bridge
+    // <-> gateway module cycle during singleton construction.
+    void import('./opencode_stream_bridge')
+      .then(({ streamBridge }) => {
+        const repo = new AgentSessionsRepository();
+        if (ws.readyState !== WebSocket.OPEN) return;
+        ws.send(
+          JSON.stringify(
+            buildDesktopAttachSnapshot(
+              repo.listActive(),
+              repo.listResumable(),
+              streamBridge.listPendingInteractions(),
+            ),
+          ),
+        );
+      })
+      .catch(() => {
+        // DB/bridge may not be ready yet — live events remain available.
+      });
 
     ws.on('message', (raw) => handleClientMessage(ws, raw));
     ws.on('close', () => clients.delete(ws));

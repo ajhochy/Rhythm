@@ -395,13 +395,25 @@ export async function replyToPendingPermission(
   requestID: string,
   reply: 'once' | 'always' | 'reject',
 ) {
-  await client.permission.reply({ requestID, reply });
+  const response = await client.permission.reply({ requestID, reply });
+  if (response.error) {
+    throw new Error('The permission response was not acknowledged.');
+  }
+  return response.data;
 }
 
 export async function replyToPendingQuestion(client: ScopedOpencodeClient, requestID: string, answers: PendingQuestionAnswer[]) {
-  await client.question.reply({ requestID, answers });
+  const response = await client.question.reply({ requestID, answers });
+  if (response.error) {
+    throw new Error('The question response was not acknowledged.');
+  }
+  return response.data;
 }
 
 export async function rejectPendingQuestion(client: ScopedOpencodeClient, requestID: string) {
-  await client.question.reject({ requestID });
+  const response = await client.question.reject({ requestID });
+  if (response.error) {
+    throw new Error('The question rejection was not acknowledged.');
+  }
+  return response.data;
 }

@@ -1023,37 +1023,24 @@ export class AgentSessionsController {
           ? ((req.body as Record<string, unknown>).message as string)
           : undefined;
 
-      // Forward to the engine's modern /permission/:id/reply endpoint (falls
-      // back to the deprecated per-session route only on a 404).
-      const ok = await opencodeClient.replyToPermission(
-        permissionId,
-        reply,
-        message,
-        session.cwd,
-        opencodeId,
-      );
-
-      // Clear the pending permission from the bridge.
-      streamBridge.clearPendingPermission(session.id, permissionId);
-
-      // Broadcast resolution so other connected clients update their UI. Keep
-      // the legacy accept/deny decision word on the WS frame the Flutter card
-      // still expects (OCU-02 handles the always affordance UI-side).
-      const { broadcast } = await import('../services/ws_gateway');
-      broadcast({
-        v: 1,
-        type: 'permission.resolved',
-        sessionId: session.id,
-        permissionId,
-        decision: reply === 'reject' ? 'deny' : 'accept',
-      });
-
-      if (!ok) {
-        // Non-fatal: SDK may not support this endpoint yet.
-        console.warn(`[AgentSessionsController] respondPermission: SDK returned false for session ${session.id}`);
+      if (!streamBridge.getInteraction(permissionId)) {
+        await streamBridge.recoverPendingPermissions(session.cwd);
       }
-
-      res.status(204).end();
+      const pendingPermission = streamBridge.getInteraction(permissionId);
+      if (
+        !pendingPermission ||
+        pendingPermission.kind !== 'permission' ||
+        pendingPermission.sessionId !== session.id
+      ) {
+        throw AppError.notFound('Pending permission');
+      }
+      const interaction = await streamBridge.resolvePendingInteraction(
+        permissionId,
+        { action: reply, source: 'desktop', message },
+      );
+      res
+        .status(interaction.status === 'failed' ? 502 : 200)
+        .json(interaction);
     } catch (err) {
       next(err);
     }
@@ -1079,66 +1066,43 @@ export class AgentSessionsController {
       if (action !== 'reply' && action !== 'reject') {
         throw AppError.badRequest('action must be reply or reject');
       }
-      const callId = req.params.callId;
-
-      // Resolve the tool callId → opencode requestId.
-      let pending = streamBridge.getPendingQuestionByCallId(session.id, callId);
-      if (!pending) {
-        // Fallback: the bridge map was lost (e.g. restart). Ask opencode.
-        const list = await opencodeClient.listQuestions(session.cwd);
-        const match = list.find((q) => q.tool?.callID === callId);
-        if (match) {
-          pending = {
-            requestId: match.id,
-            callId,
-            sdkSessionId: match.sessionID,
-            questions: [],
-          };
-        }
+      const interactionId = req.params.callId;
+      if (!streamBridge.getInteraction(interactionId)) {
+        await streamBridge.recoverPendingQuestions(session.cwd);
       }
-      if (!pending) {
-        throw AppError.notFound('No pending question for that callId');
+      const pendingQuestion = streamBridge.getInteraction(interactionId);
+      if (
+        !pendingQuestion ||
+        pendingQuestion.kind !== 'question' ||
+        pendingQuestion.sessionId !== session.id
+      ) {
+        throw AppError.notFound('Pending question');
       }
-
-      let ok: boolean;
+      let answers: string[][] | undefined;
       if (action === 'reply') {
         const body = (req.body ?? {}) as Record<string, unknown>;
-        const answers = body.answers;
+        const rawAnswers = body.answers;
         if (
-          !Array.isArray(answers) ||
-          !answers.every(
+          !Array.isArray(rawAnswers) ||
+          !rawAnswers.every(
             (a) => Array.isArray(a) && a.every((s) => typeof s === 'string'),
           )
         ) {
           throw AppError.badRequest('answers must be a string[][]');
         }
-        ok = await opencodeClient.replyToQuestion(
-          pending.requestId,
-          answers as string[][],
-          session.cwd,
-        );
-      } else {
-        ok = await opencodeClient.rejectQuestion(pending.requestId, session.cwd);
+        answers = rawAnswers as string[][];
       }
-
-      // Clear locally + broadcast resolution (the question.replied/rejected
-      // event will also fire, but this keeps every client snappy and idempotent).
-      streamBridge.clearPendingQuestion(session.id, pending.requestId);
-      const { broadcast } = await import('../services/ws_gateway');
-      broadcast({
-        v: 1,
-        type: 'question.resolved',
-        sessionId: session.id,
-        requestId: pending.requestId,
-        rejected: action === 'reject',
-      });
-
-      if (!ok) {
-        console.warn(
-          `[AgentSessionsController] respondQuestion: opencode returned false for session ${session.id}`,
-        );
-      }
-      res.status(204).end();
+      const interaction = await streamBridge.resolvePendingInteraction(
+        interactionId,
+        {
+          action,
+          source: 'desktop',
+          ...(answers ? { answers } : {}),
+        },
+      );
+      res
+        .status(interaction.status === 'failed' ? 502 : 200)
+        .json(interaction);
     } catch (err) {
       next(err);
     }
