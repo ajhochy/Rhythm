@@ -199,12 +199,24 @@ try {
     `${gatewayPrefix}/profile-catalog`,
     { headers: gatewayHeaders },
   );
-  assert(profileCatalog.profiles[0].profileId === 'profile-build', 'Expected safe mobile profile catalog');
-  assert(
-    Object.keys(profileCatalog.profiles[0]).sort().join(',') ===
-      'defaults,display,name,opencodeAgentId,profileId',
-    'Mobile profile catalog exposed fields outside the safe allowlist',
-  );
+  // Order-independent: MSP-002 puts Secretary first (the creation default), so
+  // assert membership rather than position, and check the safe-field allowlist
+  // on EVERY profile instead of only the first one.
+  for (const expectedProfileId of ['profile-secretary', 'profile-build']) {
+    assert(
+      profileCatalog.profiles.some(
+        (profile) => profile.profileId === expectedProfileId,
+      ),
+      `Expected safe mobile profile catalog to include ${expectedProfileId}`,
+    );
+  }
+  for (const profile of profileCatalog.profiles) {
+    assert(
+      Object.keys(profile).sort().join(',') ===
+        'defaults,display,name,opencodeAgentId,profileId',
+      'Mobile profile catalog exposed fields outside the safe allowlist',
+    );
+  }
   const executionState = await request(
     `${gatewayPrefix}/sessions/${sessionId}/state`,
     {
