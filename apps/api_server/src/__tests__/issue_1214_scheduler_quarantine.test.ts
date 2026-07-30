@@ -42,6 +42,7 @@ vi.mock('../services/agent_runner', () => ({
 vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
     get isReady() { return true; },
+    listMcp: vi.fn().mockResolvedValue({}),
     createSession: vi.fn().mockResolvedValue({ id: 'sdk-sess-1' }),
     promptAsync: vi.fn().mockResolvedValue(true),
     abortSession: vi.fn().mockResolvedValue(true),

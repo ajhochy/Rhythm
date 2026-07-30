@@ -44,8 +44,14 @@ function makeDeps(overrides: Partial<EscalateDeps> = {}): EscalateDeps {
 }
 
 describe('shouldEscalate', () => {
-  it('error result + enabled + not-already-escalation → true', () => {
-    expect(shouldEscalate(errorResult(), baseOpts(), true)).toBe(true);
+  it('explicit model-quality error + enabled + not-already-escalation → true', () => {
+    expect(
+      shouldEscalate(
+        errorResult({ failureCategory: 'model_quality' }),
+        baseOpts(),
+        true,
+      ),
+    ).toBe(true);
   });
 
   it('non-error (done) result → false', () => {

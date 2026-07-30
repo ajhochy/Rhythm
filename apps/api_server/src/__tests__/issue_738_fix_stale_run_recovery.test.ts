@@ -75,7 +75,9 @@ describe('#738-fix — scheduler stale-run recovery on boot', () => {
     task?.stop();
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
 
-    expect(mockResetStaleRunning).toHaveBeenCalledWith('Server restarted — run interrupted');
+    expect(mockResetStaleRunning).toHaveBeenCalledWith(
+      '[restart_interruption] Server restarted — run interrupted',
+    );
     dbClientSpy.mockRestore();
   });
 
