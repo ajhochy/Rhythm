@@ -61,6 +61,11 @@ export type MobileSession = Session & {
   rhythm?: SessionExecutionState;
 };
 
+export type CreateSessionOptions = {
+  projectId?: string;
+  preferences?: ChatPreferences;
+};
+
 export type ProviderOption = {
   id: string;
   label: string;
@@ -151,6 +156,10 @@ export type OpencodeContextValue = {
   availableAgents: AgentOption[];
   chatPreferences: ChatPreferences;
   updateChatPreferences: (patch: Partial<ChatPreferences>) => void;
+  updateSessionPreferences: (
+    sessionId: string,
+    patch: Partial<ChatPreferences>,
+  ) => Promise<ChatPreferences>;
   conversation: ConversationState;
   clearConversationFeedback: () => void;
   toggleConversationMode: () => Promise<void>;
@@ -173,7 +182,10 @@ export type OpencodeContextValue = {
   refreshCurrentSession: (silent?: boolean) => Promise<void>;
   refreshCurrentTodos: (silent?: boolean) => Promise<void>;
   ensureActiveSession: () => Promise<string | undefined>;
-  createSession: (title?: string) => Promise<MobileSession>;
+  createSession: (
+    title?: string,
+    options?: CreateSessionOptions,
+  ) => Promise<MobileSession>;
   deleteSession: (sessionId: string) => Promise<void>;
   archiveSession: (sessionId: string) => Promise<void>;
   restoreSession: (sessionId: string) => Promise<void>;

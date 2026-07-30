@@ -184,6 +184,132 @@ export function thinkingBudgetForReasoning(
   return null;
 }
 
+function reasoningForProfileDefault(
+  value: string | null | undefined,
+  fallback: ReasoningLevel,
+): ReasoningLevel {
+  if (value === 'low' || value === 'default' || value === 'high') {
+    return value;
+  }
+  return fallback;
+}
+
+function qualifiedModelId(
+  providerId: string | null | undefined,
+  modelId: string | null | undefined,
+): string | undefined {
+  if (!modelId) return undefined;
+  if (modelId.includes('/') || !providerId) return modelId;
+  return `${providerId}/${modelId}`;
+}
+
+export function applyProfileDefaults(
+  profile: AgentOption,
+  current: ChatPreferences,
+): ChatPreferences {
+  const providerId = profile.defaults?.providerId ?? current.providerId;
+  const modelId =
+    qualifiedModelId(providerId, profile.defaults?.modelId) ??
+    current.modelId;
+  const permissionMode =
+    profile.defaults?.approvalMode ?? current.permissionMode;
+  return {
+    ...current,
+    profileId: profile.profileId,
+    mode: profile.opencodeAgentId,
+    providerId: providerId ?? undefined,
+    modelId,
+    reasoning: reasoningForProfileDefault(
+      profile.defaults?.reasoningEffort,
+      current.reasoning,
+    ),
+    permissionMode,
+    autoApprove: permissionMode === 'bypassPermissions',
+    providerModelSelections:
+      providerId && modelId
+        ? {
+            ...current.providerModelSelections,
+            [providerId]: modelId,
+          }
+        : current.providerModelSelections,
+  };
+}
+
+export function getNewSessionPreferences(
+  profiles: AgentOption[],
+  current: ChatPreferences,
+): ChatPreferences | undefined {
+  const secretary = profiles.find((profile) =>
+    [
+      profile.label,
+      profile.profileId,
+      profile.opencodeAgentId,
+    ].some((value) => value.trim().toLocaleLowerCase() === 'secretary'));
+  return secretary
+    ? applyProfileDefaults(secretary, current)
+    : undefined;
+}
+
+function includesSearchValue(
+  values: (string | null | undefined)[],
+  query: string,
+): boolean {
+  const normalized = query.trim().toLocaleLowerCase();
+  return !normalized || values.some(
+    (value) => value?.toLocaleLowerCase().includes(normalized),
+  );
+}
+
+export function profileMatchesSearch(
+  profile: AgentOption,
+  query: string,
+): boolean {
+  return includesSearchValue([
+    profile.label,
+    profile.profileId,
+    profile.opencodeAgentId,
+    profile.defaults?.providerId,
+    profile.defaults?.modelId,
+    profile.defaults?.reasoningEffort,
+    profile.defaults?.approvalMode,
+  ], query);
+}
+
+export function modelMatchesSearch(
+  model: Pick<
+    ModelOption,
+    'id' | 'label' | 'providerID' | 'providerLabel' | 'modelID'
+  >,
+  query: string,
+  metadata?: {
+    accountLabel?: string;
+    providerLabel?: string;
+  },
+): boolean {
+  return includesSearchValue([
+    model.label,
+    model.id,
+    model.modelID,
+    model.providerID,
+    model.providerLabel,
+    metadata?.providerLabel,
+    metadata?.accountLabel,
+  ], query);
+}
+
+export function replaceSessionExecutionState<
+  T extends { id: string; rhythm?: SessionExecutionState },
+>(
+  sessions: T[],
+  sessionId: string,
+  state: SessionExecutionState,
+): T[] {
+  return sessions.map((session) =>
+    session.id === sessionId
+      ? { ...session, rhythm: state }
+      : session);
+}
+
 export function permissionModeForAutoApprove(
   autoApprove: boolean,
 ): PermissionMode {

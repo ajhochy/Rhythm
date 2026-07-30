@@ -71,12 +71,14 @@ import {
 import {
   buildSystemPrompt,
   defaultChatPreferences,
+  applyProfileDefaults,
   getConfiguredProviderIds,
   getEnabledModelIds,
   getInitialMode,
   getInitialModelId,
   getInitialProviderId,
   getModelIdForProvider,
+  getNewSessionPreferences,
   getProjectLabel,
   getSelectedModelParts,
   groupPendingRequestsBySession,
@@ -84,6 +86,7 @@ import {
   isAutoApproveEnabled,
   mergePermissionConfig,
   permissionModeForAutoApprove,
+  replaceSessionExecutionState,
   thinkingBudgetForReasoning,
 } from '@/providers/opencode-provider-utils';
 import {
@@ -102,6 +105,7 @@ import {
   type ChatPreferences,
   type ConnectionState,
   type ConversationPhase,
+  type CreateSessionOptions,
   type ModelOption,
   type MobileSession,
   type OpencodeContextValue,
@@ -835,19 +839,24 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     async (
       sessionId: string,
       preferences: ChatPreferences,
+      projectId = activeProjectPath,
     ): Promise<SessionExecutionState | undefined> => {
-      if (!pairedHostClient || !activeProjectPath) return undefined;
+      if (!pairedHostClient || !projectId) return undefined;
+      const profiles =
+        projectId === activeProjectPath && availableAgents.length > 0
+          ? availableAgents
+          : await listMobileGatewayProfiles(pairedHostClient, projectId);
       const selectedProfile =
-        availableAgents.find(
+        profiles.find(
           (profile) => profile.profileId === preferences.profileId,
         ) ??
-        availableAgents.find(
+        profiles.find(
           (profile) => profile.opencodeAgentId === preferences.mode,
         );
       const selectedModel = getSelectedModelParts(preferences.modelId);
       const next = await updateMobileSessionProfileState(
         pairedHostClient,
-        activeProjectPath,
+        projectId,
         sessionId,
         {
           profileId: selectedProfile?.profileId ?? null,
@@ -862,41 +871,73 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
             permissionModeForAutoApprove(preferences.autoApprove),
         },
       );
-      setSessions((current) =>
-        current.map((session) =>
-          session.id === sessionId ? { ...session, rhythm: next } : session));
+      if (projectId === activeProjectPath) {
+        setSessions((current) =>
+          replaceSessionExecutionState(current, sessionId, next));
+      }
       return next;
     },
     [activeProjectPath, availableAgents, pairedHostClient],
   );
 
   const createSession = useCallback(
-    async (title?: string) => {
+    async (title?: string, options?: CreateSessionOptions) => {
+      const projectId = options?.projectId ?? activeProjectPath;
+      const sessionClient =
+        projectId && projectId !== activeProjectPath
+          ? buildScopedClient(projectId)
+          : client;
+      let preferences = options?.preferences;
+      if (!preferences) {
+        const profiles =
+          projectId === activeProjectPath && availableAgents.length > 0
+            ? availableAgents
+            : pairedHostClient && projectId
+              ? await listMobileGatewayProfiles(pairedHostClient, projectId)
+              : availableAgents;
+        preferences = getNewSessionPreferences(profiles, chatPreferences);
+        if (!preferences) {
+          throw new Error(
+            'The Secretary profile is unavailable for new chats.',
+          );
+        }
+      }
+      preferences ??= chatPreferences;
       const trimmedTitle = title?.trim();
       const response = trimmedTitle
-        ? await client.session.create({ title: trimmedTitle })
-        : await client.session.create();
+        ? await sessionClient.session.create({ title: trimmedTitle })
+        : await sessionClient.session.create();
 
       if (!response.data) {
         throw new Error('OpenCode did not return the created session.');
       }
-      if (!isCurrentClient(client)) {
+      if (
+        projectId === activeProjectPath &&
+        !isCurrentClient(client)
+      ) {
         throw new Error('The active project changed before the session was created.');
       }
       const created = response.data as MobileSession;
       const authoritative = await persistSessionPreferences(
         created.id,
-        chatPreferences,
+        preferences,
+        projectId,
       );
-      await refreshSessions(true);
+      if (projectId === activeProjectPath) {
+        await refreshSessions(true);
+      }
       return authoritative
         ? { ...created, rhythm: authoritative }
         : created;
     },
     [
+      activeProjectPath,
+      availableAgents,
+      buildScopedClient,
       chatPreferences,
       client,
       isCurrentClient,
+      pairedHostClient,
       persistSessionPreferences,
       refreshSessions,
     ],
@@ -1046,6 +1087,51 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         : chatPreferences;
     },
     [chatPreferences, sessions],
+  );
+
+  const updateSessionPreferences = useCallback(
+    async (
+      sessionId: string,
+      patch: Partial<ChatPreferences>,
+    ): Promise<ChatPreferences> => {
+      const current = authoritativePreferencesForSession(sessionId);
+      const selectedProfile =
+        patch.profileId && patch.profileId !== current.profileId
+        ? availableAgents.find(
+            (profile) => profile.profileId === patch.profileId,
+          )
+        : undefined;
+      const requested = selectedProfile
+        ? applyProfileDefaults(selectedProfile, {
+            ...current,
+            ...patch,
+          })
+        : {
+            ...current,
+            ...patch,
+            autoApprove:
+              patch.permissionMode !== undefined
+                ? patch.permissionMode === 'bypassPermissions'
+                : patch.autoApprove ?? current.autoApprove,
+          };
+      const authoritative = await persistSessionPreferences(
+        sessionId,
+        requested,
+      );
+      const next = authoritative
+        ? hydratePreferencesFromSession(authoritative, requested)
+        : requested;
+      if (sessionId === currentSessionId) {
+        setChatPreferences(next);
+      }
+      return next;
+    },
+    [
+      authoritativePreferencesForSession,
+      availableAgents,
+      currentSessionId,
+      persistSessionPreferences,
+    ],
   );
 
   const initializeSession = useCallback(async (sessionId: string) => {
@@ -3048,6 +3134,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       availableAgents,
       chatPreferences,
       updateChatPreferences,
+      updateSessionPreferences,
       conversation: {
         active: conversationActive,
         feedback: conversationFeedback,
@@ -3229,6 +3316,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       completeProviderOAuth,
       toggleConversationMode,
       updateChatPreferences,
+      updateSessionPreferences,
       updateSettings,
       commands,
       executeCommand,

@@ -26,6 +26,7 @@ import {
   updateSessionTitle,
   type ProjectSessionCatalogEntry,
 } from '@/providers/services/session-service';
+import type { ChatPreferences } from '@/providers/opencode-provider-types';
 
 const OFFLINE_CHAT_CACHE_KEY = 'rhythm.agent-chat.read-cache.v1';
 
@@ -45,6 +46,7 @@ interface AgentChatContextValue {
   createChat: (
     projectId: string,
     title?: string,
+    preferences?: ChatPreferences,
   ) => Promise<ProjectSessionCatalogEntry>;
   renameChat: (
     projectId: string,
@@ -95,6 +97,7 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
     activeProjectPath,
     buildScopedClient,
     connection,
+    createSession,
     eventStreamStatus,
     projects,
     refreshCurrentSession,
@@ -226,21 +229,24 @@ export function AgentChatProvider({ children }: PropsWithChildren) {
     }
   }, [activeProjectPath, refresh, refreshCurrentSession]);
 
-  const createChat = useCallback(async (projectId: string, title?: string) => {
+  const createChat = useCallback(async (
+    projectId: string,
+    title?: string,
+    preferences?: ChatPreferences,
+  ) => {
     assertOnlineMutation(isOnline);
-    const client = scopedClient(projectId);
-    const response = title?.trim()
-      ? await client.session.create({ title: title.trim() })
-      : await client.session.create();
-    if (!response.data) throw new Error('The Mac did not return the new chat.');
+    const response = await createSession(title, {
+      projectId,
+      preferences,
+    });
     await afterMutation(projectId);
     return {
-      ...(response.data as unknown as Record<string, unknown>),
-      id: response.data.id,
+      ...(response as unknown as Record<string, unknown>),
+      id: response.id,
       projectId,
       status: 'idle',
     };
-  }, [afterMutation, isOnline, scopedClient]);
+  }, [afterMutation, createSession, isOnline]);
 
   const renameChat = useCallback(async (
     projectId: string,
