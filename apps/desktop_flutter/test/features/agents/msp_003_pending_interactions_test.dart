@@ -83,6 +83,9 @@ class _ControlledRepository implements AgentsRepository {
       question.future;
 
   @override
+  Future<void> dispose() async {}
+
+  @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
