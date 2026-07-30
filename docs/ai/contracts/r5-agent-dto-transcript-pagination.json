@@ -1,0 +1,88 @@
+{
+  "issue": 0,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "r5-c1",
+      "text": "Minimal agent-picker DTO for the GET list path: id, name, display fields, model/provider defaults, availability — align names and semantics with MSP-001.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/r5_agent_dto_transcript_pagination.test.ts",
+      "test_id": "r5-c1: view=picker returns the MSP-001 vocabulary and excludes raw permissions",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "r5-c2",
+      "text": "Remove reconciliation/file-projection side effects from the GET and preserve full profiles through an explicit full path.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/r5_agent_dto_transcript_pagination.test.ts",
+      "test_id": "r5-c2: every GET variant is reconciliation-free while full=1 preserves raw consumers",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "r5-c3",
+      "text": "Move refresh behind an explicit, cached, or debounced path.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/r5_agent_dto_transcript_pagination.test.ts",
+      "test_id": "r5-c3: POST refresh is the explicit reconciliation path",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "r5-c4",
+      "text": "List response for 39 agents stays under a documented byte budget.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/r5_agent_dto_transcript_pagination.test.ts",
+      "test_id": "r5-c4: 39-agent picker catalog stays under the documented 32 KiB budget",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "r5-c5",
+      "text": "Paginated/incremental transcript loading uses stable cursor windows and returns the recent window first.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/r5_agent_dto_transcript_pagination.test.ts",
+      "test_id": "r5-c5: messages returns latest-first windows in display order with an exclusive before cursor",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "r5-c6",
+      "text": "Session detail supports a bounded recent transcript window without breaking older clients.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/r5_agent_dto_transcript_pagination.test.ts",
+      "test_id": "r5-c6: session detail can opt into a bounded recent transcript window",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "r5-c7",
+      "text": "Document the desktop DTO, MSP-001 vocabulary alignment, compatibility gate, pagination semantics, and payload budget in docs/ai.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/r5_agent_dto_transcript_pagination.test.ts",
+      "test_id": "r5-c7: the documented DTO names, compatibility gate, cursor, and byte budget exist",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "r5-c8",
+      "text": "Flutter uses the minimal picker path and loads a recent transcript window first.",
+      "mode": "integration",
+      "test_file": "apps/desktop_flutter/test/features/agents/r5_agent_catalog_transcript_pagination_test.dart",
+      "test_id": "r5-c8: desktop requests the picker DTO and a 50-message recent detail",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "r5-c9",
+      "text": "Flutter fetches older transcript pages on demand without breaking streaming, selection, or resume state.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/r5_agent_catalog_transcript_pagination_test.dart",
+      "test_id": "r5-c9: controller prepends older pages without losing live messages",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "r5-c10",
+      "text": "Move large JSON decode/transformation work off the Flutter UI isolate where practical and expose older-page loading in the transcript view.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/r5_agent_catalog_transcript_pagination_test.dart",
+      "test_id": "r5-c10: large session JSON uses an isolate and the UI exposes paging",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
