@@ -28,6 +28,16 @@ No real vault or note body was read during schema recon.
 
 ## Threshold fixture corpus
 
+Post-live-gate amendment (orchestrator, same day): the live run exposed two
+retrieval defects fixed on this branch — (1) the owner filter used strict
+equality, so owned sessions could not retrieve instance-global (owner-NULL)
+vault notes; (2) RELEVANCE_STOPWORDS omitted interrogatives/auxiliaries
+('when', 'where', 'why', 'will', 'should'), inflating score denominators for
+realistic question phrasings. RELEVANCE_STOPWORDS is now derived from the
+probe STOPWORDS superset; the stored-preference fixture re-measures at 1.00
+(was 0.83). Positives {0.86, 1.00} vs negatives {0.00, 0.25} — separation at
+0.60 improved.
+
 `AGENT_MEMORY_INJECTION_MIN_RELEVANCE` defaults to `0.60`. The absolute score is
 matched meaningful query tokens divided by meaningful query tokens, with a
 minimum of two query tokens and two matches. The contract corpus measured:
@@ -35,7 +45,7 @@ minimum of two query tokens and two matches. The contract corpus measured:
 | Fixture | Measured score | Expected gate |
 |---|---:|---|
 | Direct McDonald’s World Cup collector-cup rarity question → matching collector-cup fact | 0.86 | pass |
-| Worship Committee scheduling question → matching stored scheduling preference | 0.83 | pass |
+| Worship Committee scheduling question → matching stored scheduling preference | 1.00 | pass |
 | Worship Committee agenda question → McDonald’s collector-cup report | 0.00 | reject |
 | Worship Committee agenda question → unrelated committee parking note | 0.25 | reject |
 
