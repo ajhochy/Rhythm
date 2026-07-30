@@ -2,38 +2,36 @@
 
 ## Current focus
 
-2026-07-30: repair MSP-002's Mobile CI foundation regression without changing
-the finalized profile-first session UX. The local repair is committed; the
-orchestrator's 69-spec Playwright rerun is pending.
+2026-07-30: second repair of MSP-002's Mobile CI foundation regression. The
+direct web E2E agent catalog now includes Secretary, matching the paired mobile
+profile catalog and allowing the shared Secretary-first creation sheet to
+enable Create.
 
 ## Active branch / PR
 
 - Branch: `codex/msp-002-profile-first-sessions`.
 - PR: #1266.
-- Repair commits: `c1ad4cd6b` (`fix(mobile): seed Secretary in E2E profile
-  catalog`) and `3e66d526a` (`test(mobile): make profile catalog self-check
-  order-independent`).
+- Prior repair commits: `c1ad4cd6b`, `3e66d526a`, `4defc1e77`,
+  `afb38e92d`.
 - Run:
-  [runs/2026-07-30-msp-002-foundation-e2e-repair.md](runs/2026-07-30-msp-002-foundation-e2e-repair.md).
+  [runs/2026-07-30-msp-002-second-foundation-e2e-repair.md](runs/2026-07-30-msp-002-second-foundation-e2e-repair.md).
 
 ## In progress
 
-- The fake mobile gateway now exposes Secretary with the existing
-  `openai/gpt-4.1-mini` E2E defaults.
-- MSP-002 c1 guards the harness catalog so the shared create sheet cannot
-  regress to a disabled Create action.
-- The repair commits are pushed; the full Playwright foundation rerun remains.
+- The MSP-002 c1 contract now pins Secretary in both fake-server capability
+  sources: paired `/mobile-gateway/profile-catalog` and direct `/agent`.
+- The second repair is locally verified and awaiting the orchestrator's full
+  Playwright rerun before PR smoke can be considered complete.
 
 ## Risks / known issues
 
-- Full Playwright cannot run in this sandbox; the orchestrator must confirm
-  the repaired branch returns from 41/69 to 69/69.
-- GitNexus MCP/CLI was unavailable (`.gitnexus/run.cjs` absent and the package
-  not cached), so impact and change scope were audited through direct
-  call-site and git-diff inspection.
+- Full Playwright cannot run in this sandbox. Every fresh failure artifact
+  showed the same disabled Create action and Secretary-unavailable message;
+  the orchestrator must confirm the direct catalog repair clears the failures.
 - The fake-server self-test cannot bind loopback in this sandbox (`listen
-  EPERM`); a minimal standalone Node listener fails identically before any
-  fixture assertion runs.
+  EPERM` on `127.0.0.1:4196`), so it exits before assertions.
+- GitNexus MCP/CLI remains unavailable (`.gitnexus/run.cjs` absent); change
+  scope was audited through direct call-site and git-diff inspection.
 - Signed native MSP-002 accessibility/layout smoke remains pending from the
   original workstream.
 
@@ -42,14 +40,14 @@ orchestrator's 69-spec Playwright rerun is pending.
 - Mobile TypeScript: passed.
 - Mobile ESLint: passed.
 - MSP-002 + MSP-001 session-profile contracts: 13/13 passed.
-- MSP-001 fake-gateway contract: 3/3 passed.
 - Chat composer Jest: 4/4 passed.
 - `git diff --check`: passed.
-- Fake-server self-test and full Playwright foundation: pending orchestrator
-  rerun in a loopback-capable environment.
+- Fake-server self-test: environment-blocked at loopback bind.
+- Full Playwright foundation: pending orchestrator rerun.
 
 ## Next step
 
-Rerun `npm run test:fake-server:self` and Mobile CI `verify:foundation` / all
-69 Playwright specs. Confirm the creation sheet opens with Secretary selected
-and Create enabled.
+Push the focused second-repair commits, then rerun the full Mobile CI
+Playwright foundation suite. Confirm the New chat sheet shows Secretary
+selected, Create enabled, and all previously blocked chat-driving specs
+proceed to their own assertions.
