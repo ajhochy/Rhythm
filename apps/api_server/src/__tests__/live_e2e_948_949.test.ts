@@ -342,6 +342,39 @@ describeLive('live E2E — #948 + #949', () => {
         );
         createdDraftNames.push(newDraftDir.name);
 
+        // R2 contract: once extraction has produced its observable artifact,
+        // the public aggregate must settle back to idle. This catches a leaked
+        // in-memory running flag even when the draft itself was successful.
+        const background = await poll(
+          async () => {
+            const status = await apiJson<{
+              loops: Array<{ name: string; state: 'idle' | 'running' }>;
+              curator: { state: 'idle' | 'running' };
+            }>('/agent-sessions/background-status');
+            const harvester = status.loops.find(
+              (loop) => loop.name === 'skill_harvester',
+            );
+            const improver = status.loops.find(
+              (loop) => loop.name === 'skill_improver',
+            );
+            if (
+              harvester?.state !== 'idle' ||
+              improver?.state !== 'idle' ||
+              status.curator.state !== 'idle'
+            ) {
+              throw new Error(
+                `curator still active: harvester=${harvester?.state}, ` +
+                  `improver=${improver?.state}, aggregate=${status.curator.state}`,
+              );
+            }
+            return status;
+          },
+          15_000,
+          250,
+          'wait for background-status curator idle',
+        );
+        expect(background.curator.state).toBe('idle');
+
         // Step 2: draft file exists with status: draft frontmatter.
         const body = await readFile(newDraftDir.skillMd, 'utf8');
         expect(body).toMatch(/status:\s*draft/);

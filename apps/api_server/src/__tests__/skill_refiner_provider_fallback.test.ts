@@ -14,6 +14,8 @@ vi.mock('../services/agent_runner', () => ({ run }));
 
 import Database from 'better-sqlite3';
 import {
+  _setRefineRunning,
+  getCuratorRefineStatus,
   scoreSkillBody,
   rewriteSkillBody,
   parseJudgeResponse,
@@ -113,6 +115,7 @@ describe('skill_refiner default categorical judge (via AgentRunner, #1110 cheap 
 
   beforeEach(() => {
     vi.resetAllMocks();
+    _setRefineRunning(false);
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     runMigrations(db);
@@ -124,6 +127,7 @@ describe('skill_refiner default categorical judge (via AgentRunner, #1110 cheap 
   });
 
   afterEach(() => {
+    _setRefineRunning(false);
     if (REAL_VITEST === undefined) delete process.env.VITEST;
     else process.env.VITEST = REAL_VITEST;
     if (REAL_NODE === undefined) delete process.env.NODE_ENV;
@@ -163,6 +167,29 @@ describe('skill_refiner default categorical judge (via AgentRunner, #1110 cheap 
     expect(run.mock.calls[0][0].modelOverride).toBeUndefined();
     // The judge parsed run().result ("better …") → 'better' → apply fired.
     expect(applyToEngine).toHaveBeenCalledTimes(1);
+    expect(getCuratorRefineStatus().running).toBe(false);
+  });
+
+  it('clears refine running state when AgentRunner rejects', async () => {
+    const repo = new AgentSkillsRepository();
+    repo.create({
+      title: 'Send the weekly staff email',
+      description: 'old',
+      confidence: 0.7,
+    });
+    run.mockRejectedValue(new Error('contract runner failure'));
+
+    const result = await refineExistingSkill(
+      {
+        title: 'Send the weekly staff email',
+        description: 'A clearer, more complete description',
+        confidence: 0.8,
+      },
+      { repo },
+    );
+
+    expect(result).toBe('kept');
+    expect(getCuratorRefineStatus().running).toBe(false);
   });
 });
 

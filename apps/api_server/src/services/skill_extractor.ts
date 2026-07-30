@@ -613,7 +613,6 @@ export async function distillFromSession(
         logger.info(
           `[skill-extract] '${title}' covered by library skill '${wired.skillName}' — auto-wired, no draft`,
         );
-        _setCuratorExtractRunning(false);
         return null;
       }
     } catch (wireErr) {
@@ -680,7 +679,6 @@ export async function distillFromSession(
     } catch (writeErr) {
       // ContextInjectionBlockedError, InvalidSkillNameError, or fs error.
       logger.warn(`[skill-extract] draft write failed for '${skillName}' (non-fatal): ${String(writeErr)}`);
-      _setCuratorExtractRunning(false);
       return null;
     }
     logger.info(`[skill-extract] drafted skill '${skillName}' at ${draftLocation}`);
@@ -705,7 +703,6 @@ export async function distillFromSession(
     // forget: the draft is already on disk; reload just makes it visible sooner.
     void triggerSkillReload();
 
-    _setCuratorExtractRunning(false);
     return {
       id: skillName,
       title,
@@ -734,8 +731,9 @@ export async function distillFromSession(
   } catch (err) {
     // NEVER throw — fire-and-forget caller (P2-2) depends on this.
     logger.warn(`[skill-extract] FAILED (non-fatal): ${String(err)}`);
-    _setCuratorExtractRunning(false);
     return null;
+  } finally {
+    _setCuratorExtractRunning(false);
   }
 }
 
