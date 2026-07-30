@@ -160,12 +160,15 @@ export function extractQueryTokens(query: string): string[] {
   return out;
 }
 
+// Superset of the probe STOPWORDS: interrogatives and auxiliaries carry no
+// retrievable content, so they must not inflate the relevance denominator —
+// "When are the X scheduled?" must score like "X scheduled". Deriving from
+// STOPWORDS keeps the two lists from drifting apart again (live-gate regression:
+// 'when'/'will' counted as meaningful and pushed a directly-relevant stored
+// preference below the absolute threshold).
 const RELEVANCE_STOPWORDS = new Set([
-  'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'any', 'can',
-  'her', 'was', 'one', 'our', 'out', 'his', 'has', 'had', 'how', 'who',
-  'with', 'this', 'that', 'they', 'them', 'then', 'than', 'from', 'have',
-  'about', 'into', 'your', 'please', 'remind', 'tell', 'give', 'need',
-  'want', 'be', 'what', 'does', 'work', 'working',
+  ...STOPWORDS,
+  'be', 'does', 'work', 'working',
 ]);
 
 function relevanceTokens(value: string): string[] {
@@ -310,6 +313,17 @@ export function isMemoryInjectionEnabled(): boolean {
  *
  * `repo` is injectable for testing (defaults to a real AgentMemoryRepository).
  */
+/**
+ * Owner visibility for retrieval: a row is retrievable when it is
+ * instance-global (ownerUserId null — e.g. vault-synced notes) or owned by the
+ * requesting owner. An unknown/unresolved owner (wanted === null) keeps ONLY
+ * global rows — user-owned context never flows to an unowned run (fail-closed
+ * cross-user rule).
+ */
+function isOwnerVisible(rowOwner: number | null, wanted: number | null): boolean {
+  return rowOwner === null || rowOwner === wanted;
+}
+
 export async function getRelevantMemories(
   query: string,
   ownerUserId?: number | null,
@@ -363,9 +377,9 @@ export async function getRelevantMemories(
     if (!rows) continue;
     for (let index = 0; index < rows.length; index += 1) {
       const m = rows[index];
-      // Defense in depth: enforce exact owner match (incl. null-owner-only when
+      // Defense in depth: own + instance-global rows only (null-owner-only when
       // no owner is known) regardless of the repo SQL filter.
-      if (m.ownerUserId !== wanted) continue;
+      if (!isOwnerVisible(m.ownerUserId, wanted)) continue;
       // Defense in depth for injected/fake repositories. The real SQLite
       // repository applies this gate in SQL before LIMIT so inactive rows are
       // replaced by the next-best live rows instead of shrinking the result.
@@ -562,7 +576,7 @@ export async function getRelevantMemoriesSemantic(
       for (const memory of joinResult.value) {
         // Defense in depth after the semantic-to-index join, including null owners.
         if (
-          memory.ownerUserId !== wanted
+          !isOwnerVisible(memory.ownerUserId, wanted)
           || memory.source !== 'obsidian-memory'
           || !memory.sourceId
           || !isAutomaticallyInjectable(memory)
@@ -691,7 +705,7 @@ export async function expandLinkedMemories(
   const requestedLinks: Array<{ fromSourceId: string; target: string }> = [];
   for (const memory of kept) {
     if (
-      memory.ownerUserId !== wanted ||
+      !isOwnerVisible(memory.ownerUserId, wanted) ||
       memory.source !== 'obsidian-memory' ||
       !memory.sourceId
     ) {
@@ -744,7 +758,7 @@ export async function expandLinkedMemories(
     const bySourceId = new Map<string, AgentMemory>();
     for (const memory of candidates) {
       if (
-        memory.ownerUserId !== wanted ||
+        !isOwnerVisible(memory.ownerUserId, wanted) ||
         memory.source !== 'obsidian-memory' ||
         !memory.sourceId ||
         directIds.has(memory.id) ||
@@ -819,7 +833,7 @@ export async function buildMemoryPreface(
   const today = currentDate();
   const wanted = ownerUserId == null ? null : ownerUserId;
   matches = matches.filter((memory) => (
-    memory.ownerUserId === wanted
+    isOwnerVisible(memory.ownerUserId, wanted)
     && isMemoryActive(memory, today)
     && clearsAutomaticGate(query, memory) !== null
   ));
@@ -837,7 +851,7 @@ export async function buildMemoryPreface(
     }
   }
   matches = matches.filter((memory) => (
-    memory.ownerUserId === wanted
+    isOwnerVisible(memory.ownerUserId, wanted)
     && isMemoryActive(memory, today)
     && clearsAutomaticGate(query, memory) !== null
   ));

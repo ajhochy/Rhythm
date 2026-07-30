@@ -262,6 +262,35 @@ describe('P0 automatic memory relevance contract', () => {
     expect(result).toMatchObject({ text: '', memoryIds: [] });
   });
 
+  it('issue-0-c22: an owned session retrieves instance-global (owner-NULL) vault notes', async () => {
+    // Regression caught by the live gate: vault-synced notes carry no owner,
+    // and the strict-equality owner filter dropped them for owned sessions —
+    // the direct McDonald's question injected nothing. Owned requests must see
+    // own + instance-global rows; unknown owners stay global-only (c10).
+    const globalNote = memory({
+      id: 'mcd-report-global',
+      sourceId: 'Areas/Research/General/Reports/mcdonalds-world-cup.md',
+      content:
+        'The rare McDonald’s World Cup collector cups are the mascot cup and limited regional team cup.',
+      ownerUserId: null,
+      autoInjectable: true,
+    });
+    const rows = await memoryRetrieval.getRelevantMemories(
+      'Which McDonald’s World Cup collector cups are rare?',
+      1,
+      5,
+      fakeRepo([globalNote]),
+    );
+    expect(rows.map((row) => row.id)).toContain('mcd-report-global');
+
+    const preface = await memoryRetrieval.buildMemoryPreface(
+      'Which McDonald’s World Cup collector cups are rare?',
+      1,
+      { getRelevant: vi.fn().mockResolvedValue([globalNote]) },
+    );
+    expect(preface.memoryIds).toEqual(['mcd-report-global']);
+  });
+
   it('issue-0-c11: generated/long-form classes are excluded unless explicitly injectable', async () => {
     const report = parseNote('---\nkind: fact\n---\nCollector report.');
     const explicitReport = parseNote(
@@ -345,7 +374,9 @@ describe('P0 automatic memory relevance contract', () => {
         candidate: memory({
           content: 'Worship Committee meetings should be scheduled on Tuesdays.',
         }),
-        expected: 0.83,
+        // 1.0 since interrogatives/auxiliaries joined RELEVANCE_STOPWORDS
+        // (was 0.83 when "when"/"should" inflated the denominator).
+        expected: 1,
       },
       {
         label: 'negative worship-to-report',

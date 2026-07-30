@@ -307,7 +307,9 @@ export class AgentMemoryRepository {
       const filters: string[] = [];
       if (ownerUserId != null) {
         params.push(ownerUserId);
-        filters.push(`owner_user_id = $${params.length}`);
+        // Own rows plus instance-global (owner-NULL) rows: vault-synced notes
+        // carry no owner and must stay retrievable by the machine's user.
+        filters.push(`(owner_user_id = $${params.length} OR owner_user_id IS NULL)`);
       }
       if (options.activeOnly) {
         filters.push(`status != 'deprecated'`);
@@ -338,7 +340,8 @@ export class AgentMemoryRepository {
 
     // SQLite: try FTS5 first, fall back to LIKE
     try {
-      const ownerFilter = ownerUserId != null ? 'AND m.owner_user_id = ?' : '';
+      // Own rows plus instance-global (owner-NULL) rows — see Postgres branch.
+      const ownerFilter = ownerUserId != null ? 'AND (m.owner_user_id = ? OR m.owner_user_id IS NULL)' : '';
       const activeFilter = options.activeOnly
         ? `AND m.status != 'deprecated'
            AND (m.stale_after IS NULL OR m.stale_after > ?)`
@@ -367,7 +370,7 @@ export class AgentMemoryRepository {
     } catch {
       // FTS unavailable — fall back to LIKE
       const likeQuery = `%${query}%`;
-      const ownerFilter = ownerUserId != null ? 'AND owner_user_id = ?' : '';
+      const ownerFilter = ownerUserId != null ? 'AND (owner_user_id = ? OR owner_user_id IS NULL)' : '';
       const activeFilter = options.activeOnly
         ? `AND status != 'deprecated'
            AND (stale_after IS NULL OR stale_after > ?)`
