@@ -731,7 +731,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       ? await listMobileGatewayProfiles(pairedHostClient, activeProjectPath)
       : result.agents;
     if (!isCurrentClient(client)) {
-      return;
+      return [];
     }
 
     setCurrentConfig(result.config);
@@ -781,12 +781,46 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         ? hydratePreferencesFromSession(authoritative, defaults)
         : defaults;
     });
+    return agents;
   }, [
     activeProjectPath,
     client,
     isCurrentClient,
     pairedHostClient,
   ]);
+
+  const loadSessionProfiles = useCallback(
+    async (projectId: string) => {
+      if (
+        projectId === activeProjectPath &&
+        availableAgents.length > 0
+      ) {
+        return availableAgents;
+      }
+      if (projectId === activeProjectPath) {
+        return refreshChatCapabilities();
+      }
+      if (pairedHostClient) {
+        return listMobileGatewayProfiles(pairedHostClient, projectId);
+      }
+      const { discoverChatCapabilities } = await import(
+        '@/providers/services/capabilities-service'
+      );
+      return (
+        await discoverChatCapabilities(
+          buildScopedClient(projectId),
+          projectId,
+        )
+      ).agents;
+    },
+    [
+      activeProjectPath,
+      availableAgents,
+      buildScopedClient,
+      pairedHostClient,
+      refreshChatCapabilities,
+    ],
+  );
 
   const openSession = useCallback(
     async (sessionId: string) => {
@@ -863,12 +897,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           : client;
       let preferences = options?.preferences;
       if (!preferences) {
-        const profiles =
-          projectId === activeProjectPath && availableAgents.length > 0
-            ? availableAgents
-            : pairedHostClient && projectId
-              ? await listMobileGatewayProfiles(pairedHostClient, projectId)
-              : availableAgents;
+        const profiles = projectId
+          ? await loadSessionProfiles(projectId)
+          : availableAgents;
         preferences = getNewSessionPreferences(profiles, chatPreferences);
         if (!preferences) {
           throw new Error(
@@ -911,7 +942,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       chatPreferences,
       client,
       isCurrentClient,
-      pairedHostClient,
+      loadSessionProfiles,
       persistSessionPreferences,
       refreshSessions,
     ],
@@ -3106,6 +3137,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       configuredProviders,
       availableModels,
       availableAgents,
+      loadSessionProfiles,
       chatPreferences,
       updateChatPreferences,
       updateSessionPreferences,
@@ -3253,6 +3285,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       ensureActiveSession,
       availableAgents,
       availableModels,
+      loadSessionProfiles,
       isConversationListening,
       isBootstrappingChat,
       isRefreshingDiffs,

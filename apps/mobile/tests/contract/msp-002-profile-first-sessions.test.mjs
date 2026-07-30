@@ -83,12 +83,20 @@ test('issue-2-c1: every new-chat entry point uses the Secretary-first creation f
     assert.equal(preferences.mode, secretary.opencodeAgentId);
   }
 
-  const [chatList, chatView, workspace, agentChatProvider, fakeServer] =
+  const [
+    chatList,
+    chatView,
+    workspace,
+    agentChatProvider,
+    opencodeProvider,
+    fakeServer,
+  ] =
     await Promise.all([
       readMobileSource('components/chat/chat-list.tsx'),
       readMobileSource('components/chat/chat-view.tsx'),
       readMobileSource('app/agents/workspace.tsx'),
       readMobileSource('providers/agent-chat-provider.tsx'),
+      readMobileSource('providers/opencode-provider.tsx'),
       readMobileSource('tests/fake-opencode/server.mjs'),
     ]);
   const directAgentRoute =
@@ -99,6 +107,20 @@ test('issue-2-c1: every new-chat entry point uses the Secretary-first creation f
     directAgentRoute,
     /name:\s*'secretary'/,
     'the direct web harness agent catalog must expose the Secretary default',
+  );
+  assert.match(
+    chatList,
+    /await opencode\.loadSessionProfiles\(targetProject\)/,
+    'the direct Create sheet must resolve profiles when capability hydration is still pending',
+  );
+  const createSessionBlock =
+    opencodeProvider.match(
+      /const createSession = useCallback\([\s\S]*?\n  \);\n/,
+    )?.[0] ?? '';
+  assert.match(
+    createSessionBlock,
+    /await loadSessionProfiles\(projectId\)/,
+    'automatic session creation must resolve Secretary before applying the no-Secretary gate',
   );
   for (const [name, source] of [
     ['Chat list', chatList],

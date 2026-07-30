@@ -36,7 +36,6 @@ import {
   type AgentChatLifecycle,
   type AgentChatRecord,
 } from '@/providers/services/agent-chat-service';
-import { listMobileGatewayProfiles } from '@/providers/services/mobile-gateway-service';
 
 interface FlatChat extends AgentChatRecord {
   depth: number;
@@ -119,12 +118,7 @@ export function ChatList() {
         targetProject === opencode.activeProjectPath &&
         opencode.availableAgents.length > 0
           ? opencode.availableAgents
-          : pairedHost.client
-            ? await listMobileGatewayProfiles(
-                pairedHost.client,
-                targetProject,
-              )
-            : [];
+          : await opencode.loadSessionProfiles(targetProject);
       setCreationProfiles(profiles);
       setCreateSheetVisible(true);
     } catch (reason) {

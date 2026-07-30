@@ -154,6 +154,7 @@ export type OpencodeContextValue = {
   configuredProviders: ProviderOption[];
   availableModels: ModelOption[];
   availableAgents: AgentOption[];
+  loadSessionProfiles: (projectId: string) => Promise<AgentOption[]>;
   chatPreferences: ChatPreferences;
   updateChatPreferences: (patch: Partial<ChatPreferences>) => void;
   updateSessionPreferences: (
