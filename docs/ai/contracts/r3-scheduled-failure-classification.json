@@ -1,0 +1,64 @@
+{
+  "issue": "r3-scheduled-failure-classification",
+  "generated": "2026-07-30",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "r3-scheduled-failure-classification-c1",
+      "text": "Gate scheduled execution until the engine is genuinely ready to accept session work (not just process-up). Late jobs must wait or reschedule — never burn a run + trigger a teacher retry because the engine wasn't ready.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/r3_scheduled_engine_readiness.test.ts",
+      "test_id": "r3-c1: process-up without a successful readiness round-trip defers exactly once and creates no session",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "r3-scheduled-failure-classification-c2",
+      "text": "Engine-not-ready gating uses a fake/injectable clock.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/r3_scheduled_engine_readiness.test.ts",
+      "test_id": "r3-c2: readiness wait uses the injected clock and sleep until a real probe succeeds",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "r3-scheduled-failure-classification-c3",
+      "text": "Add a small, testable failure-classification helper module covering: engine-not-ready, required-MCP-unavailable, restart/interruption, authentication, permission, other infra/config. All of these must classify as NON-teacher-retryable.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/r3_failure_classification.test.ts",
+      "test_id": "r3-c3: each infrastructure failure class maps to its category and is non-teacher-retryable",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "r3-scheduled-failure-classification-c4",
+      "text": "Teacher escalation must be preserved ONLY for genuine model-quality failures.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/r3_failure_classification.test.ts",
+      "test_id": "r3-c4: an explicit model-quality failure remains teacher-retryable",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "r3-scheduled-failure-classification-c5",
+      "text": "Every infrastructure failure must produce exactly one clear result (a single failed/deferred record carrying its category) — no duplicate failed sessions for the same underlying cause.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/r3_scheduled_engine_readiness.test.ts",
+      "test_id": "r3-c1: process-up without a successful readiness round-trip defers exactly once and creates no session",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "r3-scheduled-failure-classification-c6",
+      "text": "Restart/interruption handling is deterministic and non-teacher-retryable.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/r3_scheduled_engine_readiness.test.ts",
+      "test_id": "r3-c6: restart recovery writes one categorized interruption result and dispatches no replacement run",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "r3-scheduled-failure-classification-c7",
+      "text": "Write (do not run) one env-gated live test guarded by RHYTHM_LIVE_E2E=1, with the exact run command documented in a comment or test description.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/r3_scheduled_failure_live_e2e.test.ts",
+      "test_id": "r3-c7-live: required-MCP infrastructure failure creates one categorized result and no teacher duplicate",
+      "status": "pass"
+    }
+  ],
+  "not_tested": []
+}
