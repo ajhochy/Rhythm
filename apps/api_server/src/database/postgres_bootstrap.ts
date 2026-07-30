@@ -663,6 +663,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       generated_by TEXT,
       generated_at TIMESTAMPTZ,
       trust_tier TEXT NOT NULL DEFAULT 'unverified',
+      auto_injectable BOOLEAN NOT NULL DEFAULT FALSE,
       search_vector TSVECTOR GENERATED ALWAYS AS (
         to_tsvector('english', content)
       ) STORED,
@@ -678,6 +679,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS generated_by TEXT`);
   await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS generated_at TIMESTAMPTZ`);
   await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS trust_tier TEXT NOT NULL DEFAULT 'unverified'`);
+  await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS auto_injectable BOOLEAN NOT NULL DEFAULT FALSE`);
   await pool.query(`ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', content)) STORED`);
   await pool.query(`UPDATE agent_memory SET verified_json = '[]' WHERE verified_json IS NULL`);
   await pool.query(`UPDATE agent_memory SET sources_json = '[]' WHERE sources_json IS NULL`);
