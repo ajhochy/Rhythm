@@ -3,13 +3,16 @@
  *
  * Thin orchestration wrapper over OpencodeClientService:
  *  1. Creates an opencode session (with optional role/mcp scoping)
- *  2. Calls promptAsync() to fire the prompt (non-blocking enqueue)
- *  3. Polls the session message list via the SDK until the assistant replies
- *     or a timeout fires
- *  4. Returns { sessionId, result, status }
+ *  2. Calls prompt() synchronously for the complete model/tool turn
+ *  3. Watches the existing session message/part state while prompt() runs
+ *  4. Aborts stalled runs after an inactivity window, while a separate hard
+ *     ceiling still bounds total wall-clock execution
+ *  5. Returns { sessionId, result, status }
  *
  * Concurrency cap: MAX_CONCURRENT_AGENT_RUNS (env, default 8)
- * Per-run timeout:  AGENT_RUN_TIMEOUT_MS      (env, default 600 000 ms)
+ * Inactivity window: AGENT_RUN_INACTIVITY_TIMEOUT_MS (default 600 000 ms;
+ *                    legacy AGENT_RUN_TIMEOUT_MS remains a fallback alias)
+ * Hard ceiling:      AGENT_RUN_HARD_TIMEOUT_MS       (default 3 600 000 ms)
  *
  * outputTarget (default 'session'):
  *   'session'      — leave result in the opencode session; no extra I/O
@@ -40,59 +43,173 @@ function getMaxConcurrentRuns(): number {
   return Number(process.env.MAX_CONCURRENT_AGENT_RUNS ?? 8);
 }
 
-function getRunTimeoutMs(): number {
-  return Number(process.env.AGENT_RUN_TIMEOUT_MS ?? 600_000);
+function _positiveTimeoutMs(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 /**
- * Grace window after promptAsync before we declare "no progress".
- * If listMessages returns zero messages within this window, the run is
- * aborted with a fast error rather than hanging to the full 600s timeout.
- * Default 20 000 ms; override with AGENT_RUN_NOPROGRESS_MS env var.
+ * A run is STALLED only after this much time with no observable progress.
+ * AGENT_RUN_TIMEOUT_MS remains a backwards-compatible fallback so existing
+ * deployments keep their configured stall tolerance while migrating to the
+ * explicit knob.
  */
-function getNoProgressMs(): number {
-  return Number(process.env.AGENT_RUN_NOPROGRESS_MS ?? 30_000);
+function getRunInactivityTimeoutMs(): number {
+  return _positiveTimeoutMs(
+    process.env.AGENT_RUN_INACTIVITY_TIMEOUT_MS ??
+      process.env.AGENT_RUN_TIMEOUT_MS,
+    600_000,
+  );
+}
+
+/**
+ * Absolute wall-clock cap even for a continuously progressing run. This is
+ * deliberately finite: progress can extend the inactivity window but can
+ * never permit unlimited execution.
+ */
+function getRunHardTimeoutMs(): number {
+  return _positiveTimeoutMs(
+    process.env.AGENT_RUN_HARD_TIMEOUT_MS,
+    3_600_000,
+  );
 }
 
 class AgentRunTimeoutError extends Error {
   constructor(
     readonly stage: string,
     readonly timeoutMs: number,
+    readonly kind: 'inactivity' | 'hard_ceiling',
   ) {
-    super(`Run timed out during ${stage} after ${timeoutMs}ms`);
+    super(
+      kind === 'inactivity'
+        ? `Run timed out during ${stage}: no progress for ${timeoutMs}ms (inactivity window)`
+        : `Run timed out during ${stage}: hard ceiling reached after ${timeoutMs}ms`,
+    );
     this.name = 'AgentRunTimeoutError';
   }
 }
 
+interface RunDeadlinePolicy {
+  readonly startedAt: number;
+  readonly inactivityTimeoutMs: number;
+  readonly hardTimeoutMs: number;
+  lastProgressAt: number;
+}
+
+function _createRunDeadlinePolicy(): RunDeadlinePolicy {
+  const startedAt = Date.now();
+  return {
+    startedAt,
+    inactivityTimeoutMs: getRunInactivityTimeoutMs(),
+    hardTimeoutMs: getRunHardTimeoutMs(),
+    lastProgressAt: startedAt,
+  };
+}
+
 /**
- * Run one engine call within the shared AgentRunner deadline. Every stage uses
- * the same deadline so MCP readiness and session creation cannot consume an
- * unbounded amount of time before prompt() gets its timeout race.
+ * Run one engine call within the shared progress-aware policy.
+ *
+ * Stage completion records progress. During prompt(), `activityProbe` reads the
+ * engine's existing message/part state; a changed fingerprint rearms only the
+ * inactivity timer. The hard timer is always measured from the original run
+ * start and is never extended.
  */
 async function _withinRunDeadline<T>(
   operation: Promise<T>,
-  deadline: number,
+  policy: RunDeadlinePolicy,
   stage: string,
+  activityProbe?: () => Promise<string | null>,
 ): Promise<T> {
-  const remainingMs = deadline - Date.now();
-  if (remainingMs <= 0) {
-    throw new AgentRunTimeoutError(stage, getRunTimeoutMs());
-  }
+  const ACTIVITY_POLL_INTERVAL_MS = 1_000;
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<T>((_resolve, reject) => {
-        timer = setTimeout(
-          () => reject(new AgentRunTimeoutError(stage, getRunTimeoutMs())),
-          remainingMs,
-        );
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+  return await new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let inactivityTimer: ReturnType<typeof setTimeout> | undefined;
+    let hardTimer: ReturnType<typeof setTimeout> | undefined;
+    let activityTimer: ReturnType<typeof setInterval> | undefined;
+    let activityProbeInFlight = false;
+    let lastActivityFingerprint: string | null = null;
+
+    const cleanup = () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      if (hardTimer) clearTimeout(hardTimer);
+      if (activityTimer) clearInterval(activityTimer);
+    };
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback();
+    };
+    const failFor = (kind: 'inactivity' | 'hard_ceiling') => {
+      const timeoutMs =
+        kind === 'inactivity'
+          ? policy.inactivityTimeoutMs
+          : policy.hardTimeoutMs;
+      finish(() => reject(new AgentRunTimeoutError(stage, timeoutMs, kind)));
+    };
+    const armInactivityTimer = () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      const remaining =
+        policy.lastProgressAt + policy.inactivityTimeoutMs - Date.now();
+      if (remaining <= 0) {
+        failFor('inactivity');
+        return;
+      }
+      inactivityTimer = setTimeout(
+        () => failFor('inactivity'),
+        remaining,
+      );
+    };
+
+    const hardRemaining =
+      policy.startedAt + policy.hardTimeoutMs - Date.now();
+    if (hardRemaining <= 0) {
+      failFor('hard_ceiling');
+      return;
+    }
+
+    hardTimer = setTimeout(
+      () => failFor('hard_ceiling'),
+      hardRemaining,
+    );
+    armInactivityTimer();
+
+    if (activityProbe) {
+      activityTimer = setInterval(() => {
+        if (settled || activityProbeInFlight) return;
+        activityProbeInFlight = true;
+        void activityProbe()
+          .then((fingerprint) => {
+            if (
+              settled ||
+              fingerprint === null ||
+              fingerprint === lastActivityFingerprint
+            ) {
+              return;
+            }
+            lastActivityFingerprint = fingerprint;
+            policy.lastProgressAt = Date.now();
+            armInactivityTimer();
+          })
+          .catch(() => {
+            // A transient observation failure is not progress and is not a run
+            // failure; the existing inactivity/hard timers remain authoritative.
+          })
+          .finally(() => {
+            activityProbeInFlight = false;
+          });
+      }, ACTIVITY_POLL_INTERVAL_MS);
+    }
+
+    void operation.then(
+      (value) => {
+        policy.lastProgressAt = Date.now();
+        finish(() => resolve(value));
+      },
+      (error) => finish(() => reject(error)),
+    );
+  });
 }
 
 /**
@@ -240,56 +357,30 @@ export function _activeRunCount(): number {
   return _activeRuns.size;
 }
 
-// ── Prompt result extraction ──────────────────────────────────────────────────
+function _sessionActivityFingerprint(
+  messages: import('@opencode-ai/sdk').SessionMessage[],
+): string | null {
+  if (messages.length === 0) return null;
 
-/**
- * Poll the session's message list until we find an assistant message newer than
- * `afterTimestamp`, or until `deadline` is reached.
- *
- * Strategy: the SDK `session.messages` endpoint returns all messages in the
- * session ordered by time. We wait for a message whose `role === 'assistant'`
- * and whose `time.created` is >= our prompt submission time. This is simpler
- * than subscribing to SSE inside a background runner where we don't have a live
- * HTTP connection to stream from.
- *
- * Poll interval: 500 ms — low enough to be responsive, high enough to avoid
- * flooding the local opencode process.
- */
-async function _waitForAssistantReply(
-  sessionId: string,
-  afterTimestamp: number,
-  deadline: number,
-): Promise<string | null> {
-  const POLL_INTERVAL_MS = 500;
-
-  while (Date.now() < deadline) {
-    try {
-      const messages = await opencodeClient.listMessages(sessionId);
-      // Find the last assistant message created after our prompt was sent
-      const assistantMessages = messages.filter(
-        (m) =>
-          m.info.role === 'assistant' &&
-          (m.info.time?.created ?? 0) >= afterTimestamp,
-      );
-      if (assistantMessages.length > 0) {
-        const last = assistantMessages[assistantMessages.length - 1];
-        // Extract text from parts — SDK Part is a discriminated union; pick type='text'
-        const textParts = last.parts.filter(
-          (p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text',
-        );
-        if (textParts.length > 0) {
-          return textParts.map((p) => p.text).join('\n').trim();
-        }
-        // Non-text assistant turn (tool calls only) — keep waiting
-      }
-    } catch {
-      // listMessages throws on SDK error — swallow transient errors and retry
-    }
-
-    await new Promise<void>((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-  }
-
-  return null; // timeout
+  // Keep the cursor compact while covering the runtime's real progress
+  // carriers: new messages, streamed text/reasoning, and tool state/output.
+  // Serializing only each message's final part avoids repeatedly hashing the
+  // whole transcript during long tool-heavy runs.
+  return JSON.stringify(
+    messages.map((message) => {
+      const finalPart =
+        message.parts.length > 0
+          ? message.parts[message.parts.length - 1]
+          : null;
+      return {
+        id: message.info.id,
+        role: message.info.role,
+        time: message.info.time,
+        partCount: message.parts.length,
+        finalPart,
+      };
+    }),
+  );
 }
 
 // ── Model resolution ──────────────────────────────────────────────────────────
@@ -773,7 +864,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     }
   }
 
-  const deadline = Date.now() + getRunTimeoutMs();
+  const deadlinePolicy = _createRunDeadlinePolicy();
   let opencodeSessionId: string | null = null;
 
   try {
@@ -822,7 +913,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // #892 — preflight: a specialist whose required MCP servers aren't
     // authenticated (e.g. worship-planning's all-pco-services toolset with no
     // PCO OAuth configured) previously hung all the way to the createSession +
-    // prompt() timeout race below (up to AGENT_RUN_TIMEOUT_MS, 600s default) —
+    // prompt inactivity window below (600s without progress by default) —
     // the engine can't bring up the backend, so the api_server→engine call
     // eventually dies with a generic UND_ERR_HEADERS_TIMEOUT. Check the live
     // MCP status map for every server this run's role requires and fail fast
@@ -835,7 +926,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         try {
           const statusMap = await _withinRunDeadline(
             opencodeClient.listMcp(),
-            deadline,
+            deadlinePolicy,
             'MCP readiness preflight',
           );
           const unavailable = requiredServers.flatMap((name) => {
@@ -883,7 +974,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         skillNames,
         resolvedModel.providerID,
       ),
-      deadline,
+      deadlinePolicy,
       'session creation',
     );
 
@@ -1018,8 +1109,12 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     // the raw `cwd` is undefined). Use effectiveCwd for prompt/listMessages/abort.
     const response = await _withinRunDeadline(
       opencodeClient.prompt(sessionId, effectivePrompt, resolvedModel, effectiveCwd, promptOpts),
-      deadline,
+      deadlinePolicy,
       'prompt',
+      async () =>
+        _sessionActivityFingerprint(
+          await opencodeClient.listMessages(sessionId, effectiveCwd),
+        ),
     );
 
     if (!response) {

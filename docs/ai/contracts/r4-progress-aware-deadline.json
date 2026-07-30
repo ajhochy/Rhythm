@@ -1,0 +1,57 @@
+{
+  "issue": 0,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-0-c1",
+      "text": "progressing session survives past the old 600s",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/r4_progress_aware_deadline.test.ts",
+      "test_id": "issue-0-c1: progressing session survives past the old 600s",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c2",
+      "text": "stalled session is aborted at the inactivity window",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/r4_progress_aware_deadline.test.ts",
+      "test_id": "issue-0-c2: stalled session is aborted at the inactivity window",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c3",
+      "text": "hard ceiling aborts even with continuous progress",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/r4_progress_aware_deadline.test.ts",
+      "test_id": "issue-0-c3: hard ceiling aborts even with continuous progress",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c4",
+      "text": "parent cancellation still propagates to children",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/r4_progress_aware_deadline.test.ts",
+      "test_id": "issue-0-c4: parent cancellation still propagates to children",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c5",
+      "text": "Env-gated live sandbox test (RHYTHM_LIVE_E2E=1) documenting the command -- WRITE it, do NOT run it.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/r4_progress_aware_deadline_live_e2e.test.ts",
+      "test_id": "issue-0-c5: a progressing headless run outlives the former wall deadline",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c6",
+      "text": "Document both knobs (defaults + env overrides if the codebase already has that pattern) in code comments and docs/ai.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Verified by source and docs/ai review because prose defaults and operator guidance are not runtime behavior."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-0-c6"
+  ]
+}
