@@ -1,0 +1,65 @@
+{
+  "issue": 0,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-r1-delegated-session-isolation-c1",
+      "text": "upsertChildSession must inherit from the parent row: category, is_system, scheduled_task_id, owner_user_id, project_id, and every other scope-relevant column the parent carries.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/delegated_session_isolation.test.ts",
+      "test_id": "issue-r1-delegated-session-isolation-c1: scheduled children inherit the complete parent scope",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-r1-delegated-session-isolation-c2",
+      "text": "Children of Background Self Improvement parent sessions remain in the self-improvement scope.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/delegated_session_isolation.test.ts",
+      "test_id": "issue-r1-delegated-session-isolation-c2: self-improvement children inherit parent classification",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-r1-delegated-session-isolation-c3",
+      "text": "Children of plain Chat parent sessions remain visible Chats.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/delegated_session_isolation.test.ts",
+      "test_id": "issue-r1-delegated-session-isolation-c3: plain chat children retain chat scope",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-r1-delegated-session-isolation-c4",
+      "text": "Add a narrow, idempotent SQLite backfill: child rows currently classified Chat whose parent is non-Chat get corrected to the parent's scope. Do not modify unrelated historical Chat rows. Must be safe to run repeatedly and when zero rows match.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/delegated_session_isolation.test.ts",
+      "test_id": "issue-r1-delegated-session-isolation-c4: SQLite backfill is narrow and converges to zero changes",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-r1-delegated-session-isolation-c5",
+      "text": "Add equivalent Postgres bootstrap handling.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/delegated_session_isolation.test.ts",
+      "test_id": "issue-r1-delegated-session-isolation-c5: Postgres bootstrap installs equivalent pending resolution and scope repair",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-r1-delegated-session-isolation-c6",
+      "text": "If the bridge can create a child before the parent row exists, add inheritance on late parent resolution too — prefer a durable re-resolve-on-parent-arrival approach over in-memory retry, and keep it minimal.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/delegated_session_isolation.test.ts",
+      "test_id": "issue-r1-delegated-session-isolation-c6: an unresolved child is durably resolved when its parent SDK id arrives",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-r1-delegated-session-isolation-c7",
+      "text": "Write (do not run) an env-gated live test skipped unless RHYTHM_LIVE_E2E=1, proving via real API/WebSocket that scheduled and self-improvement children stay in parent scope and never appear in Chats.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "The live test is executable and env-gated, but this task explicitly forbids starting or running the API/engine."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-r1-delegated-session-isolation-c7"
+  ]
+}
