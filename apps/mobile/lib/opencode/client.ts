@@ -8,6 +8,7 @@ import {
 import { encode as encodeBase64 } from 'base-64';
 
 import type { PairedMacClient } from '@/lib/transport/paired-mac-client';
+import { withProjectScope } from '@/lib/transport/project-scoped-request';
 import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
 
 export type PendingPermissionRequest = PermissionRequest;
@@ -178,7 +179,6 @@ function createMobileGatewayFetch(scope: MobileGatewayClientScope) {
     const headers: Record<string, string> = {
       ...headersRecord(request?.headers),
       ...headersRecord(init?.headers),
-      'X-Rhythm-Project-ID': projectId,
     };
     delete headers.authorization;
 
@@ -195,13 +195,13 @@ function createMobileGatewayFetch(scope: MobileGatewayClientScope) {
 
     return scope.client.fetchResponse(
       `${gatewayPath}${parsed.search}`,
-      {
+      withProjectScope(projectId, {
         ...init,
         body,
         headers,
         method,
         signal: init?.signal ?? request?.signal,
-      },
+      }),
     );
   };
 }

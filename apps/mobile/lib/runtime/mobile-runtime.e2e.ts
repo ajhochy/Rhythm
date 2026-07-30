@@ -143,7 +143,11 @@ export const mobileRuntimeVariant: MobileRuntimeVariant = {
   createActivityTransport,
   createRhythmToolsService: () => {
     const transport = createToolTransport();
-    return new RhythmToolsService({ cloud: transport, paired: transport });
+    return new RhythmToolsService({
+      cloud: transport,
+      paired: transport,
+      projectId: 'project-main',
+    });
   },
   simulatedPairingPayload: (hasExistingHost) =>
     JSON.stringify({
