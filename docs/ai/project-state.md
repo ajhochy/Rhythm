@@ -13,6 +13,7 @@ native accessibility/layout smoke remains pending.
 - PR: none.
 - Focused commits: contract `66889deb7`, provider seams `6bec3a247`, UI/docs
   `4a81d4a03`.
+- Remote: `origin/codex/msp-002-profile-first-sessions`.
 - Run:
   [runs/2026-07-30-msp-002-profile-first-sessions.md](runs/2026-07-30-msp-002-profile-first-sessions.md).
 
@@ -20,7 +21,7 @@ native accessibility/layout smoke remains pending.
 
 - Implementation, acceptance tests, run memory, and the manual-smoke checklist
   are committed.
-- Branch push is pending.
+- Branch is pushed; no PR has been opened.
 - Signed native smoke remains pending.
 
 ## Risks / known issues
@@ -51,6 +52,5 @@ native accessibility/layout smoke remains pending.
 
 ## Next step
 
-Rerun the focused mobile checks at the final commit, push the branch, then
-complete the signed native smoke in
+Complete the signed native smoke in
 `docs/testing/msp-002-profile-first-sessions-smoke.md`.

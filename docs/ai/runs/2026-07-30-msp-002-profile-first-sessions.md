@@ -50,6 +50,7 @@ index: "[[Rhythm]]"
 - Focused commits: `66889deb7` (acceptance contract), `6bec3a247` (isolated
   provider creation/preference/state seams), and `4a81d4a03` (UI and mobile
   documentation).
+- Pushed `codex/msp-002-profile-first-sessions` to `origin`; no PR was opened.
 - Baseline acceptance run before implementation: 0 passed, 6 failed. A seventh
   global-approval guard was added before the final green run.
 - The referenced MSP-002 contract JSON was missing, so it was generated from
