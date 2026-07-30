@@ -13,8 +13,10 @@ live('MSP-001 live paired session/profile contract', () => {
         'RHYTHM_LIVE_DEVICE_TOKEN, and RHYTHM_LIVE_PROJECT_ID',
       );
     }
-    if (!/^http:\/\/127\.0\.0\.1:(?!4001\b)\d+$/.test(baseUrl)) {
-      throw new Error('MSP-001 live test requires an isolated loopback URL');
+    if (baseUrl !== 'http://127.0.0.1:4098') {
+      throw new Error(
+        'MSP-001 live test requires the isolated sandbox API on 127.0.0.1:4098',
+      );
     }
 
     const headers = {
