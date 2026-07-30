@@ -7,6 +7,10 @@ const source = await readFile(
   new URL('../../providers/opencode-provider-utils.ts', import.meta.url),
   'utf8',
 );
+const providerSource = await readFile(
+  new URL('../../providers/opencode-provider.tsx', import.meta.url),
+  'utf8',
+);
 const output = ts.transpileModule(source, {
   compilerOptions: {
     module: ts.ModuleKind.ESNext,
@@ -59,6 +63,60 @@ test('issue-1-c4: existing session hydration overrides global chat preferences',
   );
 });
 
+test('issue-1-regression: metadata-free direct sessions retain discovered defaults', () => {
+  assert.equal(typeof providerUtils.getSessionExecutionState, 'function');
+  assert.equal(
+    providerUtils.getSessionExecutionState({
+      id: 'session-direct',
+      title: 'Direct web session',
+    }),
+    undefined,
+  );
+});
+
+test('issue-1-c4-regression: explicit null gateway state remains authoritative', () => {
+  const state = {
+    profileId: null,
+    opencodeAgentId: null,
+    providerId: null,
+    modelId: null,
+    thinkingBudget: null,
+    permissionMode: 'default',
+    profileAvailability: 'unassigned',
+  };
+  assert.equal(
+    providerUtils.getSessionExecutionState({ rhythm: state }),
+    state,
+  );
+  const hydrated = providerUtils.hydratePreferencesFromSession(state, {
+    profileId: 'profile-research',
+    mode: 'research',
+    providerId: 'openai',
+    modelId: 'openai/gpt-5',
+  });
+  assert.equal(hydrated.profileId, undefined);
+  assert.equal(hydrated.mode, '');
+  assert.equal(hydrated.providerId, undefined);
+  assert.equal(hydrated.modelId, undefined);
+});
+
+test('issue-1-c7-regression: legacy engine identity never invents a profile', () => {
+  assert.deepEqual(
+    providerUtils.getSessionExecutionState({
+      agent: 'legacy-unknown-agent',
+    }),
+    {
+      profileId: null,
+      opencodeAgentId: 'legacy-unknown-agent',
+      profileAvailability: 'unavailable',
+      providerId: null,
+      modelId: null,
+      thinkingBudget: null,
+      permissionMode: 'default',
+    },
+  );
+});
+
 test('issue-1-c7: unknown legacy profile mapping is unavailable rather than Secretary', () => {
   // Regression caught: an unknown engine agent falls through to the first
   // catalog row, historically Secretary, and is displayed/sent as that role.
@@ -80,4 +138,16 @@ test('issue-1-c7: unknown legacy profile mapping is unavailable rather than Secr
     name: 'Unassigned',
     availability: 'unavailable',
   });
+});
+
+test('issue-1-regression: capability refresh identity is stable across session updates', () => {
+  const refreshBlock = providerSource.slice(
+    providerSource.indexOf('const refreshChatCapabilities = useCallback'),
+    providerSource.indexOf('const openSession = useCallback'),
+  );
+  assert.match(refreshBlock, /sessionsRef\.current\.find/);
+  assert.match(refreshBlock, /currentSessionIdRef\.current/);
+  const dependencies = refreshBlock.slice(refreshBlock.lastIndexOf('}, ['));
+  assert.doesNotMatch(dependencies, /\bsessions\b/);
+  assert.doesNotMatch(dependencies, /\bcurrentSessionId\b/);
 });
