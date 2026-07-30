@@ -4,8 +4,14 @@ import type {
   AgentSession,
   AgentSessionStatus,
   CreateAgentSessionDto,
+  OpenCodeAgentId,
   PermissionMode,
+  RhythmProfileId,
   SessionScope,
+} from '../models/agent_session';
+import {
+  asOpenCodeAgentId,
+  asRhythmProfileId,
 } from '../models/agent_session';
 
 interface AgentSessionRow {
@@ -13,6 +19,7 @@ interface AgentSessionRow {
   task_id: string | null;
   task_title: string | null;
   agent_kind: string;
+  profile_id: string | null;
   status: string;
   status_message: string | null;
   session_token: string | null;
@@ -59,6 +66,10 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     id: row.id,
     taskId: row.task_id,
     taskTitle: row.task_title ?? null,
+    profileId: row.profile_id ? asRhythmProfileId(row.profile_id) : null,
+    opencodeAgentId: row.agent_kind
+      ? asOpenCodeAgentId(row.agent_kind)
+      : null,
     agentKind: row.agent_kind as AgentSession['agentKind'],
     status: row.status as AgentSessionStatus,
     statusMessage: row.status_message ?? null,
@@ -148,16 +159,17 @@ export class AgentSessionsRepository {
     getDb()
       .prepare(
         `INSERT INTO agent_sessions
-           (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
+           (id, task_id, task_title, agent_kind, profile_id, status, cwd, name, project_id,
             mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system,
             anthropic_account_id, owner_user_id, delegation_depth, category, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
         dto.taskId ?? null,
         dto.taskTitle ?? null,
-        dto.agentKind,
+        dto.opencodeAgentId ?? dto.agentKind,
+        dto.profileId ?? null,
         dto.cwd,
         dto.name,
         dto.projectId ?? null,
@@ -345,6 +357,10 @@ export class AgentSessionsRepository {
     cwd: string;
     name: string;
     archivedAt: string | null;
+    profileId?: RhythmProfileId | null;
+    opencodeAgentId?: OpenCodeAgentId | null;
+    providerId?: string | null;
+    modelId?: string | null;
     updatedAt?: string;
   }): AgentSession | null {
     if (
@@ -383,12 +399,20 @@ export class AgentSessionsRepository {
               SET name = ?,
                   cwd = ?,
                   archived_at = ?,
+                  profile_id = COALESCE(?, profile_id),
+                  agent_kind = COALESCE(NULLIF(?, ''), agent_kind),
+                  provider_id = COALESCE(?, provider_id),
+                  model_id = COALESCE(?, model_id),
                   updated_at = ?
             WHERE id = ?`,
         ).run(
           input.name || 'Untitled chat',
           input.cwd,
           input.archivedAt,
+          input.profileId ?? null,
+          input.opencodeAgentId ?? null,
+          input.providerId ?? null,
+          input.modelId ?? null,
           now,
           existing.id,
         );
@@ -398,17 +422,21 @@ export class AgentSessionsRepository {
       const id = crypto.randomUUID();
       db.prepare(
         `INSERT INTO agent_sessions
-           (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
-            sdk_session_id, owner_user_id, category, archived_at, created_at,
+           (id, task_id, task_title, agent_kind, profile_id, status, cwd, name, project_id,
+            sdk_session_id, owner_user_id, provider_id, model_id, category, archived_at, created_at,
             updated_at)
-         VALUES (?, NULL, NULL, '', 'idle', ?, ?, ?, ?, ?, 'chat', ?, ?, ?)`,
+         VALUES (?, NULL, NULL, ?, ?, 'idle', ?, ?, ?, ?, ?, ?, ?, 'chat', ?, ?, ?)`,
       ).run(
         id,
+        input.opencodeAgentId ?? '',
+        input.profileId ?? null,
         input.cwd,
         input.name || 'Untitled chat',
         input.projectId,
         input.sdkSessionId,
         input.ownerUserId,
+        input.providerId ?? null,
+        input.modelId ?? null,
         input.archivedAt,
         now,
         now,
@@ -603,6 +631,8 @@ export class AgentSessionsRepository {
     id: string,
     fields: {
       name?: string;
+      profileId?: RhythmProfileId | null;
+      opencodeAgentId?: OpenCodeAgentId | null;
       providerId?: string | null;
       modelId?: string | null;
       agentMode?: string | null;
@@ -616,6 +646,14 @@ export class AgentSessionsRepository {
     if (fields.name !== undefined) {
       sets.push('name = ?');
       values.push(fields.name);
+    }
+    if (fields.profileId !== undefined) {
+      sets.push('profile_id = ?');
+      values.push(fields.profileId);
+    }
+    if (fields.opencodeAgentId !== undefined) {
+      sets.push('agent_kind = ?');
+      values.push(fields.opencodeAgentId ?? '');
     }
     if (fields.providerId !== undefined) {
       sets.push('provider_id = ?');
