@@ -73,6 +73,46 @@ export type SessionExecutionState = {
   permissionMode: PermissionMode;
 };
 
+type SessionWithExecutionMetadata = {
+  rhythm?: SessionExecutionState;
+  agent?: unknown;
+  model?: unknown;
+};
+
+export function getSessionExecutionState(
+  session: SessionWithExecutionMetadata | undefined,
+): SessionExecutionState | undefined {
+  if (!session) return undefined;
+  if (session.rhythm) return session.rhythm;
+
+  // Direct OpenCode connections and pre-MSP gateway responses do not carry
+  // authoritative Rhythm metadata. Only hydrate their legacy engine identity
+  // when one actually exists; an empty engine session must keep the safe
+  // capability-derived defaults.
+  const model =
+    session.model && typeof session.model === 'object'
+      ? (session.model as Record<string, unknown>)
+      : undefined;
+  const agent =
+    typeof session.agent === 'string' && session.agent.trim()
+      ? (session.agent as OpenCodeAgentId)
+      : null;
+  const providerId =
+    typeof model?.providerID === 'string' ? model.providerID : null;
+  const modelId = typeof model?.id === 'string' ? model.id : null;
+  if (!agent && !providerId && !modelId) return undefined;
+
+  return {
+    profileId: null,
+    opencodeAgentId: agent,
+    profileAvailability: agent ? 'unavailable' : 'unassigned',
+    providerId,
+    modelId,
+    thinkingBudget: null,
+    permissionMode: 'default',
+  };
+}
+
 export type ChatPreferences = {
   profileId?: RhythmProfileId;
   mode: OpenCodeAgentId;

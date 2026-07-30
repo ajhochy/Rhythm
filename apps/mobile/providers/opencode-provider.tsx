@@ -79,6 +79,7 @@ import {
   getModelIdForProvider,
   getProjectLabel,
   getSelectedModelParts,
+  getSessionExecutionState,
   groupPendingRequestsBySession,
   hydratePreferencesFromSession,
   isAutoApproveEnabled,
@@ -105,7 +106,6 @@ import {
   type ModelOption,
   type MobileSession,
   type OpencodeContextValue,
-  type OpenCodeAgentId,
   type OpencodeProject,
   type ProviderAuthMethod,
   type ProviderOption,
@@ -227,36 +227,6 @@ function authenticatedWebSocket(
   return new Constructor(url, [], { headers });
 }
 
-function executionStateForSession(
-  session: MobileSession | undefined,
-): SessionExecutionState | undefined {
-  if (!session) return undefined;
-  if (session.rhythm) return session.rhythm;
-
-  // Direct OpenCode connections and pre-MSP gateway responses do not carry
-  // Rhythm metadata. Preserve the engine identity without inventing a Rhythm
-  // profile mapping; unknown legacy agents must remain unavailable.
-  const raw = session as unknown as Record<string, unknown>;
-  const model =
-    raw.model && typeof raw.model === 'object'
-      ? raw.model as Record<string, unknown>
-      : undefined;
-  const agent =
-    typeof raw.agent === 'string' && raw.agent.trim()
-      ? raw.agent as OpenCodeAgentId
-      : null;
-  return {
-    profileId: null,
-    opencodeAgentId: agent,
-    profileAvailability: agent ? 'unavailable' : 'unassigned',
-    providerId:
-      typeof model?.providerID === 'string' ? model.providerID : null,
-    modelId: typeof model?.id === 'string' ? model.id : null,
-    thinkingBudget: null,
-    permissionMode: 'default',
-  };
-}
-
 export function OpencodeProvider({ children }: PropsWithChildren) {
   const pairedHost = usePairedHost();
   const pairedHostClient = pairedHost.client;
@@ -328,6 +298,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   const settingsRef = useRef(settings);
   const activeProjectPathRef = useRef(activeProjectPath);
+  const sessionsRef = useRef(sessions);
+  const currentSessionIdRef = useRef(currentSessionId);
   const scopeGenerationRef = useRef(0);
   const serverGenerationRef = useRef(0);
   const clientGenerationRef = useRef(new WeakMap<object, number>());
@@ -351,6 +323,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const terminalOpenGenerationRef = useRef(0);
   settingsRef.current = settings;
   activeProjectPathRef.current = activeProjectPath;
+  sessionsRef.current = sessions;
+  currentSessionIdRef.current = currentSessionId;
 
   const clearTrackedPendingNotification = useCallback(
     async (sessionId: string) => {
@@ -794,8 +768,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         ),
         autoApprove: isAutoApproveEnabled(result.config),
       };
-      const authoritative = executionStateForSession(
-        sessions.find((session) => session.id === currentSessionId),
+      const authoritative = getSessionExecutionState(
+        sessionsRef.current.find(
+          (session) => session.id === currentSessionIdRef.current,
+        ),
       );
       return authoritative
         ? hydratePreferencesFromSession(authoritative, defaults)
@@ -804,16 +780,14 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   }, [
     activeProjectPath,
     client,
-    currentSessionId,
     isCurrentClient,
     pairedHostClient,
-    sessions,
   ]);
 
   const openSession = useCallback(
     async (sessionId: string) => {
       setCurrentSessionId(sessionId);
-      const authoritative = executionStateForSession(
+      const authoritative = getSessionExecutionState(
         sessions.find((session) => session.id === sessionId),
       );
       if (authoritative) {
@@ -1038,7 +1012,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   const authoritativePreferencesForSession = useCallback(
     (sessionId: string): ChatPreferences => {
-      const state = executionStateForSession(
+      const state = getSessionExecutionState(
         sessions.find((session) => session.id === sessionId),
       );
       return state
