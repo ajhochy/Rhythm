@@ -62,3 +62,19 @@ release signing, and add a launch smoke so a DOA app can never pass CI again.
 Green CI on `fix/desktop-devid-provisioning-profile` → merge (user
 pre-authorized) → dispatch Desktop Release v0.18.54 from updated `main` →
 verify launch on a real Mac → then TestFlight and PR #1252 merge.
+
+## Recent coding-agent runs
+
+### 2026-07-30 — R3 scheduled-failure classification
+- Files modified: `agentSchedulerService.ts` (real engine readiness gate,
+  categorized deferral/restart results), `agent_runner.ts` (model-quality-only
+  teacher decision), `agent_run_failure_classification.ts` (taxonomy), focused
+  tests, acceptance contract, and env-gated live contract.
+- Checks run: red contract 0/10; `npx tsc --noEmit` pass after one
+  CommonJS-test-loader repair; scheduler/teacher suites 56/56; runner/refiner
+  suites 75/75; final contract 10/10.
+- Decisions made: a successful `listMcp()` round-trip is the scheduled-work
+  readiness probe; unknown failures fail closed to `infra_config`.
+- Deviations from spec: live test written but not run, as explicitly required.
+- Concerns: sandbox cannot write the worktree's external git metadata, so
+  commits/push remain blocked despite a writable source tree.
