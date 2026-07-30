@@ -42,8 +42,6 @@ import type {
   ModelOption as ProviderModelOption,
   ReasoningLevel as ProviderReasoningLevel,
   ResponseScope as ProviderResponseScope,
-  OpenCodeAgentId,
-  RhythmProfileId,
   SessionExecutionState,
 } from '@/providers/opencode-provider-utils';
 
