@@ -1,0 +1,56 @@
+{
+  "issue": 2,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-2-c1",
+      "text": "Clear the curator-running state in a finally block (or equivalent) so it is correct on every one of those paths.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/skill_extractor.test.ts",
+      "test_id": "writes a draft SKILL.md file (not a DB row) when >= 2 rounds + valid high-confidence JSON",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2-c2",
+      "text": "Add API tests covering every early-return class identified in step 1 (success, decline, duplicate, low-confidence, thrown exception, guard returns), each asserting the running flag is cleared after that path completes.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/skill_extractor.test.ts",
+      "test_id": "clears running state when the LLM call throws",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2-c3",
+      "text": "Also check apps/api_server/src/services/skill_refiner.ts refineStatus for the identical bug class (background-status ORs extract + refine at agent_sessions_controller.ts:294) -- fix it too if the same root cause is present, using the same fix pattern.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/skill_refiner_provider_fallback.test.ts",
+      "test_id": "clears refine running state when AgentRunner rejects",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-2-c4",
+      "text": "Flutter indicator: pulse only while activity is active; stop AND reset the AnimationController while idle; correctly handle active-to-idle-to-active transitions (must restart cleanly, not get stuck).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/app/core/background_activity/background_activity_test.dart",
+      "test_id": "idle does not schedule repeating animation frames",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-2-c5",
+      "text": "Add a Flutter widget test proving idle does not drive a repeating ticker (pump the idle state and assert no scheduled frames / controller not animating), and a second case proving active-to-idle-to-active re-animates correctly.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/app/core/background_activity/background_activity_test.dart",
+      "test_id": "active-to-idle-to-active restarts the pulse",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-2-c6",
+      "text": "Write (but do NOT run) an env-gated live check behind an RHYTHM_LIVE_E2E=1 skip guard that asserts the sandbox background-status endpoint returns idle after an extraction completes.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_948_949.test.ts",
+      "test_id": "2+ round session on a scoped agent produces a draft skill file",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

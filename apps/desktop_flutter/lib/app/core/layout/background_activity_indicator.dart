@@ -32,11 +32,31 @@ class _BackgroundActivityIndicatorState
     _pulse = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1200),
-    )..repeat(reverse: true);
+    );
     _opacity = Tween<double>(
       begin: 0.4,
       end: 1.0,
     ).animate(CurvedAnimation(parent: _pulse, curve: Curves.easeInOut));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncPulse(context.watch<BackgroundActivityController>().hasActivity);
+  }
+
+  void _syncPulse(bool isActive) {
+    if (isActive) {
+      if (!_pulse.isAnimating) {
+        _pulse.repeat(reverse: true);
+      }
+      return;
+    }
+
+    if (_pulse.isAnimating || _pulse.value != 0) {
+      _pulse.stop();
+      _pulse.reset();
+    }
   }
 
   @override
