@@ -80,8 +80,11 @@ import {
   getProjectLabel,
   getSelectedModelParts,
   groupPendingRequestsBySession,
+  hydratePreferencesFromSession,
   isAutoApproveEnabled,
   mergePermissionConfig,
+  permissionModeForAutoApprove,
+  thinkingBudgetForReasoning,
 } from '@/providers/opencode-provider-utils';
 import {
   getConfiguredProviders,
@@ -100,10 +103,13 @@ import {
   type ConnectionState,
   type ConversationPhase,
   type ModelOption,
+  type MobileSession,
   type OpencodeContextValue,
+  type OpenCodeAgentId,
   type OpencodeProject,
   type ProviderAuthMethod,
   type ProviderOption,
+  type SessionExecutionState,
   type WorkspaceCatalog,
 } from '@/providers/opencode-provider-types';
 import { useConversationKeepAwake } from '@/providers/use-conversation-keep-awake';
@@ -111,7 +117,11 @@ import { useConversationScreenDim } from '@/providers/use-conversation-screen-di
 import { usePairedHost } from '@/providers/paired-host-provider';
 import { useRhythmAccount } from '@/providers/rhythm-account-provider';
 import { useOpencodePersistence } from '@/providers/use-opencode-persistence';
-import { listMobileGatewayProjects } from '@/providers/services/mobile-gateway-service';
+import {
+  listMobileGatewayProfiles,
+  listMobileGatewayProjects,
+  updateMobileSessionProfileState,
+} from '@/providers/services/mobile-gateway-service';
 import {
   loadWorkspaceCatalog as svcLoadWorkspaceCatalog,
   archiveSession as svcArchiveSession,
@@ -217,6 +227,36 @@ function authenticatedWebSocket(
   return new Constructor(url, [], { headers });
 }
 
+function executionStateForSession(
+  session: MobileSession | undefined,
+): SessionExecutionState | undefined {
+  if (!session) return undefined;
+  if (session.rhythm) return session.rhythm;
+
+  // Direct OpenCode connections and pre-MSP gateway responses do not carry
+  // Rhythm metadata. Preserve the engine identity without inventing a Rhythm
+  // profile mapping; unknown legacy agents must remain unavailable.
+  const raw = session as unknown as Record<string, unknown>;
+  const model =
+    raw.model && typeof raw.model === 'object'
+      ? raw.model as Record<string, unknown>
+      : undefined;
+  const agent =
+    typeof raw.agent === 'string' && raw.agent.trim()
+      ? raw.agent as OpenCodeAgentId
+      : null;
+  return {
+    profileId: null,
+    opencodeAgentId: agent,
+    profileAvailability: agent ? 'unavailable' : 'unassigned',
+    providerId:
+      typeof model?.providerID === 'string' ? model.providerID : null,
+    modelId: typeof model?.id === 'string' ? model.id : null,
+    thinkingBudget: null,
+    permissionMode: 'default',
+  };
+}
+
 export function OpencodeProvider({ children }: PropsWithChildren) {
   const pairedHost = usePairedHost();
   const pairedHostClient = pairedHost.client;
@@ -231,7 +271,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     message: 'Add a server URL and connect to OpenCode.',
   });
   const [activeProjectPath, setActiveProjectPath] = useState<string>();
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessions, setSessions] = useState<MobileSession[]>([]);
   const [archivedSessions, setArchivedSessions] = useState<GlobalSession[]>([]);
   const [sessionStatuses, setSessionStatuses] = useState<Record<string, SessionStatus>>({});
   const [currentSessionId, setCurrentSessionId] = useState<string>();
@@ -563,9 +603,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         if (!isCurrentClient(client)) {
           return result.sessions;
         }
-        setSessions(result.sessions);
+        setSessions(result.sessions as MobileSession[]);
         setSessionStatuses(result.statuses);
-        return result.sessions;
+        return result.sessions as MobileSession[];
       } finally {
         if (!silent) {
           setIsRefreshingSessions(false);
@@ -702,7 +742,16 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   );
 
   const refreshChatCapabilities = useCallback(async () => {
-    const result = await import('@/providers/services/capabilities-service').then((m) => m.discoverChatCapabilities(client, activeProjectPath));
+    const result = await import('@/providers/services/capabilities-service').then(
+      (m) => m.discoverChatCapabilities(
+        client,
+        activeProjectPath,
+        { includeEngineAgents: !pairedHostClient },
+      ),
+    );
+    const agents = pairedHostClient && activeProjectPath
+      ? await listMobileGatewayProfiles(pairedHostClient, activeProjectPath)
+      : result.agents;
     if (!isCurrentClient(client)) {
       return;
     }
@@ -711,7 +760,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     setAvailableProviders(result.providers);
     setProviderAuthMethodsById(result.providerAuthMethodsById);
     setAvailableModels(result.models);
-    setAvailableAgents(result.agents);
+    setAvailableAgents(agents);
 
     setChatPreferences((current) => {
       const configuredProviderIds = getConfiguredProviderIds(result.config, result.connected, result.models);
@@ -723,9 +772,15 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         ? nextProviderId
         : getInitialProviderId(enabledModels, result.config, current.providerId, current.modelId);
 
-      return {
+      const defaults = {
         ...current,
-        mode: getInitialMode(result.agents, result.config, current.mode),
+        profileId:
+          agents.find((agent) => agent.profileId === current.profileId)
+            ?.profileId ??
+          agents.find((agent) => agent.opencodeAgentId === current.mode)
+            ?.profileId ??
+          agents[0]?.profileId,
+        mode: getInitialMode(agents, result.config, current.mode),
         providerId: safeProviderId,
         modelId: getModelIdForProvider(
           enabledModels,
@@ -734,14 +789,37 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
           safeProviderId ? current.providerModelSelections[safeProviderId] : undefined,
         ),
         enabledModelIds,
+        permissionMode: permissionModeForAutoApprove(
+          isAutoApproveEnabled(result.config),
+        ),
         autoApprove: isAutoApproveEnabled(result.config),
       };
+      const authoritative = executionStateForSession(
+        sessions.find((session) => session.id === currentSessionId),
+      );
+      return authoritative
+        ? hydratePreferencesFromSession(authoritative, defaults)
+        : defaults;
     });
-  }, [activeProjectPath, client, isCurrentClient]);
+  }, [
+    activeProjectPath,
+    client,
+    currentSessionId,
+    isCurrentClient,
+    pairedHostClient,
+    sessions,
+  ]);
 
   const openSession = useCallback(
     async (sessionId: string) => {
       setCurrentSessionId(sessionId);
+      const authoritative = executionStateForSession(
+        sessions.find((session) => session.id === sessionId),
+      );
+      if (authoritative) {
+        setChatPreferences((current) =>
+          hydratePreferencesFromSession(authoritative, current));
+      }
       if (activeProjectPath) {
         setLastSessionByProject((current) => ({
           ...current,
@@ -750,7 +828,46 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       }
       await Promise.all([refreshMessages(sessionId), refreshSessionDiff(sessionId, true), refreshSessionTodos(sessionId), refreshPendingInteractions()]);
     },
-    [activeProjectPath, refreshMessages, refreshPendingInteractions, refreshSessionDiff, refreshSessionTodos],
+    [activeProjectPath, refreshMessages, refreshPendingInteractions, refreshSessionDiff, refreshSessionTodos, sessions],
+  );
+
+  const persistSessionPreferences = useCallback(
+    async (
+      sessionId: string,
+      preferences: ChatPreferences,
+    ): Promise<SessionExecutionState | undefined> => {
+      if (!pairedHostClient || !activeProjectPath) return undefined;
+      const selectedProfile =
+        availableAgents.find(
+          (profile) => profile.profileId === preferences.profileId,
+        ) ??
+        availableAgents.find(
+          (profile) => profile.opencodeAgentId === preferences.mode,
+        );
+      const selectedModel = getSelectedModelParts(preferences.modelId);
+      const next = await updateMobileSessionProfileState(
+        pairedHostClient,
+        activeProjectPath,
+        sessionId,
+        {
+          profileId: selectedProfile?.profileId ?? null,
+          opencodeAgentId: selectedProfile?.opencodeAgentId ?? null,
+          providerId: selectedModel?.providerID ??
+            preferences.providerId ??
+            null,
+          modelId: selectedModel?.modelID ?? null,
+          thinkingBudget: thinkingBudgetForReasoning(preferences.reasoning),
+          permissionMode:
+            preferences.permissionMode ??
+            permissionModeForAutoApprove(preferences.autoApprove),
+        },
+      );
+      setSessions((current) =>
+        current.map((session) =>
+          session.id === sessionId ? { ...session, rhythm: next } : session));
+      return next;
+    },
+    [activeProjectPath, availableAgents, pairedHostClient],
   );
 
   const createSession = useCallback(
@@ -766,10 +883,23 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       if (!isCurrentClient(client)) {
         throw new Error('The active project changed before the session was created.');
       }
+      const created = response.data as MobileSession;
+      const authoritative = await persistSessionPreferences(
+        created.id,
+        chatPreferences,
+      );
       await refreshSessions(true);
-      return response.data;
+      return authoritative
+        ? { ...created, rhythm: authoritative }
+        : created;
     },
-    [client, isCurrentClient, refreshSessions],
+    [
+      chatPreferences,
+      client,
+      isCurrentClient,
+      persistSessionPreferences,
+      refreshSessions,
+    ],
   );
 
   const deleteSession = useCallback(
@@ -906,8 +1036,21 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     await refreshMessages(sessionId, true);
   }, [client, messagesBySession, refreshMessages]);
 
+  const authoritativePreferencesForSession = useCallback(
+    (sessionId: string): ChatPreferences => {
+      const state = executionStateForSession(
+        sessions.find((session) => session.id === sessionId),
+      );
+      return state
+        ? hydratePreferencesFromSession(state, chatPreferences)
+        : chatPreferences;
+    },
+    [chatPreferences, sessions],
+  );
+
   const initializeSession = useCallback(async (sessionId: string) => {
-    const model = getSelectedModelParts(chatPreferences.modelId);
+    const preferences = authoritativePreferencesForSession(sessionId);
+    const model = getSelectedModelParts(preferences.modelId);
     const messageId = messagesBySession[sessionId]
       ?.findLast((message) => findEditableUserTextPart(message) !== undefined)
       ?.info.id;
@@ -916,18 +1059,19 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     }
     await svcInitializeSession(client, sessionId, model);
     await Promise.all([refreshMessages(sessionId, true), refreshSessions(true)]);
-  }, [chatPreferences.modelId, client, messagesBySession, refreshMessages, refreshSessions]);
+  }, [authoritativePreferencesForSession, client, messagesBySession, refreshMessages, refreshSessions]);
 
   const runSessionShell = useCallback(async (sessionId: string, command: string) => {
     const trimmed = command.trim();
     if (!trimmed) throw new Error('Enter a shell command first.');
-    const model = getSelectedModelParts(chatPreferences.modelId);
+    const preferences = authoritativePreferencesForSession(sessionId);
+    const model = getSelectedModelParts(preferences.modelId);
     await svcRunSessionShell(client, sessionId, trimmed, {
-      agent: chatPreferences.mode,
+      agent: preferences.mode,
       model,
     });
     await Promise.all([refreshMessages(sessionId, true), refreshSessions(true)]);
-  }, [chatPreferences.mode, chatPreferences.modelId, client, refreshMessages, refreshSessions]);
+  }, [authoritativePreferencesForSession, client, refreshMessages, refreshSessions]);
 
   const refreshServerFeatures = useCallback(async () => {
     if (!activeProjectPath) {
@@ -1245,13 +1389,14 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   }, [activeTerminalId, client, refreshTerminals]);
 
   const executeCommand = useCallback(async (sessionId: string, command: string, args: string) => {
-    const selected = getSelectedModelParts(chatPreferences.modelId);
+    const preferences = authoritativePreferencesForSession(sessionId);
+    const selected = getSelectedModelParts(preferences.modelId);
     await svcExecuteCommand(client, sessionId, command, args, {
-      agent: chatPreferences.mode,
+      agent: preferences.mode,
       model: selected ? `${selected.providerID}/${selected.modelID}` : undefined,
     });
     await Promise.all([refreshMessages(sessionId, true), refreshSessions(true)]).catch(() => undefined);
-  }, [chatPreferences.mode, chatPreferences.modelId, client, refreshMessages, refreshSessions]);
+  }, [authoritativePreferencesForSession, client, refreshMessages, refreshSessions]);
 
   const summarizeSessionTitle = useCallback(
     async (sessionId: string, knownSessions?: Session[]) => {
@@ -1260,7 +1405,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         return existingSession;
       }
 
-      const selectedModel = getSelectedModelParts(chatPreferences.modelId);
+      const preferences = authoritativePreferencesForSession(sessionId);
+      const selectedModel = getSelectedModelParts(preferences.modelId);
       if (!selectedModel) {
         return existingSession;
       }
@@ -1270,7 +1416,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       const nextSessions = await fetchSessions(true);
       return nextSessions.find((session) => session.id === sessionId);
     },
-    [chatPreferences.modelId, client, fetchSessions, sessions],
+    [authoritativePreferencesForSession, client, fetchSessions, sessions],
   );
 
   const ensureActiveSession = useCallback(async () => {
@@ -1751,6 +1897,26 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   const setAutoApprove = useCallback(
     async (enabled: boolean) => {
+      if (pairedHostClient && currentSessionId && activeProjectPath) {
+        const nextPreferences = {
+          ...chatPreferences,
+          permissionMode: permissionModeForAutoApprove(enabled),
+          autoApprove: enabled,
+        };
+        const authoritative = await persistSessionPreferences(
+          currentSessionId,
+          nextPreferences,
+        );
+        setChatPreferences((current) =>
+          authoritative
+            ? hydratePreferencesFromSession(authoritative, {
+                ...current,
+                permissionMode: nextPreferences.permissionMode,
+                autoApprove: enabled,
+              })
+            : nextPreferences);
+        return;
+      }
       const latestConfig = currentConfig || (await client.config.get()).data;
       const nextConfig = mergePermissionConfig(latestConfig, enabled);
       const updatedConfig = (await client.config.update({ config: nextConfig })).data;
@@ -1761,10 +1927,19 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       setCurrentConfig(updatedConfig);
       setChatPreferences((current) => ({
         ...current,
+        permissionMode: permissionModeForAutoApprove(enabled),
         autoApprove: enabled,
       }));
     },
-    [client, currentConfig],
+    [
+      activeProjectPath,
+      chatPreferences,
+      client,
+      currentConfig,
+      currentSessionId,
+      pairedHostClient,
+      persistSessionPreferences,
+    ],
   );
 
   const sendPrompt = useCallback(
@@ -1789,6 +1964,22 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       let promptAccepted = false;
 
       try {
+        const selectedPreferences =
+          currentSessionId === sessionId
+            ? chatPreferences
+            : authoritativePreferencesForSession(sessionId);
+        const persistedState = await persistSessionPreferences(
+          sessionId,
+          selectedPreferences,
+        );
+        const executionPreferences = persistedState
+          ? hydratePreferencesFromSession(
+              persistedState,
+              selectedPreferences,
+            )
+          : pairedHostClient
+            ? authoritativePreferencesForSession(sessionId)
+            : selectedPreferences;
         busyNotificationSessionIdsRef.current.delete(sessionId);
         notificationRequestedAtRef.current.set(sessionId, Date.now());
         pendingNotificationSessionIdsRef.current.add(sessionId);
@@ -1815,7 +2006,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         }
 
         setSendingState({ active: true, sessionId });
-        const selectedModel = availableModels.find((model) => model.id === chatPreferences.modelId);
+        const selectedModel = availableModels.find(
+          (model) => model.id === executionPreferences.modelId,
+        );
         if (attachments?.length && !selectedModel) {
           throw new Error('Select a model that supports attachments first.');
         }
@@ -1877,9 +2070,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
         await client.session.promptAsync({
           sessionID: sessionId,
-          agent: chatPreferences.mode,
-          model: getSelectedModelParts(chatPreferences.modelId),
-          system: buildSystemPrompt(chatPreferences),
+          agent: executionPreferences.mode || undefined,
+          model: getSelectedModelParts(executionPreferences.modelId),
+          system: buildSystemPrompt(executionPreferences),
           parts,
         });
         promptAccepted = true;
@@ -1928,7 +2121,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         setSendingState({ active: false, sessionId: undefined });
       }
     },
-    [activeProjectPath, availableModels, chatPreferences, clearTrackedPendingNotification, client, fetchSessions, isCurrentClient, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions, rhythmAccount.user, scheduleSessionRefresh, sessions, summarizeSessionTitle],
+    [activeProjectPath, authoritativePreferencesForSession, availableModels, chatPreferences, clearTrackedPendingNotification, client, currentSessionId, fetchSessions, isCurrentClient, pairedHostClient, persistSessionPreferences, refreshMessages, refreshSessionDiff, refreshSessionTodos, refreshSessions, rhythmAccount.user, scheduleSessionRefresh, sessions, summarizeSessionTitle],
   );
 
   const abortSession = useCallback(

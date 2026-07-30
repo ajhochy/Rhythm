@@ -1,5 +1,18 @@
 import type { Agent, Config, Model } from '@/lib/opencode/types';
 
+declare const rhythmProfileIdBrand: unique symbol;
+declare const openCodeAgentIdBrand: unique symbol;
+
+/** Rhythm-owned profile identifier. Never send as OpenCode's `agent`. */
+export type RhythmProfileId = string & {
+  readonly [rhythmProfileIdBrand]: 'RhythmProfileId';
+};
+
+/** OpenCode engine agent name. Never use as a Rhythm profile lookup key. */
+export type OpenCodeAgentId = string & {
+  readonly [openCodeAgentIdBrand]: 'OpenCodeAgentId';
+};
+
 export type ModelOption = {
   id: string;
   label: string;
@@ -18,21 +31,57 @@ export type ModelOption = {
 };
 
 export type AgentOption = {
-  id: string;
+  /** @deprecated UI compatibility alias for profileId. */
+  id: RhythmProfileId;
+  profileId: RhythmProfileId;
+  opencodeAgentId: OpenCodeAgentId;
   label: string;
   description?: string;
+  defaults?: {
+    providerId: string | null;
+    modelId: string | null;
+    reasoningEffort: string | null;
+    approvalMode: PermissionMode;
+  };
+  display?: {
+    icon: string;
+    color: string | null;
+  };
 };
 
 export type ReasoningLevel = 'low' | 'default' | 'high';
 export type ResponseScope = 'brief' | 'balanced' | 'detailed';
+export type PermissionMode =
+  | 'default'
+  | 'acceptEdits'
+  | 'plan'
+  | 'bypassPermissions';
+
+export type SessionProfileAvailability =
+  | 'available'
+  | 'unassigned'
+  | 'unavailable';
+
+export type SessionExecutionState = {
+  localSessionId?: string;
+  profileId: RhythmProfileId | null;
+  opencodeAgentId: OpenCodeAgentId | null;
+  profileAvailability: SessionProfileAvailability;
+  providerId: string | null;
+  modelId: string | null;
+  thinkingBudget: number | null;
+  permissionMode: PermissionMode;
+};
 
 export type ChatPreferences = {
-  mode: string;
+  profileId?: RhythmProfileId;
+  mode: OpenCodeAgentId;
   providerId?: string;
   modelId?: string;
   enabledModelIds: string[];
   providerModelSelections: Record<string, string>;
   reasoning: ReasoningLevel;
+  permissionMode: PermissionMode;
   autoApprove: boolean;
   autoPlayAssistantReplies: boolean;
   preferOnDeviceRecognition: boolean;
@@ -48,10 +97,11 @@ export type ChatPreferences = {
 };
 
 export const defaultChatPreferences: ChatPreferences = {
-  mode: 'build',
+  mode: 'build' as OpenCodeAgentId,
   enabledModelIds: [],
   providerModelSelections: {},
   reasoning: 'default',
+  permissionMode: 'default',
   autoApprove: false,
   autoPlayAssistantReplies: false,
   preferOnDeviceRecognition: true,
@@ -79,27 +129,116 @@ export function getProjectLabel(path: string) {
 }
 
 export function toAgentOption(agent: Agent): AgentOption {
+  const profileId = agent.name as RhythmProfileId;
   return {
-    id: agent.name,
+    id: profileId,
+    profileId,
+    opencodeAgentId: agent.name as OpenCodeAgentId,
     label: agent.name.charAt(0).toUpperCase() + agent.name.slice(1),
     description: agent.description,
   };
 }
 
-export function getInitialMode(agents: AgentOption[], config?: Config, storedMode?: string) {
-  if (storedMode && agents.some((agent) => agent.id === storedMode)) {
-    return storedMode;
+export function getInitialMode(
+  agents: AgentOption[],
+  config?: Config,
+  storedMode?: string,
+): OpenCodeAgentId {
+  if (
+    storedMode &&
+    agents.some((agent) => agent.opencodeAgentId === storedMode)
+  ) {
+    return storedMode as OpenCodeAgentId;
   }
 
   const configuredAgent = config?.agent
     ? Object.entries(config.agent).find(([, value]) => value && value.disable !== true)?.[0]
     : undefined;
-  if (configuredAgent && agents.some((agent) => agent.id === configuredAgent)) {
-    return configuredAgent;
+  if (
+    configuredAgent &&
+    agents.some((agent) => agent.opencodeAgentId === configuredAgent)
+  ) {
+    return configuredAgent as OpenCodeAgentId;
   }
 
-  const preferred = agents.find((agent) => agent.id === 'build') || agents.find((agent) => agent.id === 'general');
-  return preferred?.id || agents[0]?.id || defaultChatPreferences.mode;
+  const preferred =
+    agents.find((agent) => agent.opencodeAgentId === 'build') ||
+    agents.find((agent) => agent.opencodeAgentId === 'general');
+  return preferred?.opencodeAgentId ||
+    agents[0]?.opencodeAgentId ||
+    defaultChatPreferences.mode;
+}
+
+function reasoningForThinkingBudget(
+  thinkingBudget: number | null,
+): ReasoningLevel {
+  if (thinkingBudget === null || thinkingBudget === 0) return 'default';
+  return thinkingBudget <= 2048 ? 'low' : 'high';
+}
+
+export function thinkingBudgetForReasoning(
+  reasoning: ReasoningLevel,
+): number | null {
+  if (reasoning === 'low') return 1024;
+  if (reasoning === 'high') return 8192;
+  return null;
+}
+
+export function permissionModeForAutoApprove(
+  autoApprove: boolean,
+): PermissionMode {
+  return autoApprove ? 'bypassPermissions' : 'default';
+}
+
+export function hydratePreferencesFromSession(
+  session: SessionExecutionState,
+  current: ChatPreferences,
+): ChatPreferences {
+  const modelId = session.modelId
+    ? session.modelId.includes('/') || !session.providerId
+      ? session.modelId
+      : `${session.providerId}/${session.modelId}`
+    : undefined;
+  return {
+    ...current,
+    profileId: session.profileId ?? undefined,
+    mode: session.opencodeAgentId ?? ('' as OpenCodeAgentId),
+    providerId: session.providerId ?? undefined,
+    modelId,
+    reasoning: reasoningForThinkingBudget(session.thinkingBudget),
+    permissionMode: session.permissionMode,
+    autoApprove: session.permissionMode === 'bypassPermissions',
+  };
+}
+
+export function resolveSessionProfileDisplay(
+  session: Pick<
+    SessionExecutionState,
+    'profileId' | 'opencodeAgentId' | 'profileAvailability'
+  >,
+  profiles: Pick<AgentOption, 'profileId' | 'opencodeAgentId' | 'label'>[],
+): {
+  profileId: RhythmProfileId | null;
+  name: string;
+  availability: SessionProfileAvailability;
+} {
+  if (session.profileAvailability === 'available' && session.profileId) {
+    const profile = profiles.find(
+      (candidate) => candidate.profileId === session.profileId,
+    );
+    if (profile) {
+      return {
+        profileId: profile.profileId,
+        name: profile.label,
+        availability: 'available',
+      };
+    }
+  }
+  return {
+    profileId: null,
+    name: 'Unassigned',
+    availability: session.profileAvailability,
+  };
 }
 
 export function getInitialModelId(models: ModelOption[], config?: Config, storedModelId?: string) {

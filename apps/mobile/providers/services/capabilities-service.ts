@@ -25,7 +25,11 @@ function requireData<T>(data: T | undefined, operation: string): T {
   return data;
 }
 
-export async function discoverChatCapabilities(client: OpencodeClient, activeProjectPath?: string) {
+export async function discoverChatCapabilities(
+  client: OpencodeClient,
+  activeProjectPath?: string,
+  options: { includeEngineAgents?: boolean } = {},
+) {
   if (!activeProjectPath) {
     return {
       config: undefined,
@@ -38,17 +42,21 @@ export async function discoverChatCapabilities(client: OpencodeClient, activePro
     };
   }
 
-  const [configResponse, providersResponse, providerAuthResponse, agentsResponse] = await Promise.all([
+  const [configResponse, providersResponse, providerAuthResponse] = await Promise.all([
     client.config.get(),
     client.provider.list(),
     client.provider.auth(),
-    client.app.agents(),
   ]);
 
   const nextConfig = requireData(configResponse.data, 'config request');
   const providerData = requireData(providersResponse.data, 'provider request');
   const authData = requireData(providerAuthResponse.data, 'provider auth request');
-  const agentData = requireData(agentsResponse.data, 'agent request');
+  const agentData = options.includeEngineAgents === false
+    ? []
+    : requireData(
+        (await client.app.agents()).data,
+        'agent request',
+      );
   const nextModels = uniqueById(providerData.all
     .flatMap((provider) =>
       Object.values(provider.models).map((model: DiscoveredModel): ModelOption => ({
