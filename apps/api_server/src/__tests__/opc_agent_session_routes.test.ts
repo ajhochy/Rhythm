@@ -29,6 +29,7 @@ import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { OpencodeClientService } from '../services/opencode_client_service';
+import { streamBridge } from '../services/opencode_stream_bridge';
 
 // AGENT_LOCAL must be true BEFORE env.ts evaluates so the router skips
 // requireAuth. vi.hoisted runs before any import in this file.
@@ -57,6 +58,10 @@ vi.mock('../services/opencode_stream_bridge', () => ({
     clearErrorStatus: vi.fn(),
     clearPendingPermission: vi.fn(),
     getPendingPermission: vi.fn(),
+    // MSP-003 canonical pending-interaction surface
+    getInteraction: vi.fn(),
+    recoverPendingPermissions: vi.fn().mockResolvedValue(undefined),
+    resolvePendingInteraction: vi.fn(),
   },
 }));
 
@@ -253,68 +258,86 @@ describe('POST /agent-sessions -> agentId validation (#653) + client.session.cre
 // PATH 5 — Permission response -> modern POST /permission/:id/reply (OCU-01 #1042)
 // ===========================================================================
 describe('POST /:id/permission/:permissionId/:decision -> replyToPermission (OCU-01 #1042)', () => {
-  it('maps accept→once and returns 204, broadcasting an accept resolution', async () => {
+  // MSP-003: the route resolves through the bridge's idempotent
+  // pending-interaction machinery (engine reply + authoritative broadcast
+  // happen inside resolvePendingInteraction — covered by the MSP-003
+  // contracts). The OCU-01 decision mapping is pinned via the `action`
+  // argument; the route returns 200 + the resolved interaction (502 when the
+  // resolution failed), never an optimistic 204.
+  const armPendingPermission = (sessionId: string, permissionId: string) => {
+    vi.mocked(streamBridge.getInteraction).mockReturnValue({
+      id: permissionId,
+      kind: 'permission',
+      sessionId,
+      status: 'pending',
+    } as never);
+    return vi
+      .mocked(streamBridge.resolvePendingInteraction)
+      .mockResolvedValue({
+        id: permissionId,
+        kind: 'permission',
+        status: 'resolved',
+      } as never);
+  };
+
+  it('maps accept→once and returns the resolved interaction', async () => {
     const s = insertSession('PermSession', '/tmp/proj');
     sessionMap.set(s.id, 'sdk-perm-1');
-    const reply = vi.spyOn(service.ref, 'replyToPermission').mockResolvedValue(true);
+    const resolve = armPendingPermission(s.id, 'perm-42');
 
     const { status } = await req('POST', `/agent-sessions/${s.id}/permission/perm-42/accept`);
-    expect(status).toBe(204);
-    // requestID, reply, message, directory, sdkSessionId
-    expect(reply).toHaveBeenCalledWith('perm-42', 'once', undefined, '/tmp/proj', 'sdk-perm-1');
-    expect(
-      broadcasts.some(
-        (b) =>
-          b.type === 'permission.resolved' &&
-          b.permissionId === 'perm-42' &&
-          b.decision === 'accept',
-      ),
-    ).toBe(true);
+    expect(status).toBe(200);
+    expect(resolve).toHaveBeenCalledWith('perm-42', {
+      action: 'once',
+      source: 'desktop',
+      message: undefined,
+    });
   });
 
   it('maps allow→once (Flutter OCU-02 vocabulary)', async () => {
     const s = insertSession('PermAllow', '/tmp/proj');
     sessionMap.set(s.id, 'sdk-perm-allow');
-    const reply = vi.spyOn(service.ref, 'replyToPermission').mockResolvedValue(true);
+    const resolve = armPendingPermission(s.id, 'perm-a');
 
     const { status } = await req('POST', `/agent-sessions/${s.id}/permission/perm-a/allow`);
-    expect(status).toBe(204);
-    expect(reply).toHaveBeenCalledWith('perm-a', 'once', undefined, '/tmp/proj', 'sdk-perm-allow');
+    expect(status).toBe(200);
+    expect(resolve).toHaveBeenCalledWith('perm-a', {
+      action: 'once',
+      source: 'desktop',
+      message: undefined,
+    });
   });
 
   it('maps always→always for project-level persistence', async () => {
     const s = insertSession('PermAlways', '/tmp/proj');
     sessionMap.set(s.id, 'sdk-perm-always');
-    const reply = vi.spyOn(service.ref, 'replyToPermission').mockResolvedValue(true);
+    const resolve = armPendingPermission(s.id, 'perm-b');
 
     const { status } = await req('POST', `/agent-sessions/${s.id}/permission/perm-b/always`);
-    expect(status).toBe(204);
-    expect(reply).toHaveBeenCalledWith('perm-b', 'always', undefined, '/tmp/proj', 'sdk-perm-always');
+    expect(status).toBe(200);
+    expect(resolve).toHaveBeenCalledWith('perm-b', {
+      action: 'always',
+      source: 'desktop',
+      message: undefined,
+    });
   });
 
   it('maps deny→reject and passes the feedback message through to the agent', async () => {
     const s = insertSession('PermDeny', '/tmp/proj');
     sessionMap.set(s.id, 'sdk-perm-deny');
-    const reply = vi.spyOn(service.ref, 'replyToPermission').mockResolvedValue(true);
+    const resolve = armPendingPermission(s.id, 'perm-c');
 
     const { status } = await req(
       'POST',
       `/agent-sessions/${s.id}/permission/perm-c/deny`,
       { message: 'not allowed here' },
     );
-    expect(status).toBe(204);
-    expect(reply).toHaveBeenCalledWith(
-      'perm-c',
-      'reject',
-      'not allowed here',
-      '/tmp/proj',
-      'sdk-perm-deny',
-    );
-    expect(
-      broadcasts.some(
-        (b) => b.type === 'permission.resolved' && b.decision === 'deny',
-      ),
-    ).toBe(true);
+    expect(status).toBe(200);
+    expect(resolve).toHaveBeenCalledWith('perm-c', {
+      action: 'reject',
+      source: 'desktop',
+      message: 'not allowed here',
+    });
   });
 
   it('rejects an invalid decision with 400 and never calls the engine', async () => {
