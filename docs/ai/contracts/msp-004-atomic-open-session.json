@@ -1,0 +1,97 @@
+{
+  "issue": 4,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-4-c1",
+      "text": "One atomic openProjectSession(projectId, sessionId) flow: switch/confirm project -> load/verify target session -> load transcript/state (via MSP-001 hydration seams) -> commit selection. No intermediate/partial state may be observable by the UI until commit.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
+      "test_id": "issue-4-c1: cross-project deep link commits one complete snapshot",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-4-c2",
+      "text": "Generation/cancellation guards: a later open invalidates all in-flight work from earlier opens. Rapid navigation must never interleave stale results into the UI.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
+      "test_id": "issue-4-c2: rapid navigation cannot commit the stale first target",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-4-c3",
+      "text": "A bounded loading timeout — pick and document a concrete value.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
+      "test_id": "issue-4-c3: the documented loading deadline terminates in timeout",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-4-c4",
+      "text": "Distinct terminal states, each rendered differently, each with Retry + Back: missing session, unauthorized/stale project, offline, timeout, transient error.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
+      "test_id": "issue-4-c4: every terminal state has distinct copy plus Retry and Back",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-4-c5",
+      "text": "Retry must not duplicate subscriptions or create new sessions.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
+      "test_id": "issue-4-c5: retry is idempotent and never creates a session or duplicates a subscription",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-4-c6",
+      "text": "Back must cancel stale in-flight work and return to the session list.",
+      "mode": "ui",
+      "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
+      "test_id": "issue-4-c6: Back cancels pending work before returning to the chat list",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-4-c7",
+      "text": "Cold start opens the requested session without exposing a fallback session or creating a new one.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
+      "test_id": "issue-4-c7: cold start commits only the requested existing session",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-4-c8",
+      "text": "Background resume does not reopen, resubscribe, or replace an already committed target.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
+      "test_id": "issue-4-c8: background resume is idempotent for the committed target",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-4-c9",
+      "text": "Offline opening terminates in the offline state without committing partial selection.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
+      "test_id": "issue-4-c9: offline gateway failure is terminal and preserves selection",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-4-c10",
+      "text": "Missing sessions, unauthorized/stale projects, and transient failures remain distinguishable and never commit.",
+      "mode": "integration",
+      "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
+      "test_id": "issue-4-c10: missing unauthorized and transient failures stay distinct",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-4-c11",
+      "text": "Document any manual native checks needed for the parity gate that cannot be covered by these tests.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Requires a physical iPhone/native Expo lifecycle to confirm OS background-resume timing, hardware Back/navigation behavior, and accessibility focus; action safety forbids starting a server or using production data in this workstream."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-4-c11"
+  ]
+}
