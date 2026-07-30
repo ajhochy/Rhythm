@@ -2,10 +2,10 @@
 
 ## Current focus
 
-2026-07-30: second repair of MSP-002's Mobile CI foundation regression. The
-direct web E2E agent catalog now includes Secretary, matching the paired mobile
-profile catalog and allowing the shared Secretary-first creation sheet to
-enable Create.
+2026-07-30: second repair of MSP-002's Mobile CI foundation regression. New
+session creation now resolves the active project's profile capabilities on
+demand before applying the Secretary requirement, removing the startup cycle
+that left Create disabled while preserving the no-Secretary safety gate.
 
 ## Active branch / PR
 
@@ -19,7 +19,11 @@ enable Create.
 ## In progress
 
 - The MSP-002 c1 contract now pins Secretary in both fake-server capability
-  sources: paired `/mobile-gateway/profile-catalog` and direct `/agent`.
+  sources and requires automatic/direct-sheet creation to resolve profiles
+  when initial capability hydration is still pending.
+- `loadSessionProfiles(projectId)` is shared by `createSession` and the Chats
+  creation sheet. Active-project loads also hydrate models/providers, so the
+  chat surface can render with the resolved defaults.
 - The second repair is locally verified and awaiting the orchestrator's full
   Playwright rerun before PR smoke can be considered complete.
 
@@ -27,7 +31,8 @@ enable Create.
 
 - Full Playwright cannot run in this sandbox. Every fresh failure artifact
   showed the same disabled Create action and Secretary-unavailable message;
-  the orchestrator must confirm the direct catalog repair clears the failures.
+  Mobile CI must confirm the direct catalog plus on-demand hydration repair
+  clears the failures.
 - The fake-server self-test cannot bind loopback in this sandbox (`listen
   EPERM` on `127.0.0.1:4196`), so it exits before assertions.
 - GitNexus MCP/CLI remains unavailable (`.gitnexus/run.cjs` absent); change
@@ -47,7 +52,7 @@ enable Create.
 
 ## Next step
 
-Push the focused second-repair commits, then rerun the full Mobile CI
-Playwright foundation suite. Confirm the New chat sheet shows Secretary
-selected, Create enabled, and all previously blocked chat-driving specs
-proceed to their own assertions.
+Push the focused hydration follow-up and wait for its Mobile CI Playwright
+foundation run. Confirm the New chat sheet shows Secretary selected, Create
+enabled, and all previously blocked chat-driving specs proceed to their own
+assertions.

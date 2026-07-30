@@ -19,7 +19,16 @@ index: "[[Rhythm]]"
   OpenCode transport.
 - `apps/mobile/tests/contract/msp-002-profile-first-sessions.test.mjs` — extend
   issue-2-c1 to require Secretary in the direct harness catalog as well as the
-  paired profile catalog.
+  paired profile catalog, and pin on-demand profile resolution for automatic
+  creation plus the direct Chats sheet.
+- `apps/mobile/providers/opencode-provider.tsx` — return hydrated profiles from
+  capability refresh, add `loadSessionProfiles(projectId)`, and use it before
+  Secretary-default creation when capability state is initially empty.
+- `apps/mobile/providers/opencode-provider-types.ts` — expose the shared
+  project-profile loader through the provider context.
+- `apps/mobile/components/chat/chat-list.tsx` — await the shared profile loader
+  instead of substituting an empty direct-mode catalog while hydration is
+  pending.
 - `docs/ai/project-state.md` — replace the stale first-repair snapshot with
   the second-pass status and remaining external rerun.
 
@@ -28,6 +37,9 @@ index: "[[Rhythm]]"
 - Before implementation:
   `cd apps/mobile && node --test tests/contract/msp-002-profile-first-sessions.test.mjs`
   — 6/7 passed; issue-2-c1 failed because `/agent` omitted Secretary.
+- Before the timing follow-up, the strengthened same command again passed 6/7;
+  issue-2-c1 failed because `createSession` and the direct sheet did not load
+  profiles when `availableAgents` was still empty.
 - `cd apps/mobile && ./node_modules/.bin/tsc --noEmit` — passed.
 - `cd apps/mobile && npm run lint` — passed.
 - `cd apps/mobile && node --test tests/contract/msp-002-profile-first-sessions.test.mjs tests/contract/msp-001-session-profile-contract.test.mjs`
@@ -47,6 +59,10 @@ index: "[[Rhythm]]"
   `Create` button.
 - All inspected fresh error contexts shared the same message and stalled
   Create locator, confirming one upstream capability-catalog blocker.
+- Failure triage found a startup dependency cycle: capability refresh occurred
+  only after a usable session existed, while MSP-002 required Secretary from
+  those capabilities before creating the first session. The direct sheet also
+  converted pending hydration to an empty catalog.
 - Product code was not relaxed. `getNewSessionPreferences` still requires
   Secretary; the optional picker and three-dot session configuration remain
   intact; issue #1270's no-Secretary behavior is unchanged.
