@@ -52,3 +52,21 @@ inheritance change has passed the full repository and live API/engine gates.
 Commit the scoped branch and open a draft PR. After human desktop-to-mobile
 smoke, merge and ship an updated desktop build so new sessions inherit the
 paired owner automatically.
+
+## Recent coding-agent runs
+
+### 2026-07-30 — MSP-001 Mobile CI regression repair
+- Files modified: mobile session hydration/provider lifecycle; paired-host
+  revocation state machine; fake OpenCode gateway catalog/session-state
+  fixtures and focused contracts.
+- Checks run: mobile TypeScript and lint passed; MSP/fake-gateway contracts
+  passed 9/9; adjacent 1172/1237/1238 contracts passed 11/11; model-picker
+  contract passed 4/4; paired-host suite passed 23 scenarios; provider,
+  security-1174, and pairing-compatibility suites passed.
+- Decisions made: preserve authoritative `session.rhythm` nulls, retain
+  capability-derived defaults only for metadata-free direct sessions, and
+  mirror the production safe-catalog allowlist in the fake gateway.
+- Deviations from spec: Playwright and the socket-backed fake-server self-test
+  were not run because this sandbox rejects local listeners with `EPERM`.
+- Concerns: the orchestrator must rerun `verify:foundation` to confirm all
+  eight browser flows against the HTTP harness.
