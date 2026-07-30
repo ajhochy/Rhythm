@@ -115,7 +115,10 @@ function createToolTransport(): ToolTransport {
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => undefined) as
-          | { error?: string | { message?: string }; message?: string }
+          | {
+              error?: string | { code?: string; message?: string };
+              message?: string;
+            }
           | undefined;
         const message =
           typeof payload?.error === 'string'
@@ -123,7 +126,10 @@ function createToolTransport(): ToolTransport {
             : payload?.error?.message ?? payload?.message;
         const error = new Error(
           message ?? `Request failed (${response.status})`,
-        ) as Error & { status: number };
+        ) as Error & { code?: string; status: number };
+        if (typeof payload?.error === 'object') {
+          error.code = payload.error.code;
+        }
         error.status = response.status;
         throw error;
       }
@@ -146,7 +152,7 @@ export const mobileRuntimeVariant: MobileRuntimeVariant = {
     return new RhythmToolsService({
       cloud: transport,
       paired: transport,
-      projectId: 'project-main',
+      projectId: 'project-demo',
     });
   },
   simulatedPairingPayload: (hasExistingHost) =>

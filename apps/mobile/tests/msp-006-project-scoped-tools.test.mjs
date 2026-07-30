@@ -160,15 +160,34 @@ test('issue-6-c1: every paired Tools operation carries the active project header
     ]),
   );
   assert.equal(cloud.calls.length, 0);
-  const [chatClientSource, toolsServiceSource] = await Promise.all([
+  const [
+    chatClientSource,
+    toolsServiceSource,
+    toolsProviderSource,
+    e2eRuntimeSource,
+  ] = await Promise.all([
     readFile(new URL('../lib/opencode/client.ts', import.meta.url), 'utf8'),
     readFile(
       new URL('../providers/services/rhythm-tools-service.ts', import.meta.url),
       'utf8',
     ),
+    readFile(
+      new URL('../providers/rhythm-tools-provider.tsx', import.meta.url),
+      'utf8',
+    ),
+    readFile(
+      new URL('../lib/runtime/mobile-runtime.e2e.ts', import.meta.url),
+      'utf8',
+    ),
   ]);
   assert.match(chatClientSource, /withProjectScope\(/);
   assert.match(toolsServiceSource, /withProjectScope\(/);
+  assert.match(e2eRuntimeSource, /projectId:\s*'project-demo'/);
+  assert.match(e2eRuntimeSource, /error\.code = payload\.error\.code/);
+  assert.match(
+    toolsProviderSource,
+    /if \(e2eService\)\s*\{?\s*return activeProjectPath\s+\?\s+e2eService\s+:\s+e2eService\.forProject\(activeProjectPath\)/,
+  );
 });
 
 test('issue-6-c2: the Tools inventory covers every screen and required column', async () => {
@@ -229,7 +248,7 @@ test('issue-6-c3: the service adapter normalizes every Tools response shape', ()
   }
 });
 
-test('issue-6-c4: state classification preserves every required failure mode', () => {
+test('issue-6-c4: state classification preserves every required failure mode', async () => {
   // Regression caught: missing/stale project or pairing failures are classified as
   // ordinary empty results, hiding the action the user must take.
   assert.equal(typeof tools.classifyToolFailure, 'function');
@@ -237,9 +256,24 @@ test('issue-6-c4: state classification preserves every required failure mode', (
   assert.equal(tools.classifyToolFailure(undefined, 'missing-scope'), 'missing-scope');
   assert.equal(tools.classifyToolFailure({ status: 404 }, 'connected'), 'stale-project');
   assert.equal(tools.classifyToolFailure({ status: 401 }, 'connected'), 'unauthorized-pairing');
+  assert.equal(
+    tools.classifyToolFailure(
+      { status: 401, code: 'EXPIRED_AUTH' },
+      'connected',
+    ),
+    'expired-auth',
+  );
   assert.equal(tools.classifyToolFailure(undefined, 'version-mismatch'), 'version-mismatch');
   assert.equal(tools.classifyToolFailure({ status: 0, retryable: true }, 'connected'), 'network-failure');
   assert.deepEqual(tools.normalizeToolScreenResponse('brain', []), []);
+  const toolsProviderSource = await readFile(
+    new URL('../providers/rhythm-tools-provider.tsx', import.meta.url),
+    'utf8',
+  );
+  assert.match(
+    toolsProviderSource,
+    /const pairedAvailability:[\s\S]*?!activeProjectPath[\s\S]*?'missing-scope'[\s\S]*?e2eMode[\s\S]*?'connected'[\s\S]*?pairedHost\.state === 'incompatible'/,
+  );
 });
 
 test('issue-6-c5: project switches cancel old requests and isolate cache scope', async () => {

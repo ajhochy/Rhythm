@@ -387,6 +387,12 @@ function failureStatus(reason: unknown): number {
     : 0;
 }
 
+function failureCode(reason: unknown): string {
+  return reason && typeof reason === 'object'
+    ? String((reason as { code?: unknown }).code ?? '').toUpperCase()
+    : '';
+}
+
 export function classifyToolFailure(
   reason: unknown,
   availability: ToolServiceAvailability,
@@ -403,8 +409,10 @@ export function classifyToolFailure(
   if (!reason) return null;
 
   const status = failureStatus(reason);
+  const code = failureCode(reason);
   if (status === 404) return 'stale-project';
   if (status === 401) {
+    if (code === 'EXPIRED_AUTH') return 'expired-auth';
     return origin === 'cloud' ? 'expired-auth' : 'unauthorized-pairing';
   }
   if (status === 403) return 'forbidden';

@@ -377,7 +377,11 @@ export function AppRhythmToolsProvider({ children }: PropsWithChildren) {
   const e2eMode = mobileRuntimeVariant.enabled;
   const service = useMemo(() => {
     const e2eService = mobileRuntimeVariant.createRhythmToolsService();
-    if (e2eService) return e2eService.forProject(activeProjectPath);
+    if (e2eService) {
+      return activeProjectPath
+        ? e2eService
+        : e2eService.forProject(activeProjectPath);
+    }
     const unavailable: ToolTransport = {
       async request(): Promise<never> {
         throw new Error('This service is unavailable.');
@@ -413,20 +417,21 @@ export function AppRhythmToolsProvider({ children }: PropsWithChildren) {
       : account.state === 'offline'
         ? 'offline'
         : 'expired-auth';
-  const pairedAvailability: ToolsAvailability =
-    pairedHost.state === 'incompatible'
-      ? 'version-mismatch'
-      : pairedHost.state === 'accountMismatch' ||
-          pairedHost.state === 'revoked' ||
-          pairedHost.state === 'unpaired'
-        ? 'unauthorized-pairing'
-        : pairedHost.state === 'offline' ||
-            pairedHost.state === 'tailscaleUnavailable' ||
-            pairedHost.state === 'unhealthy'
-          ? 'network-failure'
-          : !activeProjectPath
-            ? 'missing-scope'
-            : e2eMode || pairedHost.state === 'connected'
+  const pairedAvailability: ToolsAvailability = !activeProjectPath
+    ? 'missing-scope'
+    : e2eMode
+      ? 'connected'
+      : pairedHost.state === 'incompatible'
+        ? 'version-mismatch'
+        : pairedHost.state === 'accountMismatch' ||
+            pairedHost.state === 'revoked' ||
+            pairedHost.state === 'unpaired'
+          ? 'unauthorized-pairing'
+          : pairedHost.state === 'offline' ||
+              pairedHost.state === 'tailscaleUnavailable' ||
+              pairedHost.state === 'unhealthy'
+            ? 'network-failure'
+            : pairedHost.state === 'connected'
               ? 'connected'
               : 'unauthorized-pairing';
   return (
