@@ -8,7 +8,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/delegated_session_isolation.test.ts",
       "test_id": "issue-r1-delegated-session-isolation-c1: scheduled children inherit the complete parent scope",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-r1-delegated-session-isolation-c2",
@@ -16,7 +16,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/delegated_session_isolation.test.ts",
       "test_id": "issue-r1-delegated-session-isolation-c2: self-improvement children inherit parent classification",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-r1-delegated-session-isolation-c3",
@@ -24,7 +24,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/delegated_session_isolation.test.ts",
       "test_id": "issue-r1-delegated-session-isolation-c3: plain chat children retain chat scope",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-r1-delegated-session-isolation-c4",
@@ -32,7 +32,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/delegated_session_isolation.test.ts",
       "test_id": "issue-r1-delegated-session-isolation-c4: SQLite backfill is narrow and converges to zero changes",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-r1-delegated-session-isolation-c5",
@@ -40,7 +40,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/delegated_session_isolation.test.ts",
       "test_id": "issue-r1-delegated-session-isolation-c5: Postgres bootstrap installs equivalent pending resolution and scope repair",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-r1-delegated-session-isolation-c6",
@@ -48,7 +48,7 @@
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/delegated_session_isolation.test.ts",
       "test_id": "issue-r1-delegated-session-isolation-c6: an unresolved child is durably resolved when its parent SDK id arrives",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-r1-delegated-session-isolation-c7",

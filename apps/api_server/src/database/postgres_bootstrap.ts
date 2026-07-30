@@ -1122,6 +1122,13 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS delegation_depth INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS status_message TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS task_title TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS sdk_session_id TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS mcp_allowed_tools_json TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS anthropic_account_id TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS worktree_name TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS worktree_path TEXT;
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS worktree_branch TEXT;
     -- projects is intentionally SQLite/local-only; Postgres stores its id as a logical reference.
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS project_id TEXT;
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS mcp_role TEXT;
@@ -1168,6 +1175,40 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   `);
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_agent_sessions_category ON agent_sessions(category);
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_pending_child_sessions (
+      child_sdk_session_id TEXT PRIMARY KEY,
+      parent_sdk_session_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      cwd TEXT NOT NULL,
+      mcp_allowed_tools_json TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_pending_children_parent_sdk
+      ON agent_pending_child_sessions(parent_sdk_session_id);
+  `);
+  // Delegated-session isolation repair. The category predicate makes this
+  // convergent and limits it to leaked Chat children of non-Chat parents.
+  await pool.query(`
+    UPDATE agent_sessions AS child
+       SET task_id = parent.task_id,
+           task_title = parent.task_title,
+           project_id = parent.project_id,
+           scheduled_task_id = parent.scheduled_task_id,
+           is_system = parent.is_system,
+           anthropic_account_id = parent.anthropic_account_id,
+           owner_user_id = parent.owner_user_id,
+           delegation_depth = COALESCE(parent.delegation_depth, 0) + 1,
+           category = parent.category,
+           worktree_name = parent.worktree_name,
+           worktree_path = parent.worktree_path,
+           worktree_branch = parent.worktree_branch
+      FROM agent_sessions AS parent
+     WHERE child.parent_session_id = parent.id
+       AND child.category = 'chat'
+       AND parent.category <> 'chat';
   `);
 
   // #1123 — durable completion/outbox state for interactive async delegation.
