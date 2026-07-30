@@ -260,6 +260,9 @@ test('issue-4-c4: every terminal state has distinct copy plus Retry and Back', a
     assert.equal(presentation.backLabel, 'Back to chats');
     assert.ok(presentation.message.length > 0);
   }
+  const offlinePresentation = api.getOpenProjectSessionPresentation('offline');
+  assert.equal(offlinePresentation.title, 'Opening chat');
+  assert.equal(offlinePresentation.screenState, 'offline-cache');
 
   const routeSource = await readFile(
     new URL('../../app/agents/chats/[sessionId].tsx', import.meta.url),

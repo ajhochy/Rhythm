@@ -76,7 +76,7 @@ const TERMINAL_PRESENTATIONS: Record<
       'Rhythm could not reach your paired Mac. Reconnect it, then try again.',
     retryLabel: 'Retry',
     screenState: 'offline-cache',
-    title: 'Paired Mac offline',
+    title: 'Opening chat',
   },
   timeout: {
     backLabel: 'Back to chats',
