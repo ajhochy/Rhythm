@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useIsFocused } from '@react-navigation/native';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -53,6 +54,7 @@ function flattenChats(
 
 export function ChatList() {
   const router = useRouter();
+  const isFocused = useIsFocused();
   const opencode = useOpencode();
   const pairedHost = usePairedHost();
   const chat = useAgentChat();
@@ -73,6 +75,12 @@ export function ChatList() {
   const [title, setTitle] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setCreateSheetVisible(false);
+    }
+  }, [isFocused]);
   const projectsByPath = useMemo(
     () => new Map(opencode.projects.map((project) => [project.path, project])),
     [opencode.projects],
@@ -515,7 +523,7 @@ export function ChatList() {
         onDismiss={() => setCreateSheetVisible(false)}
         palette={palette}
         preferences={opencode.chatPreferences}
-        visible={createSheetVisible}
+        visible={createSheetVisible && isFocused}
       />
       <Snackbar
         onDismiss={() => setFeedback(null)}

@@ -97,8 +97,10 @@ test('issue-1233 model picker groups connected provider accounts and hides disco
   await resetScenario(request, 'happy-path');
   await openReadyChat(page);
 
-  await page.getByRole('button', { name: /GPT-4\.1 mini/ }).click();
-  await expect(page.getByRole('heading', { name: 'OpenAI' })).toBeVisible();
+  await page.getByRole('button', { name: 'Chat menu' }).click();
+  await page.getByRole('button', { name: /Model, GPT-4\.1 mini/ }).click();
+  await expect(page.getByRole('heading', { name: 'Choose Model' })).toBeVisible();
+  await expect(page.getByText('OpenAI', { exact: true })).toBeVisible();
   // Selected/recent outranks recommended, so the just-clicked model reads Recent.
   await expect(page.getByText('OpenAI · Recent · Reasoning', { exact: true })).toBeVisible();
   await expect(page.getByText('OpenRouter', { exact: true })).not.toBeVisible();

@@ -113,6 +113,11 @@ test('issue-2-c1: every new-chat entry point uses the Secretary-first creation f
     /await opencode\.loadSessionProfiles\(targetProject\)/,
     'the direct Create sheet must resolve profiles when capability hydration is still pending',
   );
+  assert.match(
+    chatList,
+    /visible=\{createSheetVisible && isFocused\}/,
+    'the Create sheet must stop covering the chat surface when navigation leaves Chats',
+  );
   const createSessionBlock =
     opencodeProvider.match(
       /const createSession = useCallback\([\s\S]*?\n  \);\n/,
@@ -121,6 +126,18 @@ test('issue-2-c1: every new-chat entry point uses the Secretary-first creation f
     createSessionBlock,
     /await loadSessionProfiles\(projectId\)/,
     'automatic session creation must resolve Secretary before applying the no-Secretary gate',
+  );
+  const loadSessionProfilesBlock =
+    opencodeProvider.match(
+      /const loadSessionProfiles = useCallback\([\s\S]*?\n  \);\n/,
+    )?.[0] ?? '';
+  assert.ok(
+    loadSessionProfilesBlock.indexOf('if (pairedHostClient)') >= 0 &&
+      loadSessionProfilesBlock.indexOf('return refreshChatCapabilities()') >=
+        0 &&
+      loadSessionProfilesBlock.indexOf('if (pairedHostClient)') <
+        loadSessionProfilesBlock.indexOf('return refreshChatCapabilities()'),
+    'paired creation must use its scoped profile catalog before the active-project capability refresh',
   );
   for (const [name, source] of [
     ['Chat list', chatList],

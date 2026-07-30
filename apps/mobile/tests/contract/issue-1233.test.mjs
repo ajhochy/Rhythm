@@ -101,12 +101,24 @@ test('issue-1233-c3: current/recent models rank ahead of provider recommendation
 
 test('issue-1233-c4: picker options expose provider and account context', async () => {
   // Regression caught: rows show only a model name, so identical names are
-  // ambiguous. The source-level UI contract fails if context is removed.
-  const composerSource = await readFile(
-    new URL('../../components/chat/chat-composer.tsx', import.meta.url),
-    'utf8',
-  );
-  assert.match(composerSource, /modelPickerGroups/);
-  assert.match(composerSource, /accountLabel/);
-  assert.match(composerSource, /providerLabel/);
+  // ambiguous. Session-scoped model selection now lives in the three-dot
+  // configuration sheet, and the source-level UI contract follows it there.
+  const [sheetSource, composerSource] = await Promise.all([
+    readFile(
+      new URL(
+        '../../components/chat/session-configuration-sheet.tsx',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+    readFile(
+      new URL('../../components/chat/chat-composer.tsx', import.meta.url),
+      'utf8',
+    ),
+  ]);
+  assert.match(sheetSource, /selectModelPickerGroups/);
+  assert.match(sheetSource, /accountLabel/);
+  assert.match(sheetSource, /providerLabel/);
+  assert.match(sheetSource, /<List\.Section/);
+  assert.doesNotMatch(composerSource, /modelPickerGroups|onModelChange/);
 });

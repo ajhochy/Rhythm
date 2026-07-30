@@ -24,6 +24,7 @@ import {
   type ModelOption,
   type PermissionMode,
 } from '@/providers/opencode-provider-utils';
+import { selectModelPickerGroups } from '@/providers/opencode-provider-selectors';
 import type { ProviderOption } from '@/providers/opencode-provider-types';
 
 type Palette = typeof Colors.light;
@@ -129,36 +130,27 @@ export function SessionConfigurationSheet({
     );
   }, [availableProfiles, mode, preferences, visible]);
 
-  const modelRows = useMemo(() => {
-    const enabled = new Set(preferences.enabledModelIds);
-    const providers = new Map(
-      availableProviders
-        .filter((provider) => provider.configured && provider.connected)
-        .map((provider) => [provider.id, provider]),
-    );
-    return availableModels
-      .filter((model) => {
-        const provider = providers.get(model.providerID);
-        return provider &&
-          (
-            enabled.size === 0 ||
-            enabled.has(model.id) ||
-            model.id === draft?.modelId
-          );
-      })
-      .map((model) => {
-        const provider = providers.get(model.providerID)!;
-        return {
-          model,
-          accountLabel: provider.accountLabel || provider.label,
-          providerLabel: provider.label,
-        };
-      });
+  const modelGroups = useMemo(() => {
+    const enabledModelIds = draft?.modelId &&
+        preferences.enabledModelIds.length > 0 &&
+        !preferences.enabledModelIds.includes(draft.modelId)
+      ? [...preferences.enabledModelIds, draft.modelId]
+      : preferences.enabledModelIds;
+    return selectModelPickerGroups({
+      availableModels,
+      availableProviders,
+      enabledModelIds,
+      recentModelIds: Object.values(
+        preferences.providerModelSelections,
+      ),
+      selectedModelId: draft?.modelId,
+    });
   }, [
     availableModels,
     availableProviders,
     draft?.modelId,
     preferences.enabledModelIds,
+    preferences.providerModelSelections,
   ]);
 
   const filteredProfiles = useMemo(
@@ -167,13 +159,18 @@ export function SessionConfigurationSheet({
     ),
     [availableProfiles, query],
   );
-  const filteredModels = useMemo(
-    () => modelRows.filter(({ accountLabel, model, providerLabel }) =>
-      modelMatchesSearch(model, query, {
-        accountLabel,
-        providerLabel,
-      })),
-    [modelRows, query],
+  const filteredModelGroups = useMemo(
+    () => modelGroups
+      .map((group) => ({
+        ...group,
+        models: group.models.filter((model) =>
+          modelMatchesSearch(model, query, {
+            accountLabel: group.accountLabel,
+            providerLabel: group.providerLabel,
+          })),
+      }))
+      .filter((group) => group.models.length > 0),
+    [modelGroups, query],
   );
   const selectedProfile = availableProfiles.find(
     (profile) => profile.profileId === draft?.profileId,
@@ -220,6 +217,23 @@ export function SessionConfigurationSheet({
   }
 
   const pickerTitle = page === 'profiles' ? 'Choose Profile' : 'Choose Model';
+  // One source of truth for the title: the announced name must follow the
+  // visible heading when the sheet navigates into a picker page, otherwise
+  // assistive tech keeps announcing "Session configuration" while the screen
+  // reads "Choose Model".
+  const dialogTitle =
+    page === 'summary'
+      ? mode === 'create'
+        ? 'New chat'
+        : 'Session configuration'
+      : pickerTitle;
+
+  // A chat screen mounts this sheet twice by design — `mode="create"` for the
+  // new-chat flow and `mode="edit"` for the three-dot session config. Paper's
+  // Dialog keeps its subtree mounted when `visible` is false, so the closed
+  // sheet would leave a second set of identically-labelled, focusable controls
+  // in the tree: ambiguous for assistive tech and for any locator.
+  if (!visible) return null;
 
   return (
     <Portal>
@@ -228,17 +242,8 @@ export function SessionConfigurationSheet({
         onDismiss={onDismiss}
         style={styles.dialog}
         visible={visible}>
-        <Dialog.Title
-          accessibilityLabel={
-            mode === 'create'
-              ? 'New chat configuration'
-              : 'Session configuration'
-          }>
-          {page === 'summary'
-              ? mode === 'create'
-                ? 'New chat'
-                : 'Session configuration'
-            : pickerTitle}
+        <Dialog.Title accessibilityLabel={dialogTitle}>
+          {dialogTitle}
         </Dialog.Title>
         <Dialog.ScrollArea style={styles.scrollArea}>
           <ScrollView
@@ -282,42 +287,56 @@ export function SessionConfigurationSheet({
                         title={profile.label}
                       />
                     ))
-                  : filteredModels.map(
-                      ({ accountLabel, model, providerLabel }) => (
-                        <List.Item
-                          key={model.id}
-                          description={`${model.id} · ${providerLabel} · ${accountLabel}`}
-                          left={(props) => (
-                            <List.Icon
-                              {...props}
-                              icon={
-                                model.id === draft?.modelId
-                                  ? 'check-circle'
-                                  : 'cube-outline'
-                              }
-                            />
-                          )}
-                          onPress={() => {
-                            if (!draft) return;
-                            void commit({
-                              ...draft,
-                              providerId: model.providerID,
-                              modelId: model.id,
-                              providerModelSelections: {
-                                ...draft.providerModelSelections,
-                                [model.providerID]: model.id,
-                              },
-                            });
-                            setPage('summary');
-                            setQuery('');
-                          }}
-                          title={model.label}
-                        />
-                      ),
-                    )}
+                  : filteredModelGroups.map((group) => (
+                      <List.Section
+                        key={`${group.providerId}:${group.accountLabel}`}
+                        title={
+                          group.accountLabel === group.providerLabel
+                            ? group.providerLabel
+                            : `${group.providerLabel} — ${group.accountLabel}`
+                        }>
+                        {group.models.map((model) => (
+                          <List.Item
+                            key={model.id}
+                            description={[
+                              group.accountLabel,
+                              model.rankLabel,
+                              model.supportsReasoning
+                                ? 'Reasoning'
+                                : undefined,
+                            ].filter(Boolean).join(' · ')}
+                            left={(props) => (
+                              <List.Icon
+                                {...props}
+                                icon={
+                                  model.id === draft?.modelId
+                                    ? 'check-circle'
+                                    : 'cube-outline'
+                                }
+                              />
+                            )}
+                            onPress={() => {
+                              if (!draft) return;
+                              void commit({
+                                ...draft,
+                                providerId: model.providerID,
+                                modelId: model.id,
+                                providerModelSelections: {
+                                  ...draft.providerModelSelections,
+                                  [model.providerID]: model.id,
+                                },
+                              });
+                              setPage('summary');
+                              setQuery('');
+                            }}
+                            title={model.label}
+                          />
+                        ))}
+                      </List.Section>
+                    ))}
                 {(page === 'profiles'
                   ? filteredProfiles.length
-                  : filteredModels.length) === 0 ? (
+                  : filteredModelGroups.length) === 0 ? (
                   <Text style={{ color: palette.muted }}>
                     No matching {page}.
                   </Text>
@@ -365,7 +384,7 @@ export function SessionConfigurationSheet({
                       <Button
                         accessibilityLabel={`Model, ${selectedModelLabel(availableModels, draft.modelId)}`}
                         contentStyle={styles.fieldButton}
-                        disabled={busy || modelRows.length === 0}
+                        disabled={busy || modelGroups.length === 0}
                         icon="cube-outline"
                         mode="outlined"
                         onPress={() => {

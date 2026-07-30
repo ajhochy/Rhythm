@@ -62,7 +62,10 @@ test('issue-1238-c2/c3: long multiline draft reaches its cap and scrolls interna
   expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
   expect(['auto', 'scroll']).toContain(metrics.overflowY);
   await expect(page.getByTestId('chat-primary-button')).toBeVisible();
-  await expect(page.getByRole('button', { name: /GPT-4\.1 mini/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Chat menu' }).click();
+  await expect(page.getByRole('heading', { name: 'Session configuration' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Model, GPT-4\.1 mini/ })).toBeVisible();
+  await expect(input).toHaveValue(draft);
   await page.screenshot({ path: path.join(proofDir, 'multiline-grown.png'), fullPage: true });
 });
 

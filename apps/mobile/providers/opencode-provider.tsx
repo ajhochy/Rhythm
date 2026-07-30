@@ -797,11 +797,14 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       ) {
         return availableAgents;
       }
-      if (projectId === activeProjectPath) {
-        return refreshChatCapabilities();
-      }
+      // A paired project owns its profile catalog. Avoid the broader active
+      // capability refresh here: it uses the shared client and can prevent
+      // the creation sheet from rendering before the scoped catalog arrives.
       if (pairedHostClient) {
         return listMobileGatewayProfiles(pairedHostClient, projectId);
+      }
+      if (projectId === activeProjectPath) {
+        return refreshChatCapabilities();
       }
       const { discoverChatCapabilities } = await import(
         '@/providers/services/capabilities-service'
