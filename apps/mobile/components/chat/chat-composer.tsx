@@ -2,9 +2,14 @@ import { Keyboard, Platform, View } from 'react-native';
 import { Chip, IconButton, Surface, Text, TextInput } from 'react-native-paper';
 import { useEffect, useState } from 'react';
 
+import { SelectControl } from '@/components/chat/chat-controls';
 import { Colors } from '@/constants/theme';
 import { styles } from '@/components/chat/chat-view-styles';
+import { getModelLabel } from '@/components/chat/chat-view-utils';
+import { renderProviderIcon } from '@/components/ui/provider-icon';
 import type { Command } from '@/lib/opencode/types';
+import type { ModelOption } from '@/providers/opencode-provider';
+import type { ModelPickerGroup } from '@/providers/opencode-provider-selectors';
 
 type Palette = typeof Colors.light;
 
@@ -24,13 +29,17 @@ type ChatComposerProps = {
   isSpeechInputAvailable: boolean;
   isSpeechInputListening: boolean;
   isStoppingSession: boolean;
+  modelPickerGroups?: ModelPickerGroup[];
   onAttach: () => void;
   onDraftChange: (value: string) => void;
+  onModelChange?: (model: ModelOption) => void;
   onRemoveAttachment: (index: number) => void;
   onSend: () => void;
   onToggleRecording: () => void;
   palette: Palette;
+  selectedModelId?: string;
   showSendAction: boolean;
+  visibleModels?: ModelOption[];
   currentSessionId?: string;
   commands: Command[];
   onCommandSelect: (command: string) => void;
@@ -48,14 +57,18 @@ export function ChatComposer({
   isSpeechInputAvailable,
   isSpeechInputListening,
   isStoppingSession,
+  modelPickerGroups = [],
   onAttach,
   onCommandSelect,
   onDraftChange,
+  onModelChange,
   onRemoveAttachment,
   onSend,
   onToggleRecording,
   palette,
+  selectedModelId,
   showSendAction,
+  visibleModels = [],
 }: ChatComposerProps) {
   const hasComposerContent = Boolean(draft.trim()) || attachments.length > 0;
   const showOuterAction = showSendAction ? (hasComposerContent ? 'send' : 'attach') : 'stop';
@@ -87,6 +100,56 @@ export function ChatComposer({
     <Surface
       style={[styles.composer, { backgroundColor: palette.surface, borderTopColor: palette.border, paddingBottom: Math.max(insetsBottom, 12) }]}
       elevation={4}>
+      {onModelChange ? (
+        <View style={styles.controlsRow}>
+          <SelectControl
+            disabled={visibleModels.length === 0}
+            grow
+            icon={(props) =>
+              renderProviderIcon(
+                visibleModels.find((model) => model.id === selectedModelId)
+                  ?.providerID,
+                props.size,
+                props.color,
+              )}
+            label={getModelLabel(visibleModels, selectedModelId)}
+            onValueChange={(value) => {
+              const model = visibleModels.find((item) => item.id === value);
+              if (model) {
+                onModelChange(model);
+              }
+            }}
+            options={modelPickerGroups.flatMap((group) =>
+              group.models.map((model) => ({
+                description: [
+                  group.accountLabel,
+                  model.rankLabel,
+                  model.supportsReasoning ? 'Reasoning' : undefined,
+                ]
+                  .filter(Boolean)
+                  .join(' · '),
+                label: model.label,
+                leadingIcon: (props: {
+                  size: number;
+                  color: string;
+                }) =>
+                  renderProviderIcon(
+                    model.providerID,
+                    props.size,
+                    props.color,
+                  ),
+                sectionLabel:
+                  group.accountLabel === group.providerLabel
+                    ? group.providerLabel
+                    : `${group.providerLabel} — ${group.accountLabel}`,
+                value: model.id,
+              })),
+            )}
+            selectedValue={selectedModelId}
+            title="Choose model"
+          />
+        </View>
+      ) : null}
       {conversation.active ? (
         <View style={[styles.conversationBanner, { backgroundColor: `${palette.tint}10`, borderColor: `${palette.tint}28` }]}>
           <View style={styles.conversationBannerHeader}>

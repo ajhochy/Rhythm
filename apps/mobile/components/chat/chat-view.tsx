@@ -22,6 +22,7 @@ import {
 import { speakText, stopSpeaking } from '@/lib/voice/speech-output';
 import { useSpeechInput } from '@/lib/voice/use-speech-input';
 import { useOpencode } from '@/providers/opencode-provider';
+import { selectModelPickerGroups } from '@/providers/opencode-provider-selectors';
 import type { ChatPreferences } from '@/providers/opencode-provider-types';
 
 export function ChatView() {
@@ -108,6 +109,43 @@ export function ChatView() {
   const conversationActive = conversation.active;
   const hasDraftInput = !!draft.trim() || attachments.length > 0;
   const showSendAction = !running || hasDraftInput;
+  const visibleModels = useMemo(() => {
+    const connectedProviderIds = new Set(
+      configuredProviders
+        .filter((provider) => provider.connected)
+        .map((provider) => provider.id),
+    );
+    const enabledModelIds = new Set(chatPreferences.enabledModelIds);
+
+    return availableModels.filter(
+      (model) =>
+        connectedProviderIds.has(model.providerID) &&
+        (enabledModelIds.size === 0 || enabledModelIds.has(model.id)),
+    );
+  }, [
+    availableModels,
+    chatPreferences.enabledModelIds,
+    configuredProviders,
+  ]);
+  const modelPickerGroups = useMemo(
+    () =>
+      selectModelPickerGroups({
+        availableModels,
+        availableProviders: configuredProviders,
+        enabledModelIds: chatPreferences.enabledModelIds,
+        recentModelIds: Object.values(
+          chatPreferences.providerModelSelections,
+        ),
+        selectedModelId: chatPreferences.modelId,
+      }),
+    [
+      availableModels,
+      chatPreferences.enabledModelIds,
+      chatPreferences.modelId,
+      chatPreferences.providerModelSelections,
+      configuredProviders,
+    ],
+  );
   const diffDetails = useMemo(
     () => currentTranscript.flatMap((entry) => entry.details.filter((detail) => detail.kind === 'patch')),
     [currentTranscript],
@@ -763,10 +801,28 @@ export function ChatView() {
           isSpeechInputAvailable={isSpeechInputAvailable}
           isSpeechInputListening={isSpeechInputListening}
           isStoppingSession={isStoppingSession}
+          modelPickerGroups={modelPickerGroups}
           onAttach={() => void handleAttach()}
           onDraftChange={(value) => {
             setSendFeedback(undefined);
             setDraft(value);
+          }}
+          onModelChange={(model) => {
+            if (!currentSessionId) return;
+            void updateSessionPreferences(currentSessionId, {
+              providerId: model.providerID,
+              modelId: model.id,
+              providerModelSelections: {
+                ...chatPreferences.providerModelSelections,
+                [model.providerID]: model.id,
+              },
+            }).catch((error) =>
+              setSendFeedback(
+                error instanceof Error
+                  ? error.message
+                  : 'Could not update this chat.',
+              ),
+            );
           }}
           onCommandSelect={(command) => setDraft(`/${command} `)}
           onRemoveAttachment={(index) => {
@@ -783,7 +839,9 @@ export function ChatView() {
           }}
           onToggleRecording={() => void handleToggleRecording()}
           palette={palette}
+          selectedModelId={chatPreferences.modelId}
           showSendAction={showSendAction}
+          visibleModels={visibleModels}
         />
         </KeyboardAvoidingView>
       </View>

@@ -199,7 +199,8 @@ test('issue-2-c4: three-dot configuration sheet labels all session-scoped contro
     readMobileSource('components/chat/chat-composer.tsx'),
   ]);
   assert.match(header, /SessionConfigurationSheet/);
-  assert.match(header, /accessibilityLabel="Session configuration"/);
+  assert.match(header, /accessibilityLabel="Chat menu"/);
+  assert.match(header, /accessibilityHint="Session configuration"/);
   for (const label of ['Profile', 'Model', 'Reasoning', 'Approval Policy']) {
     assert.match(sheet, new RegExp(`accessibilityLabel=.*${label}|>${label}<`));
   }

@@ -157,7 +157,8 @@ export function ChatHeader({
             </Button>
           ) : null}
           <Pressable
-            accessibilityLabel="Session configuration"
+            accessibilityHint="Session configuration"
+            accessibilityLabel="Chat menu"
             accessibilityRole="button"
             onPress={() => setActionsVisible(true)}
             style={({ pressed }) => [
@@ -183,6 +184,7 @@ export function ChatHeader({
         preferences={chatPreferences}
         visible={actionsVisible}>
         <Button
+          accessibilityRole="menuitem"
           icon="plus"
           disabled={isCreatingSession || connectionStatus !== 'connected'}
           onPress={() => {
@@ -192,6 +194,7 @@ export function ChatHeader({
           New chat
         </Button>
         <Button
+          accessibilityRole="menuitem"
           icon={usageIcon}
           onPress={() => {
             setActionsVisible(false);
@@ -200,6 +203,7 @@ export function ChatHeader({
           Usage
         </Button>
         <Button
+          accessibilityRole="menuitem"
           icon={conversation.active ? 'phone-hangup' : 'headset'}
           disabled={connectionStatus !== 'connected' || isCreatingSession}
           onPress={() => {
@@ -209,6 +213,7 @@ export function ChatHeader({
           {conversation.active ? 'Stop conversation' : 'Conversation mode'}
         </Button>
         <Button
+          accessibilityRole="menuitem"
           testID="chat-session-tools-toggle"
           icon="wrench-outline"
           onPress={() => {
@@ -218,6 +223,7 @@ export function ChatHeader({
           Manage
         </Button>
         <Button
+          accessibilityRole="menuitem"
           icon="cog-outline"
           onPress={() => {
             setActionsVisible(false);
