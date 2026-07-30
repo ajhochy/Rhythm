@@ -8,7 +8,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
       "test_id": "issue-4-c1: cross-project deep link commits one complete snapshot",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-4-c2",
@@ -16,7 +16,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
       "test_id": "issue-4-c2: rapid navigation cannot commit the stale first target",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-4-c3",
@@ -24,7 +24,7 @@
       "mode": "unit",
       "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
       "test_id": "issue-4-c3: the documented loading deadline terminates in timeout",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-4-c4",
@@ -32,7 +32,7 @@
       "mode": "ui",
       "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
       "test_id": "issue-4-c4: every terminal state has distinct copy plus Retry and Back",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-4-c5",
@@ -40,7 +40,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
       "test_id": "issue-4-c5: retry is idempotent and never creates a session or duplicates a subscription",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-4-c6",
@@ -48,7 +48,7 @@
       "mode": "ui",
       "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
       "test_id": "issue-4-c6: Back cancels pending work before returning to the chat list",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-4-c7",
@@ -56,7 +56,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
       "test_id": "issue-4-c7: cold start commits only the requested existing session",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-4-c8",
@@ -64,7 +64,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
       "test_id": "issue-4-c8: background resume is idempotent for the committed target",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-4-c9",
@@ -72,7 +72,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
       "test_id": "issue-4-c9: offline gateway failure is terminal and preserves selection",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-4-c10",
@@ -80,7 +80,7 @@
       "mode": "integration",
       "test_file": "apps/mobile/tests/contract/msp-004-atomic-open-session.test.mjs",
       "test_id": "issue-4-c10: missing unauthorized and transient failures stay distinct",
-      "status": "pending"
+      "status": "pass"
     },
     {
       "criterion_id": "issue-4-c11",
