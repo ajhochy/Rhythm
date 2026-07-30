@@ -62,3 +62,22 @@ release signing, and add a launch smoke so a DOA app can never pass CI again.
 Green CI on `fix/desktop-devid-provisioning-profile` → merge (user
 pre-authorized) → dispatch Desktop Release v0.18.54 from updated `main` →
 verify launch on a real Mac → then TestFlight and PR #1252 merge.
+
+## Recent coding-agent runs
+
+### 2026-07-30 — local-agent-cloud-token-auth
+
+- Files modified: `auth_middleware.ts` (Cloud bearer fallback + bounded
+  positive cache), `agent_sessions_routes.ts` (authenticated owner guard), new
+  contract/live tests, acceptance contract, and
+  [run log](runs/2026-07-30-local-agent-cloud-token-auth.md).
+- Checks run: contract RED 8 failed/2 passed → GREEN 10/10; `tsc --noEmit`
+  pass; 16 non-socket identity/auth/session regressions pass; `git diff
+  --check` pass.
+- Decisions made: reuse `MobileCloudIdentityService` unchanged; cache only
+  positive results under SHA-256 digests for five minutes with a 256-entry
+  oldest-eviction bound and in-flight request coalescing.
+- Deviations from spec: none; the live test was written and intentionally not
+  run as required.
+- Concerns: live c11 remains pending; older regression files that bind
+  `listen(0)` are environment-blocked by `EPERM`.
