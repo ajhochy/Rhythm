@@ -2,53 +2,55 @@
 
 ## Current focus
 
-2026-07-30: repair issue #1231's desktop-to-mobile session visibility. The
-local database is backfilled and verified; the durable tokenless desktop owner
-inheritance change has passed the full repository and live API/engine gates.
+2026-07-30: MSP-002 profile-first mobile sessions and per-session three-dot
+configuration are implemented. Focused automated checks are green; signed
+native accessibility/layout smoke remains pending.
 
 ## Active branch / PR
 
-- Branch: `codex/mobile-session-owner-inheritance`, based on `main` at
-  `eee9694cd073f2658a565a5e9570c667bb1e0b0c`.
-- PR: none; branch is prepared for commit and draft-PR review.
+- Branch: `codex/msp-002-profile-first-sessions`, based on MSP-001 plus the
+  MSP-005 composer fix at `4b8e12210d2dffaa3695b9a8d052cc4866fa3567`.
+- PR: none.
+- Focused commits: contract `66889deb7`, provider seams `6bec3a247`, UI/docs
+  `4a81d4a03`.
 - Run:
-  [runs/2026-07-30-desktop-session-owner-inheritance.md](runs/2026-07-30-desktop-session-owner-inheritance.md).
-- Decision:
-  [decisions/2026-07-30-desktop-session-owner-inheritance.md](decisions/2026-07-30-desktop-session-owner-inheritance.md).
+  [runs/2026-07-30-msp-002-profile-first-sessions.md](runs/2026-07-30-msp-002-profile-first-sessions.md).
 
 ## In progress
 
-- No implementation or verification work remains on the local branch.
-- Commit/push/draft-PR actions await explicit authorization.
+- Implementation and acceptance tests are committed; run-memory/manual-smoke
+  documentation is the remaining local commit.
+- Branch push is pending.
+- Signed native smoke remains pending.
 
 ## Risks / known issues
 
-- The currently installed desktop does not contain the new inheritance rule;
-  desktop sessions created before an updated build is installed can still need
-  a backfill.
-- 532 legacy non-system SDK sessions have directories outside registered
-  projects and remain intentionally excluded from the project-scoped mobile
-  catalog.
-- Eight orphan `agent_session_messages` rows predate this migration and remain
-  a separate data-integrity issue.
-- Issue #1231's full physical iPhone/desktop criterion remains a human smoke;
-  the user has already confirmed mobile-to-desktop creation works.
+- GitNexus scoped change detection reports HIGH risk: 13 indexed files, 59
+  changed symbols, and six affected mobile chat/workspace flows. The CRITICAL
+  `main` comparison includes the inherited MSP-001/MSP-005 base and is not
+  attributable to MSP-002 alone.
+- MSP-004 owns `ensureActiveSession()` opening/navigation. Its empty-workspace
+  bootstrap receives Secretary defaults through the unified provider creation
+  seam, but it intentionally does not present the MSP-002 picker.
+- Signed native accessibility/layout smoke is deferred because the workstream
+  forbids starting servers, binding ports 4096–4098, or operating installed
+  production state.
+- The repo-wide `ai-workflow checks --level issue` gate is environment-blocked:
+  Flutter cannot write its SDK cache and missing API/MCP local TypeScript
+  binaries trigger blocked package-registry lookups.
 
 ## Test status
 
-- Local SQLite: zero unowned sessions, zero eligible missing mobile claims,
-  and `PRAGMA integrity_check = ok`.
-- Focused contract: 6/6 passed.
-- Pre-fix live test reproduced an empty mobile catalog for a tokenless desktop
-  create; the post-fix test passed against a freshly rebuilt fork and API.
-- `ai-workflow checks --level issue` and `--level pr` passed.
-- Isolated `/health` returned `status: ok`; `/opencode/health` returned
-  `status: ready`.
-- GitNexus change detection: medium risk, one affected session-create flow.
-- `git diff --check` passed.
+- MSP-002 automated acceptance contract: 7/7 passed; native criterion c8 is
+  documented and pending.
+- MSP-005 chat composer Jest suite: 4/4 passed.
+- Provider utility regressions passed.
+- Mobile TypeScript and ESLint passed.
+- `git diff --check` and the direct-creation/entry-point audit passed.
+- No server, sandbox, database, or dev port was started or touched.
 
 ## Next step
 
-Commit the scoped branch and open a draft PR. After human desktop-to-mobile
-smoke, merge and ship an updated desktop build so new sessions inherit the
-paired owner automatically.
+Commit the run-memory/manual-smoke documentation, rerun the focused mobile
+checks at the final commit, push the branch, then complete the signed native
+smoke in `docs/testing/msp-002-profile-first-sessions-smoke.md`.
