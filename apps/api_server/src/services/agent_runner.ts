@@ -28,6 +28,10 @@ import {
 } from '../repositories/agent_configs_repository';
 import { queueSkillExtraction } from './skill_extractor';
 import { scheduleIdleEvaluation } from './harvested_skill_evaluator';
+import {
+  classifyAgentRunFailure,
+  type AgentRunFailureCategory,
+} from './agent_run_failure_classification';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
 import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
@@ -219,6 +223,8 @@ export interface AgentRunResult {
   error?: string;
   /** Machine-readable classification for errors callers may safely retry. */
   errorCode?: 'capacity' | 'profile_unavailable';
+  /** R3: why this run failed and whether a teacher retry can help. */
+  failureCategory?: AgentRunFailureCategory;
 }
 
 // ── In-process concurrency gate ───────────────────────────────────────────────
@@ -441,7 +447,7 @@ export function resolveTeacherModel(
  * P4-1 (PURE — unit-tested directly): should this run be escalated to the
  * teacher model? True only when ALL hold:
  *  • the original result is an observable failure (status === 'error'), AND
- *  • the failure is not a transient capacity rejection, AND
+ *  • the classified failure is a genuine model-quality failure, AND
  *  • teacher escalation is enabled, AND
  *  • this run is NOT itself an escalation (recursion guard).
  *
@@ -449,16 +455,14 @@ export function resolveTeacherModel(
  * toggle is testable without a process restart.
  */
 export function shouldEscalate(
-  result: Pick<AgentRunResult, 'status' | 'errorCode'>,
+  result: Pick<AgentRunResult, 'status' | 'error' | 'errorCode' | 'failureCategory'>,
   opts: Pick<AgentRunOptions, '_isEscalation'>,
   enabled: boolean = env.agentTeacherEscalationEnabled,
 ): boolean {
   if (!enabled) return false;
   if (opts._isEscalation) return false; // recursion guard — escalate at most once
-  if (result.errorCode === 'capacity' || result.errorCode === 'profile_unavailable') {
-    return false; // infrastructure/policy rejection is not a model-quality failure
-  }
-  return result.status === 'error';
+  if (result.status !== 'error') return false;
+  return classifyAgentRunFailure(result).teacherRetryable;
 }
 
 /** Injectable deps for {@link escalateAndCapture} so tests hit no real model/LLM. */
@@ -555,20 +559,27 @@ function resolveRunModelLabel(configId?: string | null): string {
 
 export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
   const result = await _runOnce(opts);
+  const classifiedResult =
+    result.status === 'error'
+      ? {
+          ...result,
+          failureCategory: classifyAgentRunFailure(result).category,
+        }
+      : result;
 
   // P4-1: guarded auto-escalation. Under test this NEVER fires automatically
   // (tests drive escalateAndCapture/shouldEscalate explicitly with injected
   // deps). The Postgres path is unaffected — escalation is a local-agent
   // concern and distill no-ops under Postgres anyway.
-  if (!isTestEnv() && shouldEscalate(result, opts)) {
+  if (!isTestEnv() && shouldEscalate(classifiedResult, opts)) {
     const { distillFromSession } = await import('./skill_extractor');
-    return escalateAndCapture(opts, result, {
+    return escalateAndCapture(opts, classifiedResult, {
       runFn: run,
       distillFn: distillFromSession,
     });
   }
 
-  return result;
+  return classifiedResult;
 }
 
 async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {

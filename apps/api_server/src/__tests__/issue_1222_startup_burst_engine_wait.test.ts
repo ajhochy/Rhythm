@@ -34,12 +34,14 @@ const {
   mockUpdateNextRunAsync,
   mockDbRun,
   mockResetStaleRunning,
+  mockListMcp,
 } = vi.hoisted(() => ({
   mockRun: vi.fn(),
   mockFindDueAsync: vi.fn().mockResolvedValue([]),
   mockUpdateNextRunAsync: vi.fn().mockResolvedValue(undefined),
   mockDbRun: vi.fn(),
   mockResetStaleRunning: vi.fn().mockReturnValue(0),
+  mockListMcp: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock('../services/agent_runner', () => ({
@@ -60,6 +62,7 @@ vi.mock('../services/opencode_engine', () => {
       set isReady(v: boolean) {
         _ready = v;
       },
+      listMcp: mockListMcp,
     },
     opencodeSessionMap: new Map<string, string>(),
   };
@@ -127,6 +130,7 @@ describe('#1222 — scheduler boot-time pass waits for engine readiness', () => 
     vi.clearAllMocks();
     mockUpdateNextRunAsync.mockResolvedValue(undefined);
     mockRun.mockResolvedValue({ sessionId: 'sdk-sess-1', result: 'ok', status: 'done' });
+    mockListMcp.mockResolvedValue({});
     dbClientSpy = vi.spyOn(env, 'dbClient', 'get').mockReturnValue('sqlite');
     (opencodeClient as unknown as { isReady: boolean }).isReady = false;
   });
@@ -168,7 +172,7 @@ describe('#1222 — scheduler boot-time pass waits for engine readiness', () => 
     job?.stop();
   });
 
-  it('agentLocal=true: still proceeds (letting AgentRunner report its own error) if the engine never becomes ready', async () => {
+  it('agentLocal=true: defers without creating a run if the engine never becomes ready', async () => {
     process.env.AGENT_SCHEDULER_BOOT_ENGINE_WAIT_MS = '200';
     agentLocalSpy = vi.spyOn(env, 'agentLocal', 'get').mockReturnValue(true);
     mockFindDueAsync.mockResolvedValue([makeDueTask()]);
@@ -177,7 +181,15 @@ describe('#1222 — scheduler boot-time pass waits for engine readiness', () => 
     const job = startAgentSchedulerJob();
     await new Promise<void>((resolve) => setTimeout(resolve, 500));
 
-    expect(mockRun).toHaveBeenCalledOnce();
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(mockUpdateNextRunAsync).toHaveBeenCalledOnce();
+    expect(mockUpdateNextRunAsync).toHaveBeenCalledWith(
+      'task-uuid-1',
+      expect.any(String),
+      expect.any(String),
+      'queued',
+      expect.stringMatching(/engine_not_ready/i),
+    );
     job?.stop();
   }, 10_000);
 
