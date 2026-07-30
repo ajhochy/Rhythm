@@ -76,5 +76,6 @@ verify launch on a real Mac → then TestFlight and PR #1252 merge.
 - Decisions made: a successful `listMcp()` round-trip is the scheduled-work
   readiness probe; unknown failures fail closed to `infra_config`.
 - Deviations from spec: live test written but not run, as explicitly required.
-- Concerns: sandbox cannot write the worktree's external git metadata, so
-  commits/push remain blocked despite a writable source tree.
+- Concerns: full socket-based suite is sandbox-blocked (`listen EPERM`), the
+  live test is intentionally unrun, and GitHub Actions watch could not connect
+  to `api.github.com` after the branch push.
