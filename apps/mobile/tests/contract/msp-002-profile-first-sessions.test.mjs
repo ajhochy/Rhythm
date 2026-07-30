@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import ts from 'typescript';
 
+import { profileCatalogPayload } from '../fake-opencode/fixtures.mjs';
+
 const mobileRoot = new URL('../../', import.meta.url);
 const readMobileSource = (path) =>
   readFile(new URL(path, mobileRoot), 'utf8');
@@ -56,7 +58,17 @@ const secretary = {
 
 test('issue-2-c1: every new-chat entry point uses the Secretary-first creation flow', async () => {
   // Regression caught: one plus button calls session.create directly and
-  // silently inherits the last globally selected profile.
+  // silently inherits the last globally selected profile, or the fake gateway
+  // omits Secretary and leaves the shared Create action permanently disabled.
+  const fakeSecretary = profileCatalogPayload().profiles.find(
+    (profile) =>
+      profile.name === 'Secretary' &&
+      profile.opencodeAgentId === 'secretary',
+  );
+  assert.ok(
+    fakeSecretary,
+    'the foundation harness catalog must expose the Secretary default',
+  );
   assert.equal(
     typeof providerUtils.getNewSessionPreferences,
     'function',

@@ -64,6 +64,21 @@ export function profileCatalogPayload() {
   return {
     profiles: [
       {
+        profileId: 'profile-secretary',
+        opencodeAgentId: 'secretary',
+        name: 'Secretary',
+        defaults: {
+          providerId: 'openai',
+          modelId: 'gpt-4.1-mini',
+          reasoningEffort: null,
+          approvalMode: 'default',
+        },
+        display: {
+          icon: 'mail',
+          color: null,
+        },
+      },
+      {
         profileId: 'profile-build',
         opencodeAgentId: 'build',
         name: 'Build',
