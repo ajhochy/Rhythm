@@ -68,6 +68,33 @@ export function initializeMobilePairingSchema(db: Database.Database): void {
   `);
 }
 
+export function findSolePairedUserId(
+  db: Database.Database,
+): number | null {
+  const pairingSchemaExists = db
+    .prepare(
+      `SELECT 1
+         FROM sqlite_master
+        WHERE type = 'table' AND name = 'mobile_devices'
+        LIMIT 1`,
+    )
+    .get();
+  if (!pairingSchemaExists) return null;
+
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT user_id
+         FROM mobile_devices
+        ORDER BY user_id
+        LIMIT 2`,
+    )
+    .all() as Array<{ user_id: number }>;
+  if (rows.length !== 1) return null;
+
+  const userId = rows[0].user_id;
+  return Number.isSafeInteger(userId) && userId > 0 ? userId : null;
+}
+
 export class MobileDevicesRepository {
   constructor(private readonly db: Database.Database) {}
 

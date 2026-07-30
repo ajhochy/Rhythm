@@ -9,6 +9,10 @@ import { runMigrations } from '../database/migrations';
 import { authenticateIfPresent } from '../middleware/auth_middleware';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import {
+  findSolePairedUserId,
+  initializeMobilePairingSchema,
+} from '../repositories/mobile_devices_repository';
+import {
   initializeMobileOpenCodeOwnershipSchema,
   MobileOpenCodeOwnershipRepository,
 } from '../repositories/mobile_opencode_ownership_repository';
@@ -140,6 +144,63 @@ describe('issue #1231 authoritative desktop/mobile session catalog', () => {
     expect(routeSource).toContain(
       'env.agentLocal ? authenticateIfPresent : requireAuth',
     );
+  });
+
+  it('inherits only one unambiguous paired desktop owner', () => {
+    // The local desktop may not present a bearer that its SQLite API can
+    // resolve. Pairing history is durable host ownership evidence, including
+    // revoked devices, but it must never choose between different users.
+    expect(findSolePairedUserId(db)).toBeNull();
+    initializeMobilePairingSchema(db);
+
+    db.prepare(
+      `INSERT INTO mobile_devices
+         (id, host_id, user_id, name, token_verifier, revoked_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'device-active-1231',
+      'host-1231',
+      userId,
+      'Current iPhone',
+      'verifier-active',
+      null,
+      '2026-07-30T00:00:00.000Z',
+    );
+    db.prepare(
+      `INSERT INTO mobile_devices
+         (id, host_id, user_id, name, token_verifier, revoked_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'device-revoked-1231',
+      'host-1231',
+      userId,
+      'Previous iPhone',
+      'verifier-revoked',
+      '2026-07-30T01:00:00.000Z',
+      '2026-07-29T00:00:00.000Z',
+    );
+
+    expect(findSolePairedUserId(db)).toBe(userId);
+
+    const otherUserId = new UsersRepository().create({
+      name: 'Issue 1231 Ambiguous Owner',
+      email: 'issue-1231-ambiguous@example.com',
+    }).id;
+    db.prepare(
+      `INSERT INTO mobile_devices
+         (id, host_id, user_id, name, token_verifier, revoked_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'device-other-user-1231',
+      'host-1231',
+      otherUserId,
+      'Other User iPhone',
+      'verifier-other',
+      null,
+      '2026-07-30T02:00:00.000Z',
+    );
+
+    expect(findSolePairedUserId(db)).toBeNull();
   });
 
   it('inherits and claims parent scope when the stream bridge persists a child SDK identity', () => {

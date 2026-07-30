@@ -3,6 +3,8 @@ import path from 'path';
 import { readFileSync, existsSync } from 'fs';
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
+import { env } from '../config/env';
+import { getDb } from '../database/db';
 import { canonicalize, containsReal } from '../utils/path_containment';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
@@ -13,6 +15,7 @@ import {
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
+import { findSolePairedUserId } from '../repositories/mobile_devices_repository';
 import type { AgentKind, CreateAgentSessionDto, PermissionMode, SessionScope } from '../models/agent_session';
 import { PERMISSION_MODES, SESSION_SCOPES } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
@@ -659,6 +662,17 @@ export class AgentSessionsController {
         projectId = match?.id ?? null;
       }
 
+      // The shipping desktop talks to its loopback API and may not have a
+      // locally resolvable bearer even after this Mac has been paired. A
+      // personal Mac belongs to the one user represented by its pairing
+      // history, including revoked devices. If history is empty or contains
+      // more than one user, keep the session unowned instead of guessing.
+      const ownerUserId =
+        req.auth?.user.id ??
+        (env.agentLocal && env.dbClient === 'sqlite'
+          ? findSolePairedUserId(getDb())
+          : null);
+
       const dto: CreateAgentSessionDto = {
         // OPC-#710: resolvedEngineAgentKind is '' for agent-less instant-create.
         // The AgentKind type accepts arbitrary strings; '' is persisted as the
@@ -679,7 +693,7 @@ export class AgentSessionsController {
         mcpAllowedToolsJson,
         // Task D — resolved Anthropic account (null = engine default).
         anthropicAccountId: resolvedAccountId,
-        ownerUserId: req.auth?.user.id ?? null,
+        ownerUserId,
       };
 
       const session = repo.insert(dto);

@@ -125,9 +125,13 @@ describeLive('issue #1231 live — one desktop/mobile session catalog', () => {
       deviceId = paired.deviceId;
       deviceToken = paired.deviceToken;
 
+      // Reproduce the shipping desktop path: the loopback request can be
+      // tokenless even though this Mac has one established paired owner.
+      // Regression caught: treating the missing bearer as "no owner" creates
+      // an SDK session that the mobile gateway immediately filters out.
       const desktopCreate = await fetch(`${baseUrl}/agent-sessions`, {
         method: 'POST',
-        headers: desktopHeaders(userToken),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentId: null,
           cwd: projectRoot,
