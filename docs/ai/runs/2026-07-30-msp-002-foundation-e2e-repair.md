@@ -4,7 +4,7 @@ repo: Rhythm
 branch: codex/msp-002-profile-first-sessions
 pr: 1266
 issues: [MSP-002]
-status: local-verified-playwright-pending
+status: pushed-playwright-pending
 tags: [run, Rhythm]
 index: "[[Rhythm]]"
 ---
@@ -54,3 +54,6 @@ index: "[[Rhythm]]"
 - The fake-server self-test must also be rerun by the orchestrator in its
   loopback-capable environment.
 - Code commits: `c1ad4cd6b`, `3e66d526a`.
+- The branch was pushed successfully. GitHub Actions status polling then hit a
+  transient `api.github.com` connectivity failure, so the new Mobile CI run
+  could not be watched from this sandbox.

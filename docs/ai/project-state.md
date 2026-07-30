@@ -22,7 +22,7 @@ orchestrator's 69-spec Playwright rerun is pending.
   `openai/gpt-4.1-mini` E2E defaults.
 - MSP-002 c1 guards the harness catalog so the shared create sheet cannot
   regress to a disabled Create action.
-- Push and the full Playwright foundation rerun remain.
+- The repair commits are pushed; the full Playwright foundation rerun remains.
 
 ## Risks / known issues
 
@@ -50,6 +50,6 @@ orchestrator's 69-spec Playwright rerun is pending.
 
 ## Next step
 
-Push the repair commits, then rerun `npm run test:fake-server:self` and Mobile
-CI `verify:foundation` / all 69 Playwright specs. Confirm the creation sheet
-opens with Secretary selected and Create enabled.
+Rerun `npm run test:fake-server:self` and Mobile CI `verify:foundation` / all
+69 Playwright specs. Confirm the creation sheet opens with Secretary selected
+and Create enabled.
