@@ -2,55 +2,54 @@
 
 ## Current focus
 
-2026-07-30: MSP-002 profile-first mobile sessions and per-session three-dot
-configuration are implemented. Focused automated checks are green; signed
-native accessibility/layout smoke remains pending.
+2026-07-30: repair MSP-002's Mobile CI foundation regression without changing
+the finalized profile-first session UX. The local repair is committed; the
+orchestrator's 69-spec Playwright rerun is pending.
 
 ## Active branch / PR
 
-- Branch: `codex/msp-002-profile-first-sessions`, based on MSP-001 plus the
-  MSP-005 composer fix at `4b8e12210d2dffaa3695b9a8d052cc4866fa3567`.
-- PR: none.
-- Focused commits: contract `66889deb7`, provider seams `6bec3a247`, UI/docs
-  `4a81d4a03`.
-- Remote: `origin/codex/msp-002-profile-first-sessions`.
+- Branch: `codex/msp-002-profile-first-sessions`.
+- PR: #1266.
+- Repair commits: `c1ad4cd6b` (`fix(mobile): seed Secretary in E2E profile
+  catalog`) and `3e66d526a` (`test(mobile): make profile catalog self-check
+  order-independent`).
 - Run:
-  [runs/2026-07-30-msp-002-profile-first-sessions.md](runs/2026-07-30-msp-002-profile-first-sessions.md).
+  [runs/2026-07-30-msp-002-foundation-e2e-repair.md](runs/2026-07-30-msp-002-foundation-e2e-repair.md).
 
 ## In progress
 
-- Implementation, acceptance tests, run memory, and the manual-smoke checklist
-  are committed.
-- Branch is pushed; no PR has been opened.
-- Signed native smoke remains pending.
+- The fake mobile gateway now exposes Secretary with the existing
+  `openai/gpt-4.1-mini` E2E defaults.
+- MSP-002 c1 guards the harness catalog so the shared create sheet cannot
+  regress to a disabled Create action.
+- Push and the full Playwright foundation rerun remain.
 
 ## Risks / known issues
 
-- GitNexus scoped change detection reports HIGH risk: 13 indexed files, 59
-  changed symbols, and six affected mobile chat/workspace flows. The CRITICAL
-  `main` comparison includes the inherited MSP-001/MSP-005 base and is not
-  attributable to MSP-002 alone.
-- MSP-004 owns `ensureActiveSession()` opening/navigation. Its empty-workspace
-  bootstrap receives Secretary defaults through the unified provider creation
-  seam, but it intentionally does not present the MSP-002 picker.
-- Signed native accessibility/layout smoke is deferred because the workstream
-  forbids starting servers, binding ports 4096–4098, or operating installed
-  production state.
-- The repo-wide `ai-workflow checks --level issue` gate is environment-blocked:
-  Flutter cannot write its SDK cache and missing API/MCP local TypeScript
-  binaries trigger blocked package-registry lookups.
+- Full Playwright cannot run in this sandbox; the orchestrator must confirm
+  the repaired branch returns from 41/69 to 69/69.
+- GitNexus MCP/CLI was unavailable (`.gitnexus/run.cjs` absent and the package
+  not cached), so impact and change scope were audited through direct
+  call-site and git-diff inspection.
+- The fake-server self-test cannot bind loopback in this sandbox (`listen
+  EPERM`); a minimal standalone Node listener fails identically before any
+  fixture assertion runs.
+- Signed native MSP-002 accessibility/layout smoke remains pending from the
+  original workstream.
 
 ## Test status
 
-- MSP-002 automated acceptance contract: 7/7 passed; native criterion c8 is
-  documented and pending.
-- MSP-005 chat composer Jest suite: 4/4 passed.
-- Provider utility regressions passed.
-- Mobile TypeScript and ESLint passed.
-- `git diff --check` and the direct-creation/entry-point audit passed.
-- No server, sandbox, database, or dev port was started or touched.
+- Mobile TypeScript: passed.
+- Mobile ESLint: passed.
+- MSP-002 + MSP-001 session-profile contracts: 13/13 passed.
+- MSP-001 fake-gateway contract: 3/3 passed.
+- Chat composer Jest: 4/4 passed.
+- `git diff --check`: passed.
+- Fake-server self-test and full Playwright foundation: pending orchestrator
+  rerun in a loopback-capable environment.
 
 ## Next step
 
-Complete the signed native smoke in
-`docs/testing/msp-002-profile-first-sessions-smoke.md`.
+Push the repair commits, then rerun `npm run test:fake-server:self` and Mobile
+CI `verify:foundation` / all 69 Playwright specs. Confirm the creation sheet
+opens with Secretary selected and Create enabled.
