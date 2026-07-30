@@ -18,8 +18,8 @@ native accessibility/layout smoke remains pending.
 
 ## In progress
 
-- Implementation and acceptance tests are committed; run-memory/manual-smoke
-  documentation is the remaining local commit.
+- Implementation, acceptance tests, run memory, and the manual-smoke checklist
+  are committed.
 - Branch push is pending.
 - Signed native smoke remains pending.
 
@@ -51,6 +51,6 @@ native accessibility/layout smoke remains pending.
 
 ## Next step
 
-Commit the run-memory/manual-smoke documentation, rerun the focused mobile
-checks at the final commit, push the branch, then complete the signed native
-smoke in `docs/testing/msp-002-profile-first-sessions-smoke.md`.
+Rerun the focused mobile checks at the final commit, push the branch, then
+complete the signed native smoke in
+`docs/testing/msp-002-profile-first-sessions-smoke.md`.
