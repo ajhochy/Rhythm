@@ -83,13 +83,23 @@ test('issue-2-c1: every new-chat entry point uses the Secretary-first creation f
     assert.equal(preferences.mode, secretary.opencodeAgentId);
   }
 
-  const [chatList, chatView, workspace, agentChatProvider] =
+  const [chatList, chatView, workspace, agentChatProvider, fakeServer] =
     await Promise.all([
       readMobileSource('components/chat/chat-list.tsx'),
       readMobileSource('components/chat/chat-view.tsx'),
       readMobileSource('app/agents/workspace.tsx'),
       readMobileSource('providers/agent-chat-provider.tsx'),
+      readMobileSource('tests/fake-opencode/server.mjs'),
     ]);
+  const directAgentRoute =
+    fakeServer.match(
+      /if \(req\.method === 'GET' && pathname === '\/agent'\) \{([\s\S]*?)\n    \}/,
+    )?.[1] ?? '';
+  assert.match(
+    directAgentRoute,
+    /name:\s*'secretary'/,
+    'the direct web harness agent catalog must expose the Secretary default',
+  );
   for (const [name, source] of [
     ['Chat list', chatList],
     ['Chat header', chatView],

@@ -869,6 +869,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && pathname === '/agent') {
       sendJson(res, 200, [
+        { name: 'secretary', description: 'Default Secretary agent' },
         { name: 'build', description: 'Default build agent' },
         { name: 'general', description: 'General-purpose agent' },
       ]);
