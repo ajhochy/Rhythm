@@ -1,0 +1,57 @@
+{
+  "issue": 0,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-0-c1",
+      "text": "Canonicalize managed plugin identity (managed-plugin name/marker/realpath) so the same managed plugin referenced from a different checkout path is recognized as the SAME plugin.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opencode_plugin_config_identity.test.ts",
+      "test_id": "issue-0-c1: canonicalizes a managed plugin symlink and checkout path to the current entry",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c2",
+      "text": "Safely remove stale managed Rhythm/worktree plugin paths (nonexistent paths, superseded copies).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opencode_plugin_config_identity.test.ts",
+      "test_id": "issue-0-c2: removes nonexistent managed worktree paths for every Rhythm plugin",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c3",
+      "text": "PRESERVE user-authored third-party plugins: anything not positively identified as Rhythm-managed must be left untouched.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opencode_plugin_config_identity.test.ts",
+      "test_id": "issue-0-c3: preserves a third-party plugin whose directory name overlaps telemetry",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c4",
+      "text": "Cleanup/migration must be idempotent: repeated startups converge to the same state, no oscillation.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opencode_plugin_config_identity.test.ts",
+      "test_id": "issue-0-c4: repeated startup cleanup converges byte-for-byte",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c5",
+      "text": "After cleanup, exactly ONE active managed telemetry entry records each logical event.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opencode_plugin_config_identity.test.ts",
+      "test_id": "issue-0-c5: event seam converges multiple telemetry copies to one recorder entry",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c6",
+      "text": "Do NOT destructively deduplicate historical telemetry rows already recorded — that is an explicit follow-up needing separate review; do not attempt it here.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Verified by scoped diff review: this workstream may only rewrite the temporary/configured opencode.json plugin array and must not mutate tool_events or database migrations."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-0-c6"
+  ]
+}
