@@ -37,6 +37,10 @@ import type { OpenCodeInspection } from '@/providers/services/opencode-inspectio
 import type { ProjectMetadataUpdate } from '@/providers/services/project-service';
 import type { WorkspaceTextMatch } from '@/providers/services/workspace-service';
 import type {
+  OpenProjectSessionResult,
+  OpenProjectSessionState,
+} from '@/providers/open-project-session';
+import type {
   AgentOption as ProviderAgentOption,
   ChatPreferences as ProviderChatPreferences,
   ModelOption as ProviderModelOption,
@@ -169,6 +173,12 @@ export type OpencodeContextValue = {
   clearPromptError: () => void;
   connect: () => Promise<void>;
   refreshSessions: (silent?: boolean) => Promise<void>;
+  openProjectSessionState: OpenProjectSessionState;
+  openProjectSession: (
+    projectId: string,
+    sessionId: string,
+  ) => Promise<OpenProjectSessionResult>;
+  cancelOpenProjectSession: () => void;
   openSession: (sessionId: string) => Promise<void>;
   refreshCurrentSession: (silent?: boolean) => Promise<void>;
   refreshCurrentTodos: (silent?: boolean) => Promise<void>;
