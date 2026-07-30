@@ -222,6 +222,19 @@ class _ErrorAgentsRepository implements AgentsRepository {
   }
 
   @override
+  Future<
+      ({
+        List<AgentSessionMessage> messages,
+        String? nextCursor,
+        bool hasMore,
+      })> fetchTranscriptPage(
+    String id, {
+    int limit = 50,
+    String? before,
+  }) async =>
+      (messages: <AgentSessionMessage>[], nextCursor: null, hasMore: false);
+
+  @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async {
     return [];
   }

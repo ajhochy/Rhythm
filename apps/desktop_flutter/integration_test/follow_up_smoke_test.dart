@@ -138,6 +138,19 @@ class _FakeAgentsRepository implements AgentsRepository {
   }
 
   @override
+  Future<
+      ({
+        List<AgentSessionMessage> messages,
+        String? nextCursor,
+        bool hasMore,
+      })> fetchTranscriptPage(
+    String id, {
+    int limit = 50,
+    String? before,
+  }) async =>
+      (messages: <AgentSessionMessage>[], nextCursor: null, hasMore: false);
+
+  @override
   Future<AgentSession> createSession({
     String? agentId,
     String? taskId,

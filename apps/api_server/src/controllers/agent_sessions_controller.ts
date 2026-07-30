@@ -31,6 +31,31 @@ import { getCuratorRefineStatus } from '../services/skill_refiner';
 import { getSyncStatus } from '../services/sync_orchestrator_service';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
 
+type SdkAgent = Awaited<ReturnType<typeof opencodeClient.listAgents>>[number];
+
+type DesktopProfileAvailability =
+  | 'available'
+  | 'unassigned'
+  | 'unavailable';
+
+interface DesktopAgentPickerItem {
+  profileId: string | null;
+  opencodeAgentId: string;
+  name: string;
+  defaults: {
+    providerId: string | null;
+    modelId: string | null;
+    reasoningEffort: string | null;
+    approvalMode: 'default';
+  };
+  display: {
+    icon: string;
+    color: string | null;
+  };
+  profileAvailability: DesktopProfileAvailability;
+  builtIn: boolean;
+}
+
 // Legacy agentId aliases. Older Rhythm clients (and a handful of historical
 // scripts) used short names. /agents/capabilities and the seed both use
 // kebab-case canonical IDs; this map keeps stale clients working.
@@ -43,6 +68,105 @@ const AGENT_ID_ALIASES: Record<string, string> = {
 
 function normalizeAgentId(id: string): string {
   return AGENT_ID_ALIASES[id] ?? id;
+}
+
+function filterInvokableAgents(
+  rawAgents: SdkAgent[],
+  configs: ReturnType<AgentConfigsRepository['list']>,
+): SdkAgent[] {
+  const disabledEngineNames = new Set<string>();
+  const securityLockedEngineNames = new Set<string>();
+  for (const config of configs) {
+    if (agentConfigExecutionBlockReason(config) === null) continue;
+    const target =
+      config.locked === true
+        ? securityLockedEngineNames
+        : disabledEngineNames;
+    target.add(config.id);
+    if (config.ocAgent) target.add(config.ocAgent);
+  }
+  return rawAgents.filter(
+    (agent) =>
+      !agent.name ||
+      (!securityLockedEngineNames.has(agent.name) &&
+        (isReservedAgentConfigId(agent.name) ||
+          !disabledEngineNames.has(agent.name))),
+  );
+}
+
+function buildDesktopAgentPickerItems(
+  agents: SdkAgent[],
+  configs: ReturnType<AgentConfigsRepository['list']>,
+): DesktopAgentPickerItem[] {
+  return agents.flatMap<DesktopAgentPickerItem>((agent) => {
+    if (!agent.name) return [];
+    const profiles = configs.filter(
+      (config) =>
+        config.enabled &&
+        config.locked !== true &&
+        config.sessionSelectable &&
+        config.ocAgent?.trim() === agent.name,
+    );
+    if (profiles.length === 0) {
+      return [
+        {
+          profileId: null,
+          opencodeAgentId: agent.name,
+          name: agent.name,
+          defaults: {
+            providerId: null,
+            modelId: null,
+            reasoningEffort: null,
+            approvalMode: 'default' as const,
+          },
+          display: {
+            icon: agent.builtIn ? 'terminal' : 'bot',
+            color: null,
+          },
+          profileAvailability: 'unassigned' as const,
+          builtIn: agent.builtIn === true,
+        },
+      ];
+    }
+    return profiles.map((profile) => ({
+      profileId: profile.id,
+      opencodeAgentId: agent.name,
+      name: profile.label,
+      defaults: {
+        providerId: profile.modelProvider,
+        modelId: profile.modelId,
+        reasoningEffort: profile.reasoningEffort ?? null,
+        approvalMode: 'default' as const,
+      },
+      display: {
+        icon: profile.icon,
+        color: null,
+      },
+      profileAvailability: 'available' as const,
+      builtIn: agent.builtIn === true,
+    }));
+  });
+}
+
+function parseBoundedPositiveInt(
+  value: unknown,
+  fallback: number,
+  max: number,
+): number {
+  if (typeof value !== 'string' || value.trim() === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw AppError.badRequest('limit must be a positive integer');
+  }
+  return Math.min(parsed, max);
+}
+
+function parseBeforeCursor(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) {
+    throw AppError.badRequest('before must be a positive message cursor');
+  }
+  return Number(value);
 }
 
 const repo = new AgentSessionsRepository();
@@ -220,33 +344,58 @@ export class AgentSessionsController {
         return;
       }
       const rawAgents = await opencodeClient.listAgents(directory);
+      const configs = new AgentConfigsRepository().list();
       // #1135 — a disabled DB profile must not be listed (or invokable) even
       // if the running engine still has its stale .md cached for the rest of
       // this reload cycle. Fail-open: keep Rhythm's own built-ins
       // (isReservedAgentConfigId) and any engine agent with no matching DB
       // row at all (not Rhythm-managed) — reject only an agent whose id or
       // ocAgent matches a DISABLED agent_configs row.
-      const disabledEngineNames = new Set<string>();
-      const securityLockedEngineNames = new Set<string>();
-      for (const c of new AgentConfigsRepository().list()) {
-        if (agentConfigExecutionBlockReason(c) === null) continue;
-        const target = c.locked === true ? securityLockedEngineNames : disabledEngineNames;
-        target.add(c.id);
-        if (c.ocAgent) target.add(c.ocAgent);
+      const agents = filterInvokableAgents(rawAgents, configs);
+      const pickerView = req.query.view === 'picker' && req.query.full !== '1';
+      res.json({
+        agents: pickerView
+          ? buildDesktopAgentPickerItems(agents, configs)
+          : agents,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /agent-sessions/agents/refresh
+   *
+   * Explicitly reconciles the engine registry into Agent Profiles. Keeping
+   * this mutation off every GET makes picker reads deterministic and cheap
+   * while retaining an on-demand path for Agent Designer/config workflows.
+   */
+  async refreshAgents(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      if (!opencodeClient.isReady) {
+        res.json({
+          refreshed: false,
+          synced: 0,
+          agentCount: 0,
+          reason: 'engine_not_ready',
+        });
+        return;
       }
-      const agents = rawAgents.filter(
-        (a) =>
-          !a.name ||
-          (!securityLockedEngineNames.has(a.name) &&
-            (isReservedAgentConfigId(a.name) || !disabledEngineNames.has(a.name))),
-      );
-      // Mirror the engine's agent registry into agent_configs so every opencode
-      // agent also exists as an Agent Profile. Reuse the filtered list so the
-      // mirror never re-touches a disabled row's projection. Fire-and-forget:
-      // the picker response must not wait on the upsert. Idempotent +
-      // non-throwing.
-      void syncOpencodeAgentProfiles(agents).catch(() => {});
-      res.json({ agents });
+      const directory =
+        typeof req.query.cwd === 'string' ? req.query.cwd : undefined;
+      const configs = new AgentConfigsRepository().list();
+      const rawAgents = await opencodeClient.listAgents(directory);
+      const agents = filterInvokableAgents(rawAgents, configs);
+      const result = await syncOpencodeAgentProfiles(agents);
+      res.json({
+        refreshed: true,
+        synced: result.synced,
+        agentCount: agents.length,
+      });
     } catch (err) {
       next(err);
     }
@@ -403,8 +552,29 @@ export class AgentSessionsController {
       if (!session) throw AppError.notFound('AgentSession');
       // OPC-M1-2: Return structured messages (parts parsed, tokens parsed, cost).
       // Legacy rows (parts_json IS NULL) get a synthetic [{type:'text',text:rawText}] shim.
-      const messages = messagesRepo.listBySessionStructured(session.id, 200);
-      res.json({ session, messages });
+      const transcriptLimitParam = req.query.transcriptLimit;
+      if (transcriptLimitParam !== undefined) {
+        const limit = parseBoundedPositiveInt(
+          transcriptLimitParam,
+          50,
+          200,
+        );
+        const page = messagesRepo.listBySessionStructuredPage(
+          session.id,
+          limit,
+        );
+        res.json({
+          session,
+          messages: page.messages,
+          transcriptPage: {
+            nextCursor: page.nextCursor,
+            hasMore: page.hasMore,
+          },
+        });
+      } else {
+        const messages = messagesRepo.listBySessionStructured(session.id, 200);
+        res.json({ session, messages });
+      }
 
       // Non-blocking: if the session never recorded a model (created without an
       // explicit pick), learn the actual model from opencode and broadcast the
@@ -1838,15 +2008,26 @@ export class AgentSessionsController {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
 
-      const limitParam = req.query.limit;
-      const limit =
-        limitParam !== undefined ? Math.min(Number(limitParam), 500) : 200;
+      // Preserve the legacy no-param window for deployed clients. New desktop
+      // callers opt into smaller pages explicitly with limit=50.
+      const limit = parseBoundedPositiveInt(req.query.limit, 200, 500);
+      const before = parseBeforeCursor(req.query.before);
 
       // #999: the Session History transcript endpoint must send STRUCTURED
       // messages (tool calls, reasoning, step markers). listBySession() rebuilds
       // only text parts, so tool-using sessions rendered as "(empty message)".
-      const messages = messagesRepo.listBySessionStructured(session.id, limit);
-      res.json({ messages });
+      const page = messagesRepo.listBySessionStructuredPage(
+        session.id,
+        limit,
+        before,
+      );
+      res.json({
+        messages: page.messages,
+        pageInfo: {
+          nextCursor: page.nextCursor,
+          hasMore: page.hasMore,
+        },
+      });
     } catch (err) {
       next(err);
     }
