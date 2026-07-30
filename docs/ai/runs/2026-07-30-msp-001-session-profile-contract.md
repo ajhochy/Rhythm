@@ -66,12 +66,21 @@ node --test \
   tests/contract/msp-001-session-profile-contract.test.mjs \
   tests/provider-utils.test.mjs
 # 3 tests passed
+
+npm run test:ci:static --silent
+# exit 0 (full configured mobile static suite)
 ```
 
 The pre-existing HTTP-boundary suites could not bind an ephemeral loopback
 listener in the managed workspace (`listen EPERM`). Their in-process proxy
 contract assertions were run separately; the MSP-001 contract itself does not
 open a listener.
+
+`ai-workflow checks --level issue` passed its API typecheck but its unrelated
+Flutter checks could not write the Flutter SDK cache outside this managed
+workspace, and the MCP package had no installed local `tsc`; blocked network
+access prevented `npx` from resolving it. This branch does not change
+`apps/desktop_flutter` or `apps/mcp_server`.
 
 ## Live test — written, not run
 
