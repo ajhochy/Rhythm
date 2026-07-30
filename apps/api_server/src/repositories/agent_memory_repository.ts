@@ -20,6 +20,8 @@ export interface AgentMemory {
   generatedBy: string | null;
   generatedAt: string | null;
   trustTier: MemoryTrustTier;
+  /** Searchable rows are only eligible for automatic prompt injection when true. */
+  autoInjectable?: boolean;
   ownerUserId: number | null;
   createdAt: string;
   updatedAt: string;
@@ -45,6 +47,7 @@ export interface CreateAgentMemoryInput {
   source?: string;
   sourceId?: string;
   tagsJson?: string;
+  autoInjectable?: boolean;
   ownerUserId?: number;
 }
 
@@ -54,6 +57,8 @@ export interface MemorySearchOptions {
    * including explicit MCP recall, leave this false and see inactive rows.
    */
   activeOnly?: boolean;
+  /** Automatic prompt injection only; explicit/on-demand search leaves this false. */
+  injectableOnly?: boolean;
   /** YYYY-MM-DD boundary captured at retrieval call time. */
   today?: string;
 }
@@ -82,6 +87,7 @@ function rowToModel(row: Record<string, unknown>): AgentMemory {
         ? row.generated_at
         : (row.generated_at as Date).toISOString(),
     trustTier: (row.trust_tier as MemoryTrustTier) ?? 'unverified',
+    autoInjectable: row.auto_injectable === true || row.auto_injectable === 1,
     ownerUserId: (row.owner_user_id as number | null) ?? null,
     createdAt:
       typeof row.created_at === 'string'
@@ -218,20 +224,24 @@ export class AgentMemoryRepository {
   async createAsync(input: CreateAgentMemoryInput): Promise<AgentMemory> {
     const id = randomUUID();
     const now = new Date().toISOString();
+    const autoInjectable = input.autoInjectable
+      ?? ['fact', 'preference', 'context', 'person', 'project'].includes(input.kind ?? 'fact');
 
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(
         `INSERT INTO agent_memory
-           (id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           (id, kind, content, source, source_id, tags_json, auto_injectable,
+            owner_user_id, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          RETURNING id, kind, content, source, source_id, tags_json,
                    status, stale_after, verified_json, sources_json,
-                   generated_by, generated_at, trust_tier,
+                   generated_by, generated_at, trust_tier, auto_injectable,
                    owner_user_id, created_at, updated_at`,
         [
           id, input.kind ?? 'fact', input.content,
           input.source ?? null, input.sourceId ?? null,
-          input.tagsJson ?? '[]', input.ownerUserId ?? null, now, now,
+          input.tagsJson ?? '[]', autoInjectable,
+          input.ownerUserId ?? null, now, now,
         ],
       );
       return rowToModel(r.rows[0]);
@@ -239,12 +249,14 @@ export class AgentMemoryRepository {
 
     getDb().prepare(`
       INSERT INTO agent_memory
-        (id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?)
+        (id, kind, content, source, source_id, tags_json, auto_injectable,
+         owner_user_id, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?)
     `).run(
       id, input.kind ?? 'fact', input.content,
       input.source ?? null, input.sourceId ?? null,
-      input.tagsJson ?? '[]', input.ownerUserId ?? null, now, now,
+      input.tagsJson ?? '[]', autoInjectable ? 1 : 0,
+      input.ownerUserId ?? null, now, now,
     );
 
     // Sync FTS index
@@ -267,7 +279,7 @@ export class AgentMemoryRepository {
       const r = await getPostgresPool().query(
         `SELECT id, kind, content, source, source_id, tags_json,
                 status, stale_after, verified_json, sources_json,
-                generated_by, generated_at, trust_tier,
+                generated_by, generated_at, trust_tier, auto_injectable,
                 owner_user_id, created_at, updated_at
          FROM agent_memory WHERE id = $1`,
         [id],
@@ -277,7 +289,7 @@ export class AgentMemoryRepository {
     const row = getDb().prepare(`
       SELECT id, kind, content, source, source_id, tags_json,
              status, stale_after, verified_json, sources_json,
-             generated_by, generated_at, trust_tier,
+             generated_by, generated_at, trust_tier, auto_injectable,
              owner_user_id, created_at, updated_at
       FROM agent_memory WHERE id = ?
     `).get(id);
@@ -302,6 +314,9 @@ export class AgentMemoryRepository {
         params.push(options.today ?? new Date().toISOString().slice(0, 10));
         filters.push(`(stale_after IS NULL OR stale_after > $${params.length})`);
       }
+      if (options.injectableOnly) {
+        filters.push('auto_injectable = TRUE');
+      }
       params.push(limit);
       const extraFilters = filters.length > 0
         ? `AND ${filters.join(' AND ')}`
@@ -309,7 +324,7 @@ export class AgentMemoryRepository {
       const r = await getPostgresPool().query(
         `SELECT id, kind, content, source, source_id, tags_json,
                 status, stale_after, verified_json, sources_json,
-                generated_by, generated_at, trust_tier,
+                generated_by, generated_at, trust_tier, auto_injectable,
                 owner_user_id, created_at, updated_at,
                 ts_rank(search_vector, plainto_tsquery('english', $1)) AS rank
          FROM agent_memory
@@ -328,6 +343,9 @@ export class AgentMemoryRepository {
         ? `AND m.status != 'deprecated'
            AND (m.stale_after IS NULL OR m.stale_after > ?)`
         : '';
+      const injectableFilter = options.injectableOnly
+        ? 'AND m.auto_injectable = 1'
+        : '';
       const params: unknown[] = [query];
       if (ownerUserId != null) params.push(ownerUserId);
       if (options.activeOnly) {
@@ -337,11 +355,11 @@ export class AgentMemoryRepository {
       const rows = getDb().prepare(`
         SELECT m.id, m.kind, m.content, m.source, m.source_id, m.tags_json,
                m.status, m.stale_after, m.verified_json, m.sources_json,
-               m.generated_by, m.generated_at, m.trust_tier,
+               m.generated_by, m.generated_at, m.trust_tier, m.auto_injectable,
                m.owner_user_id, m.created_at, m.updated_at
         FROM agent_memory m
         JOIN agent_memory_fts f ON m.rowid = f.rowid
-        WHERE agent_memory_fts MATCH ? ${ownerFilter} ${activeFilter}
+        WHERE agent_memory_fts MATCH ? ${ownerFilter} ${activeFilter} ${injectableFilter}
         ORDER BY rank
         LIMIT ?
       `).all(...params);
@@ -354,6 +372,9 @@ export class AgentMemoryRepository {
         ? `AND status != 'deprecated'
            AND (stale_after IS NULL OR stale_after > ?)`
         : '';
+      const injectableFilter = options.injectableOnly
+        ? 'AND auto_injectable = 1'
+        : '';
       const params: unknown[] = [likeQuery];
       if (ownerUserId != null) params.push(ownerUserId);
       if (options.activeOnly) {
@@ -363,10 +384,10 @@ export class AgentMemoryRepository {
       const rows = getDb().prepare(
         `SELECT id, kind, content, source, source_id, tags_json,
                 status, stale_after, verified_json, sources_json,
-                generated_by, generated_at, trust_tier,
+                generated_by, generated_at, trust_tier, auto_injectable,
                 owner_user_id, created_at, updated_at
          FROM agent_memory
-         WHERE content LIKE ? ${ownerFilter} ${activeFilter}
+         WHERE content LIKE ? ${ownerFilter} ${activeFilter} ${injectableFilter}
          LIMIT ?`,
       ).all(...params);
       return (rows as Record<string, unknown>[]).map(rowToModel);
@@ -383,7 +404,7 @@ export class AgentMemoryRepository {
       const r = await getPostgresPool().query(
         `SELECT id, kind, content, source, source_id, tags_json,
                 status, stale_after, verified_json, sources_json,
-                generated_by, generated_at, trust_tier,
+                generated_by, generated_at, trust_tier, auto_injectable,
                 owner_user_id, created_at, updated_at
          FROM agent_memory WHERE source = $1 AND source_id = ANY($2::text[]) ${ownerFilter}`,
         params,
@@ -398,7 +419,7 @@ export class AgentMemoryRepository {
     const rows = getDb().prepare(
       `SELECT id, kind, content, source, source_id, tags_json,
               status, stale_after, verified_json, sources_json,
-              generated_by, generated_at, trust_tier,
+              generated_by, generated_at, trust_tier, auto_injectable,
               owner_user_id, created_at, updated_at
        FROM agent_memory WHERE source = ? AND source_id IN (${placeholders}) ${ownerFilter}`,
     ).all(...params);
@@ -416,7 +437,7 @@ export class AgentMemoryRepository {
       const r = await getPostgresPool().query(
         `SELECT id, kind, content, source, source_id, tags_json,
                 status, stale_after, verified_json, sources_json,
-                generated_by, generated_at, trust_tier,
+                generated_by, generated_at, trust_tier, auto_injectable,
                 owner_user_id, created_at, updated_at
          FROM agent_memory ${where} ORDER BY created_at DESC LIMIT $${params.length}`,
         params,
@@ -433,7 +454,7 @@ export class AgentMemoryRepository {
     const rows = getDb().prepare(
       `SELECT id, kind, content, source, source_id, tags_json,
               status, stale_after, verified_json, sources_json,
-              generated_by, generated_at, trust_tier,
+              generated_by, generated_at, trust_tier, auto_injectable,
               owner_user_id, created_at, updated_at
        FROM agent_memory ${where} ORDER BY created_at DESC LIMIT ?`,
     ).all(...params);
@@ -464,6 +485,7 @@ export class AgentMemoryRepository {
     generatedBy?: string | null;
     generatedAt?: string | null;
     trustTier?: MemoryTrustTier;
+    autoInjectable?: boolean;
     ownerUserId?: number | null;
   }): Promise<boolean> {
     const now = new Date().toISOString();
@@ -479,14 +501,15 @@ export class AgentMemoryRepository {
              SET kind = $1, content = $2, tags_json = $3,
                  status = $4, stale_after = $5, verified_json = $6,
                  sources_json = $7, generated_by = $8, generated_at = $9,
-                 trust_tier = $10, updated_at = $11
-           WHERE id = $12`,
+                 trust_tier = $10, auto_injectable = $11, updated_at = $12
+           WHERE id = $13`,
           [
             input.kind, input.content, input.tagsJson,
             input.status ?? 'stable', input.staleAfter ?? null,
             input.verifiedJson ?? '[]', input.sourcesJson ?? '[]',
             input.generatedBy ?? null, input.generatedAt ?? null,
-            input.trustTier ?? 'unverified', now, existing.rows[0].id,
+            input.trustTier ?? 'unverified', input.autoInjectable ?? false,
+            now, existing.rows[0].id,
           ],
         );
         return false;
@@ -496,15 +519,16 @@ export class AgentMemoryRepository {
         `INSERT INTO agent_memory
            (id, kind, content, source, source_id, tags_json,
             status, stale_after, verified_json, sources_json,
-            generated_by, generated_at, trust_tier,
+            generated_by, generated_at, trust_tier, auto_injectable,
             owner_user_id, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
         [
           id, input.kind, input.content, input.source, input.sourceId,
           input.tagsJson, input.status ?? 'stable', input.staleAfter ?? null,
           input.verifiedJson ?? '[]', input.sourcesJson ?? '[]',
           input.generatedBy ?? null, input.generatedAt ?? null,
-          input.trustTier ?? 'unverified', input.ownerUserId ?? null, now, now,
+          input.trustTier ?? 'unverified', input.autoInjectable ?? false,
+          input.ownerUserId ?? null, now, now,
         ],
       );
       return true;
@@ -525,7 +549,7 @@ export class AgentMemoryRepository {
            SET kind = ?, content = ?, tags_json = ?,
                status = ?, stale_after = ?, verified_json = ?, sources_json = ?,
                generated_by = ?, generated_at = ?, trust_tier = ?,
-               updated_at = ?
+               auto_injectable = ?, updated_at = ?
          WHERE id = ?
       `).run(
         input.kind,
@@ -538,6 +562,7 @@ export class AgentMemoryRepository {
         input.generatedBy ?? null,
         input.generatedAt ?? null,
         input.trustTier ?? 'unverified',
+        input.autoInjectable ? 1 : 0,
         now,
         existing.id,
       );
@@ -550,9 +575,9 @@ export class AgentMemoryRepository {
       INSERT INTO agent_memory
         (id, kind, content, source, source_id, tags_json,
          status, stale_after, verified_json, sources_json,
-         generated_by, generated_at, trust_tier,
+         generated_by, generated_at, trust_tier, auto_injectable,
          owner_user_id, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       id, input.kind, input.content, input.source, input.sourceId,
       input.tagsJson,
@@ -563,6 +588,7 @@ export class AgentMemoryRepository {
       input.generatedBy ?? null,
       input.generatedAt ?? null,
       input.trustTier ?? 'unverified',
+      input.autoInjectable ? 1 : 0,
       input.ownerUserId ?? null,
       now,
       now,

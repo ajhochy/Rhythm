@@ -94,7 +94,8 @@ function mem(over: Partial<AgentMemory>): AgentMemory {
     generatedBy: null,
     generatedAt: null,
     trustTier: 'unverified',
-    ownerUserId: null,
+    autoInjectable: true,
+    ownerUserId: 1,
     createdAt: 'x',
     updatedAt: 'x',
     ...over,
@@ -113,25 +114,28 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
   });
 
   it('enabled (default) + matching memory → preface contains "Known context" + the memory content + ids', async () => {
-    const a = mem({ id: 'mem-a', content: 'The senior pastor prefers Tuesday meetings' });
+    const a = mem({
+      id: 'mem-a',
+      ownerUserId: 7,
+      content: 'The senior pastor meeting schedule prefers Tuesday meetings',
+    });
     const b = mem({ id: 'mem-b', content: 'Budget approvals go through the elder board' });
     const fakeGetRelevant = vi.fn().mockResolvedValue([a, b]);
 
-    const preface = await buildMemoryPreface('when should we schedule the meeting', 7, {
+    const preface = await buildMemoryPreface('senior pastor meeting schedule', 7, {
       getRelevant: fakeGetRelevant,
     });
 
     expect(fakeGetRelevant).toHaveBeenCalledOnce();
     // owner threaded straight through to retrieval
-    expect(fakeGetRelevant).toHaveBeenCalledWith('when should we schedule the meeting', 7, 5);
+    expect(fakeGetRelevant).toHaveBeenCalledWith('senior pastor meeting schedule', 7, 5);
     expect(preface.text).toContain('## Known context (facts & preferences)');
-    expect(preface.text).toContain('The senior pastor prefers Tuesday meetings');
-    expect(preface.text).toContain('Budget approvals go through the elder board');
-    expect(preface.memoryIds).toEqual(['mem-a', 'mem-b']);
+    expect(preface.text).toContain('The senior pastor meeting schedule prefers Tuesday meetings');
+    expect(preface.text).not.toContain('Budget approvals go through the elder board');
+    expect(preface.memoryIds).toEqual(['mem-a']);
     expect(preface.text).toBe([
       '## Known context (facts & preferences)',
-      '- The senior pastor prefers Tuesday meetings',
-      '- Budget approvals go through the elder board',
+      '- The senior pastor meeting schedule prefers Tuesday meetings',
     ].join('\n'));
   });
 
@@ -164,13 +168,13 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
 
   it('defensively excludes inactive rows returned by a custom retrieval hook', async () => {
     const fakeGetRelevant = vi.fn().mockResolvedValue([
-      mem({ id: 'stale', content: 'Expired detail', staleAfter: '2000-01-01' }),
-      mem({ id: 'deprecated', content: 'Deprecated detail', status: 'deprecated' }),
+      mem({ id: 'stale', content: 'Current expired detail', staleAfter: '2000-01-01' }),
+      mem({ id: 'deprecated', content: 'Current deprecated detail', status: 'deprecated' }),
       mem({ id: 'live', content: 'Current detail' }),
     ]);
 
-    await expect(buildMemoryPreface('q', 1, { getRelevant: fakeGetRelevant }))
-      .resolves.toEqual({
+    await expect(buildMemoryPreface('current detail', 1, { getRelevant: fakeGetRelevant }))
+      .resolves.toMatchObject({
         text: '## Known context (facts & preferences)\n- Current detail',
         memoryIds: ['live'],
         notePaths: [null],
@@ -190,16 +194,16 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
       findBySourceIdsAsync: vi.fn(),
     };
 
-    const preface = await buildMemoryPreface('detail', 1, {
+    const preface = await buildMemoryPreface('direct detail', 1, {
       getRelevant: vi.fn().mockResolvedValue([direct]),
       linkRepository,
       memoryDir: '/vault/memory',
     });
 
-    expect(preface).toEqual({
+    expect(preface).toMatchObject({
       text: [
         '## Known context (facts & preferences)',
-        '- Direct detail. [Linked](/person/linked.md)',
+        '- Direct detail.',
       ].join('\n'),
       memoryIds: ['direct'],
       notePaths: ['memory/fact/direct.md'],
@@ -276,7 +280,7 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
       'memory/person/private.md',
     ]);
 
-    const preface = await buildMemoryPreface('detail', 1, {
+    const preface = await buildMemoryPreface('direct linked detail', 1, {
       topN: 3,
       getRelevant: vi.fn().mockResolvedValue([direct]),
       linkRepository,
@@ -324,7 +328,7 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
     };
     const memoryDir = memoryDirWithNotes([]);
 
-    const preface = await buildMemoryPreface('detail', 1, {
+    const preface = await buildMemoryPreface('direct deleted detail', 1, {
       topN: 2,
       getRelevant: vi.fn().mockResolvedValue([direct]),
       linkRepository,
@@ -344,11 +348,11 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
     );
     const direct = mem({
       id: 'direct',
-      content: sourceIds
+      content: `Linked content bundle. ${sourceIds
         .map((sourceId, index) =>
           `[Linked ${index}](/person/${path.basename(sourceId)})`,
         )
-        .join(' '),
+        .join(' ')}`,
       source: 'obsidian-memory',
       sourceId: 'memory/fact/direct.md',
       ownerUserId: 1,
@@ -363,7 +367,7 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
     });
     const late = mem({
       id: 'late',
-      content: 'Late active content',
+      content: 'Late active linked content',
       source: 'obsidian-memory',
       sourceId: sourceIds[200],
       ownerUserId: 1,
@@ -377,7 +381,7 @@ describe('memory injection — buildMemoryPreface (toggle + format)', () => {
     };
     const memoryDir = memoryDirWithNotes(sourceIds);
 
-    const preface = await buildMemoryPreface('detail', 1, {
+    const preface = await buildMemoryPreface('linked content', 1, {
       topN: 2,
       getRelevant: vi.fn().mockResolvedValue([direct]),
       linkRepository,
@@ -439,7 +443,7 @@ describe('memory injection — getRelevantMemories is OWNER-SCOPED (no cross-use
     });
     const memoryDir = memoryDirWithNotes(['memory/person/private.md']);
 
-    const preface = await buildMemoryPreface('direct', 1, {
+    const preface = await buildMemoryPreface('Alice direct context', 1, {
       topN: 3,
       getRelevant: vi.fn().mockResolvedValue([direct]),
       linkRepository: repo,
