@@ -1046,6 +1046,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       id TEXT PRIMARY KEY,
       task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
       agent_kind TEXT NOT NULL,
+      profile_id TEXT,
       status TEXT NOT NULL DEFAULT 'starting',
       session_token TEXT,
       cwd TEXT NOT NULL,
@@ -1055,6 +1056,11 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+  // MSP-001 — production parity for existing databases. Additive, nullable,
+  // and idempotent; no legacy row is assigned a guessed Rhythm profile.
+  await pool.query(`
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS profile_id TEXT;
   `);
 
   // Agent-runner model selection: store preferred provider/model on agent_configs.
