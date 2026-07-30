@@ -1,8 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, ScrollView, Text as NativeText, View } from 'react-native';
 import { useState } from 'react';
-import { Appbar, Button, Menu, Portal, ProgressBar, Text } from 'react-native-paper';
+import { Appbar, Button, Portal, ProgressBar, Text } from 'react-native-paper';
 
+import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
 import { Colors } from '@/constants/theme';
 import { getSessionSubtitle } from '@/lib/opencode/format';
 import type { Session } from '@/lib/opencode/types';
@@ -10,12 +11,22 @@ import { formatEstimatedCost, formatTokenCount, type SessionUsage } from '@/lib/
 
 import { ConversationOverlay } from '@/components/chat/chat-overlay';
 import { styles } from '@/components/chat/chat-view-styles';
-import type { ConversationPhase } from '@/providers/opencode-provider';
+import type {
+  AgentOption,
+  ChatPreferences,
+  ConversationPhase,
+  ModelOption,
+  ProviderOption,
+} from '@/providers/opencode-provider';
 
 type Palette = typeof Colors.light;
 
 type ChatHeaderProps = {
   connectionStatus: 'idle' | 'connecting' | 'connected' | 'error';
+  availableModels: ModelOption[];
+  availableProfiles: AgentOption[];
+  availableProviders: ProviderOption[];
+  chatPreferences: ChatPreferences;
   conversation: {
     active: boolean;
     latestHeardText?: string;
@@ -36,6 +47,9 @@ type ChatHeaderProps = {
   onOpenSettings: () => void;
   onShowChanges: () => void;
   onToggleConversationMode: () => void;
+  onUpdateSessionPreferences: (
+    preferences: Partial<ChatPreferences>,
+  ) => Promise<ChatPreferences>;
   palette: Palette;
   selectedSession?: Session;
   sessionMenuVisible: boolean;
@@ -48,6 +62,10 @@ type ChatHeaderProps = {
 };
 
 export function ChatHeader({
+  availableModels,
+  availableProfiles,
+  availableProviders,
+  chatPreferences,
   connectionStatus,
   conversation,
   currentSessionId,
@@ -69,6 +87,7 @@ export function ChatHeader({
   onOpenSettings,
   onShowChanges,
   onToggleConversationMode,
+  onUpdateSessionPreferences,
   palette,
   selectedSession,
   sessionMenuVisible,
@@ -137,71 +156,76 @@ export function ChatHeader({
               {showingChanges ? 'Session' : `${diffCount} Files Changed`}
             </Button>
           ) : null}
-          <Menu
-            anchor={
-              <Pressable
-                accessibilityLabel="Chat menu"
-                accessibilityRole="button"
-                onPress={() => setActionsVisible(true)}
-                style={({ pressed }) => [
-                  styles.headerAction,
-                  pressed && styles.headerActionPressed,
-                ]}>
-                <MaterialCommunityIcons
-                  name="dots-horizontal"
-                  size={24}
-                  color={palette.muted}
-                />
-              </Pressable>
-            }
-            onDismiss={() => setActionsVisible(false)}
-            visible={actionsVisible}>
-            <Menu.Item
-              leadingIcon="plus"
-              disabled={isCreatingSession || connectionStatus !== 'connected'}
-              onPress={() => {
-                setActionsVisible(false);
-                onCreateSession();
-              }}
-              title="New chat"
+          <Pressable
+            accessibilityLabel="Session configuration"
+            accessibilityRole="button"
+            onPress={() => setActionsVisible(true)}
+            style={({ pressed }) => [
+              styles.headerAction,
+              pressed && styles.headerActionPressed,
+            ]}>
+            <MaterialCommunityIcons
+              name="dots-horizontal"
+              size={24}
+              color={palette.muted}
             />
-            <Menu.Item
-              leadingIcon={usageIcon}
-              onPress={() => {
-                setActionsVisible(false);
-                setUsageVisible(true);
-              }}
-              title="Usage"
-            />
-            <Menu.Item
-              leadingIcon={conversation.active ? 'phone-hangup' : 'headset'}
-              disabled={connectionStatus !== 'connected' || isCreatingSession}
-              onPress={() => {
-                setActionsVisible(false);
-                onToggleConversationMode();
-              }}
-              title={conversation.active ? 'Stop conversation' : 'Conversation mode'}
-            />
-            <Menu.Item
-              testID="chat-session-tools-toggle"
-              leadingIcon="wrench-outline"
-              onPress={() => {
-                setActionsVisible(false);
-                onManage();
-              }}
-              title="Manage"
-            />
-            <Menu.Item
-              leadingIcon="cog-outline"
-              onPress={() => {
-                setActionsVisible(false);
-                onOpenSettings();
-              }}
-              title="Settings"
-            />
-          </Menu>
+          </Pressable>
         </View>
       </Appbar.Header>
+      <SessionConfigurationSheet
+        availableModels={availableModels}
+        availableProfiles={availableProfiles}
+        availableProviders={availableProviders}
+        mode="edit"
+        onDismiss={() => setActionsVisible(false)}
+        onPreferencesChange={onUpdateSessionPreferences}
+        palette={palette}
+        preferences={chatPreferences}
+        visible={actionsVisible}>
+        <Button
+          icon="plus"
+          disabled={isCreatingSession || connectionStatus !== 'connected'}
+          onPress={() => {
+            setActionsVisible(false);
+            onCreateSession();
+          }}>
+          New chat
+        </Button>
+        <Button
+          icon={usageIcon}
+          onPress={() => {
+            setActionsVisible(false);
+            setUsageVisible(true);
+          }}>
+          Usage
+        </Button>
+        <Button
+          icon={conversation.active ? 'phone-hangup' : 'headset'}
+          disabled={connectionStatus !== 'connected' || isCreatingSession}
+          onPress={() => {
+            setActionsVisible(false);
+            onToggleConversationMode();
+          }}>
+          {conversation.active ? 'Stop conversation' : 'Conversation mode'}
+        </Button>
+        <Button
+          testID="chat-session-tools-toggle"
+          icon="wrench-outline"
+          onPress={() => {
+            setActionsVisible(false);
+            onManage();
+          }}>
+          Manage
+        </Button>
+        <Button
+          icon="cog-outline"
+          onPress={() => {
+            setActionsVisible(false);
+            onOpenSettings();
+          }}>
+          Settings
+        </Button>
+      </SessionConfigurationSheet>
       <Portal>
         {sessionMenuVisible ? (
           <View style={styles.sessionPickerOverlay}>

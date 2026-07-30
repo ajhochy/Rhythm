@@ -5,7 +5,6 @@ import { PaperProvider } from 'react-native-paper';
 
 import { ChatComposer } from '@/components/chat/chat-composer';
 import { Colors } from '@/constants/theme';
-import { defaultChatPreferences } from '@/providers/opencode-provider-utils';
 
 const MIN_INPUT_HEIGHT = 24;
 const MAX_INPUT_HEIGHT = 132;
@@ -17,8 +16,6 @@ function ComposerHarness({ initialDraft = '' }: { initialDraft?: string }) {
     <PaperProvider>
       <ChatComposer
         attachments={[]}
-        availableAgents={[]}
-        chatPreferences={defaultChatPreferences}
         commands={[]}
         connectionStatus="connected"
         conversation={{ active: false, isListening: false, phase: 'off' }}
@@ -28,20 +25,14 @@ function ComposerHarness({ initialDraft = '' }: { initialDraft?: string }) {
         isSpeechInputAvailable={false}
         isSpeechInputListening={false}
         isStoppingSession={false}
-        isUpdatingAutoApprove={false}
-        modelPickerGroups={[]}
         onAttach={jest.fn()}
         onCommandSelect={jest.fn()}
         onDraftChange={setDraft}
         onRemoveAttachment={jest.fn()}
         onSend={jest.fn()}
-        onToggleAutoApprove={jest.fn()}
         onToggleRecording={jest.fn()}
         palette={Colors.light}
-        selectedAgentLabel="Build"
         showSendAction
-        updateChatPreferences={jest.fn()}
-        visibleModels={[]}
       />
     </PaperProvider>
   );

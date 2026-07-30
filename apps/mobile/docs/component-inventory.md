@@ -109,18 +109,15 @@ type ChatContentProps = {
 
 ### Responsibility
 
-- render controls for agent/model/reasoning selection
-- render auto-approve toggle
 - render optional conversation banner
 - render attachments, voice status, prompt input, and action buttons
+- grow the native multiline input to its cap and scroll longer drafts
 
 ### Prop contract
 
 ```ts
 type ChatComposerProps = {
   attachments: { uri: string; mime?: string; filename?: string }[]
-  availableAgents: AgentOption[]
-  chatPreferences: ChatPreferences
   connectionStatus: 'idle' | 'connecting' | 'connected' | 'error'
   conversation: { active: boolean; isListening: boolean; phase: string; statusLabel?: string }
   draft: string
@@ -129,19 +126,14 @@ type ChatComposerProps = {
   isSpeechInputAvailable: boolean
   isSpeechInputListening: boolean
   isStoppingSession: boolean
-  isUpdatingAutoApprove: boolean
   onAttach: () => void
   onDraftChange: (value: string) => void
   onRemoveAttachment: (index: number) => void
   onSend: () => void
-  onToggleAutoApprove: () => void
   onToggleRecording: () => void
   palette: Palette
-  selectedAgentLabel: string
   showSendAction: boolean
   currentSessionId?: string
-  visibleModels: ModelOption[]
-  updateChatPreferences: (patch: Partial<ChatPreferences>) => void
   commands: Command[]
   onCommandSelect: (command: string) => void
 }
@@ -158,8 +150,22 @@ type ChatComposerProps = {
 
 - top app bar
 - session picker sheet
+- accessible three-dot session configuration sheet
 - compact current-session usage summary and usage breakdown sheet
 - mounting point for conversation overlay
+
+## `components/chat/session-configuration-sheet.tsx`
+
+### Responsibility
+
+- provide the shared Secretary-first new-chat flow
+- edit Profile, Model, Reasoning, and Approval Policy for one session
+- search profiles and models by labels, stable IDs, provider, and account
+  metadata
+- explain that Approval Policy is scoped only to the current chat
+
+The edit mode persists through the provider's session-state PATCH seam. It
+does not call the global OpenCode auto-approval configuration path.
 
 ### Prop contract
 

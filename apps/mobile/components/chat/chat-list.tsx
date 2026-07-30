@@ -23,17 +23,20 @@ import {
   TextInput,
 } from 'react-native-paper';
 
+import { SessionConfigurationSheet } from '@/components/chat/session-configuration-sheet';
 import { ToolScreenState } from '@/components/tools/tool-screen-state';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useAgentChat } from '@/providers/agent-chat-provider';
 import { useOpencode } from '@/providers/opencode-provider';
 import { usePairedHost } from '@/providers/paired-host-provider';
+import type { AgentOption } from '@/providers/opencode-provider-types';
 import {
   buildAgentChatReadModel,
   type AgentChatLifecycle,
   type AgentChatRecord,
 } from '@/providers/services/agent-chat-service';
+import { listMobileGatewayProfiles } from '@/providers/services/mobile-gateway-service';
 
 interface FlatChat extends AgentChatRecord {
   depth: number;
@@ -62,9 +65,11 @@ export function ChatList() {
     useState<AgentChatLifecycle | 'all'>('all');
   const [projectMenuVisible, setProjectMenuVisible] = useState(false);
   const [actionMenuId, setActionMenuId] = useState<string | null>(null);
+  const [createSheetVisible, setCreateSheetVisible] = useState(false);
+  const [creationProfiles, setCreationProfiles] = useState<AgentOption[]>([]);
   const [dialog, setDialog] = useState<{
-    kind: 'create' | 'rename';
-    target?: AgentChatRecord;
+    kind: 'rename';
+    target: AgentChatRecord;
   } | null>(null);
   const [title, setTitle] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -94,6 +99,42 @@ export function ChatList() {
   }, [projectsByPath, query, readModel]);
   const selectedProject =
     (projectId ? projectsByPath.get(projectId) : null) ?? null;
+
+  function targetProjectForNewChat() {
+    return (
+      projectId ??
+      opencode.activeProjectPath ??
+      opencode.projects[0]?.path
+    );
+  }
+
+  async function openCreateSheet() {
+    const targetProject = targetProjectForNewChat();
+    if (!targetProject) {
+      setFeedback('Choose a project before creating a chat.');
+      return;
+    }
+    try {
+      const profiles =
+        targetProject === opencode.activeProjectPath &&
+        opencode.availableAgents.length > 0
+          ? opencode.availableAgents
+          : pairedHost.client
+            ? await listMobileGatewayProfiles(
+                pairedHost.client,
+                targetProject,
+              )
+            : [];
+      setCreationProfiles(profiles);
+      setCreateSheetVisible(true);
+    } catch (reason) {
+      setFeedback(
+        reason instanceof Error
+          ? reason.message
+          : 'Could not load profiles for this project.',
+      );
+    }
+  }
 
   function openChat(record: AgentChatRecord) {
     router.push({
@@ -127,31 +168,6 @@ export function ChatList() {
 
   async function submitDialog() {
     if (!dialog) return;
-    const targetProject =
-      dialog.target?.projectId ??
-      projectId ??
-      opencode.activeProjectPath ??
-      opencode.projects[0]?.path;
-    if (!targetProject) {
-      setFeedback('Choose a project before creating a chat.');
-      return;
-    }
-    if (dialog.kind === 'create') {
-      setBusyId('create');
-      try {
-        const created = await chat.createChat(targetProject, title);
-        setDialog(null);
-        setTitle('');
-        openChat(created as unknown as AgentChatRecord);
-      } catch (reason) {
-        setFeedback(
-          reason instanceof Error ? reason.message : 'Could not create chat.',
-        );
-      } finally {
-        setBusyId(null);
-      }
-      return;
-    }
     const target = dialog.target;
     if (!target?.projectId) return;
     await run(
@@ -207,10 +223,7 @@ export function ChatList() {
           accessibilityLabel="Create chat"
           disabled={!chat.isOnline || busyId === 'create'}
           icon="plus"
-          onPress={() => {
-            setTitle('');
-            setDialog({ kind: 'create' });
-          }}
+          onPress={() => void openCreateSheet()}
         />
       </Appbar.Header>
 
@@ -459,7 +472,7 @@ export function ChatList() {
           onDismiss={() => setDialog(null)}
           visible={dialog !== null}>
           <Dialog.Title>
-            {dialog?.kind === 'rename' ? 'Rename chat' : 'New chat'}
+            Rename chat
           </Dialog.Title>
           <Dialog.Content>
             <TextInput
@@ -475,14 +488,41 @@ export function ChatList() {
             <Button
               disabled={
                 busyId !== null ||
-                (dialog?.kind === 'rename' && !title.trim())
+                !title.trim()
               }
               onPress={() => void submitDialog()}>
-              {dialog?.kind === 'rename' ? 'Save' : 'Create'}
+              Save
             </Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
+      <SessionConfigurationSheet
+        availableModels={opencode.availableModels}
+        availableProfiles={creationProfiles}
+        availableProviders={opencode.configuredProviders}
+        mode="create"
+        onCreate={async (newTitle, preferences) => {
+          const targetProject = targetProjectForNewChat();
+          if (!targetProject) {
+            throw new Error('Choose a project before creating a chat.');
+          }
+          setBusyId('create');
+          try {
+            const created = await chat.createChat(
+              targetProject,
+              newTitle,
+              preferences,
+            );
+            openChat(created as unknown as AgentChatRecord);
+          } finally {
+            setBusyId(null);
+          }
+        }}
+        onDismiss={() => setCreateSheetVisible(false)}
+        palette={palette}
+        preferences={opencode.chatPreferences}
+        visible={createSheetVisible}
+      />
       <Snackbar
         onDismiss={() => setFeedback(null)}
         visible={Boolean(feedback)}>

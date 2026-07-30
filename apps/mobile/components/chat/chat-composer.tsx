@@ -3,12 +3,7 @@ import { Chip, IconButton, Surface, Text, TextInput } from 'react-native-paper';
 import { useEffect, useState } from 'react';
 
 import { Colors } from '@/constants/theme';
-import { ControlButton, SelectControl } from '@/components/chat/chat-controls';
 import { styles } from '@/components/chat/chat-view-styles';
-import { getAutoApproveIcon, getModelLabel, REASONING_OPTIONS } from '@/components/chat/chat-view-utils';
-import { renderProviderIcon } from '@/components/ui/provider-icon';
-import type { AgentOption, ChatPreferences, ModelOption } from '@/providers/opencode-provider';
-import type { ModelPickerGroup } from '@/providers/opencode-provider-selectors';
 import type { Command } from '@/lib/opencode/types';
 
 type Palette = typeof Colors.light;
@@ -21,8 +16,6 @@ const MAX_INPUT_HEIGHT = 132;
 
 type ChatComposerProps = {
   attachments: Attachment[];
-  availableAgents: AgentOption[];
-  chatPreferences: ChatPreferences;
   connectionStatus: 'idle' | 'connecting' | 'connected' | 'error';
   conversation: { active: boolean; isListening: boolean; phase: string; statusLabel?: string };
   draft: string;
@@ -31,28 +24,20 @@ type ChatComposerProps = {
   isSpeechInputAvailable: boolean;
   isSpeechInputListening: boolean;
   isStoppingSession: boolean;
-  isUpdatingAutoApprove: boolean;
   onAttach: () => void;
   onDraftChange: (value: string) => void;
   onRemoveAttachment: (index: number) => void;
   onSend: () => void;
-  onToggleAutoApprove: () => void;
   onToggleRecording: () => void;
   palette: Palette;
-  selectedAgentLabel: string;
   showSendAction: boolean;
   currentSessionId?: string;
-  modelPickerGroups: ModelPickerGroup[];
-  visibleModels: ModelOption[];
-  updateChatPreferences: (patch: Partial<ChatPreferences>) => void;
   commands: Command[];
   onCommandSelect: (command: string) => void;
 };
 
 export function ChatComposer({
   attachments,
-  availableAgents,
-  chatPreferences,
   connectionStatus,
   conversation,
   currentSessionId,
@@ -63,20 +48,14 @@ export function ChatComposer({
   isSpeechInputAvailable,
   isSpeechInputListening,
   isStoppingSession,
-  isUpdatingAutoApprove,
-  modelPickerGroups,
   onAttach,
   onCommandSelect,
   onDraftChange,
   onRemoveAttachment,
   onSend,
-  onToggleAutoApprove,
   onToggleRecording,
   palette,
-  selectedAgentLabel,
   showSendAction,
-  updateChatPreferences,
-  visibleModels,
 }: ChatComposerProps) {
   const hasComposerContent = Boolean(draft.trim()) || attachments.length > 0;
   const showOuterAction = showSendAction ? (hasComposerContent ? 'send' : 'attach') : 'stop';
@@ -108,73 +87,6 @@ export function ChatComposer({
     <Surface
       style={[styles.composer, { backgroundColor: palette.surface, borderTopColor: palette.border, paddingBottom: Math.max(insetsBottom, 12) }]}
       elevation={4}>
-      <View style={styles.controlsRow}>
-        <SelectControl
-          disabled={availableAgents.length === 0}
-          grow
-          iconName="robot-outline"
-          label={selectedAgentLabel}
-          onValueChange={(value) => {
-            const profile = availableAgents.find(
-              (agent) => agent.opencodeAgentId === value,
-            );
-            if (profile) {
-              updateChatPreferences({
-                profileId: profile.profileId,
-                mode: profile.opencodeAgentId,
-              });
-            }
-          }}
-          options={availableAgents.map((agent) => ({
-            value: agent.opencodeAgentId,
-            label: agent.label,
-          }))}
-          selectedValue={chatPreferences.mode}
-          title="Choose assistant mode"
-        />
-        <SelectControl
-          disabled={visibleModels.length === 0}
-          grow
-          icon={(props) => renderProviderIcon(visibleModels.find((model) => model.id === chatPreferences.modelId)?.providerID, props.size, props.color)}
-          label={getModelLabel(visibleModels, chatPreferences.modelId)}
-          onValueChange={(value) => {
-            const model = visibleModels.find((item) => item.id === value);
-            if (!model) {
-              return;
-            }
-            updateChatPreferences({ providerId: model.providerID, modelId: model.id });
-          }}
-          options={modelPickerGroups.flatMap((group) => group.models.map((model) => ({
-            description: [
-              group.accountLabel,
-              model.rankLabel,
-              model.supportsReasoning ? 'Reasoning' : undefined,
-            ].filter(Boolean).join(' · '),
-            label: model.label,
-            leadingIcon: (props: { size: number; color: string }) =>
-              renderProviderIcon(model.providerID, props.size, props.color),
-            sectionLabel: group.accountLabel === group.providerLabel
-              ? group.providerLabel
-              : `${group.providerLabel} — ${group.accountLabel}`,
-            value: model.id,
-          })))}
-          selectedValue={chatPreferences.modelId}
-          title="Choose model"
-        />
-        <SelectControl
-          grow
-          iconName="brain"
-          label={chatPreferences.reasoning}
-          onValueChange={(value) => updateChatPreferences({ reasoning: value })}
-          options={REASONING_OPTIONS.map((option) => ({ value: option.id, label: option.label }))}
-          selectedValue={chatPreferences.reasoning}
-          title="Choose reasoning level"
-        />
-        <ControlButton active={chatPreferences.autoApprove} iconName={getAutoApproveIcon(chatPreferences.autoApprove)} iconOnly loading={isUpdatingAutoApprove} onPress={onToggleAutoApprove}>
-          {chatPreferences.autoApprove ? 'Auto approve enabled' : 'Ask permission'}
-        </ControlButton>
-      </View>
-
       {conversation.active ? (
         <View style={[styles.conversationBanner, { backgroundColor: `${palette.tint}10`, borderColor: `${palette.tint}28` }]}>
           <View style={styles.conversationBannerHeader}>
