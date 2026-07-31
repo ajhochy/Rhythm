@@ -1352,6 +1352,7 @@ export function runMigrations(db: Database.Database): void {
       generated_by TEXT,
       generated_at TEXT,
       trust_tier TEXT NOT NULL DEFAULT 'unverified',
+      auto_injectable INTEGER NOT NULL DEFAULT 0,
       owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1395,6 +1396,14 @@ export function runMigrations(db: Database.Database): void {
   if (!agentMemoryCols.includes('trust_tier')) {
     db.exec(
       `ALTER TABLE agent_memory ADD COLUMN trust_tier TEXT NOT NULL DEFAULT 'unverified'`,
+    );
+  }
+  if (!agentMemoryCols.includes('auto_injectable')) {
+    // Fail closed for existing derived rows. The next vault sync/rebuild
+    // applies explicit frontmatter/path classification; no legacy long-form
+    // document becomes injectable merely because it was already indexed.
+    db.exec(
+      `ALTER TABLE agent_memory ADD COLUMN auto_injectable INTEGER NOT NULL DEFAULT 0`,
     );
   }
   db.exec(`
@@ -1878,6 +1887,22 @@ export function runMigrations(db: Database.Database): void {
   if (!agentSessionCols743.includes('parent_session_id')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN parent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL`);
   }
+  // A child session.created event can arrive before the parent row receives
+  // its SDK id. Persist that unresolved edge so setSdkSessionId can resolve it
+  // durably when the parent identity arrives (including after a restart).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_pending_child_sessions (
+      child_sdk_session_id TEXT PRIMARY KEY,
+      parent_sdk_session_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      cwd TEXT NOT NULL,
+      mcp_allowed_tools_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_pending_children_parent_sdk
+      ON agent_pending_child_sessions(parent_sdk_session_id);
+  `);
 
   // #747 — agent_sessions.is_system: marks background/system sessions (skill-extract,
   // skill-refine-judge, scheduler-spawned, memory consolidation) so they are excluded
@@ -2043,9 +2068,19 @@ export function runMigrations(db: Database.Database): void {
       session_id TEXT PRIMARY KEY,
       memory_ids_json TEXT NOT NULL DEFAULT '[]',
       note_paths_json TEXT NOT NULL DEFAULT '[]',
+      items_json TEXT NOT NULL DEFAULT '[]',
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+  const memoryProvenanceCols = (
+    db.pragma('table_info(agent_session_memory_provenance)') as { name: string }[]
+  ).map((column) => column.name);
+  if (!memoryProvenanceCols.includes('items_json')) {
+    db.exec(
+      `ALTER TABLE agent_session_memory_provenance
+       ADD COLUMN items_json TEXT NOT NULL DEFAULT '[]'`,
+    );
+  }
 
   // Dual Anthropic accounts (Task D) — per-session account routing + a
   // per-profile default. anthropic_account_id is the account a session's
@@ -2797,6 +2832,72 @@ If someone asks for creative work that needs a local capability:
   if (!agentSessionCols1058.includes('worktree_branch')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN worktree_branch TEXT`);
   }
+
+  // Delegated-session isolation repair. Only a child still classified Chat
+  // whose resolved parent is non-Chat is eligible. Copy the parent's complete
+  // catalog/execution scope, while preserving child-owned identity, SDK,
+  // permission, status, MCP allowlist, and timestamps. Once category changes,
+  // the predicate no longer matches, so repeated boots affect zero rows.
+  db.exec(`
+    UPDATE agent_sessions AS child
+       SET task_id = (
+             SELECT parent.task_id FROM agent_sessions AS parent
+              WHERE parent.id = child.parent_session_id
+           ),
+           task_title = (
+             SELECT parent.task_title FROM agent_sessions AS parent
+              WHERE parent.id = child.parent_session_id
+           ),
+           project_id = (
+             SELECT parent.project_id FROM agent_sessions AS parent
+              WHERE parent.id = child.parent_session_id
+           ),
+           scheduled_task_id = (
+             SELECT parent.scheduled_task_id FROM agent_sessions AS parent
+              WHERE parent.id = child.parent_session_id
+           ),
+           is_system = (
+             SELECT parent.is_system FROM agent_sessions AS parent
+              WHERE parent.id = child.parent_session_id
+           ),
+           anthropic_account_id = (
+             SELECT parent.anthropic_account_id FROM agent_sessions AS parent
+              WHERE parent.id = child.parent_session_id
+           ),
+           owner_user_id = (
+             SELECT parent.owner_user_id FROM agent_sessions AS parent
+              WHERE parent.id = child.parent_session_id
+           ),
+           delegation_depth = (
+             SELECT COALESCE(parent.delegation_depth, 0) + 1
+               FROM agent_sessions AS parent
+              WHERE parent.id = child.parent_session_id
+           ),
+           category = (
+             SELECT parent.category FROM agent_sessions AS parent
+              WHERE parent.id = child.parent_session_id
+           ),
+           worktree_name = (
+             SELECT parent.worktree_name FROM agent_sessions AS parent
+              WHERE parent.id = child.parent_session_id
+           ),
+           worktree_path = (
+             SELECT parent.worktree_path FROM agent_sessions AS parent
+              WHERE parent.id = child.parent_session_id
+           ),
+           worktree_branch = (
+             SELECT parent.worktree_branch FROM agent_sessions AS parent
+              WHERE parent.id = child.parent_session_id
+           )
+     WHERE child.parent_session_id IS NOT NULL
+       AND child.category = 'chat'
+       AND EXISTS (
+             SELECT 1
+               FROM agent_sessions AS parent
+              WHERE parent.id = child.parent_session_id
+                AND parent.category <> 'chat'
+           );
+  `);
   runOnce('issue_1058_worktree_fields', () => {
     // Marker only — the additive ALTERs above are idempotent STRUCTURE changes.
     // This runOnce records that the #1058 worktree-fields migration landed

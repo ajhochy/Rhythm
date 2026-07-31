@@ -1689,10 +1689,15 @@ export class AgentSessionsController {
       if (!session) throw AppError.notFound('AgentSession');
       const record = new AgentSessionMemoryProvenanceRepository().getLatest(req.params.id);
       if (!record) {
-        res.json({ recorded: false, memoryIds: [], notePaths: [] });
+        res.json({ recorded: false, memoryIds: [], notePaths: [], items: [] });
         return;
       }
-      res.json({ recorded: true, memoryIds: record.memoryIds, notePaths: record.notePaths });
+      res.json({
+        recorded: true,
+        memoryIds: record.memoryIds,
+        notePaths: record.notePaths,
+        items: record.items,
+      });
     } catch (err) {
       next(err);
     }

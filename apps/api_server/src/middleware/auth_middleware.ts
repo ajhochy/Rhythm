@@ -1,9 +1,77 @@
+import { createHash } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { AuthService } from '../services/auth_service';
+import { MobileCloudIdentityService } from '../services/mobile_cloud_identity_service';
 import type { User } from '../models/user';
 
 const authService = new AuthService();
+const mobileCloudIdentityService = new MobileCloudIdentityService();
+const CLOUD_AUTH_CACHE_TTL_MS = 5 * 60_000;
+const CLOUD_AUTH_CACHE_MAX_ENTRIES = 256;
+
+interface CachedCloudIdentity {
+  user: User;
+  expiresAt: number;
+}
+
+const cloudIdentityCache = new Map<string, CachedCloudIdentity>();
+const cloudIdentityInFlight = new Map<string, Promise<User | null>>();
+
+function tokenDigest(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function getCachedCloudIdentity(digest: string): User | null {
+  const cached = cloudIdentityCache.get(digest);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    cloudIdentityCache.delete(digest);
+    return null;
+  }
+  return cached.user;
+}
+
+function cacheCloudIdentity(digest: string, user: User): void {
+  if (!cloudIdentityCache.has(digest)) {
+    while (cloudIdentityCache.size >= CLOUD_AUTH_CACHE_MAX_ENTRIES) {
+      const oldest = cloudIdentityCache.keys().next().value as
+        | string
+        | undefined;
+      if (!oldest) break;
+      cloudIdentityCache.delete(oldest);
+    }
+  }
+  cloudIdentityCache.set(digest, {
+    user,
+    expiresAt: Date.now() + CLOUD_AUTH_CACHE_TTL_MS,
+  });
+}
+
+async function authenticateCloudBearer(
+  token: string,
+  digest: string,
+): Promise<User | null> {
+  const cached = getCachedCloudIdentity(digest);
+  if (cached) return cached;
+
+  let verification = cloudIdentityInFlight.get(digest);
+  if (!verification) {
+    verification = mobileCloudIdentityService.authenticateBearerToken(token);
+    cloudIdentityInFlight.set(digest, verification);
+  }
+
+  let user: User | null;
+  try {
+    user = await verification;
+  } finally {
+    if (cloudIdentityInFlight.get(digest) === verification) {
+      cloudIdentityInFlight.delete(digest);
+    }
+  }
+  if (user) cacheCloudIdentity(digest, user);
+  return user;
+}
 
 export interface AuthContext {
   sessionToken: string;
@@ -72,9 +140,43 @@ export async function authenticateIfPresent(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  if (!(req.header('Authorization') ?? '').trim()) {
+  const header = req.header('Authorization') ?? '';
+  if (!header.trim()) {
     next();
     return;
   }
-  await requireAuth(req, res, next);
+
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  const sessionToken = match?.[1].trim() ?? '';
+  if (!sessionToken) {
+    await requireAuth(req, res, next);
+    return;
+  }
+
+  try {
+    let user: User | null = null;
+    try {
+      user = await authService.getUserForSessionToken(sessionToken);
+    } catch {
+      // MobileCloudIdentityService owns the fail-closed local/Cloud fallback
+      // policy, including conversion of identity-store failures to 503.
+    }
+    if (!user) {
+      user = await authenticateCloudBearer(
+        sessionToken,
+        tokenDigest(sessionToken),
+      );
+    }
+    if (!user) {
+      throw AppError.unauthorized('Invalid session token');
+    }
+
+    req.auth = {
+      sessionToken,
+      user,
+    };
+    next();
+  } catch (err) {
+    next(err);
+  }
 }

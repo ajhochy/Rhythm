@@ -2,71 +2,82 @@
 
 ## Current focus
 
-2026-07-30: repair issue #1231's desktop-to-mobile session visibility. The
-local database is backfilled and verified; the durable tokenless desktop owner
-inheritance change has passed the full repository and live API/engine gates.
+2026-07-29: v0.18.53 published (run 30496034693) but is **dead on arrival** —
+AMFI SIGKILLs it at launch because the new `keychain-access-groups` restricted
+entitlement shipped without an embedded Developer ID provisioning profile.
+Repair in flight: embed the profile + `com.apple.application-identifier` at
+release signing, and add a launch smoke so a DOA app can never pass CI again.
 
 ## Active branch / PR
 
-- Branch: `codex/mobile-session-owner-inheritance`, based on `main` at
-  `eee9694cd073f2658a565a5e9570c667bb1e0b0c`.
-- PR: none; branch is prepared for commit and draft-PR review.
-- Run:
-  [runs/2026-07-30-desktop-session-owner-inheritance.md](runs/2026-07-30-desktop-session-owner-inheritance.md).
-- Decision:
-  [decisions/2026-07-30-desktop-session-owner-inheritance.md](decisions/2026-07-30-desktop-session-owner-inheritance.md).
+- Branch: `fix/desktop-devid-provisioning-profile`, based on `main` at
+  `9ae77f5f8`.
+- Run record:
+  [runs/2026-07-29-devid-provisioning-profile.md](runs/2026-07-29-devid-provisioning-profile.md).
+- Prior repair (verifier + sed expansion) merged as PR
+  [#1250](https://github.com/ajhochy/Rhythm/pull/1250); flaky mobile nav
+  locator fix open as PR
+  [#1252](https://github.com/ajhochy/Rhythm/pull/1252).
 
 ## In progress
 
-- No implementation or verification work remains on the local branch.
-- Commit/push/draft-PR actions await explicit authorization.
+- CI on the provisioning-profile branch, then merge and dispatch Desktop
+  Release v0.18.54 (v0.18.53 assets stay up but are unusable; do not reuse the
+  tag).
 
 ## Risks / known issues
 
-- The currently installed desktop does not contain the new inheritance rule;
-  desktop sessions created before an updated build is installed can still need
-  a backfill.
-- 532 legacy non-system SDK sessions have directories outside registered
-  projects and remain intentionally excluded from the project-scoped mobile
-  catalog.
-- Eight orphan `agent_session_messages` rows predate this migration and remain
-  a separate data-integrity issue.
-- Issue #1231's full physical iPhone/desktop criterion remains a human smoke;
-  the user has already confirmed mobile-to-desktop creation works.
+- v0.18.53 is published and DOA for anyone who downloads it; users should
+  stay on v0.18.52 until v0.18.54 ships.
+- `APPLE_PROVISIONING_PROFILE_BASE64` repo secret contains profile "Rhythm
+  Developer ID" (expires 2044) bound to the CI signing cert (expires
+  2027-02-01). Rotating the signing cert requires regenerating the profile.
+- Approvals: the server (deployed to production at `9ae77f5f8`) hard-requires
+  signed human decisions; no shipped client can sign until v0.18.54, so new
+  agent approvals are effectively frozen until it ships.
+- Production API deployed and healthy on `9ae77f5f8` (Synology un-pinned from
+  `sha-80d1552`; stray `AGENT_LOCAL=true` removed from `.env.production` —
+  it was forcing a loopback bind under new main and had been silently
+  bypassing JWT on hosted agent endpoints).
+- TestFlight upload is paused (production iOS 1.0.8 build 2 IPA from
+  `125df4747` verified locally, not uploaded).
+- Pre-existing `DB_CLIENT=postgres` + `RHYTHM_ROLE=all` stream-bridge
+  reconciliation error:
+  [postgres-all-role-stream-bridge-reconciliation.md](generated-issues/postgres-all-role-stream-bridge-reconciliation.md).
 
 ## Test status
 
-- Local SQLite: zero unowned sessions, zero eligible missing mobile claims,
-  and `PRAGMA integrity_check = ok`.
-- Focused contract: 6/6 passed.
-- Pre-fix live test reproduced an empty mobile catalog for a tokenless desktop
-  create; the post-fix test passed against a freshly rebuilt fork and API.
-- `ai-workflow checks --level issue` and `--level pr` passed.
-- Isolated `/health` returned `status: ok`; `/opencode/health` returned
-  `status: ready`.
-- GitNexus change detection: medium risk, one affected session-create flow.
-- `git diff --check` passed.
+- Release regression (skill_schema_parity): red on unfixed scripts → 13/13
+  green with the profile/identifier/launch-smoke pins.
+- `bash -n` + `shellcheck` on both release scripts; `tsc --noEmit` clean.
+- Local dress rehearsal with the real CI cert: shipped v0.18.53 app +
+  embedded profile + application-identifier launches and runs; new verifier
+  passes it end-to-end (incl. launch smoke) and fails shipped v0.18.53 with
+  a precise message.
+- Also fixed a pre-existing pipefail/SIGPIPE race in
+  `require_codesign_detail` that could flake any release verify step.
 
 ## Next step
 
-Commit the scoped branch and open a draft PR. After human desktop-to-mobile
-smoke, merge and ship an updated desktop build so new sessions inherit the
-paired owner automatically.
+Green CI on `fix/desktop-devid-provisioning-profile` → merge (user
+pre-authorized) → dispatch Desktop Release v0.18.54 from updated `main` →
+verify launch on a real Mac → then TestFlight and PR #1252 merge.
 
 ## Recent coding-agent runs
 
-### 2026-07-30 — MSP-001 Mobile CI regression repair
-- Files modified: mobile session hydration/provider lifecycle; paired-host
-  revocation state machine; fake OpenCode gateway catalog/session-state
-  fixtures and focused contracts.
-- Checks run: mobile TypeScript and lint passed; MSP/fake-gateway contracts
-  passed 9/9; adjacent 1172/1237/1238 contracts passed 11/11; model-picker
-  contract passed 4/4; paired-host suite passed 23 scenarios; provider,
-  security-1174, and pairing-compatibility suites passed.
-- Decisions made: preserve authoritative `session.rhythm` nulls, retain
-  capability-derived defaults only for metadata-free direct sessions, and
-  mirror the production safe-catalog allowlist in the fake gateway.
-- Deviations from spec: Playwright and the socket-backed fake-server self-test
-  were not run because this sandbox rejects local listeners with `EPERM`.
-- Concerns: the orchestrator must rerun `verify:foundation` to confirm all
-  eight browser flows against the HTTP harness.
+### 2026-07-30 — local-agent-cloud-token-auth
+
+- Files modified: `auth_middleware.ts` (Cloud bearer fallback + bounded
+  positive cache), `agent_sessions_routes.ts` (authenticated owner guard), new
+  contract/live tests, acceptance contract, and
+  [run log](runs/2026-07-30-local-agent-cloud-token-auth.md).
+- Checks run: contract RED 8 failed/2 passed → GREEN 10/10; `tsc --noEmit`
+  pass; 16 non-socket identity/auth/session regressions pass; `git diff
+  --check` pass.
+- Decisions made: reuse `MobileCloudIdentityService` unchanged; cache only
+  positive results under SHA-256 digests for five minutes with a 256-entry
+  oldest-eviction bound and in-flight request coalescing.
+- Deviations from spec: none; the live test was written and intentionally not
+  run as required.
+- Concerns: live c11 remains pending; older regression files that bind
+  `listen(0)` are environment-blocked by `EPERM`.

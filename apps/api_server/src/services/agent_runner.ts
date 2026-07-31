@@ -32,6 +32,7 @@ import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
 import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentSessionMemoryProvenanceRepository } from '../repositories/agent_session_memory_provenance_repository';
+import type { MemoryProvenanceItem } from '../repositories/agent_session_memory_provenance_repository';
 import { resolveProfileScope } from './agent_profile_scope';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
@@ -680,7 +681,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // mechanism (currently only ws_gateway.ts supports per-turn `agent:` overrides).
 
   // P3-2: retrieve relevant skills and build a TRANSIENT preface. This is
-  // prepended to the in-memory prompt ONLY for this send — it is never written
+  // added to hidden per-turn system context ONLY for this send — it is never written
   // to config.systemPrompt, never persisted, and never passed to the agent
   // writer. When the instance-wide toggle is off, no retrieval happens and the
   // prompt is unchanged. uses are incremented post-send (success path only).
@@ -689,13 +690,14 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // skills or memory; skip the retrieval work entirely (not just its result)
   // to avoid re-paying that cost on every harvest call.
   let effectivePrompt = prompt;
+  const transientSystemBlocks: string[] = [];
   let injectedSkillIds: string[] = [];
   if (isSkillInjectionEnabled() && category !== 'self_improvement') {
     try {
       // P1b: pass the profile's allowedSkillsJson so only permitted skills are injected.
       const preface = buildSkillsPreface(prompt, { allowedSkillsJson: profileScope.allowedSkillsJson });
       if (preface.text) {
-        effectivePrompt = `${preface.text}\n\n${prompt}`;
+        transientSystemBlocks.push(preface.text);
         injectedSkillIds = preface.skillIds;
         logger.info(
           `[AgentRunner] injected ${injectedSkillIds.length} retrieved skill(s) into prompt preface`,
@@ -708,9 +710,8 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   }
 
   // FOLLOW-UP (memory injection): retrieve OWNER-SCOPED relevant memories and
-  // prepend a TRANSIENT "## Known context" block. This ADDS to the skills
-  // preface (does not replace it) — final layout is:
-  //   <memory preface>\n\n<skills preface>\n\n<original prompt>
+  // add a TRANSIENT "## Known context" block to the hidden system seam. This
+  // ADDS to the skills context without changing the original user prompt.
   // Each preface is independently toggle-guarded so disabling one leaves the
   // other working. Like the skills preface it is in-memory only for this send:
   // never written to config.systemPrompt, never persisted, never passed to the
@@ -722,17 +723,25 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // headless runs the same as interactive ws_gateway turns. null when
   // injection was disabled or failed — no provenance is recorded in that case
   // (distinct from an explicit empty-list "0 memories used" turn).
-  let memoryProvenance: { memoryIds: string[]; notePaths: (string | null)[] } | null = null;
+  let memoryProvenance: {
+    memoryIds: string[];
+    notePaths: (string | null)[];
+    items: MemoryProvenanceItem[];
+  } | null = null;
   if (isMemoryInjectionEnabled() && category !== 'self_improvement') {
     try {
       const memPreface = await buildMemoryPreface(prompt, ownerUserId ?? null);
       if (memPreface.text) {
-        effectivePrompt = `${memPreface.text}\n\n${effectivePrompt}`;
+        transientSystemBlocks.unshift(memPreface.text);
         logger.info(
           `[AgentRunner] injected ${memPreface.memoryIds.length} relevant memory item(s) into prompt preface (owner=${ownerUserId ?? 'global'})`,
         );
       }
-      memoryProvenance = { memoryIds: memPreface.memoryIds, notePaths: memPreface.notePaths };
+      memoryProvenance = {
+        memoryIds: memPreface.memoryIds,
+        notePaths: memPreface.notePaths,
+        items: memPreface.items,
+      };
     } catch (err) {
       // Non-fatal: a retrieval failure must never block the run.
       logger.warn(`[AgentRunner] memory preface build failed (non-fatal): ${String(err)}`);
@@ -767,6 +776,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         rhythmSessionId,
         memoryProvenance.memoryIds,
         memoryProvenance.notePaths,
+        memoryProvenance.items,
       );
     } catch (err) {
       logger.warn(`[AgentRunner] memory provenance record failed (non-fatal): ${String(err)}`);
@@ -1005,8 +1015,16 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       !mcpRole && effectiveOcAgent !== null && effectiveOcAgent === effectiveConfigId;
     const promptOpts: Record<string, unknown> = {
       permissionMode: 'bypassPermissions',
-      ...(effectiveSystemPrompt !== null && !runningAsOwnAgent
-        ? { system: effectiveSystemPrompt }
+      ...((effectiveSystemPrompt !== null && !runningAsOwnAgent)
+        || transientSystemBlocks.length > 0
+        ? {
+            system: [
+              effectiveSystemPrompt !== null && !runningAsOwnAgent
+                ? effectiveSystemPrompt
+                : null,
+              ...transientSystemBlocks,
+            ].filter((block): block is string => block !== null).join('\n\n'),
+          }
         : {}),
       ...(effectiveOcAgent !== null ? { agent: effectiveOcAgent } : {}),
     };
