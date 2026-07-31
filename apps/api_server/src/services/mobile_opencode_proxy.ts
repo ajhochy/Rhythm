@@ -6,13 +6,22 @@ import { AppError } from '../errors/app_error';
 import {
   type MobileOpenCodeOwnershipStore,
 } from '../repositories/mobile_opencode_ownership_repository';
-import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import {
+  AgentConfigsRepository,
+  agentConfigExecutionBlockReason,
+} from '../repositories/agent_configs_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import {
   asOpenCodeAgentId,
   asRhythmProfileId,
 } from '../models/agent_session';
 import { logger } from '../utils/logger';
+import {
+  expandProfileSkillAllowlist,
+  resolveProfileScope,
+} from './agent_profile_scope';
+import { capMcpAllowlistForProvider } from './gemini_tool_cap';
+import { expandMcpAllowlist } from './mcp_allowlist_expander';
 import { OPENCODE_ENGINE_PORT } from './opencode_client_service';
 import {
   getMobileOpenCodeOwnershipRepository,
@@ -33,6 +42,10 @@ import {
   resolveProfileIdForOpenCodeAgent,
   safeMobileSessionProfileState,
 } from './mobile_profile_catalog';
+import {
+  applySelectiveDeferral,
+  toolCountsForRoleConfig,
+} from './tool_surface_estimator';
 
 export { MOBILE_OPENCODE_OPERATION_MANIFEST };
 export type { MobileOpenCodeOperation } from './mobile_opencode_proxy_types';
@@ -472,6 +485,76 @@ async function sanitizeRequestBody(
   return sanitizeRequestBodyBeforeScope(value, operationId, project);
 }
 
+async function applyMobileSessionCreateScope(
+  value: unknown,
+  operationId: string,
+): Promise<unknown> {
+  if (
+    operationId !== 'session.create' ||
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    return value;
+  }
+
+  const body = value as Record<string, unknown>;
+  const rawProfileId = body.profileId;
+  // Older mobile clients did not send the selected profile until a follow-up
+  // state PATCH. Preserve their create behavior while current clients move the
+  // profile identity into this atomic request.
+  if (rawProfileId === undefined) return body;
+  if (typeof rawProfileId !== 'string' || rawProfileId.trim() === '') {
+    throw AppError.badRequest('profileId must be a non-empty string');
+  }
+
+  const profileId = rawProfileId.trim();
+  const profile = new AgentConfigsRepository().getById(profileId);
+  if (
+    !profile ||
+    !profile.sessionSelectable ||
+    agentConfigExecutionBlockReason(profile) !== null ||
+    !profile.ocAgent
+  ) {
+    throw AppError.notFound('Mobile profile');
+  }
+
+  // Resolve the exact same profile tuple used by desktop/WS creation. The
+  // custom profileId is gateway metadata only and must never reach OpenCode.
+  const scope = await resolveProfileScope(profileId);
+  const scopedBody = Object.fromEntries(
+    Object.entries(body).filter(([field]) =>
+      field !== 'profileId' &&
+      field !== 'mcpAllowlist' &&
+      field !== 'skillAllowlist'),
+  );
+
+  if (scope.mcpRoleConfig) {
+    const expanded = applySelectiveDeferral(
+      expandMcpAllowlist(scope.mcpRoleConfig),
+      toolCountsForRoleConfig(scope.mcpRoleConfig.mcpServers),
+      scope.model.providerID,
+    );
+    const capped = capMcpAllowlistForProvider(
+      expanded,
+      scope.model.providerID,
+    );
+    if (capped.trimmed) {
+      logger.warn(capped.warning ?? '[GeminiToolCap] allowlist trimmed');
+    }
+    scopedBody.mcpAllowlist = capped.allowlist;
+  }
+
+  const skillAllowlist = expandProfileSkillAllowlist(
+    scope.allowedSkillsJson,
+  );
+  if (skillAllowlist !== undefined) {
+    scopedBody.skillAllowlist = skillAllowlist;
+  }
+
+  return scopedBody;
+}
+
 function scopedQuery(
   callerQuery: URLSearchParams,
   project: MobileProjectScope,
@@ -710,9 +793,15 @@ export class MobileOpenCodeProxy {
           input.project,
           fetchJson,
         );
-      const encodedBody = sanitizedBody === undefined
+      const scopedBody = sanitizedBody === undefined
         ? undefined
-        : JSON.stringify(sanitizedBody);
+        : await applyMobileSessionCreateScope(
+          sanitizedBody,
+          operation.operationId,
+        );
+      const encodedBody = scopedBody === undefined
+        ? undefined
+        : JSON.stringify(scopedBody);
       if (
         encodedBody !== undefined &&
         Buffer.byteLength(encodedBody, 'utf8') > this.requestBodyLimitBytes

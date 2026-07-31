@@ -1103,9 +1103,11 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       }
       preferences ??= chatPreferences;
       const trimmedTitle = title?.trim();
-      const response = trimmedTitle
-        ? await sessionClient.session.create({ title: trimmedTitle })
-        : await sessionClient.session.create();
+      const createInput = {
+        ...(trimmedTitle ? { title: trimmedTitle } : {}),
+        profileId: preferences.profileId,
+      };
+      const response = await sessionClient.session.create(createInput);
 
       if (!response.data) {
         throw new Error('OpenCode did not return the created session.');
