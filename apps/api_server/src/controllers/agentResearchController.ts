@@ -186,7 +186,15 @@ async function findJobById(id: string): Promise<ResearchJob | null> {
 
 function requireOwnedJob(job: ResearchJob, req: Request): void {
   const userId = req.auth?.user.id;
-  if (userId !== undefined && job.requestedByUserId !== userId) {
+  // Unowned rows (requestedByUserId null) predate ownership stamping and are
+  // shared Mac-wide — same visibility rule as agent memory (P0 decision).
+  // Exact-match-only here made every legacy job invisible to authenticated
+  // clients (the mobile gateway) while the tokenless desktop saw them all.
+  if (
+    userId !== undefined &&
+    job.requestedByUserId !== null &&
+    job.requestedByUserId !== userId
+  ) {
     throw AppError.notFound('ResearchJob');
   }
 }
@@ -279,18 +287,24 @@ async function removeResearchJob(job: ResearchJob): Promise<void> {
 export class AgentResearchController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = req.auth?.user.id;
+      const userId = req.auth?.user.id ?? null;
+      // Owner visibility (matches requireOwnedJob): unowned legacy rows are
+      // shared; authenticated callers additionally see their own rows.
       if (env.dbClient === 'postgres') {
         const r = await getPostgresPool().query(
-          `SELECT * FROM agent_research_jobs WHERE requested_by_user_id = $1 ORDER BY created_at DESC LIMIT 50`,
+          `SELECT * FROM agent_research_jobs
+           WHERE requested_by_user_id IS NULL OR requested_by_user_id = $1
+           ORDER BY created_at DESC LIMIT 50`,
           [userId],
         );
         res.json(r.rows.map(rowToModel));
         return;
       }
       const rows = getDb().prepare(
-        `SELECT * FROM agent_research_jobs WHERE requested_by_user_id IS ? ORDER BY created_at DESC LIMIT 50`,
-      ).all(userId ?? null);
+        `SELECT * FROM agent_research_jobs
+         WHERE requested_by_user_id IS NULL OR requested_by_user_id = ?
+         ORDER BY created_at DESC LIMIT 50`,
+      ).all(userId);
       res.json((rows as Record<string, unknown>[]).map(rowToModel));
     } catch (err) { next(err); }
   }
