@@ -13,13 +13,13 @@ and startup credential-watcher noise. Details:
 
 - Branch: `codex/mobile-fixes-rollup`
 - Base: `origin/codex/fix-session-isolation-runtime-performance`
-- PR: draft requested; URL pending
+- PR: [#1284](https://github.com/ajhochy/Rhythm/pull/1284) (draft)
 - Merge remains a manual human action after review and physical-device smoke.
 
 ## In progress
 
-- Commit and push the shared-sheet refresh-race repair.
-- Require a green Mobile CI run, then open the draft stacked PR.
+- Review draft PR #1284.
+- Run the remaining physical-iPhone smoke checks before merge.
 
 ## Risks / known issues
 
@@ -54,6 +54,7 @@ and startup credential-watcher noise. Details:
 - Shared-sheet refresh repair: focused component regression passed; native
   Jest passed 7/7; full mobile foundation passed all 69 browser cases in suite
   order; the complete repository PR matrix passed.
+- PR #1284 Server CI and Mobile CI passed on the published branch.
 - GitNexus exact-base scope: LOW risk, 0 affected execution processes.
 
 ## Next step

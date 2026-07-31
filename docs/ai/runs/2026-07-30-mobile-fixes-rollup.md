@@ -2,7 +2,7 @@
 date: 2026-07-30
 repo: Rhythm
 branch: codex/mobile-fixes-rollup
-pr: pending
+pr: 1284
 issues: [1277, 1278, 1279, 1280, 1281, 1282, 1283]
 status: verified
 tags: [run, Rhythm]
@@ -40,6 +40,9 @@ index: "[[Rhythm]]"
   command then passed all 69 Playwright cases in CI order.
 - The complete `ai-workflow checks --level pr` matrix passed again after the
   shared-sheet repair.
+- Draft PR #1284 opened against
+  `codex/fix-session-isolation-runtime-performance`; its Server CI and
+  PR-triggered Mobile CI checks passed.
 - `.proof/i1235/ui/agents-tab.png` is 30,624 bytes and visibly shows the
   compact Agents header with a top-right overflow trigger.
 - GitNexus exact-base comparison reported LOW risk and zero affected
