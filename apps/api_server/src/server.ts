@@ -9,23 +9,31 @@ import { runAdvisoryCheck, formatStartupWarning } from './security/security_advi
 import { env } from './config/env';
 import { validateHumanApprovalConfiguration } from './security/human_approval_security';
 
-// #1039 Cause B — Node's built-in fetch (undici) aborts any request whose
-// response HEADERS haven't arrived within ~300s (UND_ERR_HEADERS_TIMEOUT).
-// The headless AgentRunner path issues ONE synchronous session.prompt HTTP
-// call that blocks server-side for the WHOLE model turn — a real research
-// scan runs past 5 minutes, so undici killed the call underneath a healthy
-// engine turn and the run surfaced as the bogus "model produced no output"
-// (same hidden timeout #892 documents for MCP preflights). Raise the global
-// dispatcher's timeouts above AGENT_RUN_TIMEOUT_MS (default 600s) so
-// AgentRunner's _withinRunDeadline is the single source of timeout truth.
-// Finite (not 0/disabled) so a truly wedged fetch still dies eventually.
-setGlobalDispatcher(
-  new UndiciAgent({ headersTimeout: 900_000, bodyTimeout: 900_000 }),
-);
-
-// Load .env from the api_server root (one level above dist/).
+// Load .env before deriving the AgentRunner transport guard below.
 // CI writes OAuth secrets here before bundling into the .app.
 loadDotenv({ path: path.join(__dirname, '..', '.env') });
+
+// #1039 Cause B / R4 — Node's built-in fetch (undici) aborts any request whose
+// response HEADERS haven't arrived within ~300s (UND_ERR_HEADERS_TIMEOUT).
+// The headless AgentRunner path issues ONE synchronous session.prompt HTTP
+// call that blocks server-side for the WHOLE model turn. Keep this transport
+// guard five minutes beyond the configured hard ceiling so it can never
+// preempt AgentRunner's progress-aware policy. It remains finite.
+const configuredAgentRunHardTimeoutMs = Number(
+  process.env.AGENT_RUN_HARD_TIMEOUT_MS ?? 3_600_000,
+);
+const agentRunHardTimeoutMs =
+  Number.isFinite(configuredAgentRunHardTimeoutMs) &&
+  configuredAgentRunHardTimeoutMs > 0
+    ? configuredAgentRunHardTimeoutMs
+    : 3_600_000;
+const agentRunTransportTimeoutMs = agentRunHardTimeoutMs + 300_000;
+setGlobalDispatcher(
+  new UndiciAgent({
+    headersTimeout: agentRunTransportTimeoutMs,
+    bodyTimeout: agentRunTransportTimeoutMs,
+  }),
+);
 
 async function main() {
   const [
