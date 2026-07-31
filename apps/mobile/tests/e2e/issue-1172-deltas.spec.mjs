@@ -22,10 +22,12 @@ test('issue-1172-delta-c1/c2: lifecycle views, all projects, and fork are usable
     .locator('visible=true');
   await expect(create).toBeEnabled({ timeout: 30_000 });
   await create.click();
-  await page
+  const titleInput = page
     .getByLabel('Chat title', { exact: true })
-    .locator('visible=true')
-    .fill('Lifecycle proof');
+    .locator('visible=true');
+  await titleInput.fill('Lifecycle proof');
+  await expect(titleInput).toHaveValue('Lifecycle proof');
+  await titleInput.press('Tab');
   await page
     .getByRole('button', { name: 'Create', exact: true })
     .locator('visible=true')

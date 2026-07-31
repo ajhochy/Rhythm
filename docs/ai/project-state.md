@@ -18,8 +18,8 @@ and startup credential-watcher noise. Details:
 
 ## In progress
 
-- Push the verified rollup branch and open its draft stacked PR.
-- Run and monitor the resulting GitHub Actions checks.
+- Commit and push the CI-only title-input synchronization repair.
+- Require a green Mobile CI run, then open the draft stacked PR.
 
 ## Risks / known issues
 
@@ -30,6 +30,9 @@ and startup credential-watcher noise. Details:
 - Initial aggregate verification exposed two non-reproducible shared-state /
   timing failures. Both exact files passed in isolation, both full failed
   commands passed independently, and the complete PR matrix passed on rerun.
+- GitHub Mobile CI consistently exposed stale controlled-input state in the
+  existing issue #1172 lifecycle test. The test now flushes the filled title
+  before submission; no product assertion was removed or weakened.
 - The PR is intentionally stacked on the session-isolation branch; comparing
   the inherited integration base to `main` is broad and is not this PR's
   review scope.
@@ -47,6 +50,8 @@ and startup credential-watcher noise. Details:
   `/mobile-gateway/health` returned HTTP 200.
 - Agents proof: `.proof/i1235/ui/agents-tab.png` (30,624 bytes), visible and
   nonblank with the three-dot header.
+- Issue #1172 CI repair: focused scenario 10/10 passed; full mobile foundation
+  passed all 69 browser cases in suite order.
 - GitNexus exact-base scope: LOW risk, 0 affected execution processes.
 
 ## Next step

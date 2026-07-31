@@ -34,6 +34,10 @@ index: "[[Rhythm]]"
   projectless desktop-session ownership, profile-scoped mobile creation, and
   already-connected desktop→mobile transcript delivery.
 - `tools/dev/parity-gate.sh` passed 14/14 feeds in a second disposable sandbox.
+- After GitHub Mobile CI exposed a title-input synchronization race in the
+  existing issue #1172 lifecycle browser scenario, the repaired scenario
+  passed 10/10 locally and the complete `npm run verify:foundation` command
+  passed all 69 Playwright cases in CI order.
 - `.proof/i1235/ui/agents-tab.png` is 30,624 bytes and visibly shows the
   compact Agents header with a top-right overflow trigger.
 - GitNexus exact-base comparison reported LOW risk and zero affected
@@ -46,6 +50,11 @@ index: "[[Rhythm]]"
   the exact API file passed 12/12, the cancellation test passed in 1.4 seconds,
   the full API command passed 3,788/3,788, the full fork suite passed, and the
   complete matrix passed on rerun. No assertion or timeout was weakened.
+- The first Mobile CI run and its rerun both created the issue #1172 lifecycle
+  chat as `Untitled chat` under runner load. The Playwright flow filled the
+  title and clicked Create without first flushing the controlled input. It now
+  asserts the value and blurs the field before submission; the user-visible
+  title assertion remains unchanged.
 - The first live invocation was rejected by the isolation guards because the
   test process lacked `DB_PATH` and the sandbox had not been started with a
   throwaway human-approval capability. The sandbox was restarted with one-run
