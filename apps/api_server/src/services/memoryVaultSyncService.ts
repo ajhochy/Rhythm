@@ -138,6 +138,8 @@ export interface ParsedNote {
   verified?: VerificationEntry[];
   sources?: MemorySource[];
   trustTier?: MemoryTrustTier;
+  /** Explicit frontmatter override; undefined delegates to safe path/kind rules. */
+  autoInjectable?: boolean;
 }
 
 /**
@@ -154,6 +156,16 @@ export interface ParsedNote {
  */
 export function parseNote(raw: string): ParsedNote {
   const document = parseMemoryNote(raw);
+  const injectableValue = document.frontmatter.injectable;
+  const autoInjectable = typeof injectableValue === 'boolean'
+    ? injectableValue
+    : typeof injectableValue === 'string'
+      ? injectableValue.trim().toLowerCase() === 'true'
+        ? true
+        : injectableValue.trim().toLowerCase() === 'false'
+          ? false
+          : undefined
+      : undefined;
   return {
     kind: document.kind,
     tags: document.tags,
@@ -166,6 +178,7 @@ export function parseNote(raw: string): ParsedNote {
     verified: document.verified,
     sources: document.sources,
     trustTier: deriveTrustTier(document.frontmatter),
+    autoInjectable,
   };
 }
 
@@ -181,6 +194,30 @@ export interface ScannedNote {
 export function classifyVaultNoteKind(sourceId: string, parsedKind: string): string {
   const segments = sourceId.replaceAll('\\', '/').toLowerCase().split('/');
   return segments.includes('synthesis') ? 'synthesis' : parsedKind;
+}
+
+/**
+ * Automatic context is a deliberately smaller set than searchable memory.
+ * Explicit `injectable:` frontmatter wins; otherwise generated and long-form
+ * archive/report classes fail closed while canonical fact/preference folders
+ * remain eligible for the relevance gate.
+ */
+export function classifyVaultNoteInjectability(
+  sourceId: string,
+  parsed: ParsedNote,
+): boolean {
+  if (parsed.autoInjectable !== undefined) return parsed.autoInjectable;
+  const segments = sourceId.replaceAll('\\', '/').toLowerCase().split('/');
+  const excluded = new Set([
+    'research', 'report', 'reports', 'daily', 'dailies', 'summary',
+    'summaries', 'transcript', 'transcripts', 'archive', 'archives',
+    'generated', 'document', 'documents',
+  ]);
+  if (segments.some((segment) => excluded.has(segment))) return false;
+
+  const canonicalKinds = new Set(['fact', 'preference', 'context', 'person', 'project']);
+  return canonicalKinds.has(parsed.kind.toLowerCase())
+    && segments.some((segment) => canonicalKinds.has(segment));
 }
 
 /**
@@ -302,6 +339,7 @@ export async function syncMemoryVault(
       generatedBy: parsed.generated?.by ?? null,
       generatedAt: parsed.generated?.at ?? null,
       trustTier: parsed.trustTier ?? 'unverified',
+      autoInjectable: classifyVaultNoteInjectability(sourceId, parsed),
       ownerUserId,
     });
     upserted += 1;

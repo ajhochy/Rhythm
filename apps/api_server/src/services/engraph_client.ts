@@ -2,6 +2,16 @@ import path from 'node:path';
 
 export interface EngraphHit {
   file: string;
+  /**
+   * Engraph 1.7.2's final hybrid/RRF rank score. Useful for diagnostics, but
+   * not a calibrated semantic confidence and therefore never sufficient by
+   * itself for automatic injection.
+   */
+  score?: number | null;
+  /** Explicit backend confidence/similarity, when a future schema supplies it. */
+  confidence?: number | null;
+  /** Raw backend distance, preserved for diagnostics only. */
+  distance?: number | null;
 }
 
 export interface EngraphClient {
@@ -56,10 +66,29 @@ export class EngraphHttpClient implements EngraphClient {
           ? (body as { results: unknown[] }).results
           : [];
       return results.flatMap((result) => {
-        const file = result && typeof result === 'object'
-          ? (result as { file_path?: unknown }).file_path
-          : null;
-        return typeof file === 'string' && file.length > 0 ? [{ file }] : [];
+        if (!result || typeof result !== 'object') return [];
+        const raw = result as {
+          file_path?: unknown;
+          score?: unknown;
+          confidence?: unknown;
+          similarity?: unknown;
+          distance?: unknown;
+        };
+        const file = raw.file_path;
+        if (typeof file !== 'string' || file.length === 0) return [];
+        const finite = (value: unknown): number | null =>
+          typeof value === 'number' && Number.isFinite(value) ? value : null;
+        const explicitConfidence = finite(raw.confidence) ?? finite(raw.similarity);
+        return [{
+          file,
+          score: finite(raw.score),
+          confidence: explicitConfidence !== null
+            && explicitConfidence >= 0
+            && explicitConfidence <= 1
+            ? explicitConfidence
+            : null,
+          distance: finite(raw.distance),
+        }];
       });
     } catch {
       return [];

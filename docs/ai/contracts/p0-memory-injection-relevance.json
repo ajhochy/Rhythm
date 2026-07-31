@@ -1,0 +1,176 @@
+{
+  "issue": 0,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-0-c1",
+      "text": "Prompt “six mins to glob homie” produces zero automatically injected memories.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c1: “six mins to glob homie” injects zero memories",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c2",
+      "text": "A Worship Committee agenda-editing prompt does not inject the McDonald’s report, AI-trend reports, daily summaries, or unrelated repo maps.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c2: a Worship Committee agenda prompt excludes reports, daily summaries, and repo maps",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c3",
+      "text": "Prompt “resume?” produces no arbitrary nearest-neighbor documents.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c3: “resume?” is too underspecified to inject an arbitrary nearest document",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c4",
+      "text": "A semantic backend returning path-only results without confidence fails closed for automatic injection.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c4: a semantic backend returning path-only hits fails closed",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c5",
+      "text": "All candidates below the configured relevance threshold produce zero injection.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c5: candidates below the configured relevance threshold produce zero injection",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c6",
+      "text": "A prompt explicitly asking which McDonald’s World Cup collector cups are rare retrieves the explicitly injectable report or a relevant excerpt.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c6: an explicitly injectable McDonald’s collector-cup report yields a relevant excerpt",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c7",
+      "text": "A directly relevant stored preference is injected within the size budget.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c7: a directly relevant preference is injected within the documented budget",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c8",
+      "text": "Explicit on-demand memory search can still find reports excluded from automatic injection.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c8: explicit on-demand repository search still finds an auto-excluded report",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c9",
+      "text": "User A’s context never reaches user B.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c9: user A injection excludes user B even when a custom retrieval returns both",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c10",
+      "text": "A null/unknown owner never retrieves user-owned context.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c10: null owner never injects user-owned context",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c11",
+      "text": "Research reports, generated vault documents, daily summaries, transcripts, and long-form archives remain searchable but are excluded from automatic facts/preferences injection unless explicitly marked injectable.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c11: generated/long-form classes are excluded unless explicitly injectable",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c12",
+      "text": "Total automatic context stays under the documented per-item and total character/token ceilings and prefers fewer results.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c12: automatic context prefers fewer excerpts and never exceeds 1200 chars / 300 estimated tokens",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c13",
+      "text": "The default relevance threshold is derived from and separates a recorded positive/negative fixture corpus.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c13: the fixture corpus separates positives from negatives at threshold 0.60",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c14",
+      "text": "Engraph ranking/confidence fields are preserved end to end without treating its RRF score as calibrated confidence.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c14: Engraph’s real score field is preserved but not mislabeled as confidence",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c15",
+      "text": "Turn-level provenance records source, retrieval lane, score/confidence, and gate reason without logging note bodies.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c15: provenance records lane/score/reason without note content",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c16",
+      "text": "Interactive WebSocket input resolves and uses the session’s real owner_user_id.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_ws_persistence.test.ts",
+      "test_id": "issue-0-c16: interactive retrieval uses the session’s real owner_user_id",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c17",
+      "text": "Interactive WebSocket input with a null/unknown owner never retrieves user-owned context.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_ws_persistence.test.ts",
+      "test_id": "issue-0-c17: a null/unknown owner never retrieves user-owned context",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c18",
+      "text": "Persisted/displayed user messages contain only original user text.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_ws_persistence.test.ts",
+      "test_id": "issue-0-c18: persisted/displayed text and parts contain only the original user message",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c19",
+      "text": "Reconnect, replay, transcript export, and session detail expose no hidden prefaces as user-authored text.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_ws_persistence.test.ts",
+      "test_id": "issue-0-c19: reconnect/session-detail/replay inputs expose no hidden preface",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c20",
+      "text": "Repeated turns cannot recursively amplify prior injected context.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/p0_memory_injection_ws_persistence.test.ts",
+      "test_id": "issue-0-c20: repeated turns cannot recursively amplify prior injected context",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-0-c21",
+      "text": "An env-gated live test seeds isolated fixtures, drives the real WebSocket/API path, verifies relevance, owner isolation, bounded context/provenance, and original-only persisted transcripts.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/live_e2e_p0_memory_injection_relevance.test.ts",
+      "test_id": "issue-0-c21: real prompt path enforces relevance, isolation, provenance, and persistence",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
