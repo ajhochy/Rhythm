@@ -14,6 +14,11 @@ export type ToolScreenStateKind =
   | 'loading'
   | 'empty'
   | 'offline-cache'
+  | 'missing-scope'
+  | 'stale-project'
+  | 'unauthorized-pairing'
+  | 'version-mismatch'
+  | 'network-failure'
   | 'expired-auth'
   | 'forbidden'
   | 'error';
@@ -33,6 +38,26 @@ const DEFAULT_COPY: Record<
   'offline-cache': {
     title: 'Showing saved data',
     message: 'Your Mac is offline. Saved items are read-only until it reconnects.',
+  },
+  'missing-scope': {
+    title: 'Select a project',
+    message: 'Choose an active Rhythm project before opening this tool.',
+  },
+  'stale-project': {
+    title: 'Project unavailable',
+    message: 'This project is no longer registered on the paired Mac. Select another project.',
+  },
+  'unauthorized-pairing': {
+    title: 'Pair this iPhone again',
+    message: 'The paired Mac no longer authorizes this iPhone or Rhythm account.',
+  },
+  'version-mismatch': {
+    title: 'Update required',
+    message: 'This Mac and iPhone use incompatible agent protocol versions. Update both and try again.',
+  },
+  'network-failure': {
+    title: 'Mac unreachable',
+    message: 'Check this iPhone’s network and Tailscale connection, then try again.',
   },
   'expired-auth': {
     title: 'Sign in again',

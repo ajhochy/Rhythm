@@ -12,6 +12,7 @@ import {
 
 import type { ToolScreenStateKind } from '@/components/tools/tool-screen-state';
 import {
+  classifyToolFailure,
   deriveToolsCacheScope,
   getToolCacheStorageKey,
   RhythmToolsService,
@@ -21,6 +22,7 @@ import {
   type ToolScreenId,
   type ToolTransport,
 } from '@/providers/services/rhythm-tools-service';
+import { useOpencode } from '@/providers/opencode-provider';
 import { usePairedHost } from '@/providers/paired-host-provider';
 import { useRhythmAccount } from '@/providers/rhythm-account-provider';
 import { mobileRuntimeVariant } from '@rhythm/mobile-runtime';
@@ -29,7 +31,11 @@ export type ToolsAvailability =
   | 'connected'
   | 'offline'
   | 'expired-auth'
-  | 'forbidden';
+  | 'forbidden'
+  | 'missing-scope'
+  | 'unauthorized-pairing'
+  | 'version-mismatch'
+  | 'network-failure';
 
 export interface ToolResourceState {
   items: ToolRecord[];
@@ -39,7 +45,14 @@ export interface ToolResourceState {
   error: string | null;
   errorState: Extract<
     ToolScreenStateKind,
-    'expired-auth' | 'forbidden' | 'error'
+    | 'missing-scope'
+    | 'stale-project'
+    | 'unauthorized-pairing'
+    | 'version-mismatch'
+    | 'network-failure'
+    | 'expired-auth'
+    | 'forbidden'
+    | 'error'
   > | null;
 }
 
@@ -102,27 +115,6 @@ function originFor(tool: ToolScreenId): 'cloud' | 'paired' {
   return TOOL_SCREEN_MANIFEST.find((entry) => entry.id === tool)!.origin;
 }
 
-function toItems(value: unknown): ToolRecord[] {
-  if (Array.isArray(value)) return value as ToolRecord[];
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    if (Array.isArray(record.items)) return record.items as ToolRecord[];
-    if (Array.isArray(record.data)) return record.data as ToolRecord[];
-    return [record as ToolRecord];
-  }
-  return [];
-}
-
-function statusFor(reason: unknown): ToolResourceState['errorState'] {
-  const status =
-    reason && typeof reason === 'object'
-      ? Number((reason as { status?: unknown }).status)
-      : 0;
-  if (status === 401) return 'expired-auth';
-  if (status === 403) return 'forbidden';
-  return 'error';
-}
-
 function safeError(reason: unknown): string {
   if (
     reason &&
@@ -132,87 +124,6 @@ function safeError(reason: unknown): string {
     return (reason as { message: string }).message;
   }
   return 'Could not load this tool.';
-}
-
-async function loadTool(
-  service: RhythmToolsService,
-  tool: ToolScreenId,
-): Promise<unknown> {
-  switch (tool) {
-    case 'brain':
-      return service.listBrain();
-    case 'research':
-      return service.listResearch();
-    case 'schedules':
-      return service.listSchedules();
-    case 'webhooks':
-      return service.listWebhooks();
-    case 'profiles':
-      return service.listProfiles();
-    case 'cookbook':
-      return service.listRecipes();
-    case 'review':
-      return service.listProposals('pending');
-    case 'report-card': {
-      const report = await service.getReportCard();
-      if (
-        report &&
-        typeof report === 'object' &&
-        Array.isArray((report as { agents?: unknown }).agents)
-      ) {
-        return (report as { agents: ToolRecord[] }).agents;
-      }
-      return report;
-    }
-    case 'email':
-      return service.listEmailSignals();
-    case 'gallery':
-      return service.listGalleryDesigns();
-    case 'skills':
-      return service.listSkills();
-    case 'playbooks':
-      return service.listPlaybooks();
-    case 'mcp': {
-      const mcp = await service.listMcp();
-      if (Array.isArray(mcp)) return mcp;
-      if (mcp && typeof mcp === 'object') {
-        return Object.entries(mcp as Record<string, unknown>).map(
-          ([name, value]) => ({
-            id: name,
-            name,
-            ...(value && typeof value === 'object'
-              ? (value as Record<string, unknown>)
-              : { status: String(value) }),
-          }),
-        );
-      }
-      return [];
-    }
-    case 'models': {
-      const [providers, auth, config] = await Promise.all([
-        service.listProviders(),
-        service.listProviderAuth(),
-        service.getConfig(),
-      ]);
-      const providerItems = toItems(providers);
-      return providerItems.map((provider) => ({
-        ...provider,
-        auth,
-        configured:
-          config &&
-          typeof config === 'object' &&
-          Array.isArray(
-            (config as { enabled_providers?: unknown }).enabled_providers,
-          )
-            ? (
-                config as { enabled_providers: unknown[] }
-              ).enabled_providers.includes(
-                provider.id ?? provider.providerID ?? provider.providerId,
-              )
-            : false,
-      }));
-    }
-  }
 }
 
 async function runAction(
@@ -368,24 +279,25 @@ export function RhythmToolsProvider({
       if (!service || availability !== 'connected') {
         const cached = await readCache(tool);
         if (generation.current[tool] !== requestGeneration) return;
+        const failure = classifyToolFailure(
+          undefined,
+          service ? availability : 'network-failure',
+          originFor(tool),
+        );
+        const canUseCache = failure === 'network-failure';
         setToolState(tool, {
-          items: cached,
+          items: canUseCache ? cached : [],
           loading: false,
           refreshing: false,
-          offline: availability === 'offline' || !service,
-          errorState:
-            availability === 'expired-auth'
-              ? 'expired-auth'
-              : availability === 'forbidden'
-                ? 'forbidden'
-                : null,
+          offline: canUseCache,
+          errorState: canUseCache && cached.length > 0 ? null : failure,
         });
         return;
       }
       try {
-        const response = await loadTool(service, tool);
+        const response = await service.loadScreen(tool);
         if (generation.current[tool] !== requestGeneration) return;
-        const items = sanitizeToolCache(tool, toItems(response));
+        const items = sanitizeToolCache(tool, response);
         await AsyncStorage.setItem(
           getToolCacheStorageKey(cacheScope, tool),
           JSON.stringify(items),
@@ -399,13 +311,22 @@ export function RhythmToolsProvider({
       } catch (reason) {
         if (generation.current[tool] !== requestGeneration) return;
         const cached = await readCache(tool);
+        const failure = classifyToolFailure(
+          reason,
+          'connected',
+          originFor(tool),
+        );
+        const canUseCache =
+          failure === 'network-failure' || failure === 'error';
         setToolState(tool, {
-          items: cached,
+          items: canUseCache ? cached : [],
           loading: false,
           refreshing: false,
-          offline: cached.length > 0,
-          error: safeError(reason),
-          errorState: cached.length > 0 ? null : statusFor(reason),
+          offline: canUseCache && cached.length > 0,
+          error: failure === 'error' || failure === 'forbidden'
+            ? safeError(reason)
+            : null,
+          errorState: canUseCache && cached.length > 0 ? null : failure,
         });
       }
     },
@@ -452,10 +373,15 @@ export function RhythmToolsProvider({
 export function AppRhythmToolsProvider({ children }: PropsWithChildren) {
   const account = useRhythmAccount();
   const pairedHost = usePairedHost();
+  const { activeProjectPath } = useOpencode();
   const e2eMode = mobileRuntimeVariant.enabled;
   const service = useMemo(() => {
     const e2eService = mobileRuntimeVariant.createRhythmToolsService();
-    if (e2eService) return e2eService;
+    if (e2eService) {
+      return activeProjectPath
+        ? e2eService
+        : e2eService.forProject(activeProjectPath);
+    }
     const unavailable: ToolTransport = {
       async request(): Promise<never> {
         throw new Error('This service is unavailable.');
@@ -464,13 +390,17 @@ export function AppRhythmToolsProvider({ children }: PropsWithChildren) {
     return new RhythmToolsService({
       cloud: account.client,
       paired: pairedHost.client ?? unavailable,
+      projectId: activeProjectPath,
     });
   }, [
     account.client,
+    activeProjectPath,
     pairedHost.client,
   ]);
+  useEffect(() => () => service.cancel(), [service]);
   const cacheScope = deriveToolsCacheScope({
     accountUserId: account.user?.id ?? null,
+    activeProjectId: activeProjectPath ?? null,
     pairedHost: pairedHost.host
       ? {
           hostId: pairedHost.host.hostId,
@@ -487,13 +417,23 @@ export function AppRhythmToolsProvider({ children }: PropsWithChildren) {
       : account.state === 'offline'
         ? 'offline'
         : 'expired-auth';
-  const pairedAvailability: ToolsAvailability = e2eMode
-    ? 'connected'
-    : pairedHost.state === 'connected'
+  const pairedAvailability: ToolsAvailability = !activeProjectPath
+    ? 'missing-scope'
+    : e2eMode
       ? 'connected'
-      : pairedHost.state === 'accountMismatch'
-        ? 'forbidden'
-        : 'offline';
+      : pairedHost.state === 'incompatible'
+        ? 'version-mismatch'
+        : pairedHost.state === 'accountMismatch' ||
+            pairedHost.state === 'revoked' ||
+            pairedHost.state === 'unpaired'
+          ? 'unauthorized-pairing'
+          : pairedHost.state === 'offline' ||
+              pairedHost.state === 'tailscaleUnavailable' ||
+              pairedHost.state === 'unhealthy'
+            ? 'network-failure'
+            : pairedHost.state === 'connected'
+              ? 'connected'
+              : 'unauthorized-pairing';
   return (
     <RhythmToolsProvider
       cacheScope={cacheScope}
