@@ -324,6 +324,13 @@ export const env = {
     .split(',')
     .map((value) => value.trim())
     .filter((value) => value.length > 0),
+  /**
+   * Defensive origin/host enforcement for the loopback agent surface. Default
+   * ON; only the explicit value "off" disables it for compatibility recovery.
+   */
+  agentOriginGuardEnabled:
+    (process.env.RHYTHM_AGENT_ORIGIN_GUARD ?? '').trim().toLowerCase() !==
+    'off',
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
   googleAuthClientId:
     process.env.GOOGLE_AUTH_CLIENT_ID ?? process.env.GOOGLE_CLIENT_ID ?? '',
