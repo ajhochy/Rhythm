@@ -1,8 +1,17 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { Divider, Menu, Text } from 'react-native-paper';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 
 import { ActivityFeed } from '@/components/agents/activity-feed';
 import { ChatList } from '@/components/chat/chat-list';
@@ -34,6 +43,8 @@ export function AgentsOverflowMenu({
 }: AgentsOverflowMenuProps) {
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
+  const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [menuVisible, setMenuVisible] = useState(false);
   const selectedProject = chatController.projectId
     ? chatController.projects.find(
@@ -67,6 +78,13 @@ export function AgentsOverflowMenu({
       }
       onDismiss={() => setMenuVisible(false)}
       visible={menuVisible}>
+      <ScrollView
+        accessibilityLabel="Agents menu options"
+        bounces={false}
+        style={{
+          maxHeight: Math.max(240, height - insets.top - insets.bottom - 96),
+        }}
+        testID="agents-overflow-scroll">
       <Menu.Item
         accessibilityLabel={`Chats, ${counts.chats} items`}
         leadingIcon="message-outline"
@@ -205,6 +223,7 @@ export function AgentsOverflowMenu({
           />
         </>
       ) : null}
+      </ScrollView>
     </Menu>
   );
 }

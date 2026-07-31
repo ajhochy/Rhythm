@@ -1,5 +1,47 @@
 # Smoke Test
 
+## PR #1284 Physical iPhone Smoke — 2026-07-31
+
+Source: `codex/mobile-fixes-rollup` at `6fa09be111db4b15954ddef7f3a0369696619b8d`.
+Device evidence is recorded without a UDID, pairing code, or device token.
+
+| Area | Required behavior | Result |
+| --- | --- | --- |
+| Runtime provenance | Desktop and iPhone builds launch from the exact PR head; local API, fork engine, and restricted mobile gateway are healthy | Pass — exact PR head launched; API, engine, and gateway healthy |
+| Agents header | Search is the only persistent control; the top-right menu contains Chats, Scheduled Tasks, Background Loops, Activity, Workspace, Terminal, New chat, project selection, and lifecycle filters | Fail — actions work, but the physical iPhone clips the menu bottom and it cannot scroll |
+| Session placement | Owner-matched desktop human sessions, including projectless All Sessions chats, appear in Chats; scheduled/system/background work remains in Activity | Fail — mobile chats appear in Chats; desktop human chats remain in Activity; scheduled/background categories are correct |
+| Review Queue and Gallery | Existing review proposals and paired-Mac gallery content render instead of false empty states | Pass for current scope — Gallery lists real items; playback is deferred |
+| Tool catalogs | Skills, MCP, Profiles, and Providers & Models expose usable search/group/sort organization and truthful provider/model copy | Pass with follow-up — Skills and Providers & Models work; more category organization is desirable for Skills and Profiles |
+| Profile scope on first turn | A mobile-created session applies the selected profile's model, permissions, MCP, tools, and skills before its first model request; the first-turn context is not the prior ~120k-token unscoped payload | Pass — selected skill/MCP/tool scope behaved correctly on the retest |
+| Composer | Multiline input grows to its cap, immediately shows a long-paste tail/caret, scrolls internally, and shrinks after deletion/clear while controls remain reachable | Pending |
+| Console health | No new mobile runtime errors and no prior Fragment-prop or invalid-icon warnings while exercising the paths above | Fail — prior warnings stayed absent, but a large real transcript returned 502 and dismissing the error led to a black frozen screen |
+
+### Launch evidence
+
+- Worktree was clean and matched the pushed PR head before launch.
+- Connected physical iPhone was detected by Xcode before installation.
+- Desktop, gateway, and native iPhone build succeeded from the exact PR head.
+- A failing real chat contained about 8.95 MB of message data, exceeding the gateway's 8 MB response limit. The open path requested that transcript twice, contributing to slow/hanging loads.
+- Corrective implementation and a second device smoke are required before this section can pass.
+
+### Corrective verification
+
+- Projectless desktop chats are now openable when `agent_sessions.owner_user_id`
+  exactly matches the paired user. The gateway resolves the session's
+  authoritative `cwd` from the desktop catalog; a mobile-supplied directory is
+  never trusted. A different owner's session still returns HTTP 404.
+- Initial transcript loading is bounded to 20 messages and the diff is derived
+  from that already-loaded page, avoiding the duplicate unbounded request that
+  produced the 502 above.
+- The Agents overflow menu is vertically scrollable within the physical safe
+  area.
+- Focused mobile tests passed (3 suites / 4 tests), focused API regressions
+  passed, and the isolated real API + engine behavioral test passed (1/1),
+  including projectless transcript access and cross-owner denial.
+- `ai-workflow checks --level pr` passed the complete repository matrix,
+  including mobile web E2E. A second physical-device smoke remains required
+  after the corrected PR build is installed.
+
 Scope: issue #1174, complete mobile OpenCode 1.14.49 API parity.
 Date: 2026-07-25
 

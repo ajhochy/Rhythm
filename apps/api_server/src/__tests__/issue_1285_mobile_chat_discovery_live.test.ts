@@ -257,13 +257,13 @@ describeLive('live E2E — issue #1285 owner-scoped Chats discovery', () => {
       expect(unscopedResponse.status).toBe(200);
       const unscoped = (await unscopedResponse.json()) as Array<{
         id: string;
-        projectId: null;
+        projectId: string;
         interaction: string;
         directory?: string;
       }>;
       expect(unscoped.map(({ id }) => id)).toEqual([unscopedHuman]);
       expect(unscoped[0]).toMatchObject({
-        projectId: null,
+        projectId,
         interaction: 'read-only',
       });
       expect(unscoped[0]).not.toHaveProperty('directory');
@@ -281,10 +281,17 @@ describeLive('live E2E — issue #1285 owner-scoped Chats discovery', () => {
       expect(otherOwnerIds).toEqual([otherOwnerHuman]);
 
       const unscopedRead = await fetch(
-        `${baseUrl}/mobile-gateway/opencode/session/${encodeURIComponent(unscopedHuman)}`,
+        `${baseUrl}/mobile-gateway/opencode/session/${encodeURIComponent(unscopedHuman)}/message`,
         { headers: gatewayHeaders(ownerA.deviceToken!, projectId) },
       );
-      expect(unscopedRead.status).toBe(403);
+      expect(unscopedRead.status).toBe(200);
+      expect(await unscopedRead.json()).toEqual([]);
+
+      const crossOwnerRead = await fetch(
+        `${baseUrl}/mobile-gateway/opencode/session/${encodeURIComponent(unscopedHuman)}/message`,
+        { headers: gatewayHeaders(ownerB.deviceToken!, projectId) },
+      );
+      expect(crossOwnerRead.status).toBe(404);
     } finally {
       for (const session of engineSessions) {
         await fetch(

@@ -551,3 +551,13 @@
   restricted context against an unrestricted control before declaring parity.
 - See
   `.agent-stack/postmortems/2026-07-31-issue-1282-mobile-profile-scope-device-smoke.json`.
+
+## 2026-07-31 — PR #1284 corrective iPhone smoke exposed viewport and real-transcript gaps
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C2 — wrong contract; C1 — missing contract
+- **Criteria affected**: issue-1285-c1/c2 and large-transcript chat open/recovery
+- **Root cause**: Tests proved menu actions and synthetic discovery data but did not exercise a physical-height menu, real desktop historical catalogs, or a transcript larger than the gateway's 8 MB response cap. The open path also fetched the same full transcript twice.
+- **Suggested fix**: Require native viewport scrolling, real-data desktop-chat composition, and bounded single-fetch transcript loading with recoverable error navigation in the acceptance contract.
+- See
+  `.agent-stack/postmortems/2026-07-31-pr-1284-mobile-corrective-device-smoke.json`.

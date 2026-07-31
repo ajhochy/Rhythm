@@ -46,6 +46,7 @@ import {
   applySelectiveDeferral,
   toolCountsForRoleConfig,
 } from './tool_surface_estimator';
+import { listOwnerUnscopedMobileChats } from './mobile_chat_catalog';
 
 export { MOBILE_OPENCODE_OPERATION_MANIFEST };
 export type { MobileOpenCodeOperation } from './mobile_opencode_proxy_types';
@@ -75,6 +76,7 @@ const PROMPT_FILE_PART_OPERATIONS = new Set([
 
 export const MOBILE_OPENCODE_REQUEST_BODY_LIMIT_BYTES = 512 * 1024;
 export const MOBILE_OPENCODE_RESPONSE_BODY_LIMIT_BYTES = 8 * 1024 * 1024;
+export const MOBILE_SESSION_MESSAGE_PAGE_SIZE = 20;
 const MOBILE_OPENCODE_TIMEOUT_MS = 30_000;
 
 type FetchFn = (
@@ -650,6 +652,12 @@ function scopedQuery(
     const normalizedField = field.toLowerCase();
     if (ROOT_FIELDS.has(normalizedField)) continue;
     if (
+      operationId === 'session.messages' &&
+      normalizedField === 'limit'
+    ) {
+      continue;
+    }
+    if (
       normalizedField === 'path' &&
       SCOPED_PATH_QUERY_OPERATIONS.has(operationId)
     ) {
@@ -662,6 +670,9 @@ function scopedQuery(
       continue;
     }
     scoped.append(field, value);
+  }
+  if (operationId === 'session.messages') {
+    scoped.set('limit', String(MOBILE_SESSION_MESSAGE_PAGE_SIZE));
   }
   if (!ownerUnscopedDiscovery) scoped.set('directory', project.root);
   return scoped;
@@ -798,6 +809,21 @@ export class MobileOpenCodeProxy {
       ownerUserId: input.userId,
       ownership,
     };
+    const addressedSessionId = operationPathParameter(
+      operation.path,
+      input.path,
+      'sessionID',
+    );
+    const authoritativeSessionDirectory = addressedSessionId
+      ? ownership.resolveSessionDirectoryForOwner?.(
+          addressedSessionId,
+          input.userId,
+          input.project.id,
+        )
+      : null;
+    const requestProject = authoritativeSessionDirectory
+      ? { ...input.project, root: authoritativeSessionDirectory }
+      : input.project;
 
     const ownerUnscopedDiscovery = input.ownerUnscopedDiscovery === true;
     if (
@@ -809,10 +835,47 @@ export class MobileOpenCodeProxy {
 
     const query = scopedQuery(
       input.query,
-      input.project,
+      requestProject,
       operation.operationId,
       ownerUnscopedDiscovery,
     );
+    if (ownerUnscopedDiscovery) {
+      const requestedLimit = Number(query.get('limit'));
+      const requestedCursor = Number(query.get('cursor'));
+      const limit = Number.isSafeInteger(requestedLimit)
+        ? Math.max(1, Math.min(100, requestedLimit))
+        : 100;
+      const cursor = Number.isSafeInteger(requestedCursor) && requestedCursor >= 0
+        ? requestedCursor
+        : 0;
+      const page = await listOwnerUnscopedMobileChats({
+        archived: query.get('archived') === 'true',
+        cursor,
+        limit,
+        ownerUserId: input.userId,
+      });
+      const safeBody = Buffer.from(JSON.stringify(
+        page.items.map((item) => ({
+          ...item,
+          projectId: input.project.id,
+        })),
+      ));
+      if (safeBody.byteLength > this.responseBodyLimitBytes) {
+        throw new AppError(
+          502,
+          'UPSTREAM_RESPONSE_TOO_LARGE',
+          'OpenCode response exceeded the mobile gateway limit',
+        );
+      }
+      return {
+        status: 200,
+        contentType: 'application/json',
+        ...(page.nextCursor === null
+          ? {}
+          : { headers: { 'x-next-cursor': String(page.nextCursor) } }),
+        body: safeBody,
+      };
+    }
     const url = `${this.baseUrl}${safeForwardPath(input.path)}?${query.toString()}`;
     const acceptsBody = operation.method !== 'GET';
     const callerBody = !acceptsBody || input.body === undefined
@@ -835,14 +898,14 @@ export class MobileOpenCodeProxy {
       sanitizeRequestBodyBeforeScope(
         input.body,
         operation.operationId,
-        input.project,
+        requestProject,
       );
     }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
       const fetchJson: MobileOpenCodeJsonFetcher = async (path) => {
-        const scoped = new URLSearchParams({ directory: input.project.root });
+        const scoped = new URLSearchParams({ directory: requestProject.root });
         const response = await this.fetchFn(
           `${this.baseUrl}${path}?${scoped.toString()}`,
           {
@@ -877,7 +940,7 @@ export class MobileOpenCodeProxy {
       await authorizeMobileOpenCodeOperation(
         operation,
         input.path,
-        input.project,
+        requestProject,
         fetchJson,
         input.query,
         input.body,
@@ -888,7 +951,7 @@ export class MobileOpenCodeProxy {
         : await sanitizeRequestBody(
           input.body,
           operation.operationId,
-          input.project,
+          requestProject,
           fetchJson,
         );
       const scopedBody = sanitizedBody === undefined
@@ -1067,7 +1130,7 @@ export class MobileOpenCodeProxy {
         const safeValue = await shapeMobileOpenCodeResponse(
           operation,
           value,
-          input.project,
+          requestProject,
           fetchJson,
           input.path,
           owner,

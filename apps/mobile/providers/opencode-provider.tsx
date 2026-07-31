@@ -753,12 +753,16 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       catalog,
     ) {
       const scopedClient = buildScopedClient(projectId);
-      const [messages, diffs, todos, pending] = await Promise.all([
+      const [messages, todos, pending] = await Promise.all([
         svcGetSessionMessages(scopedClient, sessionId),
-        svcGetSessionDiff(scopedClient, sessionId),
         svcGetSessionTodos(scopedClient, sessionId),
         listPendingInteractions(scopedClient),
       ]);
+      const diffs = await svcGetSessionDiff(
+        scopedClient,
+        sessionId,
+        messages,
+      );
       const loadedCatalog = Array.isArray(catalog)
         ? { sessions: catalog, statuses: {} }
         : (catalog as OpenProjectSessionCatalog);

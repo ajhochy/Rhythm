@@ -102,7 +102,10 @@ export async function listSessionsAcrossProjects(
             .map((session) => ({
               ...(session as unknown as Record<string, unknown>),
               id: session.id,
-              projectId: null,
+              projectId:
+                typeof (session as unknown as Record<string, unknown>).projectId === 'string'
+                  ? (session as unknown as { projectId: string }).projectId
+                  : uniquePaths[0],
               status: archived
                 ? 'archived'
                 : statusLabel(
@@ -149,20 +152,32 @@ export async function listSessionsAcrossProjects(
   const deduped = new Map<string, ProjectSessionCatalogEntry>();
   for (const session of catalog) {
     const existing = deduped.get(session.id);
-    if (!existing || session.projectId === null) {
+    if (
+      !existing ||
+      (existing.interaction === 'read-only' && session.interaction !== 'read-only')
+    ) {
       deduped.set(session.id, session);
     }
   }
   return [...deduped.values()];
 }
 
+export const MOBILE_SESSION_MESSAGE_PAGE_SIZE = 20;
+
 export async function getSessionMessages(client: OpencodeClient, sessionId: string) {
-  const response = await client.session.messages({ sessionID: sessionId });
+  const response = await client.session.messages({
+    sessionID: sessionId,
+    limit: MOBILE_SESSION_MESSAGE_PAGE_SIZE,
+  });
   return requireData(response.data, 'session messages request');
 }
 
-export async function getSessionDiff(client: OpencodeClient, sessionId: string) {
-  const messages = await getSessionMessages(client, sessionId);
+export async function getSessionDiff(
+  client: OpencodeClient,
+  sessionId: string,
+  loadedMessages?: Awaited<ReturnType<typeof getSessionMessages>>,
+) {
+  const messages = loadedMessages ?? await getSessionMessages(client, sessionId);
   const latestUserMessage = messages.slice().reverse().find(({ info }) => info.role === 'user');
   if (!latestUserMessage) {
     return [];

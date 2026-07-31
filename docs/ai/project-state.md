@@ -8,7 +8,9 @@ navigation and filters live in the top-right menu. Exact-owner desktop human
 sessions now appear in Chats (including NULL-project All Sessions rows), the
 Review Queue and Gallery use their desktop data, large Tools catalogs share
 search/group/sort controls, and paired mobile creation applies profile model,
-MCP, skill, and core-permission scope before the first turn. Integrated proof:
+MCP, skill, and core-permission scope before the first turn. Projectless rows
+are openable using the owner-authoritative desktop `cwd`, transcript loading is
+bounded, and the overflow menu scrolls within the device safe area. Integrated proof:
 [runs/2026-07-31-issue-1285-1286-integrated-verification.md](runs/2026-07-31-issue-1285-1286-integrated-verification.md).
 
 ## Active branch / PR
@@ -20,8 +22,8 @@ MCP, skill, and core-permission scope before the first turn. Integrated proof:
 
 ## In progress
 
-- Publish the verified worktree update to draft PR #1284 and watch CI.
-- Run the remaining physical-iPhone smoke checks after the phone reconnects.
+- Publish the corrective device-smoke fixes to draft PR #1284 and watch CI.
+- Relaunch the exact PR desktop/mobile builds and repeat physical-iPhone smoke.
 
 ## Risks / known issues
 
@@ -39,6 +41,9 @@ MCP, skill, and core-permission scope before the first turn. Integrated proof:
 - The PR is intentionally stacked on the session-isolation branch; comparing
   the inherited integration base to `main` is broad and is not this PR's
   review scope.
+- The first physical-device pass exposed an 8.95 MB transcript exceeding the
+  gateway response cap and a non-scrolling overflow menu. Both are repaired;
+  the corrected native build still needs a human re-smoke.
 
 ## Test status
 
@@ -58,13 +63,16 @@ MCP, skill, and core-permission scope before the first turn. Integrated proof:
   order; the complete repository PR matrix passed.
 - The current worktree passed the complete local PR matrix; GitHub CI for the
   forthcoming pushed commit remains pending.
+- Corrective focused mobile tests passed 3 suites / 4 tests; focused API
+  discovery and paging regressions passed; the isolated real API + engine test
+  passed projectless exact-owner transcript access and cross-owner HTTP 404.
 - GitNexus exact-base change detection: MEDIUM aggregate rollup scope, 70
   files / 167 symbols / 3 existing mobile-gateway flows; no HIGH/CRITICAL
   warning.
 
 ## Next step
 
-Push the verified commit to draft PR #1284, watch CI, then repeat issue #1280,
+Push the corrected verified commit to draft PR #1284, watch CI, then repeat issue #1280,
 Agents, Chats/Activity, Gallery, Review Queue, and profile-scoped first-turn
 checks on a physical iPhone before a human merge.
 
@@ -85,11 +93,11 @@ checks on a physical iPhone before a human merge.
 - Concerns: physical-iPhone visual validation remains part of the parent smoke pass. Agent designs are Mac-global records without per-row owner/project fields, so the mobile route is deliberately restricted to registered projects and workspace admins.
 
 ### 2026-07-31 — issue-1285-c2-owner-session-discovery
-- Files modified: the mobile chat provider/read model and session service now merge paginated owner-scoped desktop discovery into Chats; the mobile gateway proxy, security shaper, route, and ownership repository expose only exact-owner NULL-project human chats through a list-only read model; focused API/mobile and isolated live tests cover the boundary.
+- Files modified: the mobile chat provider/read model and session service now merge paginated owner-scoped desktop discovery into Chats; the mobile gateway proxy, security shaper, route, and ownership repository expose exact-owner NULL-project human chats and resolve their authoritative desktop directory for transcript access; focused API/mobile and isolated live tests cover the boundary.
 - Checks run: full #1285 contract PASS (6/6); focused mobile Jest PASS (1/1); focused API Vitest PASS (2/2); mobile typecheck PASS; API build PASS; fork build/smoke PASS; isolated real API/engine live behavior PASS (1/1); `git diff --check` PASS.
-- Decisions made: registered-project chats remain interactive; desktop All Sessions chats with NULL/empty project IDs are listed as `interaction: 'read-only'`; exact owner is mandatory; authoritative category/system/scheduled metadata keeps scheduled and optimizer runs in Activity; ID-addressed authorization remains exact-project.
+- Decisions made: registered-project chats remain interactive; desktop All Sessions chats with NULL/empty project IDs are openable when the exact owner matches, using only the server-recorded `cwd`; authoritative category/system/scheduled metadata keeps scheduled and optimizer runs in Activity; mutations remain unavailable for the projectless read model.
 - Deviations from spec: none for c2.
-- Concerns: read-only desktop cards intentionally cannot open transcripts on mobile and show `Desktop chat · Open on Mac`; physical-iPhone validation remains part of the parent smoke pass. A separate read-only #1282 diagnostic found the installed SDK drops `profileId` during mobile session creation; no #1282 production code was changed in this lane.
+- Concerns: physical-iPhone validation remains part of the parent smoke pass. A separate read-only #1282 diagnostic found the installed SDK drops `profileId` during mobile session creation; no #1282 production code was changed in this lane.
 
 ### 2026-07-31 — issue-1286-mobile-first-turn-profile-scope
 - Files modified: paired mobile session creation now uses an authenticated raw gateway request carrying the selected Rhythm profile atomically; the gateway resolves and persists server-authoritative agent, real-fork model, core permissions, MCP allowlist, and skill allowlist before engine creation; focused transport, contract, live capture, recon, and run-log coverage records the behavior.

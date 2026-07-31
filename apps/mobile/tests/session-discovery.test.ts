@@ -2,10 +2,10 @@ import { listSessionsAcrossProjects } from '@/providers/services/session-service
 
 describe('issue #1285 owner-scoped session discovery', () => {
   it('requests every owner-unscoped page and keeps those chats read-only', async () => {
-    const discoveryCalls: Array<{
+    const discoveryCalls: {
       parameters: Record<string, unknown>;
       options: { headers?: Record<string, string> };
-    }> = [];
+    }[] = [];
     const client = {
       session: {
         async list() {
@@ -60,12 +60,12 @@ describe('issue #1285 owner-scoped session discovery', () => {
     }))).toEqual([
       {
         id: 'ses-home-1',
-        projectId: null,
-        interaction: 'read-only',
+        projectId: '/registered/project',
+        interaction: undefined,
       },
       {
         id: 'ses-home-2',
-        projectId: null,
+        projectId: '/registered/project',
         interaction: 'read-only',
       },
     ]);

@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
@@ -111,27 +111,13 @@ describe('issue #1285 owner-scoped mobile chat discovery', () => {
     });
     catalogSession('ses-scoped', ownerA, { projectId: project.id });
 
-    const upstream = [
-      'ses-owner-a-human',
-      'ses-owner-b-human',
-      'ses-scheduled',
-      'ses-optimizer',
-      'ses-scoped',
-    ].map((id) => ({
-      id,
-      title: id,
-      directory: '/sandbox/issue-1285/home',
-      time: { updated: 1 },
-    }));
+    const fetchFn = vi.fn(async () => {
+      throw new Error('owner catalog discovery must not depend on one engine directory');
+    });
     const proxy = new MobileOpenCodeProxy({
       baseUrl: 'http://opencode.test',
       ownershipRepository: ownership,
-      fetchFn: async (request) => {
-        const url = new URL(String(request));
-        expect(url.pathname).toBe('/experimental/session');
-        expect(url.searchParams.get('directory')).toBeNull();
-        return json(upstream, 200);
-      },
+      fetchFn,
     });
 
     const result = await proxy.forward({
@@ -147,11 +133,61 @@ describe('issue #1285 owner-scoped mobile chat discovery', () => {
 
     expect(body).toEqual([expect.objectContaining({
       id: 'ses-owner-a-human',
-      projectId: null,
+      projectId: project.id,
       interaction: 'read-only',
     })]);
     expect(body[0]).not.toHaveProperty('directory');
-    expect(result.headers).toEqual({ 'x-next-cursor': '200' });
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(result.headers).toBeUndefined();
+  });
+
+  it('opens an exact-owner projectless transcript using its catalog cwd', async () => {
+    catalogSession('ses-owner-a-home', ownerA);
+    const requests: string[] = [];
+    const proxy = new MobileOpenCodeProxy({
+      baseUrl: 'http://opencode.test',
+      ownershipRepository: ownership,
+      fetchFn: async (request) => {
+        const url = new URL(String(request));
+        requests.push(url.toString());
+        if (url.pathname === '/session') {
+          return json([{
+            id: 'ses-owner-a-home',
+            directory: '/sandbox/issue-1285/home',
+          }]);
+        }
+        return json([{
+          info: {
+            id: 'msg-owner-a-home',
+            role: 'user',
+            sessionID: 'ses-owner-a-home',
+          },
+          parts: [{ id: 'part-owner-a-home', type: 'text', text: 'hello' }],
+        }]);
+      },
+    });
+
+    const result = await proxy.forward({
+      method: 'GET',
+      path: '/session/ses-owner-a-home/message',
+      query: new URLSearchParams(),
+      project,
+      userId: ownerA,
+    });
+
+    expect(result.status).toBe(200);
+    expect(requests.map((request) => new URL(request).searchParams.get('directory')))
+      .toEqual([
+        '/sandbox/issue-1285/home',
+        '/sandbox/issue-1285/home',
+      ]);
+    await expect(proxy.forward({
+      method: 'GET',
+      path: '/session/ses-owner-a-home/message',
+      query: new URLSearchParams(),
+      project,
+      userId: ownerB,
+    })).rejects.toMatchObject({ statusCode: 404 });
   });
 
   it('keeps non-null project mismatches out of project chat discovery', async () => {
@@ -196,12 +232,12 @@ describe('issue #1285 owner-scoped mobile chat discovery', () => {
       'ses-project-match',
       'ses-projectless',
     ]);
-    // Projectless catalog rows remain list-visible for the exact owner, but
-    // never become project-authorized for ID-addressed reads or mutations.
+    // Projectless catalog rows are readable for their exact owner even though
+    // they do not inherit a claim-table project assignment.
     expect(ownership.isSessionOwnedByDesktopCatalog(
       'ses-projectless',
       ownerA,
       project.id,
-    )).toBe(false);
+    )).toBe(true);
   });
 });

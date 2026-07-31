@@ -27,6 +27,11 @@ export interface MobileOpenCodeOwnershipReader {
     ownerUserId: number,
     projectId: string | null,
   ): boolean;
+  resolveSessionDirectoryForOwner?(
+    sdkSessionId: string,
+    ownerUserId: number,
+    projectId: string,
+  ): string | null;
 }
 
 export interface MobileOpenCodeOwnershipStore
@@ -175,7 +180,37 @@ export class MobileOpenCodeOwnershipRepository
     }
     const desktopOwner = this.desktopSessionOwner(sdkSessionId);
     if (desktopOwner?.owner_user_id !== ownerUserId) return false;
-    return desktopOwner.project_id === projectId;
+    return desktopOwner.project_id === projectId ||
+      desktopOwner.project_id === null ||
+      desktopOwner.project_id.trim() === '';
+  }
+
+  resolveSessionDirectoryForOwner(
+    sdkSessionId: string,
+    ownerUserId: number,
+    projectId: string,
+  ): string | null {
+    if (
+      !sdkSessionId ||
+      !Number.isSafeInteger(ownerUserId) ||
+      ownerUserId <= 0 ||
+      !projectId
+    ) {
+      return null;
+    }
+    const row = this.db.prepare(
+      `SELECT cwd
+         FROM agent_sessions
+        WHERE sdk_session_id = ?
+          AND owner_user_id = ?
+          AND (project_id = ? OR project_id IS NULL OR TRIM(project_id) = '')
+          AND category = 'chat'
+          AND is_system = 0
+          AND scheduled_task_id IS NULL
+        LIMIT 1`,
+    ).get(sdkSessionId, ownerUserId, projectId) as
+      { cwd: string | null } | undefined;
+    return row?.cwd?.trim() || null;
   }
 
   /**

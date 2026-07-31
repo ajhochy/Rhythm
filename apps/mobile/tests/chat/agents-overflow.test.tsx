@@ -69,6 +69,9 @@ describe('AgentsOverflowMenu', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('Open workspace')).toBeTruthy();
     });
+    expect(screen.getByTestId('agents-overflow-scroll')).toBeTruthy();
+    expect(screen.getByTestId('agents-overflow-scroll').props.scrollEnabled)
+      .not.toBe(false);
     expect(screen.getByLabelText('Open terminal')).toBeTruthy();
     expect(screen.getByLabelText('Create chat')).toBeTruthy();
     expect(screen.getByLabelText('Filter chats by project')).toBeTruthy();

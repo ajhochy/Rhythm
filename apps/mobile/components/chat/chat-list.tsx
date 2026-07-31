@@ -201,18 +201,14 @@ export function ChatList({ controller }: ChatListProps) {
           <Card
             accessibilityLabel={
               item.interaction === 'read-only'
-                ? `${item.title}, Desktop chat, Open on Mac`
+                ? `${item.title}, Desktop chat, Read-only`
                 : `${item.title}, ${item.status}`
             }
             accessibilityRole={
-              item.interaction === 'read-only' ? undefined : 'button'
+              'button'
             }
             mode="outlined"
-            onPress={
-              item.interaction === 'read-only'
-                ? undefined
-                : () => openChat(item)
-            }
+            onPress={() => openChat(item)}
             style={[
               styles.card,
               item.depth > 0 && styles.childCard,
@@ -222,7 +218,7 @@ export function ChatList({ controller }: ChatListProps) {
               title={item.title}
               subtitle={
                 item.interaction === 'read-only'
-                  ? 'Desktop chat · Open on Mac'
+                  ? 'Desktop chat · Read-only'
                   : `${projectsByPath.get(item.projectId ?? '')?.label ?? 'Unknown project'} · ${item.status}`
               }
               titleNumberOfLines={2}
