@@ -17,7 +17,9 @@ import {
   Chip,
   Dialog,
   Divider,
+  List,
   Portal,
+  Searchbar,
   SegmentedButtons,
   Surface,
   Text,
@@ -38,6 +40,12 @@ import {
   type ToolRecord,
   type ToolScreenId,
 } from '@/providers/services/rhythm-tools-service';
+import {
+  isOrganizedToolCatalog,
+  organizeToolCatalog,
+  type CatalogGroupMode,
+  type CatalogSortDirection,
+} from '@/providers/services/tool-catalog-organizer';
 
 const CREATE_LABEL: Partial<Record<ToolScreenId, string>> = {
   brain: 'New memory',
@@ -211,6 +219,10 @@ export default function RhythmToolScreen() {
   const [form, setForm] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<ToolRecord | null>(null);
   const [search, setSearch] = useState('');
+  const [catalogGroupMode, setCatalogGroupMode] =
+    useState<CatalogGroupMode>('category');
+  const [catalogSortDirection, setCatalogSortDirection] =
+    useState<CatalogSortDirection>('asc');
   const [notice, setNotice] = useState<string | null>(null);
   const [oneTimeSecret, setOneTimeSecret] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -235,13 +247,37 @@ export default function RhythmToolScreen() {
     if (refreshed && refreshed !== selected) setSelected(refreshed);
   }, [selected, state.items]);
 
+  const catalogSections = useMemo(
+    () =>
+      tool && isOrganizedToolCatalog(tool)
+        ? organizeToolCatalog({
+            tool,
+            items: state.items,
+            query: search,
+            groupMode: catalogGroupMode,
+            sortDirection: catalogSortDirection,
+          })
+        : null,
+    [
+      catalogGroupMode,
+      catalogSortDirection,
+      search,
+      state.items,
+      tool,
+    ],
+  );
   const items = useMemo(() => {
+    if (catalogSections) {
+      return catalogSections.flatMap((section) => section.items);
+    }
     if (tool !== 'brain' || !search.trim()) return state.items;
     const needle = search.trim().toLowerCase();
     return state.items.filter((item) =>
-      `${item.title ?? ''} ${item.content ?? ''}`.toLowerCase().includes(needle),
+      `${item.title ?? ''} ${item.content ?? ''}`
+        .toLowerCase()
+        .includes(needle),
     );
-  }, [search, state.items, tool]);
+  }, [catalogSections, search, state.items, tool]);
   const routeHeader = <Stack.Screen options={{ headerShown: false }} />;
   const toolHeader = (
     <Appbar.Header
@@ -815,44 +851,176 @@ export default function RhythmToolScreen() {
           </View>
         );
       case 'models':
+        if (Number(item.authMethodCount) < 1) {
+          return (
+            <Chip compact>
+              {item.connected === true ? 'Connected' : 'Enabled'} on paired Mac
+            </Chip>
+          );
+        }
         return (
           <View style={styles.actions}>
-            <Button
-              accessibilityLabel={`Authenticate ${title}`}
-              disabled={state.offline || submitting}
-              onPress={() => {
-                setSelected(item);
-                void beginProviderOAuth(item);
-              }}>
-              Authenticate
-            </Button>
-            <Button
-              accessibilityLabel={`Remove ${title} credentials`}
-              disabled={state.offline || submitting}
-              onPress={async () => {
-                if (!(await confirmAction(
-                  'Remove provider credentials?',
-                  `Remove saved credentials for ${title}?`,
-                ))) return;
-                setSubmitting(true);
-                setNotice(null);
-                try {
-                  await removeProvider(String(item.providerID ?? item.providerId ?? item.id));
-                  await refresh('models');
-                  setNotice(`${title} credentials removed.`);
-                } catch (reason) {
-                  setNotice(reason instanceof Error ? reason.message : 'Could not remove provider credentials.');
-                } finally {
-                  setSubmitting(false);
-                }
-              }}>
-              Remove credentials
-            </Button>
+            {Number(item.authMethodCount) > 0 ? (
+              <Button
+                accessibilityLabel={`Authenticate ${title}`}
+                disabled={state.offline || submitting}
+                onPress={() => {
+                  setSelected(item);
+                  void beginProviderOAuth(item);
+                }}>
+                Authenticate
+              </Button>
+            ) : null}
+            {item.connected === true ? (
+              <Button
+                accessibilityLabel={`Remove ${title} credentials`}
+                disabled={state.offline || submitting}
+                onPress={async () => {
+                  if (!(await confirmAction(
+                    'Remove provider credentials?',
+                    `Remove saved credentials for ${title}?`,
+                  ))) return;
+                  setSubmitting(true);
+                  setNotice(null);
+                  try {
+                    await removeProvider(String(item.providerID ?? item.providerId ?? item.id));
+                    await refresh('models');
+                    setNotice(`${title} credentials removed.`);
+                  } catch (reason) {
+                    setNotice(reason instanceof Error ? reason.message : 'Could not remove provider credentials.');
+                  } finally {
+                    setSubmitting(false);
+                  }
+                }}>
+                Remove credentials
+              </Button>
+            ) : null}
           </View>
         );
       default:
         return null;
     }
+  };
+
+  const renderItemCard = (item: ToolRecord) => {
+    const title = recordTitle(tool, item);
+    const subtitle = recordSubtitle(tool, item);
+    const actions = renderActions(item);
+    const providerModels = Array.isArray(item.models)
+      ? item.models.filter(
+          (model): model is { id: string; name: string } =>
+            Boolean(
+              model &&
+                typeof model === 'object' &&
+                typeof (model as { id?: unknown }).id === 'string' &&
+                typeof (model as { name?: unknown }).name === 'string',
+            ),
+        )
+      : [];
+    return (
+      <Card
+        accessibilityLabel={`${title}. ${subtitle}`}
+        accessibilityRole={
+          [
+            'brain',
+            'research',
+            'schedules',
+            'webhooks',
+            'profiles',
+            'cookbook',
+            'review',
+          ].includes(tool)
+            ? 'button'
+            : undefined
+        }
+        key={item.id}
+        mode="outlined"
+        onPress={
+          tool === 'profiles'
+            ? () => openProfile(item)
+            : [
+                'brain',
+                'research',
+                'schedules',
+                'webhooks',
+                'cookbook',
+                'review',
+              ].includes(tool)
+              ? () => setSelected(item)
+              : undefined
+        }
+        style={[styles.card, { borderColor: palette.border }]}>
+        <Card.Content style={styles.cardHeader}>
+          <Text variant="titleMedium">{title}</Text>
+          {subtitle ? (
+            <Text style={{ color: palette.muted }} variant="bodyMedium">
+              {subtitle}
+            </Text>
+          ) : null}
+        </Card.Content>
+        {tool === 'brain' && item.content ? (
+          <Card.Content>
+            <Text>{String(item.content)}</Text>
+          </Card.Content>
+        ) : null}
+        {tool === 'schedules' ? (
+          <Card.Content style={styles.actions}>
+            <Chip compact>
+              {item.enabled === false ? 'Disabled' : 'Enabled'}
+            </Chip>
+            <Text>Last run: {String(item.lastRunStatus ?? 'not run')}</Text>
+          </Card.Content>
+        ) : null}
+        {tool === 'webhooks' && item.url ? (
+          <Card.Content>
+            <Text selectable>{String(item.url)}</Text>
+          </Card.Content>
+        ) : null}
+        {tool === 'cookbook' && (item.description || item.prompt) ? (
+          <Card.Content>
+            <Text>{String(item.description ?? item.prompt)}</Text>
+          </Card.Content>
+        ) : null}
+        {tool === 'report-card' ? (
+          <Card.Content>
+            <Text>
+              Success rate{' '}
+              {Number.isFinite(Number(item.completionRate))
+                ? `${Math.round(Number(item.completionRate) * 100)}%`
+                : '—'}
+            </Text>
+            <Text>
+              Escalation rate{' '}
+              {Number.isFinite(Number(item.escalationRate))
+                ? `${Math.round(Number(item.escalationRate) * 100)}%`
+                : '—'}
+            </Text>
+          </Card.Content>
+        ) : null}
+        {tool === 'models' ? (
+          <Card.Content style={styles.modelList}>
+            <Text variant="labelLarge">Available models</Text>
+            {providerModels.length > 0 ? (
+              <View style={styles.modelChips}>
+                {providerModels.map((model) => (
+                  <Chip compact key={model.id}>
+                    {model.name}
+                  </Chip>
+                ))}
+              </View>
+            ) : (
+              <Text style={{ color: palette.muted }} variant="bodySmall">
+                The paired Mac did not report model metadata for this provider.
+              </Text>
+            )}
+          </Card.Content>
+        ) : null}
+        {actions ? <Divider /> : null}
+        {actions ? (
+          <Card.Content style={styles.cardActions}>{actions}</Card.Content>
+        ) : null}
+      </Card>
+    );
   };
 
   return (
@@ -949,6 +1117,20 @@ export default function RhythmToolScreen() {
             ) : null}
           </Surface>
         ) : null}
+        {tool === 'models' ? (
+          <Surface
+            style={[
+              styles.catalogExplanation,
+              { backgroundColor: palette.surfaceAlt },
+            ]}>
+            <Text variant="titleMedium">What appears here</Text>
+            <Text style={{ color: palette.muted }} variant="bodyMedium">
+              Only AI providers and models configured or available in Rhythm on
+              the paired Mac are shown. Choose a model when starting or
+              configuring a chat.
+            </Text>
+          </Surface>
+        ) : null}
         {state.offline ? (
           <Surface style={styles.notice}>
             <Text>Mac offline — saved data is read-only.</Text>
@@ -986,6 +1168,51 @@ export default function RhythmToolScreen() {
             onChangeText={setSearch}
             value={search}
           />
+        ) : null}
+        {isOrganizedToolCatalog(tool) ? (
+          <Surface
+            testID="tool-catalog-controls"
+            style={[
+              styles.catalogControls,
+              { backgroundColor: palette.surfaceAlt },
+            ]}>
+            <Searchbar
+              accessibilityLabel={`Search ${manifest.title}`}
+              onChangeText={setSearch}
+              placeholder="Search catalog"
+              value={search}
+            />
+            <View style={styles.catalogControlRow}>
+              <View style={styles.catalogControl}>
+                <Text variant="labelLarge">Group by</Text>
+                <SegmentedButtons
+                  buttons={[
+                    { label: 'Category', value: 'category' },
+                    { label: 'None', value: 'none' },
+                  ]}
+                  density="small"
+                  onValueChange={(value) =>
+                    setCatalogGroupMode(value as CatalogGroupMode)
+                  }
+                  value={catalogGroupMode}
+                />
+              </View>
+              <View style={styles.catalogControl}>
+                <Text variant="labelLarge">Sort by</Text>
+                <SegmentedButtons
+                  buttons={[
+                    { label: 'A–Z', value: 'asc' },
+                    { label: 'Z–A', value: 'desc' },
+                  ]}
+                  density="small"
+                  onValueChange={(value) =>
+                    setCatalogSortDirection(value as CatalogSortDirection)
+                  }
+                  value={catalogSortDirection}
+                />
+              </View>
+            </View>
+          </Surface>
         ) : null}
         {CREATE_LABEL[tool] ? (
           <Button
@@ -1091,97 +1318,13 @@ export default function RhythmToolScreen() {
             state="empty"
           />
         ) : (
-          items.map((item) => {
-            const title = recordTitle(tool, item);
-            const subtitle = recordSubtitle(tool, item);
-            const actions = renderActions(item);
-            return (
-              <Card
-                accessibilityLabel={`${title}. ${subtitle}`}
-                accessibilityRole={
-                  [
-                    'brain',
-                    'research',
-                    'schedules',
-                    'webhooks',
-                    'profiles',
-                    'cookbook',
-                    'review',
-                  ].includes(tool)
-                    ? 'button'
-                    : undefined
-                }
-                key={item.id}
-                mode="outlined"
-                onPress={
-                  tool === 'profiles'
-                    ? () => openProfile(item)
-                    : [
-                        'brain',
-                        'research',
-                        'schedules',
-                        'webhooks',
-                        'cookbook',
-                        'review',
-                      ].includes(tool)
-                      ? () => setSelected(item)
-                      : undefined
-                }
-                style={[styles.card, { borderColor: palette.border }]}>
-                <Card.Content style={styles.cardHeader}>
-                  <Text variant="titleMedium">{title}</Text>
-                  {subtitle ? (
-                    <Text
-                      style={{ color: palette.muted }}
-                      variant="bodyMedium">
-                      {subtitle}
-                    </Text>
-                  ) : null}
-                </Card.Content>
-                {tool === 'brain' && item.content ? (
-                  <Card.Content>
-                    <Text>{String(item.content)}</Text>
-                  </Card.Content>
-                ) : null}
-                {tool === 'schedules' ? (
-                  <Card.Content style={styles.actions}>
-                    <Chip compact>{item.enabled === false ? 'Disabled' : 'Enabled'}</Chip>
-                    <Text>Last run: {String(item.lastRunStatus ?? 'not run')}</Text>
-                  </Card.Content>
-                ) : null}
-                {tool === 'webhooks' && item.url ? (
-                  <Card.Content>
-                    <Text selectable>{String(item.url)}</Text>
-                  </Card.Content>
-                ) : null}
-                {tool === 'cookbook' && (item.description || item.prompt) ? (
-                  <Card.Content>
-                    <Text>{String(item.description ?? item.prompt)}</Text>
-                  </Card.Content>
-                ) : null}
-                {tool === 'report-card' ? (
-                  <Card.Content>
-                    <Text>
-                      Success rate{' '}
-                      {Number.isFinite(Number(item.completionRate))
-                        ? `${Math.round(Number(item.completionRate) * 100)}%`
-                        : '—'}
-                    </Text>
-                    <Text>
-                      Escalation rate{' '}
-                      {Number.isFinite(Number(item.escalationRate))
-                        ? `${Math.round(Number(item.escalationRate) * 100)}%`
-                        : '—'}
-                    </Text>
-                  </Card.Content>
-                ) : null}
-                {actions ? <Divider /> : null}
-                {actions ? (
-                  <Card.Content style={styles.cardActions}>{actions}</Card.Content>
-                ) : null}
-              </Card>
-            );
-          })
+          catalogSections
+            ? catalogSections.map((section) => (
+                <List.Section key={section.title} title={section.title}>
+                  {section.items.map(renderItemCard)}
+                </List.Section>
+              ))
+            : items.map(renderItemCard)
         )}
       </ScrollView>
       <Portal>
@@ -1653,6 +1796,10 @@ const styles = StyleSheet.create({
   card: { borderRadius: 16 },
   cardHeader: { gap: 4, paddingTop: 16 },
   cardActions: { paddingBottom: 16, paddingTop: 8 },
+  catalogControls: { borderRadius: 16, gap: 12, padding: 12 },
+  catalogControlRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  catalogControl: { flex: 1, gap: 6, minWidth: 220 },
+  catalogExplanation: { borderRadius: 16, gap: 6, padding: 14 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   notice: { borderRadius: 12, padding: 14 },
   secret: { borderRadius: 16, gap: 10, padding: 16 },
@@ -1660,6 +1807,8 @@ const styles = StyleSheet.create({
   runtimeInspection: { borderRadius: 16, gap: 10, padding: 14 },
   runtimeHeader: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   runtimeCopy: { flex: 1, minWidth: 0 },
+  modelList: { gap: 8 },
+  modelChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   mono: { fontFamily: 'monospace', fontSize: 12 },
   dialogFields: { gap: 14, paddingVertical: 8 },
 });

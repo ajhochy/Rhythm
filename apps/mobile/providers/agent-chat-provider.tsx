@@ -81,7 +81,13 @@ function parseOfflineCache(raw: string | null): ProjectSessionCatalogEntry[] {
           item &&
           typeof item === 'object' &&
           typeof (item as Record<string, unknown>).id === 'string' &&
-          typeof (item as Record<string, unknown>).projectId === 'string',
+          (
+            typeof (item as Record<string, unknown>).projectId === 'string' ||
+            (
+              (item as Record<string, unknown>).projectId === null &&
+              (item as Record<string, unknown>).interaction === 'read-only'
+            )
+          ),
         ),
     );
   } catch {

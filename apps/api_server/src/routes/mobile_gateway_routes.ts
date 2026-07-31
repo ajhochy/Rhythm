@@ -351,8 +351,13 @@ export function createMobileGatewayRouter(): Router {
           project: req.mobileProject!,
           userId: req.mobileDevice!.userId,
           accept: req.header('accept'),
+          ownerUnscopedDiscovery:
+            req.header('x-rhythm-session-discovery') === 'owner-unscoped',
         });
         if (result.contentType) res.type(result.contentType);
+        for (const [name, value] of Object.entries(result.headers ?? {})) {
+          res.set(name, value);
+        }
         res.status(result.status);
         if (result.body.byteLength === 0) {
           res.end();

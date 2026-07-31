@@ -63,8 +63,9 @@ export async function listArchivedSessions(client: OpencodeClient) {
 
 export type ProjectSessionCatalogEntry = Record<string, unknown> & {
   id: string;
-  projectId: string;
+  projectId: string | null;
   status: string;
+  interaction?: 'read-only';
 };
 
 function statusLabel(status: unknown): string {
@@ -82,6 +83,39 @@ export async function listSessionsAcrossProjects(
 ): Promise<ProjectSessionCatalogEntry[]> {
   const uniquePaths = [...new Set(projectPaths.filter(Boolean))];
   const catalog: ProjectSessionCatalogEntry[] = [];
+
+  if (uniquePaths.length > 0) {
+    const discoveryClient = buildScopedClient(uniquePaths[0]);
+    for (const archived of [false, true]) {
+      let cursor: number | undefined;
+      do {
+        const response = await discoveryClient.experimental.session.list(
+          { archived, cursor, limit: 100 },
+          {
+            headers: {
+              'x-rhythm-session-discovery': 'owner-unscoped',
+            },
+          },
+        );
+        catalog.push(
+          ...requireData(response.data, 'owner session discovery request')
+            .map((session) => ({
+              ...(session as unknown as Record<string, unknown>),
+              id: session.id,
+              projectId: null,
+              status: archived
+                ? 'archived'
+                : statusLabel(
+                    (session as unknown as Record<string, unknown>).status,
+                  ),
+              interaction: 'read-only' as const,
+            })),
+        );
+        const next = response.response?.headers.get('x-next-cursor');
+        cursor = next ? Number(next) : undefined;
+      } while (cursor !== undefined);
+    }
+  }
 
   // Keep the paired Mac responsive when an organization has many worktrees.
   for (let offset = 0; offset < uniquePaths.length; offset += 4) {
@@ -112,10 +146,14 @@ export async function listSessionsAcrossProjects(
     catalog.push(...results.flat());
   }
 
-  return [...new Map(catalog.map((session) => [
-    `${session.projectId}:${session.id}`,
-    session,
-  ])).values()];
+  const deduped = new Map<string, ProjectSessionCatalogEntry>();
+  for (const session of catalog) {
+    const existing = deduped.get(session.id);
+    if (!existing || session.projectId === null) {
+      deduped.set(session.id, session);
+    }
+  }
+  return [...deduped.values()];
 }
 
 export async function getSessionMessages(client: OpencodeClient, sessionId: string) {

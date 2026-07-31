@@ -57,7 +57,7 @@ function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Rhythm-Project-ID, x-opencode-directory, x-opencode-ticket',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Rhythm-Project-ID, X-Rhythm-Session-Discovery, x-opencode-directory, x-opencode-ticket',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   });
   res.end(JSON.stringify(payload));
@@ -269,7 +269,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Rhythm-Project-ID, x-opencode-directory, x-opencode-ticket',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Rhythm-Project-ID, X-Rhythm-Session-Discovery, x-opencode-directory, x-opencode-ticket',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
       });
       res.end();
@@ -1168,6 +1168,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && pathname === '/experimental/session') {
+      if (
+        req.headers['x-rhythm-session-discovery'] === 'owner-unscoped'
+      ) {
+        // The production gateway returns only exact-owner catalog rows whose
+        // project is NULL/empty. Fake project sessions are all registered, so
+        // none belong in this read-only discovery lane.
+        sendJson(res, 200, []);
+        return;
+      }
       const archived = requestUrl.searchParams.get('archived') === 'true';
       sendJson(res, 200, state.sessions
         .filter((session) => archived ? Boolean(session.time.archived) : !session.time.archived)

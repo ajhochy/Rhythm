@@ -22,6 +22,11 @@ export interface MobileOpenCodeOwnershipReader {
     ownerUserId: number,
     projectId: string,
   ): boolean;
+  isSessionVisibleInChatCatalog?(
+    sdkSessionId: string,
+    ownerUserId: number,
+    projectId: string | null,
+  ): boolean;
 }
 
 export interface MobileOpenCodeOwnershipStore
@@ -170,9 +175,47 @@ export class MobileOpenCodeOwnershipRepository
     }
     const desktopOwner = this.desktopSessionOwner(sdkSessionId);
     if (desktopOwner?.owner_user_id !== ownerUserId) return false;
-    return desktopOwner.project_id === null ||
-      desktopOwner.project_id === '' ||
-      desktopOwner.project_id === projectId;
+    return desktopOwner.project_id === projectId;
+  }
+
+  /**
+   * Read-model predicate for the mobile Chats catalog. Unlike resource
+   * authorization, a null project here deliberately means "desktop All
+   * Sessions discovery" and matches only catalog rows that are themselves
+   * unscoped. Scheduled, optimizer, and other system runs remain in Activity.
+   */
+  isSessionVisibleInChatCatalog(
+    sdkSessionId: string,
+    ownerUserId: number,
+    projectId: string | null,
+  ): boolean {
+    if (
+      !sdkSessionId ||
+      !Number.isSafeInteger(ownerUserId) ||
+      ownerUserId <= 0
+    ) {
+      return false;
+    }
+    const projectClause = projectId === null
+      ? `(project_id IS NULL OR project_id = '')`
+      : `(project_id = ? OR project_id IS NULL OR project_id = '')`;
+    const params = projectId === null
+      ? [sdkSessionId, ownerUserId]
+      : [sdkSessionId, ownerUserId, projectId];
+    const row = this.db
+      .prepare(
+        `SELECT 1
+           FROM agent_sessions
+          WHERE sdk_session_id = ?
+            AND owner_user_id = ?
+            AND ${projectClause}
+            AND category = 'chat'
+            AND is_system = 0
+            AND scheduled_task_id IS NULL
+          LIMIT 1`,
+      )
+      .get(...params);
+    return row !== undefined;
   }
 
   isResourceExplicitlyOwnedBy(

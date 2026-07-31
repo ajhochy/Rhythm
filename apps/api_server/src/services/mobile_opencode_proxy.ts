@@ -99,11 +99,13 @@ export interface MobileOpenCodeForwardInput {
   project: MobileProjectScope;
   userId: number;
   accept?: string;
+  ownerUnscopedDiscovery?: boolean;
 }
 
 export interface MobileOpenCodeProxyResponse {
   status: number;
   contentType?: string;
+  headers?: Record<string, string>;
   body: Uint8Array;
 }
 
@@ -485,6 +487,74 @@ async function sanitizeRequestBody(
   return sanitizeRequestBodyBeforeScope(value, operationId, project);
 }
 
+const MOBILE_CORE_PERMISSION_ACTIONS = new Set([
+  'allow',
+  'ask',
+  'deny',
+] as const);
+
+type MobileCorePermissionRule = {
+  permission: string;
+  pattern: string;
+  action: 'allow' | 'ask' | 'deny';
+};
+
+function expandMobileCorePermissions(
+  corePermissionsJson: string | null,
+): MobileCorePermissionRule[] | undefined {
+  if (corePermissionsJson === null) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(corePermissionsJson);
+  } catch {
+    throw AppError.internal('Mobile profile permissions are invalid');
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw AppError.internal('Mobile profile permissions are invalid');
+  }
+
+  const rules: MobileCorePermissionRule[] = [];
+  for (const [permission, value] of Object.entries(parsed)) {
+    if (!permission.trim()) {
+      throw AppError.internal('Mobile profile permissions are invalid');
+    }
+    if (typeof value === 'string') {
+      if (!MOBILE_CORE_PERMISSION_ACTIONS.has(
+        value as MobileCorePermissionRule['action'],
+      )) {
+        throw AppError.internal('Mobile profile permissions are invalid');
+      }
+      rules.push({
+        permission,
+        pattern: '*',
+        action: value as MobileCorePermissionRule['action'],
+      });
+      continue;
+    }
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw AppError.internal('Mobile profile permissions are invalid');
+    }
+    for (const [pattern, action] of Object.entries(value)) {
+      if (
+        !pattern.trim() ||
+        typeof action !== 'string' ||
+        !MOBILE_CORE_PERMISSION_ACTIONS.has(
+          action as MobileCorePermissionRule['action'],
+        )
+      ) {
+        throw AppError.internal('Mobile profile permissions are invalid');
+      }
+      rules.push({
+        permission,
+        pattern,
+        action: action as MobileCorePermissionRule['action'],
+      });
+    }
+  }
+  return rules;
+}
+
 async function applyMobileSessionCreateScope(
   value: unknown,
   operationId: string,
@@ -525,9 +595,23 @@ async function applyMobileSessionCreateScope(
   const scopedBody = Object.fromEntries(
     Object.entries(body).filter(([field]) =>
       field !== 'profileId' &&
+      field !== 'agent' &&
+      field !== 'model' &&
+      field !== 'permission' &&
       field !== 'mcpAllowlist' &&
       field !== 'skillAllowlist'),
   );
+
+  scopedBody.agent = profile.ocAgent;
+  scopedBody.model = {
+    providerID: scope.model.providerID,
+    id: scope.model.modelID,
+  };
+
+  const permission = expandMobileCorePermissions(
+    profile.corePermissionsJson,
+  );
+  if (permission !== undefined) scopedBody.permission = permission;
 
   if (scope.mcpRoleConfig) {
     const expanded = applySelectiveDeferral(
@@ -559,6 +643,7 @@ function scopedQuery(
   callerQuery: URLSearchParams,
   project: MobileProjectScope,
   operationId: string,
+  ownerUnscopedDiscovery = false,
 ): URLSearchParams {
   const scoped = new URLSearchParams();
   for (const [field, value] of callerQuery.entries()) {
@@ -578,7 +663,7 @@ function scopedQuery(
     }
     scoped.append(field, value);
   }
-  scoped.set('directory', project.root);
+  if (!ownerUnscopedDiscovery) scoped.set('directory', project.root);
   return scoped;
 }
 
@@ -714,7 +799,20 @@ export class MobileOpenCodeProxy {
       ownership,
     };
 
-    const query = scopedQuery(input.query, input.project, operation.operationId);
+    const ownerUnscopedDiscovery = input.ownerUnscopedDiscovery === true;
+    if (
+      ownerUnscopedDiscovery &&
+      operation.operationId !== 'experimental.session.list'
+    ) {
+      throw operationNotAllowed();
+    }
+
+    const query = scopedQuery(
+      input.query,
+      input.project,
+      operation.operationId,
+      ownerUnscopedDiscovery,
+    );
     const url = `${this.baseUrl}${safeForwardPath(input.path)}?${query.toString()}`;
     const acceptsBody = operation.method !== 'GET';
     const callerBody = !acceptsBody || input.body === undefined
@@ -973,6 +1071,7 @@ export class MobileOpenCodeProxy {
           fetchJson,
           input.path,
           owner,
+          ownerUnscopedDiscovery,
         );
         const safeBody = Buffer.from(JSON.stringify(
           attachSafeSessionState(
@@ -992,6 +1091,14 @@ export class MobileOpenCodeProxy {
         return {
           status: response.status,
           contentType,
+          ...(operation.operationId === 'experimental.session.list' &&
+              /^\d+$/.test(response.headers.get('x-next-cursor') ?? '')
+            ? {
+                headers: {
+                  'x-next-cursor': response.headers.get('x-next-cursor')!,
+                },
+              }
+            : {}),
           body: safeBody,
         };
       }

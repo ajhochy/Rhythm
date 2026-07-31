@@ -3,6 +3,24 @@ import { expect, test } from '@playwright/test';
 const fakeBaseUrl =
   `http://127.0.0.1:${process.env.PLAYWRIGHT_FAKE_PORT ?? '44096'}`;
 
+async function openAgentsAction(page, name) {
+  await expect(page.getByRole('menuitem')).toHaveCount(
+    0,
+    { timeout: 10_000 },
+  );
+  await page.getByRole('button', { name: 'Agents menu', exact: true }).click();
+  const action = page
+    .getByRole('menuitem', { name, exact: true })
+    .locator('visible=true');
+  await expect(action).toBeVisible({ timeout: 30_000 });
+  return action;
+}
+
+async function activateMenuItem(item) {
+  await item.focus();
+  await item.press('Enter');
+}
+
 test.beforeEach(async ({ request }) => {
   const response = await request.post(`${fakeBaseUrl}/__control/reset`, {
     data: { scenario: 'happy-path' },
@@ -23,10 +41,9 @@ test('paired production transport drives projects, chat, SSE, and activity witho
   ).toBeVisible();
 
   await page.getByRole('tab', { name: 'Agents' }).click();
-  await expect(
-    page.getByRole('button', { name: 'Create chat' }),
-  ).toBeEnabled({ timeout: 30_000 });
-  await page.getByRole('button', { name: 'Create chat' }).click();
+  const createChat = await openAgentsAction(page, 'Create chat');
+  await expect(createChat).toBeEnabled({ timeout: 30_000 });
+  await activateMenuItem(createChat);
   await page.getByLabel('Chat title').fill('Paired gateway chat');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.getByText('Start a new task')).toBeVisible({

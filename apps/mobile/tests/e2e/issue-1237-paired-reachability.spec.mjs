@@ -41,6 +41,27 @@ async function pairTestMac(page) {
   ).toBeVisible({ timeout: 30_000 });
 }
 
+async function openAgentsAction(page, name) {
+  await expect(page.getByRole('menuitem')).toHaveCount(
+    0,
+    { timeout: 10_000 },
+  );
+  await page
+    .getByRole('button', { name: 'Agents menu', exact: true })
+    .locator('visible=true')
+    .click();
+  const action = page
+    .getByRole('menuitem', { name, exact: true })
+    .locator('visible=true');
+  await expect(action).toBeVisible({ timeout: 30_000 });
+  return action;
+}
+
+async function activateMenuItem(item) {
+  await item.focus();
+  await item.press('Enter');
+}
+
 test.beforeEach(async ({ request }) => {
   await mkdir(proofUiDir, { recursive: true });
   const response = await request.post(`${fakeServer}/__control/reset`, {
@@ -79,10 +100,12 @@ test('issue-1237-c1: Settings and Agents converge on one paired-Mac reachability
   });
 
   await setReachability(request, 'online');
-  const createChat = page
-    .getByRole('button', { name: 'Create chat', exact: true })
-    .locator('visible=true');
+  const createChat = await openAgentsAction(page, 'Create chat');
   await expect(createChat).toBeEnabled({ timeout: boundedOfflineTimeoutMs });
+  const scheduledTasks = page
+    .getByRole('menuitem', { name: /^Scheduled Tasks, \d+ items$/ })
+    .locator('visible=true');
+  await activateMenuItem(scheduledTasks);
   await page
     .getByRole('tab', { name: /Settings$/ })
     .locator('visible=true')
@@ -96,7 +119,9 @@ test('issue-1237-c1: Settings and Agents converge on one paired-Mac reachability
     .getByRole('tab', { name: /Agents$/ })
     .locator('visible=true')
     .click();
-  await expect(createChat).toBeEnabled({ timeout: boundedOfflineTimeoutMs });
+  await expect(
+    page.getByTestId('paired-mac-offline-state').locator('visible=true'),
+  ).toHaveCount(0);
 });
 
 test('issue-1237-c2: paired Mac reachability loss becomes offline within the bounded timeout', async ({
@@ -126,19 +151,9 @@ test('issue-1237-c3: session loading exits to an offline state', async ({
     .getByRole('tab', { name: /Agents$/ })
     .locator('visible=true')
     .click();
-  await page
-    .getByRole('button', { name: 'Create chat', exact: true })
-    .locator('visible=true')
-    .waitFor({ state: 'visible' });
-  await expect(
-    page
-      .getByRole('button', { name: 'Create chat', exact: true })
-      .locator('visible=true'),
-  ).toBeEnabled({ timeout: 30_000 });
-  await page
-    .getByRole('button', { name: 'Create chat', exact: true })
-    .locator('visible=true')
-    .click();
+  const createChat = await openAgentsAction(page, 'Create chat');
+  await expect(createChat).toBeEnabled({ timeout: 30_000 });
+  await activateMenuItem(createChat);
   await page
     .getByRole('button', { name: 'Create', exact: true })
     .locator('visible=true')
@@ -199,15 +214,9 @@ test('issue-1237-c5: automatic reconnect performs one authoritative recovery ref
     .getByRole('tab', { name: /Agents$/ })
     .locator('visible=true')
     .click();
-  await expect(
-    page
-      .getByRole('button', { name: 'Create chat', exact: true })
-      .locator('visible=true'),
-  ).toBeEnabled({ timeout: 30_000 });
-  await page
-    .getByRole('button', { name: 'Create chat', exact: true })
-    .locator('visible=true')
-    .click();
+  const createChat = await openAgentsAction(page, 'Create chat');
+  await expect(createChat).toBeEnabled({ timeout: 30_000 });
+  await activateMenuItem(createChat);
   await page
     .getByRole('button', { name: 'Create', exact: true })
     .locator('visible=true')
@@ -257,13 +266,10 @@ test('issue-1237-c5: automatic reconnect performs one authoritative recovery ref
     .getByRole('button', { name: 'Back to Agents', exact: true })
     .locator('visible=true')
     .click();
-  await expect(
-    page.getByRole('button', { name: 'Create chat', exact: true }).locator('visible=true'),
-  ).toBeEnabled({ timeout: boundedOfflineTimeoutMs });
-  await page
-    .getByRole('button', { name: 'Agents menu', exact: true })
-    .locator('visible=true')
-    .click();
+  const recoveredCreateChat = await openAgentsAction(page, 'Create chat');
+  await expect(recoveredCreateChat).toBeEnabled({
+    timeout: boundedOfflineTimeoutMs,
+  });
   await page
     .getByRole('menuitem', { name: 'Activity', exact: true })
     .locator('visible=true')

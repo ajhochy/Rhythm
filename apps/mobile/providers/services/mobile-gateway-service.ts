@@ -6,6 +6,36 @@ import type {
   RhythmProfileId,
   SessionExecutionState,
 } from '@/providers/opencode-provider-utils';
+import type { MobileSession } from '@/providers/opencode-provider-types';
+
+export async function createMobileGatewaySession(
+  client: PairedMacClient,
+  projectId: string,
+  input: {
+    profileId: RhythmProfileId;
+    title?: string;
+  },
+): Promise<MobileSession> {
+  const normalizedProjectId = projectId.trim();
+  const normalizedProfileId = input.profileId.trim();
+  if (!normalizedProjectId) {
+    throw new Error('Choose a registered Rhythm project before creating a chat.');
+  }
+  if (!normalizedProfileId) {
+    throw new Error('Choose a Rhythm profile before creating a chat.');
+  }
+  return client.request<MobileSession>('/mobile-gateway/opencode/session', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Rhythm-Project-ID': normalizedProjectId,
+    },
+    body: JSON.stringify({
+      ...(input.title ? { title: input.title } : {}),
+      profileId: normalizedProfileId,
+    }),
+  });
+}
 
 export interface MobileGatewayProject {
   id: string;

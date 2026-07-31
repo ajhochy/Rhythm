@@ -1,0 +1,56 @@
+{
+  "issue": 1286,
+  "generated": "2026-07-31",
+  "criteria": [
+    {
+      "criterion_id": "issue-1286-c1",
+      "text": "The exact mobile create request carries the selected Rhythm profile through the gateway and resolves its effective MCP, skill, and core-tool permissions before engine session creation.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1286_mobile_first_turn_scope.test.ts",
+      "test_id": "issue-1286-c1: the atomic mobile create resolves MCP skill and core-tool scope before engine creation",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1286-c2",
+      "text": "The first prompt on that real session uses only the profile-authorized MCP tools, skills, and core tools; no unrestricted schema is assembled first and cached.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1286_mobile_first_turn_scope_live.test.ts",
+      "test_id": "issue-1286-c2: the captured first model request contains only profile-authorized tools and skills",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1286-c3",
+      "text": "Unknown or unauthorized profile identifiers fail closed before session creation or prompt dispatch.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1286_mobile_first_turn_scope.test.ts",
+      "test_id": "issue-1286-c3: unknown disabled or non-selectable profiles fail closed before create or prompt",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1286-c4",
+      "text": "A real env-gated fork plus API behavioral test drives paired mobile create then first prompt and observes the effective first model-request schema, not only stored allowlist metadata.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1286_mobile_first_turn_scope_live.test.ts",
+      "test_id": "issue-1286-c4: paired create then prompt reaches the capture provider through the real API and fork",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1286-c5",
+      "text": "The test compares a restricted profile against an unrestricted control and asserts a materially smaller bounded first-turn tool/context payload without hard-coding private production token counts.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1286_mobile_first_turn_scope_live.test.ts",
+      "test_id": "issue-1286-c5: restricted first-turn payload is materially smaller than the unrestricted control",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-1286-c6",
+      "text": "Physical-device Metro/API logs contain no scope fallback warning, and the UI truthfully shows the selected profile on the created chat.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_1286_mobile_first_turn_scope_live.test.ts",
+      "test_id": "issue-1286-c6: created session reports the selected profile and emits no scope fallback warning",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

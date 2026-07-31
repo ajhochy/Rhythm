@@ -1,0 +1,48 @@
+{
+  "run_id": "2026-07-31-pr-1284-mobile-chat-gateway-smoke",
+  "issue": 1284,
+  "date": "2026-07-31",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-1279-c7",
+      "text": "A same-owner desktop session with no project is visible in the paired mobile Chats list.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C5",
+      "notes": "AJ reported that Chats was empty immediately after the desktop relaunch. Metro showed every session, permission, and question request to the saved tailnet gateway returning HTTP 502, so the request never reached the ownership or project-visibility checks. The same phone and pairing had displayed chats before the relaunch."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "desktop-gateway-launch-readiness",
+      "description": "The desktop was handed back for mobile smoke as soon as the local API and engine health checks passed, without separately waiting for the existing tailnet serve route to proxy successfully to the restarted mobile gateway on port 4002.",
+      "detected_by": "Physical-device Metro logs showed repeated HTTP 502 responses from the saved tailnet URL; later probes confirmed the serve mapping and both local and tailnet gateway paths were reachable."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "smoke-test",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "smoke-test",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/mobile_opencode_security.ts",
+    "apps/api_server/src/repositories/mobile_opencode_ownership_repository.ts",
+    "apps/mobile/app/(tabs)/agents.tsx"
+  ],
+  "failure_output": "AJ: mobile not showing the chats. Metro: GET https://<paired-tailnet-host>/question -> 502; GET https://<paired-tailnet-host>/session -> 502; GET https://<paired-tailnet-host>/permission -> 502.",
+  "overall_category": "C5",
+  "suggested_follow_up": "Before handing off a relaunched desktop/mobile pair, require a successful request through the configured tailnet serve route after port 4002 is listening, then reload the physical-device app and confirm Metro has no gateway transport errors before evaluating session visibility."
+}

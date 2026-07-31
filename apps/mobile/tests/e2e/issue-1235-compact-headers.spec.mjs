@@ -23,10 +23,29 @@ async function openAgents(page) {
   });
 }
 
+async function openAgentsAction(page, name) {
+  await expect(page.getByRole('menuitem')).toHaveCount(
+    0,
+    { timeout: 10_000 },
+  );
+  await page.getByRole('button', { name: 'Agents menu', exact: true }).click();
+  const action = page
+    .getByRole('menuitem', { name, exact: true })
+    .locator('visible=true');
+  await expect(action).toBeVisible({ timeout: 30_000 });
+  return action;
+}
+
+async function activateMenuItem(item) {
+  await item.focus();
+  await item.press('Enter');
+}
+
 async function openReadyChat(page) {
   await openAgents(page);
-  await expect(page.getByRole('button', { name: 'Create chat' })).toBeEnabled();
-  await page.getByRole('button', { name: 'Create chat' }).click();
+  const createChat = await openAgentsAction(page, 'Create chat');
+  await expect(createChat).toBeEnabled();
+  await activateMenuItem(createChat);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.getByPlaceholder('Ask anything...')).toBeVisible({
     timeout: 30_000,

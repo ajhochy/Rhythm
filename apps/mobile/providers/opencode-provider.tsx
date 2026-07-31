@@ -130,6 +130,7 @@ import { usePairedHost } from '@/providers/paired-host-provider';
 import { useRhythmAccount } from '@/providers/rhythm-account-provider';
 import { useOpencodePersistence } from '@/providers/use-opencode-persistence';
 import {
+  createMobileGatewaySession,
   listMobileGatewayProfiles,
   listMobileGatewayProjects,
   updateMobileSessionProfileState,
@@ -1103,13 +1104,24 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       }
       preferences ??= chatPreferences;
       const trimmedTitle = title?.trim();
-      const createInput = {
-        ...(trimmedTitle ? { title: trimmedTitle } : {}),
-        profileId: preferences.profileId,
-      };
-      const response = await sessionClient.session.create(createInput);
+      const created = pairedHostClient
+        ? projectId && preferences.profileId
+          ? await createMobileGatewaySession(
+              pairedHostClient,
+              projectId,
+              {
+                ...(trimmedTitle ? { title: trimmedTitle } : {}),
+                profileId: preferences.profileId,
+              },
+            )
+          : undefined
+        : (
+            await sessionClient.session.create({
+              ...(trimmedTitle ? { title: trimmedTitle } : {}),
+            })
+          ).data;
 
-      if (!response.data) {
+      if (!created) {
         throw new Error('OpenCode did not return the created session.');
       }
       if (
@@ -1118,7 +1130,6 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       ) {
         throw new Error('The active project changed before the session was created.');
       }
-      const created = response.data as MobileSession;
       const authoritative = await persistSessionPreferences(
         created.id,
         preferences,
@@ -1139,6 +1150,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       client,
       isCurrentClient,
       loadSessionProfiles,
+      pairedHostClient,
       persistSessionPreferences,
       refreshSessions,
     ],

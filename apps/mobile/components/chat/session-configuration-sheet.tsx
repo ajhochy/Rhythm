@@ -14,6 +14,7 @@ import {
 } from 'react-native-paper';
 
 import { Colors } from '@/constants/theme';
+import { normalizeProfileIcon } from '@/components/ui/profile-icon';
 import {
   applyProfileDefaults,
   getNewSessionPreferences,
@@ -277,7 +278,7 @@ export function SessionConfigurationSheet({
                             icon={
                               profile.profileId === draft?.profileId
                                 ? 'check-circle'
-                                : profile.display?.icon || 'account-outline'
+                                : normalizeProfileIcon(profile.display?.icon)
                             }
                           />
                         )}
@@ -471,20 +472,19 @@ export function SessionConfigurationSheet({
               }}>
               Back
             </Button>
-          ) : (
-            <>
-              <Button disabled={busy} onPress={onDismiss}>Close</Button>
-              {mode === 'create' ? (
-                <Button
-                  disabled={busy || !draft}
-                  loading={busy}
-                  mode="contained"
-                  onPress={() => void create()}>
-                  Create
-                </Button>
-              ) : null}
-            </>
-          )}
+          ) : null}
+          {page === 'summary' ? (
+            <Button disabled={busy} onPress={onDismiss}>Close</Button>
+          ) : null}
+          {page === 'summary' && mode === 'create' ? (
+            <Button
+              disabled={busy || !draft}
+              loading={busy}
+              mode="contained"
+              onPress={() => void create()}>
+              Create
+            </Button>
+          ) : null}
         </Dialog.Actions>
       </Dialog>
     </Portal>

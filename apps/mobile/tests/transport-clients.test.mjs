@@ -24,12 +24,20 @@ import ts from 'typescript';
 // types.ts is type-only — no runtime content — but we still read it to
 // confirm the file exists and can be parsed.  The content is not included
 // in the runtime bundle.
-const [apiErrorSrc, , requestHelperSrc, cloudSrc, pairedSrc] = await Promise.all([
+const [
+  apiErrorSrc,
+  ,
+  requestHelperSrc,
+  cloudSrc,
+  pairedSrc,
+  mobileGatewayServiceSrc,
+] = await Promise.all([
   readFile(new URL('../lib/transport/api-error.ts', import.meta.url), 'utf8'),
   readFile(new URL('../lib/transport/types.ts', import.meta.url), 'utf8'),
   readFile(new URL('../lib/transport/request-helper.ts', import.meta.url), 'utf8'),
   readFile(new URL('../lib/transport/rhythm-cloud-client.ts', import.meta.url), 'utf8'),
   readFile(new URL('../lib/transport/paired-mac-client.ts', import.meta.url), 'utf8'),
+  readFile(new URL('../providers/services/mobile-gateway-service.ts', import.meta.url), 'utf8'),
 ]);
 
 // ---------------------------------------------------------------------------
@@ -78,6 +86,9 @@ const bundleSrc = [
   // paired-mac-client.ts — same
   '// --- paired-mac-client ---',
   prepare(pairedSrc),
+
+  '// --- mobile-gateway-service ---',
+  prepare(mobileGatewayServiceSrc),
 ].join('\n\n');
 
 const transpiled = ts.transpileModule(bundleSrc, {
@@ -90,7 +101,13 @@ const transpiled = ts.transpileModule(bundleSrc, {
 
 const mod = await import(`data:text/javascript,${encodeURIComponent(transpiled)}`);
 
-const { ApiError, normalizeApiError, RhythmCloudClient, PairedMacClient } = mod;
+const {
+  ApiError,
+  createMobileGatewaySession,
+  normalizeApiError,
+  RhythmCloudClient,
+  PairedMacClient,
+} = mod;
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -691,6 +708,63 @@ function assertIsApiError(err, label) {
   assert.equal(pty.url.includes('pty-device-secret'), false);
   assert.equal(pty.url.includes('single-use-ticket'), true);
   console.log('  ✓ Raw paired fetch and PTY auth resolve uncached credentials');
+}
+
+// ---------------------------------------------------------------------------
+// SECTION 22: Mobile create keeps profile scope atomic across paired auth
+// ---------------------------------------------------------------------------
+
+{
+  const originalFetch = globalThis.fetch;
+  let captured = null;
+  globalThis.fetch = async (url, init) => {
+    const headers = new Headers(init?.headers ?? {});
+    captured = {
+      authorization: headers.get('Authorization'),
+      body: JSON.parse(String(init?.body ?? '{}')),
+      project: headers.get('X-Rhythm-Project-ID'),
+      url,
+    };
+    return new Response(
+      JSON.stringify({
+        id: 'session-scoped-first-turn',
+        rhythm: { profileId: 'profile-restricted' },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  };
+
+  try {
+    const client = new PairedMacClient({
+      baseUrl: 'https://mac.tailscale.example.com',
+      getDeviceToken: async () => 'device-scope-token',
+    });
+    const created = await createMobileGatewaySession(
+      client,
+      'project-scoped',
+      {
+        profileId: 'profile-restricted',
+        title: 'Scoped first turn',
+      },
+    );
+
+    assert.deepEqual(captured, {
+      authorization: 'Device device-scope-token',
+      body: {
+        title: 'Scoped first turn',
+        profileId: 'profile-restricted',
+      },
+      project: 'project-scoped',
+      url: 'https://mac.tailscale.example.com/mobile-gateway/opencode/session',
+    });
+    assert.equal(created.rhythm.profileId, 'profile-restricted');
+    assert.equal('mcpAllowlist' in captured.body, false);
+    assert.equal('skillAllowlist' in captured.body, false);
+    assert.equal('permission' in captured.body, false);
+    console.log('  ✓ Mobile create sends profile atomically over paired Device auth');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 }
 
 // ---------------------------------------------------------------------------

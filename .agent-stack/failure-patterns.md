@@ -489,3 +489,65 @@
   caller-controlled OAuth configuration.
 - See
   `.agent-stack/postmortems/2026-07-27-issue-1175-production-api-contract-device-smoke.json`.
+
+## 2026-07-31 — PR #1284 — desktop shell launched without its local agent server
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C5 — environment issue; process: isolated-worktree-dependencies
+- **Criteria affected**: pr-1284-desktop-launch-c1
+- **Root cause**: The Flutter shell first opened from an isolated worktree with
+  no API dependencies; after those were restored, a plain dev launch selected
+  the incompatible stock OpenCode binary instead of the PR fork.
+- **Suggested fix**: Preflight package-local API dependencies, launch with the
+  built PR fork through `RHYTHM_OPENCODE_BIN_DIR`, then require both `GET
+  /health` and `GET /opencode/health` before smoke handoff.
+- See
+  `.agent-stack/postmortems/2026-07-31-pr-1284-desktop-agent-server-smoke.json`.
+
+## 2026-07-31 — PR #1284 — mobile chat smoke began before the relaunched gateway was reachable
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C5 — environment issue; process: desktop-gateway-launch-readiness
+- **Criteria affected**: issue-1279-c7
+- **Root cause**: The phone's saved tailnet endpoint returned HTTP 502 for
+  session, permission, and question requests after the desktop relaunch, so
+  the request never reached #1279's owner/project visibility policy.
+- **Suggested fix**: After every desktop relaunch, wait for port 4002 and
+  require a successful request through the configured tailnet serve route
+  before handing the paired phone back for session-visibility smoke.
+- See
+  `.agent-stack/postmortems/2026-07-31-pr-1284-mobile-chat-gateway-smoke.json`.
+
+## 2026-07-31 — PR #1284 — physical iPhone exposed mobile Agents and Tools false-greens
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C2 — wrong contract; C1 — missing contract
+- **Criteria affected**: issue-1235-c1, issue-1172-c2,
+  issue-1173-c8, issue-1173-c9, PR console cleanliness, and mobile catalog
+  organization
+- **Root cause**: Source-shape and fake-server tests passed while the physical
+  client still retained a second Agents control stack, misclassified real
+  desktop human sessions, returned empty real-data Review Queue/Gallery
+  surfaces, emitted repeated native console errors, and offered no findability
+  controls for large catalogs.
+- **Suggested fix**: Add physical-device or live-data contracts for the exact
+  user-visible paths and require a clean Metro console before a mobile smoke
+  can pass.
+- See
+  `.agent-stack/postmortems/2026-07-31-pr-1284-mobile-tools-and-agents-device-smoke.json`.
+
+## 2026-07-31 — Issue #1282 — mobile profile scope passed creation checks but failed on the first real turn
+
+- **Result**: smoke FAIL (verification claimed PASS; divergence=true)
+- **Category**: C2 — wrong contract; C1 — missing contract
+- **Criteria affected**: issue-1282-c1, effective first-turn tool scope, and
+  restricted first-turn context size
+- **Root cause**: The synthetic contract observed stored MCP/skill allowlists
+  after mobile creation but did not prove that the physical create-then-prompt
+  path used them before assembling the first model request; the device exposed
+  an apparently unrestricted roughly 120k-token first turn.
+- **Suggested fix**: Add a real mobile create-then-first-prompt behavioral test
+  that inspects the effective MCP, skill, and tool schema and compares the
+  restricted context against an unrestricted control before declaring parity.
+- See
+  `.agent-stack/postmortems/2026-07-31-issue-1282-mobile-profile-scope-device-smoke.json`.
