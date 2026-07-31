@@ -88,6 +88,14 @@ import {
   thinkingBudgetForReasoning,
 } from '@/providers/opencode-provider-utils';
 import {
+  createOpenProjectSessionController,
+  getOpenProjectSessionPresentation,
+  type OpenProjectSessionController,
+  type OpenProjectSessionResult,
+  type OpenProjectSessionState,
+  type ProjectSessionCatalog,
+} from '@/providers/open-project-session';
+import {
   getConfiguredProviders,
   getConversationStatusLabel,
   getCurrentPendingRequests,
@@ -227,6 +235,36 @@ function authenticatedWebSocket(
   return new Constructor(url, [], { headers });
 }
 
+type OpenProjectSessionCatalog = {
+  sessions: MobileSession[];
+  statuses: Record<string, SessionStatus>;
+};
+
+type OpenProjectSessionPayload = Record<string, unknown> & {
+  diffs: FileDiff[];
+  messages: SessionMessageRecord[];
+  permissions: PendingPermissionRequest[];
+  projectId: string;
+  questions: PendingQuestionRequest[];
+  session: MobileSession;
+  sessionId: string;
+  sessions: MobileSession[];
+  statuses: Record<string, SessionStatus>;
+  todos: Todo[];
+};
+
+type OpenProjectSessionRuntime = {
+  commit(payload: OpenProjectSessionPayload): void;
+  confirmProject(projectId: string): Promise<boolean>;
+  listSessions(projectId: string): Promise<OpenProjectSessionCatalog>;
+  loadSessionState(
+    projectId: string,
+    sessionId: string,
+    session: MobileSession,
+    catalog: ProjectSessionCatalog<MobileSession>,
+  ): Promise<OpenProjectSessionPayload>;
+};
+
 export function OpencodeProvider({ children }: PropsWithChildren) {
   const pairedHost = usePairedHost();
   const pairedHostClient = pairedHost.client;
@@ -260,6 +298,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
   const [isRefreshingWorkspaceCatalog, setIsRefreshingWorkspaceCatalog] = useState(false);
   // browsing removed
   const [isBootstrappingChat, setIsBootstrappingChat] = useState(false);
+  const [openProjectSessionState, setOpenProjectSessionState] =
+    useState<OpenProjectSessionState>({ kind: 'idle' });
   const [sendingState, setSendingState] = useState<{ sessionId?: string; active: boolean }>({ active: false });
   const [promptError, setPromptError] = useState<{ message: string; occurredAt: number; sessionId?: string }>();
   const pendingNotificationSessionIdsRef = useRef<Set<string>>(new Set());
@@ -298,6 +338,10 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   const settingsRef = useRef(settings);
   const activeProjectPathRef = useRef(activeProjectPath);
+  const openProjectSessionRuntimeRef =
+    useRef<OpenProjectSessionRuntime | null>(null);
+  const openProjectSessionControllerRef =
+    useRef<OpenProjectSessionController | null>(null);
   const sessionsRef = useRef(sessions);
   const currentSessionIdRef = useRef(currentSessionId);
   const scopeGenerationRef = useRef(0);
@@ -674,6 +718,147 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
     setPendingQuestionsBySession(groupPendingRequestsBySession(questions));
   }, [client, isCurrentClient]);
 
+  openProjectSessionRuntimeRef.current = {
+    async confirmProject(projectId) {
+      if (
+        connection.status !== 'connected' ||
+        (pairedHostRecord && pairedHostState !== 'connected')
+      ) {
+        throw Object.assign(
+          new Error(pairedHostMessage || connection.message),
+          { code: 'NETWORK_ERROR', status: 0 },
+        );
+      }
+      return serverProjects.some(
+        (project) =>
+          project.id === projectId || project.worktree === projectId,
+      );
+    },
+    async listSessions(projectId) {
+      const result = await svcListSessions(buildScopedClient(projectId));
+      return {
+        sessions: result.sessions as MobileSession[],
+        statuses: result.statuses,
+      };
+    },
+    async loadSessionState(
+      projectId,
+      sessionId,
+      session,
+      catalog,
+    ) {
+      const scopedClient = buildScopedClient(projectId);
+      const [messages, diffs, todos, pending] = await Promise.all([
+        svcGetSessionMessages(scopedClient, sessionId),
+        svcGetSessionDiff(scopedClient, sessionId),
+        svcGetSessionTodos(scopedClient, sessionId),
+        listPendingInteractions(scopedClient),
+      ]);
+      const loadedCatalog = Array.isArray(catalog)
+        ? { sessions: catalog, statuses: {} }
+        : (catalog as OpenProjectSessionCatalog);
+      return {
+        diffs,
+        messages,
+        permissions: pending.permissions,
+        projectId,
+        questions: pending.questions,
+        session,
+        sessionId,
+        sessions: loadedCatalog.sessions,
+        statuses: loadedCatalog.statuses,
+        todos,
+      };
+    },
+    commit(payload) {
+      const switchingProject =
+        activeProjectPathRef.current !== payload.projectId;
+      if (switchingProject) {
+        scopeGenerationRef.current += 1;
+        clearProjectState();
+      }
+      activeProjectPathRef.current = payload.projectId;
+      setActiveProjectPath(payload.projectId);
+      setSessions(payload.sessions);
+      setSessionStatuses(payload.statuses);
+      setMessagesBySession((current) =>
+        switchingProject
+          ? { [payload.sessionId]: payload.messages }
+          : { ...current, [payload.sessionId]: payload.messages });
+      setDiffsBySession((current) =>
+        switchingProject
+          ? { [payload.sessionId]: payload.diffs }
+          : { ...current, [payload.sessionId]: payload.diffs });
+      setTodosBySession((current) =>
+        switchingProject
+          ? { [payload.sessionId]: payload.todos }
+          : { ...current, [payload.sessionId]: payload.todos });
+      setPendingPermissionsBySession(
+        groupPendingRequestsBySession(payload.permissions),
+      );
+      setPendingQuestionsBySession(
+        groupPendingRequestsBySession(payload.questions),
+      );
+      const authoritative = getSessionExecutionState(payload.session);
+      if (authoritative) {
+        setChatPreferences((current) =>
+          hydratePreferencesFromSession(authoritative, current));
+      }
+      setLastSessionByProject((current) => ({
+        ...current,
+        [payload.projectId]: payload.sessionId,
+      }));
+      setCurrentSessionId(payload.sessionId);
+    },
+  };
+
+  if (!openProjectSessionControllerRef.current) {
+    openProjectSessionControllerRef.current =
+      createOpenProjectSessionController<MobileSession, OpenProjectSessionPayload>({
+        commit(payload) {
+          const runtime = openProjectSessionRuntimeRef.current;
+          if (!runtime) throw new Error('Session opener is unavailable.');
+          runtime.commit(payload);
+        },
+        onStateChange: setOpenProjectSessionState,
+        transport: {
+          confirmProject(projectId) {
+            const runtime = openProjectSessionRuntimeRef.current;
+            if (!runtime) throw new Error('Session opener is unavailable.');
+            return runtime.confirmProject(projectId);
+          },
+          listSessions(projectId) {
+            const runtime = openProjectSessionRuntimeRef.current;
+            if (!runtime) throw new Error('Session opener is unavailable.');
+            return runtime.listSessions(projectId);
+          },
+          loadSessionState(projectId, sessionId, session, catalog) {
+            const runtime = openProjectSessionRuntimeRef.current;
+            if (!runtime) throw new Error('Session opener is unavailable.');
+            return runtime.loadSessionState(
+              projectId,
+              sessionId,
+              session,
+              catalog,
+            );
+          },
+        },
+      });
+  }
+
+  const openProjectSession = useCallback(
+    (projectId: string, sessionId: string): Promise<OpenProjectSessionResult> =>
+      openProjectSessionControllerRef.current!.openProjectSession(
+        projectId,
+        sessionId,
+      ),
+    [],
+  );
+
+  const cancelOpenProjectSession = useCallback(() => {
+    openProjectSessionControllerRef.current?.cancelOpenProjectSession();
+  }, []);
+
   const scheduleSessionRefresh = useCallback(
     (sessionId: string, options?: { messages?: boolean; diff?: boolean; todos?: boolean; sessions?: boolean; delayMs?: number }) => {
       if (!sessionId) {
@@ -786,23 +971,29 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
 
   const openSession = useCallback(
     async (sessionId: string) => {
-      setCurrentSessionId(sessionId);
-      const authoritative = getSessionExecutionState(
-        sessions.find((session) => session.id === sessionId),
-      );
-      if (authoritative) {
-        setChatPreferences((current) =>
-          hydratePreferencesFromSession(authoritative, current));
+      const projectId = activeProjectPathRef.current;
+      if (!projectId) {
+        throw new Error('Choose a project before opening a chat.');
       }
-      if (activeProjectPath) {
-        setLastSessionByProject((current) => ({
-          ...current,
-          [activeProjectPath]: sessionId,
-        }));
+      const result = await openProjectSession(projectId, sessionId);
+      switch (result.kind) {
+        case 'ready':
+        case 'cancelled':
+          return;
+        case 'missing-session':
+        case 'unauthorized-project':
+        case 'offline':
+        case 'timeout':
+        case 'transient-error':
+          throw new Error(
+            result.message ||
+              getOpenProjectSessionPresentation(result.kind).message,
+          );
+        default:
+          throw new Error('Could not open this chat.');
       }
-      await Promise.all([refreshMessages(sessionId), refreshSessionDiff(sessionId, true), refreshSessionTodos(sessionId), refreshPendingInteractions()]);
     },
-    [activeProjectPath, refreshMessages, refreshPendingInteractions, refreshSessionDiff, refreshSessionTodos, sessions],
+    [openProjectSession],
   );
 
   const persistSessionPreferences = useCallback(
@@ -1593,6 +1784,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
         : 'native:unpaired';
     if (connectionTargetRef.current === target) return;
     connectionTargetRef.current = target;
+    openProjectSessionControllerRef.current?.cancelOpenProjectSession();
     scopeGenerationRef.current += 1;
     serverGenerationRef.current += 1;
     catalogGenerationRef.current.set(
@@ -2789,6 +2981,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       void stopSpeaking().catch(() => undefined);
       void unloadWorkingSoundAsync().catch(() => undefined);
       terminalSocketRef.current?.close();
+      openProjectSessionControllerRef.current?.cancelOpenProjectSession();
     },
     [],
   );
@@ -3046,6 +3239,9 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       clearPromptError,
       connect,
       refreshSessions,
+      openProjectSessionState,
+      openProjectSession,
+      cancelOpenProjectSession,
       openSession,
       refreshCurrentSession,
       refreshCurrentTodos,
@@ -3156,6 +3352,7 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       chatPreferences,
       clearConversationFeedback,
       clearPromptError,
+      cancelOpenProjectSession,
       conversationActive,
       conversationFeedback,
       conversationLatestHeardText,
@@ -3174,6 +3371,8 @@ export function OpencodeProvider({ children }: PropsWithChildren) {
       isRefreshingWorkspaceCatalog,
       isRefreshingSessions,
       openSession,
+      openProjectSession,
+      openProjectSessionState,
       promptError,
       currentProjectPath,
       projects,
