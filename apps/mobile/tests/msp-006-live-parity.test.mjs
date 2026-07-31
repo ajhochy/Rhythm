@@ -20,9 +20,16 @@ function safeHeaders(kind) {
   return authorization ? { Authorization: authorization } : {};
 }
 
+// Bounded so a hanging feed becomes a reported drift for that route instead
+// of a silently killed test process (an engine cold start can exceed 90s).
+const FETCH_TIMEOUT_MS = Number(
+  process.env.RHYTHM_LIVE_PARITY_FETCH_TIMEOUT_MS ?? 45_000,
+);
+
 async function readJson(baseUrl, path, kind) {
   const response = await fetch(`${baseUrl.replace(/\/$/, '')}${path}`, {
     headers: safeHeaders(kind),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   assert.equal(
     response.ok,
@@ -34,14 +41,56 @@ async function readJson(baseUrl, path, kind) {
 
 const SENSITIVE_KEY =
   /(authorization|cookie|credential|password|secret|token|oauth|api[_-]?key)/i;
-const VOLATILE_KEY = /^(createdAt|updatedAt|lastRunAt|receivedAt)$/i;
+const VOLATILE_KEY =
+  /^(createdAt|updatedAt|lastRunAt|receivedAt|generatedAt)$/i;
+
+// The gateway deliberately redacts secrets and host paths before payloads
+// reach a phone (apps/api_server/src/services/mobile_opencode_security.ts).
+// Parity is asserted modulo that documented contract: desktop values are aligned
+// to the mobile side's placeholders/omissions before comparing, so only
+// genuine data drift fails the gate. New redactions surface as drift first —
+// extend these sets consciously when the gateway's policy grows.
+const REDACTION_PLACEHOLDERS = new Set(['[redacted]', '[redacted-path]']);
+const GATEWAY_OMITTED_FIELDS = new Set([
+  'env', 'environment', 'header', 'headers',
+  'cwd', 'home', 'root', 'roots', 'workingdirectory', 'worktree',
+  'worktreedir', 'directory', 'workspace', 'workspaceid',
+]);
+
+function alignGatewayRedactions(mobile, desktop) {
+  if (Array.isArray(mobile) && Array.isArray(desktop)) {
+    return desktop.map((item, index) =>
+      alignGatewayRedactions(mobile[index], item));
+  }
+  const bothObjects = mobile && desktop &&
+    typeof mobile === 'object' && typeof desktop === 'object' &&
+    !Array.isArray(mobile) && !Array.isArray(desktop);
+  if (bothObjects) {
+    return Object.fromEntries(
+      Object.entries(desktop)
+        .filter(([key]) =>
+          key in mobile || !GATEWAY_OMITTED_FIELDS.has(key.toLowerCase()))
+        .map(([key, value]) =>
+          [key, alignGatewayRedactions(mobile[key], value)]),
+    );
+  }
+  if (typeof mobile === 'string' && REDACTION_PLACEHOLDERS.has(mobile)) {
+    return mobile;
+  }
+  return desktop;
+}
 
 function parityValue(value) {
   if (Array.isArray(value)) {
+    // Sort by id when present: redaction changes JSON-string ordering between
+    // the two sides, and pairwise alignment needs identical item order.
+    const sortKey = (item) =>
+      item && typeof item === 'object' && typeof item.id === 'string'
+        ? `id:${item.id}`
+        : JSON.stringify(item);
     return value
       .map(parityValue)
-      .sort((left, right) =>
-        JSON.stringify(left).localeCompare(JSON.stringify(right)));
+      .sort((left, right) => sortKey(left).localeCompare(sortKey(right)));
   }
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(
@@ -75,15 +124,69 @@ test(
   async () => {
     const mobileUrl = required('RHYTHM_LIVE_MOBILE_GATEWAY_URL');
     const desktopUrl = required('RHYTHM_LIVE_DESKTOP_API_URL');
+    // The desktop client reads provider/config truth straight from the
+    // opencode engine (the gateway proxies /opencode/* there verbatim and
+    // stamps directory=<project root>), so those routes compare against the
+    // engine with the same directory scope — not the desktop API.
+    const ENGINE_ROUTES = new Set(['/provider', '/provider/auth', '/config']);
+    // Soft-assert every route so one drift doesn't hide the rest; the gate's
+    // evidence needs the full list of divergent feeds, not just the first.
+    const drifts = [];
     for (const [mobilePath, desktopPath] of parityRoutes) {
-      const [mobile, desktop] = await Promise.all([
-        readJson(mobileUrl, mobilePath, 'mobile'),
-        readJson(desktopUrl, desktopPath, 'desktop'),
-      ]);
-      assert.deepEqual(
-        parityValue(mobile),
-        parityValue(desktop),
-        `mobile/desktop parity drift for ${desktopPath}`,
+      try {
+        const isEngine = ENGINE_ROUTES.has(desktopPath.split('?')[0]);
+        const desktopBase = isEngine
+          ? required('RHYTHM_LIVE_DESKTOP_ENGINE_URL')
+          : desktopUrl;
+        const resolvedDesktopPath = isEngine
+          ? `${desktopPath}${desktopPath.includes('?') ? '&' : '?'}directory=${
+            encodeURIComponent(required('RHYTHM_LIVE_PROJECT_ROOT'))}`
+          : desktopPath;
+        const [mobile, desktop] = await Promise.all([
+          readJson(mobileUrl, mobilePath, 'mobile'),
+          readJson(desktopBase, resolvedDesktopPath, 'desktop'),
+        ]);
+        const mobileNorm = parityValue(mobile);
+        const desktopNorm = alignGatewayRedactions(
+          mobileNorm,
+          parityValue(desktop),
+        );
+        const mobileJson = JSON.stringify(mobileNorm);
+        const desktopJson = JSON.stringify(desktopNorm);
+        if (mobileJson !== desktopJson) {
+          // assert.deepEqual's diff rendering on multi-MB payloads (engine
+          // /provider, /config) exhausts memory and gets the process
+          // SIGKILLed — only use it when both payloads are small.
+          if (mobileJson.length + desktopJson.length < 262_144) {
+            assert.deepEqual(
+              mobileNorm,
+              desktopNorm,
+              `mobile/desktop parity drift for ${desktopPath}`,
+            );
+          }
+          let at = 0;
+          while (mobileJson[at] === desktopJson[at]) at += 1;
+          assert.fail(
+            `mobile/desktop parity drift for ${desktopPath}: normalized ` +
+            `payloads differ (mobile ${mobileJson.length}B vs desktop ` +
+            `${desktopJson.length}B); first divergence at char ${at}:\n` +
+            `mobile:  …${mobileJson.slice(Math.max(0, at - 80), at + 160)}…\n` +
+            `desktop: …${desktopJson.slice(Math.max(0, at - 80), at + 160)}…`,
+          );
+        }
+        console.error(`parity ok: ${desktopPath}`);
+      } catch (error) {
+        console.error(`parity DRIFT: ${desktopPath}`);
+        drifts.push({ route: desktopPath, error });
+      }
+    }
+    if (drifts.length > 0) {
+      const routes = drifts.map((d) => d.route).join(', ');
+      const details = drifts
+        .map((d) => String(d.error?.message ?? d.error))
+        .join('\n\n');
+      assert.fail(
+        `${drifts.length}/${parityRoutes.length} routes drifted: ${routes}\n\n${details}`,
       );
     }
   },

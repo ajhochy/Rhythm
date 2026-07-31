@@ -166,7 +166,7 @@ export class AgentScheduledTasksRepository {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query(
         `SELECT * FROM agent_scheduled_tasks
-         WHERE id = $1 AND created_by_user_id = $2`,
+         WHERE id = $1 AND (created_by_user_id IS NULL OR created_by_user_id = $2)`,
         [id, ownerUserId],
       );
       return result.rows[0] ? rowToModel(result.rows[0]) : null;
@@ -174,7 +174,7 @@ export class AgentScheduledTasksRepository {
     const row = getDb()
       .prepare(
         `SELECT * FROM agent_scheduled_tasks
-         WHERE id = ? AND created_by_user_id = ?`,
+         WHERE id = ? AND (created_by_user_id IS NULL OR created_by_user_id = ?)`,
       )
       .get(id, ownerUserId);
     return row ? rowToModel(row as Record<string, unknown>) : null;
@@ -195,7 +195,7 @@ export class AgentScheduledTasksRepository {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query(
         `SELECT * FROM agent_scheduled_tasks
-         WHERE created_by_user_id = $1
+         WHERE (created_by_user_id IS NULL OR created_by_user_id = $1)
          ORDER BY created_at DESC`,
         [ownerUserId],
       );
@@ -204,7 +204,7 @@ export class AgentScheduledTasksRepository {
     const rows = getDb()
       .prepare(
         `SELECT * FROM agent_scheduled_tasks
-         WHERE created_by_user_id = ?
+         WHERE (created_by_user_id IS NULL OR created_by_user_id = ?)
          ORDER BY created_at DESC`,
       )
       .all(ownerUserId);
@@ -354,7 +354,7 @@ export class AgentScheduledTasksRepository {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query(
         `DELETE FROM agent_scheduled_tasks
-         WHERE id = $1 AND created_by_user_id = $2`,
+         WHERE id = $1 AND (created_by_user_id IS NULL OR created_by_user_id = $2)`,
         [id, ownerUserId],
       );
       return (result.rowCount ?? 0) > 0;
@@ -362,7 +362,7 @@ export class AgentScheduledTasksRepository {
     const result = getDb()
       .prepare(
         `DELETE FROM agent_scheduled_tasks
-         WHERE id = ? AND created_by_user_id = ?`,
+         WHERE id = ? AND (created_by_user_id IS NULL OR created_by_user_id = ?)`,
       )
       .run(id, ownerUserId);
     return result.changes > 0;
