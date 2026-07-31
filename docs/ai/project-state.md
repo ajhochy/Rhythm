@@ -2,58 +2,51 @@
 
 ## Current focus
 
-Runtime/session-isolation/performance + mobile-parity repair run: 15 draft
-PRs (#1254–#1268) spanning P0 memory-injection relevance, R1–R6 runtime
-repairs, and MSP-001–006 mobile parity. Nothing merged; production untouched.
+Issue #1277 mobile↔desktop parity residual repair is implemented and verified
+locally. The live parity gate improved from 11/14 matching feeds to 14/14.
 
 ## Active branch / PR
 
-- Integration target: `codex/fix-session-isolation-runtime-performance`
-  ([#1268](https://github.com/ajhochy/Rhythm/pull/1268)) — all runtime lanes
-  cherry-picked, combined suites 82/82, one-pass desktop smoke checklist in
-  the PR body.
-- Lane PRs #1254–#1267 are the review/merge units (see run log
-  `docs/ai/runs/2026-07-30-runtime-mobile-parity-run.md`).
+- Branch: `codex/fix-1277-parity-residuals`
+- Base: `origin/codex/fix-session-isolation-runtime-performance`
+- PR: none; local commit is the current branch HEAD
+- Production: untouched
 
 ## In progress
 
-- MSP-004 (#1264): repairing 2 issue-1237 reachability specs (offline exit,
-  single recovery refresh) regressed by the atomic open flow.
-- MSP-002 (#1266): CI rerunning on the repaired MSP-001 base.
-- Human smokes: integration desktop pass (#1268 checklist), physical iPhone
-  composer walk (#1259 + dev build via `EXPO_APP_VARIANT=development`),
-  desktop→iPhone pairing (#1254).
-- MSP-007 cross-client parity gate: last, needs paired user + 2 projects +
-  3 profiles + throwaway device creds; produces evidence + release
-  recommendation only (no release/TestFlight).
+- Final GitNexus change-scope review and local commit.
+- No push, merge, release, TestFlight action, or worktree removal is authorized.
 
 ## Risks / known issues
 
-- Live gates found and fixed two P0 retrieval defects (owner visibility,
-  relevance stopword drift) — unit suites had mocked past both; treat live
-  gates as mandatory for memory/retrieval changes.
-- `live_e2e_948_949` draft-file assertion is timing/LLM-decline flaky
-  (curator 90s cold-window silently drops queued extraction) — test-design
-  follow-up, documented in #1255.
-- Historical telemetry rows (7,435 amplified events) and P0-contaminated
-  transcripts intentionally NOT rewritten — each needs a separately reviewed
-  destructive migration.
-- Merge order for stacks: #1254 → #1258; #1254 → #1263 → (#1264, #1266,
-  #1259-cherry); #1261 → #1265. Do not delete base branches until children
-  retarget.
+- GitNexus reports CRITICAL upstream centrality for `endpointResponse`,
+  `alignGatewayRedactions`, and `parityValue`, but the direct graph is bounded
+  to four webhook response paths and one live parity loop. Focused regression
+  coverage plus the real 14-feed sandbox gate passed.
+- The mobile security redaction policy is unchanged. Provider-auth parity now
+  pairs redacted arrays using non-secret display identity.
+- The MCP phone and desktop wire shapes remain intentionally different:
+  engine status map versus desktop-enriched array. Parity compares only their
+  common live-engine status projection.
 
 ## Test status
 
-- Every lane: contract-first red→green + orchestrator-verified suites; CI
-  green on #1254–#1263, #1265, #1267, #1268 at time of writing.
-- Live sandbox gates PASS: R1, R2, R3, R4, R5, R6 (config check), P0, MSP-003.
-- Mobile foundation: 69/69 on repaired MSP-001 and MSP-006 heads.
+- Acceptance contract: API 1/1; mobile 2/2.
+- Webhook rotation regression: 1/1.
+- API build/typecheck: pass.
+- Full API suite: 3,779 passed / 119 skipped / 0 failed.
+- Mobile static suite: pass.
+- Mobile Jest: 4/4.
+- Repo PR gate: all configured stages have passing evidence. Two aggregate
+  wrapper runs each exposed a different unrelated, non-reproducible API
+  shared-state flake; both files passed immediately in isolation (48/48 and
+  42/42), and the wrapper's exact serial API command then passed 3,779/3,779.
+- Isolated live parity: 14/14 feeds match (previously 11/14).
+- Sandbox removed; no test-port listeners remain.
 
 ## Next step
 
-Finish MSP-004 repair + #1266 CI; then human smokes; then MSP-007 parity
-gate with recorded evidence and the release/TestFlight handoff document
-(human executes any release).
+Review the local commit, then push/open a draft PR only if explicitly requested.
 
 ## Recent coding-agent runs
 
@@ -72,13 +65,13 @@ gate with recorded evidence and the release/TestFlight handoff document
 
 ### 2026-07-30 — issue #1279 mobile session claim fallback
 
-- Files modified: mobile ownership repository/security, #1279 contract + live
-  tests, acceptance contract, and run log.
-- Checks run: contract 6/6; related set 61 passed / 1 skipped; api_server
-  typecheck/build pass; fork build pass; isolated live gateway 1/1; #1175
-  corrective security 3/3 before and after.
-- Decisions made: reuse the existing `agent_sessions` lookup; keep the reader
-  method optional for injected test doubles; gate the fallback to sessions.
+- Files modified: webhook response/gateway origin wiring, MSP-006 parity
+  normalization, three-criterion acceptance coverage, inventory, and run docs.
+- Checks run: contract red→green, webhook regression, API build and full suite,
+  mobile static/Jest, complete repo PR stages, isolated 14-feed live parity.
+- Decisions made: callback URLs resolve to the primary API listener; MCP parity
+  ignores desktop-only enrichment; provider-auth arrays sort by non-secret
+  identity before placeholder alignment.
 - Deviations from spec: none.
 - Concerns: repo-wide issue checks retain a pre-existing unrelated
   `apps/mcp_server` TypeScript-runner failure; see

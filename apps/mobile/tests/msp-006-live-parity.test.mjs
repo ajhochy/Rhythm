@@ -56,8 +56,15 @@ const GATEWAY_OMITTED_FIELDS = new Set([
   'cwd', 'home', 'root', 'roots', 'workingdirectory', 'worktree',
   'worktreedir', 'directory', 'workspace', 'workspaceid',
 ]);
+const MCP_DESKTOP_ENRICHMENT_FIELDS = new Set([
+  'environment',
+  'requiredEnv',
+  'needsCredentials',
+  'source',
+  'tools',
+]);
 
-function alignGatewayRedactions(mobile, desktop) {
+export function alignGatewayRedactions(mobile, desktop) {
   if (Array.isArray(mobile) && Array.isArray(desktop)) {
     return desktop.map((item, index) =>
       alignGatewayRedactions(mobile[index], item));
@@ -80,24 +87,58 @@ function alignGatewayRedactions(mobile, desktop) {
   return desktop;
 }
 
-function parityValue(value) {
-  if (Array.isArray(value)) {
+function mcpStatusProjection(value) {
+  if (!Array.isArray(value)) return value;
+  return Object.fromEntries(
+    value
+      .filter((entry) =>
+        entry && typeof entry === 'object' && typeof entry.name === 'string')
+      .map((entry) => [
+        entry.name,
+        Object.fromEntries(
+          Object.entries(entry).filter(([key]) =>
+            key !== 'name' && !MCP_DESKTOP_ENRICHMENT_FIELDS.has(key)),
+        ),
+      ])
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+function stableArraySortKey(item, route) {
+  if (!item || typeof item !== 'object') return JSON.stringify(item);
+  if (typeof item.id === 'string') return `id:${item.id}`;
+  if (route === '/provider/auth') {
+    // The mobile security boundary redacts every plain `key` field, including
+    // provider prompt identifiers. Pair arrays by stable, non-secret display
+    // identity so redaction cannot change their relative ordering.
+    return ['message', 'label', 'name', 'type', 'value']
+      .map((field) =>
+        typeof item[field] === 'string' ? `${field}:${item[field]}` : '')
+      .join('|');
+  }
+  return JSON.stringify(item);
+}
+
+export function parityValue(value, route, nested = false) {
+  const comparable =
+    route === '/opencode/mcp' && !nested
+      ? mcpStatusProjection(value)
+      : value;
+  if (Array.isArray(comparable)) {
     // Sort by id when present: redaction changes JSON-string ordering between
     // the two sides, and pairwise alignment needs identical item order.
-    const sortKey = (item) =>
-      item && typeof item === 'object' && typeof item.id === 'string'
-        ? `id:${item.id}`
-        : JSON.stringify(item);
-    return value
-      .map(parityValue)
-      .sort((left, right) => sortKey(left).localeCompare(sortKey(right)));
+    return comparable
+      .map((child) => parityValue(child, route, true))
+      .sort((left, right) =>
+        stableArraySortKey(left, route)
+          .localeCompare(stableArraySortKey(right, route)));
   }
-  if (!value || typeof value !== 'object') return value;
+  if (!comparable || typeof comparable !== 'object') return comparable;
   return Object.fromEntries(
-    Object.entries(value)
+    Object.entries(comparable)
       .filter(([key]) => !SENSITIVE_KEY.test(key) && !VOLATILE_KEY.test(key))
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, child]) => [key, parityValue(child)]),
+      .map(([key, child]) => [key, parityValue(child, route, true)]),
   );
 }
 
@@ -146,10 +187,10 @@ test(
           readJson(mobileUrl, mobilePath, 'mobile'),
           readJson(desktopBase, resolvedDesktopPath, 'desktop'),
         ]);
-        const mobileNorm = parityValue(mobile);
+        const mobileNorm = parityValue(mobile, desktopPath);
         const desktopNorm = alignGatewayRedactions(
           mobileNorm,
-          parityValue(desktop),
+          parityValue(desktop, desktopPath),
         );
         const mobileJson = JSON.stringify(mobileNorm);
         const desktopJson = JSON.stringify(desktopNorm);

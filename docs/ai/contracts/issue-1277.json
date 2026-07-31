@@ -1,0 +1,24 @@
+{
+  "issue": 1277,
+  "title": "Resolve three mobile parity residuals",
+  "criteria": [
+    {
+      "id": "issue-1277-c1",
+      "description": "Webhook responses from the primary API and separate mobile gateway listener expose the same primary-API receive URL.",
+      "test": "apps/api_server/src/contract/issue_1277_parity_residuals.test.ts",
+      "status": "passing"
+    },
+    {
+      "id": "issue-1277-c2",
+      "description": "MCP parity compares the shared live engine status projection while allowing the desktop API's documented enrichment fields.",
+      "test": "apps/mobile/tests/contract/issue-1277-parity-residuals.test.mjs",
+      "status": "passing"
+    },
+    {
+      "id": "issue-1277-c3",
+      "description": "Provider-auth arrays pair on stable non-secret identity after mobile redaction removes secret keys.",
+      "test": "apps/mobile/tests/contract/issue-1277-parity-residuals.test.mjs",
+      "status": "passing"
+    }
+  ]
+}

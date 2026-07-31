@@ -35,6 +35,12 @@ provider or screen receives records.
 | MCP | `GET /mobile-gateway/opencode/mcp` | Desktop local API `GET /opencode/mcp` | Engine status map or desktop enriched array → MCP rows keyed by server name | Paired device + `requireMobileProjectScope`; project root injected server-side | Missing/stale project, unauthorized pairing, version mismatch, policy denial, and network failure remain distinct |
 | Providers & Models | `GET /mobile-gateway/opencode/provider`, `/provider/auth`, and `/config` | Desktop provider/model catalog ultimately derives from the same local engine (`GET /agents/models/catalog` plus auth routes) | Provider array or `{all, connected, default}` + auth map + config → provider rows; auth metadata recursively redacted | Paired device + `requireMobileProjectScope`; project-scoped engine config | Three requests share one project signal; any failure classifies the whole screen without a false empty |
 
+The MCP wire shapes are deliberately different: the phone receives the engine's
+live status map, while the desktop API converts that same map to an array and
+adds credential, provenance, environment, and tool metadata. MSP-006 parity
+therefore compares the shared live status projection keyed by server name and
+does not treat those desktop-only enrichments as source-of-truth drift.
+
 ## State classification
 
 | State | Detection | Items shown | User action |

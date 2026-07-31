@@ -1,4 +1,5 @@
 import express, { type Router } from 'express';
+import { env } from './config/env';
 
 function isPhoneGatewayRoute(method: string, path: string): boolean {
   if (method === 'GET' && path === '/mobile-gateway/health') return true;
@@ -54,6 +55,10 @@ function notFound(
 export function createMobileGatewaySurface(router: Router) {
   const app = express();
   app.disable('x-powered-by');
+  // Tool responses can contain callback URLs that are served only by the
+  // primary API listener. Keep that origin explicit because req.host on this
+  // surface is the phone gateway listener, where those routes do not exist.
+  app.locals.primaryApiOrigin = `http://127.0.0.1:${env.port}`;
   app.use(express.json({ limit: '1mb' }));
   app.use((req, res, next) => {
     if (!isPhoneGatewayRoute(req.method, req.path)) {
