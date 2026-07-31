@@ -45,7 +45,7 @@ async function gatewaySessions(
 }
 
 describeLive('live E2E — issue #1279 desktop session claim fallback', () => {
-  it('shows an unclaimed desktop session only to its exact owner and project', async () => {
+  it('shows projectless desktop sessions only to their exact owner', async () => {
     const parsedApi = new URL(baseUrl);
     const parsedEngine = new URL(engineUrl);
     if (
@@ -80,8 +80,8 @@ describeLive('live E2E — issue #1279 desktop session claim fallback', () => {
     const projectQId = randomUUID();
     const projectRoot = resolve(sandboxDir, `issue-1279-${runId}`);
     const users: LiveUser[] = [];
-    const localSessionId = randomUUID();
-    let sdkSessionId: string | null = null;
+    const localSessionIds = [randomUUID(), randomUUID()];
+    const sdkSessionIds: string[] = [];
     mkdirSync(projectRoot, { recursive: true });
 
     const insertUser = (name: string): LiveUser => {
@@ -172,34 +172,62 @@ describeLive('live E2E — issue #1279 desktop session claim fallback', () => {
       await pair(userA, 'A');
       await pair(userB, 'B');
 
-      const directDesktop = await fetch(
+      const scopedDesktop = await fetch(
         `${engineUrl}/session?directory=${encodeURIComponent(projectRoot)}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title: 'Issue 1279 desktop session' }),
+          body: JSON.stringify({ title: 'Issue 1279 scoped desktop session' }),
         },
       );
-      expect(directDesktop.status).toBe(200);
-      sdkSessionId = ((await directDesktop.json()) as { id: string }).id;
+      expect(scopedDesktop.status).toBe(200);
+      const scopedSdkSessionId =
+        ((await scopedDesktop.json()) as { id: string }).id;
+      sdkSessionIds.push(scopedSdkSessionId);
+
+      const unscopedDesktop = await fetch(
+        `${engineUrl}/session?directory=${encodeURIComponent(projectRoot)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: 'Issue 1279 All Sessions desktop session',
+          }),
+        },
+      );
+      expect(unscopedDesktop.status).toBe(200);
+      const unscopedSdkSessionId =
+        ((await unscopedDesktop.json()) as { id: string }).id;
+      sdkSessionIds.push(unscopedSdkSessionId);
 
       const now = new Date().toISOString();
-      db.prepare(
+      const insertAgentSession = db.prepare(
         `INSERT INTO agent_sessions
            (id, agent_kind, status, cwd, name, project_id, owner_user_id,
             category, sdk_session_id, created_at, updated_at)
          VALUES (?, 'codex', 'idle', ?, ?, ?, ?, 'chat', ?, ?, ?)`,
-      ).run(
-        localSessionId,
+      );
+      insertAgentSession.run(
+        localSessionIds[0],
         projectRoot,
-        'Issue 1279 desktop session',
+        'Issue 1279 scoped desktop session',
         projectPId,
         userA.id,
-        sdkSessionId,
+        scopedSdkSessionId,
         now,
         now,
       );
-      const claimCount = (): number => (
+      insertAgentSession.run(
+        localSessionIds[1],
+        projectRoot,
+        'Issue 1279 All Sessions desktop session',
+        null,
+        userA.id,
+        unscopedSdkSessionId,
+        now,
+        now,
+      );
+      const claimCount = (sdkSessionId: string): number => (
         db.prepare(
           `SELECT COUNT(*) AS count
              FROM mobile_opencode_resource_owners
@@ -207,27 +235,34 @@ describeLive('live E2E — issue #1279 desktop session claim fallback', () => {
               AND resource_id = ?`,
         ).get(sdkSessionId) as { count: number }
       ).count;
-      expect(claimCount()).toBe(0);
+      expect(claimCount(scopedSdkSessionId)).toBe(0);
+      expect(claimCount(unscopedSdkSessionId)).toBe(0);
 
-      expect(await gatewaySessions(userA, projectPId))
-        .toContain(sdkSessionId);
-      expect(await gatewaySessions(userB, projectPId))
-        .not.toContain(sdkSessionId);
-      expect(await gatewaySessions(userA, projectQId))
-        .not.toContain(sdkSessionId);
+      const ownerProjectP = await gatewaySessions(userA, projectPId);
+      expect(ownerProjectP).toContain(scopedSdkSessionId);
+      expect(ownerProjectP).toContain(unscopedSdkSessionId);
+
+      const otherOwnerProjectP = await gatewaySessions(userB, projectPId);
+      expect(otherOwnerProjectP).not.toContain(scopedSdkSessionId);
+      expect(otherOwnerProjectP).not.toContain(unscopedSdkSessionId);
+
+      const ownerProjectQ = await gatewaySessions(userA, projectQId);
+      expect(ownerProjectQ).not.toContain(scopedSdkSessionId);
+      expect(ownerProjectQ).toContain(unscopedSdkSessionId);
       // Read visibility must not silently relax the explicit-claim predicate
       // used by catalog reconciliation.
-      expect(claimCount()).toBe(0);
+      expect(claimCount(scopedSdkSessionId)).toBe(0);
+      expect(claimCount(unscopedSdkSessionId)).toBe(0);
     } finally {
-      if (sdkSessionId) {
+      for (const sdkSessionId of sdkSessionIds) {
         await fetch(
           `${engineUrl}/session/${encodeURIComponent(sdkSessionId)}` +
             `?directory=${encodeURIComponent(projectRoot)}`,
           { method: 'DELETE' },
         ).catch(() => undefined);
       }
-      db.prepare('DELETE FROM agent_sessions WHERE id = ?')
-        .run(localSessionId);
+      db.prepare('DELETE FROM agent_sessions WHERE id IN (?, ?)')
+        .run(localSessionIds[0], localSessionIds[1]);
       for (const user of users) {
         if (user.deviceId) {
           db.prepare('DELETE FROM mobile_devices WHERE id = ?')

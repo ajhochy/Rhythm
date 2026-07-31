@@ -57,6 +57,19 @@ gate with recorded evidence and the release/TestFlight handoff document
 
 ## Recent coding-agent runs
 
+### 2026-07-30 — issue #1279 All Sessions visibility follow-up
+
+- Branch: `codex/fix-1279-unscoped-session-visibility`.
+- Files modified: mobile ownership repository, #1279 acceptance/live tests,
+  acceptance contract, and run log.
+- Checks run: acceptance red 9 passed / 2 failed, green 11/11; related mobile
+  security 52/52; api_server typecheck/build; issue gate 4/4; isolated live
+  gateway 1/1. Full PR gate passed every stage through mobile fake-server
+  self-test, then reproduced the known active `issue-1237-c5` E2E failure.
+- Decision: keep exact owner matching and exact matching for non-empty project
+  IDs; only `NULL`/empty project IDs are unrestricted.
+- Deviations from spec: none.
+
 ### 2026-07-30 — issue #1279 mobile session claim fallback
 
 - Files modified: mobile ownership repository/security, #1279 contract + live

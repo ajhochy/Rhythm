@@ -49,6 +49,46 @@
       "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
       "test_id": "issue-1279-c6: desktop session ownership never grants PTY visibility",
       "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1279-c7",
+      "text": "same owner + NULL project is allowed",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c7: same owner can see a desktop session with no project",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1279-c8",
+      "text": "same owner + empty project is allowed if representation permits",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c8: same owner can see a desktop session with an empty project",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1279-c9",
+      "text": "different owner is denied even with NULL project",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c9: a different owner cannot see a desktop session with no project",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1279-c10",
+      "text": "non-null mismatched project remains denied",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c10: a non-empty mismatched project remains denied",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1279-c11",
+      "text": "matched project remains allowed",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1279_desktop_session_visibility.test.ts",
+      "test_id": "issue-1279-c11: a non-empty matched project remains visible",
+      "status": "pass"
     }
   ],
   "stack": "typescript",

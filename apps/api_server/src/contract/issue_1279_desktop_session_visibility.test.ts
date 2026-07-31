@@ -84,17 +84,24 @@ describe('issue #1279 desktop-created mobile session visibility', () => {
   function insertDesktopSessionWithoutClaim(input: {
     sdkSessionId: string;
     ownerUserId: number;
-    projectId: string;
+    projectId: string | null;
     cwd: string;
   }): void {
-    const session = new AgentSessionsRepository().insert({
-      agentKind: 'codex',
-      taskId: null,
-      cwd: input.cwd,
-      name: input.sdkSessionId,
-      ownerUserId: input.ownerUserId,
-      projectId: input.projectId,
-    });
+    const restoreForeignKeys = input.projectId === '';
+    if (restoreForeignKeys) db.pragma('foreign_keys = OFF');
+    let session;
+    try {
+      session = new AgentSessionsRepository().insert({
+        agentKind: 'codex',
+        taskId: null,
+        cwd: input.cwd,
+        name: input.sdkSessionId,
+        ownerUserId: input.ownerUserId,
+        projectId: input.projectId,
+      });
+    } finally {
+      if (restoreForeignKeys) db.pragma('foreign_keys = ON');
+    }
     // Model a desktop/legacy row that already has its durable SDK identity but
     // never passed through the mobile claim path.
     db.prepare(
@@ -295,6 +302,142 @@ describe('issue #1279 desktop-created mobile session visibility', () => {
       expect(
         JSON.parse(Buffer.from(response.body).toString('utf8')),
       ).toEqual([]);
+    },
+  );
+
+  it(
+    'issue-1279-c7: same owner can see a desktop session with no project',
+    async () => {
+      // Regression caught: exact project equality treats an All Sessions row
+      // with project_id NULL as invisible even to its exact owner.
+      insertDesktopSessionWithoutClaim({
+        sdkSessionId: 'ses-desktop-a-null-project',
+        ownerUserId: userA,
+        projectId: null,
+        cwd: projectP.root,
+      });
+
+      const visible = await listSessions({
+        callerUserId: userA,
+        project: projectP,
+        engineSessions: [{
+          id: 'ses-desktop-a-null-project',
+          directory: projectP.root,
+          title: 'Desktop session A/unscoped',
+        }],
+      });
+
+      expect(visible).toEqual([
+        expect.objectContaining({ id: 'ses-desktop-a-null-project' }),
+      ]);
+    },
+  );
+
+  it(
+    'issue-1279-c8: same owner can see a desktop session with an empty project',
+    async () => {
+      // Regression caught: a legacy empty project marker is treated as a
+      // concrete mismatched project instead of an unrestricted row.
+      insertDesktopSessionWithoutClaim({
+        sdkSessionId: 'ses-desktop-a-empty-project',
+        ownerUserId: userA,
+        projectId: '',
+        cwd: projectP.root,
+      });
+
+      const visible = await listSessions({
+        callerUserId: userA,
+        project: projectP,
+        engineSessions: [{
+          id: 'ses-desktop-a-empty-project',
+          directory: projectP.root,
+          title: 'Desktop session A/legacy-unscoped',
+        }],
+      });
+
+      expect(visible).toEqual([
+        expect.objectContaining({ id: 'ses-desktop-a-empty-project' }),
+      ]);
+    },
+  );
+
+  it(
+    'issue-1279-c9: a different owner cannot see a desktop session with no project',
+    async () => {
+      // Regression caught: relaxing project scope accidentally relaxes the
+      // exact owner check and exposes A's session to paired caller B.
+      insertDesktopSessionWithoutClaim({
+        sdkSessionId: 'ses-desktop-a-null-project',
+        ownerUserId: userA,
+        projectId: null,
+        cwd: projectP.root,
+      });
+
+      const visible = await listSessions({
+        callerUserId: userB,
+        project: projectP,
+        engineSessions: [{
+          id: 'ses-desktop-a-null-project',
+          directory: projectP.root,
+          title: 'Desktop session A/unscoped',
+        }],
+      });
+
+      expect(visible).toEqual([]);
+    },
+  );
+
+  it(
+    'issue-1279-c10: a non-empty mismatched project remains denied',
+    async () => {
+      // Regression caught: treating every project value as unrestricted
+      // exposes a Q-scoped session while the owner is browsing project P.
+      insertDesktopSessionWithoutClaim({
+        sdkSessionId: 'ses-desktop-a-project-q',
+        ownerUserId: userA,
+        projectId: projectQ.id,
+        cwd: projectP.root,
+      });
+
+      const visible = await listSessions({
+        callerUserId: userA,
+        project: projectP,
+        engineSessions: [{
+          id: 'ses-desktop-a-project-q',
+          directory: projectP.root,
+          title: 'Desktop session A/Q',
+        }],
+      });
+
+      expect(visible).toEqual([]);
+    },
+  );
+
+  it(
+    'issue-1279-c11: a non-empty matched project remains visible',
+    async () => {
+      // Regression caught: the unrestricted case replaces rather than extends
+      // the existing exact project match.
+      insertDesktopSessionWithoutClaim({
+        sdkSessionId: 'ses-desktop-a-project-p',
+        ownerUserId: userA,
+        projectId: projectP.id,
+        cwd: projectP.root,
+      });
+
+      const visible = await listSessions({
+        callerUserId: userA,
+        project: projectP,
+        engineSessions: [{
+          id: 'ses-desktop-a-project-p',
+          directory: projectP.root,
+          title: 'Desktop session A/P',
+        }],
+      });
+
+      expect(visible).toEqual([
+        expect.objectContaining({ id: 'ses-desktop-a-project-p' }),
+      ]);
     },
   );
 });

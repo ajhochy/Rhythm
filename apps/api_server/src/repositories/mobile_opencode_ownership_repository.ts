@@ -169,7 +169,9 @@ export class MobileOpenCodeOwnershipRepository
       return false;
     }
     const desktopOwner = this.desktopSessionOwner(sdkSessionId);
-    return desktopOwner?.owner_user_id === ownerUserId &&
+    if (desktopOwner?.owner_user_id !== ownerUserId) return false;
+    return desktopOwner.project_id === null ||
+      desktopOwner.project_id === '' ||
       desktopOwner.project_id === projectId;
   }
 
