@@ -1,0 +1,24 @@
+{
+  "issue": 1281,
+  "generated": "2026-07-30",
+  "criteria": [
+    {
+      "criterion_id": "issue-1281-c1",
+      "text": "Add temporary logging or write a quick contract test that hits this route as an admin-role mobile-device-paired caller and asserts what it actually returns. Confirm whether it 200s with real data, 200s with empty data, or errors.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/contract/issue_1281_mobile_memories.test.ts",
+      "test_id": "issue-1281-c1: an admin-paired GET returns instance-global memories",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-1281-c2",
+      "text": "confirm the Memories screen classifies the server's actual response correctly.",
+      "mode": "unit",
+      "test_file": "apps/mobile/tests/contract/issue-1281-mobile-memories.test.mjs",
+      "test_id": "issue-1281-c2: the mobile Memories adapter preserves the server list response",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
