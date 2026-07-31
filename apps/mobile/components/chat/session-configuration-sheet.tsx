@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import {
   Button,
@@ -116,9 +116,12 @@ export function SessionConfigurationSheet({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const wasVisibleRef = useRef(false);
 
   useEffect(() => {
-    if (!visible) return;
+    const justOpened = visible && !wasVisibleRef.current;
+    wasVisibleRef.current = visible;
+    if (!justOpened) return;
     setPage('summary');
     setQuery('');
     setTitle('');
