@@ -261,7 +261,11 @@ test('issue-1237-c5: automatic reconnect performs one authoritative recovery ref
     page.getByRole('button', { name: 'Create chat', exact: true }).locator('visible=true'),
   ).toBeEnabled({ timeout: boundedOfflineTimeoutMs });
   await page
-    .getByRole('button', { name: 'Show activity', exact: true })
+    .getByRole('button', { name: 'Agents menu', exact: true })
+    .locator('visible=true')
+    .click();
+  await page
+    .getByRole('menuitem', { name: 'Activity', exact: true })
     .locator('visible=true')
     .click();
   const activityIds = await page

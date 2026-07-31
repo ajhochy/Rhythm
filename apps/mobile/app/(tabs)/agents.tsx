@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { SegmentedButtons, Text } from 'react-native-paper';
+import { Divider, Menu, Text } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ActivityFeed } from '@/components/agents/activity-feed';
@@ -20,6 +20,7 @@ export default function AgentsScreen() {
   const palette = Colors[colorScheme];
   const [section, setSection] =
     useState<AgentCategory | 'activity'>('chats');
+  const [menuVisible, setMenuVisible] = useState(false);
   const activity = useActivity();
   const chat = useAgentChat();
   const counts = useMemo(
@@ -37,48 +38,69 @@ export default function AgentsScreen() {
           <Text accessibilityRole="header" variant="headlineSmall">
             Agents
           </Text>
-          <Pressable
-            accessibilityLabel="Show activity"
-            accessibilityRole="button"
-            onPress={() => setSection('activity')}
-            style={({ pressed }) => [
-              styles.headerAction,
-              pressed && styles.headerActionPressed,
-            ]}>
-            <MaterialCommunityIcons
-              name="pulse"
-              size={24}
-              color={palette.text}
+          <Menu
+            anchor={
+              <Pressable
+                accessibilityLabel="Agents menu"
+                accessibilityRole="button"
+                onPress={() => setMenuVisible(true)}
+                style={({ pressed }) => [
+                  styles.headerAction,
+                  pressed && styles.headerActionPressed,
+                ]}>
+                <MaterialCommunityIcons
+                  name="dots-horizontal"
+                  size={24}
+                  color={palette.text}
+                />
+              </Pressable>
+            }
+            onDismiss={() => setMenuVisible(false)}
+            visible={menuVisible}>
+            <Menu.Item
+              accessibilityLabel={`Chats, ${counts.chats} items`}
+              leadingIcon="message-outline"
+              onPress={() => {
+                setSection('chats');
+                setMenuVisible(false);
+              }}
+              title={`Chats (${counts.chats})`}
+              trailingIcon={section === 'chats' ? 'check' : undefined}
             />
-          </Pressable>
+            <Menu.Item
+              accessibilityLabel={`Scheduled Tasks, ${counts.scheduled} items`}
+              leadingIcon="calendar-clock"
+              onPress={() => {
+                setSection('scheduled');
+                setMenuVisible(false);
+              }}
+              title={`Scheduled Tasks (${counts.scheduled})`}
+              trailingIcon={section === 'scheduled' ? 'check' : undefined}
+            />
+            <Menu.Item
+              accessibilityLabel={`Background Loops, ${counts.background} items`}
+              leadingIcon="sync"
+              onPress={() => {
+                setSection('background');
+                setMenuVisible(false);
+              }}
+              title={`Background Loops (${counts.background})`}
+              trailingIcon={section === 'background' ? 'check' : undefined}
+            />
+            <Divider />
+            <Menu.Item
+              accessibilityLabel="Activity"
+              leadingIcon="pulse"
+              onPress={() => {
+                setSection('activity');
+                setMenuVisible(false);
+              }}
+              title="Activity"
+              trailingIcon={section === 'activity' ? 'check' : undefined}
+            />
+          </Menu>
         </View>
       </SafeAreaView>
-      <SegmentedButtons
-        buttons={[
-          {
-            value: 'chats',
-            label: `Chats (${counts.chats})`,
-            icon: 'message-outline',
-            accessibilityLabel: `Chats, ${counts.chats} items`,
-          },
-          {
-            value: 'scheduled',
-            label: `Scheduled Tasks (${counts.scheduled})`,
-            icon: 'calendar-clock',
-            accessibilityLabel: `Scheduled Tasks, ${counts.scheduled} items`,
-          },
-          {
-            value: 'background',
-            label: `Background Loops (${counts.background})`,
-            icon: 'sync',
-            accessibilityLabel: `Background Loops, ${counts.background} items`,
-          },
-        ]}
-        onValueChange={(value) =>
-          setSection(value as AgentCategory)}
-        style={styles.sections}
-        value={section}
-      />
       {section === 'chats' ? (
         <ChatList />
       ) : section === 'activity' ? (
@@ -155,5 +177,4 @@ const styles = StyleSheet.create({
     minWidth: 44,
   },
   headerActionPressed: { opacity: 0.72 },
-  sections: { marginHorizontal: 16, marginBottom: 8 },
 });

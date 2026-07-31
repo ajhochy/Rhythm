@@ -44,7 +44,7 @@ test.beforeEach(async ({ request }) => {
 test('issue-1235: agents tab has one compact header', async ({ page }) => {
   await openAgents(page);
   await expect(page.getByRole('heading', { name: 'Agents' })).toHaveCount(1);
-  await expect(page.getByLabel('Show activity').locator('visible=true')).toHaveCount(1);
+  await expect(page.getByLabel('Agents menu').locator('visible=true')).toHaveCount(1);
   await page.screenshot({
     path: `${proofDir}/agents-tab.png`,
     fullPage: true,

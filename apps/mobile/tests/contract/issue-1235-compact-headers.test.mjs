@@ -69,6 +69,6 @@ test('issue-1235-c7: compact headers preserve platform-sized touch targets', () 
   // Regression caught: visual compression makes icon buttons smaller than 44 points.
   assert.match(chatHeader, /styles\.headerAction/);
   assert.match(read('apps/mobile/components/chat/chat-view-styles.ts'), /headerAction:\s*\{[^}]*minWidth:\s*44[^}]*minHeight:\s*44/s);
-  assert.match(agentsTab, /<Pressable[\s\S]*accessibilityLabel="Show activity"/);
+  assert.match(agentsTab, /<Pressable[\s\S]*accessibilityLabel="Agents menu"/);
   assert.match(agentsTab, /headerAction:\s*\{[\s\S]*minHeight:\s*44[\s\S]*minWidth:\s*44/);
 });

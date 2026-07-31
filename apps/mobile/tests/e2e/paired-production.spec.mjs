@@ -41,7 +41,8 @@ test('paired production transport drives projects, chat, SSE, and activity witho
   });
 
   await page.getByRole('button', { name: 'Back to Agents' }).click();
-  await page.getByRole('button', { name: 'Show activity' }).click();
+  await page.getByRole('button', { name: 'Agents menu' }).click();
+  await page.getByRole('menuitem', { name: 'Activity' }).click();
   await expect
     .poll(
       async () => {

@@ -88,7 +88,11 @@ test('issue-1172-delta-c6: unified Activity renders all six source kinds', async
   expect(activitySources.ok()).toBeTruthy();
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await page
-    .getByRole('button', { name: 'Show activity', exact: true })
+    .getByRole('button', { name: 'Agents menu', exact: true })
+    .locator('visible=true')
+    .click();
+  await page
+    .getByRole('menuitem', { name: 'Activity', exact: true })
     .locator('visible=true')
     .click();
   for (const [title, source] of [
